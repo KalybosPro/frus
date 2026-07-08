@@ -1,8 +1,9 @@
 //! Renderer lié à une surface (fenêtre) : configure wgpu et délègue le dessin
 //! des primitives au [`Painter`].
 
+use frus_core::Scene;
+
 use crate::painter::Painter;
-use crate::scene::Scene;
 
 /// Couleur de fond (bleu nuit).
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {

@@ -1,0 +1,10 @@
+[package]
+name = "frus-widgets"
+description = "frus — arbre de widgets déclaratif"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+frus-core = { path = "../frus-core" }
+frus-layout = { path = "../frus-layout" }

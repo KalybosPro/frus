@@ -609,10 +609,18 @@ dependencies = [
  "anyhow",
  "env_logger",
  "frus-gpu",
- "frus-layout",
+ "frus-widgets",
  "log",
  "pollster",
  "winit",
+]
+
+[[package]]
+name = "frus-widgets"
+version = "0.0.0"
+dependencies = [
+ "frus-core",
+ "frus-layout",
 ]
 
 [[package]]

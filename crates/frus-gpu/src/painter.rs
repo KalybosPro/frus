@@ -3,9 +3,8 @@
 //! une texture offscreen — ce qui rend le rendu testable en headless.
 
 use bytemuck::{Pod, Zeroable};
+use frus_core::{Primitive, Scene};
 use wgpu::util::DeviceExt;
-
-use crate::scene::{Instance, Scene};
 
 /// Sommet du quad unité (coin dans `[0,1]²`).
 #[repr(C)]
@@ -20,6 +19,28 @@ impl QuadVertex {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<QuadVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &ATTRS,
+        }
+    }
+}
+
+/// Données d'une instance transmises au GPU (une par rectangle). Construites à
+/// partir des primitives de la [`Scene`] à chaque frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct Instance {
+    rect: [f32; 4],
+    color: [f32; 4],
+}
+
+impl Instance {
+    /// Layout du buffer d'instances (locations 1 et 2 ; la 0 est le quad unité).
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [wgpu::VertexAttribute; 2] =
+            wgpu::vertex_attr_array![1 => Float32x4, 2 => Float32x4];
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
             attributes: &ATTRS,
         }
     }
@@ -56,6 +77,8 @@ pub(crate) struct Painter {
     instance_capacity: usize,
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
+    /// Tampon CPU réutilisé pour construire les instances à partir de la scène.
+    instances: Vec<Instance>,
 }
 
 impl Painter {
@@ -152,6 +175,7 @@ impl Painter {
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
             viewport_buffer,
             viewport_bind_group,
+            instances: Vec::new(),
         }
     }
 
@@ -164,14 +188,25 @@ impl Painter {
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
 
-    /// Téléverse les instances de la scène, en agrandissant le buffer si besoin.
-    fn upload_instances(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene) {
-        let instances = scene.instances();
-        if instances.is_empty() {
-            return;
+    /// Traduit les primitives de la scène en instances GPU et les téléverse,
+    /// en agrandissant le buffer si besoin. Renvoie le nombre d'instances.
+    fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene) -> u32 {
+        self.instances.clear();
+        for primitive in scene.primitives() {
+            match *primitive {
+                Primitive::Rect { rect, color } => self.instances.push(Instance {
+                    rect: rect.to_array(),
+                    color: color.to_array(),
+                }),
+            }
         }
-        if instances.len() > self.instance_capacity {
-            let new_capacity = instances.len().next_power_of_two();
+
+        let count = self.instances.len();
+        if count == 0 {
+            return 0;
+        }
+        if count > self.instance_capacity {
+            let new_capacity = count.next_power_of_two();
             self.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("frus.instance_buffer"),
                 size: (new_capacity * std::mem::size_of::<Instance>()) as wgpu::BufferAddress,
@@ -180,7 +215,8 @@ impl Painter {
             });
             self.instance_capacity = new_capacity;
         }
-        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(instances));
+        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
+        count as u32
     }
 
     /// Enregistre le rendu de la scène dans `encoder`, vers `target`.
@@ -193,8 +229,7 @@ impl Painter {
         clear: wgpu::Color,
         scene: &Scene,
     ) {
-        self.upload_instances(device, queue, scene);
-        let instance_count = scene.len() as u32;
+        let instance_count = self.prepare(device, queue, scene);
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("frus.render_pass"),
@@ -323,7 +358,6 @@ mod tests {
         );
         queue.submit(std::iter::once(encoder.finish()));
 
-        // Attend la fin du GPU puis lit le pixel central.
         let slice = readback.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {

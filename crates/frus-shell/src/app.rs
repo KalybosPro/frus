@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use frus_gpu::{wgpu, Color, Renderer, Scene};
-use frus_layout::{Dimension, FlexDirection, Layout, Size, Style};
+use frus_gpu::{wgpu, Renderer, Scene};
+use frus_widgets::{build_scene, Color, Container, Flex, Size};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -107,67 +107,23 @@ impl ApplicationHandler for App {
     }
 }
 
-/// Construit une scène de démonstration via le moteur de layout : une colonne
-/// avec padding contient une barre supérieure, puis une rangée (sidebar + zone
-/// principale). Les positions/tailles sont calculées par flexbox et s'adaptent
-/// à la taille de la fenêtre.
+/// Construit la scène de démonstration à partir d'un arbre de widgets : une
+/// colonne (barre supérieure + rangée sidebar/principale) qui s'adapte à la
+/// taille de la fenêtre grâce au moteur de layout.
 fn demo_scene(width: f32, height: f32) -> Scene {
-    let mut layout: Layout<Color> = Layout::new();
+    let ui = Flex::column()
+        .width(width)
+        .height(height)
+        .padding(16.0)
+        .gap(12.0)
+        .child(Container::new().height(56.0).color(Color::rgb8(80, 200, 120)))
+        .child(
+            Flex::row()
+                .flex(1.0)
+                .gap(12.0)
+                .child(Container::new().width(200.0).color(Color::rgb8(233, 69, 96)))
+                .child(Container::new().flex(1.0).color(Color::rgba(0.25, 0.55, 0.95, 0.9))),
+        );
 
-    // Barre supérieure : hauteur fixe, s'étire en largeur.
-    let top_bar = layout.leaf(
-        Style {
-            height: Dimension::Length(56.0),
-            ..Default::default()
-        },
-        Color::rgb8(80, 200, 120),
-    );
-
-    // Contenu : une rangée avec une sidebar fixe et une zone principale extensible.
-    let sidebar = layout.leaf(
-        Style {
-            width: Dimension::Length(200.0),
-            ..Default::default()
-        },
-        Color::rgb8(233, 69, 96),
-    );
-    let main_area = layout.leaf(
-        Style {
-            flex_grow: 1.0,
-            ..Default::default()
-        },
-        Color::rgba(0.25, 0.55, 0.95, 0.9),
-    );
-    let content_row = layout.container(
-        Style {
-            flex_direction: FlexDirection::Row,
-            flex_grow: 1.0,
-            gap: 12.0,
-            ..Default::default()
-        },
-        &[sidebar, main_area],
-    );
-
-    let root = layout.container(
-        Style {
-            width: Dimension::Length(width),
-            height: Dimension::Length(height),
-            flex_direction: FlexDirection::Column,
-            padding: 16.0,
-            gap: 12.0,
-            ..Default::default()
-        },
-        &[top_bar, content_row],
-    );
-
-    layout.compute(root, Size::new(width, height));
-
-    // Les conteneurs n'ont pas de couleur (None) : seules les feuilles sont dessinées.
-    let mut scene = Scene::new();
-    for (rect, color) in layout.absolute_rects(root) {
-        if let Some(color) = color {
-            scene.fill_rect(rect, *color);
-        }
-    }
-    scene
+    build_scene(&ui, Size::new(width, height))
 }

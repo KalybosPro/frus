@@ -13,9 +13,7 @@ pub use wgpu;
 
 mod painter;
 mod renderer;
-mod scene;
 
-// Types géométriques et couleur proviennent du socle partagé.
-pub use frus_core::{Color, Rect};
+// Types de données (géométrie, couleur, scène) proviennent du socle partagé.
+pub use frus_core::{Color, Rect, Scene};
 pub use renderer::Renderer;
-pub use scene::Scene;
