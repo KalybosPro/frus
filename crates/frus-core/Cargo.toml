@@ -1,0 +1,9 @@
+[package]
+name = "frus-core"
+description = "frus — types fondamentaux partagés (géométrie, couleur)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+bytemuck.workspace = true

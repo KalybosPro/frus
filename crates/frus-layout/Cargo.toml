@@ -1,0 +1,10 @@
+[package]
+name = "frus-layout"
+description = "frus — moteur de mise en page (flexbox) au-dessus de taffy"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+frus-core = { path = "../frus-core" }
+taffy.workspace = true

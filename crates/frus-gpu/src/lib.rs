@@ -11,13 +11,11 @@
 // (ex. `SurfaceError`) sans avoir à dépendre directement de `wgpu`.
 pub use wgpu;
 
-mod color;
-mod geometry;
 mod painter;
 mod renderer;
 mod scene;
 
-pub use color::Color;
-pub use geometry::Rect;
+// Types géométriques et couleur proviennent du socle partagé.
+pub use frus_core::{Color, Rect};
 pub use renderer::Renderer;
 pub use scene::Scene;
