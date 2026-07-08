@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use frus_gpu::{wgpu, Renderer};
+use frus_gpu::{wgpu, Color, Rect, Renderer, Scene};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -27,7 +27,7 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let attributes = Window::default_attributes().with_title("frus — Jalon 0");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 1");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -78,21 +78,47 @@ impl ApplicationHandler for App {
                 }
             }
 
-            WindowEvent::RedrawRequested => match renderer.render() {
-                Ok(()) => {}
-                // La surface est perdue ou obsolète : on la reconfigure.
-                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                    renderer.reconfigure();
+            WindowEvent::RedrawRequested => {
+                let size = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.inner_size())
+                    .unwrap_or_default();
+                let scene = demo_scene(size.width as f32, size.height as f32);
+
+                match renderer.render(&scene) {
+                    Ok(()) => {}
+                    // La surface est perdue ou obsolète : on la reconfigure.
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        renderer.reconfigure();
+                    }
+                    // Plus de mémoire GPU : rien de mieux à faire que quitter.
+                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                        log::error!("Mémoire GPU épuisée, fermeture.");
+                        event_loop.exit();
+                    }
+                    Err(err) => log::warn!("Frame ignorée : {err:?}"),
                 }
-                // Plus de mémoire GPU : rien de mieux à faire que quitter.
-                Err(wgpu::SurfaceError::OutOfMemory) => {
-                    log::error!("Mémoire GPU épuisée, fermeture.");
-                    event_loop.exit();
-                }
-                Err(err) => log::warn!("Frame ignorée : {err:?}"),
-            },
+            }
 
             _ => {}
         }
     }
+}
+
+/// Construit une petite scène de démonstration en fonction de la taille de la
+/// fenêtre : trois rectangles, dont un semi-transparent qui montre l'alpha, et
+/// un ancré en bas à droite pour illustrer les coordonnées en pixels.
+fn demo_scene(width: f32, height: f32) -> Scene {
+    let mut scene = Scene::new();
+    scene.fill_rect(Rect::new(40.0, 40.0, 220.0, 140.0), Color::rgb8(233, 69, 96));
+    scene.fill_rect(
+        Rect::new(150.0, 120.0, 220.0, 140.0),
+        Color::rgba(0.25, 0.55, 0.95, 0.7),
+    );
+    scene.fill_rect(
+        Rect::new((width - 160.0).max(0.0), (height - 160.0).max(0.0), 120.0, 120.0),
+        Color::rgb8(80, 200, 120),
+    );
+    scene
 }
