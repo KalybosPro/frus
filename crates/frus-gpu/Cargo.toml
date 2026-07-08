@@ -1,0 +1,15 @@
+[package]
+name = "frus-gpu"
+description = "frus — contexte GPU et moteur de rendu 2D (Jalon 0)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+wgpu.workspace = true
+bytemuck.workspace = true
+anyhow.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true

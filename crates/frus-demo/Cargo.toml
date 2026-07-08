@@ -1,0 +1,14 @@
+[package]
+name = "frus-demo"
+description = "frus — application de démonstration du Jalon 0"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "frus-demo"
+path = "src/main.rs"
+
+[dependencies]
+frus-shell = { path = "../frus-shell" }
+anyhow.workspace = true

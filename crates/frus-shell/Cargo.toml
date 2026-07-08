@@ -1,0 +1,14 @@
+[package]
+name = "frus-shell"
+description = "frus — couche plateforme : fenêtre + boucle d'événements (Jalon 0)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+frus-gpu = { path = "../frus-gpu" }
+winit.workspace = true
+pollster.workspace = true
+anyhow.workspace = true
+env_logger.workspace = true
+log.workspace = true

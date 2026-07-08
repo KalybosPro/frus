@@ -1,0 +1,15 @@
+# Rust / Cargo
+/target
+**/*.rs.bk
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Éditeurs
+.idea/
+.vscode/
+*.swp
+
+# claude
+.claude/

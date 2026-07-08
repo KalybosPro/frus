@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+version = "0.0.0"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+wgpu = "22"
+winit = "0.30"
+pollster = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
+
+# Profil de dev : compilation plus rapide sans sacrifier l'ergonomie.
+[profile.dev]
+opt-level = 1
+
+# Les dépendances lourdes (wgpu, naga...) restent optimisées même en dev.
+[profile.dev.package."*"]
+opt-level = 3
