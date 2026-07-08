@@ -1,34 +1,37 @@
 //! Implémentation de [`winit::application::ApplicationHandler`] pour frus.
+//!
+//! Démontre la boucle interactive du Jalon 4 : un état applicatif, une fonction
+//! `view` qui produit l'arbre de widgets, des événements souris routés par
+//! hit-test vers des messages, et `update` qui fait évoluer l'état.
 
 use std::sync::Arc;
 
-use frus_gpu::{wgpu, Renderer, Scene};
-use frus_widgets::{build_scene, Color, Container, Flex, Size};
+use frus_gpu::{wgpu, Renderer};
+use frus_widgets::{build_ui, Color, Container, Flex, Point, Size, Ui};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
-/// État de l'application : la fenêtre et son renderer.
-///
-/// Les deux sont `Option` car, avec le modèle `ApplicationHandler` de winit
-/// 0.30, la fenêtre n'est créée qu'une fois l'application « reprise »
-/// (`resumed`), et non à la construction.
+/// État de l'application.
 #[derive(Default)]
 pub struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    state: State,
+    /// Dernière interface construite (pour router les clics par hit-test).
+    ui: Option<Ui<Msg>>,
+    /// Dernière position connue du curseur, en pixels physiques.
+    cursor: Point,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        // `resumed` peut être appelé plusieurs fois (mobile) : on ne crée
-        // la fenêtre qu'une seule fois.
         if self.window.is_some() {
             return;
         }
 
-        let attributes = Window::default_attributes().with_title("frus — Jalon 0");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 4");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -49,7 +52,6 @@ impl ApplicationHandler for App {
             Ok(renderer) => {
                 self.window = Some(window.clone());
                 self.renderer = Some(renderer);
-                // Première frame.
                 window.request_redraw();
             }
             Err(err) => {
@@ -65,17 +67,33 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(renderer) = self.renderer.as_mut() else {
-            return;
-        };
-
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
             WindowEvent::Resized(size) => {
-                renderer.resize(size.width, size.height);
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.resize(size.width, size.height);
+                }
                 if let Some(window) = &self.window {
                     window.request_redraw();
+                }
+            }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = Point::new(position.x as f32, position.y as f32);
+            }
+
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                let message = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+                if let Some(message) = message {
+                    update(&mut self.state, message);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             }
 
@@ -85,21 +103,27 @@ impl ApplicationHandler for App {
                     .as_ref()
                     .map(|w| w.inner_size())
                     .unwrap_or_default();
-                let scene = demo_scene(size.width as f32, size.height as f32);
+                let (width, height) = (size.width as f32, size.height as f32);
 
-                match renderer.render(&scene) {
-                    Ok(()) => {}
-                    // La surface est perdue ou obsolète : on la reconfigure.
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        renderer.reconfigure();
+                let tree = view(&self.state, width, height);
+                let ui = build_ui(&tree, Size::new(width, height));
+
+                if let Some(renderer) = self.renderer.as_mut() {
+                    match renderer.render(ui.scene()) {
+                        Ok(()) => {}
+                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            renderer.reconfigure();
+                        }
+                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                            log::error!("Mémoire GPU épuisée, fermeture.");
+                            event_loop.exit();
+                        }
+                        Err(err) => log::warn!("Frame ignorée : {err:?}"),
                     }
-                    // Plus de mémoire GPU : rien de mieux à faire que quitter.
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        log::error!("Mémoire GPU épuisée, fermeture.");
-                        event_loop.exit();
-                    }
-                    Err(err) => log::warn!("Frame ignorée : {err:?}"),
                 }
+
+                // Conserve l'interface pour le hit-test des prochains clics.
+                self.ui = Some(ui);
             }
 
             _ => {}
@@ -107,23 +131,80 @@ impl ApplicationHandler for App {
     }
 }
 
-/// Construit la scène de démonstration à partir d'un arbre de widgets : une
-/// colonne (barre supérieure + rangée sidebar/principale) qui s'adapte à la
-/// taille de la fenêtre grâce au moteur de layout.
-fn demo_scene(width: f32, height: f32) -> Scene {
-    let ui = Flex::column()
+// --- Application de démonstration (modèle à messages) ---
+
+/// État : le nombre de carrés ajoutés.
+#[derive(Default)]
+struct State {
+    squares: u32,
+}
+
+/// Messages émis par l'interface.
+#[derive(Clone)]
+enum Msg {
+    AddSquare,
+}
+
+/// Fait évoluer l'état en réponse à un message.
+fn update(state: &mut State, message: Msg) {
+    match message {
+        Msg::AddSquare => state.squares += 1,
+    }
+}
+
+/// Palette cyclique pour les carrés.
+const PALETTE: [Color; 4] = [
+    Color::rgb(0.91, 0.30, 0.24),
+    Color::rgb(0.95, 0.61, 0.07),
+    Color::rgb(0.18, 0.80, 0.44),
+    Color::rgb(0.20, 0.60, 0.86),
+];
+
+/// Construit l'arbre de widgets à partir de l'état : une barre-bouton verte
+/// (cliquable) au-dessus d'une rangée de `state.squares` carrés colorés.
+fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
+    let button = Container::new()
+        .height(56.0)
+        .color(Color::rgb8(80, 200, 120))
+        .on_click(Msg::AddSquare);
+
+    let mut squares = Flex::row().flex(1.0).gap(8.0);
+    for i in 0..state.squares {
+        squares = squares.child(
+            Container::new()
+                .width(40.0)
+                .height(40.0)
+                .color(PALETTE[(i as usize) % PALETTE.len()]),
+        );
+    }
+
+    Flex::column()
         .width(width)
         .height(height)
         .padding(16.0)
         .gap(12.0)
-        .child(Container::new().height(56.0).color(Color::rgb8(80, 200, 120)))
-        .child(
-            Flex::row()
-                .flex(1.0)
-                .gap(12.0)
-                .child(Container::new().width(200.0).color(Color::rgb8(233, 69, 96)))
-                .child(Container::new().flex(1.0).color(Color::rgba(0.25, 0.55, 0.95, 0.9))),
-        );
+        .child(button)
+        .child(squares)
+}
 
-    build_scene(&ui, Size::new(width, height))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frus_widgets::build_ui;
+
+    #[test]
+    fn clicking_the_button_adds_squares() {
+        let mut state = State::default();
+        // Simule trois clics sur le bouton.
+        for _ in 0..3 {
+            update(&mut state, Msg::AddSquare);
+        }
+        assert_eq!(state.squares, 3);
+
+        let tree = view(&state, 800.0, 600.0);
+        let ui = build_ui(&tree, Size::new(800.0, 600.0));
+
+        // 1 bouton + 3 carrés peints (les conteneurs Flex ne peignent rien).
+        assert_eq!(ui.scene().primitives().len(), 4);
+    }
 }

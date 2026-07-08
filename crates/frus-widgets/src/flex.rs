@@ -6,17 +6,17 @@ use frus_layout::{Dimension, FlexDirection, Style};
 use crate::widget::Widget;
 
 /// Un conteneur flex (rangée ou colonne). Ne peint aucune décoration propre.
-pub struct Flex {
+pub struct Flex<Msg> {
     direction: FlexDirection,
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
     padding: f32,
     gap: f32,
-    children: Vec<Box<dyn Widget>>,
+    children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl Flex {
+impl<Msg> Flex<Msg> {
     /// Conteneur disposant ses enfants horizontalement.
     pub fn row() -> Self {
         Self::with_direction(FlexDirection::Row)
@@ -70,13 +70,13 @@ impl Flex {
     }
 
     /// Ajoute un enfant.
-    pub fn child(mut self, child: impl Widget + 'static) -> Self {
+    pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.push(Box::new(child));
         self
     }
 }
 
-impl Widget for Flex {
+impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
     fn style(&self) -> Style {
         Style {
             width: self.width,
@@ -88,11 +88,15 @@ impl Widget for Flex {
         }
     }
 
-    fn children(&self) -> &[Box<dyn Widget>] {
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &self.children
     }
 
     fn paint(&self, _bounds: Rect, _scene: &mut Scene) {
-        // Un conteneur flex est transparent : il n'a pas de décoration propre.
+        // Un conteneur flex est transparent : pas de décoration propre.
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
     }
 }

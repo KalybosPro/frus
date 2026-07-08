@@ -1,5 +1,5 @@
 //! [`Container`] : une boîte avec taille, marge intérieure, couleur de fond
-//! optionnelle et un enfant optionnel.
+//! optionnelle, un enfant optionnel et un gestionnaire de clic optionnel.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -7,17 +7,18 @@ use frus_layout::{Dimension, Style};
 use crate::widget::Widget;
 
 /// Une boîte rectangulaire décorée.
-pub struct Container {
+pub struct Container<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
     padding: f32,
     color: Option<Color>,
-    children: Vec<Box<dyn Widget>>,
+    on_click: Option<Msg>,
+    children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl Container {
-    /// Crée un conteneur vide (taille automatique, sans couleur).
+impl<Msg> Container<Msg> {
+    /// Crée un conteneur vide (taille automatique, sans couleur ni clic).
     pub fn new() -> Self {
         Self {
             width: Dimension::Auto,
@@ -25,6 +26,7 @@ impl Container {
             flex_grow: 0.0,
             padding: 0.0,
             color: None,
+            on_click: None,
             children: Vec::new(),
         }
     }
@@ -59,21 +61,27 @@ impl Container {
         self
     }
 
+    /// Message émis lorsque le conteneur est cliqué.
+    pub fn on_click(mut self, message: Msg) -> Self {
+        self.on_click = Some(message);
+        self
+    }
+
     /// Définit l'enfant du conteneur.
-    pub fn child(mut self, child: impl Widget + 'static) -> Self {
+    pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
         self
     }
 }
 
-impl Default for Container {
+impl<Msg> Default for Container<Msg> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Widget for Container {
+impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn style(&self) -> Style {
         Style {
             width: self.width,
@@ -84,7 +92,7 @@ impl Widget for Container {
         }
     }
 
-    fn children(&self) -> &[Box<dyn Widget>] {
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &self.children
     }
 
@@ -92,5 +100,9 @@ impl Widget for Container {
         if let Some(color) = self.color {
             scene.fill_rect(bounds, color);
         }
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        self.on_click.clone()
     }
 }

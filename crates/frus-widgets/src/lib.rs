@@ -1,19 +1,22 @@
 //! `frus-widgets` — l'arbre de widgets déclaratif de frus.
 //!
 //! On décrit l'interface avec des widgets composables ([`Container`], [`Flex`])
-//! ; [`build_scene`] les traduit en mise en page (via `frus-layout`) puis en
-//! [`Scene`] dessinable (via `frus-core`).
+//! génériques sur un type de message `Msg` (modèle à messages, façon Elm/iced).
+//! [`build_ui`] les traduit en mise en page (via `frus-layout`) puis en une
+//! [`Ui`] : la [`Scene`] à dessiner + une carte de hit-test pour router les clics.
 //!
-//! Ce jalon couvre la **structure déclarative** et le pipeline
-//! widget → layout → peinture. L'état et les interactions viendront ensuite.
+//! L'état visuel de survol/pression et le clavier viendront avec la
+//! reconciliation d'arbre (jalon ultérieur).
 
 mod container;
 mod flex;
+mod ui;
 mod widget;
 
 pub use container::Container;
 pub use flex::Flex;
-pub use widget::{build_scene, Widget};
+pub use ui::{build_ui, Ui};
+pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
-pub use frus_core::{Color, Rect, Scene, Size};
+pub use frus_core::{Color, Point, Rect, Scene, Size};
