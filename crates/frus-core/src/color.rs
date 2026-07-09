@@ -50,4 +50,30 @@ impl Color {
     pub const fn to_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
+
+    /// Interpolation linéaire vers `other` (`t` borné à `0.0..=1.0`).
+    pub fn lerp(self, other: Color, t: f32) -> Color {
+        let t = t.clamp(0.0, 1.0);
+        Color::rgba(
+            self.r + (other.r - self.r) * t,
+            self.g + (other.g - self.g) * t,
+            self.b + (other.b - self.b) * t,
+            self.a + (other.a - self.a) * t,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lerp_midpoint() {
+        let a = Color::rgb(0.0, 0.0, 0.0);
+        let b = Color::rgb(1.0, 0.5, 0.0);
+        let mid = a.lerp(b, 0.5);
+        assert_eq!(mid, Color::rgb(0.5, 0.25, 0.0));
+        assert_eq!(a.lerp(b, 0.0), a);
+        assert_eq!(a.lerp(b, 1.0), b);
+    }
 }

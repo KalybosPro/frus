@@ -104,8 +104,10 @@ impl<Msg: Clone> Builder<'_, Msg> {
         *index += 1;
         let draw_rect = rect.translate(translation.0, translation.1);
 
-        // Statut : interaction pointeur + focus, plus curseur/sélection éventuels.
+        // Statut : interaction pointeur + focus + progression d'animation, plus
+        // curseur/sélection éventuels.
         let mut status = self.runtime.input.status_for(id);
+        status.hover_progress = self.runtime.hover_progress(id);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -273,13 +275,22 @@ mod tests {
     }
 
     #[test]
-    fn hover_changes_painted_color() {
+    fn hover_progress_interpolates_color() {
         let rt = Runtime::default();
         let base = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
         let id_a = base.hit(Point::new(50.0, 50.0)).unwrap();
 
+        // Sans progression : couleur de base (rouge).
+        if let Primitive::Rect { color, .. } = base.scene().primitives()[0] {
+            assert_eq!(color, Color::rgb(1.0, 0.0, 0.0));
+        } else {
+            panic!("attendu un rectangle");
+        }
+
+        // Progression pleine : couleur de survol (vert).
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id_a);
+        rt.anims.insert(id_a, 1.0);
         let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
         if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));

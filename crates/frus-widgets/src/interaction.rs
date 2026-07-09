@@ -55,9 +55,9 @@ pub enum Interaction {
     Pressed,
 }
 
-/// Statut complet d'un widget pour une frame : interaction pointeur, focus, et
-/// (pour les champs de saisie) position du curseur et plage de sélection.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+/// Statut complet d'un widget pour une frame : interaction pointeur, focus,
+/// curseur/sélection (champs), et progression d'animation de survol.
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct Status {
     pub interaction: Interaction,
     pub focused: bool,
@@ -65,6 +65,8 @@ pub struct Status {
     pub cursor: Option<usize>,
     /// Plage `(début, fin)` sélectionnée, en indices de caractères.
     pub selection: Option<(usize, usize)>,
+    /// Progression de la transition de survol (`0.0..=1.0`).
+    pub hover_progress: f32,
 }
 
 /// État d'entrée retenu au runtime, transmis à la construction de l'interface.
@@ -93,6 +95,7 @@ impl InputState {
             focused: self.focused == Some(id),
             cursor: None,
             selection: None,
+            hover_progress: 0.0,
         }
     }
 }

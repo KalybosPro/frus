@@ -6,6 +6,7 @@
 //! évoluer l'état applicatif au relâchement du clic.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
@@ -40,6 +41,8 @@ pub struct App {
     ctrl: bool,
     /// Accès presse-papier (initialisé au démarrage).
     clipboard: Option<arboard::Clipboard>,
+    /// Instant de la dernière frame (pour le dt des animations).
+    last_frame: Option<Instant>,
 }
 
 impl ApplicationHandler for App {
@@ -241,6 +244,15 @@ impl ApplicationHandler for App {
                     .unwrap_or_default();
                 let (width, height) = (size.width as f32, size.height as f32);
 
+                // Avance les animations selon le temps écoulé (dt clampé).
+                let now = Instant::now();
+                let dt = self
+                    .last_frame
+                    .map(|prev| (now - prev).as_secs_f32().min(0.05))
+                    .unwrap_or(0.0);
+                self.last_frame = Some(now);
+                let animating = self.runtime.advance_hover(dt);
+
                 let tree = view(&self.state, width, height);
                 let ui = build_ui(&tree, Size::new(width, height), &self.runtime);
 
@@ -261,6 +273,11 @@ impl ApplicationHandler for App {
                 // Conserve l'interface (hit-test) et l'arbre (routage clavier).
                 self.ui = Some(ui);
                 self.tree = Some(Box::new(tree));
+
+                // Tant qu'une animation tourne, on redemande une frame.
+                if animating {
+                    self.request_redraw();
+                }
             }
 
             _ => {}

@@ -7,6 +7,12 @@ use frus_layout::{Dimension, Style};
 use crate::interaction::{Interaction, Status};
 use crate::widget::Widget;
 
+/// Courbe d'easing (smoothstep) pour adoucir les transitions.
+fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// Une boîte rectangulaire décorée.
 pub struct Container<Msg> {
     width: Dimension,
@@ -139,11 +145,13 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
-        // Couleur selon l'interaction, avec repli (pressé → survol → repos).
-        let color = match status.interaction {
-            Interaction::Pressed => self.pressed_color.or(self.hover_color).or(self.color),
-            Interaction::Hovered => self.hover_color.or(self.color),
-            Interaction::None => self.color,
+        // Pressé : instantané. Sinon, transition animée repos → survol.
+        let color = if status.interaction == Interaction::Pressed {
+            self.pressed_color.or(self.hover_color).or(self.color)
+        } else if let (Some(base), Some(hover)) = (self.color, self.hover_color) {
+            Some(base.lerp(hover, ease(status.hover_progress)))
+        } else {
+            self.color
         };
 
         // On dessine si on a une couleur de fond ou une bordure visible.
