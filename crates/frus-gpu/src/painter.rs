@@ -193,11 +193,13 @@ impl Painter {
     fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene) -> u32 {
         self.instances.clear();
         for primitive in scene.primitives() {
-            match *primitive {
+            match primitive {
                 Primitive::Rect { rect, color } => self.instances.push(Instance {
                     rect: rect.to_array(),
                     color: color.to_array(),
                 }),
+                // Le texte est rendu séparément par le TextPainter.
+                Primitive::Text { .. } => {}
             }
         }
 
@@ -219,40 +221,31 @@ impl Painter {
         count as u32
     }
 
-    /// Enregistre le rendu de la scène dans `encoder`, vers `target`.
-    pub(crate) fn record(
+    /// Prépare le rendu (téléverse les instances) et renvoie leur nombre.
+    /// À appeler **avant** d'ouvrir le render pass.
+    pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        clear: wgpu::Color,
         scene: &Scene,
+    ) -> u32 {
+        self.prepare(device, queue, scene)
+    }
+
+    /// Dessine les rectangles dans un render pass déjà ouvert.
+    pub(crate) fn draw<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+        instance_count: u32,
     ) {
-        let instance_count = self.prepare(device, queue, scene);
-
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("frus.render_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        if instance_count > 0 {
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.viewport_bind_group, &[]);
-            pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-            pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            pass.draw(0..QUAD_VERTEX_COUNT, 0..instance_count);
+        if instance_count == 0 {
+            return;
         }
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.viewport_bind_group, &[]);
+        pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+        pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        pass.draw(0..QUAD_VERTEX_COUNT, 0..instance_count);
     }
 }
 
@@ -325,7 +318,24 @@ mod tests {
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        painter.record(&device, &queue, &mut encoder, &view, wgpu::Color::BLACK, &scene);
+        let count = painter.prepare_frame(&device, &queue, &scene);
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            painter.draw(&mut pass, count);
+        }
 
         // Copie de la texture vers un buffer lisible par le CPU.
         let bytes_per_row = SIZE * 4;

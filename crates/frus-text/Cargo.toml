@@ -1,0 +1,10 @@
+[package]
+name = "frus-text"
+description = "frus — shaping et mesure de texte (cosmic-text)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+frus-core = { path = "../frus-core" }
+cosmic-text.workspace = true

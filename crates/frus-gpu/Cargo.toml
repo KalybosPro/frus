@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 frus-core = { path = "../frus-core" }
 wgpu.workspace = true
+glyphon.workspace = true
 bytemuck.workspace = true
 anyhow.workspace = true
 log.workspace = true

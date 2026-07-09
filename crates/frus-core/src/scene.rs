@@ -4,13 +4,20 @@
 //! GPU. `frus-gpu` la consomme pour produire des commandes GPU ; `frus-widgets`
 //! la produit à partir d'un arbre de widgets.
 
-use crate::{Color, Rect};
+use crate::{Color, Point, Rect};
 
 /// Une primitive de dessin.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Primitive {
     /// Un rectangle plein.
     Rect { rect: Rect, color: Color },
+    /// Une ligne de texte, ancrée par son coin haut-gauche.
+    Text {
+        position: Point,
+        text: String,
+        size: f32,
+        color: Color,
+    },
 }
 
 /// Une scène 2D : la description déclarative de ce qu'il faut dessiner.
@@ -33,6 +40,16 @@ impl Scene {
     /// Ajoute un rectangle plein.
     pub fn fill_rect(&mut self, rect: Rect, color: Color) {
         self.primitives.push(Primitive::Rect { rect, color });
+    }
+
+    /// Ajoute une ligne de texte, ancrée par son coin haut-gauche.
+    pub fn text(&mut self, position: Point, text: impl Into<String>, size: f32, color: Color) {
+        self.primitives.push(Primitive::Text {
+            position,
+            text: text.into(),
+            size,
+            color,
+        });
     }
 
     /// Nombre de primitives dans la scène.

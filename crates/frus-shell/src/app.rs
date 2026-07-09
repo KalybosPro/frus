@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use frus_gpu::{wgpu, Renderer};
-use frus_widgets::{build_ui, Color, Container, Flex, Point, Size, Ui};
+use frus_widgets::{build_ui, Color, Container, Flex, Point, Size, Text, Ui};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -163,10 +163,21 @@ const PALETTE: [Color; 4] = [
 /// Construit l'arbre de widgets à partir de l'état : une barre-bouton verte
 /// (cliquable) au-dessus d'une rangée de `state.squares` carrés colorés.
 fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
+    // Bouton avec libellé texte.
     let button = Container::new()
-        .height(56.0)
+        .padding(14.0)
         .color(Color::rgb8(80, 200, 120))
-        .on_click(Msg::AddSquare);
+        .on_click(Msg::AddSquare)
+        .child(
+            Text::new("+ Ajouter un carré")
+                .size(20.0)
+                .color(Color::rgb8(20, 40, 25)),
+        );
+
+    // Libellé du compteur, mis à jour à chaque clic.
+    let label = Text::new(format!("Carrés : {}", state.squares))
+        .size(26.0)
+        .color(Color::rgb8(230, 230, 235));
 
     let mut squares = Flex::row().flex(1.0).gap(8.0);
     for i in 0..state.squares {
@@ -184,6 +195,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         .padding(16.0)
         .gap(12.0)
         .child(button)
+        .child(label)
         .child(squares)
 }
 
@@ -204,7 +216,8 @@ mod tests {
         let tree = view(&state, 800.0, 600.0);
         let ui = build_ui(&tree, Size::new(800.0, 600.0));
 
-        // 1 bouton + 3 carrés peints (les conteneurs Flex ne peignent rien).
-        assert_eq!(ui.scene().primitives().len(), 4);
+        // Primitives peintes : fond du bouton (1) + libellé du bouton (1)
+        // + libellé compteur (1) + 3 carrés = 6. Les Flex ne peignent rien.
+        assert_eq!(ui.scene().primitives().len(), 6);
     }
 }

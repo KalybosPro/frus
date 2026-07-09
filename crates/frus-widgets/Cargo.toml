@@ -8,3 +8,4 @@ license.workspace = true
 [dependencies]
 frus-core = { path = "../frus-core" }
 frus-layout = { path = "../frus-layout" }
+frus-text = { path = "../frus-text" }

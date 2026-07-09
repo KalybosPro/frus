@@ -4,6 +4,7 @@
 use frus_core::Scene;
 
 use crate::painter::Painter;
+use crate::text::TextPainter;
 
 /// Couleur de fond (bleu nuit).
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
@@ -20,6 +21,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painter: Painter,
+    text: TextPainter,
 }
 
 impl Renderer {
@@ -85,12 +87,15 @@ impl Renderer {
         let painter = Painter::new(&device, format);
         painter.set_viewport(&queue, width as f32, height as f32);
 
+        let text = TextPainter::new(&device, &queue, format);
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
             painter,
+            text,
         })
     }
 
@@ -109,8 +114,18 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// Dessine la scène et la présente.
+    /// Dessine la scène (rectangles + texte) et la présente.
     pub fn render(&mut self, scene: &Scene) -> Result<(), wgpu::SurfaceError> {
+        // Préparation (téléversements) avant l'ouverture du render pass.
+        let rect_count = self.painter.prepare_frame(&self.device, &self.queue, scene);
+        self.text.prepare_frame(
+            &self.device,
+            &self.queue,
+            scene,
+            self.config.width,
+            self.config.height,
+        );
+
         let frame = self.surface.get_current_texture()?;
         let view = frame
             .texture
@@ -122,8 +137,25 @@ impl Renderer {
                 label: Some("frus.encoder"),
             });
 
-        self.painter
-            .record(&self.device, &self.queue, &mut encoder, &view, CLEAR_COLOR, scene);
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("frus.render_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(CLEAR_COLOR),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            self.painter.draw(&mut pass, rect_count);
+            self.text.draw(&mut pass);
+        }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();

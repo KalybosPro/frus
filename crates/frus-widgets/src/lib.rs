@@ -10,11 +10,13 @@
 
 mod container;
 mod flex;
+mod text;
 mod ui;
 mod widget;
 
 pub use container::Container;
 pub use flex::Flex;
+pub use text::Text;
 pub use ui::{build_ui, Ui};
 pub use widget::Widget;
 
