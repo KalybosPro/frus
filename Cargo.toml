@@ -13,6 +13,7 @@ winit = "0.30"
 taffy = "0.7"
 glyphon = "0.6"
 cosmic-text = "0.12"
+arboard = "3"
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }
 anyhow = "1"

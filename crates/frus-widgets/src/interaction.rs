@@ -25,12 +25,22 @@ impl WidgetId {
 /// Une touche transmise au widget focalisé.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Key {
-    /// Texte saisi (un ou plusieurs caractères).
+    /// Texte saisi (un ou plusieurs caractères) — sert aussi au collage.
     Text(String),
-    /// Retour arrière.
+    /// Retour arrière (supprime la sélection, sinon le caractère à gauche).
     Backspace,
+    /// Suppression avant (sélection, sinon caractère à droite).
+    Delete,
     /// Entrée.
     Enter,
+    /// Flèche gauche (Shift : étend la sélection).
+    Left { shift: bool },
+    /// Flèche droite.
+    Right { shift: bool },
+    /// Début de ligne.
+    Home { shift: bool },
+    /// Fin de ligne.
+    End { shift: bool },
 }
 
 /// État visuel d'interaction pointeur d'un widget.
@@ -45,11 +55,16 @@ pub enum Interaction {
     Pressed,
 }
 
-/// Statut complet d'un widget pour une frame : interaction pointeur + focus.
+/// Statut complet d'un widget pour une frame : interaction pointeur, focus, et
+/// (pour les champs de saisie) position du curseur et plage de sélection.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct Status {
     pub interaction: Interaction,
     pub focused: bool,
+    /// Index (caractère) du curseur, si ce widget est un champ focalisé.
+    pub cursor: Option<usize>,
+    /// Plage `(début, fin)` sélectionnée, en indices de caractères.
+    pub selection: Option<(usize, usize)>,
 }
 
 /// État d'entrée retenu au runtime, transmis à la construction de l'interface.
@@ -76,6 +91,8 @@ impl InputState {
         Status {
             interaction,
             focused: self.focused == Some(id),
+            cursor: None,
+            selection: None,
         }
     }
 }

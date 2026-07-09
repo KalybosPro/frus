@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, dispatch_key, Align, Color, Container, Flex, InputState, Justify, Key, Point, Scroll,
-    ScrollState, Size, Text, TextInput, Ui, Widget,
+    build_ui, find_widget, Align, Color, Container, Edit, Flex, Justify, Key, Point, Runtime,
+    Scroll, Size, Text, TextInput, Ui, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -27,16 +27,19 @@ pub struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     state: State,
-    /// Dernière interface construite (pour le hit-test et le routage des clics).
+    /// Dernière interface construite (hit-test, focus, scroll).
     ui: Option<Ui<Msg>>,
-    /// Dernier arbre de widgets construit (pour router les touches clavier).
+    /// Dernier arbre de widgets construit (routage clavier/édition).
     tree: Option<Box<dyn Widget<Msg>>>,
     /// Dernière position connue du curseur, en pixels physiques.
     cursor: Point,
-    /// État d'interaction retenu (survol/pression/focus).
-    input: InputState,
-    /// Offsets de défilement, par zone défilable.
-    scroll: ScrollState,
+    /// État retenu entre frames (survol/focus, scroll, curseur/sélection).
+    runtime: Runtime,
+    /// Modificateurs clavier courants.
+    shift: bool,
+    ctrl: bool,
+    /// Accès presse-papier (initialisé au démarrage).
+    clipboard: Option<arboard::Clipboard>,
 }
 
 impl ApplicationHandler for App {
@@ -45,7 +48,8 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let attributes = Window::default_attributes().with_title("frus — Jalon 8");
+        self.clipboard = arboard::Clipboard::new().ok();
+        let attributes = Window::default_attributes().with_title("frus — Jalon 10");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -98,13 +102,17 @@ impl ApplicationHandler for App {
                 // Met à jour le survol ; ne redessine que s'il a changé.
                 if let Some(ui) = &self.ui {
                     let hovered = ui.hit(self.cursor);
-                    if hovered != self.input.hovered {
-                        self.input.hovered = hovered;
-                        if let Some(window) = &self.window {
-                            window.request_redraw();
-                        }
+                    if hovered != self.runtime.input.hovered {
+                        self.runtime.input.hovered = hovered;
+                        self.request_redraw();
                     }
                 }
+            }
+
+            WindowEvent::ModifiersChanged(modifiers) => {
+                let state = modifiers.state();
+                self.shift = state.shift_key();
+                self.ctrl = state.control_key();
             }
 
             WindowEvent::MouseInput {
@@ -112,36 +120,21 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-                // Le focus va au champ focalisable sous le curseur (ou nulle part).
-                self.input.focused = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-
-            WindowEvent::KeyboardInput { event, .. }
-                if event.state == ElementState::Pressed =>
-            {
-                let key = match &event.logical_key {
-                    WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
-                    WinitKey::Named(NamedKey::Enter) => Some(Key::Enter),
-                    WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
-                    _ => event.text.as_ref().map(|text| Key::Text(text.to_string())),
-                };
-
-                if let (Some(key), Some(focused)) = (key, self.input.focused) {
-                    let message = self
+                self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+                // Focus + placement du curseur au point cliqué.
+                let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
+                self.runtime.input.focused = focus.map(|(id, _)| id);
+                if let Some((id, rect)) = focus {
+                    let local_x = self.cursor.x - rect.x;
+                    let cursor = self
                         .tree
                         .as_ref()
-                        .and_then(|tree| dispatch_key(tree.as_ref(), focused, &key));
-                    if let Some(message) = message {
-                        update(&mut self.state, message);
-                    }
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                        .and_then(|widget| widget.cursor_at(local_x))
+                        .unwrap_or(0);
+                    self.runtime.edits.insert(id, Edit { cursor, anchor: None });
                 }
+                self.request_redraw();
             }
 
             WindowEvent::MouseInput {
@@ -151,18 +144,79 @@ impl ApplicationHandler for App {
             } => {
                 // Le clic n'est validé que si press et release sont sur le même widget.
                 let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-                let message = match (self.input.pressed, released) {
+                let message = match (self.runtime.input.pressed, released) {
                     (Some(pressed), Some(released)) if pressed == released => {
                         self.ui.as_ref().and_then(|ui| ui.msg_for(pressed))
                     }
                     _ => None,
                 };
-                self.input.pressed = None;
+                self.runtime.input.pressed = None;
                 if let Some(message) = message {
                     update(&mut self.state, message);
                 }
-                if let Some(window) = &self.window {
-                    window.request_redraw();
+                self.request_redraw();
+            }
+
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed =>
+            {
+                let Some(focused) = self.runtime.input.focused else {
+                    return;
+                };
+
+                // Raccourcis presse-papier (Ctrl+C/X/V/A).
+                if self.ctrl {
+                    match &event.logical_key {
+                        WinitKey::Character(c) if c.eq_ignore_ascii_case("c") => {
+                            self.copy_selection(focused);
+                            return;
+                        }
+                        WinitKey::Character(c) if c.eq_ignore_ascii_case("x") => {
+                            self.copy_selection(focused);
+                            self.apply_key(focused, Key::Backspace);
+                            self.request_redraw();
+                            return;
+                        }
+                        WinitKey::Character(c) if c.eq_ignore_ascii_case("v") => {
+                            if let Some(text) =
+                                self.clipboard.as_mut().and_then(|cb| cb.get_text().ok())
+                            {
+                                self.apply_key(focused, Key::Text(text));
+                                self.request_redraw();
+                            }
+                            return;
+                        }
+                        WinitKey::Character(c) if c.eq_ignore_ascii_case("a") => {
+                            self.runtime.edits.insert(
+                                focused,
+                                Edit {
+                                    cursor: usize::MAX,
+                                    anchor: Some(0),
+                                },
+                            );
+                            self.request_redraw();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                let shift = self.shift;
+                let key = match &event.logical_key {
+                    WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
+                    WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
+                    WinitKey::Named(NamedKey::Enter) => Some(Key::Enter),
+                    WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left { shift }),
+                    WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right { shift }),
+                    WinitKey::Named(NamedKey::Home) => Some(Key::Home { shift }),
+                    WinitKey::Named(NamedKey::End) => Some(Key::End { shift }),
+                    WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
+                    _ => event.text.as_ref().map(|text| Key::Text(text.to_string())),
+                };
+
+                if let Some(key) = key {
+                    self.apply_key(focused, key);
+                    self.request_redraw();
                 }
             }
 
@@ -173,11 +227,9 @@ impl ApplicationHandler for App {
                 };
                 if let Some((id, max)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
                 {
-                    let offset = self.scroll.entry(id).or_insert(0.0);
+                    let offset = self.runtime.scroll.entry(id).or_insert(0.0);
                     *offset = (*offset - dy).clamp(0.0, max);
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
+                    self.request_redraw();
                 }
             }
 
@@ -190,7 +242,7 @@ impl ApplicationHandler for App {
                 let (width, height) = (size.width as f32, size.height as f32);
 
                 let tree = view(&self.state, width, height);
-                let ui = build_ui(&tree, Size::new(width, height), &self.input, &self.scroll);
+                let ui = build_ui(&tree, Size::new(width, height), &self.runtime);
 
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(ui.scene()) {
@@ -212,6 +264,42 @@ impl ApplicationHandler for App {
             }
 
             _ => {}
+        }
+    }
+}
+
+impl App {
+    fn request_redraw(&self) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// Route une touche vers le champ focalisé : met à jour l'état d'édition et
+    /// applique le message éventuel (changement de valeur).
+    fn apply_key(&mut self, id: WidgetId, key: Key) {
+        let mut edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.on_edit(&mut edit, &key));
+        self.runtime.edits.insert(id, edit);
+        if let Some(message) = message {
+            update(&mut self.state, message);
+        }
+    }
+
+    /// Copie le texte sélectionné du champ `id` dans le presse-papier.
+    fn copy_selection(&mut self, id: WidgetId) {
+        let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
+        let text = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.selected_text(&edit));
+        if let (Some(text), Some(clipboard)) = (text, self.clipboard.as_mut()) {
+            let _ = clipboard.set_text(text);
         }
     }
 }
@@ -364,15 +452,10 @@ mod tests {
 
     fn primitive_count(state: &State) -> usize {
         let tree = view(state, 800.0, 600.0);
-        build_ui(
-            &tree,
-            Size::new(800.0, 600.0),
-            &InputState::default(),
-            &frus_widgets::ScrollState::new(),
-        )
-        .scene()
-        .primitives()
-        .len()
+        build_ui(&tree, Size::new(800.0, 600.0), &frus_widgets::Runtime::default())
+            .scene()
+            .primitives()
+            .len()
     }
 
     #[test]

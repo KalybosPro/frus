@@ -1,10 +1,14 @@
 //! [`TextInput`] : un champ de saisie mono-ligne, **contrôlé** (sa valeur vient
-//! de l'état applicatif) et focalisable au clavier.
+//! de l'état applicatif), avec curseur, navigation et sélection.
+//!
+//! La valeur est contrôlée ; le **curseur / la sélection** sont un état d'édition
+//! retenu au runtime ([`Edit`]), clé par identité de widget.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::{Key, Status};
+use crate::runtime::Edit;
 use crate::widget::Widget;
 
 const PAD_X: f32 = 8.0;
@@ -14,18 +18,32 @@ const BG: Color = Color::rgb(0.16, 0.17, 0.20);
 const TEXT_COLOR: Color = Color::rgb(0.92, 0.92, 0.95);
 const BORDER_IDLE: Color = Color::rgb(0.32, 0.34, 0.40);
 const BORDER_FOCUS: Color = Color::rgb(0.35, 0.62, 0.95);
+const SELECTION: Color = Color::rgba(0.35, 0.62, 0.95, 0.4);
 
 /// Un champ de saisie de texte sur une ligne.
-///
-/// Contrôlé : la valeur affichée est celle passée à [`TextInput::new`] (issue de
-/// l'état applicatif). À la saisie, il émet un message construit par la closure
-/// fournie à [`TextInput::on_input`] ; l'application met à jour son état, et la
-/// frame suivante reflète la nouvelle valeur.
 pub struct TextInput<Msg> {
     value: String,
     size: f32,
     width: Dimension,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
+}
+
+/// Largeur en pixels des `count` premiers caractères de `chars`, à la taille donnée.
+fn prefix_width(chars: &[char], count: usize, size: f32) -> f32 {
+    let prefix: String = chars[..count.min(chars.len())].iter().collect();
+    frus_text::measure(&prefix, size).width
+}
+
+/// Déplace le curseur vers `target`, en gérant l'ancre de sélection selon Shift.
+fn move_cursor(cursor: &mut usize, anchor: &mut Option<usize>, target: usize, shift: bool) {
+    if shift {
+        if anchor.is_none() {
+            *anchor = Some(*cursor);
+        }
+    } else {
+        *anchor = None;
+    }
+    *cursor = target;
 }
 
 impl<Msg> TextInput<Msg> {
@@ -56,20 +74,6 @@ impl<Msg> TextInput<Msg> {
         self.on_input = Some(Box::new(on_input));
         self
     }
-
-    /// Calcule la nouvelle valeur après une touche (append / backspace).
-    fn apply_key(&self, key: &Key) -> Option<String> {
-        let mut value = self.value.clone();
-        match key {
-            Key::Text(text) => value.push_str(text),
-            Key::Backspace => {
-                value.pop();
-            }
-            // Pas de navigation / soumission pour l'instant.
-            Key::Enter => return None,
-        }
-        Some(value)
-    }
 }
 
 impl<Msg> Widget<Msg> for TextInput<Msg> {
@@ -87,7 +91,6 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
-        // Fond + bordure (accentuée si focalisé).
         let (border_color, border_width) = if status.focused {
             (BORDER_FOCUS, 2.0)
         } else {
@@ -95,8 +98,24 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
         };
         scene.draw_rect(bounds, BG, 6.0, border_width, border_color);
 
+        let chars: Vec<char> = self.value.chars().collect();
+        let len = chars.len();
         let text_x = bounds.x + PAD_X;
         let text_y = bounds.y + PAD_Y;
+        let line_h = frus_text::line_height(self.size);
+
+        // Surbrillance de sélection (sous le texte).
+        if status.focused {
+            if let Some((start, end)) = status.selection {
+                let (start, end) = (start.min(len), end.min(len));
+                if start < end {
+                    let x0 = text_x + prefix_width(&chars, start, self.size);
+                    let x1 = text_x + prefix_width(&chars, end, self.size);
+                    scene.fill_rect(Rect::new(x0, text_y, x1 - x0, line_h), SELECTION);
+                }
+            }
+        }
+
         if !self.value.is_empty() {
             scene.text(
                 Point::new(text_x, text_y),
@@ -106,18 +125,11 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
             );
         }
 
-        // Curseur au bout du texte lorsqu'il est focalisé.
+        // Curseur.
         if status.focused {
-            let text_width = frus_text::measure(&self.value, self.size).width;
-            scene.fill_rect(
-                Rect::new(
-                    text_x + text_width + 1.0,
-                    text_y,
-                    2.0,
-                    frus_text::line_height(self.size),
-                ),
-                TEXT_COLOR,
-            );
+            let cursor = status.cursor.unwrap_or(len).min(len);
+            let cx = text_x + prefix_width(&chars, cursor, self.size);
+            scene.fill_rect(Rect::new(cx, text_y, 2.0, line_h), TEXT_COLOR);
         }
     }
 
@@ -125,9 +137,103 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
         None
     }
 
-    fn on_key(&self, key: &Key) -> Option<Msg> {
-        let value = self.apply_key(key)?;
-        self.on_input.as_ref().map(|make| make(value))
+    fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
+        let mut chars: Vec<char> = self.value.chars().collect();
+        let len = chars.len();
+        let mut cursor = edit.cursor.min(len);
+        let mut anchor = edit.anchor.map(|a| a.min(len));
+        let selection = anchor
+            .map(|a| (a.min(cursor), a.max(cursor)))
+            .filter(|(s, e)| s < e);
+
+        let mut changed = false;
+
+        match key {
+            Key::Text(text) => {
+                if let Some((s, e)) = selection {
+                    chars.drain(s..e);
+                    cursor = s;
+                }
+                let inserted: Vec<char> = text.chars().collect();
+                let n = inserted.len();
+                chars.splice(cursor..cursor, inserted);
+                cursor += n;
+                anchor = None;
+                changed = true;
+            }
+            Key::Backspace => {
+                if let Some((s, e)) = selection {
+                    chars.drain(s..e);
+                    cursor = s;
+                    changed = true;
+                } else if cursor > 0 {
+                    chars.remove(cursor - 1);
+                    cursor -= 1;
+                    changed = true;
+                }
+                anchor = None;
+            }
+            Key::Delete => {
+                if let Some((s, e)) = selection {
+                    chars.drain(s..e);
+                    cursor = s;
+                    changed = true;
+                } else if cursor < len {
+                    chars.remove(cursor);
+                    changed = true;
+                }
+                anchor = None;
+            }
+            Key::Left { shift } => {
+                let target = cursor.saturating_sub(1);
+                move_cursor(&mut cursor, &mut anchor, target, *shift);
+            }
+            Key::Right { shift } => {
+                let target = (cursor + 1).min(len);
+                move_cursor(&mut cursor, &mut anchor, target, *shift);
+            }
+            Key::Home { shift } => move_cursor(&mut cursor, &mut anchor, 0, *shift),
+            Key::End { shift } => move_cursor(&mut cursor, &mut anchor, len, *shift),
+            Key::Enter => {}
+        }
+
+        edit.cursor = cursor;
+        edit.anchor = anchor;
+
+        if changed {
+            let new_value: String = chars.into_iter().collect();
+            self.on_input.as_ref().map(|make| make(new_value))
+        } else {
+            None
+        }
+    }
+
+    fn cursor_at(&self, local_x: f32) -> Option<usize> {
+        let target = local_x - PAD_X;
+        let chars: Vec<char> = self.value.chars().collect();
+        let mut best = 0;
+        let mut best_dist = f32::MAX;
+        for i in 0..=chars.len() {
+            let dist = (prefix_width(&chars, i, self.size) - target).abs();
+            if dist < best_dist {
+                best_dist = dist;
+                best = i;
+            }
+        }
+        Some(best)
+    }
+
+    fn selected_text(&self, edit: &Edit) -> Option<String> {
+        let chars: Vec<char> = self.value.chars().collect();
+        let len = chars.len();
+        let cursor = edit.cursor.min(len);
+        let anchor = edit.anchor?.min(len);
+        let (start, end) = (anchor.min(cursor), anchor.max(cursor));
+        if start < end {
+            Some(chars[start..end].iter().collect())
+        } else {
+            None
+        }
     }
 
     fn focusable(&self) -> bool {
@@ -144,25 +250,52 @@ mod tests {
         Changed(String),
     }
 
-    #[test]
-    fn typing_appends_and_backspace_removes() {
-        let input = TextInput::new("ab").on_input(Msg::Changed);
-
-        assert_eq!(
-            input.on_key(&Key::Text("c".to_string())),
-            Some(Msg::Changed("abc".to_string()))
-        );
-        assert_eq!(
-            input.on_key(&Key::Backspace),
-            Some(Msg::Changed("a".to_string()))
-        );
-        // Entrée : aucune modification.
-        assert_eq!(input.on_key(&Key::Enter), None);
+    fn input(value: &str) -> TextInput<Msg> {
+        TextInput::new(value).on_input(Msg::Changed)
     }
 
     #[test]
-    fn is_focusable() {
-        let input: TextInput<Msg> = TextInput::new("");
-        assert!(Widget::<Msg>::focusable(&input));
+    fn insert_at_cursor() {
+        let inp = input("ac");
+        let mut edit = Edit { cursor: 1, anchor: None };
+        assert_eq!(
+            inp.on_edit(&mut edit, &Key::Text("b".to_string())),
+            Some(Msg::Changed("abc".to_string()))
+        );
+        assert_eq!(edit.cursor, 2);
+    }
+
+    #[test]
+    fn shift_arrow_selects_then_delete() {
+        let inp = input("hello");
+        // Curseur en fin, Shift+Left deux fois -> sélectionne "lo".
+        let mut edit = Edit { cursor: 5, anchor: None };
+        inp.on_edit(&mut edit, &Key::Left { shift: true });
+        inp.on_edit(&mut edit, &Key::Left { shift: true });
+        assert_eq!(edit.selection_range(), Some((3, 5)));
+        // Backspace supprime la sélection.
+        assert_eq!(
+            inp.on_edit(&mut edit, &Key::Backspace),
+            Some(Msg::Changed("hel".to_string()))
+        );
+        assert_eq!(edit.cursor, 3);
+        assert_eq!(edit.anchor, None);
+    }
+
+    #[test]
+    fn home_end_bounds() {
+        let inp = input("abc");
+        let mut edit = Edit { cursor: 1, anchor: None };
+        inp.on_edit(&mut edit, &Key::End { shift: false });
+        assert_eq!(edit.cursor, 3);
+        inp.on_edit(&mut edit, &Key::Home { shift: false });
+        assert_eq!(edit.cursor, 0);
+    }
+
+    #[test]
+    fn selected_text_reads_range() {
+        let inp = input("hello");
+        let edit = Edit { cursor: 5, anchor: Some(2) };
+        assert_eq!(inp.selected_text(&edit), Some("llo".to_string()));
     }
 }

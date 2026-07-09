@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
+arboard.workspace = true
 winit.workspace = true
 pollster.workspace = true
 anyhow.workspace = true
