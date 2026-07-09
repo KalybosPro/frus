@@ -3,6 +3,7 @@
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
+use crate::interaction::Interaction;
 use crate::widget::Widget;
 
 /// Un conteneur flex (rangée ou colonne). Ne peint aucune décoration propre.
@@ -92,7 +93,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
         &self.children
     }
 
-    fn paint(&self, _bounds: Rect, _scene: &mut Scene) {
+    fn paint(&self, _bounds: Rect, _status: Interaction, _scene: &mut Scene) {
         // Un conteneur flex est transparent : pas de décoration propre.
     }
 

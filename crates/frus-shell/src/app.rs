@@ -1,13 +1,14 @@
 //! Implémentation de [`winit::application::ApplicationHandler`] pour frus.
 //!
-//! Démontre la boucle interactive du Jalon 4 : un état applicatif, une fonction
-//! `view` qui produit l'arbre de widgets, des événements souris routés par
-//! hit-test vers des messages, et `update` qui fait évoluer l'état.
+//! Démontre la boucle interactive : un état applicatif, une fonction `view` qui
+//! produit l'arbre de widgets, des événements souris routés par hit-test, un
+//! état d'interaction (survol/pression) retenu au runtime, et `update` qui fait
+//! évoluer l'état applicatif au relâchement du clic.
 
 use std::sync::Arc;
 
 use frus_gpu::{wgpu, Renderer};
-use frus_widgets::{build_ui, Color, Container, Flex, Point, Size, Text, Ui};
+use frus_widgets::{build_ui, Color, Container, Flex, InputState, Point, Size, Text, Ui};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -19,10 +20,12 @@ pub struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     state: State,
-    /// Dernière interface construite (pour router les clics par hit-test).
+    /// Dernière interface construite (pour le hit-test et le routage des clics).
     ui: Option<Ui<Msg>>,
     /// Dernière position connue du curseur, en pixels physiques.
     cursor: Point,
+    /// État d'interaction retenu (survol/pression).
+    input: InputState,
 }
 
 impl ApplicationHandler for App {
@@ -31,7 +34,7 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let attributes = Window::default_attributes().with_title("frus — Jalon 4");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 6");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -81,6 +84,16 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = Point::new(position.x as f32, position.y as f32);
+                // Met à jour le survol ; ne redessine que s'il a changé.
+                if let Some(ui) = &self.ui {
+                    let hovered = ui.hit(self.cursor);
+                    if hovered != self.input.hovered {
+                        self.input.hovered = hovered;
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                    }
+                }
             }
 
             WindowEvent::MouseInput {
@@ -88,12 +101,31 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                let message = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+                self.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                // Le clic n'est validé que si press et release sont sur le même widget.
+                let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+                let message = match (self.input.pressed, released) {
+                    (Some(pressed), Some(released)) if pressed == released => {
+                        self.ui.as_ref().and_then(|ui| ui.msg_for(pressed))
+                    }
+                    _ => None,
+                };
+                self.input.pressed = None;
                 if let Some(message) = message {
                     update(&mut self.state, message);
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
+                }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
                 }
             }
 
@@ -106,7 +138,7 @@ impl ApplicationHandler for App {
                 let (width, height) = (size.width as f32, size.height as f32);
 
                 let tree = view(&self.state, width, height);
-                let ui = build_ui(&tree, Size::new(width, height));
+                let ui = build_ui(&tree, Size::new(width, height), &self.input);
 
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(ui.scene()) {
@@ -163,10 +195,12 @@ const PALETTE: [Color; 4] = [
 /// Construit l'arbre de widgets à partir de l'état : une barre-bouton verte
 /// (cliquable) au-dessus d'une rangée de `state.squares` carrés colorés.
 fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
-    // Bouton avec libellé texte.
+    // Bouton avec libellé texte : couleurs distinctes au survol et à la pression.
     let button = Container::new()
         .padding(14.0)
         .color(Color::rgb8(80, 200, 120))
+        .hover_color(Color::rgb8(110, 220, 150))
+        .pressed_color(Color::rgb8(60, 170, 100))
         .on_click(Msg::AddSquare)
         .child(
             Text::new("+ Ajouter un carré")
@@ -214,7 +248,7 @@ mod tests {
         assert_eq!(state.squares, 3);
 
         let tree = view(&state, 800.0, 600.0);
-        let ui = build_ui(&tree, Size::new(800.0, 600.0));
+        let ui = build_ui(&tree, Size::new(800.0, 600.0), &InputState::default());
 
         // Primitives peintes : fond du bouton (1) + libellé du bouton (1)
         // + libellé compteur (1) + 3 carrés = 6. Les Flex ne peignent rien.

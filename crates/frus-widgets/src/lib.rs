@@ -10,12 +10,14 @@
 
 mod container;
 mod flex;
+mod interaction;
 mod text;
 mod ui;
 mod widget;
 
 pub use container::Container;
 pub use flex::Flex;
+pub use interaction::{InputState, Interaction, WidgetId};
 pub use text::Text;
 pub use ui::{build_ui, Ui};
 pub use widget::Widget;

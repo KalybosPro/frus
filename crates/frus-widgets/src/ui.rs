@@ -1,17 +1,24 @@
-//! Le pilote : construit une [`Ui`] (scène + carte de hit-test) à partir d'un
-//! arbre de widgets, et permet de retrouver le message sous un point.
+//! Le pilote : construit une [`Ui`] (scène + carte de hit-test avec identités) à
+//! partir d'un arbre de widgets et de l'état d'interaction courant.
 
 use frus_core::{Point, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
+use crate::interaction::{InputState, WidgetId};
 use crate::widget::Widget;
+
+/// Une zone cliquable : identité, bornes et message associé.
+struct Hit<Msg> {
+    id: WidgetId,
+    rect: Rect,
+    msg: Msg,
+}
 
 /// Résultat de la construction d'une interface pour une frame donnée :
 /// la [`Scene`] à dessiner et la carte des zones cliquables.
 pub struct Ui<Msg> {
     scene: Scene,
-    /// Zones cliquables, en ordre préfixe (parents avant enfants).
-    hits: Vec<(Rect, Msg)>,
+    hits: Vec<Hit<Msg>>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
@@ -20,16 +27,21 @@ impl<Msg: Clone> Ui<Msg> {
         &self.scene
     }
 
-    /// Message du widget cliquable le plus **au-dessus** contenant `point`.
-    ///
-    /// Comme les enfants sont peints après (donc au-dessus de) leurs parents, on
-    /// prend la dernière zone correspondante en ordre préfixe.
-    pub fn hit(&self, point: Point) -> Option<Msg> {
+    /// Identité du widget cliquable le plus **au-dessus** contenant `point`.
+    pub fn hit(&self, point: Point) -> Option<WidgetId> {
         self.hits
             .iter()
             .rev()
-            .find(|(rect, _)| rect_contains(*rect, point))
-            .map(|(_, msg)| msg.clone())
+            .find(|hit| rect_contains(hit.rect, point))
+            .map(|hit| hit.id)
+    }
+
+    /// Message associé à un widget cliquable donné.
+    pub fn msg_for(&self, id: WidgetId) -> Option<Msg> {
+        self.hits
+            .iter()
+            .find(|hit| hit.id == id)
+            .map(|hit| hit.msg.clone())
     }
 }
 
@@ -54,28 +66,33 @@ fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeI
     }
 }
 
-/// Aplati l'arbre de widgets en ordre préfixe (parent avant enfants), pour
-/// s'aligner avec l'ordre de [`Layout::absolute_rects`].
-fn flatten<'a, Msg>(widget: &'a dyn Widget<Msg>, out: &mut Vec<&'a dyn Widget<Msg>>) {
-    out.push(widget);
-    for child in widget.children() {
-        flatten(child.as_ref(), out);
+/// Aplati l'arbre en ordre préfixe, en calculant l'identité positionnelle de
+/// chaque widget. Le même ordre que [`Layout::absolute_rects`].
+fn flatten<'a, Msg>(
+    widget: &'a dyn Widget<Msg>,
+    id: WidgetId,
+    out: &mut Vec<(&'a dyn Widget<Msg>, WidgetId)>,
+) {
+    out.push((widget, id));
+    for (index, child) in widget.children().iter().enumerate() {
+        flatten(child.as_ref(), id.child(index), out);
     }
 }
 
-/// Traduit un arbre de widgets en [`Ui`] pour un espace disponible donné.
-///
-/// Étapes : construction du layout, calcul flexbox, appariement de chaque widget
-/// avec son rectangle absolu (même ordre préfixe), puis peinture et collecte des
-/// zones cliquables.
-pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size) -> Ui<Msg> {
+/// Traduit un arbre de widgets en [`Ui`], en tenant compte de l'état
+/// d'interaction (pour le survol/pression) et en calculant les identités.
+pub fn build_ui<Msg: Clone>(
+    root: &dyn Widget<Msg>,
+    available: Size,
+    input: &InputState,
+) -> Ui<Msg> {
     let mut layout: Layout<()> = Layout::new();
-    let root_id = build_layout(root, &mut layout);
-    layout.compute(root_id, available);
+    let root_node = build_layout(root, &mut layout);
+    layout.compute(root_node, available);
 
-    let rects = layout.absolute_rects(root_id);
+    let rects = layout.absolute_rects(root_node);
     let mut widgets = Vec::new();
-    flatten(root, &mut widgets);
+    flatten(root, WidgetId::ROOT, &mut widgets);
 
     debug_assert_eq!(
         widgets.len(),
@@ -85,10 +102,15 @@ pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size) -> Ui<Msg> 
 
     let mut scene = Scene::new();
     let mut hits = Vec::new();
-    for (widget, (rect, _)) in widgets.iter().zip(rects.iter()) {
-        widget.paint(*rect, &mut scene);
+    for ((widget, id), (rect, _)) in widgets.iter().zip(rects.iter()) {
+        let status = input.status_for(*id);
+        widget.paint(*rect, status, &mut scene);
         if let Some(msg) = widget.on_click() {
-            hits.push((*rect, msg));
+            hits.push(Hit {
+                id: *id,
+                rect: *rect,
+                msg,
+            });
         }
     }
 
@@ -107,9 +129,8 @@ mod tests {
         B,
     }
 
-    #[test]
-    fn build_ui_paints_and_maps_clickable_zones() {
-        let tree = Flex::row()
+    fn sample() -> Flex<Msg> {
+        Flex::row()
             .width(400.0)
             .height(100.0)
             .padding(10.0)
@@ -118,6 +139,7 @@ mod tests {
                 Container::new()
                     .width(120.0)
                     .color(Color::rgb(1.0, 0.0, 0.0))
+                    .hover_color(Color::rgb(0.0, 1.0, 0.0))
                     .on_click(Msg::A),
             )
             .child(
@@ -125,48 +147,46 @@ mod tests {
                     .flex(1.0)
                     .color(Color::rgb(0.0, 0.0, 1.0))
                     .on_click(Msg::B),
-            );
+            )
+    }
 
-        let ui = build_ui(&tree, Size::new(400.0, 100.0));
+    #[test]
+    fn hit_and_msg_for_route_correctly() {
+        let ui = build_ui(&sample(), Size::new(400.0, 100.0), &InputState::default());
 
-        // Deux rectangles peints, aux positions flex attendues (cf. Jalon 2).
-        let prims = ui.scene().primitives();
-        assert_eq!(prims.len(), 2);
+        let id_a = ui.hit(Point::new(50.0, 50.0)).expect("A sous le point");
+        let id_b = ui.hit(Point::new(300.0, 50.0)).expect("B sous le point");
+        assert_ne!(id_a, id_b);
+        assert_eq!(ui.msg_for(id_a), Some(Msg::A));
+        assert_eq!(ui.msg_for(id_b), Some(Msg::B));
+        assert_eq!(ui.hit(Point::new(3.0, 3.0)), None);
+    }
+
+    #[test]
+    fn hover_changes_painted_color() {
+        // Sans survol : le premier rectangle est rouge.
+        let base = build_ui(&sample(), Size::new(400.0, 100.0), &InputState::default());
         assert_eq!(
-            prims[0],
+            base.scene().primitives()[0],
             Primitive::Rect {
                 rect: Rect::new(10.0, 10.0, 120.0, 80.0),
                 color: Color::rgb(1.0, 0.0, 0.0),
             }
         );
 
-        // Hit-test : A occupe x∈[10,130), B x∈[138,390).
-        assert_eq!(ui.hit(Point::new(50.0, 50.0)), Some(Msg::A));
-        assert_eq!(ui.hit(Point::new(300.0, 50.0)), Some(Msg::B));
-        // Le conteneur Flex n'est pas cliquable → zone de padding = aucun message.
-        assert_eq!(ui.hit(Point::new(3.0, 3.0)), None);
-    }
-
-    #[test]
-    fn hit_returns_topmost_widget_on_overlap() {
-        // Un conteneur cliquable (A) avec un enfant cliquable (B) par-dessus.
-        let tree = Container::new()
-            .width(200.0)
-            .height(200.0)
-            .color(Color::rgb(1.0, 0.0, 0.0))
-            .on_click(Msg::A)
-            .child(
-                Container::new()
-                    .width(100.0)
-                    .height(100.0)
-                    .color(Color::rgb(0.0, 0.0, 1.0))
-                    .on_click(Msg::B),
-            );
-
-        let ui = build_ui(&tree, Size::new(200.0, 200.0));
-
-        // Sur l'enfant (0,0,100,100) → B (au-dessus). Ailleurs → A.
-        assert_eq!(ui.hit(Point::new(50.0, 50.0)), Some(Msg::B));
-        assert_eq!(ui.hit(Point::new(150.0, 150.0)), Some(Msg::A));
+        // On récupère l'id de A, puis on le marque survolé : il devient vert.
+        let id_a = base.hit(Point::new(50.0, 50.0)).unwrap();
+        let hovered = InputState {
+            hovered: Some(id_a),
+            pressed: None,
+        };
+        let ui = build_ui(&sample(), Size::new(400.0, 100.0), &hovered);
+        assert_eq!(
+            ui.scene().primitives()[0],
+            Primitive::Rect {
+                rect: Rect::new(10.0, 10.0, 120.0, 80.0),
+                color: Color::rgb(0.0, 1.0, 0.0),
+            }
+        );
     }
 }

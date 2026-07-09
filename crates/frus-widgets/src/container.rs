@@ -4,6 +4,7 @@
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
+use crate::interaction::Interaction;
 use crate::widget::Widget;
 
 /// Une boîte rectangulaire décorée.
@@ -13,6 +14,8 @@ pub struct Container<Msg> {
     flex_grow: f32,
     padding: f32,
     color: Option<Color>,
+    hover_color: Option<Color>,
+    pressed_color: Option<Color>,
     on_click: Option<Msg>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -26,6 +29,8 @@ impl<Msg> Container<Msg> {
             flex_grow: 0.0,
             padding: 0.0,
             color: None,
+            hover_color: None,
+            pressed_color: None,
             on_click: None,
             children: Vec::new(),
         }
@@ -55,9 +60,21 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Couleur de fond.
+    /// Couleur de fond au repos.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
+        self
+    }
+
+    /// Couleur de fond au survol.
+    pub fn hover_color(mut self, color: Color) -> Self {
+        self.hover_color = Some(color);
+        self
+    }
+
+    /// Couleur de fond lorsqu'il est pressé.
+    pub fn pressed_color(mut self, color: Color) -> Self {
+        self.pressed_color = Some(color);
         self
     }
 
@@ -96,8 +113,15 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         &self.children
     }
 
-    fn paint(&self, bounds: Rect, scene: &mut Scene) {
-        if let Some(color) = self.color {
+    fn paint(&self, bounds: Rect, status: Interaction, scene: &mut Scene) {
+        // Choisit la couleur selon le statut, avec repli sur les couleurs moins
+        // spécifiques (pressé → survol → repos).
+        let color = match status {
+            Interaction::Pressed => self.pressed_color.or(self.hover_color).or(self.color),
+            Interaction::Hovered => self.hover_color.or(self.color),
+            Interaction::None => self.color,
+        };
+        if let Some(color) = color {
             scene.fill_rect(bounds, color);
         }
     }
