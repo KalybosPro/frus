@@ -22,11 +22,11 @@ mod widget;
 pub use container::Container;
 pub use flex::Flex;
 pub use interaction::{InputState, Interaction, Key, Status, WidgetId};
-pub use runtime::{Edit, Runtime, ScrollState};
-pub use scroll::Scroll;
+pub use runtime::{Anim, Edit, Runtime, ScrollState};
+pub use scroll::{Axis, Scroll};
 pub use text::Text;
 pub use textinput::TextInput;
-pub use ui::{build_ui, find_widget, Ui};
+pub use ui::{build_ui, find_widget, Scrollbar, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.

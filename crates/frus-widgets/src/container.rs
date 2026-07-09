@@ -25,6 +25,10 @@ pub struct Container<Msg> {
     color: Option<Color>,
     hover_color: Option<Color>,
     pressed_color: Option<Color>,
+    /// Dégradé : (couleur de fin, direction en espace `[0,1]²`).
+    gradient: Option<(Color, [f32; 2])>,
+    /// Ombre : (dx, dy, flou, couleur).
+    shadow: Option<(f32, f32, f32, Color)>,
     on_click: Option<Msg>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -43,6 +47,8 @@ impl<Msg> Container<Msg> {
             color: None,
             hover_color: None,
             pressed_color: None,
+            gradient: None,
+            shadow: None,
             on_click: None,
             children: Vec::new(),
         }
@@ -109,6 +115,19 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// Dégradé linéaire du fond (`color` → `end`), `dir` en espace `[0,1]²`
+    /// (p. ex. `[0.0, 1.0]` = haut→bas).
+    pub fn gradient(mut self, end: Color, dir: [f32; 2]) -> Self {
+        self.gradient = Some((end, dir));
+        self
+    }
+
+    /// Ombre portée : décalage `(dx, dy)`, rayon de flou et couleur.
+    pub fn shadow(mut self, dx: f32, dy: f32, blur: f32, color: Color) -> Self {
+        self.shadow = Some((dx, dy, blur, color));
+        self
+    }
+
     /// Message émis lorsque le conteneur est cliqué.
     pub fn on_click(mut self, message: Msg) -> Self {
         self.on_click = Some(message);
@@ -154,18 +173,40 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             self.color
         };
 
-        // On dessine si on a une couleur de fond ou une bordure visible.
+        // Ombre portée (dessinée derrière, légèrement plus grande et floue).
+        if let Some((dx, dy, blur, shadow_color)) = self.shadow {
+            let shadow_rect = Rect::new(
+                bounds.x + dx - blur,
+                bounds.y + dy - blur,
+                bounds.width + 2.0 * blur,
+                bounds.height + 2.0 * blur,
+            );
+            scene.shadow(shadow_rect, shadow_color, self.radius + blur, blur);
+        }
+
+        // Fond : dégradé si défini, sinon uni ; bordure éventuelle.
         let has_border = self.border_width > 0.0 && self.border_color.a > 0.0;
-        if let Some(color) = color {
-            scene.draw_rect(bounds, color, self.radius, self.border_width, self.border_color);
-        } else if has_border {
-            scene.draw_rect(
+        match (color, self.gradient) {
+            (Some(color), Some((end, dir))) => scene.gradient_rect(
+                bounds,
+                color,
+                end,
+                dir,
+                self.radius,
+                self.border_width,
+                self.border_color,
+            ),
+            (Some(color), None) => {
+                scene.draw_rect(bounds, color, self.radius, self.border_width, self.border_color)
+            }
+            (None, _) if has_border => scene.draw_rect(
                 bounds,
                 Color::TRANSPARENT,
                 self.radius,
                 self.border_width,
                 self.border_color,
-            );
+            ),
+            (None, _) => {}
         }
     }
 

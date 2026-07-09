@@ -67,6 +67,8 @@ pub struct Status {
     pub selection: Option<(usize, usize)>,
     /// Progression de la transition de survol (`0.0..=1.0`).
     pub hover_progress: f32,
+    /// Progression de la transition de focus (`0.0..=1.0`).
+    pub focus_progress: f32,
 }
 
 /// État d'entrée retenu au runtime, transmis à la construction de l'interface.
@@ -96,6 +98,7 @@ impl InputState {
             cursor: None,
             selection: None,
             hover_progress: 0.0,
+            focus_progress: 0.0,
         }
     }
 }

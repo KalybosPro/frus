@@ -41,6 +41,11 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Plage `(début, fin)` du mot autour de l'index donné (pour le double-clic).
+    fn word_at(&self, _index: usize) -> Option<(usize, usize)> {
+        None
+    }
+
     /// Si `true`, le widget peut recevoir le focus clavier (au clic).
     fn focusable(&self) -> bool {
         false
@@ -49,5 +54,10 @@ pub trait Widget<Msg> {
     /// Si le widget est un conteneur défilable, renvoie son contenu.
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         None
+    }
+
+    /// Axe(s) de défilement (pour un conteneur défilable).
+    fn scroll_axis(&self) -> crate::scroll::Axis {
+        crate::scroll::Axis::Vertical
     }
 }

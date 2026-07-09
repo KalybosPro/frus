@@ -91,11 +91,10 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
-        let (border_color, border_width) = if status.focused {
-            (BORDER_FOCUS, 2.0)
-        } else {
-            (BORDER_IDLE, 1.0)
-        };
+        // Bordure animée selon la progression de focus (repos → focus).
+        let fp = status.focus_progress.clamp(0.0, 1.0);
+        let border_color = BORDER_IDLE.lerp(BORDER_FOCUS, fp);
+        let border_width = 1.0 + fp;
         scene.draw_rect(bounds, BG, 6.0, border_width, border_color);
 
         let chars: Vec<char> = self.value.chars().collect();
@@ -236,6 +235,28 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
         }
     }
 
+    fn word_at(&self, index: usize) -> Option<(usize, usize)> {
+        let chars: Vec<char> = self.value.chars().collect();
+        let len = chars.len();
+        if len == 0 {
+            return Some((0, 0));
+        }
+        let i = index.min(len - 1);
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        if !is_word(chars[i]) {
+            return Some((i, (i + 1).min(len)));
+        }
+        let mut start = i;
+        while start > 0 && is_word(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = i + 1;
+        while end < len && is_word(chars[end]) {
+            end += 1;
+        }
+        Some((start, end))
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -297,5 +318,13 @@ mod tests {
         let inp = input("hello");
         let edit = Edit { cursor: 5, anchor: Some(2) };
         assert_eq!(inp.selected_text(&edit), Some("llo".to_string()));
+    }
+
+    #[test]
+    fn word_at_finds_word_bounds() {
+        let inp = input("bonjour le monde");
+        // index 10 tombe dans "monde" (indices 10..15) — non, "le" est 8..10.
+        assert_eq!(inp.word_at(2), Some((0, 7))); // "bonjour"
+        assert_eq!(inp.word_at(11), Some((11, 16))); // "monde"
     }
 }

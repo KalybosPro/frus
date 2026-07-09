@@ -10,11 +10,29 @@ use frus_layout::{Dimension, Style};
 use crate::interaction::Status;
 use crate::widget::Widget;
 
-/// Un conteneur à défilement vertical.
+/// Axe(s) de défilement d'un [`Scroll`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Axis {
+    Vertical,
+    Horizontal,
+    Both,
+}
+
+impl Axis {
+    pub(crate) fn free_x(self) -> bool {
+        matches!(self, Axis::Horizontal | Axis::Both)
+    }
+    pub(crate) fn free_y(self) -> bool {
+        matches!(self, Axis::Vertical | Axis::Both)
+    }
+}
+
+/// Un conteneur défilable.
 pub struct Scroll<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
+    axis: Axis,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -25,8 +43,15 @@ impl<Msg> Scroll<Msg> {
             width: Dimension::Auto,
             height: Dimension::Length(200.0),
             flex_grow: 0.0,
+            axis: Axis::Vertical,
             content: Vec::new(),
         }
+    }
+
+    /// Choisit le ou les axes de défilement (vertical par défaut).
+    pub fn axis(mut self, axis: Axis) -> Self {
+        self.axis = axis;
+        self
     }
 
     /// Fixe la largeur du viewport, en pixels logiques.
@@ -85,5 +110,9 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
 
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.content.first().map(|child| child.as_ref())
+    }
+
+    fn scroll_axis(&self) -> Axis {
+        self.axis
     }
 }

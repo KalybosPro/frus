@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 use crate::interaction::{InputState, WidgetId};
 
-/// Offsets de défilement, par zone défilable.
-pub type ScrollState = HashMap<WidgetId, f32>;
+/// Offsets de défilement `(x, y)`, par zone défilable.
+pub type ScrollState = HashMap<WidgetId, (f32, f32)>;
 
 /// État d'édition d'un champ de saisie : curseur + ancre de sélection.
 ///
@@ -33,8 +33,27 @@ impl Edit {
     }
 }
 
-/// Durée d'une transition de survol, en secondes.
-const HOVER_DURATION: f32 = 0.12;
+/// Durée des transitions, en secondes.
+const ANIM_DURATION: f32 = 0.12;
+
+/// Progressions d'animation d'un widget (`0.0..=1.0`).
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct Anim {
+    pub hover: f32,
+    pub focus: f32,
+}
+
+/// Fait tendre `value` vers `target` par pas de `step` ; note si ça bouge encore.
+fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
+    if *value < target {
+        *value = (*value + step).min(target);
+    } else if *value > target {
+        *value = (*value - step).max(target);
+    }
+    if (*value - target).abs() > 1e-3 {
+        *animating = true;
+    }
+}
 
 /// Contexte runtime transmis à `build_ui` : tout l'état retenu entre frames.
 #[derive(Default)]
@@ -45,44 +64,50 @@ pub struct Runtime {
     pub scroll: ScrollState,
     /// État d'édition, par champ de saisie.
     pub edits: HashMap<WidgetId, Edit>,
-    /// Progression d'animation de survol (`0.0..=1.0`), par widget.
-    pub anims: HashMap<WidgetId, f32>,
+    /// Progressions d'animation (survol/focus), par widget.
+    pub anims: HashMap<WidgetId, Anim>,
 }
 
 impl Runtime {
-    /// Progression de survol animée d'un widget (`0.0` = repos, `1.0` = survolé).
+    /// Progression de survol animée d'un widget.
     pub fn hover_progress(&self, id: WidgetId) -> f32 {
-        self.anims.get(&id).copied().unwrap_or(0.0)
+        self.anims.get(&id).map(|a| a.hover).unwrap_or(0.0)
     }
 
-    /// Fait avancer les transitions de survol de `dt` secondes vers leur cible
-    /// (le widget survolé tend vers `1.0`, les autres vers `0.0`). Renvoie `true`
-    /// si au moins une animation est encore en cours (pour continuer à redessiner).
-    pub fn advance_hover(&mut self, dt: f32) -> bool {
+    /// Progression de focus animée d'un widget.
+    pub fn focus_progress(&self, id: WidgetId) -> f32 {
+        self.anims.get(&id).map(|a| a.focus).unwrap_or(0.0)
+    }
+
+    /// Fait avancer les transitions (survol/focus) de `dt` secondes vers leurs
+    /// cibles. Renvoie `true` si au moins une animation est encore en cours.
+    pub fn advance(&mut self, dt: f32) -> bool {
         let hovered = self.input.hovered;
+        let focused = self.input.focused;
         if let Some(id) = hovered {
-            self.anims.entry(id).or_insert(0.0);
+            self.anims.entry(id).or_default();
+        }
+        if let Some(id) = focused {
+            self.anims.entry(id).or_default();
         }
 
-        let step = if HOVER_DURATION > 0.0 {
-            dt / HOVER_DURATION
+        let step = if ANIM_DURATION > 0.0 {
+            dt / ANIM_DURATION
         } else {
             1.0
         };
         let mut animating = false;
 
-        self.anims.retain(|id, progress| {
-            let target = if Some(*id) == hovered { 1.0 } else { 0.0 };
-            if *progress < target {
-                *progress = (*progress + step).min(target);
-            } else if *progress > target {
-                *progress = (*progress - step).max(target);
-            }
-            if (*progress - target).abs() > 1e-3 {
-                animating = true;
-            }
-            // On oublie les entrées revenues au repos.
-            !(target == 0.0 && *progress <= 0.0)
+        self.anims.retain(|id, anim| {
+            let hover_target = if Some(*id) == hovered { 1.0 } else { 0.0 };
+            let focus_target = if Some(*id) == focused { 1.0 } else { 0.0 };
+            approach(&mut anim.hover, hover_target, step, &mut animating);
+            approach(&mut anim.focus, focus_target, step, &mut animating);
+            // On oublie les entrées entièrement revenues au repos.
+            !(hover_target == 0.0
+                && focus_target == 0.0
+                && anim.hover <= 0.0
+                && anim.focus <= 0.0)
         });
 
         animating
@@ -100,21 +125,31 @@ mod tests {
         rt.input.hovered = Some(id);
 
         // Survolé : petites étapes → la progression monte sans atteindre 1.
-        assert!(rt.advance_hover(0.03)); // ~0.25, encore en cours
-        assert!(rt.advance_hover(0.03)); // ~0.5, encore en cours
+        assert!(rt.advance(0.03)); // ~0.25, encore en cours
+        assert!(rt.advance(0.03)); // ~0.5, encore en cours
         let p = rt.hover_progress(id);
         assert!(p > 0.4 && p < 0.6, "progression = {p}");
 
         // Grand pas : atteint 1.0 puis y reste (plus d'animation).
-        rt.advance_hover(1.0);
+        rt.advance(1.0);
         assert_eq!(rt.hover_progress(id), 1.0);
-        assert!(!rt.advance_hover(0.03));
+        assert!(!rt.advance(0.03));
 
         // Fin du survol : redescend (en cours), puis arrive à 0 et l'entrée disparaît.
         rt.input.hovered = None;
-        assert!(rt.advance_hover(0.03));
-        rt.advance_hover(1.0);
+        assert!(rt.advance(0.03));
+        rt.advance(1.0);
         assert_eq!(rt.hover_progress(id), 0.0);
         assert!(rt.anims.is_empty());
+    }
+
+    #[test]
+    fn focus_animates_independently() {
+        let id = WidgetId::ROOT.child(1);
+        let mut rt = Runtime::default();
+        rt.input.focused = Some(id);
+        rt.advance(1.0);
+        assert_eq!(rt.focus_progress(id), 1.0);
+        assert_eq!(rt.hover_progress(id), 0.0);
     }
 }

@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, find_widget, Align, Color, Container, Edit, Flex, Justify, Key, Point, Runtime,
+    build_ui, find_widget, Align, Axis, Color, Container, Edit, Flex, Justify, Key, Point, Runtime,
     Scroll, Size, Text, TextInput, Ui, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
@@ -21,6 +21,22 @@ use winit::window::{Window, WindowId};
 
 /// Vitesse de défilement (pixels par cran de molette).
 const SCROLL_SPEED: f32 = 40.0;
+
+/// Glissement en cours à la souris.
+enum Drag {
+    /// Poignée de barre de défilement.
+    Scrollbar {
+        id: WidgetId,
+        vertical: bool,
+        grab: f32,
+        track_start: f32,
+        track_len: f32,
+        thumb_len: f32,
+        max: f32,
+    },
+    /// Sélection de texte dans un champ (avec ses bornes, pour le placement).
+    TextSelect { id: WidgetId, rect: frus_widgets::Rect },
+}
 
 /// État de l'application.
 #[derive(Default)]
@@ -43,6 +59,10 @@ pub struct App {
     clipboard: Option<arboard::Clipboard>,
     /// Instant de la dernière frame (pour le dt des animations).
     last_frame: Option<Instant>,
+    /// Glissement souris en cours (barre de défilement ou sélection texte).
+    drag: Option<Drag>,
+    /// Instant du dernier clic (détection du double-clic).
+    last_click_time: Option<Instant>,
 }
 
 impl ApplicationHandler for App {
@@ -52,7 +72,7 @@ impl ApplicationHandler for App {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title("frus — Jalon 10");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 12");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -102,6 +122,13 @@ impl ApplicationHandler for App {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = Point::new(position.x as f32, position.y as f32);
+
+                // Glissement en cours : barre de défilement ou sélection texte.
+                if self.drag.is_some() {
+                    self.handle_drag();
+                    return;
+                }
+
                 // Met à jour le survol ; ne redessine que s'il a changé.
                 if let Some(ui) = &self.ui {
                     let hovered = ui.hit(self.cursor);
@@ -123,8 +150,28 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                // 1) Glissement d'une barre de défilement ?
+                if let Some(bar) = self.ui.as_ref().and_then(|ui| ui.scrollbar_at(self.cursor)) {
+                    let (along, thumb_start) = if bar.vertical {
+                        (self.cursor.y, bar.thumb.y)
+                    } else {
+                        (self.cursor.x, bar.thumb.x)
+                    };
+                    self.drag = Some(Drag::Scrollbar {
+                        id: bar.id,
+                        vertical: bar.vertical,
+                        grab: along - thumb_start,
+                        track_start: bar.track_start,
+                        track_len: bar.track_len,
+                        thumb_len: bar.thumb_len,
+                        max: bar.max,
+                    });
+                    self.request_redraw();
+                    return;
+                }
+
                 self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-                // Focus + placement du curseur au point cliqué.
+                // 2) Focus + placement du curseur, et début d'une sélection texte.
                 let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
                 self.runtime.input.focused = focus.map(|(id, _)| id);
                 if let Some((id, rect)) = focus {
@@ -136,6 +183,32 @@ impl ApplicationHandler for App {
                         .and_then(|widget| widget.cursor_at(local_x))
                         .unwrap_or(0);
                     self.runtime.edits.insert(id, Edit { cursor, anchor: None });
+                    self.drag = Some(Drag::TextSelect { id, rect });
+
+                    // Double-clic : sélectionne le mot sous le curseur.
+                    let now = Instant::now();
+                    let double = self
+                        .last_click_time
+                        .map(|t| (now - t).as_secs_f32() < 0.4)
+                        .unwrap_or(false);
+                    self.last_click_time = Some(now);
+                    if double {
+                        if let Some((start, end)) = self
+                            .tree
+                            .as_ref()
+                            .and_then(|tree| find_widget(tree.as_ref(), id))
+                            .and_then(|widget| widget.word_at(cursor))
+                        {
+                            self.runtime.edits.insert(
+                                id,
+                                Edit {
+                                    cursor: end,
+                                    anchor: Some(start),
+                                },
+                            );
+                            self.drag = None;
+                        }
+                    }
                 }
                 self.request_redraw();
             }
@@ -145,6 +218,12 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                // Fin d'un éventuel glissement.
+                let was_dragging = self.drag.take().is_some();
+                if was_dragging {
+                    self.request_redraw();
+                    return;
+                }
                 // Le clic n'est validé que si press et release sont sur le même widget.
                 let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
                 let message = match (self.runtime.input.pressed, released) {
@@ -224,14 +303,21 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y * SCROLL_SPEED,
-                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                let (mut dx, mut dy) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_SPEED, y * SCROLL_SPEED),
+                    MouseScrollDelta::PixelDelta(pos) => (pos.x as f32, pos.y as f32),
                 };
-                if let Some((id, max)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
+                // Shift : la molette défile horizontalement.
+                if self.shift {
+                    dx = dy;
+                    dy = 0.0;
+                }
+                if let Some((id, max_x, max_y)) =
+                    self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
                 {
-                    let offset = self.runtime.scroll.entry(id).or_insert(0.0);
-                    *offset = (*offset - dy).clamp(0.0, max);
+                    let offset = self.runtime.scroll.entry(id).or_insert((0.0, 0.0));
+                    offset.0 = (offset.0 - dx).clamp(0.0, max_x);
+                    offset.1 = (offset.1 - dy).clamp(0.0, max_y);
                     self.request_redraw();
                 }
             }
@@ -251,7 +337,7 @@ impl ApplicationHandler for App {
                     .map(|prev| (now - prev).as_secs_f32().min(0.05))
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
-                let animating = self.runtime.advance_hover(dt);
+                let animating = self.runtime.advance(dt);
 
                 let tree = view(&self.state, width, height);
                 let ui = build_ui(&tree, Size::new(width, height), &self.runtime);
@@ -290,6 +376,52 @@ impl App {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    /// Applique le glissement souris en cours (barre de défilement ou sélection).
+    fn handle_drag(&mut self) {
+        let Some(drag) = self.drag.take() else {
+            return;
+        };
+        match &drag {
+            Drag::Scrollbar {
+                id,
+                vertical,
+                grab,
+                track_start,
+                track_len,
+                thumb_len,
+                max,
+            } => {
+                let along = if *vertical { self.cursor.y } else { self.cursor.x };
+                let travel = (track_len - thumb_len).max(1.0);
+                let thumb_start = (along - grab).clamp(*track_start, track_start + travel);
+                let offset = ((thumb_start - track_start) / travel * max).clamp(0.0, *max);
+                let entry = self.runtime.scroll.entry(*id).or_insert((0.0, 0.0));
+                if *vertical {
+                    entry.1 = offset;
+                } else {
+                    entry.0 = offset;
+                }
+            }
+            Drag::TextSelect { id, rect } => {
+                let local_x = self.cursor.x - rect.x;
+                let cursor = self
+                    .tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), *id))
+                    .and_then(|widget| widget.cursor_at(local_x));
+                if let Some(cursor) = cursor {
+                    let edit = self.runtime.edits.entry(*id).or_default();
+                    if edit.anchor.is_none() {
+                        edit.anchor = Some(edit.cursor);
+                    }
+                    edit.cursor = cursor;
+                }
+            }
+        }
+        self.drag = Some(drag);
+        self.request_redraw();
     }
 
     /// Route une touche vers le champ focalisé : met à jour l'état d'édition et
@@ -370,10 +502,12 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
     let button = Container::new()
         .radius(12.0)
         .border(2.0, Color::rgb8(40, 120, 80))
+        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.45))
+        .gradient(Color::rgb8(56, 178, 104), [0.0, 1.0])
         .padding_each(12.0, 20.0, 12.0, 20.0)
-        .color(Color::rgb8(80, 200, 120))
-        .hover_color(Color::rgb8(110, 220, 150))
-        .pressed_color(Color::rgb8(60, 170, 100))
+        .color(Color::rgb8(96, 210, 132))
+        .hover_color(Color::rgb8(120, 226, 158))
+        .pressed_color(Color::rgb8(70, 180, 110))
         .on_click(Msg::AddSquare)
         .child(
             Text::new("+ Ajouter un carré")
@@ -429,7 +563,26 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         Text::new(greeting).size(18.0).color(Color::rgb8(170, 200, 175)),
     );
 
-    // Liste défilante : 8 éléments de base + ceux ajoutés au clic sur le bouton.
+    // Bande défilante horizontale de vignettes (dégradé + coins arrondis).
+    let mut strip = Flex::row().gap(10.0);
+    for i in 0..12 {
+        let c = PALETTE[i % PALETTE.len()];
+        strip = strip.child(
+            Container::new()
+                .width(120.0)
+                .height(72.0)
+                .radius(10.0)
+                .shadow(0.0, 3.0, 8.0, Color::rgba(0.0, 0.0, 0.0, 0.35))
+                .gradient(c, [0.6, 1.0])
+                .color(Color::rgb(c.r * 1.3, c.g * 1.3, c.b * 1.3)),
+        );
+    }
+    let strip_scroll = Scroll::new()
+        .axis(Axis::Horizontal)
+        .height(84.0)
+        .child(strip);
+
+    // Liste défilante verticale : 8 éléments + ceux ajoutés au clic.
     let total = 8 + state.squares;
     let mut list = Flex::column().gap(8.0);
     for i in 0..total {
@@ -437,6 +590,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
             Container::new()
                 .height(48.0)
                 .radius(8.0)
+                .shadow(0.0, 2.0, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.3))
                 .color(PALETTE[(i as usize) % PALETTE.len()])
                 .padding_each(14.0, 16.0, 14.0, 16.0)
                 .child(
@@ -446,7 +600,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
                 ),
         );
     }
-    let scroll = Scroll::new().flex(1.0).height(260.0).child(list);
+    let scroll = Scroll::new().flex(1.0).height(240.0).child(list);
 
     Flex::column()
         .width(width)
@@ -459,6 +613,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         .child(email_row)
         .child(greeting_row)
         .child(email_text)
+        .child(strip_scroll)
         .child(scroll)
 }
 

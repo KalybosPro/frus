@@ -2,12 +2,33 @@
 //! produit la [`Scene`] et les cartes de hit-test (clic, focus, scroll), et
 //! permet de retrouver un widget par identité pour lui router clavier/édition.
 
-use frus_core::{Point, Rect, Scene, Size};
+use frus_core::{Color, Point, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::WidgetId;
 use crate::runtime::Runtime;
 use crate::widget::Widget;
+
+/// Épaisseur d'une barre de défilement, en pixels.
+const BAR_SIZE: f32 = 10.0;
+/// Longueur minimale d'une poignée.
+const MIN_THUMB: f32 = 28.0;
+const TRACK_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.06);
+const THUMB_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.28);
+
+/// Une poignée de barre de défilement (pour le hit-test au drag).
+#[derive(Copy, Clone, Debug)]
+pub struct Scrollbar {
+    pub id: WidgetId,
+    pub vertical: bool,
+    pub thumb: Rect,
+    /// Début et longueur de la piste, le long de l'axe.
+    pub track_start: f32,
+    pub track_len: f32,
+    pub thumb_len: f32,
+    /// Offset maximal correspondant.
+    pub max: f32,
+}
 
 struct Hit<Msg> {
     id: WidgetId,
@@ -20,7 +41,9 @@ pub struct Ui<Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
     focusables: Vec<(WidgetId, Rect)>,
-    scrollables: Vec<(WidgetId, Rect, f32)>,
+    /// (id, viewport, offset max x, offset max y)
+    scrollables: Vec<(WidgetId, Rect, f32, f32)>,
+    scrollbars: Vec<Scrollbar>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
@@ -55,13 +78,22 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
-    /// Zone défilable la plus au-dessus contenant `point` : (id, offset max).
-    pub fn scroll_hit(&self, point: Point) -> Option<(WidgetId, f32)> {
+    /// Zone défilable la plus au-dessus contenant `point` : (id, max x, max y).
+    pub fn scroll_hit(&self, point: Point) -> Option<(WidgetId, f32, f32)> {
         self.scrollables
             .iter()
             .rev()
-            .find(|(_, rect, _)| rect.contains(point))
-            .map(|(id, _, max)| (*id, *max))
+            .find(|(_, rect, _, _)| rect.contains(point))
+            .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
+    }
+
+    /// Poignée de barre de défilement sous `point` (pour démarrer un glissement).
+    pub fn scrollbar_at(&self, point: Point) -> Option<Scrollbar> {
+        self.scrollbars
+            .iter()
+            .rev()
+            .find(|bar| bar.thumb.contains(point))
+            .copied()
     }
 }
 
@@ -86,7 +118,8 @@ struct Builder<'a, Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
     focusables: Vec<(WidgetId, Rect)>,
-    scrollables: Vec<(WidgetId, Rect, f32)>,
+    scrollables: Vec<(WidgetId, Rect, f32, f32)>,
+    scrollbars: Vec<Scrollbar>,
     runtime: &'a Runtime,
 }
 
@@ -108,6 +141,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
         // curseur/sélection éventuels.
         let mut status = self.runtime.input.status_for(id);
         status.hover_progress = self.runtime.hover_progress(id);
+        status.focus_progress = self.runtime.focus_progress(id);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -133,24 +167,32 @@ impl<Msg: Clone> Builder<'_, Msg> {
         }
 
         if let Some(content) = widget.scroll_content() {
+            let axis = widget.scroll_axis();
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
-            let offset = self.runtime.scroll.get(&id).copied().unwrap_or(0.0);
+            let (offset_x, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
 
             let mut layout: Layout<()> = Layout::new();
             let content_root = build_layout(content, &mut layout);
-            layout.compute_unbounded_height(content_root, viewport.width);
+            layout.compute_scroll(
+                content_root,
+                viewport.width,
+                viewport.height,
+                axis.free_x(),
+                axis.free_y(),
+            );
             let content_rects: Vec<Rect> = layout
                 .absolute_rects(content_root)
                 .into_iter()
                 .map(|(rect, _)| rect)
                 .collect();
 
-            let content_height = content_rects.first().map(|r| r.height).unwrap_or(0.0);
-            let max_offset = (content_height - viewport.height).max(0.0);
-            self.scrollables.push((id, viewport, max_offset));
+            let content_size = content_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            let max_x = (content_size.width - viewport.width).max(0.0);
+            let max_y = (content_size.height - viewport.height).max(0.0);
+            self.scrollables.push((id, viewport, max_x, max_y));
 
-            let content_translation = (viewport.x, viewport.y - offset);
+            let content_translation = (viewport.x - offset_x, viewport.y - offset_y);
             let mut content_index = 0;
             self.walk(
                 content,
@@ -160,6 +202,15 @@ impl<Msg: Clone> Builder<'_, Msg> {
                 &content_rects,
                 &mut content_index,
             );
+
+            // Barres de défilement, par-dessus le contenu (non découpées par lui).
+            self.scene.set_clip(clip);
+            if max_y > 0.0 {
+                self.add_scrollbar(id, viewport, true, offset_y, max_y);
+            }
+            if max_x > 0.0 {
+                self.add_scrollbar(id, viewport, false, offset_x, max_x);
+            }
         } else {
             for (child_index, child) in widget.children().iter().enumerate() {
                 self.walk(
@@ -172,6 +223,51 @@ impl<Msg: Clone> Builder<'_, Msg> {
                 );
             }
         }
+    }
+}
+
+impl<Msg: Clone> Builder<'_, Msg> {
+    /// Dessine une barre de défilement (piste + poignée) et l'enregistre pour
+    /// le hit-test au glissement.
+    fn add_scrollbar(&mut self, id: WidgetId, viewport: Rect, vertical: bool, offset: f32, max: f32) {
+        let (track_start, track_len, content_len) = if vertical {
+            (viewport.y, viewport.height, viewport.height + max)
+        } else {
+            (viewport.x, viewport.width, viewport.width + max)
+        };
+        let thumb_len = (track_len * track_len / content_len)
+            .max(MIN_THUMB)
+            .min(track_len);
+        let travel = track_len - thumb_len;
+        let thumb_pos = track_start + if max > 0.0 { offset / max * travel } else { 0.0 };
+
+        let (track, thumb) = if vertical {
+            let x = viewport.x + viewport.width - BAR_SIZE;
+            (
+                Rect::new(x, viewport.y, BAR_SIZE, viewport.height),
+                Rect::new(x + 1.0, thumb_pos, BAR_SIZE - 2.0, thumb_len),
+            )
+        } else {
+            let y = viewport.y + viewport.height - BAR_SIZE;
+            (
+                Rect::new(viewport.x, y, viewport.width, BAR_SIZE),
+                Rect::new(thumb_pos, y + 1.0, thumb_len, BAR_SIZE - 2.0),
+            )
+        };
+
+        self.scene
+            .draw_rect(track, TRACK_COLOR, BAR_SIZE * 0.5, 0.0, Color::TRANSPARENT);
+        self.scene
+            .draw_rect(thumb, THUMB_COLOR, (BAR_SIZE - 2.0) * 0.5, 0.0, Color::TRANSPARENT);
+        self.scrollbars.push(Scrollbar {
+            id,
+            vertical,
+            thumb,
+            track_start,
+            track_len,
+            thumb_len,
+            max,
+        });
     }
 }
 
@@ -191,6 +287,7 @@ pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size, runtime: &R
         hits: Vec::new(),
         focusables: Vec::new(),
         scrollables: Vec::new(),
+        scrollbars: Vec::new(),
         runtime,
     };
     let mut index = 0;
@@ -201,6 +298,7 @@ pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size, runtime: &R
         hits: builder.hits,
         focusables: builder.focusables,
         scrollables: builder.scrollables,
+        scrollbars: builder.scrollbars,
     }
 }
 
@@ -290,7 +388,7 @@ mod tests {
         // Progression pleine : couleur de survol (vert).
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id_a);
-        rt.anims.insert(id_a, 1.0);
+        rt.anims.insert(id_a, crate::Anim { hover: 1.0, focus: 0.0 });
         let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
         if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));
@@ -328,13 +426,14 @@ mod tests {
 
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(200.0, 100.0), &rt);
-        let (sid, _viewport, max) = ui.scrollables[0];
-        assert_eq!(max, 80.0);
+        let (sid, _viewport, max_x, max_y) = ui.scrollables[0];
+        assert_eq!(max_y, 80.0); // 180 - 100
+        assert_eq!(max_x, 0.0);
         assert_eq!(ui.first_rect().0.y, 0.0);
         assert_eq!(ui.first_rect().1, Rect::new(0.0, 0.0, 200.0, 100.0));
 
         let mut rt = Runtime::default();
-        rt.scroll.insert(sid, 50.0);
+        rt.scroll.insert(sid, (0.0, 50.0));
         let ui2 = build_ui(&tree, Size::new(200.0, 100.0), &rt);
         assert_eq!(ui2.first_rect().0.y, -50.0);
     }

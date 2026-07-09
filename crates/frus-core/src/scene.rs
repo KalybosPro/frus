@@ -12,13 +12,20 @@ use crate::{Color, Point, Rect};
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Primitive {
-    /// Un rectangle, éventuellement à coins arrondis et bordé.
+    /// Un rectangle : coins arrondis, bordure, dégradé et/ou ombre douce.
     Rect {
         rect: Rect,
+        /// Couleur de remplissage (couleur de départ si dégradé).
         color: Color,
+        /// Couleur de fin du dégradé (`== color` si uni).
+        color2: Color,
+        /// Direction du dégradé en espace `[0,1]²` ; `(0,0)` = uni.
+        gradient_dir: [f32; 2],
         radius: f32,
         border_width: f32,
         border_color: Color,
+        /// Adoucissement du bord, en pixels (0 = net ; > 0 = ombre floue).
+        blur: f32,
         /// Rectangle de découpe : rien n'est dessiné en dehors.
         clip: Rect,
     },
@@ -71,9 +78,12 @@ impl Scene {
         self.primitives.push(Primitive::Rect {
             rect,
             color,
+            color2: color,
+            gradient_dir: [0.0, 0.0],
             radius: 0.0,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
+            blur: 0.0,
             clip: self.current_clip,
         });
     }
@@ -90,9 +100,51 @@ impl Scene {
         self.primitives.push(Primitive::Rect {
             rect,
             color,
+            color2: color,
+            gradient_dir: [0.0, 0.0],
             radius,
             border_width,
             border_color,
+            blur: 0.0,
+            clip: self.current_clip,
+        });
+    }
+
+    /// Ajoute un rectangle à dégradé linéaire (`color` → `color2` selon `dir`).
+    pub fn gradient_rect(
+        &mut self,
+        rect: Rect,
+        color: Color,
+        color2: Color,
+        dir: [f32; 2],
+        radius: f32,
+        border_width: f32,
+        border_color: Color,
+    ) {
+        self.primitives.push(Primitive::Rect {
+            rect,
+            color,
+            color2,
+            gradient_dir: dir,
+            radius,
+            border_width,
+            border_color,
+            blur: 0.0,
+            clip: self.current_clip,
+        });
+    }
+
+    /// Ajoute une ombre douce (rectangle arrondi au bord flou), sans bordure.
+    pub fn shadow(&mut self, rect: Rect, color: Color, radius: f32, blur: f32) {
+        self.primitives.push(Primitive::Rect {
+            rect,
+            color,
+            color2: color,
+            gradient_dir: [0.0, 0.0],
+            radius,
+            border_width: 0.0,
+            border_color: Color::TRANSPARENT,
+            blur,
             clip: self.current_clip,
         });
     }
@@ -140,9 +192,12 @@ mod tests {
             Primitive::Rect {
                 rect: Rect::new(1.0, 2.0, 3.0, 4.0),
                 color: Color::WHITE,
+                color2: Color::WHITE,
+                gradient_dir: [0.0, 0.0],
                 radius: 0.0,
                 border_width: 0.0,
                 border_color: Color::TRANSPARENT,
+                blur: 0.0,
                 clip: Rect::UNBOUNDED,
             }
         );

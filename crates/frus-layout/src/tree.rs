@@ -49,18 +49,33 @@ impl<T> Layout<T> {
             .expect("calcul de la mise en page");
     }
 
-    /// Calcule la mise en page avec une largeur fixe et une **hauteur libre**
-    /// (le contenu prend sa hauteur naturelle). Utile pour un contenu scrollable.
-    pub fn compute_unbounded_height(&mut self, root: NodeId, width: f32) {
+    /// Calcule la mise en page d'un contenu scrollable : chaque axe est soit
+    /// contraint au viewport, soit **libre** (le contenu prend sa taille
+    /// naturelle) selon `free_x` / `free_y`.
+    pub fn compute_scroll(
+        &mut self,
+        root: NodeId,
+        width: f32,
+        height: f32,
+        free_x: bool,
+        free_y: bool,
+    ) {
+        let axis = |free: bool, size: f32| {
+            if free {
+                AvailableSpace::MaxContent
+            } else {
+                AvailableSpace::Definite(size)
+            }
+        };
         self.tree
             .compute_layout(
                 root,
                 taffy::Size {
-                    width: AvailableSpace::Definite(width),
-                    height: AvailableSpace::MaxContent,
+                    width: axis(free_x, width),
+                    height: axis(free_y, height),
                 },
             )
-            .expect("calcul de la mise en page (hauteur libre)");
+            .expect("calcul de la mise en page (scroll)");
     }
 
     /// Parcourt l'arbre (préfixe) et renvoie, pour chaque nœud, son rectangle en

@@ -31,22 +31,27 @@ impl QuadVertex {
 struct Instance {
     rect: [f32; 4],
     color: [f32; 4],
+    color2: [f32; 4],
     border_color: [f32; 4],
-    /// radius, border_width, (réservé), (réservé).
+    /// radius, border_width, blur, (réservé).
     params: [f32; 4],
+    /// direction du dégradé (x, y), puis (réservé, réservé).
+    gradient: [f32; 4],
     /// Rectangle de découpe : x, y, width, height.
     clip: [f32; 4],
 }
 
 impl Instance {
-    /// Layout du buffer d'instances (locations 1..=5 ; la 0 est le quad unité).
+    /// Layout du buffer d'instances (locations 1..=7 ; la 0 est le quad unité).
     fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
             1 => Float32x4,
             2 => Float32x4,
             3 => Float32x4,
             4 => Float32x4,
             5 => Float32x4,
+            6 => Float32x4,
+            7 => Float32x4,
         ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
@@ -207,15 +212,20 @@ impl Painter {
                 Primitive::Rect {
                     rect,
                     color,
+                    color2,
+                    gradient_dir,
                     radius,
                     border_width,
                     border_color,
+                    blur,
                     clip,
                 } => self.instances.push(Instance {
                     rect: rect.to_array(),
                     color: color.to_array(),
+                    color2: color2.to_array(),
                     border_color: border_color.to_array(),
-                    params: [*radius, *border_width, 0.0, 0.0],
+                    params: [*radius, *border_width, *blur, 0.0],
+                    gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
                     clip: clip.to_array(),
                 }),
                 // Le texte est rendu séparément par le TextPainter.
