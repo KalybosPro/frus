@@ -3,6 +3,9 @@
 //! Elle décrit *ce qu'il faut dessiner* (des primitives) sans rien savoir du
 //! GPU. `frus-gpu` la consomme pour produire des commandes GPU ; `frus-widgets`
 //! la produit à partir d'un arbre de widgets.
+//!
+//! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
+//! [`Scene::set_clip`] avant d'ajouter des primitives.
 
 use crate::{Color, Point, Rect};
 
@@ -13,12 +16,11 @@ pub enum Primitive {
     Rect {
         rect: Rect,
         color: Color,
-        /// Rayon des coins, en pixels (0 = coins droits).
         radius: f32,
-        /// Épaisseur de la bordure, en pixels (0 = sans bordure).
         border_width: f32,
-        /// Couleur de la bordure (ignorée si `border_width == 0`).
         border_color: Color,
+        /// Rectangle de découpe : rien n'est dessiné en dehors.
+        clip: Rect,
     },
     /// Une ligne de texte, ancrée par son coin haut-gauche.
     Text {
@@ -26,17 +28,29 @@ pub enum Primitive {
         text: String,
         size: f32,
         color: Color,
+        /// Rectangle de découpe.
+        clip: Rect,
     },
 }
 
 /// Une scène 2D : la description déclarative de ce qu'il faut dessiner.
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Scene {
     primitives: Vec<Primitive>,
+    current_clip: Rect,
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        Self {
+            primitives: Vec::new(),
+            current_clip: Rect::UNBOUNDED,
+        }
+    }
 }
 
 impl Scene {
-    /// Crée une scène vide.
+    /// Crée une scène vide (découpe neutre).
     pub fn new() -> Self {
         Self::default()
     }
@@ -44,6 +58,12 @@ impl Scene {
     /// Vide la scène pour la réutiliser à la frame suivante.
     pub fn clear(&mut self) {
         self.primitives.clear();
+        self.current_clip = Rect::UNBOUNDED;
+    }
+
+    /// Fixe le rectangle de découpe appliqué aux primitives suivantes.
+    pub fn set_clip(&mut self, clip: Rect) {
+        self.current_clip = clip;
     }
 
     /// Ajoute un rectangle plein (coins droits, sans bordure).
@@ -54,6 +74,7 @@ impl Scene {
             radius: 0.0,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
+            clip: self.current_clip,
         });
     }
 
@@ -72,6 +93,7 @@ impl Scene {
             radius,
             border_width,
             border_color,
+            clip: self.current_clip,
         });
     }
 
@@ -82,6 +104,7 @@ impl Scene {
             text: text.into(),
             size,
             color,
+            clip: self.current_clip,
         });
     }
 
@@ -107,7 +130,7 @@ mod tests {
     use crate::{Color, Rect};
 
     #[test]
-    fn fill_rect_pushes_primitive() {
+    fn fill_rect_pushes_primitive_with_current_clip() {
         let mut scene = Scene::new();
         assert!(scene.is_empty());
         scene.fill_rect(Rect::new(1.0, 2.0, 3.0, 4.0), Color::WHITE);
@@ -120,15 +143,21 @@ mod tests {
                 radius: 0.0,
                 border_width: 0.0,
                 border_color: Color::TRANSPARENT,
+                clip: Rect::UNBOUNDED,
             }
         );
     }
 
     #[test]
-    fn clear_empties_the_scene() {
+    fn set_clip_applies_to_following_primitives() {
         let mut scene = Scene::new();
-        scene.fill_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::BLACK);
-        scene.clear();
-        assert!(scene.is_empty());
+        let clip = Rect::new(0.0, 0.0, 10.0, 10.0);
+        scene.set_clip(clip);
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), Color::BLACK);
+        if let Primitive::Rect { clip: c, .. } = scene.primitives()[0] {
+            assert_eq!(c, clip);
+        } else {
+            panic!("attendu un rectangle");
+        }
     }
 }

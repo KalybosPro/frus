@@ -69,9 +69,34 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// Un rectangle « infini » servant de découpe neutre (aucun clipping).
+    pub const UNBOUNDED: Rect = Rect::new(-1.0e7, -1.0e7, 2.0e7, 2.0e7);
+
     /// Crée un rectangle depuis sa position (coin haut-gauche) et sa taille.
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self { x, y, width, height }
+    }
+
+    /// Décale le rectangle de `(dx, dy)`.
+    pub fn translate(self, dx: f32, dy: f32) -> Self {
+        Self::new(self.x + dx, self.y + dy, self.width, self.height)
+    }
+
+    /// Intersection de deux rectangles (taille nulle s'ils sont disjoints).
+    pub fn intersect(self, other: Rect) -> Self {
+        let x0 = self.x.max(other.x);
+        let y0 = self.y.max(other.y);
+        let x1 = (self.x + self.width).min(other.x + other.width);
+        let y1 = (self.y + self.height).min(other.y + other.height);
+        Self::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+    }
+
+    /// `true` si `point` est dans le rectangle (bord gauche/haut inclus).
+    pub fn contains(self, point: Point) -> bool {
+        point.x >= self.x
+            && point.x < self.x + self.width
+            && point.y >= self.y
+            && point.y < self.y + self.height
     }
 
     /// Crée un rectangle depuis un point d'origine et une taille.

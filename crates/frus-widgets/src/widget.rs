@@ -32,4 +32,10 @@ pub trait Widget<Msg> {
     fn focusable(&self) -> bool {
         false
     }
+
+    /// Si le widget est un conteneur défilable, renvoie son contenu (mis en page
+    /// séparément, à hauteur libre, puis découpé et translaté par le pilote).
+    fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
+        None
+    }
 }

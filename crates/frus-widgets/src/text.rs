@@ -91,6 +91,7 @@ mod tests {
                 text: "Salut".to_string(),
                 size: 20.0,
                 color: Color::rgb(1.0, 0.0, 0.0),
+                clip: Rect::UNBOUNDED,
             }
         );
     }

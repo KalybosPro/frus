@@ -11,6 +11,7 @@
 mod container;
 mod flex;
 mod interaction;
+mod scroll;
 mod text;
 mod textinput;
 mod ui;
@@ -19,9 +20,10 @@ mod widget;
 pub use container::Container;
 pub use flex::Flex;
 pub use interaction::{InputState, Interaction, Key, Status, WidgetId};
+pub use scroll::Scroll;
 pub use text::Text;
 pub use textinput::TextInput;
-pub use ui::{build_ui, dispatch_key, Ui};
+pub use ui::{build_ui, dispatch_key, ScrollState, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.

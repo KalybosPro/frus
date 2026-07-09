@@ -1,6 +1,8 @@
-//! Le pilote : construit une [`Ui`] (scène + cartes de hit-test) à partir d'un
-//! arbre de widgets et de l'état d'interaction, et route les touches vers le
-//! widget focalisé.
+//! Le pilote : parcourt l'arbre de widgets en portant un contexte
+//! (translation + découpe), produit la [`Scene`] et les cartes de hit-test
+//! (clic, focus, scroll), et route les touches vers le widget focalisé.
+
+use std::collections::HashMap;
 
 use frus_core::{Point, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
@@ -8,19 +10,22 @@ use frus_layout::{Layout, NodeId};
 use crate::interaction::{InputState, Key, WidgetId};
 use crate::widget::Widget;
 
-/// Une zone cliquable : identité, bornes et message associé.
+/// Offsets de défilement retenus au runtime, par widget défilable.
+pub type ScrollState = HashMap<WidgetId, f32>;
+
 struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
     msg: Msg,
 }
 
-/// Résultat de la construction d'une interface pour une frame donnée : la
-/// [`Scene`] à dessiner, plus les cartes de hit-test (clic et focus).
+/// Résultat de la construction d'une interface pour une frame donnée.
 pub struct Ui<Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
     focusables: Vec<(WidgetId, Rect)>,
+    /// (id, viewport, offset max) pour chaque zone défilable.
+    scrollables: Vec<(WidgetId, Rect, f32)>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
@@ -34,7 +39,7 @@ impl<Msg: Clone> Ui<Msg> {
         self.hits
             .iter()
             .rev()
-            .find(|hit| rect_contains(hit.rect, point))
+            .find(|hit| hit.rect.contains(point))
             .map(|hit| hit.id)
     }
 
@@ -46,25 +51,31 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|hit| hit.msg.clone())
     }
 
-    /// Identité du widget **focalisable** le plus au-dessus contenant `point`.
+    /// Identité du widget focalisable le plus au-dessus contenant `point`.
     pub fn focus_hit(&self, point: Point) -> Option<WidgetId> {
         self.focusables
             .iter()
             .rev()
-            .find(|(_, rect)| rect_contains(*rect, point))
+            .find(|(_, rect)| rect.contains(point))
             .map(|(id, _)| *id)
+    }
+
+    /// Zone défilable la plus au-dessus contenant `point` : (id, offset max).
+    pub fn scroll_hit(&self, point: Point) -> Option<(WidgetId, f32)> {
+        self.scrollables
+            .iter()
+            .rev()
+            .find(|(_, rect, _)| rect.contains(point))
+            .map(|(id, _, max)| (*id, *max))
     }
 }
 
-fn rect_contains(rect: Rect, point: Point) -> bool {
-    point.x >= rect.x
-        && point.x < rect.x + rect.width
-        && point.y >= rect.y
-        && point.y < rect.y + rect.height
-}
-
-/// Construit récursivement l'arbre de layout à partir de l'arbre de widgets.
+/// Construit l'arbre de layout principal. Un widget défilable est une **feuille**
+/// (son contenu est mis en page séparément par le pilote).
 fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
+    if widget.scroll_content().is_some() {
+        return layout.leaf(widget.style(), ());
+    }
     let children = widget.children();
     if children.is_empty() {
         layout.leaf(widget.style(), ())
@@ -77,57 +88,129 @@ fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeI
     }
 }
 
-/// Aplati l'arbre en ordre préfixe, en calculant l'identité positionnelle.
-fn flatten<'a, Msg>(
-    widget: &'a dyn Widget<Msg>,
-    id: WidgetId,
-    out: &mut Vec<(&'a dyn Widget<Msg>, WidgetId)>,
-) {
-    out.push((widget, id));
-    for (index, child) in widget.children().iter().enumerate() {
-        flatten(child.as_ref(), id.child(index), out);
+/// État mutable accumulé pendant le parcours.
+struct Builder<'a, Msg> {
+    scene: Scene,
+    hits: Vec<Hit<Msg>>,
+    focusables: Vec<(WidgetId, Rect)>,
+    scrollables: Vec<(WidgetId, Rect, f32)>,
+    input: &'a InputState,
+    scroll: &'a ScrollState,
+}
+
+impl<Msg: Clone> Builder<'_, Msg> {
+    /// Parcourt un widget et ses descendants. `translation` est le décalage à
+    /// ajouter aux rectangles (issus de `rects`) pour obtenir les coordonnées
+    /// écran ; `clip` est la découpe courante.
+    #[allow(clippy::too_many_arguments)]
+    fn walk(
+        &mut self,
+        widget: &dyn Widget<Msg>,
+        id: WidgetId,
+        translation: (f32, f32),
+        clip: Rect,
+        rects: &[Rect],
+        index: &mut usize,
+    ) {
+        let rect = rects[*index];
+        *index += 1;
+        let draw_rect = rect.translate(translation.0, translation.1);
+
+        self.scene.set_clip(clip);
+        widget.paint(draw_rect, self.input.status_for(id), &mut self.scene);
+
+        // Zone visible (dans la découpe) : sert au hit-test.
+        let visible = draw_rect.intersect(clip);
+        if visible.width > 0.0 && visible.height > 0.0 {
+            if let Some(msg) = widget.on_click() {
+                self.hits.push(Hit {
+                    id,
+                    rect: visible,
+                    msg,
+                });
+            }
+            if widget.focusable() {
+                self.focusables.push((id, visible));
+            }
+        }
+
+        if let Some(content) = widget.scroll_content() {
+            let viewport = draw_rect;
+            let content_clip = clip.intersect(viewport);
+            let offset = self.scroll.get(&id).copied().unwrap_or(0.0);
+
+            // Mise en page du contenu à hauteur libre.
+            let mut layout: Layout<()> = Layout::new();
+            let content_root = build_layout(content, &mut layout);
+            layout.compute_unbounded_height(content_root, viewport.width);
+            let content_rects: Vec<Rect> = layout
+                .absolute_rects(content_root)
+                .into_iter()
+                .map(|(rect, _)| rect)
+                .collect();
+
+            let content_height = content_rects.first().map(|r| r.height).unwrap_or(0.0);
+            let max_offset = (content_height - viewport.height).max(0.0);
+            self.scrollables.push((id, viewport, max_offset));
+
+            // Le contenu est placé à l'origine du viewport, décalé du scroll.
+            let content_translation = (viewport.x, viewport.y - offset);
+            let mut content_index = 0;
+            self.walk(
+                content,
+                id.child(0),
+                content_translation,
+                content_clip,
+                &content_rects,
+                &mut content_index,
+            );
+        } else {
+            for (child_index, child) in widget.children().iter().enumerate() {
+                self.walk(
+                    child.as_ref(),
+                    id.child(child_index),
+                    translation,
+                    clip,
+                    rects,
+                    index,
+                );
+            }
+        }
     }
 }
 
-/// Traduit un arbre de widgets en [`Ui`], en tenant compte de l'état
-/// d'interaction (survol/pression/focus) et en calculant les identités.
+/// Traduit un arbre de widgets en [`Ui`] pour une taille et un état donnés.
 pub fn build_ui<Msg: Clone>(
     root: &dyn Widget<Msg>,
     available: Size,
     input: &InputState,
+    scroll: &ScrollState,
 ) -> Ui<Msg> {
     let mut layout: Layout<()> = Layout::new();
     let root_node = build_layout(root, &mut layout);
     layout.compute(root_node, available);
+    let rects: Vec<Rect> = layout
+        .absolute_rects(root_node)
+        .into_iter()
+        .map(|(rect, _)| rect)
+        .collect();
 
-    let rects = layout.absolute_rects(root_node);
-    let mut widgets = Vec::new();
-    flatten(root, WidgetId::ROOT, &mut widgets);
-
-    debug_assert_eq!(widgets.len(), rects.len());
-
-    let mut scene = Scene::new();
-    let mut hits = Vec::new();
-    let mut focusables = Vec::new();
-    for ((widget, id), (rect, _)) in widgets.iter().zip(rects.iter()) {
-        let status = input.status_for(*id);
-        widget.paint(*rect, status, &mut scene);
-        if let Some(msg) = widget.on_click() {
-            hits.push(Hit {
-                id: *id,
-                rect: *rect,
-                msg,
-            });
-        }
-        if widget.focusable() {
-            focusables.push((*id, *rect));
-        }
-    }
+    let mut builder = Builder {
+        scene: Scene::new(),
+        hits: Vec::new(),
+        focusables: Vec::new(),
+        scrollables: Vec::new(),
+        input,
+        scroll,
+    };
+    let mut index = 0;
+    builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
 
     Ui {
-        scene,
-        hits,
-        focusables,
+        scene: builder.scene,
+        hits: builder.hits,
+        focusables: builder.focusables,
+        scrollables: builder.scrollables,
     }
 }
 
@@ -158,7 +241,7 @@ pub fn dispatch_key<Msg>(root: &dyn Widget<Msg>, focused: WidgetId, key: &Key) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Container, Flex, TextInput};
+    use crate::{Container, Flex, Scroll, TextInput};
     use frus_core::{Color, Point, Primitive, Rect, Size};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -191,10 +274,14 @@ mod tests {
 
     #[test]
     fn hit_and_msg_for_route_correctly() {
-        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &InputState::default());
-
-        let id_a = ui.hit(Point::new(50.0, 50.0)).expect("A sous le point");
-        let id_b = ui.hit(Point::new(300.0, 50.0)).expect("B sous le point");
+        let ui = build_ui(
+            &clickable_sample(),
+            Size::new(400.0, 100.0),
+            &InputState::default(),
+            &ScrollState::new(),
+        );
+        let id_a = ui.hit(Point::new(50.0, 50.0)).expect("A");
+        let id_b = ui.hit(Point::new(300.0, 50.0)).expect("B");
         assert_ne!(id_a, id_b);
         assert_eq!(ui.msg_for(id_a), Some(Msg::A));
         assert_eq!(ui.msg_for(id_b), Some(Msg::B));
@@ -203,7 +290,12 @@ mod tests {
 
     #[test]
     fn hover_changes_painted_color() {
-        let base = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &InputState::default());
+        let base = build_ui(
+            &clickable_sample(),
+            Size::new(400.0, 100.0),
+            &InputState::default(),
+            &ScrollState::new(),
+        );
         assert_eq!(
             base.scene().primitives()[0],
             Primitive::Rect {
@@ -212,6 +304,7 @@ mod tests {
                 radius: 0.0,
                 border_width: 0.0,
                 border_color: Color::TRANSPARENT,
+                clip: Rect::UNBOUNDED,
             }
         );
 
@@ -220,31 +313,66 @@ mod tests {
             hovered: Some(id_a),
             ..Default::default()
         };
-        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &hovered);
-        assert_eq!(
-            ui.scene().primitives()[0],
-            Primitive::Rect {
-                rect: Rect::new(10.0, 10.0, 120.0, 80.0),
-                color: Color::rgb(0.0, 1.0, 0.0),
-                radius: 0.0,
-                border_width: 0.0,
-                border_color: Color::TRANSPARENT,
-            }
-        );
+        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &hovered, &ScrollState::new());
+        if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
+            assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));
+        } else {
+            panic!("attendu un rectangle");
+        }
     }
 
     #[test]
-    fn focus_hit_finds_input_and_dispatch_types() {
-        let tree = Flex::column().width(300.0).height(80.0).child(
-            TextInput::new("hi").width(200.0).on_input(Msg::Edited),
-        );
-        let ui = build_ui(&tree, Size::new(300.0, 80.0), &InputState::default());
-
-        let id = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ focalisable");
-        // Une touche routée vers ce champ produit la nouvelle valeur.
+    fn focus_hit_and_dispatch_types() {
+        let tree = Flex::column()
+            .width(300.0)
+            .height(80.0)
+            .child(TextInput::new("hi").width(200.0).on_input(Msg::Edited));
+        let ui = build_ui(&tree, Size::new(300.0, 80.0), &InputState::default(), &ScrollState::new());
+        let id = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ");
         assert_eq!(
             dispatch_key(&tree, id, &Key::Text("!".to_string())),
             Some(Msg::Edited("hi!".to_string()))
         );
+    }
+
+    #[test]
+    fn scroll_translates_and_clips_content() {
+        // Viewport 100 de haut ; contenu = 3 cartes de 60 → hauteur 180.
+        let content = Flex::<Msg>::column()
+            .gap(0.0)
+            .child(Container::new().height(60.0).color(Color::rgb(1.0, 0.0, 0.0)))
+            .child(Container::new().height(60.0).color(Color::rgb(0.0, 1.0, 0.0)))
+            .child(Container::new().height(60.0).color(Color::rgb(0.0, 0.0, 1.0)));
+        let tree = Scroll::new().width(200.0).height(100.0).child(content);
+
+        // Sans offset : première carte à y = 0, clip = viewport.
+        let ui = build_ui(&tree, Size::new(200.0, 100.0), &InputState::default(), &ScrollState::new());
+        let (_id, _viewport, max) = ui.scrollables_first();
+        assert_eq!(max, 80.0); // 180 - 100
+        let first = ui.first_rect_primitive();
+        assert_eq!(first.0.y, 0.0);
+        assert_eq!(first.1, Rect::new(0.0, 0.0, 200.0, 100.0)); // clip = viewport
+
+        // Avec offset 50 : la première carte remonte à y = -50.
+        let sid = ui.scroll_hit(Point::new(10.0, 10.0)).unwrap().0;
+        let mut scroll = ScrollState::new();
+        scroll.insert(sid, 50.0);
+        let ui2 = build_ui(&tree, Size::new(200.0, 100.0), &InputState::default(), &scroll);
+        assert_eq!(ui2.first_rect_primitive().0.y, -50.0);
+    }
+
+    // Accès de test aux internes.
+    impl<Msg: Clone> Ui<Msg> {
+        fn scrollables_first(&self) -> (WidgetId, Rect, f32) {
+            self.scrollables[0]
+        }
+        fn first_rect_primitive(&self) -> (Rect, Rect) {
+            for primitive in self.scene.primitives() {
+                if let Primitive::Rect { rect, clip, .. } = primitive {
+                    return (*rect, *clip);
+                }
+            }
+            panic!("aucun rectangle");
+        }
     }
 }

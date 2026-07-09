@@ -21,6 +21,7 @@ struct InstanceInput {
     @location(2) fill: vec4<f32>,          // couleur de remplissage
     @location(3) border: vec4<f32>,        // couleur de bordure
     @location(4) params: vec4<f32>,        // radius, border_width, _, _
+    @location(5) clip: vec4<f32>,          // x, y, width, height du clip
 };
 
 struct VertexOutput {
@@ -31,6 +32,8 @@ struct VertexOutput {
     @location(3) @interpolate(flat) border_width: f32,
     @location(4) @interpolate(flat) fill: vec4<f32>,
     @location(5) @interpolate(flat) border: vec4<f32>,
+    @location(6) frag_px: vec2<f32>,
+    @location(7) @interpolate(flat) clip: vec4<f32>,
 };
 
 @vertex
@@ -50,6 +53,8 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.border_width = inst.params.y;
     out.fill = inst.fill;
     out.border = inst.border;
+    out.frag_px = pos_px;
+    out.clip = inst.clip;
     return out;
 }
 
@@ -61,12 +66,20 @@ fn sdf_round_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Découpe : rien hors du rectangle de clip.
+    let inside_clip = f32(
+        in.frag_px.x >= in.clip.x
+        && in.frag_px.x <= in.clip.x + in.clip.z
+        && in.frag_px.y >= in.clip.y
+        && in.frag_px.y <= in.clip.y + in.clip.w
+    );
+
     // Le rayon ne peut excéder la demi-taille.
     let r = min(in.radius, min(in.half_size.x, in.half_size.y));
     let d = sdf_round_box(in.local_px, in.half_size, r);
 
     // Couverture anti-aliasée sur ~1px au bord extérieur.
-    let alpha = 1.0 - smoothstep(-0.5, 0.5, d);
+    let alpha = (1.0 - smoothstep(-0.5, 0.5, d)) * inside_clip;
 
     // Bordure : transition vers la couleur de bordure près du bord (d ∈ [-bw, 0]).
     var color = in.fill;

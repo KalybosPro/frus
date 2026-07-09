@@ -34,16 +34,19 @@ struct Instance {
     border_color: [f32; 4],
     /// radius, border_width, (réservé), (réservé).
     params: [f32; 4],
+    /// Rectangle de découpe : x, y, width, height.
+    clip: [f32; 4],
 }
 
 impl Instance {
-    /// Layout du buffer d'instances (locations 1..=4 ; la 0 est le quad unité).
+    /// Layout du buffer d'instances (locations 1..=5 ; la 0 est le quad unité).
     fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
             1 => Float32x4,
             2 => Float32x4,
             3 => Float32x4,
             4 => Float32x4,
+            5 => Float32x4,
         ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
@@ -207,11 +210,13 @@ impl Painter {
                     radius,
                     border_width,
                     border_color,
+                    clip,
                 } => self.instances.push(Instance {
                     rect: rect.to_array(),
                     color: color.to_array(),
                     border_color: border_color.to_array(),
                     params: [*radius, *border_width, 0.0, 0.0],
+                    clip: clip.to_array(),
                 }),
                 // Le texte est rendu séparément par le TextPainter.
                 Primitive::Text { .. } => {}
@@ -506,5 +511,109 @@ mod tests {
         // Centre rouge, coin (0,0) découpé (noir).
         assert_eq!(px(SIZE / 2, SIZE / 2), [255, 0, 0, 255], "centre rouge");
         assert_eq!(px(0, 0), [0, 0, 0, 255], "coin découpé");
+    }
+
+    /// Un rectangle plein rouge dont le clip ne couvre qu'un coin : le centre
+    /// (hors clip) reste au fond, le coin (dans le clip) est rouge.
+    #[test]
+    fn clip_excludes_pixels_outside() {
+        let Some((device, queue)) = headless_device() else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+
+        const SIZE: u32 = 64;
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("frus.test.clip"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut painter = Painter::new(&device, format);
+        painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
+
+        let mut scene = Scene::new();
+        // Clip limité à un carré 16x16 en haut-gauche.
+        scene.set_clip(Rect::new(0.0, 0.0, 16.0, 16.0));
+        scene.fill_rect(Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32), Color::rgb(1.0, 0.0, 0.0));
+
+        let count = painter.prepare_frame(&device, &queue, &scene);
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            painter.draw(&mut pass, count);
+        }
+
+        let bytes_per_row = SIZE * 4;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (bytes_per_row * SIZE) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: Some(SIZE),
+                },
+            },
+            wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = readback.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().expect("map_async").expect("mapping échoué");
+
+        let data = slice.get_mapped_range();
+        let px = |x: u32, y: u32| {
+            let idx = (y * bytes_per_row + x * 4) as usize;
+            [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]
+        };
+
+        assert_eq!(px(4, 4), [255, 0, 0, 255], "dans le clip → rouge");
+        assert_eq!(px(SIZE / 2, SIZE / 2), [0, 0, 0, 255], "hors clip → fond");
     }
 }

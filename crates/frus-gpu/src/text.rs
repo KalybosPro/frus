@@ -62,6 +62,7 @@ impl TextPainter {
                 text,
                 size,
                 color,
+                clip,
             } = primitive
             {
                 let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
@@ -81,24 +82,28 @@ impl TextPainter {
                     to_u8(color.b),
                     to_u8(color.a),
                 );
-                buffers.push((buffer, position.x, position.y, color));
+                // Découpe = clip de la primitive, borné à la surface.
+                let bounds = glyphon::TextBounds {
+                    left: clip.x.max(0.0) as i32,
+                    top: clip.y.max(0.0) as i32,
+                    right: (clip.x + clip.width).min(width as f32) as i32,
+                    bottom: (clip.y + clip.height).min(height as f32) as i32,
+                };
+                buffers.push((buffer, position.x, position.y, color, bounds));
             }
         }
 
-        let areas = buffers.iter().map(|(buffer, left, top, color)| glyphon::TextArea {
-            buffer,
-            left: *left,
-            top: *top,
-            scale: 1.0,
-            bounds: glyphon::TextBounds {
-                left: 0,
-                top: 0,
-                right: width as i32,
-                bottom: height as i32,
-            },
-            default_color: *color,
-            custom_glyphs: &[],
-        });
+        let areas = buffers
+            .iter()
+            .map(|(buffer, left, top, color, bounds)| glyphon::TextArea {
+                buffer,
+                left: *left,
+                top: *top,
+                scale: 1.0,
+                bounds: *bounds,
+                default_color: *color,
+                custom_glyphs: &[],
+            });
 
         if let Err(err) = self.renderer.prepare(
             device,

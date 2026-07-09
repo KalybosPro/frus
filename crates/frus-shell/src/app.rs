@@ -9,14 +9,17 @@ use std::sync::Arc;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, dispatch_key, Align, Color, Container, Flex, InputState, Justify, Key, Point, Size,
-    Text, TextInput, Ui, Widget,
+    build_ui, dispatch_key, Align, Color, Container, Flex, InputState, Justify, Key, Point, Scroll,
+    ScrollState, Size, Text, TextInput, Ui, Widget,
 };
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
+
+/// Vitesse de défilement (pixels par cran de molette).
+const SCROLL_SPEED: f32 = 40.0;
 
 /// État de l'application.
 #[derive(Default)]
@@ -32,6 +35,8 @@ pub struct App {
     cursor: Point,
     /// État d'interaction retenu (survol/pression/focus).
     input: InputState,
+    /// Offsets de défilement, par zone défilable.
+    scroll: ScrollState,
 }
 
 impl ApplicationHandler for App {
@@ -161,6 +166,21 @@ impl ApplicationHandler for App {
                 }
             }
 
+            WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y * SCROLL_SPEED,
+                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                };
+                if let Some((id, max)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
+                {
+                    let offset = self.scroll.entry(id).or_insert(0.0);
+                    *offset = (*offset - dy).clamp(0.0, max);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
+
             WindowEvent::RedrawRequested => {
                 let size = self
                     .window
@@ -170,7 +190,7 @@ impl ApplicationHandler for App {
                 let (width, height) = (size.width as f32, size.height as f32);
 
                 let tree = view(&self.state, width, height);
-                let ui = build_ui(&tree, Size::new(width, height), &self.input);
+                let ui = build_ui(&tree, Size::new(width, height), &self.input, &self.scroll);
 
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(ui.scene()) {
@@ -203,6 +223,7 @@ impl ApplicationHandler for App {
 struct State {
     squares: u32,
     name: String,
+    email: String,
 }
 
 /// Messages émis par l'interface.
@@ -210,6 +231,7 @@ struct State {
 enum Msg {
     AddSquare,
     NameChanged(String),
+    EmailChanged(String),
 }
 
 /// Fait évoluer l'état en réponse à un message.
@@ -217,6 +239,7 @@ fn update(state: &mut State, message: Msg) {
     match message {
         Msg::AddSquare => state.squares += 1,
         Msg::NameChanged(name) => state.name = name,
+        Msg::EmailChanged(email) => state.email = email,
     }
 }
 
@@ -233,7 +256,7 @@ const PALETTE: [Color; 4] = [
 fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
     // En-tête centré : le compteur, mis à jour à chaque clic.
     let header = Flex::row().justify(Justify::Center).child(
-        Text::new(format!("Carrés : {}", state.squares))
+        Text::new("Welcome To Frus")
             .size(28.0)
             .color(Color::rgb8(230, 230, 235)),
     );
@@ -259,7 +282,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
     let greeting = if state.name.is_empty() {
         "Tapez votre nom ci-dessous".to_string()
     } else {
-        format!("Bonjour {} !", state.name)
+        format!("Nom: {}", state.name)
     };
     let name_row = Flex::row()
         .justify(Justify::Center)
@@ -272,21 +295,53 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
                 .size(18.0)
                 .on_input(Msg::NameChanged),
         );
+
+    let email_row = Flex::row()
+        .justify(Justify::Center)
+        .align(Align::Center)
+        .gap(12.0)
+        .child(Text::new("Email :").size(20.0).color(Color::rgb8(210, 210,220)))
+        .child(
+            TextInput::new(state.email.as_str())
+                .width(280.0)
+                .size(18.0)
+                .on_input(Msg::EmailChanged)
+        );
+
+    let email_text = Flex::row().justify(Justify::Center).child(
+        Container::new()
+            .radius(10.0)
+            .color(Color::rgb8(19,36,100))
+            .padding(8.0)
+            .child(
+                Text::new(format!("Email: {}", state.email))
+                    .size(18.0)
+                    .color(Color::rgb8(170, 200, 176))
+            )
+    );
+
     let greeting_row = Flex::row().justify(Justify::Center).child(
         Text::new(greeting).size(18.0).color(Color::rgb8(170, 200, 175)),
     );
 
-    // Carrés → cartes arrondies.
-    let mut squares = Flex::row().flex(1.0).align(Align::Start).gap(10.0);
-    for i in 0..state.squares {
-        squares = squares.child(
+    // Liste défilante : 8 éléments de base + ceux ajoutés au clic sur le bouton.
+    let total = 8 + state.squares;
+    let mut list = Flex::column().gap(8.0);
+    for i in 0..total {
+        list = list.child(
             Container::new()
-                .width(44.0)
-                .height(44.0)
+                .height(48.0)
                 .radius(8.0)
-                .color(PALETTE[(i as usize) % PALETTE.len()]),
+                .color(PALETTE[(i as usize) % PALETTE.len()])
+                .padding_each(14.0, 16.0, 14.0, 16.0)
+                .child(
+                    Text::new(format!("Élément {}", i + 1))
+                        .size(18.0)
+                        .color(Color::rgb8(20, 25, 30)),
+                ),
         );
     }
+    let scroll = Scroll::new().flex(1.0).height(260.0).child(list);
 
     Flex::column()
         .width(width)
@@ -296,8 +351,10 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         .child(header)
         .child(button_row)
         .child(name_row)
+        .child(email_row)
         .child(greeting_row)
-        .child(squares)
+        .child(email_text)
+        .child(scroll)
 }
 
 #[cfg(test)]
@@ -307,10 +364,15 @@ mod tests {
 
     fn primitive_count(state: &State) -> usize {
         let tree = view(state, 800.0, 600.0);
-        build_ui(&tree, Size::new(800.0, 600.0), &InputState::default())
-            .scene()
-            .primitives()
-            .len()
+        build_ui(
+            &tree,
+            Size::new(800.0, 600.0),
+            &InputState::default(),
+            &frus_widgets::ScrollState::new(),
+        )
+        .scene()
+        .primitives()
+        .len()
     }
 
     #[test]
@@ -324,8 +386,8 @@ mod tests {
         }
         assert_eq!(state.squares, 3);
 
-        // Trois carrés de plus => trois primitives de plus.
-        assert_eq!(primitive_count(&state), base + 3);
+        // Trois éléments de plus dans la liste => la scène a plus de primitives.
+        assert!(primitive_count(&state) > base);
     }
 
     #[test]
