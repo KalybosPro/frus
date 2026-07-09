@@ -4,7 +4,7 @@
 use frus_core::{Color, Insets, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::interaction::Interaction;
+use crate::interaction::{Interaction, Status};
 use crate::widget::Widget;
 
 /// Une boîte rectangulaire décorée.
@@ -138,9 +138,9 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         &self.children
     }
 
-    fn paint(&self, bounds: Rect, status: Interaction, scene: &mut Scene) {
-        // Couleur selon le statut, avec repli (pressé → survol → repos).
-        let color = match status {
+    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
+        // Couleur selon l'interaction, avec repli (pressé → survol → repos).
+        let color = match status.interaction {
             Interaction::Pressed => self.pressed_color.or(self.hover_color).or(self.color),
             Interaction::Hovered => self.hover_color.or(self.color),
             Interaction::None => self.color,

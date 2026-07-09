@@ -3,7 +3,7 @@
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::interaction::Interaction;
+use crate::interaction::Status;
 use crate::widget::Widget;
 
 /// Un widget de texte sur une ligne.
@@ -53,7 +53,7 @@ impl<Msg> Widget<Msg> for Text {
         &[]
     }
 
-    fn paint(&self, bounds: Rect, _status: Interaction, scene: &mut Scene) {
+    fn paint(&self, bounds: Rect, _status: Status, scene: &mut Scene) {
         scene.text(
             Point::new(bounds.x, bounds.y),
             self.content.clone(),
@@ -79,7 +79,7 @@ mod tests {
         Widget::<()>::paint(
             &text,
             Rect::new(5.0, 6.0, 100.0, 24.0),
-            Interaction::None,
+            Status::default(),
             &mut scene,
         );
 

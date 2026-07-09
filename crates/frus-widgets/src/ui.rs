@@ -1,10 +1,11 @@
-//! Le pilote : construit une [`Ui`] (scène + carte de hit-test avec identités) à
-//! partir d'un arbre de widgets et de l'état d'interaction courant.
+//! Le pilote : construit une [`Ui`] (scène + cartes de hit-test) à partir d'un
+//! arbre de widgets et de l'état d'interaction, et route les touches vers le
+//! widget focalisé.
 
 use frus_core::{Point, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
-use crate::interaction::{InputState, WidgetId};
+use crate::interaction::{InputState, Key, WidgetId};
 use crate::widget::Widget;
 
 /// Une zone cliquable : identité, bornes et message associé.
@@ -14,11 +15,12 @@ struct Hit<Msg> {
     msg: Msg,
 }
 
-/// Résultat de la construction d'une interface pour une frame donnée :
-/// la [`Scene`] à dessiner et la carte des zones cliquables.
+/// Résultat de la construction d'une interface pour une frame donnée : la
+/// [`Scene`] à dessiner, plus les cartes de hit-test (clic et focus).
 pub struct Ui<Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
+    focusables: Vec<(WidgetId, Rect)>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
@@ -27,7 +29,7 @@ impl<Msg: Clone> Ui<Msg> {
         &self.scene
     }
 
-    /// Identité du widget cliquable le plus **au-dessus** contenant `point`.
+    /// Identité du widget cliquable le plus au-dessus contenant `point`.
     pub fn hit(&self, point: Point) -> Option<WidgetId> {
         self.hits
             .iter()
@@ -42,6 +44,15 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .find(|hit| hit.id == id)
             .map(|hit| hit.msg.clone())
+    }
+
+    /// Identité du widget **focalisable** le plus au-dessus contenant `point`.
+    pub fn focus_hit(&self, point: Point) -> Option<WidgetId> {
+        self.focusables
+            .iter()
+            .rev()
+            .find(|(_, rect)| rect_contains(*rect, point))
+            .map(|(id, _)| *id)
     }
 }
 
@@ -66,8 +77,7 @@ fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeI
     }
 }
 
-/// Aplati l'arbre en ordre préfixe, en calculant l'identité positionnelle de
-/// chaque widget. Le même ordre que [`Layout::absolute_rects`].
+/// Aplati l'arbre en ordre préfixe, en calculant l'identité positionnelle.
 fn flatten<'a, Msg>(
     widget: &'a dyn Widget<Msg>,
     id: WidgetId,
@@ -80,7 +90,7 @@ fn flatten<'a, Msg>(
 }
 
 /// Traduit un arbre de widgets en [`Ui`], en tenant compte de l'état
-/// d'interaction (pour le survol/pression) et en calculant les identités.
+/// d'interaction (survol/pression/focus) et en calculant les identités.
 pub fn build_ui<Msg: Clone>(
     root: &dyn Widget<Msg>,
     available: Size,
@@ -94,14 +104,11 @@ pub fn build_ui<Msg: Clone>(
     let mut widgets = Vec::new();
     flatten(root, WidgetId::ROOT, &mut widgets);
 
-    debug_assert_eq!(
-        widgets.len(),
-        rects.len(),
-        "l'arbre de widgets et l'arbre de layout doivent avoir la même taille"
-    );
+    debug_assert_eq!(widgets.len(), rects.len());
 
     let mut scene = Scene::new();
     let mut hits = Vec::new();
+    let mut focusables = Vec::new();
     for ((widget, id), (rect, _)) in widgets.iter().zip(rects.iter()) {
         let status = input.status_for(*id);
         widget.paint(*rect, status, &mut scene);
@@ -112,24 +119,56 @@ pub fn build_ui<Msg: Clone>(
                 msg,
             });
         }
+        if widget.focusable() {
+            focusables.push((*id, *rect));
+        }
     }
 
-    Ui { scene, hits }
+    Ui {
+        scene,
+        hits,
+        focusables,
+    }
+}
+
+/// Route une touche vers le widget d'identité `focused` et renvoie le message
+/// éventuel. Parcourt l'arbre en recalculant les identités positionnelles.
+pub fn dispatch_key<Msg>(root: &dyn Widget<Msg>, focused: WidgetId, key: &Key) -> Option<Msg> {
+    fn walk<Msg>(
+        widget: &dyn Widget<Msg>,
+        id: WidgetId,
+        target: WidgetId,
+        key: &Key,
+    ) -> Option<Msg> {
+        if id == target {
+            if let Some(msg) = widget.on_key(key) {
+                return Some(msg);
+            }
+        }
+        for (index, child) in widget.children().iter().enumerate() {
+            if let Some(msg) = walk(child.as_ref(), id.child(index), target, key) {
+                return Some(msg);
+            }
+        }
+        None
+    }
+    walk(root, WidgetId::ROOT, focused, key)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Container, Flex};
+    use crate::{Container, Flex, TextInput};
     use frus_core::{Color, Point, Primitive, Rect, Size};
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         A,
         B,
+        Edited(String),
     }
 
-    fn sample() -> Flex<Msg> {
+    fn clickable_sample() -> Flex<Msg> {
         Flex::row()
             .width(400.0)
             .height(100.0)
@@ -152,7 +191,7 @@ mod tests {
 
     #[test]
     fn hit_and_msg_for_route_correctly() {
-        let ui = build_ui(&sample(), Size::new(400.0, 100.0), &InputState::default());
+        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &InputState::default());
 
         let id_a = ui.hit(Point::new(50.0, 50.0)).expect("A sous le point");
         let id_b = ui.hit(Point::new(300.0, 50.0)).expect("B sous le point");
@@ -164,8 +203,7 @@ mod tests {
 
     #[test]
     fn hover_changes_painted_color() {
-        // Sans survol : le premier rectangle est rouge.
-        let base = build_ui(&sample(), Size::new(400.0, 100.0), &InputState::default());
+        let base = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &InputState::default());
         assert_eq!(
             base.scene().primitives()[0],
             Primitive::Rect {
@@ -177,13 +215,12 @@ mod tests {
             }
         );
 
-        // On récupère l'id de A, puis on le marque survolé : il devient vert.
         let id_a = base.hit(Point::new(50.0, 50.0)).unwrap();
         let hovered = InputState {
             hovered: Some(id_a),
-            pressed: None,
+            ..Default::default()
         };
-        let ui = build_ui(&sample(), Size::new(400.0, 100.0), &hovered);
+        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &hovered);
         assert_eq!(
             ui.scene().primitives()[0],
             Primitive::Rect {
@@ -193,6 +230,21 @@ mod tests {
                 border_width: 0.0,
                 border_color: Color::TRANSPARENT,
             }
+        );
+    }
+
+    #[test]
+    fn focus_hit_finds_input_and_dispatch_types() {
+        let tree = Flex::column().width(300.0).height(80.0).child(
+            TextInput::new("hi").width(200.0).on_input(Msg::Edited),
+        );
+        let ui = build_ui(&tree, Size::new(300.0, 80.0), &InputState::default());
+
+        let id = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ focalisable");
+        // Une touche routée vers ce champ produit la nouvelle valeur.
+        assert_eq!(
+            dispatch_key(&tree, id, &Key::Text("!".to_string())),
+            Some(Msg::Edited("hi!".to_string()))
         );
     }
 }

@@ -1,9 +1,9 @@
-//! Identité des widgets et état d'interaction.
+//! Identité des widgets, touches clavier et état d'interaction.
 //!
 //! Un [`WidgetId`] identifie un widget par sa **position** dans l'arbre (chemin
-//! racine → indices d'enfants), de façon stable d'une frame à l'autre tant que
-//! la structure de l'arbre ne change pas. C'est la brique fondatrice d'une
-//! future reconciliation, et ce qui permet ici de suivre le survol/pression.
+//! racine → indices d'enfants), stable d'une frame à l'autre tant que la
+//! structure ne change pas. C'est la brique fondatrice de la reconciliation, et
+//! ce qui permet de suivre le survol, la pression et le **focus**.
 
 /// Identité positionnelle d'un widget (hash du chemin dans l'arbre).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -22,7 +22,18 @@ impl WidgetId {
     }
 }
 
-/// État visuel d'interaction d'un widget pour une frame donnée.
+/// Une touche transmise au widget focalisé.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Key {
+    /// Texte saisi (un ou plusieurs caractères).
+    Text(String),
+    /// Retour arrière.
+    Backspace,
+    /// Entrée.
+    Enter,
+}
+
+/// État visuel d'interaction pointeur d'un widget.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum Interaction {
     /// Ni survolé ni pressé.
@@ -34,6 +45,13 @@ pub enum Interaction {
     Pressed,
 }
 
+/// Statut complet d'un widget pour une frame : interaction pointeur + focus.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub struct Status {
+    pub interaction: Interaction,
+    pub focused: bool,
+}
+
 /// État d'entrée retenu au runtime, transmis à la construction de l'interface.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct InputState {
@@ -41,17 +59,23 @@ pub struct InputState {
     pub hovered: Option<WidgetId>,
     /// Widget sur lequel le pointeur est enfoncé.
     pub pressed: Option<WidgetId>,
+    /// Widget qui a le focus clavier.
+    pub focused: Option<WidgetId>,
 }
 
 impl InputState {
-    /// Statut d'interaction d'un widget donné.
-    pub(crate) fn status_for(&self, id: WidgetId) -> Interaction {
-        if self.pressed == Some(id) && self.hovered == Some(id) {
+    /// Statut d'un widget donné.
+    pub(crate) fn status_for(&self, id: WidgetId) -> Status {
+        let interaction = if self.pressed == Some(id) && self.hovered == Some(id) {
             Interaction::Pressed
         } else if self.hovered == Some(id) {
             Interaction::Hovered
         } else {
             Interaction::None
+        };
+        Status {
+            interaction,
+            focused: self.focused == Some(id),
         }
     }
 }
@@ -62,9 +86,7 @@ mod tests {
 
     #[test]
     fn same_path_yields_same_id() {
-        let a = WidgetId::ROOT.child(0).child(2);
-        let b = WidgetId::ROOT.child(0).child(2);
-        assert_eq!(a, b);
+        assert_eq!(WidgetId::ROOT.child(0).child(2), WidgetId::ROOT.child(0).child(2));
     }
 
     #[test]
@@ -75,18 +97,23 @@ mod tests {
     }
 
     #[test]
-    fn status_precedence() {
+    fn status_precedence_and_focus() {
         let id = WidgetId::ROOT.child(0);
         let other = WidgetId::ROOT.child(1);
 
-        let hovered = InputState { hovered: Some(id), pressed: None };
-        assert_eq!(hovered.status_for(id), Interaction::Hovered);
+        let hovered = InputState { hovered: Some(id), ..Default::default() };
+        assert_eq!(hovered.status_for(id).interaction, Interaction::Hovered);
 
-        let pressed = InputState { hovered: Some(id), pressed: Some(id) };
-        assert_eq!(pressed.status_for(id), Interaction::Pressed);
+        let pressed = InputState { hovered: Some(id), pressed: Some(id), ..Default::default() };
+        assert_eq!(pressed.status_for(id).interaction, Interaction::Pressed);
 
         // Pressé mais pointeur ailleurs → pas "Pressed".
-        let moved_away = InputState { hovered: Some(other), pressed: Some(id) };
-        assert_eq!(moved_away.status_for(id), Interaction::None);
+        let moved_away = InputState { hovered: Some(other), pressed: Some(id), ..Default::default() };
+        assert_eq!(moved_away.status_for(id).interaction, Interaction::None);
+
+        // Focus indépendant de l'interaction pointeur.
+        let focused = InputState { focused: Some(id), ..Default::default() };
+        assert!(focused.status_for(id).focused);
+        assert!(!focused.status_for(other).focused);
     }
 }

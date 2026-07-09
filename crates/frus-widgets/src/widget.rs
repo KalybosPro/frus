@@ -3,7 +3,7 @@
 use frus_core::{Rect, Scene};
 use frus_layout::Style;
 
-use crate::interaction::Interaction;
+use crate::interaction::{Key, Status};
 
 /// Un widget : un élément d'interface composable.
 ///
@@ -16,10 +16,20 @@ pub trait Widget<Msg> {
     /// Enfants du widget (éventuellement vide).
     fn children(&self) -> &[Box<dyn Widget<Msg>>];
 
-    /// Peint la décoration propre du widget, aux bornes `bounds`, en tenant
-    /// compte de son statut d'interaction (survol/pression).
-    fn paint(&self, bounds: Rect, status: Interaction, scene: &mut Scene);
+    /// Peint la décoration propre du widget, aux bornes `bounds`, selon son
+    /// statut (survol/pression/focus).
+    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene);
 
-    /// Message à émettre lorsque ce widget est cliqué (`None` = non cliquable).
+    /// Message à émettre au clic (`None` = non cliquable).
     fn on_click(&self) -> Option<Msg>;
+
+    /// Message à émettre pour une touche, si le widget a le focus.
+    fn on_key(&self, _key: &Key) -> Option<Msg> {
+        None
+    }
+
+    /// Si `true`, le widget peut recevoir le focus clavier (au clic).
+    fn focusable(&self) -> bool {
+        false
+    }
 }

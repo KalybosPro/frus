@@ -12,14 +12,16 @@ mod container;
 mod flex;
 mod interaction;
 mod text;
+mod textinput;
 mod ui;
 mod widget;
 
 pub use container::Container;
 pub use flex::Flex;
-pub use interaction::{InputState, Interaction, WidgetId};
+pub use interaction::{InputState, Interaction, Key, Status, WidgetId};
 pub use text::Text;
-pub use ui::{build_ui, Ui};
+pub use textinput::TextInput;
+pub use ui::{build_ui, dispatch_key, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.

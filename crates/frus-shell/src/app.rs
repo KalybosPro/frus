@@ -9,11 +9,13 @@ use std::sync::Arc;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, Align, Color, Container, Flex, InputState, Justify, Point, Size, Text, Ui,
+    build_ui, dispatch_key, Align, Color, Container, Flex, InputState, Justify, Key, Point, Size,
+    Text, TextInput, Ui, Widget,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
 
 /// État de l'application.
@@ -24,9 +26,11 @@ pub struct App {
     state: State,
     /// Dernière interface construite (pour le hit-test et le routage des clics).
     ui: Option<Ui<Msg>>,
+    /// Dernier arbre de widgets construit (pour router les touches clavier).
+    tree: Option<Box<dyn Widget<Msg>>>,
     /// Dernière position connue du curseur, en pixels physiques.
     cursor: Point,
-    /// État d'interaction retenu (survol/pression).
+    /// État d'interaction retenu (survol/pression/focus).
     input: InputState,
 }
 
@@ -36,7 +40,7 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let attributes = Window::default_attributes().with_title("frus — Jalon 6");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 8");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -104,8 +108,34 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 self.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+                // Le focus va au champ focalisable sous le curseur (ou nulle part).
+                self.input.focused = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
                 if let Some(window) = &self.window {
                     window.request_redraw();
+                }
+            }
+
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed =>
+            {
+                let key = match &event.logical_key {
+                    WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
+                    WinitKey::Named(NamedKey::Enter) => Some(Key::Enter),
+                    WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
+                    _ => event.text.as_ref().map(|text| Key::Text(text.to_string())),
+                };
+
+                if let (Some(key), Some(focused)) = (key, self.input.focused) {
+                    let message = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| dispatch_key(tree.as_ref(), focused, &key));
+                    if let Some(message) = message {
+                        update(&mut self.state, message);
+                    }
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             }
 
@@ -156,8 +186,9 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // Conserve l'interface pour le hit-test des prochains clics.
+                // Conserve l'interface (hit-test) et l'arbre (routage clavier).
                 self.ui = Some(ui);
+                self.tree = Some(Box::new(tree));
             }
 
             _ => {}
@@ -167,22 +198,25 @@ impl ApplicationHandler for App {
 
 // --- Application de démonstration (modèle à messages) ---
 
-/// État : le nombre de carrés ajoutés.
+/// État : le nombre de carrés et le nom saisi.
 #[derive(Default)]
 struct State {
     squares: u32,
+    name: String,
 }
 
 /// Messages émis par l'interface.
 #[derive(Clone)]
 enum Msg {
     AddSquare,
+    NameChanged(String),
 }
 
 /// Fait évoluer l'état en réponse à un message.
 fn update(state: &mut State, message: Msg) {
     match message {
         Msg::AddSquare => state.squares += 1,
+        Msg::NameChanged(name) => state.name = name,
     }
 }
 
@@ -221,6 +255,27 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
     // Rangée qui centre le bouton horizontalement.
     let button_row = Flex::row().justify(Justify::Center).child(button);
 
+    // Champ de saisie (contrôlé) + salutation.
+    let greeting = if state.name.is_empty() {
+        "Tapez votre nom ci-dessous".to_string()
+    } else {
+        format!("Bonjour {} !", state.name)
+    };
+    let name_row = Flex::row()
+        .justify(Justify::Center)
+        .align(Align::Center)
+        .gap(12.0)
+        .child(Text::new("Nom :").size(20.0).color(Color::rgb8(210, 210, 220)))
+        .child(
+            TextInput::new(state.name.as_str())
+                .width(280.0)
+                .size(18.0)
+                .on_input(Msg::NameChanged),
+        );
+    let greeting_row = Flex::row().justify(Justify::Center).child(
+        Text::new(greeting).size(18.0).color(Color::rgb8(170, 200, 175)),
+    );
+
     // Carrés → cartes arrondies.
     let mut squares = Flex::row().flex(1.0).align(Align::Start).gap(10.0);
     for i in 0..state.squares {
@@ -240,6 +295,8 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         .gap(16.0)
         .child(header)
         .child(button_row)
+        .child(name_row)
+        .child(greeting_row)
         .child(squares)
 }
 
@@ -248,20 +305,33 @@ mod tests {
     use super::*;
     use frus_widgets::build_ui;
 
+    fn primitive_count(state: &State) -> usize {
+        let tree = view(state, 800.0, 600.0);
+        build_ui(&tree, Size::new(800.0, 600.0), &InputState::default())
+            .scene()
+            .primitives()
+            .len()
+    }
+
     #[test]
     fn clicking_the_button_adds_squares() {
         let mut state = State::default();
+        let base = primitive_count(&state);
+
         // Simule trois clics sur le bouton.
         for _ in 0..3 {
             update(&mut state, Msg::AddSquare);
         }
         assert_eq!(state.squares, 3);
 
-        let tree = view(&state, 800.0, 600.0);
-        let ui = build_ui(&tree, Size::new(800.0, 600.0), &InputState::default());
+        // Trois carrés de plus => trois primitives de plus.
+        assert_eq!(primitive_count(&state), base + 3);
+    }
 
-        // Primitives peintes : fond du bouton (1) + libellé du bouton (1)
-        // + libellé compteur (1) + 3 carrés = 6. Les Flex ne peignent rien.
-        assert_eq!(ui.scene().primitives().len(), 6);
+    #[test]
+    fn editing_updates_the_name() {
+        let mut state = State::default();
+        update(&mut state, Msg::NameChanged("Ada".to_string()));
+        assert_eq!(state.name, "Ada");
     }
 }
