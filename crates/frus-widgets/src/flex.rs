@@ -1,7 +1,8 @@
-//! [`Flex`] : un conteneur qui dispose ses enfants en rangée ou en colonne.
+//! [`Flex`] : un conteneur qui dispose ses enfants en rangée ou en colonne,
+//! avec répartition (justify) et alignement (align).
 
-use frus_core::{Rect, Scene};
-use frus_layout::{Dimension, FlexDirection, Style};
+use frus_core::{Insets, Rect, Scene};
+use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Interaction;
 use crate::widget::Widget;
@@ -12,7 +13,9 @@ pub struct Flex<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
-    padding: f32,
+    justify: Justify,
+    align: Align,
+    padding: Insets,
     gap: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -34,7 +37,9 @@ impl<Msg> Flex<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
-            padding: 0.0,
+            justify: Justify::Start,
+            align: Align::Stretch,
+            padding: Insets::ZERO,
             gap: 0.0,
             children: Vec::new(),
         }
@@ -58,9 +63,27 @@ impl<Msg> Flex<Msg> {
         self
     }
 
+    /// Répartition des enfants sur l'axe principal.
+    pub fn justify(mut self, justify: Justify) -> Self {
+        self.justify = justify;
+        self
+    }
+
+    /// Alignement des enfants sur l'axe croisé.
+    pub fn align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
+
     /// Marge intérieure uniforme, en pixels logiques.
     pub fn padding(mut self, padding: f32) -> Self {
-        self.padding = padding;
+        self.padding = Insets::uniform(padding);
+        self
+    }
+
+    /// Marge intérieure par côté (haut, droite, bas, gauche).
+    pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        self.padding = Insets::new(top, right, bottom, left);
         self
     }
 
@@ -84,6 +107,8 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             height: self.height,
             flex_grow: self.flex_grow,
             flex_direction: self.direction,
+            justify: self.justify,
+            align: self.align,
             padding: self.padding,
             gap: self.gap,
         }

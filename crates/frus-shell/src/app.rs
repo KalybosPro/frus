@@ -8,7 +8,9 @@
 use std::sync::Arc;
 
 use frus_gpu::{wgpu, Renderer};
-use frus_widgets::{build_ui, Color, Container, Flex, InputState, Point, Size, Text, Ui};
+use frus_widgets::{
+    build_ui, Align, Color, Container, Flex, InputState, Justify, Point, Size, Text, Ui,
+};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -195,9 +197,18 @@ const PALETTE: [Color; 4] = [
 /// Construit l'arbre de widgets à partir de l'état : une barre-bouton verte
 /// (cliquable) au-dessus d'une rangée de `state.squares` carrés colorés.
 fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
-    // Bouton avec libellé texte : couleurs distinctes au survol et à la pression.
+    // En-tête centré : le compteur, mis à jour à chaque clic.
+    let header = Flex::row().justify(Justify::Center).child(
+        Text::new(format!("Carrés : {}", state.squares))
+            .size(28.0)
+            .color(Color::rgb8(230, 230, 235)),
+    );
+
+    // Bouton arrondi, bordé, avec padding par côté et couleurs d'interaction.
     let button = Container::new()
-        .padding(14.0)
+        .radius(12.0)
+        .border(2.0, Color::rgb8(40, 120, 80))
+        .padding_each(12.0, 20.0, 12.0, 20.0)
         .color(Color::rgb8(80, 200, 120))
         .hover_color(Color::rgb8(110, 220, 150))
         .pressed_color(Color::rgb8(60, 170, 100))
@@ -207,18 +218,17 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
                 .size(20.0)
                 .color(Color::rgb8(20, 40, 25)),
         );
+    // Rangée qui centre le bouton horizontalement.
+    let button_row = Flex::row().justify(Justify::Center).child(button);
 
-    // Libellé du compteur, mis à jour à chaque clic.
-    let label = Text::new(format!("Carrés : {}", state.squares))
-        .size(26.0)
-        .color(Color::rgb8(230, 230, 235));
-
-    let mut squares = Flex::row().flex(1.0).gap(8.0);
+    // Carrés → cartes arrondies.
+    let mut squares = Flex::row().flex(1.0).align(Align::Start).gap(10.0);
     for i in 0..state.squares {
         squares = squares.child(
             Container::new()
-                .width(40.0)
-                .height(40.0)
+                .width(44.0)
+                .height(44.0)
+                .radius(8.0)
                 .color(PALETTE[(i as usize) % PALETTE.len()]),
         );
     }
@@ -226,10 +236,10 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
     Flex::column()
         .width(width)
         .height(height)
-        .padding(16.0)
-        .gap(12.0)
-        .child(button)
-        .child(label)
+        .padding(20.0)
+        .gap(16.0)
+        .child(header)
+        .child(button_row)
         .child(squares)
 }
 

@@ -9,8 +9,17 @@ use crate::{Color, Point, Rect};
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Primitive {
-    /// Un rectangle plein.
-    Rect { rect: Rect, color: Color },
+    /// Un rectangle, éventuellement à coins arrondis et bordé.
+    Rect {
+        rect: Rect,
+        color: Color,
+        /// Rayon des coins, en pixels (0 = coins droits).
+        radius: f32,
+        /// Épaisseur de la bordure, en pixels (0 = sans bordure).
+        border_width: f32,
+        /// Couleur de la bordure (ignorée si `border_width == 0`).
+        border_color: Color,
+    },
     /// Une ligne de texte, ancrée par son coin haut-gauche.
     Text {
         position: Point,
@@ -37,9 +46,33 @@ impl Scene {
         self.primitives.clear();
     }
 
-    /// Ajoute un rectangle plein.
+    /// Ajoute un rectangle plein (coins droits, sans bordure).
     pub fn fill_rect(&mut self, rect: Rect, color: Color) {
-        self.primitives.push(Primitive::Rect { rect, color });
+        self.primitives.push(Primitive::Rect {
+            rect,
+            color,
+            radius: 0.0,
+            border_width: 0.0,
+            border_color: Color::TRANSPARENT,
+        });
+    }
+
+    /// Ajoute un rectangle avec coins arrondis et/ou bordure.
+    pub fn draw_rect(
+        &mut self,
+        rect: Rect,
+        color: Color,
+        radius: f32,
+        border_width: f32,
+        border_color: Color,
+    ) {
+        self.primitives.push(Primitive::Rect {
+            rect,
+            color,
+            radius,
+            border_width,
+            border_color,
+        });
     }
 
     /// Ajoute une ligne de texte, ancrée par son coin haut-gauche.
@@ -83,7 +116,10 @@ mod tests {
             scene.primitives()[0],
             Primitive::Rect {
                 rect: Rect::new(1.0, 2.0, 3.0, 4.0),
-                color: Color::WHITE
+                color: Color::WHITE,
+                radius: 0.0,
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
             }
         );
     }

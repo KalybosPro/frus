@@ -10,7 +10,7 @@
 mod style;
 mod tree;
 
-pub use style::{Dimension, FlexDirection, Style};
+pub use style::{Align, Dimension, FlexDirection, Justify, Style};
 pub use tree::{Layout, NodeId};
 
 // Ré-export des types géométriques du socle, par commodité pour les appelants.

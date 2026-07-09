@@ -23,4 +23,5 @@ pub use ui::{build_ui, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
-pub use frus_core::{Color, Point, Rect, Scene, Size};
+pub use frus_core::{Color, Insets, Point, Rect, Scene, Size};
+pub use frus_layout::{Align, Justify};

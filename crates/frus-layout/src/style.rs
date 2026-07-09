@@ -1,5 +1,7 @@
 //! Style de mise en page — une API frus mince, traduite vers taffy en interne.
 
+use frus_core::Insets;
+
 /// Dimension d'un axe (largeur ou hauteur).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Dimension {
@@ -39,10 +41,50 @@ impl FlexDirection {
     }
 }
 
+/// Répartition des enfants sur l'axe **principal**.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Justify {
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+}
+
+impl Justify {
+    fn to_taffy(self) -> taffy::JustifyContent {
+        match self {
+            Justify::Start => taffy::JustifyContent::FlexStart,
+            Justify::Center => taffy::JustifyContent::Center,
+            Justify::End => taffy::JustifyContent::FlexEnd,
+            Justify::SpaceBetween => taffy::JustifyContent::SpaceBetween,
+            Justify::SpaceAround => taffy::JustifyContent::SpaceAround,
+        }
+    }
+}
+
+/// Alignement des enfants sur l'axe **croisé**.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Align {
+    Start,
+    Center,
+    End,
+    /// Les enfants s'étirent pour remplir l'axe croisé (défaut).
+    Stretch,
+}
+
+impl Align {
+    fn to_taffy(self) -> taffy::AlignItems {
+        match self {
+            Align::Start => taffy::AlignItems::FlexStart,
+            Align::Center => taffy::AlignItems::Center,
+            Align::End => taffy::AlignItems::FlexEnd,
+            Align::Stretch => taffy::AlignItems::Stretch,
+        }
+    }
+}
+
 /// Style d'un nœud de mise en page.
-///
-/// Sous-ensemble volontairement minimal des propriétés flexbox ; il sera enrichi
-/// au fil des jalons (alignements, marges par côté, bordures, etc.).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Style {
     /// Largeur.
@@ -53,8 +95,12 @@ pub struct Style {
     pub flex_grow: f32,
     /// Direction de l'axe principal (pour un conteneur).
     pub flex_direction: FlexDirection,
-    /// Marge intérieure uniforme, en pixels logiques.
-    pub padding: f32,
+    /// Répartition sur l'axe principal.
+    pub justify: Justify,
+    /// Alignement sur l'axe croisé.
+    pub align: Align,
+    /// Marge intérieure, par côté, en pixels logiques.
+    pub padding: Insets,
     /// Espacement entre enfants, en pixels logiques.
     pub gap: f32,
 }
@@ -66,7 +112,9 @@ impl Default for Style {
             height: Dimension::Auto,
             flex_grow: 0.0,
             flex_direction: FlexDirection::Row,
-            padding: 0.0,
+            justify: Justify::Start,
+            align: Align::Stretch,
+            padding: Insets::ZERO,
             gap: 0.0,
         }
     }
@@ -81,11 +129,13 @@ impl Style {
             },
             flex_grow: self.flex_grow,
             flex_direction: self.flex_direction.to_taffy(),
+            justify_content: Some(self.justify.to_taffy()),
+            align_items: Some(self.align.to_taffy()),
             padding: taffy::Rect {
-                left: taffy::LengthPercentage::Length(self.padding),
-                right: taffy::LengthPercentage::Length(self.padding),
-                top: taffy::LengthPercentage::Length(self.padding),
-                bottom: taffy::LengthPercentage::Length(self.padding),
+                left: taffy::LengthPercentage::Length(self.padding.left),
+                right: taffy::LengthPercentage::Length(self.padding.right),
+                top: taffy::LengthPercentage::Length(self.padding.top),
+                bottom: taffy::LengthPercentage::Length(self.padding.bottom),
             },
             gap: taffy::Size {
                 width: taffy::LengthPercentage::Length(self.gap),

@@ -171,6 +171,9 @@ mod tests {
             Primitive::Rect {
                 rect: Rect::new(10.0, 10.0, 120.0, 80.0),
                 color: Color::rgb(1.0, 0.0, 0.0),
+                radius: 0.0,
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
             }
         );
 
@@ -186,6 +189,9 @@ mod tests {
             Primitive::Rect {
                 rect: Rect::new(10.0, 10.0, 120.0, 80.0),
                 color: Color::rgb(0.0, 1.0, 0.0),
+                radius: 0.0,
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
             }
         );
     }

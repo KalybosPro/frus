@@ -18,6 +18,28 @@ impl Point {
     }
 }
 
+/// Marges (intérieures ou extérieures) par côté, en pixels logiques.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Insets {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+impl Insets {
+    pub const ZERO: Self = Self::new(0.0, 0.0, 0.0, 0.0);
+
+    pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        Self { top, right, bottom, left }
+    }
+
+    /// La même marge sur les quatre côtés.
+    pub const fn uniform(value: f32) -> Self {
+        Self::new(value, value, value, value)
+    }
+}
+
 /// Une taille 2D (largeur × hauteur).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Size {

@@ -91,7 +91,8 @@ impl<T> Default for Layout<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Dimension, FlexDirection, Style};
+    use crate::{Align, Dimension, FlexDirection, Justify, Style};
+    use frus_core::Insets;
 
     #[test]
     fn flex_row_computes_absolute_positions() {
@@ -117,7 +118,7 @@ mod tests {
                 width: Dimension::Length(400.0),
                 height: Dimension::Length(100.0),
                 flex_direction: FlexDirection::Row,
-                padding: 10.0,
+                padding: Insets::uniform(10.0),
                 gap: 8.0,
                 ..Default::default()
             },
@@ -141,5 +142,34 @@ mod tests {
         // B : après A + gap => x = 10 + 120 + 8 = 138.
         // Largeur = contenu(380) - A(120) - gap(8) = 252.
         assert_eq!(b_rect, Rect::new(138.0, 10.0, 252.0, 80.0));
+    }
+
+    #[test]
+    fn justify_center_centers_child() {
+        let mut layout: Layout<()> = Layout::new();
+        let child = layout.leaf(
+            Style {
+                width: Dimension::Length(100.0),
+                height: Dimension::Length(40.0),
+                align: Align::Start,
+                ..Default::default()
+            },
+            (),
+        );
+        let root = layout.container(
+            Style {
+                width: Dimension::Length(400.0),
+                height: Dimension::Length(100.0),
+                flex_direction: FlexDirection::Row,
+                justify: Justify::Center,
+                ..Default::default()
+            },
+            &[child],
+        );
+        layout.compute(root, Size::new(400.0, 100.0));
+        let rects = layout.absolute_rects(root);
+
+        // Enfant centré sur l'axe principal : x = (400 - 100) / 2 = 150.
+        assert_eq!(rects[1].0, Rect::new(150.0, 0.0, 100.0, 40.0));
     }
 }
