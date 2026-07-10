@@ -92,6 +92,15 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
     }
 
+    /// Bornes de défilement `(id, max_x, max_y)` de chaque zone défilable, pour
+    /// piloter l'inertie côté framework.
+    pub fn scrollable_maxes(&self) -> Vec<(WidgetId, f32, f32)> {
+        self.scrollables
+            .iter()
+            .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
+            .collect()
+    }
+
     /// Poignée de barre de défilement sous `point` (pour démarrer un glissement).
     pub fn scrollbar_at(&self, point: Point) -> Option<Scrollbar> {
         self.scrollbars

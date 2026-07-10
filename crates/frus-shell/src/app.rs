@@ -24,6 +24,9 @@ use crate::application::Application;
 /// Vitesse de défilement (pixels par cran de molette).
 const SCROLL_SPEED: f32 = 40.0;
 
+/// Dépassement élastique autorisé au-delà des bornes de défilement (px) — rebond.
+const SCROLL_OVER: f32 = 48.0;
+
 /// Largeur (px physiques) de la zone de bord activant le geste retour.
 const BACK_EDGE: f32 = 24.0;
 
@@ -381,9 +384,13 @@ impl<A: Application> ApplicationHandler for App<A> {
                 if let Some((id, max_x, max_y)) =
                     self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
                 {
-                    let offset = self.runtime.scroll.entry(id).or_insert((0.0, 0.0));
-                    offset.0 = (offset.0 - dx).clamp(0.0, max_x);
-                    offset.1 = (offset.1 - dy).clamp(0.0, max_y);
+                    // Défilement à inertie : la molette pousse la CIBLE (avec un
+                    // léger dépassement élastique) ; le ressort la rejoint en douceur.
+                    let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+                    let target = self.runtime.scroll_target.entry(id).or_insert(current);
+                    target.0 = (target.0 - dx).clamp(-SCROLL_OVER, max_x + SCROLL_OVER);
+                    target.1 = (target.1 - dy).clamp(-SCROLL_OVER, max_y + SCROLL_OVER);
+                    self.runtime.scroll_velocity.entry(id).or_insert((0.0, 0.0));
                     self.request_redraw();
                 }
             }
@@ -445,9 +452,17 @@ impl<A: Application> ApplicationHandler for App<A> {
                 }
                 self.runtime.mounted.retain(|id| present.contains(id));
 
+                // Inertie de défilement (bornes issues de la frame précédente).
+                let scroll_maxes = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.scrollable_maxes())
+                    .unwrap_or_default();
+
                 let animating = self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
                     | self.runtime.advance_values(tree.as_ref(), dt)
+                    | self.runtime.advance_scroll(&scroll_maxes, dt)
                     | app_animating;
                 let ui = build_ui(tree.as_ref(), Size::new(width, height), &self.runtime, &theme);
 
@@ -512,6 +527,10 @@ impl<A: Application> App<A> {
                 } else {
                     entry.0 = offset;
                 }
+                // Glissement précis : la cible suit l'offset, l'inertie est coupée.
+                let synced = *entry;
+                self.runtime.scroll_target.insert(*id, synced);
+                self.runtime.scroll_velocity.remove(&*id);
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;

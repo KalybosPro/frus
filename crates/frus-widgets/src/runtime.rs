@@ -38,6 +38,30 @@ impl Edit {
 /// Durée des transitions, en secondes.
 const ANIM_DURATION: f32 = 0.12;
 
+/// Raideur du ressort de défilement (px·s⁻²).
+const SCROLL_K: f32 = 200.0;
+/// Amortissement du ressort de défilement.
+const SCROLL_C: f32 = 28.0;
+/// Rappel élastique de la cible vers les bornes valides (par seconde) — rebond.
+const SCROLL_RETRACT: f32 = 14.0;
+
+/// Un axe de défilement : rappel élastique de la cible dans `[0, max]`, puis
+/// ressort de l'offset courant vers cette cible. Renvoie
+/// `(offset, vitesse, cible, en_mouvement)`.
+fn scroll_axis(current: f32, vel: f32, target: f32, max: f32, dt: f32) -> (f32, f32, f32, bool) {
+    let clamp_t = target.clamp(0.0, max);
+    // La cible est ramenée vers la borne valide (dépassement → rebond).
+    let target = target + (clamp_t - target) * (1.0 - (-SCROLL_RETRACT * dt).exp());
+    let (offset, vel, _) = spring_step(current, vel, target, dt, SCROLL_K, SCROLL_C);
+    // Seuils en pixels (spring_step est calibré en fractions).
+    let moving = (offset - target).abs() > 0.5 || vel.abs() > 2.0 || (target - clamp_t).abs() > 0.5;
+    if moving {
+        (offset, vel, target, true)
+    } else {
+        (clamp_t, 0.0, clamp_t, false)
+    }
+}
+
 /// Progressions d'animation d'un widget (`0.0..=1.0`).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Anim {
@@ -96,8 +120,12 @@ fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
 pub struct Runtime {
     /// Survol / pression / focus.
     pub input: InputState,
-    /// Offsets de défilement, par zone.
+    /// Offsets de défilement **courants** (rendus), par zone.
     pub scroll: ScrollState,
+    /// Offsets de défilement **visés** (le ressort y tend), par zone.
+    pub scroll_target: ScrollState,
+    /// Vitesse de défilement (pour le ressort), par zone.
+    pub scroll_velocity: ScrollState,
     /// État d'édition, par champ de saisie.
     pub edits: HashMap<WidgetId, Edit>,
     /// Progressions d'animation (survol/focus/opacité), par widget.
@@ -210,6 +238,40 @@ impl Runtime {
         animating
     }
 
+    /// Fait tendre chaque offset de défilement **courant** vers sa **cible** par
+    /// un ressort (défilement lissé), avec rappel élastique aux bords (rebond).
+    /// `maxes` fournit `(max_x, max_y)` par zone (issus de la dernière frame).
+    /// Renvoie `true` s'il reste un défilement en mouvement.
+    pub fn advance_scroll(&mut self, maxes: &[(WidgetId, f32, f32)], dt: f32) -> bool {
+        let ids: Vec<WidgetId> = self.scroll_target.keys().copied().collect();
+        let mut animating = false;
+        for id in ids {
+            let (max_x, max_y) = maxes
+                .iter()
+                .find(|(i, _, _)| *i == id)
+                .map(|(_, x, y)| (*x, *y))
+                .unwrap_or((0.0, 0.0));
+            let current = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+            let target = self.scroll_target.get(&id).copied().unwrap_or(current);
+            let vel = self.scroll_velocity.get(&id).copied().unwrap_or((0.0, 0.0));
+
+            let (cx, vx, tx, ax) = scroll_axis(current.0, vel.0, target.0, max_x, dt);
+            let (cy, vy, ty, ay) = scroll_axis(current.1, vel.1, target.1, max_y, dt);
+
+            self.scroll.insert(id, (cx, cy));
+            if ax || ay {
+                self.scroll_target.insert(id, (tx, ty));
+                self.scroll_velocity.insert(id, (vx, vy));
+                animating = true;
+            } else {
+                // Au repos : on nettoie l'état d'animation (l'offset courant reste).
+                self.scroll_target.remove(&id);
+                self.scroll_velocity.remove(&id);
+            }
+        }
+        animating
+    }
+
     /// Fait décroître l'opacité des sous-arbres sortants ; oublie ceux arrivés à
     /// 0. Renvoie `true` s'il reste une sortie en cours.
     pub fn advance_leaving(&mut self, dt: f32) -> bool {
@@ -306,6 +368,40 @@ mod tests {
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_values(&empty, 1.0);
         assert!(rt.values.is_empty());
+    }
+
+    #[test]
+    fn scroll_springs_to_target_and_settles() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        rt.scroll_target.insert(id, (0.0, 100.0));
+        rt.scroll_velocity.insert(id, (0.0, 0.0));
+        let maxes = [(id, 0.0, 200.0)];
+        for _ in 0..600 {
+            if !rt.advance_scroll(&maxes, 0.016) {
+                break;
+            }
+        }
+        let (_, y) = rt.scroll.get(&id).copied().unwrap();
+        assert!((y - 100.0).abs() < 1.0, "arrivé à la cible : {y}");
+        assert!(!rt.scroll_target.contains_key(&id), "état d'animation nettoyé au repos");
+    }
+
+    #[test]
+    fn scroll_overshoot_rubber_bands_back_to_max() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        // Cible au-delà de la borne (dépassement) → doit revenir à max.
+        rt.scroll_target.insert(id, (0.0, 240.0));
+        rt.scroll_velocity.insert(id, (0.0, 0.0));
+        let maxes = [(id, 0.0, 200.0)];
+        for _ in 0..1000 {
+            if !rt.advance_scroll(&maxes, 0.016) {
+                break;
+            }
+        }
+        let (_, y) = rt.scroll.get(&id).copied().unwrap();
+        assert!((y - 200.0).abs() < 1.0, "revenu à la borne max : {y}");
     }
 
     #[test]
