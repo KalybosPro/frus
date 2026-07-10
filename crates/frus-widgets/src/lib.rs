@@ -39,7 +39,7 @@ pub use interaction::{InputState, Interaction, Key, Status, WidgetId};
 pub use navigator::Navigator;
 pub use portal::{Placement, Portal};
 pub use radio::RadioGroup;
-pub use runtime::{Anim, Edit, Runtime, ScrollState};
+pub use runtime::{spring_step, Anim, Edit, Runtime, ScrollState};
 pub use scroll::{Axis, Scroll};
 pub use slider::Slider;
 pub use switch::Switch;

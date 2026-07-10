@@ -57,6 +57,28 @@ impl Default for Anim {
     }
 }
 
+/// Un pas de ressort amorti (Euler semi-implicite) faisant tendre `progress` vers
+/// `target`, amorcé par `velocity`. `stiffness`/`damping` règlent la raideur et
+/// l'amortissement (≈ `2·√stiffness` = amortissement critique, sans dépassement).
+/// Renvoie `(progress, velocity, au_repos)`.
+///
+/// Util générique de mouvement : sert aux transitions d'écran et aux gestes
+/// (détente amorcée par la vélocité du doigt).
+pub fn spring_step(
+    progress: f32,
+    velocity: f32,
+    target: f32,
+    dt: f32,
+    stiffness: f32,
+    damping: f32,
+) -> (f32, f32, bool) {
+    let accel = stiffness * (target - progress) - damping * velocity;
+    let velocity = velocity + accel * dt;
+    let progress = progress + velocity * dt;
+    let at_rest = (progress - target).abs() < 0.004 && velocity.abs() < 0.06;
+    (progress, velocity, at_rest)
+}
+
 /// Fait tendre `value` vers `target` par pas de `step` ; note si ça bouge encore.
 fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
     if *value < target {

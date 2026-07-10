@@ -1,6 +1,6 @@
 [package]
 name = "frus-demo"
-description = "frus — application de démonstration du Jalon 0"
+description = "frus — application exemple (liste de tâches), consommateur du framework"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 frus-shell = { path = "../frus-shell" }
+frus-widgets = { path = "../frus-widgets" }
 anyhow.workspace = true
