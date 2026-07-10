@@ -68,8 +68,10 @@ pub struct App<A: Application> {
     ui: Option<Ui<A::Message>>,
     /// Dernier arbre de widgets construit (routage clavier/édition).
     tree: Option<Box<dyn Widget<A::Message>>>,
-    /// Dernière position connue du curseur, en pixels physiques.
+    /// Dernière position connue du curseur, en pixels **logiques**.
     cursor: Point,
+    /// Facteur d'échelle de l'écran (physique = logique × scale).
+    scale: f32,
     /// État retenu entre frames (survol/focus, scroll, curseur/sélection).
     runtime: Runtime,
     /// Modificateurs clavier courants.
@@ -98,6 +100,7 @@ impl<A: Application> App<A> {
             ui: None,
             tree: None,
             cursor: Point::new(0.0, 0.0),
+            scale: 1.0,
             runtime: Runtime::default(),
             shift: false,
             ctrl: false,
@@ -136,6 +139,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
         match renderer {
             Ok(renderer) => {
+                self.scale = window.scale_factor() as f32;
                 self.window = Some(window.clone());
                 self.renderer = Some(renderer);
                 // Effet de démarrage (chargement initial, etc.).
@@ -175,8 +179,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
             }
 
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.scale = scale_factor as f32;
+                self.request_redraw();
+            }
+
             WindowEvent::CursorMoved { position, .. } => {
-                self.cursor = Point::new(position.x as f32, position.y as f32);
+                // winit fournit des px physiques ; on travaille en logique.
+                self.cursor = Point::new(position.x as f32 / self.scale, position.y as f32 / self.scale);
 
                 // Glissement en cours : barre de défilement, sélection, geste…
                 if self.drag.is_some() {
@@ -387,7 +397,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             WindowEvent::MouseWheel { delta, .. } => {
                 let (mut dx, mut dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_SPEED, y * SCROLL_SPEED),
-                    MouseScrollDelta::PixelDelta(pos) => (pos.x as f32, pos.y as f32),
+                    // Delta physique → logique.
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        (pos.x as f32 / self.scale, pos.y as f32 / self.scale)
+                    }
                 };
                 // Shift : la molette défile horizontalement.
                 if self.shift {
@@ -414,7 +427,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|w| w.inner_size())
                     .unwrap_or_default();
-                let (width, height) = (size.width as f32, size.height as f32);
+                // L'interface est décrite en pixels **logiques** ; la sortie GPU est
+                // mise à l'échelle physique juste avant le rendu.
+                let (width, height) = (size.width as f32 / self.scale, size.height as f32 / self.scale);
 
                 // dt écoulé (clampé), pour toutes les animations.
                 let now = Instant::now();
@@ -479,8 +494,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | app_animating;
                 let ui = build_ui(tree.as_ref(), Size::new(width, height), &self.runtime, &theme);
 
+                // Scène logique → physique pour un rendu net en HiDPI.
+                let scene = ui.scene().scaled(self.scale);
                 if let Some(renderer) = self.renderer.as_mut() {
-                    match renderer.render(ui.scene()) {
+                    match renderer.render(&scene) {
                         Ok(()) => {}
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                             renderer.reconfigure();
@@ -589,7 +606,7 @@ impl<A: Application> App<A> {
                 let width = self
                     .window
                     .as_ref()
-                    .map(|w| w.inner_size().width as f32)
+                    .map(|w| w.inner_size().width as f32 / self.scale)
                     .unwrap_or(1.0)
                     .max(1.0);
                 let now = Instant::now();

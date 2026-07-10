@@ -52,6 +52,52 @@ impl Primitive {
             Primitive::Text { owner, .. } => *owner,
         }
     }
+
+    /// Met la **géométrie** à l'échelle par `factor` (position, taille, rayon,
+    /// bordure, flou, découpe, taille de police). Couleurs et texte inchangés.
+    /// Sert à convertir une scène logique en scène physique (DPI).
+    pub fn scaled(&self, factor: f32) -> Primitive {
+        match self.clone() {
+            Primitive::Rect {
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                clip,
+                owner,
+            } => Primitive::Rect {
+                rect: rect.scale(factor),
+                color,
+                color2,
+                gradient_dir,
+                radius: radius * factor,
+                border_width: border_width * factor,
+                border_color,
+                blur: blur * factor,
+                clip: clip.scale(factor),
+                owner,
+            },
+            Primitive::Text {
+                position,
+                text,
+                size,
+                color,
+                clip,
+                owner,
+            } => Primitive::Text {
+                position: position.scale(factor),
+                text,
+                size: size * factor,
+                color,
+                clip: clip.scale(factor),
+                owner,
+            },
+        }
+    }
 }
 
 /// Une scène 2D : la description déclarative de ce qu'il faut dessiner.
@@ -246,6 +292,16 @@ impl Scene {
     pub fn primitives(&self) -> &[Primitive] {
         &self.primitives
     }
+
+    /// Une copie de la scène avec toute la géométrie mise à l'échelle par
+    /// `factor` (conversion logique → physique pour le rendu HiDPI).
+    pub fn scaled(&self, factor: f32) -> Scene {
+        Scene {
+            primitives: self.primitives.iter().map(|p| p.scaled(factor)).collect(),
+            current_clip: self.current_clip.scale(factor),
+            current_owner: self.current_owner,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +347,32 @@ mod tests {
             assert_eq!(owner, 42);
         } else {
             panic!("attendu un rectangle");
+        }
+    }
+
+    #[test]
+    fn scaled_multiplies_geometry_not_colors() {
+        let mut scene = Scene::new();
+        scene.draw_rect(Rect::new(2.0, 4.0, 10.0, 20.0), Color::rgb(1.0, 0.0, 0.0), 3.0, 1.0, Color::WHITE);
+        scene.text(Point::new(5.0, 6.0), "hi", 18.0, Color::BLACK);
+
+        let big = scene.scaled(2.0);
+        match &big.primitives()[0] {
+            Primitive::Rect { rect, radius, border_width, color, .. } => {
+                assert_eq!(*rect, Rect::new(4.0, 8.0, 20.0, 40.0));
+                assert_eq!(*radius, 6.0);
+                assert_eq!(*border_width, 2.0);
+                assert_eq!(*color, Color::rgb(1.0, 0.0, 0.0)); // couleur inchangée
+            }
+            _ => panic!("attendu un rectangle"),
+        }
+        match &big.primitives()[1] {
+            Primitive::Text { position, size, text, .. } => {
+                assert_eq!(*position, Point::new(10.0, 12.0));
+                assert_eq!(*size, 36.0);
+                assert_eq!(text, "hi"); // texte inchangé
+            }
+            _ => panic!("attendu du texte"),
         }
     }
 

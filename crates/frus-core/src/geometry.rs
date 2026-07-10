@@ -16,6 +16,11 @@ impl Point {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
+
+    /// Multiplie les coordonnées par `factor` (conversion logique → physique).
+    pub fn scale(self, factor: f32) -> Self {
+        Self::new(self.x * factor, self.y * factor)
+    }
 }
 
 /// Marges (intérieures ou extérieures) par côté, en pixels logiques.
@@ -80,6 +85,16 @@ impl Rect {
     /// Décale le rectangle de `(dx, dy)`.
     pub fn translate(self, dx: f32, dy: f32) -> Self {
         Self::new(self.x + dx, self.y + dy, self.width, self.height)
+    }
+
+    /// Multiplie position et taille par `factor` (conversion logique → physique).
+    pub fn scale(self, factor: f32) -> Self {
+        Self::new(
+            self.x * factor,
+            self.y * factor,
+            self.width * factor,
+            self.height * factor,
+        )
     }
 
     /// Intersection de deux rectangles (taille nulle s'ils sont disjoints).
