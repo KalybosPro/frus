@@ -3,7 +3,9 @@
 //!
 //! Lancer avec : `cargo run -p frus-demo` (ajouter `RUST_LOG=info` pour les logs).
 
-use frus_shell::{run, Application};
+use std::path::{Path, PathBuf};
+
+use frus_shell::{run, Application, Command};
 use frus_widgets::{
     spring_step, Align, Button, Card, Checkbox, Container, Dropdown, Flex, Justify, NavBar,
     Navigator, Placement, Portal, RadioGroup, Scroll, Slider, Switch, Text, TextInput, Theme,
@@ -80,6 +82,44 @@ enum Msg {
     SetMenu(usize),
     Push(Route),
     Pop,
+    /// Sauvegarde les tâches sur disque (effet).
+    Save,
+    /// Demande le chargement des tâches (effet).
+    Load,
+    /// Tâches chargées depuis le disque (résultat d'un effet).
+    Loaded(Vec<(bool, String)>),
+}
+
+/// Chemin du fichier de persistance des tâches.
+fn todos_path() -> PathBuf {
+    std::env::temp_dir().join("frus-todos.txt")
+}
+
+/// Sérialise les tâches en lignes `done<TAB>texte`.
+fn save_todos(path: &Path, todos: &[(bool, String)]) -> std::io::Result<()> {
+    let mut out = String::new();
+    for (done, text) in todos {
+        out.push(if *done { '1' } else { '0' });
+        out.push('\t');
+        // Neutralise les séparateurs dans le texte.
+        out.push_str(&text.replace(['\t', '\n'], " "));
+        out.push('\n');
+    }
+    std::fs::write(path, out)
+}
+
+/// Lit les tâches depuis le fichier (vide si absent/illisible).
+fn load_todos(path: &Path) -> Vec<(bool, String)> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(|line| {
+            let (flag, text) = line.split_once('\t')?;
+            Some((flag == "1", text.to_string()))
+        })
+        .collect()
 }
 
 /// L'application todo : état + logique. Consommateur du framework `frus-shell`.
@@ -141,10 +181,13 @@ fn theme_of(app: &TodoApp) -> Theme {
     }
 }
 
-/// Applique un message à l'état.
-fn reduce(app: &mut TodoApp, message: Msg) {
+/// Applique un message à l'état et renvoie l'effet éventuel à exécuter.
+fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
     match message {
-        Msg::DraftChanged(text) => app.draft = text,
+        Msg::DraftChanged(text) => {
+            app.draft = text;
+            Command::none()
+        }
         Msg::AddTodo => {
             let text = app.draft.trim();
             if !text.is_empty() {
@@ -156,33 +199,62 @@ fn reduce(app: &mut TodoApp, message: Msg) {
                 app.next_id += 1;
                 app.draft.clear();
             }
+            Command::none()
         }
         Msg::ToggleTodo(id) => {
             if let Some(todo) = app.todos.iter_mut().find(|t| t.id == id) {
                 todo.done = !todo.done;
             }
+            Command::none()
         }
-        Msg::DeleteTodo(id) => app.todos.retain(|t| t.id != id),
-        Msg::SetFilter(filter) => app.filter = filter,
-        Msg::AskClearDone => app.confirm_clear = true,
+        Msg::DeleteTodo(id) => {
+            app.todos.retain(|t| t.id != id);
+            Command::none()
+        }
+        Msg::SetFilter(filter) => {
+            app.filter = filter;
+            Command::none()
+        }
+        Msg::AskClearDone => {
+            app.confirm_clear = true;
+            Command::none()
+        }
         Msg::ConfirmClearDone => {
             app.todos.retain(|t| !t.done);
             app.confirm_clear = false;
+            Command::none()
         }
-        Msg::CancelClear => app.confirm_clear = false,
+        Msg::CancelClear => {
+            app.confirm_clear = false;
+            Command::none()
+        }
         Msg::ToggleTheme => {
             // Capture le thème courant (avant bascule) comme point de départ du fondu.
             app.theme_from = Some(theme_of(app));
             app.light = !app.light;
             app.theme_progress = 0.0;
+            Command::none()
         }
-        Msg::SetNotifs(v) => app.notifs = v,
-        Msg::SetVolume(v) => app.volume = v,
-        Msg::SetRadio(i) => app.radio = i,
-        Msg::ToggleMenu => app.menu_open = !app.menu_open,
+        Msg::SetNotifs(v) => {
+            app.notifs = v;
+            Command::none()
+        }
+        Msg::SetVolume(v) => {
+            app.volume = v;
+            Command::none()
+        }
+        Msg::SetRadio(i) => {
+            app.radio = i;
+            Command::none()
+        }
+        Msg::ToggleMenu => {
+            app.menu_open = !app.menu_open;
+            Command::none()
+        }
         Msg::SetMenu(i) => {
             app.menu_choice = i;
             app.menu_open = false;
+            Command::none()
         }
         Msg::Push(route) => {
             app.nav_from = Some(current_route(app));
@@ -190,6 +262,7 @@ fn reduce(app: &mut TodoApp, message: Msg) {
             app.nav_progress = 0.0;
             app.nav_velocity = 0.0;
             app.nav_forward = true;
+            Command::none()
         }
         Msg::Pop => {
             if !app.routes.is_empty() {
@@ -199,6 +272,29 @@ fn reduce(app: &mut TodoApp, message: Msg) {
                 app.nav_velocity = 0.0;
                 app.nav_forward = false;
             }
+            Command::none()
+        }
+        // --- Effets ---
+        Msg::Save => {
+            // Capture un instantané sérialisable ; l'écriture se fait hors update.
+            let items: Vec<(bool, String)> =
+                app.todos.iter().map(|t| (t.done, t.text.clone())).collect();
+            Command::run(move || {
+                let _ = save_todos(&todos_path(), &items);
+                None
+            })
+        }
+        Msg::Load => Command::perform(|| Msg::Loaded(load_todos(&todos_path()))),
+        Msg::Loaded(items) => {
+            app.todos = items
+                .into_iter()
+                .map(|(done, text)| {
+                    let id = app.next_id;
+                    app.next_id += 1;
+                    Todo { id, text, done }
+                })
+                .collect();
+            Command::none()
         }
     }
 }
@@ -206,8 +302,13 @@ fn reduce(app: &mut TodoApp, message: Msg) {
 impl Application for TodoApp {
     type Message = Msg;
 
-    fn update(&mut self, message: Msg) {
-        reduce(self, message);
+    fn update(&mut self, message: Msg) -> Command<Msg> {
+        reduce(self, message)
+    }
+
+    fn init(&mut self) -> Command<Msg> {
+        // Charge les tâches persistées au démarrage.
+        Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
     }
 
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
@@ -281,7 +382,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 23 · Todo".to_string()
+        "frus — Jalon 24 · Todo".to_string()
     }
 
     fn can_go_back(&self) -> bool {
@@ -536,13 +637,25 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     };
     let footer = Flex::row()
         .align(Align::Center)
-        .gap(12.0)
+        .gap(8.0)
         .child(
             Text::new(format!("{active} active(s) · {done} terminée(s)"))
                 .size(16.0)
                 .color(theme.muted),
         )
         .child(Flex::row().flex(1.0))
+        .child(
+            Button::new("Charger")
+                .variant(Variant::Secondary)
+                .size(15.0)
+                .on_press(Msg::Load),
+        )
+        .child(
+            Button::new("Sauver")
+                .variant(Variant::Secondary)
+                .size(15.0)
+                .on_press(Msg::Save),
+        )
         .child(clear);
 
     // Carte de l'app, largeur fixe, centrée en haut de l'écran.
@@ -627,6 +740,43 @@ mod tests {
         let mut app = TodoApp::default();
         add(&mut app, "tâche");
         assert!(primitive_count(&app) > 0);
+    }
+
+    #[test]
+    fn save_then_load_roundtrips() {
+        let path = std::env::temp_dir().join("frus-todos-test-roundtrip.txt");
+        let items = vec![
+            (false, "acheter du pain".to_string()),
+            (true, "ranger le bureau".to_string()),
+        ];
+        save_todos(&path, &items).unwrap();
+        assert_eq!(load_todos(&path), items);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn loaded_replaces_todos_with_unique_ids() {
+        let mut app = TodoApp::default();
+        add(&mut app, "ancienne");
+        reduce(
+            &mut app,
+            Msg::Loaded(vec![(true, "a".to_string()), (false, "b".to_string())]),
+        );
+        assert_eq!(app.todos.len(), 2);
+        assert_eq!(app.todos[0].text, "a");
+        assert!(app.todos[0].done);
+        assert!(!app.todos[1].done);
+        assert_ne!(app.todos[0].id, app.todos[1].id);
+    }
+
+    #[test]
+    fn save_produces_a_run_effect() {
+        let mut app = TodoApp::default();
+        add(&mut app, "x");
+        // Save renvoie une commande non vide (l'écriture est un effet).
+        assert!(!reduce(&mut app, Msg::Save).is_empty());
+        // Une mutation simple n'a aucun effet.
+        assert!(reduce(&mut app, Msg::DraftChanged("y".to_string())).is_empty());
     }
 
     #[test]

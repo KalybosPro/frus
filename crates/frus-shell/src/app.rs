@@ -15,7 +15,7 @@ use frus_widgets::{
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
 
@@ -60,6 +60,8 @@ enum Drag {
 pub struct App<A: Application> {
     /// L'application pilotée (état + logique).
     app: A,
+    /// Canal pour réinjecter les messages produits par les effets (threads).
+    proxy: EventLoopProxy<A::Message>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     /// Dernière interface construite (hit-test, focus, scroll).
@@ -86,10 +88,11 @@ pub struct App<A: Application> {
 }
 
 impl<A: Application> App<A> {
-    /// Crée le pilote autour d'une application.
-    pub fn new(app: A) -> Self {
+    /// Crée le pilote autour d'une application et de son canal de messages.
+    pub fn new(app: A, proxy: EventLoopProxy<A::Message>) -> Self {
         Self {
             app,
+            proxy,
             window: None,
             renderer: None,
             ui: None,
@@ -107,7 +110,7 @@ impl<A: Application> App<A> {
     }
 }
 
-impl<A: Application> ApplicationHandler for App<A> {
+impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -135,6 +138,9 @@ impl<A: Application> ApplicationHandler for App<A> {
             Ok(renderer) => {
                 self.window = Some(window.clone());
                 self.renderer = Some(renderer);
+                // Effet de démarrage (chargement initial, etc.).
+                let command = self.app.init();
+                self.run_command(command);
                 window.request_redraw();
             }
             Err(err) => {
@@ -142,6 +148,13 @@ impl<A: Application> ApplicationHandler for App<A> {
                 event_loop.exit();
             }
         }
+    }
+
+    /// Message produit par un effet (thread de fond) : on l'applique et on
+    /// redemande une frame.
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, message: A::Message) {
+        self.dispatch(message);
+        self.request_redraw();
     }
 
     fn window_event(
@@ -303,7 +316,7 @@ impl<A: Application> ApplicationHandler for App<A> {
                 };
                 self.runtime.input.pressed = None;
                 if let Some(message) = message {
-                    self.app.update(message);
+                    self.dispatch(message);
                 }
                 self.request_redraw();
             }
@@ -502,6 +515,25 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Applique un message à l'application et exécute les effets qu'il renvoie.
+    fn dispatch(&mut self, message: A::Message) {
+        let command = self.app.update(message);
+        self.run_command(command);
+    }
+
+    /// Exécute une commande : chaque tâche tourne sur un thread de fond ; son
+    /// message éventuel est renvoyé dans la boucle via le proxy.
+    fn run_command(&self, command: crate::command::Command<A::Message>) {
+        for task in command.into_tasks() {
+            let proxy = self.proxy.clone();
+            std::thread::spawn(move || {
+                if let Some(message) = task() {
+                    let _ = proxy.send_event(message);
+                }
+            });
+        }
+    }
+
     /// Applique le glissement souris en cours.
     fn handle_drag(&mut self) {
         let Some(mut drag) = self.drag.take() else {
@@ -592,7 +624,7 @@ impl<A: Application> App<A> {
             .and_then(|tree| find_widget(tree.as_ref(), id))
             .and_then(|widget| widget.on_drag(fraction));
         if let Some(message) = message {
-            self.app.update(message);
+            self.dispatch(message);
         }
     }
 
@@ -607,7 +639,7 @@ impl<A: Application> App<A> {
             .and_then(|widget| widget.on_edit(&mut edit, &key));
         self.runtime.edits.insert(id, edit);
         if let Some(message) = message {
-            self.app.update(message);
+            self.dispatch(message);
         }
     }
 

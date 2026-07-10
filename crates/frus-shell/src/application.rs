@@ -7,13 +7,23 @@
 
 use frus_widgets::{Theme, Widget};
 
+use crate::command::Command;
+
 /// Ce qu'une application fournit au framework (modèle à messages, façon Elm).
 pub trait Application {
     /// Type de message émis par l'interface et consommé par [`Application::update`].
-    type Message: Clone;
+    ///
+    /// `Send + 'static` car les effets ([`Command`]) traversent des threads.
+    type Message: Clone + Send + 'static;
 
-    /// Fait évoluer l'état applicatif en réponse à un message.
-    fn update(&mut self, message: Self::Message);
+    /// Fait évoluer l'état en réponse à un message, et renvoie les **effets** à
+    /// exécuter (I/O, tâches de fond…). Utiliser [`Command::none`] si aucun.
+    fn update(&mut self, message: Self::Message) -> Command<Self::Message>;
+
+    /// Effet à exécuter **au démarrage** (chargement initial, etc.).
+    fn init(&mut self) -> Command<Self::Message> {
+        Command::none()
+    }
 
     /// Construit l'arbre de widgets pour la taille et le thème courants.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Self::Message>>;
