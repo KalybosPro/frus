@@ -151,6 +151,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
         }
 
         self.scene.set_clip(clip);
+        self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, &mut self.scene);
 
         let visible = draw_rect.intersect(clip);
@@ -293,6 +294,14 @@ pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size, runtime: &R
     };
     let mut index = 0;
     builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
+
+    // Rejoue les sous-arbres sortants, en fondu, par-dessus la scène courante.
+    builder.scene.set_clip(Rect::UNBOUNDED);
+    for (_, (primitives, opacity)) in &runtime.leaving {
+        for primitive in primitives {
+            builder.scene.push_faded(primitive, *opacity);
+        }
+    }
 
     Ui {
         scene: builder.scene,

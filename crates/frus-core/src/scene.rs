@@ -28,6 +28,8 @@ pub enum Primitive {
         blur: f32,
         /// Rectangle de découpe : rien n'est dessiné en dehors.
         clip: Rect,
+        /// Identité du widget émetteur (pour l'animation de sortie).
+        owner: u64,
     },
     /// Une ligne de texte, ancrée par son coin haut-gauche.
     Text {
@@ -37,7 +39,19 @@ pub enum Primitive {
         color: Color,
         /// Rectangle de découpe.
         clip: Rect,
+        /// Identité du widget émetteur.
+        owner: u64,
     },
+}
+
+impl Primitive {
+    /// Identité du widget qui a émis cette primitive.
+    pub fn owner(&self) -> u64 {
+        match self {
+            Primitive::Rect { owner, .. } => *owner,
+            Primitive::Text { owner, .. } => *owner,
+        }
+    }
 }
 
 /// Une scène 2D : la description déclarative de ce qu'il faut dessiner.
@@ -45,6 +59,7 @@ pub enum Primitive {
 pub struct Scene {
     primitives: Vec<Primitive>,
     current_clip: Rect,
+    current_owner: u64,
 }
 
 impl Default for Scene {
@@ -52,6 +67,7 @@ impl Default for Scene {
         Self {
             primitives: Vec::new(),
             current_clip: Rect::UNBOUNDED,
+            current_owner: 0,
         }
     }
 }
@@ -66,11 +82,62 @@ impl Scene {
     pub fn clear(&mut self) {
         self.primitives.clear();
         self.current_clip = Rect::UNBOUNDED;
+        self.current_owner = 0;
     }
 
     /// Fixe le rectangle de découpe appliqué aux primitives suivantes.
     pub fn set_clip(&mut self, clip: Rect) {
         self.current_clip = clip;
+    }
+
+    /// Fixe l'identité du widget émetteur des primitives suivantes.
+    pub fn set_owner(&mut self, owner: u64) {
+        self.current_owner = owner;
+    }
+
+    /// Rejoue une primitive existante avec une opacité réduite (fondu de sortie).
+    pub fn push_faded(&mut self, primitive: &Primitive, opacity: f32) {
+        let faded = match primitive.clone() {
+            Primitive::Rect {
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                clip,
+                owner,
+            } => Primitive::Rect {
+                rect,
+                color: color.fade(opacity),
+                color2: color2.fade(opacity),
+                gradient_dir,
+                radius,
+                border_width,
+                border_color: border_color.fade(opacity),
+                blur,
+                clip,
+                owner,
+            },
+            Primitive::Text {
+                position,
+                text,
+                size,
+                color,
+                clip,
+                owner,
+            } => Primitive::Text {
+                position,
+                text,
+                size,
+                color: color.fade(opacity),
+                clip,
+                owner,
+            },
+        };
+        self.primitives.push(faded);
     }
 
     /// Ajoute un rectangle plein (coins droits, sans bordure).
@@ -85,6 +152,7 @@ impl Scene {
             border_color: Color::TRANSPARENT,
             blur: 0.0,
             clip: self.current_clip,
+            owner: self.current_owner,
         });
     }
 
@@ -107,6 +175,7 @@ impl Scene {
             border_color,
             blur: 0.0,
             clip: self.current_clip,
+            owner: self.current_owner,
         });
     }
 
@@ -131,6 +200,7 @@ impl Scene {
             border_color,
             blur: 0.0,
             clip: self.current_clip,
+            owner: self.current_owner,
         });
     }
 
@@ -146,6 +216,7 @@ impl Scene {
             border_color: Color::TRANSPARENT,
             blur,
             clip: self.current_clip,
+            owner: self.current_owner,
         });
     }
 
@@ -157,6 +228,7 @@ impl Scene {
             size,
             color,
             clip: self.current_clip,
+            owner: self.current_owner,
         });
     }
 
@@ -199,8 +271,27 @@ mod tests {
                 border_color: Color::TRANSPARENT,
                 blur: 0.0,
                 clip: Rect::UNBOUNDED,
+                owner: 0,
             }
         );
+    }
+
+    #[test]
+    fn push_faded_scales_alpha_and_keeps_owner() {
+        let mut scene = Scene::new();
+        scene.set_owner(42);
+        scene.fill_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::rgba(1.0, 0.0, 0.0, 1.0));
+        let source = scene.primitives()[0].clone();
+        assert_eq!(source.owner(), 42);
+
+        let mut target = Scene::new();
+        target.push_faded(&source, 0.5);
+        if let Primitive::Rect { color, owner, .. } = target.primitives()[0] {
+            assert_eq!(color.a, 0.5);
+            assert_eq!(owner, 42);
+        } else {
+            panic!("attendu un rectangle");
+        }
     }
 
     #[test]

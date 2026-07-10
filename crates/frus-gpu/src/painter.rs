@@ -219,6 +219,7 @@ impl Painter {
                     border_color,
                     blur,
                     clip,
+                    ..
                 } => self.instances.push(Instance {
                     rect: rect.to_array(),
                     color: color.to_array(),

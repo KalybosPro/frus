@@ -63,6 +63,7 @@ impl TextPainter {
                 size,
                 color,
                 clip,
+                ..
             } = primitive
             {
                 let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);

@@ -13,6 +13,11 @@ impl WidgetId {
     /// Identité de la racine.
     pub(crate) const ROOT: WidgetId = WidgetId(0xcbf29ce484222325);
 
+    /// Valeur brute de l'identité (pour tagguer les primitives).
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+
     /// Dérive l'identité du `index`-ième enfant de ce widget.
     pub(crate) fn child(self, index: usize) -> WidgetId {
         let mut h = self.0 ^ (index as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);

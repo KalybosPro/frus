@@ -63,6 +63,8 @@ pub struct App {
     drag: Option<Drag>,
     /// Instant du dernier clic (détection du double-clic).
     last_click_time: Option<Instant>,
+    /// Compteur pour clés d'événements de sortie (fondu de disparition).
+    leaving_counter: u64,
 }
 
 impl ApplicationHandler for App {
@@ -339,18 +341,44 @@ impl ApplicationHandler for App {
                 self.last_frame = Some(now);
 
                 let tree = view(&self.state, width, height);
-
-                // Détection des montages : les nouveaux widgets démarrent en fondu.
                 let ids = frus_widgets::collect_ids(&tree);
+                let present: std::collections::HashSet<_> = ids.iter().copied().collect();
+
+                // Sortie : capture l'instantané des widgets présents à N-1 mais
+                // absents à N, pour les faire disparaître en fondu.
+                let leaving: std::collections::HashSet<u64> = self
+                    .runtime
+                    .mounted
+                    .iter()
+                    .filter(|id| !present.contains(id))
+                    .map(|id| id.as_u64())
+                    .collect();
+                if !leaving.is_empty() {
+                    if let Some(ui) = &self.ui {
+                        let captured: Vec<_> = ui
+                            .scene()
+                            .primitives()
+                            .iter()
+                            .filter(|p| leaving.contains(&p.owner()))
+                            .cloned()
+                            .collect();
+                        if !captured.is_empty() {
+                            self.runtime.leaving.insert(self.leaving_counter, (captured, 1.0));
+                            self.leaving_counter = self.leaving_counter.wrapping_add(1);
+                        }
+                    }
+                }
+
+                // Montage : les nouveaux widgets démarrent en fondu.
                 for &id in &ids {
                     if self.runtime.mounted.insert(id) {
                         self.runtime.anims.entry(id).or_default().opacity = 0.0;
                     }
                 }
-                let present: std::collections::HashSet<_> = ids.iter().copied().collect();
                 self.runtime.mounted.retain(|id| present.contains(id));
 
-                let animating = self.runtime.advance(dt);
+                let animating =
+                    self.runtime.advance(dt) | self.runtime.advance_leaving(dt);
                 let ui = build_ui(&tree, Size::new(width, height), &self.runtime);
 
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -478,6 +506,7 @@ struct State {
 #[derive(Clone)]
 enum Msg {
     AddSquare,
+    RemoveSquare,
     NameChanged(String),
     EmailChanged(String),
 }
@@ -486,6 +515,7 @@ enum Msg {
 fn update(state: &mut State, message: Msg) {
     match message {
         Msg::AddSquare => state.squares += 1,
+        Msg::RemoveSquare => state.squares = state.squares.saturating_sub(1),
         Msg::NameChanged(name) => state.name = name,
         Msg::EmailChanged(email) => state.email = email,
     }
@@ -525,8 +555,28 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
                 .size(20.0)
                 .color(Color::rgb8(20, 40, 25)),
         );
-    // Rangée qui centre le bouton horizontalement.
-    let button_row = Flex::row().justify(Justify::Center).child(button);
+    // Bouton « retirer » (déclenche un fondu de disparition du dernier élément).
+    let remove_button = Container::new()
+        .radius(12.0)
+        .border(2.0, Color::rgb8(120, 60, 60))
+        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.45))
+        .padding_each(12.0, 20.0, 12.0, 20.0)
+        .color(Color::rgb8(200, 96, 96))
+        .hover_color(Color::rgb8(224, 120, 120))
+        .pressed_color(Color::rgb8(176, 72, 72))
+        .on_click(Msg::RemoveSquare)
+        .child(
+            Text::new("− Retirer")
+                .size(20.0)
+                .color(Color::rgb8(40, 18, 18)),
+        );
+
+    // Rangée qui centre les deux boutons.
+    let button_row = Flex::row()
+        .justify(Justify::Center)
+        .gap(12.0)
+        .child(button)
+        .child(remove_button);
 
     // Champ de saisie (contrôlé) + salutation.
     let greeting = if state.name.is_empty() {

@@ -7,6 +7,8 @@
 
 use std::collections::HashMap;
 
+use frus_core::Primitive;
+
 use crate::interaction::{InputState, WidgetId};
 
 /// Offsets de défilement `(x, y)`, par zone défilable.
@@ -80,6 +82,9 @@ pub struct Runtime {
     pub anims: HashMap<WidgetId, Anim>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
+    /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
+    /// clé d'événement → (primitives capturées, opacité restante `1 → 0`).
+    pub leaving: HashMap<u64, (Vec<Primitive>, f32)>,
 }
 
 impl Runtime {
@@ -132,6 +137,27 @@ impl Runtime {
                 && anim.opacity >= 1.0)
         });
 
+        animating
+    }
+
+    /// Fait décroître l'opacité des sous-arbres sortants ; oublie ceux arrivés à
+    /// 0. Renvoie `true` s'il reste une sortie en cours.
+    pub fn advance_leaving(&mut self, dt: f32) -> bool {
+        let step = if ANIM_DURATION > 0.0 {
+            dt / ANIM_DURATION
+        } else {
+            1.0
+        };
+        let mut animating = false;
+        self.leaving.retain(|_, (_, opacity)| {
+            *opacity -= step;
+            if *opacity > 0.0 {
+                animating = true;
+                true
+            } else {
+                false
+            }
+        });
         animating
     }
 }
@@ -188,5 +214,14 @@ mod tests {
         assert_eq!(rt.opacity(id), 1.0);
         // Défaut sans entrée : opaque.
         assert_eq!(rt.opacity(WidgetId::ROOT), 1.0);
+    }
+
+    #[test]
+    fn leaving_fades_out_and_clears() {
+        let mut rt = Runtime::default();
+        rt.leaving.insert(0, (Vec::new(), 1.0));
+        assert!(rt.advance_leaving(0.06)); // ~0.5, encore en cours
+        assert!(!rt.advance_leaving(0.06)); // atteint 0 → nettoyé
+        assert!(rt.leaving.is_empty());
     }
 }
