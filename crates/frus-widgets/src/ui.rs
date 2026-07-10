@@ -7,14 +7,13 @@ use frus_layout::{Layout, NodeId};
 
 use crate::interaction::WidgetId;
 use crate::runtime::Runtime;
+use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Épaisseur d'une barre de défilement, en pixels.
 const BAR_SIZE: f32 = 10.0;
 /// Longueur minimale d'une poignée.
 const MIN_THUMB: f32 = 28.0;
-const TRACK_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.06);
-const THUMB_COLOR: Color = Color::rgba(1.0, 1.0, 1.0, 0.28);
 
 /// Une poignée de barre de défilement (pour le hit-test au drag).
 #[derive(Copy, Clone, Debug)]
@@ -121,6 +120,7 @@ struct Builder<'a, Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     runtime: &'a Runtime,
+    theme: &'a Theme,
 }
 
 impl<Msg: Clone> Builder<'_, Msg> {
@@ -152,7 +152,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
 
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
-        widget.paint(draw_rect, status, &mut self.scene);
+        widget.paint(draw_rect, status, self.theme, &mut self.scene);
 
         let visible = draw_rect.intersect(clip);
         if visible.width > 0.0 && visible.height > 0.0 {
@@ -257,10 +257,12 @@ impl<Msg: Clone> Builder<'_, Msg> {
             )
         };
 
+        let track_color = self.theme.muted.fade(0.18);
+        let thumb_color = self.theme.muted.fade(0.55);
         self.scene
-            .draw_rect(track, TRACK_COLOR, BAR_SIZE * 0.5, 0.0, Color::TRANSPARENT);
+            .draw_rect(track, track_color, BAR_SIZE * 0.5, 0.0, Color::TRANSPARENT);
         self.scene
-            .draw_rect(thumb, THUMB_COLOR, (BAR_SIZE - 2.0) * 0.5, 0.0, Color::TRANSPARENT);
+            .draw_rect(thumb, thumb_color, (BAR_SIZE - 2.0) * 0.5, 0.0, Color::TRANSPARENT);
         self.scrollbars.push(Scrollbar {
             id,
             vertical,
@@ -273,8 +275,14 @@ impl<Msg: Clone> Builder<'_, Msg> {
     }
 }
 
-/// Traduit un arbre de widgets en [`Ui`] pour une taille et un état runtime donnés.
-pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size, runtime: &Runtime) -> Ui<Msg> {
+/// Traduit un arbre de widgets en [`Ui`] pour une taille, un état runtime et un
+/// thème donnés.
+pub fn build_ui<Msg: Clone>(
+    root: &dyn Widget<Msg>,
+    available: Size,
+    runtime: &Runtime,
+    theme: &Theme,
+) -> Ui<Msg> {
     let mut layout: Layout<()> = Layout::new();
     let root_node = build_layout(root, &mut layout);
     layout.compute(root_node, available);
@@ -291,6 +299,7 @@ pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size, runtime: &R
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
         runtime,
+        theme,
     };
     let mut index = 0;
     builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
@@ -388,7 +397,7 @@ mod tests {
     #[test]
     fn hit_and_msg_for_route_correctly() {
         let rt = Runtime::default();
-        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
+        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt, &Theme::default());
         let id_a = ui.hit(Point::new(50.0, 50.0)).expect("A");
         let id_b = ui.hit(Point::new(300.0, 50.0)).expect("B");
         assert_ne!(id_a, id_b);
@@ -400,7 +409,7 @@ mod tests {
     #[test]
     fn hover_progress_interpolates_color() {
         let rt = Runtime::default();
-        let base = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
+        let base = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt, &Theme::default());
         let id_a = base.hit(Point::new(50.0, 50.0)).unwrap();
 
         // Sans progression : couleur de base (rouge).
@@ -414,7 +423,7 @@ mod tests {
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id_a);
         rt.anims.insert(id_a, crate::Anim { hover: 1.0, ..Default::default() });
-        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
+        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt, &Theme::default());
         if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));
         } else {
@@ -429,7 +438,7 @@ mod tests {
             .height(80.0)
             .child(TextInput::new("hi").width(200.0).on_input(Msg::Edited));
         let rt = Runtime::default();
-        let ui = build_ui(&tree, Size::new(300.0, 80.0), &rt);
+        let ui = build_ui(&tree, Size::new(300.0, 80.0), &rt, &Theme::default());
         let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ");
 
         let widget = find_widget(&tree, id).expect("widget trouvé");
@@ -450,7 +459,7 @@ mod tests {
         let tree = Scroll::new().width(200.0).height(100.0).child(content);
 
         let rt = Runtime::default();
-        let ui = build_ui(&tree, Size::new(200.0, 100.0), &rt);
+        let ui = build_ui(&tree, Size::new(200.0, 100.0), &rt, &Theme::default());
         let (sid, _viewport, max_x, max_y) = ui.scrollables[0];
         assert_eq!(max_y, 80.0); // 180 - 100
         assert_eq!(max_x, 0.0);
@@ -459,7 +468,7 @@ mod tests {
 
         let mut rt = Runtime::default();
         rt.scroll.insert(sid, (0.0, 50.0));
-        let ui2 = build_ui(&tree, Size::new(200.0, 100.0), &rt);
+        let ui2 = build_ui(&tree, Size::new(200.0, 100.0), &rt, &Theme::default());
         assert_eq!(ui2.first_rect().0.y, -50.0);
     }
 

@@ -5,6 +5,7 @@ use frus_layout::Style;
 
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
+use crate::theme::Theme;
 
 /// Un widget : un élément d'interface composable.
 ///
@@ -18,8 +19,8 @@ pub trait Widget<Msg> {
     fn children(&self) -> &[Box<dyn Widget<Msg>>];
 
     /// Peint la décoration propre du widget, selon son statut (survol / focus /
-    /// curseur / sélection).
-    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene);
+    /// curseur / sélection) et le thème courant.
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene);
 
     /// Message à émettre au clic (`None` = non cliquable).
     fn on_click(&self) -> Option<Msg>;

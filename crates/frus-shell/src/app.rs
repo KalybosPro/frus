@@ -11,7 +11,7 @@ use std::time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, find_widget, Align, Axis, Color, Container, Edit, Flex, Justify, Key, Point, Runtime,
-    Scroll, Size, Text, TextInput, Ui, Widget, WidgetId,
+    Scroll, Size, Text, TextInput, Theme, Ui, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -74,7 +74,7 @@ impl ApplicationHandler for App {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title("frus — Jalon 12");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 15");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -340,7 +340,8 @@ impl ApplicationHandler for App {
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
 
-                let tree = view(&self.state, width, height);
+                let theme = theme_of(&self.state);
+                let tree = view(&self.state, &theme, width, height);
                 let ids = frus_widgets::collect_ids(&tree);
                 let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -379,7 +380,7 @@ impl ApplicationHandler for App {
 
                 let animating =
                     self.runtime.advance(dt) | self.runtime.advance_leaving(dt);
-                let ui = build_ui(&tree, Size::new(width, height), &self.runtime);
+                let ui = build_ui(&tree, Size::new(width, height), &self.runtime, &theme);
 
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(ui.scene()) {
@@ -500,6 +501,8 @@ struct State {
     squares: u32,
     name: String,
     email: String,
+    /// Thème sombre (par défaut) ou clair.
+    light: bool,
 }
 
 /// Messages émis par l'interface.
@@ -507,6 +510,7 @@ struct State {
 enum Msg {
     AddSquare,
     RemoveSquare,
+    ToggleTheme,
     NameChanged(String),
     EmailChanged(String),
 }
@@ -516,8 +520,18 @@ fn update(state: &mut State, message: Msg) {
     match message {
         Msg::AddSquare => state.squares += 1,
         Msg::RemoveSquare => state.squares = state.squares.saturating_sub(1),
+        Msg::ToggleTheme => state.light = !state.light,
         Msg::NameChanged(name) => state.name = name,
         Msg::EmailChanged(email) => state.email = email,
+    }
+}
+
+/// Thème courant selon l'état.
+fn theme_of(state: &State) -> Theme {
+    if state.light {
+        Theme::light()
+    } else {
+        Theme::dark()
     }
 }
 
@@ -529,102 +543,88 @@ const PALETTE: [Color; 4] = [
     Color::rgb(0.20, 0.60, 0.86),
 ];
 
-/// Construit l'arbre de widgets à partir de l'état : une barre-bouton verte
-/// (cliquable) au-dessus d'une rangée de `state.squares` carrés colorés.
-fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
-    // En-tête centré : le compteur, mis à jour à chaque clic.
-    let header = Flex::row().justify(Justify::Center).child(
-        Text::new("Welcome To Frus")
-            .size(28.0)
-            .color(Color::rgb8(230, 230, 235)),
-    );
+/// Construit l'arbre de widgets, entièrement piloté par le thème.
+fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+    // En-tête : titre (couleur du thème par défaut) + bascule de thème à droite.
+    let toggle_label = if state.light { "Thème sombre" } else { "Thème clair" };
+    let toggle = Container::new()
+        .radius(theme.radius)
+        .padding_each(8.0, 14.0, 8.0, 14.0)
+        .color(theme.surface)
+        .hover_color(theme.surface.lerp(theme.on_surface, 0.08))
+        .border(1.0, theme.border)
+        .on_click(Msg::ToggleTheme)
+        .child(Text::new(toggle_label).size(16.0).color(theme.muted));
+    let header = Flex::row()
+        .align(Align::Center)
+        .gap(12.0)
+        .child(Text::new("Welcome To Frus").size(28.0))
+        .child(Flex::row().flex(1.0))
+        .child(toggle);
 
-    // Bouton arrondi, bordé, avec padding par côté et couleurs d'interaction.
+    // Bouton principal (accent du thème).
     let button = Container::new()
-        .radius(12.0)
-        .border(2.0, Color::rgb8(40, 120, 80))
-        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.45))
-        .gradient(Color::rgb8(56, 178, 104), [0.0, 1.0])
+        .radius(theme.radius)
+        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.4))
         .padding_each(12.0, 20.0, 12.0, 20.0)
-        .color(Color::rgb8(96, 210, 132))
-        .hover_color(Color::rgb8(120, 226, 158))
-        .pressed_color(Color::rgb8(70, 180, 110))
+        .color(theme.primary)
+        .hover_color(theme.primary.lerp(Color::WHITE, 0.12))
+        .pressed_color(theme.primary.lerp(Color::BLACK, 0.12))
         .on_click(Msg::AddSquare)
-        .child(
-            Text::new("+ Ajouter un carré")
-                .size(20.0)
-                .color(Color::rgb8(20, 40, 25)),
-        );
-    // Bouton « retirer » (déclenche un fondu de disparition du dernier élément).
-    let remove_button = Container::new()
-        .radius(12.0)
-        .border(2.0, Color::rgb8(120, 60, 60))
-        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.45))
-        .padding_each(12.0, 20.0, 12.0, 20.0)
-        .color(Color::rgb8(200, 96, 96))
-        .hover_color(Color::rgb8(224, 120, 120))
-        .pressed_color(Color::rgb8(176, 72, 72))
-        .on_click(Msg::RemoveSquare)
-        .child(
-            Text::new("− Retirer")
-                .size(20.0)
-                .color(Color::rgb8(40, 18, 18)),
-        );
+        .child(Text::new("+ Ajouter un élément").size(20.0).color(theme.on_primary));
 
-    // Rangée qui centre les deux boutons.
+    // Bouton « retirer » (fondu de disparition du dernier élément).
+    let danger = Color::rgb8(210, 96, 96);
+    let remove_button = Container::new()
+        .radius(theme.radius)
+        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.4))
+        .padding_each(12.0, 20.0, 12.0, 20.0)
+        .color(danger)
+        .hover_color(danger.lerp(Color::WHITE, 0.12))
+        .pressed_color(danger.lerp(Color::BLACK, 0.12))
+        .on_click(Msg::RemoveSquare)
+        .child(Text::new("− Retirer").size(20.0).color(Color::WHITE));
+
     let button_row = Flex::row()
         .justify(Justify::Center)
         .gap(12.0)
         .child(button)
         .child(remove_button);
 
-    // Champ de saisie (contrôlé) + salutation.
-    let greeting = if state.name.is_empty() {
-        "Tapez votre nom ci-dessous".to_string()
-    } else {
-        format!("Nom: {}", state.name)
-    };
+    // Champs de saisie (couleurs du thème automatiques).
     let name_row = Flex::row()
         .justify(Justify::Center)
         .align(Align::Center)
         .gap(12.0)
-        .child(Text::new("Nom :").size(20.0).color(Color::rgb8(210, 210, 220)))
+        .child(Text::new("Nom :").size(20.0))
         .child(
             TextInput::new(state.name.as_str())
                 .width(280.0)
                 .size(18.0)
                 .on_input(Msg::NameChanged),
         );
-
     let email_row = Flex::row()
         .justify(Justify::Center)
         .align(Align::Center)
         .gap(12.0)
-        .child(Text::new("Email :").size(20.0).color(Color::rgb8(210, 210,220)))
+        .child(Text::new("Email :").size(20.0))
         .child(
             TextInput::new(state.email.as_str())
                 .width(280.0)
                 .size(18.0)
-                .on_input(Msg::EmailChanged)
+                .on_input(Msg::EmailChanged),
         );
 
-    let email_text = Flex::row().justify(Justify::Center).child(
-        Container::new()
-            .radius(10.0)
-            .color(Color::rgb8(19,36,100))
-            .padding(8.0)
-            .child(
-                Text::new(format!("Email: {}", state.email))
-                    .size(18.0)
-                    .color(Color::rgb8(170, 200, 176))
-            )
-    );
+    let greeting = if state.name.is_empty() {
+        "Tapez votre nom ci-dessous".to_string()
+    } else {
+        format!("Bonjour {} !", state.name)
+    };
+    let greeting_row = Flex::row()
+        .justify(Justify::Center)
+        .child(Text::new(greeting).size(18.0).color(theme.muted));
 
-    let greeting_row = Flex::row().justify(Justify::Center).child(
-        Text::new(greeting).size(18.0).color(Color::rgb8(170, 200, 175)),
-    );
-
-    // Bande défilante horizontale de vignettes (dégradé + coins arrondis).
+    // Bande défilante horizontale de vignettes colorées (dégradé).
     let mut strip = Flex::row().gap(10.0);
     for i in 0..12 {
         let c = PALETTE[i % PALETTE.len()];
@@ -632,7 +632,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
             Container::new()
                 .width(120.0)
                 .height(72.0)
-                .radius(10.0)
+                .radius(theme.radius)
                 .shadow(0.0, 3.0, 8.0, Color::rgba(0.0, 0.0, 0.0, 0.35))
                 .gradient(c, [0.6, 1.0])
                 .color(Color::rgb(c.r * 1.3, c.g * 1.3, c.b * 1.3)),
@@ -643,7 +643,7 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         .height(84.0)
         .child(strip);
 
-    // Liste défilante verticale : 8 éléments + ceux ajoutés au clic.
+    // Liste défilante verticale : cartes « surface » du thème.
     let total = 8 + state.squares;
     let mut list = Flex::column().gap(8.0);
     for i in 0..total {
@@ -651,19 +651,16 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
             Container::new()
                 .height(48.0)
                 .radius(8.0)
-                .shadow(0.0, 2.0, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.3))
-                .color(PALETTE[(i as usize) % PALETTE.len()])
+                .shadow(0.0, 2.0, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.25))
+                .color(theme.surface)
+                .border(1.0, theme.border)
                 .padding_each(14.0, 16.0, 14.0, 16.0)
-                .child(
-                    Text::new(format!("Élément {}", i + 1))
-                        .size(18.0)
-                        .color(Color::rgb8(20, 25, 30)),
-                ),
+                .child(Text::new(format!("Élément {}", i + 1)).size(18.0)),
         );
     }
     let scroll = Scroll::new().flex(1.0).height(240.0).child(list);
 
-    Flex::column()
+    let column = Flex::column()
         .width(width)
         .height(height)
         .padding(20.0)
@@ -673,9 +670,15 @@ fn view(state: &State, width: f32, height: f32) -> Flex<Msg> {
         .child(name_row)
         .child(email_row)
         .child(greeting_row)
-        .child(email_text)
         .child(strip_scroll)
-        .child(scroll)
+        .child(scroll);
+
+    // Fond racine du thème.
+    Container::new()
+        .width(width)
+        .height(height)
+        .color(theme.background)
+        .child(column)
 }
 
 #[cfg(test)]
@@ -684,11 +687,17 @@ mod tests {
     use frus_widgets::build_ui;
 
     fn primitive_count(state: &State) -> usize {
-        let tree = view(state, 800.0, 600.0);
-        build_ui(&tree, Size::new(800.0, 600.0), &frus_widgets::Runtime::default())
-            .scene()
-            .primitives()
-            .len()
+        let theme = Theme::default();
+        let tree = view(state, &theme, 800.0, 600.0);
+        build_ui(
+            &tree,
+            Size::new(800.0, 600.0),
+            &frus_widgets::Runtime::default(),
+            &theme,
+        )
+        .scene()
+        .primitives()
+        .len()
     }
 
     #[test]

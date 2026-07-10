@@ -4,6 +4,7 @@ use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
+use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Un widget de texte sur une ligne.
@@ -13,16 +14,17 @@ use crate::widget::Widget;
 pub struct Text {
     content: String,
     size: f32,
-    color: Color,
+    /// Couleur explicite ; sinon `theme.on_surface`.
+    color: Option<Color>,
 }
 
 impl Text {
-    /// Crée un texte (taille 16 px, blanc par défaut).
+    /// Crée un texte (taille 16 px, couleur du thème par défaut).
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
             size: 16.0,
-            color: Color::WHITE,
+            color: None,
         }
     }
 
@@ -32,9 +34,9 @@ impl Text {
         self
     }
 
-    /// Fixe la couleur du texte.
+    /// Fixe la couleur du texte (sinon celle du thème).
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 }
@@ -53,13 +55,9 @@ impl<Msg> Widget<Msg> for Text {
         &[]
     }
 
-    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
-        scene.text(
-            Point::new(bounds.x, bounds.y),
-            self.content.clone(),
-            self.size,
-            self.color.fade(status.opacity),
-        );
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let color = self.color.unwrap_or(theme.on_surface).fade(status.opacity);
+        scene.text(Point::new(bounds.x, bounds.y), self.content.clone(), self.size, color);
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -80,6 +78,7 @@ mod tests {
             &text,
             Rect::new(5.0, 6.0, 100.0, 24.0),
             Status::default(),
+            &Theme::default(),
             &mut scene,
         );
 

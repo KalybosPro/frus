@@ -8,6 +8,7 @@ use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
+use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Axe(s) de défilement d'un [`Scroll`].
@@ -100,7 +101,7 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
         &self.content
     }
 
-    fn paint(&self, _bounds: Rect, _status: Status, _scene: &mut Scene) {
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
         // Le viewport lui-même est transparent : seul le contenu est dessiné.
     }
 

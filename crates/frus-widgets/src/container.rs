@@ -5,6 +5,7 @@ use frus_core::{Color, Insets, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::{Interaction, Status};
+use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Courbe d'easing (smoothstep) pour adoucir les transitions.
@@ -163,7 +164,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         &self.children
     }
 
-    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
+    fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
         // Pressé : instantané. Sinon, transition animée repos → survol.
         let color = if status.interaction == Interaction::Pressed {
             self.pressed_color.or(self.hover_color).or(self.color)

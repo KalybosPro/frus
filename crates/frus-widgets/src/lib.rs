@@ -16,6 +16,7 @@ mod runtime;
 mod scroll;
 mod text;
 mod textinput;
+mod theme;
 mod ui;
 mod widget;
 
@@ -26,6 +27,7 @@ pub use runtime::{Anim, Edit, Runtime, ScrollState};
 pub use scroll::{Axis, Scroll};
 pub use text::Text;
 pub use textinput::TextInput;
+pub use theme::Theme;
 pub use ui::{build_ui, collect_ids, find_widget, Scrollbar, Ui};
 pub use widget::Widget;
 

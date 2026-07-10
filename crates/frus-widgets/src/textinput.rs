@@ -4,21 +4,16 @@
 //! La valeur est contrôlée ; le **curseur / la sélection** sont un état d'édition
 //! retenu au runtime ([`Edit`]), clé par identité de widget.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
+use crate::theme::Theme;
 use crate::widget::Widget;
 
 const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 6.0;
-
-const BG: Color = Color::rgb(0.16, 0.17, 0.20);
-const TEXT_COLOR: Color = Color::rgb(0.92, 0.92, 0.95);
-const BORDER_IDLE: Color = Color::rgb(0.32, 0.34, 0.40);
-const BORDER_FOCUS: Color = Color::rgb(0.35, 0.62, 0.95);
-const SELECTION: Color = Color::rgba(0.35, 0.62, 0.95, 0.4);
 
 /// Un champ de saisie de texte sur une ligne.
 pub struct TextInput<Msg> {
@@ -90,13 +85,13 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
         &[]
     }
 
-    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         // Bordure animée selon la progression de focus (repos → focus).
         let fp = status.focus_progress.clamp(0.0, 1.0);
-        let border_color = BORDER_IDLE.lerp(BORDER_FOCUS, fp).fade(o);
+        let border_color = theme.border.lerp(theme.focus, fp).fade(o);
         let border_width = 1.0 + fp;
-        scene.draw_rect(bounds, BG.fade(o), 6.0, border_width, border_color);
+        scene.draw_rect(bounds, theme.surface.fade(o), theme.radius, border_width, border_color);
 
         let chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
@@ -111,7 +106,7 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
                 if start < end {
                     let x0 = text_x + prefix_width(&chars, start, self.size);
                     let x1 = text_x + prefix_width(&chars, end, self.size);
-                    scene.fill_rect(Rect::new(x0, text_y, x1 - x0, line_h), SELECTION.fade(o));
+                    scene.fill_rect(Rect::new(x0, text_y, x1 - x0, line_h), theme.selection.fade(o));
                 }
             }
         }
@@ -121,7 +116,7 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
                 Point::new(text_x, text_y),
                 self.value.clone(),
                 self.size,
-                TEXT_COLOR.fade(o),
+                theme.on_surface.fade(o),
             );
         }
 
@@ -129,7 +124,7 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
         if status.focused {
             let cursor = status.cursor.unwrap_or(len).min(len);
             let cx = text_x + prefix_width(&chars, cursor, self.size);
-            scene.fill_rect(Rect::new(cx, text_y, 2.0, line_h), TEXT_COLOR.fade(o));
+            scene.fill_rect(Rect::new(cx, text_y, 2.0, line_h), theme.on_surface.fade(o));
         }
     }
 
