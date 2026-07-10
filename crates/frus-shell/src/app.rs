@@ -10,8 +10,9 @@ use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, find_widget, Align, Axis, Color, Container, Edit, Flex, Justify, Key, Point, Runtime,
-    Scroll, Size, Text, TextInput, Theme, Ui, Widget, WidgetId,
+    build_ui, find_widget, Align, Axis, Button, Card, Checkbox, Color, Container, Dropdown, Edit,
+    Flex, Justify, Key, Point, RadioGroup, Runtime, Scroll, Size, Slider, Switch, Text, TextInput,
+    Theme, Ui, Variant, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -36,6 +37,8 @@ enum Drag {
     },
     /// Sélection de texte dans un champ (avec ses bornes, pour le placement).
     TextSelect { id: WidgetId, rect: frus_widgets::Rect },
+    /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
+    Widget { id: WidgetId, rect: frus_widgets::Rect },
 }
 
 /// État de l'application.
@@ -168,6 +171,14 @@ impl ApplicationHandler for App {
                         thumb_len: bar.thumb_len,
                         max: bar.max,
                     });
+                    self.request_redraw();
+                    return;
+                }
+
+                // 1 bis) Glissement d'un widget draggable (ex. Slider) ?
+                if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
+                    self.drag = Some(Drag::Widget { id, rect });
+                    self.apply_widget_drag(id, rect);
                     self.request_redraw();
                     return;
                 }
@@ -459,9 +470,28 @@ impl App {
                     edit.cursor = cursor;
                 }
             }
+            Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
         }
         self.drag = Some(drag);
         self.request_redraw();
+    }
+
+    /// Applique un glissement de widget : calcule la fraction horizontale et
+    /// route le message produit par `on_drag`.
+    fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect) {
+        let fraction = if rect.width > 0.0 {
+            ((self.cursor.x - rect.x) / rect.width).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.on_drag(fraction));
+        if let Some(message) = message {
+            update(&mut self.state, message);
+        }
     }
 
     /// Route une touche vers le champ focalisé : met à jour l'état d'édition et
@@ -503,6 +533,12 @@ struct State {
     email: String,
     /// Thème sombre (par défaut) ou clair.
     light: bool,
+    done: bool,
+    notifs: bool,
+    volume: f32,
+    radio: usize,
+    menu_open: bool,
+    menu_choice: usize,
 }
 
 /// Messages émis par l'interface.
@@ -513,7 +549,16 @@ enum Msg {
     ToggleTheme,
     NameChanged(String),
     EmailChanged(String),
+    SetDone(bool),
+    SetNotifs(bool),
+    SetVolume(f32),
+    SetRadio(usize),
+    ToggleMenu,
+    SetMenu(usize),
 }
+
+/// Libellés du menu déroulant.
+const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
 
 /// Fait évoluer l'état en réponse à un message.
 fn update(state: &mut State, message: Msg) {
@@ -523,6 +568,15 @@ fn update(state: &mut State, message: Msg) {
         Msg::ToggleTheme => state.light = !state.light,
         Msg::NameChanged(name) => state.name = name,
         Msg::EmailChanged(email) => state.email = email,
+        Msg::SetDone(v) => state.done = v,
+        Msg::SetNotifs(v) => state.notifs = v,
+        Msg::SetVolume(v) => state.volume = v,
+        Msg::SetRadio(i) => state.radio = i,
+        Msg::ToggleMenu => state.menu_open = !state.menu_open,
+        Msg::SetMenu(i) => {
+            state.menu_choice = i;
+            state.menu_open = false;
+        }
     }
 }
 
@@ -562,34 +616,53 @@ fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg>
         .child(Flex::row().flex(1.0))
         .child(toggle);
 
-    // Bouton principal (accent du thème).
-    let button = Container::new()
-        .radius(theme.radius)
-        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.4))
-        .padding_each(12.0, 20.0, 12.0, 20.0)
-        .color(theme.primary)
-        .hover_color(theme.primary.lerp(Color::WHITE, 0.12))
-        .pressed_color(theme.primary.lerp(Color::BLACK, 0.12))
-        .on_click(Msg::AddSquare)
-        .child(Text::new("+ Ajouter un élément").size(20.0).color(theme.on_primary));
-
-    // Bouton « retirer » (fondu de disparition du dernier élément).
-    let danger = Color::rgb8(210, 96, 96);
-    let remove_button = Container::new()
-        .radius(theme.radius)
-        .shadow(0.0, 4.0, 12.0, Color::rgba(0.0, 0.0, 0.0, 0.4))
-        .padding_each(12.0, 20.0, 12.0, 20.0)
-        .color(danger)
-        .hover_color(danger.lerp(Color::WHITE, 0.12))
-        .pressed_color(danger.lerp(Color::BLACK, 0.12))
-        .on_click(Msg::RemoveSquare)
-        .child(Text::new("− Retirer").size(20.0).color(Color::WHITE));
-
+    // Boutons themés (widgets nommés).
     let button_row = Flex::row()
         .justify(Justify::Center)
         .gap(12.0)
-        .child(button)
-        .child(remove_button);
+        .child(Button::new("+ Ajouter un élément").on_press(Msg::AddSquare))
+        .child(
+            Button::new("− Retirer")
+                .variant(Variant::Danger)
+                .on_press(Msg::RemoveSquare),
+        );
+
+    // Carte de réglages : checkbox, switch, slider, radios, menu.
+    let volume_pct = (state.volume * 100.0).round() as u32;
+    let controls = Card::new().child(
+        Flex::column()
+            .gap(14.0)
+            .child(Checkbox::new(state.done).label("Terminé").on_toggle(Msg::SetDone))
+            .child(
+                Flex::row()
+                    .align(Align::Center)
+                    .gap(12.0)
+                    .child(Text::new("Notifications").size(18.0))
+                    .child(Flex::row().flex(1.0))
+                    .child(Switch::new(state.notifs).on_toggle(Msg::SetNotifs)),
+            )
+            .child(
+                Flex::row()
+                    .align(Align::Center)
+                    .gap(12.0)
+                    .child(Text::new(format!("Volume : {volume_pct}%")).size(18.0))
+                    .child(Slider::new(state.volume).width(220.0).on_change(Msg::SetVolume)),
+            )
+            .child(
+                RadioGroup::new(state.radio, Msg::SetRadio)
+                    .option("Petit")
+                    .option("Moyen")
+                    .option("Grand"),
+            )
+            .child(
+                Dropdown::new(MENU[state.menu_choice], Msg::ToggleMenu).options(
+                    state.menu_open,
+                    &MENU,
+                    Msg::SetMenu,
+                ),
+            ),
+    );
+    let controls_row = Flex::row().justify(Justify::Center).child(controls);
 
     // Champs de saisie (couleurs du thème automatiques).
     let name_row = Flex::row()
@@ -667,6 +740,7 @@ fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg>
         .gap(16.0)
         .child(header)
         .child(button_row)
+        .child(controls_row)
         .child(name_row)
         .child(email_row)
         .child(greeting_row)

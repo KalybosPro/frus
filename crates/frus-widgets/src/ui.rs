@@ -43,6 +43,7 @@ pub struct Ui<Msg> {
     /// (id, viewport, offset max x, offset max y)
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
+    draggables: Vec<(WidgetId, Rect)>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
@@ -94,6 +95,15 @@ impl<Msg: Clone> Ui<Msg> {
             .find(|bar| bar.thumb.contains(point))
             .copied()
     }
+
+    /// Widget glissable le plus au-dessus sous `point` : (id, ses bornes).
+    pub fn draggable_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
+        self.draggables
+            .iter()
+            .rev()
+            .find(|(_, rect)| rect.contains(point))
+            .map(|(id, rect)| (*id, *rect))
+    }
 }
 
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
@@ -119,6 +129,7 @@ struct Builder<'a, Msg> {
     focusables: Vec<(WidgetId, Rect)>,
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
+    draggables: Vec<(WidgetId, Rect)>,
     runtime: &'a Runtime,
     theme: &'a Theme,
 }
@@ -165,6 +176,9 @@ impl<Msg: Clone> Builder<'_, Msg> {
             }
             if widget.focusable() {
                 self.focusables.push((id, visible));
+            }
+            if widget.draggable() {
+                self.draggables.push((id, visible));
             }
         }
 
@@ -298,6 +312,7 @@ pub fn build_ui<Msg: Clone>(
         focusables: Vec::new(),
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
+        draggables: Vec::new(),
         runtime,
         theme,
     };
@@ -318,6 +333,7 @@ pub fn build_ui<Msg: Clone>(
         focusables: builder.focusables,
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
+        draggables: builder.draggables,
     }
 }
 

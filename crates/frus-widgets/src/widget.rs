@@ -52,6 +52,17 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// Si `true`, le widget répond au glissement du pointeur (curseurs, poignées).
+    fn draggable(&self) -> bool {
+        false
+    }
+
+    /// Message produit lors d'un glissement, `fraction` étant la position
+    /// horizontale relative (`0.0..=1.0`) dans les bornes du widget.
+    fn on_drag(&self, _fraction: f32) -> Option<Msg> {
+        None
+    }
+
     /// Si le widget est un conteneur défilable, renvoie son contenu.
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         None
