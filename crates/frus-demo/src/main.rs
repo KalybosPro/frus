@@ -4,8 +4,9 @@
 //! Lancer avec : `cargo run -p frus-demo` (ajouter `RUST_LOG=info` pour les logs).
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use frus_shell::{run, Application, Command};
+use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     spring_step, Align, Button, Card, Checkbox, Container, Dropdown, Flex, Justify, NavBar,
     Navigator, Placement, Portal, RadioGroup, Scroll, Slider, Switch, Text, TextInput, Theme,
@@ -82,6 +83,10 @@ enum Msg {
     SetMenu(usize),
     Push(Route),
     Pop,
+    /// Tick du chrono (souscription timer).
+    Tick,
+    /// Démarre/arrête le chrono.
+    ToggleTimer,
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -156,6 +161,11 @@ struct TodoApp {
     radio: usize,
     menu_open: bool,
     menu_choice: usize,
+    // --- Chrono (souscription timer) ---
+    /// Le chrono tourne-t-il ? (pilote la souscription `every`).
+    running: bool,
+    /// Secondes écoulées depuis le démarrage du chrono.
+    elapsed: u32,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -274,6 +284,16 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             }
             Command::none()
         }
+        Msg::Tick => {
+            app.elapsed += 1;
+            // Trace du tick : preuve que la souscription émet des messages.
+            eprintln!("[demo] chrono : {}s", app.elapsed);
+            Command::none()
+        }
+        Msg::ToggleTimer => {
+            app.running = !app.running;
+            Command::none()
+        }
         // --- Effets ---
         Msg::Save => {
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
@@ -307,8 +327,18 @@ impl Application for TodoApp {
     }
 
     fn init(&mut self) -> Command<Msg> {
-        // Charge les tâches persistées au démarrage.
+        // Démarre le chrono et charge les tâches persistées au démarrage.
+        self.running = true;
         Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
+    }
+
+    fn subscription(&self) -> Subscription<Msg> {
+        // Un tick par seconde tant que le chrono tourne (sinon rien).
+        if self.running {
+            Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
+        } else {
+            Subscription::none()
+        }
     }
 
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
@@ -382,7 +412,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 25 · Todo".to_string()
+        "frus — Jalon 26 · Todo".to_string()
     }
 
     fn can_go_back(&self) -> bool {
@@ -552,13 +582,25 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     let active = active_count(app);
     let done = done_count(app);
 
-    // En-tête : titre + bascule de thème + accès Réglages.
+    // En-tête : titre + chrono + bascule de thème + accès Réglages.
     let theme_label = if app.light { "Sombre" } else { "Clair" };
+    let timer_label = if app.running { "Pause" } else { "Reprendre" };
     let header = Flex::row()
         .align(Align::Center)
         .gap(10.0)
         .child(Text::new("Mes tâches").size(30.0))
+        .child(
+            Text::new(format!("· {}s", app.elapsed))
+                .size(18.0)
+                .color(theme.muted),
+        )
         .child(Flex::row().flex(1.0))
+        .child(
+            Button::new(timer_label)
+                .variant(Variant::Secondary)
+                .size(15.0)
+                .on_press(Msg::ToggleTimer),
+        )
         .child(
             Button::new(theme_label)
                 .variant(Variant::Secondary)
@@ -767,6 +809,27 @@ mod tests {
         assert!(app.todos[0].done);
         assert!(!app.todos[1].done);
         assert_ne!(app.todos[0].id, app.todos[1].id);
+    }
+
+    #[test]
+    fn timer_subscription_gated_by_running() {
+        let mut app = TodoApp::default();
+        // Par défaut le chrono ne tourne pas (init le démarre à l'exécution).
+        assert!(app.subscription().is_empty());
+
+        app.running = true;
+        let subs = app.subscription();
+        assert!(!subs.is_empty());
+        // Deux évaluations donnent le même id (souscription stable).
+        assert_eq!(subs.ids(), app.subscription().ids());
+    }
+
+    #[test]
+    fn tick_increments_elapsed() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Tick);
+        reduce(&mut app, Msg::Tick);
+        assert_eq!(app.elapsed, 2);
     }
 
     #[test]

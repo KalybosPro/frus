@@ -8,6 +8,7 @@
 use frus_widgets::{Theme, Widget};
 
 use crate::command::Command;
+use crate::subscription::Subscription;
 
 /// Ce qu'une application fournit au framework (modèle à messages, façon Elm).
 pub trait Application {
@@ -23,6 +24,12 @@ pub trait Application {
     /// Effet à exécuter **au démarrage** (chargement initial, etc.).
     fn init(&mut self) -> Command<Self::Message> {
         Command::none()
+    }
+
+    /// Sources **continues** de messages (timers…), déclarées selon l'état. Le
+    /// framework les démarre/arrête par diff à chaque cycle.
+    fn subscription(&self) -> Subscription<Self::Message> {
+        Subscription::none()
     }
 
     /// Construit l'arbre de widgets pour la taille et le thème courants.

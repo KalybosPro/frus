@@ -7,10 +7,12 @@
 mod app;
 mod application;
 mod command;
+mod subscription;
 
 pub use app::App;
 pub use application::Application;
 pub use command::Command;
+pub use subscription::Subscription;
 
 /// Lance une application : ouvre la fenêtre et pilote la boucle d'événements.
 ///

@@ -6,6 +6,8 @@
 //! entrées par hit-test, le glissement (barres, sélection, poignées, geste retour)
 //! et l'horloge d'animation. L'application ne fournit que `update`/`view`/… .
 
+use std::collections::HashMap;
+use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -87,6 +89,8 @@ pub struct App<A: Application> {
     last_click_time: Option<Instant>,
     /// Compteur pour clés d'événements de sortie (fondu de disparition).
     leaving_counter: u64,
+    /// Souscriptions actives : id → poignée d'annulation (drop = arrêt).
+    running_subs: HashMap<u64, Sender<()>>,
 }
 
 impl<A: Application> App<A> {
@@ -109,6 +113,7 @@ impl<A: Application> App<A> {
             drag: None,
             last_click_time: None,
             leaving_counter: 0,
+            running_subs: HashMap::new(),
         }
     }
 }
@@ -145,6 +150,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Effet de démarrage (chargement initial, etc.).
                 let command = self.app.init();
                 self.run_command(command);
+                self.sync_subscriptions();
                 window.request_redraw();
             }
             Err(err) => {
@@ -532,10 +538,12 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Applique un message à l'application et exécute les effets qu'il renvoie.
+    /// Applique un message à l'application, exécute ses effets, puis réévalue les
+    /// souscriptions (l'état a pu changer celles qui doivent tourner).
     fn dispatch(&mut self, message: A::Message) {
         let command = self.app.update(message);
         self.run_command(command);
+        self.sync_subscriptions();
     }
 
     /// Exécute une commande : chaque tâche tourne sur un thread de fond ; son
@@ -549,6 +557,49 @@ impl<A: Application> App<A> {
                 }
             });
         }
+    }
+
+    /// Diffe les souscriptions déclarées par l'app contre celles en cours :
+    /// démarre les nouvelles, arrête (drop du `Sender`) celles disparues.
+    fn sync_subscriptions(&mut self) {
+        let entries = self.app.subscription().into_entries();
+        let declared: std::collections::HashSet<u64> = entries.iter().map(|e| e.id).collect();
+
+        // Arrête les souscriptions qui ne sont plus déclarées.
+        self.running_subs.retain(|id, _| declared.contains(id));
+
+        // Démarre les nouvelles.
+        for entry in entries {
+            if self.running_subs.contains_key(&entry.id) {
+                continue;
+            }
+            let sender = self.start_subscription(entry.kind);
+            self.running_subs.insert(entry.id, sender);
+        }
+    }
+
+    /// Démarre une souscription sur un thread de fond ; renvoie sa poignée
+    /// d'annulation (drop du `Sender` → le thread sort au prochain réveil).
+    fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> Sender<()> {
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let proxy = self.proxy.clone();
+        match kind {
+            crate::subscription::Kind::Every { interval, make } => {
+                std::thread::spawn(move || loop {
+                    match rx.recv_timeout(interval) {
+                        // Intervalle écoulé : émet le message.
+                        Err(RecvTimeoutError::Timeout) => {
+                            if proxy.send_event(make(Instant::now())).is_err() {
+                                break;
+                            }
+                        }
+                        // Annulation (Sender droppé) ou boucle fermée : on sort.
+                        _ => break,
+                    }
+                });
+            }
+        }
+        tx
     }
 
     /// Applique le glissement souris en cours.
