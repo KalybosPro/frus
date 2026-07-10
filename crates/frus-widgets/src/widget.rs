@@ -78,4 +78,11 @@ pub trait Widget<Msg> {
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         None
     }
+
+    /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
+    /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
+    /// avec une transition glissée.
+    fn navigator(&self) -> Option<(f32, bool)> {
+        None
+    }
 }

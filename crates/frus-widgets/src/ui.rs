@@ -109,7 +109,8 @@ impl<Msg: Clone> Ui<Msg> {
 
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
 fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
-    if widget.scroll_content().is_some() {
+    // Défilables et navigateurs : leur contenu est mis en page séparément.
+    if widget.scroll_content().is_some() || widget.navigator().is_some() {
         return layout.leaf(widget.style(), ());
     }
     // Un portail ne met en page que son ancre (enfant 0) ; l'overlay est différé.
@@ -191,7 +192,19 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             }
         }
 
-        if let Some(content) = widget.scroll_content() {
+        if let Some((progress, forward)) = widget.navigator() {
+            let bounds = draw_rect;
+            let children = widget.children();
+            let dir = if forward { 1.0 } else { -1.0 };
+            let w = bounds.width;
+            if children.len() >= 2 {
+                // Transition : sortant glisse hors champ, entrant arrive.
+                self.render_screen(children[0].as_ref(), id.child(0), bounds, -progress * w * dir, clip);
+                self.render_screen(children[1].as_ref(), id.child(1), bounds, (1.0 - progress) * w * dir, clip);
+            } else if let Some(screen) = children.first() {
+                self.render_screen(screen.as_ref(), id.child(0), bounds, 0.0, clip);
+            }
+        } else if let Some(content) = widget.scroll_content() {
             let axis = widget.scroll_axis();
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
@@ -266,6 +279,35 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 );
             }
         }
+    }
+
+    /// Met en page un écran plein-fenêtre et le rend décalé de `off_x`.
+    fn render_screen(
+        &mut self,
+        screen: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        bounds: Rect,
+        off_x: f32,
+        clip: Rect,
+    ) {
+        let mut layout: Layout<()> = Layout::new();
+        let root = build_layout(screen, &mut layout);
+        layout.compute(root, Size::new(bounds.width, bounds.height));
+        let rects: Vec<Rect> = layout
+            .absolute_rects(root)
+            .into_iter()
+            .map(|(rect, _)| rect)
+            .collect();
+        let screen_clip = clip.intersect(bounds);
+        let mut index = 0;
+        self.walk(
+            screen,
+            id,
+            (bounds.x + off_x, bounds.y),
+            screen_clip,
+            &rects,
+            &mut index,
+        );
     }
 
     /// Traite les overlays différés : sous-layout, positionnement et rendu

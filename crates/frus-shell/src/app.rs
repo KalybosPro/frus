@@ -11,8 +11,8 @@ use std::time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, find_widget, Align, Axis, Button, Card, Checkbox, Color, Container, Dropdown, Edit,
-    Flex, Justify, Key, Placement, Point, Portal, RadioGroup, Runtime, Scroll, Size, Slider, Switch,
-    Text, TextInput, Theme, Ui, Variant, Widget, WidgetId,
+    Flex, Justify, Key, Navigator, Placement, Point, Portal, RadioGroup, Runtime, Scroll, Size,
+    Slider, Switch, Text, TextInput, Theme, Ui, Variant, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -77,7 +77,7 @@ impl ApplicationHandler for App {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title("frus — Jalon 17");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 18");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -351,6 +351,16 @@ impl ApplicationHandler for App {
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
 
+                // Avance la transition d'écran.
+                if self.state.nav_from.is_some() {
+                    self.state.nav_progress += dt / 0.22;
+                    if self.state.nav_progress >= 1.0 {
+                        self.state.nav_progress = 1.0;
+                        self.state.nav_from = None;
+                    }
+                }
+                let nav_animating = self.state.nav_from.is_some();
+
                 let theme = theme_of(&self.state);
                 let tree = view(&self.state, &theme, width, height);
                 let ids = frus_widgets::collect_ids(&tree);
@@ -389,8 +399,9 @@ impl ApplicationHandler for App {
                 }
                 self.runtime.mounted.retain(|id| present.contains(id));
 
-                let animating =
-                    self.runtime.advance(dt) | self.runtime.advance_leaving(dt);
+                let animating = self.runtime.advance(dt)
+                    | self.runtime.advance_leaving(dt)
+                    | nav_animating;
                 let ui = build_ui(&tree, Size::new(width, height), &self.runtime, &theme);
 
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -540,6 +551,24 @@ struct State {
     menu_open: bool,
     menu_choice: usize,
     modal_open: bool,
+    /// Pile d'écrans (vide = accueil).
+    routes: Vec<Route>,
+    /// Écran sortant pendant une transition.
+    nav_from: Option<Route>,
+    nav_progress: f32,
+    nav_forward: bool,
+}
+
+/// Les écrans de l'application.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Route {
+    Home,
+    Details,
+    Settings,
+}
+
+fn current_route(state: &State) -> Route {
+    state.routes.last().copied().unwrap_or(Route::Home)
 }
 
 /// Messages émis par l'interface.
@@ -558,6 +587,8 @@ enum Msg {
     SetMenu(usize),
     OpenModal,
     CloseModal,
+    Push(Route),
+    Pop,
 }
 
 /// Libellés du menu déroulant.
@@ -582,6 +613,20 @@ fn update(state: &mut State, message: Msg) {
         }
         Msg::OpenModal => state.modal_open = true,
         Msg::CloseModal => state.modal_open = false,
+        Msg::Push(route) => {
+            state.nav_from = Some(current_route(state));
+            state.routes.push(route);
+            state.nav_progress = 0.0;
+            state.nav_forward = true;
+        }
+        Msg::Pop => {
+            if !state.routes.is_empty() {
+                state.nav_from = Some(current_route(state));
+                state.routes.pop();
+                state.nav_progress = 0.0;
+                state.nav_forward = false;
+            }
+        }
     }
 }
 
@@ -628,8 +673,108 @@ const PALETTE: [Color; 4] = [
     Color::rgb(0.20, 0.60, 0.86),
 ];
 
-/// Construit l'arbre de widgets, entièrement piloté par le thème.
-fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+/// Point d'entrée : un `Navigator` autour de l'écran courant, avec transition.
+fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Navigator<Msg> {
+    let current = screen(current_route(state), state, theme, width, height);
+    match state.nav_from {
+        Some(from) => Navigator::new(current, width, height).from(
+            screen(from, state, theme, width, height),
+            state.nav_progress,
+            state.nav_forward,
+        ),
+        None => Navigator::new(current, width, height),
+    }
+}
+
+/// Construit l'écran correspondant à une route.
+fn screen(route: Route, state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+    match route {
+        Route::Home => home_screen(state, theme, width, height),
+        Route::Details => detail_screen(theme, width, height),
+        Route::Settings => settings_screen(state, theme, width, height),
+    }
+}
+
+/// En-tête d'écran : titre + bouton retour.
+fn screen_header(title: &str) -> Flex<Msg> {
+    Flex::row()
+        .align(Align::Center)
+        .gap(12.0)
+        .child(
+            Button::new("← Retour")
+                .variant(Variant::Secondary)
+                .on_press(Msg::Pop),
+        )
+        .child(Text::new(title.to_string()).size(26.0))
+}
+
+/// Écran « Détails ».
+fn detail_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+    let column = Flex::column()
+        .width(width)
+        .height(height)
+        .padding(20.0)
+        .gap(16.0)
+        .child(screen_header("Détails"))
+        .child(Text::new("Écran poussé sur la pile de navigation.").size(18.0))
+        .child(Text::new("Le retour dépile avec une transition glissée.").size(18.0));
+    Container::new()
+        .width(width)
+        .height(height)
+        .color(theme.background)
+        .child(column)
+}
+
+/// Écran « Réglages » : la carte de contrôles.
+fn settings_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+    let volume_pct = (state.volume * 100.0).round() as u32;
+    let controls = Card::new().child(
+        Flex::column()
+            .gap(14.0)
+            .child(Checkbox::new(state.done).label("Terminé").on_toggle(Msg::SetDone))
+            .child(
+                Flex::row()
+                    .align(Align::Center)
+                    .gap(12.0)
+                    .child(Text::new("Notifications").size(18.0))
+                    .child(Flex::row().flex(1.0))
+                    .child(Switch::new(state.notifs).on_toggle(Msg::SetNotifs)),
+            )
+            .child(
+                Flex::row()
+                    .align(Align::Center)
+                    .gap(12.0)
+                    .child(Text::new(format!("Volume : {volume_pct}%")).size(18.0))
+                    .child(Slider::new(state.volume).width(220.0).on_change(Msg::SetVolume)),
+            )
+            .child(
+                RadioGroup::new(state.radio, Msg::SetRadio)
+                    .option("Petit")
+                    .option("Moyen")
+                    .option("Grand"),
+            )
+            .child(Dropdown::new(MENU[state.menu_choice], Msg::ToggleMenu).options(
+                state.menu_open,
+                &MENU,
+                Msg::SetMenu,
+            )),
+    );
+    let column = Flex::column()
+        .width(width)
+        .height(height)
+        .padding(20.0)
+        .gap(16.0)
+        .child(screen_header("Réglages"))
+        .child(Flex::row().justify(Justify::Center).child(controls));
+    Container::new()
+        .width(width)
+        .height(height)
+        .color(theme.background)
+        .child(column)
+}
+
+/// Écran d'accueil.
+fn home_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     // En-tête : titre (couleur du thème par défaut) + bascule de thème à droite.
     let toggle_label = if state.light { "Thème sombre" } else { "Thème clair" };
     let toggle = Container::new()
@@ -670,42 +815,20 @@ fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg>
         .child(remove_tip)
         .child(modal_portal);
 
-    // Carte de réglages : checkbox, switch, slider, radios, menu.
-    let volume_pct = (state.volume * 100.0).round() as u32;
-    let controls = Card::new().child(
-        Flex::column()
-            .gap(14.0)
-            .child(Checkbox::new(state.done).label("Terminé").on_toggle(Msg::SetDone))
-            .child(
-                Flex::row()
-                    .align(Align::Center)
-                    .gap(12.0)
-                    .child(Text::new("Notifications").size(18.0))
-                    .child(Flex::row().flex(1.0))
-                    .child(Switch::new(state.notifs).on_toggle(Msg::SetNotifs)),
-            )
-            .child(
-                Flex::row()
-                    .align(Align::Center)
-                    .gap(12.0)
-                    .child(Text::new(format!("Volume : {volume_pct}%")).size(18.0))
-                    .child(Slider::new(state.volume).width(220.0).on_change(Msg::SetVolume)),
-            )
-            .child(
-                RadioGroup::new(state.radio, Msg::SetRadio)
-                    .option("Petit")
-                    .option("Moyen")
-                    .option("Grand"),
-            )
-            .child(
-                Dropdown::new(MENU[state.menu_choice], Msg::ToggleMenu).options(
-                    state.menu_open,
-                    &MENU,
-                    Msg::SetMenu,
-                ),
-            ),
-    );
-    let controls_row = Flex::row().justify(Justify::Center).child(controls);
+    // Rangée de navigation vers les autres écrans.
+    let nav_row = Flex::row()
+        .justify(Justify::Center)
+        .gap(12.0)
+        .child(
+            Button::new("Détails →")
+                .variant(Variant::Secondary)
+                .on_press(Msg::Push(Route::Details)),
+        )
+        .child(
+            Button::new("Réglages →")
+                .variant(Variant::Secondary)
+                .on_press(Msg::Push(Route::Settings)),
+        );
 
     // Champs de saisie (couleurs du thème automatiques).
     let name_row = Flex::row()
@@ -783,7 +906,7 @@ fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg>
         .gap(16.0)
         .child(header)
         .child(button_row)
-        .child(controls_row)
+        .child(nav_row)
         .child(name_row)
         .child(email_row)
         .child(greeting_row)
