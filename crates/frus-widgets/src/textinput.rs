@@ -91,11 +91,12 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
+        let o = status.opacity;
         // Bordure animée selon la progression de focus (repos → focus).
         let fp = status.focus_progress.clamp(0.0, 1.0);
-        let border_color = BORDER_IDLE.lerp(BORDER_FOCUS, fp);
+        let border_color = BORDER_IDLE.lerp(BORDER_FOCUS, fp).fade(o);
         let border_width = 1.0 + fp;
-        scene.draw_rect(bounds, BG, 6.0, border_width, border_color);
+        scene.draw_rect(bounds, BG.fade(o), 6.0, border_width, border_color);
 
         let chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
@@ -110,7 +111,7 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
                 if start < end {
                     let x0 = text_x + prefix_width(&chars, start, self.size);
                     let x1 = text_x + prefix_width(&chars, end, self.size);
-                    scene.fill_rect(Rect::new(x0, text_y, x1 - x0, line_h), SELECTION);
+                    scene.fill_rect(Rect::new(x0, text_y, x1 - x0, line_h), SELECTION.fade(o));
                 }
             }
         }
@@ -120,7 +121,7 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
                 Point::new(text_x, text_y),
                 self.value.clone(),
                 self.size,
-                TEXT_COLOR,
+                TEXT_COLOR.fade(o),
             );
         }
 
@@ -128,7 +129,7 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
         if status.focused {
             let cursor = status.cursor.unwrap_or(len).min(len);
             let cx = text_x + prefix_width(&chars, cursor, self.size);
-            scene.fill_rect(Rect::new(cx, text_y, 2.0, line_h), TEXT_COLOR);
+            scene.fill_rect(Rect::new(cx, text_y, 2.0, line_h), TEXT_COLOR.fade(o));
         }
     }
 

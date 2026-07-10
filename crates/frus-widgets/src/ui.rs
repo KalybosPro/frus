@@ -142,6 +142,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
         let mut status = self.runtime.input.status_for(id);
         status.hover_progress = self.runtime.hover_progress(id);
         status.focus_progress = self.runtime.focus_progress(id);
+        status.opacity = self.runtime.opacity(id);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -302,6 +303,21 @@ pub fn build_ui<Msg: Clone>(root: &dyn Widget<Msg>, available: Size, runtime: &R
     }
 }
 
+/// Collecte les identités de tous les widgets de l'arbre (ordre préfixe),
+/// selon le même schéma positionnel que [`build_ui`]. Sert à détecter les
+/// montages/démontages entre deux frames.
+pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
+    fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, out: &mut Vec<WidgetId>) {
+        out.push(id);
+        for (index, child) in widget.children().iter().enumerate() {
+            walk(child.as_ref(), id.child(index), out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, WidgetId::ROOT, &mut out);
+    out
+}
+
 /// Retrouve le widget d'identité `target` dans l'arbre (identités positionnelles).
 pub fn find_widget<Msg>(
     root: &dyn Widget<Msg>,
@@ -388,7 +404,7 @@ mod tests {
         // Progression pleine : couleur de survol (vert).
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id_a);
-        rt.anims.insert(id_a, crate::Anim { hover: 1.0, focus: 0.0 });
+        rt.anims.insert(id_a, crate::Anim { hover: 1.0, ..Default::default() });
         let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt);
         if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));

@@ -337,9 +337,20 @@ impl ApplicationHandler for App {
                     .map(|prev| (now - prev).as_secs_f32().min(0.05))
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
-                let animating = self.runtime.advance(dt);
 
                 let tree = view(&self.state, width, height);
+
+                // Détection des montages : les nouveaux widgets démarrent en fondu.
+                let ids = frus_widgets::collect_ids(&tree);
+                for &id in &ids {
+                    if self.runtime.mounted.insert(id) {
+                        self.runtime.anims.entry(id).or_default().opacity = 0.0;
+                    }
+                }
+                let present: std::collections::HashSet<_> = ids.iter().copied().collect();
+                self.runtime.mounted.retain(|id| present.contains(id));
+
+                let animating = self.runtime.advance(dt);
                 let ui = build_ui(&tree, Size::new(width, height), &self.runtime);
 
                 if let Some(renderer) = self.renderer.as_mut() {

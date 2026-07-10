@@ -53,12 +53,12 @@ impl<Msg> Widget<Msg> for Text {
         &[]
     }
 
-    fn paint(&self, bounds: Rect, _status: Status, scene: &mut Scene) {
+    fn paint(&self, bounds: Rect, status: Status, scene: &mut Scene) {
         scene.text(
             Point::new(bounds.x, bounds.y),
             self.content.clone(),
             self.size,
-            self.color,
+            self.color.fade(status.opacity),
         );
     }
 

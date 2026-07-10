@@ -37,10 +37,22 @@ impl Edit {
 const ANIM_DURATION: f32 = 0.12;
 
 /// Progressions d'animation d'un widget (`0.0..=1.0`).
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Anim {
     pub hover: f32,
     pub focus: f32,
+    /// Opacité (1 au repos ; démarrée à 0 au montage pour le fondu d'apparition).
+    pub opacity: f32,
+}
+
+impl Default for Anim {
+    fn default() -> Self {
+        Self {
+            hover: 0.0,
+            focus: 0.0,
+            opacity: 1.0,
+        }
+    }
 }
 
 /// Fait tendre `value` vers `target` par pas de `step` ; note si ça bouge encore.
@@ -64,8 +76,10 @@ pub struct Runtime {
     pub scroll: ScrollState,
     /// État d'édition, par champ de saisie.
     pub edits: HashMap<WidgetId, Edit>,
-    /// Progressions d'animation (survol/focus), par widget.
+    /// Progressions d'animation (survol/focus/opacité), par widget.
     pub anims: HashMap<WidgetId, Anim>,
+    /// Widgets présents à la frame précédente (pour détecter les montages).
+    pub mounted: std::collections::HashSet<WidgetId>,
 }
 
 impl Runtime {
@@ -77,6 +91,11 @@ impl Runtime {
     /// Progression de focus animée d'un widget.
     pub fn focus_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.focus).unwrap_or(0.0)
+    }
+
+    /// Opacité animée d'un widget (1 par défaut).
+    pub fn opacity(&self, id: WidgetId) -> f32 {
+        self.anims.get(&id).map(|a| a.opacity).unwrap_or(1.0)
     }
 
     /// Fait avancer les transitions (survol/focus) de `dt` secondes vers leurs
@@ -103,11 +122,14 @@ impl Runtime {
             let focus_target = if Some(*id) == focused { 1.0 } else { 0.0 };
             approach(&mut anim.hover, hover_target, step, &mut animating);
             approach(&mut anim.focus, focus_target, step, &mut animating);
-            // On oublie les entrées entièrement revenues au repos.
+            // L'opacité tend toujours vers 1 (fondu d'apparition).
+            approach(&mut anim.opacity, 1.0, step, &mut animating);
+            // On oublie les entrées entièrement au repos (rien à animer).
             !(hover_target == 0.0
                 && focus_target == 0.0
                 && anim.hover <= 0.0
-                && anim.focus <= 0.0)
+                && anim.focus <= 0.0
+                && anim.opacity >= 1.0)
         });
 
         animating
@@ -151,5 +173,20 @@ mod tests {
         rt.advance(1.0);
         assert_eq!(rt.focus_progress(id), 1.0);
         assert_eq!(rt.hover_progress(id), 0.0);
+    }
+
+    #[test]
+    fn opacity_rises_to_one() {
+        let id = WidgetId::ROOT.child(2);
+        let mut rt = Runtime::default();
+        // Montage : démarre transparent.
+        rt.anims.insert(id, Anim { opacity: 0.0, ..Default::default() });
+        assert!(rt.advance(0.03));
+        let o = rt.opacity(id);
+        assert!(o > 0.0 && o < 1.0, "opacité = {o}");
+        rt.advance(1.0);
+        assert_eq!(rt.opacity(id), 1.0);
+        // Défaut sans entrée : opaque.
+        assert_eq!(rt.opacity(WidgetId::ROOT), 1.0);
     }
 }

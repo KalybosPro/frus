@@ -173,6 +173,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             self.color
         };
 
+        // Opacité (fondu d'apparition) appliquée à toutes les couleurs.
+        let o = status.opacity;
+        let border = self.border_color.fade(o);
+
         // Ombre portée (dessinée derrière, légèrement plus grande et floue).
         if let Some((dx, dy, blur, shadow_color)) = self.shadow {
             let shadow_rect = Rect::new(
@@ -181,7 +185,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
                 bounds.width + 2.0 * blur,
                 bounds.height + 2.0 * blur,
             );
-            scene.shadow(shadow_rect, shadow_color, self.radius + blur, blur);
+            scene.shadow(shadow_rect, shadow_color.fade(o), self.radius + blur, blur);
         }
 
         // Fond : dégradé si défini, sinon uni ; bordure éventuelle.
@@ -189,23 +193,19 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         match (color, self.gradient) {
             (Some(color), Some((end, dir))) => scene.gradient_rect(
                 bounds,
-                color,
-                end,
+                color.fade(o),
+                end.fade(o),
                 dir,
                 self.radius,
                 self.border_width,
-                self.border_color,
+                border,
             ),
             (Some(color), None) => {
-                scene.draw_rect(bounds, color, self.radius, self.border_width, self.border_color)
+                scene.draw_rect(bounds, color.fade(o), self.radius, self.border_width, border)
             }
-            (None, _) if has_border => scene.draw_rect(
-                bounds,
-                Color::TRANSPARENT,
-                self.radius,
-                self.border_width,
-                self.border_color,
-            ),
+            (None, _) if has_border => {
+                scene.draw_rect(bounds, Color::TRANSPARENT, self.radius, self.border_width, border)
+            }
             (None, _) => {}
         }
     }

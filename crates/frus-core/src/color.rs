@@ -51,6 +51,11 @@ impl Color {
         [self.r, self.g, self.b, self.a]
     }
 
+    /// Multiplie l'opacité (canal alpha) par `opacity` (borné à `0.0..=1.0`).
+    pub fn fade(self, opacity: f32) -> Color {
+        Color::rgba(self.r, self.g, self.b, self.a * opacity.clamp(0.0, 1.0))
+    }
+
     /// Interpolation linéaire vers `other` (`t` borné à `0.0..=1.0`).
     pub fn lerp(self, other: Color, t: f32) -> Color {
         let t = t.clamp(0.0, 1.0);
@@ -75,5 +80,13 @@ mod tests {
         assert_eq!(mid, Color::rgb(0.5, 0.25, 0.0));
         assert_eq!(a.lerp(b, 0.0), a);
         assert_eq!(a.lerp(b, 1.0), b);
+    }
+
+    #[test]
+    fn fade_scales_alpha() {
+        let c = Color::rgba(0.2, 0.4, 0.6, 0.8);
+        assert_eq!(c.fade(0.5), Color::rgba(0.2, 0.4, 0.6, 0.4));
+        assert_eq!(c.fade(1.0), c);
+        assert_eq!(c.fade(0.0).a, 0.0);
     }
 }

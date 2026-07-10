@@ -56,8 +56,8 @@ pub enum Interaction {
 }
 
 /// Statut complet d'un widget pour une frame : interaction pointeur, focus,
-/// curseur/sélection (champs), et progression d'animation de survol.
-#[derive(Copy, Clone, PartialEq, Debug, Default)]
+/// curseur/sélection (champs), progressions d'animation et opacité.
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Status {
     pub interaction: Interaction,
     pub focused: bool,
@@ -69,6 +69,22 @@ pub struct Status {
     pub hover_progress: f32,
     /// Progression de la transition de focus (`0.0..=1.0`).
     pub focus_progress: f32,
+    /// Opacité à appliquer (fondu d'apparition) ; `1.0` = opaque.
+    pub opacity: f32,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Self {
+            interaction: Interaction::None,
+            focused: false,
+            cursor: None,
+            selection: None,
+            hover_progress: 0.0,
+            focus_progress: 0.0,
+            opacity: 1.0,
+        }
+    }
 }
 
 /// État d'entrée retenu au runtime, transmis à la construction de l'interface.
@@ -99,6 +115,7 @@ impl InputState {
             selection: None,
             hover_progress: 0.0,
             focus_progress: 0.0,
+            opacity: 1.0,
         }
     }
 }
