@@ -5,8 +5,9 @@
 
 use frus_shell::{run, Application};
 use frus_widgets::{
-    spring_step, Align, Button, Card, Checkbox, Container, Dropdown, Flex, Justify, Navigator,
-    Placement, Portal, RadioGroup, Scroll, Slider, Switch, Text, TextInput, Theme, Variant, Widget,
+    spring_step, Align, Button, Card, Checkbox, Container, Dropdown, Flex, Justify, NavBar,
+    Navigator, Placement, Portal, RadioGroup, Scroll, Slider, Switch, Text, TextInput, Theme,
+    Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -280,7 +281,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 21 · Todo".to_string()
+        "frus — Jalon 22 · Todo".to_string()
     }
 
     fn can_go_back(&self) -> bool {
@@ -347,19 +348,6 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
     }
 }
 
-/// En-tête d'écran secondaire : bouton retour + titre.
-fn screen_header(title: &str) -> Flex<Msg> {
-    Flex::row()
-        .align(Align::Center)
-        .gap(12.0)
-        .child(
-            Button::new("← Retour")
-                .variant(Variant::Secondary)
-                .on_press(Msg::Pop),
-        )
-        .child(Text::new(title.to_string()).size(26.0))
-}
-
 /// Écran « Réglages » : la carte de contrôles (démontre nav + geste + widgets).
 fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     let volume_pct = (app.volume * 100.0).round() as u32;
@@ -393,13 +381,15 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
                 Msg::SetMenu,
             )),
     );
+    let content = Flex::column()
+        .padding(20.0)
+        .gap(16.0)
+        .child(Flex::row().justify(Justify::Center).child(controls));
     let column = Flex::column()
         .width(width)
         .height(height)
-        .padding(20.0)
-        .gap(16.0)
-        .child(screen_header("Réglages"))
-        .child(Flex::row().justify(Justify::Center).child(controls));
+        .child(NavBar::new("Réglages").on_back(Msg::Pop))
+        .child(content);
     Container::new()
         .width(width)
         .height(height)
