@@ -80,6 +80,8 @@ pub struct Runtime {
     pub edits: HashMap<WidgetId, Edit>,
     /// Progressions d'animation (survol/focus/opacité), par widget.
     pub anims: HashMap<WidgetId, Anim>,
+    /// Valeurs animées propres aux widgets (`Widget::anim_target`), par widget.
+    pub values: HashMap<WidgetId, f32>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
@@ -101,6 +103,52 @@ impl Runtime {
     /// Opacité animée d'un widget (1 par défaut).
     pub fn opacity(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.opacity).unwrap_or(1.0)
+    }
+
+    /// Valeur animée d'un widget (0 par défaut).
+    pub fn value(&self, id: WidgetId) -> f32 {
+        self.values.get(&id).copied().unwrap_or(0.0)
+    }
+
+    /// Fait tendre chaque valeur animée vers la cible déclarée par son widget
+    /// (`Widget::anim_target`). Un widget vu pour la **première** fois adopte sa
+    /// cible sans transition (pas d'animation au montage). Renvoie `true` s'il
+    /// reste une valeur en mouvement.
+    pub fn advance_values<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            out: &mut Vec<(WidgetId, f32)>,
+        ) {
+            if let Some(target) = widget.anim_target() {
+                out.push((id, target));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(child.as_ref(), id.child(index), out);
+            }
+        }
+        let mut targets: Vec<(WidgetId, f32)> = Vec::new();
+        collect(root, WidgetId::ROOT, &mut targets);
+
+        // Oublie les valeurs des widgets disparus.
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, _)| *id).collect();
+        self.values.retain(|id, _| present.contains(id));
+
+        let step = if ANIM_DURATION > 0.0 { dt / ANIM_DURATION } else { 1.0 };
+        let mut animating = false;
+        for (id, target) in targets {
+            match self.values.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    approach(e.get_mut(), target, step, &mut animating);
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    // Montage : adopte la cible sans transition.
+                    e.insert(target);
+                }
+            }
+        }
+        animating
     }
 
     /// Fait avancer les transitions (survol/focus) de `dt` secondes vers leurs
@@ -214,6 +262,28 @@ mod tests {
         assert_eq!(rt.opacity(id), 1.0);
         // Défaut sans entrée : opaque.
         assert_eq!(rt.opacity(WidgetId::ROOT), 1.0);
+    }
+
+    #[test]
+    fn value_snaps_on_mount_then_animates() {
+        let mut rt = Runtime::default();
+        // Montage d'un interrupteur off : adopte la cible (0) sans animation.
+        let off: crate::Switch<()> = crate::Switch::new(false);
+        assert!(!rt.advance_values(&off, 1.0));
+        assert_eq!(rt.value(WidgetId::ROOT), 0.0);
+
+        // Bascule on : la valeur monte vers 1 par petits pas.
+        let on: crate::Switch<()> = crate::Switch::new(true);
+        assert!(rt.advance_values(&on, 0.03));
+        let v = rt.value(WidgetId::ROOT);
+        assert!(v > 0.0 && v < 1.0, "valeur = {v}");
+        rt.advance_values(&on, 1.0);
+        assert_eq!(rt.value(WidgetId::ROOT), 1.0);
+
+        // Widget disparu : la valeur est oubliée.
+        let empty: crate::Container<()> = crate::Container::new();
+        rt.advance_values(&empty, 1.0);
+        assert!(rt.values.is_empty());
     }
 
     #[test]

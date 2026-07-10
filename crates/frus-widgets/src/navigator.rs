@@ -98,4 +98,33 @@ mod tests {
         assert!(has(red), "l'écran sortant est rendu");
         assert!(has(blue), "l'écran entrant est rendu");
     }
+
+    #[test]
+    fn pop_parallaxes_and_orders_back_screen() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        // Pop à mi-course : `red` = écran sortant (avant), `blue` = arrière révélé.
+        let nav = Navigator::new(screen(blue), 400.0, 300.0).from(screen(red), 0.5, false);
+        let ui = build_ui(
+            &nav,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        let x_of = |c: Color| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, rect, .. } if *color == c => Some(rect.x),
+                    _ => None,
+                })
+                .expect("écran présent")
+        };
+        let front = x_of(red); // +0.5·400 = 200
+        let back = x_of(blue); // parallaxe : -0.5·400·0.3 = -60
+        assert!(front > back, "l'avant ({front}) est à droite de l'arrière ({back})");
+        // Sans parallaxe l'arrière serait à -200 ; il est comprimé vers 0.
+        assert!(back > -200.0 && back < 0.0, "arrière parallaxé : {back}");
+    }
 }

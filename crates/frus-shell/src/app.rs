@@ -39,6 +39,47 @@ enum Drag {
     TextSelect { id: WidgetId, rect: frus_widgets::Rect },
     /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
     Widget { id: WidgetId, rect: frus_widgets::Rect },
+    /// Geste « retour » : glissement depuis le bord gauche pour dépiler un écran.
+    Back,
+}
+
+/// Largeur (px physiques) de la zone de bord activant le geste retour.
+const BACK_EDGE: f32 = 24.0;
+/// Horizon de projection de la vélocité (s) pour décider retour / annulation.
+const BACK_PROJECT: f32 = 0.12;
+/// Position projetée (fraction) au-delà de laquelle on valide le retour.
+const BACK_COMMIT_POS: f32 = 0.5;
+/// Raideur du ressort de transition (fraction·s⁻²). Partagée geste **et** bouton.
+const NAV_SPRING_K: f32 = 220.0;
+/// Amortissement du ressort, ~critique (2·√K ≈ 29,7) → arrivée douce sans dépassement.
+const NAV_SPRING_C: f32 = 30.0;
+
+/// Un pas de ressort amorti (Euler semi-implicite) faisant tendre `progress` vers
+/// `target`, amorcé par `velocity` (l'élan du doigt, ou 0 pour un bouton). Renvoie
+/// `(progress, velocity, terminé)`. Amortissement quasi critique → pas de rebond.
+fn spring_step(progress: f32, velocity: f32, target: f32, dt: f32) -> (f32, f32, bool) {
+    let accel = NAV_SPRING_K * (target - progress) - NAV_SPRING_C * velocity;
+    let velocity = velocity + accel * dt;
+    let progress = progress + velocity * dt;
+    let done = (progress - target).abs() < 0.004 && velocity.abs() < 0.06;
+    (progress, velocity, done)
+}
+
+/// Modèle physique du geste retour : suivi 1:1 du doigt, puis détente à ressort
+/// (validation ou annulation) avec l'élan du doigt en vitesse initiale.
+struct BackGesture {
+    /// Abscisse (px) du début du geste, pour la position relative.
+    start_x: f32,
+    /// Avancement `0 → 1` (1 = écran dépilé).
+    progress: f32,
+    /// Vitesse en fraction/s (lissée pendant le glissement, puis intégrée).
+    velocity: f32,
+    /// Dernière abscisse échantillonnée (px), pour la vitesse.
+    last_x: f32,
+    /// Instant du dernier échantillon.
+    last_t: Instant,
+    /// `Some(cible)` une fois relâché : détente vers `0.0` (annule) ou `1.0` (valide).
+    settling: Option<f32>,
 }
 
 /// État de l'application.
@@ -77,7 +118,7 @@ impl ApplicationHandler for App {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title("frus — Jalon 18");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 19");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -155,6 +196,26 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
+                // 0) Geste retour : appui sur le bord gauche, s'il y a un écran
+                //    à dépiler et aucun overlay ouvert.
+                if self.cursor.x < BACK_EDGE
+                    && !self.state.routes.is_empty()
+                    && !self.state.modal_open
+                    && !self.state.menu_open
+                {
+                    self.drag = Some(Drag::Back);
+                    self.state.back = Some(BackGesture {
+                        start_x: self.cursor.x,
+                        progress: 0.0,
+                        velocity: 0.0,
+                        last_x: self.cursor.x,
+                        last_t: Instant::now(),
+                        settling: None,
+                    });
+                    self.request_redraw();
+                    return;
+                }
+
                 // 1) Glissement d'une barre de défilement ?
                 if let Some(bar) = self.ui.as_ref().and_then(|ui| ui.scrollbar_at(self.cursor)) {
                     let (along, thumb_start) = if bar.vertical {
@@ -232,8 +293,20 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 // Fin d'un éventuel glissement.
-                let was_dragging = self.drag.take().is_some();
-                if was_dragging {
+                let ended = self.drag.take();
+                if let Some(Drag::Back) = ended {
+                    if let Some(gesture) = self.state.back.as_mut() {
+                        // Projection à la iOS : la position + un peu d'élan décident.
+                        // Un flick rapide valide même à mi-course ; un arrêt lent
+                        // sous la moitié annule. La vitesse sert d'élan à la détente.
+                        let projected = gesture.progress + gesture.velocity * BACK_PROJECT;
+                        let commit = projected > BACK_COMMIT_POS && !self.state.routes.is_empty();
+                        gesture.settling = Some(if commit { 1.0 } else { 0.0 });
+                    }
+                    self.request_redraw();
+                    return;
+                }
+                if ended.is_some() {
                     self.request_redraw();
                     return;
                 }
@@ -351,17 +424,61 @@ impl ApplicationHandler for App {
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
 
-                // Avance la transition d'écran.
+                // Avance la transition d'écran (bouton) : même ressort que le geste,
+                // amorcé à vitesse nulle → ease-out cohérent avec le swipe.
                 if self.state.nav_from.is_some() {
-                    self.state.nav_progress += dt / 0.22;
-                    if self.state.nav_progress >= 1.0 {
+                    let (p, v, done) =
+                        spring_step(self.state.nav_progress, self.state.nav_velocity, 1.0, dt);
+                    self.state.nav_progress = p;
+                    self.state.nav_velocity = v;
+                    if done {
                         self.state.nav_progress = 1.0;
+                        self.state.nav_velocity = 0.0;
                         self.state.nav_from = None;
                     }
                 }
                 let nav_animating = self.state.nav_from.is_some();
 
-                let theme = theme_of(&self.state);
+                // Détente à ressort du geste retour relâché (vers 0 = annule, vers
+                // 1 = valide), amorcée par la vélocité du doigt → élan naturel.
+                let mut commit_back = false;
+                if let Some(gesture) = self.state.back.as_mut() {
+                    if let Some(target) = gesture.settling {
+                        // Même ressort que la nav bouton, mais amorcé par l'élan du doigt.
+                        let (p, v, done) =
+                            spring_step(gesture.progress, gesture.velocity, target, dt);
+                        gesture.progress = p;
+                        gesture.velocity = v;
+                        if done {
+                            gesture.progress = target;
+                            commit_back = target >= 1.0;
+                            self.state.back = None;
+                        }
+                    }
+                }
+                if commit_back {
+                    // Retour validé : dépile (l'écran arrière est déjà en place).
+                    self.state.routes.pop();
+                }
+                let gesture_animating =
+                    self.state.back.as_ref().is_some_and(|g| g.settling.is_some());
+
+                // Avance le fondu de thème.
+                if self.state.theme_from.is_some() {
+                    self.state.theme_progress += dt / 0.25;
+                    if self.state.theme_progress >= 1.0 {
+                        self.state.theme_progress = 1.0;
+                        self.state.theme_from = None;
+                    }
+                }
+                let theme_animating = self.state.theme_from.is_some();
+
+                // Thème affiché : mélange sortant → cible pendant le fondu.
+                let target = theme_of(&self.state);
+                let theme = match self.state.theme_from {
+                    Some(from) => from.lerp(&target, self.state.theme_progress),
+                    None => target,
+                };
                 let tree = view(&self.state, &theme, width, height);
                 let ids = frus_widgets::collect_ids(&tree);
                 let present: std::collections::HashSet<_> = ids.iter().copied().collect();
@@ -401,7 +518,10 @@ impl ApplicationHandler for App {
 
                 let animating = self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
-                    | nav_animating;
+                    | self.runtime.advance_values(&tree, dt)
+                    | nav_animating
+                    | theme_animating
+                    | gesture_animating;
                 let ui = build_ui(&tree, Size::new(width, height), &self.runtime, &theme);
 
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -482,6 +602,27 @@ impl App {
                 }
             }
             Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
+            Drag::Back => {
+                let width = self
+                    .window
+                    .as_ref()
+                    .map(|w| w.inner_size().width as f32)
+                    .unwrap_or(1.0)
+                    .max(1.0);
+                let now = Instant::now();
+                let x = self.cursor.x;
+                if let Some(gesture) = self.state.back.as_mut() {
+                    gesture.progress = ((x - gesture.start_x) / width).clamp(0.0, 1.0);
+                    let dt = (now - gesture.last_t).as_secs_f32();
+                    if dt > 1e-4 {
+                        // Vitesse instantanée (fraction/s), lissée par moyenne exponentielle.
+                        let inst = (x - gesture.last_x) / width / dt;
+                        gesture.velocity = gesture.velocity * 0.5 + inst * 0.5;
+                        gesture.last_x = x;
+                        gesture.last_t = now;
+                    }
+                }
+            }
         }
         self.drag = Some(drag);
         self.request_redraw();
@@ -544,6 +685,10 @@ struct State {
     email: String,
     /// Thème sombre (par défaut) ou clair.
     light: bool,
+    /// Thème sortant pendant un fondu de bascule (`None` = pas de transition).
+    theme_from: Option<Theme>,
+    /// Avancement du fondu de thème (`0 → 1`).
+    theme_progress: f32,
     done: bool,
     notifs: bool,
     volume: f32,
@@ -556,7 +701,11 @@ struct State {
     /// Écran sortant pendant une transition.
     nav_from: Option<Route>,
     nav_progress: f32,
+    /// Vitesse de la transition (ressort partagé avec le geste).
+    nav_velocity: f32,
     nav_forward: bool,
+    /// Geste retour en cours (glissement ou détente à ressort).
+    back: Option<BackGesture>,
 }
 
 /// Les écrans de l'application.
@@ -599,7 +748,12 @@ fn update(state: &mut State, message: Msg) {
     match message {
         Msg::AddSquare => state.squares += 1,
         Msg::RemoveSquare => state.squares = state.squares.saturating_sub(1),
-        Msg::ToggleTheme => state.light = !state.light,
+        Msg::ToggleTheme => {
+            // Capture le thème courant (avant bascule) comme point de départ du fondu.
+            state.theme_from = Some(theme_of(state));
+            state.light = !state.light;
+            state.theme_progress = 0.0;
+        }
         Msg::NameChanged(name) => state.name = name,
         Msg::EmailChanged(email) => state.email = email,
         Msg::SetDone(v) => state.done = v,
@@ -617,6 +771,7 @@ fn update(state: &mut State, message: Msg) {
             state.nav_from = Some(current_route(state));
             state.routes.push(route);
             state.nav_progress = 0.0;
+            state.nav_velocity = 0.0;
             state.nav_forward = true;
         }
         Msg::Pop => {
@@ -624,6 +779,7 @@ fn update(state: &mut State, message: Msg) {
                 state.nav_from = Some(current_route(state));
                 state.routes.pop();
                 state.nav_progress = 0.0;
+                state.nav_velocity = 0.0;
                 state.nav_forward = false;
             }
         }
@@ -675,6 +831,19 @@ const PALETTE: [Color; 4] = [
 
 /// Point d'entrée : un `Navigator` autour de l'écran courant, avec transition.
 fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Navigator<Msg> {
+    // Geste retour en cours : prévisualise le dépilement, piloté par le doigt.
+    if let Some(gesture) = &state.back {
+        let progress = gesture.progress;
+        let top = screen(current_route(state), state, theme, width, height);
+        let below_route = state
+            .routes
+            .split_last()
+            .and_then(|(_, rest)| rest.last().copied())
+            .unwrap_or(Route::Home);
+        let below = screen(below_route, state, theme, width, height);
+        return Navigator::new(below, width, height).from(top, progress, false);
+    }
+
     let current = screen(current_route(state), state, theme, width, height);
     match state.nav_from {
         Some(from) => Navigator::new(current, width, height).from(
@@ -786,10 +955,11 @@ fn home_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Contain
         .on_click(Msg::ToggleTheme)
         .child(Text::new(toggle_label).size(16.0).color(theme.muted));
     let header = Flex::row()
-        .align(Align::Center)
+        // .align(Align::Center)
+        .justify(Justify::SpaceBetween)
         .gap(12.0)
         .child(Text::new("Welcome To Frus").size(28.0))
-        .child(Flex::row().flex(1.0))
+        // .child(Flex::row().flex(1.0))
         .child(toggle);
 
     // Boutons themés ; le « Retirer » porte un tooltip, et un bouton ouvre une modale.
@@ -803,7 +973,9 @@ fn home_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Contain
         .variant(Variant::Secondary)
         .on_press(Msg::OpenModal);
     let modal_portal = if state.modal_open {
-        Portal::new(open_modal).overlay(modal_content(), Placement::Center)
+        Portal::new(open_modal)
+            .overlay(modal_content(), Placement::Center)
+            .dismiss(Msg::CloseModal)
     } else {
         Portal::new(open_modal)
     };

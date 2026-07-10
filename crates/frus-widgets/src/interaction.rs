@@ -76,6 +76,9 @@ pub struct Status {
     pub focus_progress: f32,
     /// Opacité à appliquer (fondu d'apparition) ; `1.0` = opaque.
     pub opacity: f32,
+    /// Valeur animée propre au widget (p. ex. `0 → 1` d'un interrupteur), pilotée
+    /// par `Widget::anim_target`.
+    pub value: f32,
 }
 
 impl Default for Status {
@@ -88,6 +91,7 @@ impl Default for Status {
             hover_progress: 0.0,
             focus_progress: 0.0,
             opacity: 1.0,
+            value: 0.0,
         }
     }
 }
@@ -121,6 +125,7 @@ impl InputState {
             hover_progress: 0.0,
             focus_progress: 0.0,
             opacity: 1.0,
+            value: 0.0,
         }
     }
 }

@@ -24,6 +24,8 @@ pub struct Portal<Msg> {
     /// `[ancre]` ou `[ancre, overlay]`.
     children: Vec<Box<dyn Widget<Msg>>>,
     placement: Placement,
+    /// Message émis au clic sur le voile (modale) pour fermer.
+    on_dismiss: Option<Msg>,
 }
 
 impl<Msg> Portal<Msg> {
@@ -32,6 +34,7 @@ impl<Msg> Portal<Msg> {
         Self {
             children: vec![Box::new(anchor)],
             placement: Placement::Below,
+            on_dismiss: None,
         }
     }
 
@@ -42,9 +45,15 @@ impl<Msg> Portal<Msg> {
         self.placement = placement;
         self
     }
+
+    /// Message émis au clic **hors** du contenu (sur le voile) — pour fermer.
+    pub fn dismiss(mut self, message: Msg) -> Self {
+        self.on_dismiss = Some(message);
+        self
+    }
 }
 
-impl<Msg> Widget<Msg> for Portal<Msg> {
+impl<Msg: Clone> Widget<Msg> for Portal<Msg> {
     fn style(&self) -> Style {
         Style::default()
     }
@@ -63,6 +72,10 @@ impl<Msg> Widget<Msg> for Portal<Msg> {
         self.children
             .get(1)
             .map(|content| (content.as_ref(), self.placement))
+    }
+
+    fn overlay_dismiss(&self) -> Option<Msg> {
+        self.on_dismiss.clone()
     }
 }
 

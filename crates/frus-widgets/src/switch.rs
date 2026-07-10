@@ -48,15 +48,15 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let track = if self.on { theme.primary } else { theme.border };
+        // `t` : position animée de la bascule (0 = off, 1 = on).
+        let t = status.value;
+        let track = theme.border.lerp(theme.primary, t);
         scene.draw_rect(bounds, track.fade(o), H * 0.5, 0.0, Color::TRANSPARENT);
 
         let d = H - MARGIN * 2.0;
-        let thumb_x = if self.on {
-            bounds.x + W - MARGIN - d
-        } else {
-            bounds.x + MARGIN
-        };
+        let off_x = bounds.x + MARGIN;
+        let on_x = bounds.x + W - MARGIN - d;
+        let thumb_x = off_x + (on_x - off_x) * t;
         scene.draw_rect(
             Rect::new(thumb_x, bounds.y + MARGIN, d, d),
             Color::WHITE.fade(o),
@@ -68,5 +68,9 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         self.on_toggle.as_ref().map(|make| make(!self.on))
+    }
+
+    fn anim_target(&self) -> Option<f32> {
+        Some(if self.on { 1.0 } else { 0.0 })
     }
 }

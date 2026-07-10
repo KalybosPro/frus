@@ -11,6 +11,10 @@ use crate::runtime::Runtime;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// Facteur de parallaxe de l'écran arrière lors d'une transition (0 = fixe,
+/// 1 = suit à l'identique). Donne la profondeur d'une navigation native.
+const NAV_PARALLAX: f32 = 0.3;
+
 /// Épaisseur d'une barre de défilement, en pixels.
 const BAR_SIZE: f32 = 10.0;
 /// Longueur minimale d'une poignée.
@@ -137,8 +141,8 @@ struct Builder<'a, Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
-    /// Overlays différés : (contenu, id, bornes de l'ancre, placement).
-    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement)>,
+    /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture).
+    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>)>,
     available: Size,
     runtime: &'a Runtime,
     theme: &'a Theme,
@@ -164,6 +168,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         status.hover_progress = self.runtime.hover_progress(id);
         status.focus_progress = self.runtime.focus_progress(id);
         status.opacity = self.runtime.opacity(id);
+        status.value = self.runtime.value(id);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -195,12 +200,28 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         if let Some((progress, forward)) = widget.navigator() {
             let bounds = draw_rect;
             let children = widget.children();
-            let dir = if forward { 1.0 } else { -1.0 };
             let w = bounds.width;
             if children.len() >= 2 {
-                // Transition : sortant glisse hors champ, entrant arrive.
-                self.render_screen(children[0].as_ref(), id.child(0), bounds, -progress * w * dir, clip);
-                self.render_screen(children[1].as_ref(), id.child(1), bounds, (1.0 - progress) * w * dir, clip);
+                // Transition : deux écrans décalés. L'écran « arrière » (offset
+                // négatif) se déplace moins (parallaxe) → sensation de profondeur.
+                let dir = if forward { 1.0 } else { -1.0 };
+                let raw = [-progress * w * dir, (1.0 - progress) * w * dir];
+                let off = [
+                    if raw[0] < 0.0 { raw[0] * NAV_PARALLAX } else { raw[0] },
+                    if raw[1] < 0.0 { raw[1] * NAV_PARALLAX } else { raw[1] },
+                ];
+                // Ordre de profondeur : le plus décalé à gauche (arrière) d'abord.
+                let (back, front) = if off[0] <= off[1] { (0, 1) } else { (1, 0) };
+                self.render_screen(children[back].as_ref(), id.child(back), bounds, off[back], clip);
+                // Assombrit l'écran arrière proportionnellement à son recouvrement.
+                let coverage = (off[back].abs() / (w * NAV_PARALLAX)).min(1.0);
+                if coverage > 0.0 {
+                    let scrim = Rect::new(bounds.x + off[back], bounds.y, bounds.width, bounds.height);
+                    self.scene.set_owner(0);
+                    self.scene.set_clip(clip);
+                    self.scene.fill_rect(scrim, Color::rgba(0.0, 0.0, 0.0, 0.22 * coverage));
+                }
+                self.render_screen(children[front].as_ref(), id.child(front), bounds, off[front], clip);
             } else if let Some(screen) = children.first() {
                 self.render_screen(screen.as_ref(), id.child(0), bounds, 0.0, clip);
             }
@@ -265,7 +286,8 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 _ => true,
             };
             if show {
-                self.overlays.push((content, id.child(1), draw_rect, placement));
+                self.overlays
+                    .push((content, id.child(1), draw_rect, placement, widget.overlay_dismiss()));
             }
         } else {
             for (child_index, child) in widget.children().iter().enumerate() {
@@ -315,7 +337,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
     /// d'autres overlays (portails imbriqués).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement)) = self.overlays.pop() {
+        while let Some((content, oid, anchor, placement, dismiss)) = self.overlays.pop() {
             let mut layout: Layout<()> = Layout::new();
             let root = build_layout(content, &mut layout);
             // Taille naturelle du contenu.
@@ -327,7 +349,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 .collect();
             let size = rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
 
-            let pos = match placement {
+            let mut pos = match placement {
                 Placement::Below => (anchor.x, anchor.y + anchor.height + 4.0),
                 Placement::Center => (
                     (self.available.width - size.width) * 0.5,
@@ -336,12 +358,41 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 Placement::Tooltip => (anchor.x, anchor.y - size.height - 6.0),
             };
 
+            // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
+            // le recale à l'intérieur de la fenêtre.
+            if matches!(placement, Placement::Below | Placement::Tooltip) {
+                // Débordement vertical → basculer de l'autre côté de l'ancre.
+                if placement == Placement::Below
+                    && pos.1 + size.height > self.available.height
+                    && anchor.y - size.height - 4.0 >= 0.0
+                {
+                    pos.1 = anchor.y - size.height - 4.0;
+                } else if placement == Placement::Tooltip
+                    && pos.1 < 0.0
+                    && anchor.y + anchor.height + size.height + 6.0 <= self.available.height
+                {
+                    pos.1 = anchor.y + anchor.height + 6.0;
+                }
+                // Débordement horizontal → recaler dans la fenêtre.
+                if pos.0 + size.width > self.available.width {
+                    pos.0 = (self.available.width - size.width).max(0.0);
+                }
+                if pos.0 < 0.0 {
+                    pos.0 = 0.0;
+                }
+            }
+
             if placement == Placement::Center {
                 // Voile sombre derrière la modale.
                 self.scene.set_owner(0);
                 self.scene.set_clip(window);
                 self.scene
                     .fill_rect(window, Color::rgba(0.0, 0.0, 0.0, 0.5));
+                // Cliquer le voile (hors contenu) ferme la modale : hit plein
+                // écran ajouté **avant** le contenu, donc battu par lui au recouvrement.
+                if let Some(msg) = dismiss {
+                    self.hits.push(Hit { id: oid, rect: window, msg });
+                }
             }
 
             let mut index = 0;
@@ -492,7 +543,7 @@ pub fn find_widget<Msg>(
 mod tests {
     use super::*;
     use crate::runtime::Edit;
-    use crate::{Container, Flex, Key, Scroll, TextInput};
+    use crate::{Container, Flex, Key, Placement, Portal, Scroll, TextInput};
     use frus_core::{Color, Point, Primitive, Rect, Size};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -558,6 +609,21 @@ mod tests {
         } else {
             panic!("attendu un rectangle");
         }
+    }
+
+    #[test]
+    fn center_overlay_scrim_click_dismisses() {
+        // Une modale Center avec `.dismiss` : cliquer le voile (hors contenu)
+        // renvoie le message de fermeture ; cliquer le contenu ne le renvoie pas.
+        let modal = Container::<Msg>::new().width(100.0).height(60.0).color(Color::WHITE);
+        let portal: Portal<Msg> = Portal::new(Container::<Msg>::new().width(20.0).height(20.0))
+            .overlay(modal, Placement::Center)
+            .dismiss(Msg::A);
+        let ui = build_ui(&portal, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+
+        // Coin supérieur gauche : sur le voile → ferme.
+        let corner = ui.hit(Point::new(5.0, 5.0)).expect("voile cliquable");
+        assert_eq!(ui.msg_for(corner), Some(Msg::A));
     }
 
     #[test]

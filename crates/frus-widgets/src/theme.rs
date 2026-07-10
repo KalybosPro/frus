@@ -69,6 +69,28 @@ impl Theme {
     }
 }
 
+impl Theme {
+    /// Interpole vers `other` à l'avancement `t` (`0` = `self`, `1` = `other`).
+    /// Sert au fondu de thème au basculement clair/sombre.
+    pub fn lerp(&self, other: &Theme, t: f32) -> Theme {
+        let t = t.clamp(0.0, 1.0);
+        let f = |a: f32, b: f32| a + (b - a) * t;
+        Theme {
+            background: self.background.lerp(other.background, t),
+            surface: self.surface.lerp(other.surface, t),
+            primary: self.primary.lerp(other.primary, t),
+            on_primary: self.on_primary.lerp(other.on_primary, t),
+            on_surface: self.on_surface.lerp(other.on_surface, t),
+            muted: self.muted.lerp(other.muted, t),
+            border: self.border.lerp(other.border, t),
+            focus: self.focus.lerp(other.focus, t),
+            selection: self.selection.lerp(other.selection, t),
+            radius: f(self.radius, other.radius),
+            spacing: f(self.spacing, other.spacing),
+        }
+    }
+}
+
 impl Default for Theme {
     fn default() -> Self {
         Self::dark()
@@ -83,5 +105,17 @@ mod tests {
     fn dark_and_light_differ() {
         assert_ne!(Theme::dark().background, Theme::light().background);
         assert_ne!(Theme::dark().on_surface, Theme::light().on_surface);
+    }
+
+    #[test]
+    fn lerp_hits_endpoints() {
+        let d = Theme::dark();
+        let l = Theme::light();
+        assert_eq!(d.lerp(&l, 0.0).background, d.background);
+        assert_eq!(d.lerp(&l, 1.0).background, l.background);
+        // Au milieu : ni l'un ni l'autre.
+        let mid = d.lerp(&l, 0.5).background;
+        assert_ne!(mid, d.background);
+        assert_ne!(mid, l.background);
     }
 }

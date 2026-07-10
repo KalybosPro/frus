@@ -79,6 +79,18 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Message émis au clic sur le voile d'une modale (fermeture), le cas échéant.
+    fn overlay_dismiss(&self) -> Option<Msg> {
+        None
+    }
+
+    /// Cible de la valeur animée propre au widget (p. ex. `1.0` interrupteur on,
+    /// `0.0` off). Le runtime fait tendre la valeur retenue vers cette cible et la
+    /// restitue via `Status::value`. `None` = pas de valeur animée.
+    fn anim_target(&self) -> Option<f32> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
