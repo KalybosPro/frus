@@ -10,9 +10,9 @@ use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, find_widget, Align, Axis, Button, Card, Checkbox, Color, Container, Dropdown, Edit,
-    Flex, Justify, Key, Navigator, Placement, Point, Portal, RadioGroup, Runtime, Scroll, Size,
-    Slider, Switch, Text, TextInput, Theme, Ui, Variant, Widget, WidgetId,
+    build_ui, find_widget, Align, Button, Card, Checkbox, Container, Dropdown, Edit, Flex, Justify,
+    Key, Navigator, Placement, Point, Portal, RadioGroup, Runtime, Scroll, Size, Slider, Switch,
+    Text, TextInput, Theme, Ui, Variant, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -118,7 +118,7 @@ impl ApplicationHandler for App {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title("frus — Jalon 19");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 20 · Todo");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -200,7 +200,7 @@ impl ApplicationHandler for App {
                 //    à dépiler et aucun overlay ouvert.
                 if self.cursor.x < BACK_EDGE
                     && !self.state.routes.is_empty()
-                    && !self.state.modal_open
+                    && !self.state.confirm_clear
                     && !self.state.menu_open
                 {
                     self.drag = Some(Drag::Back);
@@ -677,25 +677,41 @@ impl App {
 
 // --- Application de démonstration (modèle à messages) ---
 
-/// État : le nombre de carrés et le nom saisi.
+/// Une tâche de la liste.
+struct Todo {
+    id: u64,
+    text: String,
+    done: bool,
+}
+
+/// Filtre d'affichage de la liste des tâches.
+#[derive(Copy, Clone, PartialEq, Eq, Default)]
+enum Filter {
+    #[default]
+    All,
+    Active,
+    Done,
+}
+
+/// État de l'app todo (+ écran Réglages conservé pour la nav et le geste retour).
 #[derive(Default)]
 struct State {
-    squares: u32,
-    name: String,
-    email: String,
-    /// Thème sombre (par défaut) ou clair.
+    /// Les tâches, dans l'ordre d'ajout.
+    todos: Vec<Todo>,
+    /// Texte en cours de saisie.
+    draft: String,
+    /// Filtre courant.
+    filter: Filter,
+    /// Prochain identifiant de tâche.
+    next_id: u64,
+    /// Modale de confirmation d'effacement des terminées ouverte ?
+    confirm_clear: bool,
+    /// Thème clair (sinon sombre).
     light: bool,
     /// Thème sortant pendant un fondu de bascule (`None` = pas de transition).
     theme_from: Option<Theme>,
     /// Avancement du fondu de thème (`0 → 1`).
     theme_progress: f32,
-    done: bool,
-    notifs: bool,
-    volume: f32,
-    radio: usize,
-    menu_open: bool,
-    menu_choice: usize,
-    modal_open: bool,
     /// Pile d'écrans (vide = accueil).
     routes: Vec<Route>,
     /// Écran sortant pendant une transition.
@@ -706,13 +722,18 @@ struct State {
     nav_forward: bool,
     /// Geste retour en cours (glissement ou détente à ressort).
     back: Option<BackGesture>,
+    // --- Contrôles de l'écran Réglages ---
+    notifs: bool,
+    volume: f32,
+    radio: usize,
+    menu_open: bool,
+    menu_choice: usize,
 }
 
 /// Les écrans de l'application.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Route {
     Home,
-    Details,
     Settings,
 }
 
@@ -723,19 +744,28 @@ fn current_route(state: &State) -> Route {
 /// Messages émis par l'interface.
 #[derive(Clone)]
 enum Msg {
-    AddSquare,
-    RemoveSquare,
+    /// Le champ de saisie a changé.
+    DraftChanged(String),
+    /// Ajoute la tâche saisie (bouton ou touche Entrée).
+    AddTodo,
+    /// Bascule l'état d'une tâche (par identifiant).
+    ToggleTodo(u64),
+    /// Supprime une tâche (par identifiant).
+    DeleteTodo(u64),
+    /// Change le filtre d'affichage.
+    SetFilter(Filter),
+    /// Ouvre la confirmation d'effacement des terminées.
+    AskClearDone,
+    /// Efface les tâches terminées.
+    ConfirmClearDone,
+    /// Ferme la confirmation.
+    CancelClear,
     ToggleTheme,
-    NameChanged(String),
-    EmailChanged(String),
-    SetDone(bool),
     SetNotifs(bool),
     SetVolume(f32),
     SetRadio(usize),
     ToggleMenu,
     SetMenu(usize),
-    OpenModal,
-    CloseModal,
     Push(Route),
     Pop,
 }
@@ -746,17 +776,38 @@ const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
 /// Fait évoluer l'état en réponse à un message.
 fn update(state: &mut State, message: Msg) {
     match message {
-        Msg::AddSquare => state.squares += 1,
-        Msg::RemoveSquare => state.squares = state.squares.saturating_sub(1),
+        Msg::DraftChanged(text) => state.draft = text,
+        Msg::AddTodo => {
+            let text = state.draft.trim();
+            if !text.is_empty() {
+                state.todos.push(Todo {
+                    id: state.next_id,
+                    text: text.to_string(),
+                    done: false,
+                });
+                state.next_id += 1;
+                state.draft.clear();
+            }
+        }
+        Msg::ToggleTodo(id) => {
+            if let Some(todo) = state.todos.iter_mut().find(|t| t.id == id) {
+                todo.done = !todo.done;
+            }
+        }
+        Msg::DeleteTodo(id) => state.todos.retain(|t| t.id != id),
+        Msg::SetFilter(filter) => state.filter = filter,
+        Msg::AskClearDone => state.confirm_clear = true,
+        Msg::ConfirmClearDone => {
+            state.todos.retain(|t| !t.done);
+            state.confirm_clear = false;
+        }
+        Msg::CancelClear => state.confirm_clear = false,
         Msg::ToggleTheme => {
             // Capture le thème courant (avant bascule) comme point de départ du fondu.
             state.theme_from = Some(theme_of(state));
             state.light = !state.light;
             state.theme_progress = 0.0;
         }
-        Msg::NameChanged(name) => state.name = name,
-        Msg::EmailChanged(email) => state.email = email,
-        Msg::SetDone(v) => state.done = v,
         Msg::SetNotifs(v) => state.notifs = v,
         Msg::SetVolume(v) => state.volume = v,
         Msg::SetRadio(i) => state.radio = i,
@@ -765,8 +816,6 @@ fn update(state: &mut State, message: Msg) {
             state.menu_choice = i;
             state.menu_open = false;
         }
-        Msg::OpenModal => state.modal_open = true,
-        Msg::CloseModal => state.modal_open = false,
         Msg::Push(route) => {
             state.nav_from = Some(current_route(state));
             state.routes.push(route);
@@ -786,28 +835,39 @@ fn update(state: &mut State, message: Msg) {
     }
 }
 
-/// Bulle de tooltip (petite surface themée).
-fn tooltip(theme: &Theme, text: &str) -> Container<Msg> {
-    Container::new()
-        .radius(6.0)
-        .padding_each(6.0, 10.0, 6.0, 10.0)
-        .color(theme.on_surface)
-        .child(Text::new(text.to_string()).size(15.0).color(theme.surface))
+/// Nombre de tâches non terminées.
+fn active_count(state: &State) -> usize {
+    state.todos.iter().filter(|t| !t.done).count()
 }
 
-/// Contenu d'une modale (carte centrée avec un bouton de fermeture).
-fn modal_content() -> Card<Msg> {
+/// Nombre de tâches terminées.
+fn done_count(state: &State) -> usize {
+    state.todos.iter().filter(|t| t.done).count()
+}
+
+/// Contenu de la modale de confirmation d'effacement des terminées.
+fn confirm_content(done: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         Flex::column()
             .gap(16.0)
-            .child(Text::new("Ceci est une modale flottante.").size(22.0))
-            .child(Text::new("Rendue au-dessus de tout, avec un voile.").size(16.0))
+            .child(Text::new("Effacer les tâches terminées ?").size(22.0))
             .child(
-                Flex::row().justify(Justify::Center).child(
-                    Button::new("Fermer")
-                        .variant(Variant::Danger)
-                        .on_press(Msg::CloseModal),
-                ),
+                Text::new(format!("{done} tâche(s) seront supprimées.")).size(16.0),
+            )
+            .child(
+                Flex::row()
+                    .justify(Justify::Center)
+                    .gap(12.0)
+                    .child(
+                        Button::new("Annuler")
+                            .variant(Variant::Secondary)
+                            .on_press(Msg::CancelClear),
+                    )
+                    .child(
+                        Button::new("Supprimer")
+                            .variant(Variant::Danger)
+                            .on_press(Msg::ConfirmClearDone),
+                    ),
             ),
     )
 }
@@ -820,14 +880,6 @@ fn theme_of(state: &State) -> Theme {
         Theme::dark()
     }
 }
-
-/// Palette cyclique pour les carrés.
-const PALETTE: [Color; 4] = [
-    Color::rgb(0.91, 0.30, 0.24),
-    Color::rgb(0.95, 0.61, 0.07),
-    Color::rgb(0.18, 0.80, 0.44),
-    Color::rgb(0.20, 0.60, 0.86),
-];
 
 /// Point d'entrée : un `Navigator` autour de l'écran courant, avec transition.
 fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Navigator<Msg> {
@@ -858,8 +910,7 @@ fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Navigator<Msg>
 /// Construit l'écran correspondant à une route.
 fn screen(route: Route, state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     match route {
-        Route::Home => home_screen(state, theme, width, height),
-        Route::Details => detail_screen(theme, width, height),
+        Route::Home => todo_screen(state, theme, width, height),
         Route::Settings => settings_screen(state, theme, width, height),
     }
 }
@@ -877,30 +928,12 @@ fn screen_header(title: &str) -> Flex<Msg> {
         .child(Text::new(title.to_string()).size(26.0))
 }
 
-/// Écran « Détails ».
-fn detail_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
-    let column = Flex::column()
-        .width(width)
-        .height(height)
-        .padding(20.0)
-        .gap(16.0)
-        .child(screen_header("Détails"))
-        .child(Text::new("Écran poussé sur la pile de navigation.").size(18.0))
-        .child(Text::new("Le retour dépile avec une transition glissée.").size(18.0));
-    Container::new()
-        .width(width)
-        .height(height)
-        .color(theme.background)
-        .child(column)
-}
-
 /// Écran « Réglages » : la carte de contrôles.
 fn settings_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     let volume_pct = (state.volume * 100.0).round() as u32;
     let controls = Card::new().child(
         Flex::column()
             .gap(14.0)
-            .child(Checkbox::new(state.done).label("Terminé").on_toggle(Msg::SetDone))
             .child(
                 Flex::row()
                     .align(Align::Center)
@@ -942,150 +975,146 @@ fn settings_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Con
         .child(column)
 }
 
-/// Écran d'accueil.
-fn home_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
-    // En-tête : titre (couleur du thème par défaut) + bascule de thème à droite.
-    let toggle_label = if state.light { "Thème sombre" } else { "Thème clair" };
-    let toggle = Container::new()
-        .radius(theme.radius)
-        .padding_each(8.0, 14.0, 8.0, 14.0)
-        .color(theme.surface)
-        .hover_color(theme.surface.lerp(theme.on_surface, 0.08))
-        .border(1.0, theme.border)
-        .on_click(Msg::ToggleTheme)
-        .child(Text::new(toggle_label).size(16.0).color(theme.muted));
-    let header = Flex::row()
-        // .align(Align::Center)
-        .justify(Justify::SpaceBetween)
+/// Une ligne de tâche : case à cocher, libellé (grisé si terminée) et suppression.
+fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
+    let id = todo.id;
+    let label_color = if todo.done { theme.muted } else { theme.on_surface };
+    let row = Flex::row()
+        .align(Align::Center)
         .gap(12.0)
-        .child(Text::new("Welcome To Frus").size(28.0))
-        // .child(Flex::row().flex(1.0))
-        .child(toggle);
-
-    // Boutons themés ; le « Retirer » porte un tooltip, et un bouton ouvre une modale.
-    let remove = Button::new("− Retirer")
-        .variant(Variant::Danger)
-        .on_press(Msg::RemoveSquare);
-    let remove_tip =
-        Portal::new(remove).overlay(tooltip(theme, "Retire le dernier élément"), Placement::Tooltip);
-
-    let open_modal = Button::new("Modale")
-        .variant(Variant::Secondary)
-        .on_press(Msg::OpenModal);
-    let modal_portal = if state.modal_open {
-        Portal::new(open_modal)
-            .overlay(modal_content(), Placement::Center)
-            .dismiss(Msg::CloseModal)
-    } else {
-        Portal::new(open_modal)
-    };
-
-    let button_row = Flex::row()
-        .justify(Justify::Center)
-        .gap(12.0)
-        .child(Button::new("+ Ajouter un élément").on_press(Msg::AddSquare))
-        .child(remove_tip)
-        .child(modal_portal);
-
-    // Rangée de navigation vers les autres écrans.
-    let nav_row = Flex::row()
-        .justify(Justify::Center)
-        .gap(12.0)
+        .child(Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)))
+        .child(Text::new(todo.text.clone()).size(18.0).color(label_color))
+        .child(Flex::row().flex(1.0))
         .child(
-            Button::new("Détails →")
+            Button::new("×")
+                .variant(Variant::Danger)
+                .size(15.0)
+                .on_press(Msg::DeleteTodo(id)),
+        );
+    Container::new()
+        .radius(10.0)
+        .color(theme.surface)
+        .border(1.0, theme.border)
+        .padding_each(8.0, 12.0, 8.0, 12.0)
+        .child(row)
+}
+
+/// Écran principal : la liste de tâches (l'app exemple).
+fn todo_screen(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+    let active = active_count(state);
+    let done = done_count(state);
+
+    // En-tête : titre + bascule de thème + accès Réglages.
+    let theme_label = if state.light { "Sombre" } else { "Clair" };
+    let header = Flex::row()
+        .align(Align::Center)
+        .gap(10.0)
+        .child(Text::new("Mes tâches").size(30.0))
+        .child(Flex::row().flex(1.0))
+        .child(
+            Button::new(theme_label)
                 .variant(Variant::Secondary)
-                .on_press(Msg::Push(Route::Details)),
+                .size(15.0)
+                .on_press(Msg::ToggleTheme),
         )
         .child(
             Button::new("Réglages →")
                 .variant(Variant::Secondary)
+                .size(15.0)
                 .on_press(Msg::Push(Route::Settings)),
         );
 
-    // Champs de saisie (couleurs du thème automatiques).
-    let name_row = Flex::row()
-        .justify(Justify::Center)
+    // Saisie : champ (Entrée valide) + bouton d'ajout.
+    let input_row = Flex::row()
         .align(Align::Center)
-        .gap(12.0)
-        .child(Text::new("Nom :").size(20.0))
+        .gap(10.0)
         .child(
-            TextInput::new(state.name.as_str())
-                .width(280.0)
+            TextInput::new(state.draft.as_str())
+                .width(400.0)
                 .size(18.0)
-                .on_input(Msg::NameChanged),
-        );
-    let email_row = Flex::row()
-        .justify(Justify::Center)
-        .align(Align::Center)
-        .gap(12.0)
-        .child(Text::new("Email :").size(20.0))
-        .child(
-            TextInput::new(state.email.as_str())
-                .width(280.0)
-                .size(18.0)
-                .on_input(Msg::EmailChanged),
-        );
+                .on_input(Msg::DraftChanged)
+                .on_submit(Msg::AddTodo),
+        )
+        .child(Button::new("Ajouter").on_press(Msg::AddTodo));
 
-    let greeting = if state.name.is_empty() {
-        "Tapez votre nom ci-dessous".to_string()
-    } else {
-        format!("Bonjour {} !", state.name)
+    // Filtres : le filtre actif est mis en avant.
+    let filter_button = |label: &str, f: Filter| {
+        let variant = if state.filter == f {
+            Variant::Primary
+        } else {
+            Variant::Secondary
+        };
+        Button::new(label)
+            .variant(variant)
+            .size(15.0)
+            .on_press(Msg::SetFilter(f))
     };
-    let greeting_row = Flex::row()
-        .justify(Justify::Center)
-        .child(Text::new(greeting).size(18.0).color(theme.muted));
+    let filters = Flex::row()
+        .gap(8.0)
+        .child(filter_button("Toutes", Filter::All))
+        .child(filter_button("Actives", Filter::Active))
+        .child(filter_button("Terminées", Filter::Done));
 
-    // Bande défilante horizontale de vignettes colorées (dégradé).
-    let mut strip = Flex::row().gap(10.0);
-    for i in 0..12 {
-        let c = PALETTE[i % PALETTE.len()];
-        strip = strip.child(
-            Container::new()
-                .width(120.0)
-                .height(72.0)
-                .radius(theme.radius)
-                .shadow(0.0, 3.0, 8.0, Color::rgba(0.0, 0.0, 0.0, 0.35))
-                .gradient(c, [0.6, 1.0])
-                .color(Color::rgb(c.r * 1.3, c.g * 1.3, c.b * 1.3)),
-        );
-    }
-    let strip_scroll = Scroll::new()
-        .axis(Axis::Horizontal)
-        .height(84.0)
-        .child(strip);
-
-    // Liste défilante verticale : cartes « surface » du thème.
-    let total = 8 + state.squares;
+    // Liste filtrée (ou état vide).
     let mut list = Flex::column().gap(8.0);
-    for i in 0..total {
-        list = list.child(
-            Container::new()
-                .height(48.0)
-                .radius(8.0)
-                .shadow(0.0, 2.0, 6.0, Color::rgba(0.0, 0.0, 0.0, 0.25))
-                .color(theme.surface)
-                .border(1.0, theme.border)
-                .padding_each(14.0, 16.0, 14.0, 16.0)
-                .child(Text::new(format!("Élément {}", i + 1)).size(18.0)),
+    let mut shown = 0;
+    for todo in state.todos.iter().filter(|t| match state.filter {
+        Filter::All => true,
+        Filter::Active => !t.done,
+        Filter::Done => t.done,
+    }) {
+        list = list.child(todo_row(todo, theme));
+        shown += 1;
+    }
+    if shown == 0 {
+        list = Flex::column().child(
+            Text::new("Rien à afficher pour ce filtre.")
+                .size(18.0)
+                .color(theme.muted),
         );
     }
-    let scroll = Scroll::new().flex(1.0).height(240.0).child(list);
+    let scroll = Scroll::new().flex(1.0).height(320.0).child(list);
 
+    // Pied : compteurs + effacer les terminées (avec confirmation modale).
+    let clear_button = Button::new("Effacer les terminées")
+        .variant(Variant::Danger)
+        .size(15.0)
+        .on_press(Msg::AskClearDone);
+    let clear = if state.confirm_clear {
+        Portal::new(clear_button)
+            .overlay(confirm_content(done), Placement::Center)
+            .dismiss(Msg::CancelClear)
+    } else {
+        Portal::new(clear_button)
+    };
+    let footer = Flex::row()
+        .align(Align::Center)
+        .gap(12.0)
+        .child(
+            Text::new(format!("{active} active(s) · {done} terminée(s)"))
+                .size(16.0)
+                .color(theme.muted),
+        )
+        .child(Flex::row().flex(1.0))
+        .child(clear);
+
+    // Carte de l'app, largeur fixe, centrée en haut de l'écran.
+    let card = Card::new().padding(20.0).child(
+        Flex::column()
+            .width(560.0)
+            .gap(16.0)
+            .child(header)
+            .child(input_row)
+            .child(filters)
+            .child(scroll)
+            .child(footer),
+    );
     let column = Flex::column()
         .width(width)
         .height(height)
-        .padding(20.0)
-        .gap(16.0)
-        .child(header)
-        .child(button_row)
-        .child(nav_row)
-        .child(name_row)
-        .child(email_row)
-        .child(greeting_row)
-        .child(strip_scroll)
-        .child(scroll);
+        .padding(24.0)
+        .child(Flex::row().justify(Justify::Center).child(card));
 
-    // Fond racine du thème.
     Container::new()
         .width(width)
         .height(height)
@@ -1112,25 +1141,52 @@ mod tests {
         .len()
     }
 
-    #[test]
-    fn clicking_the_button_adds_squares() {
-        let mut state = State::default();
-        let base = primitive_count(&state);
-
-        // Simule trois clics sur le bouton.
-        for _ in 0..3 {
-            update(&mut state, Msg::AddSquare);
-        }
-        assert_eq!(state.squares, 3);
-
-        // Trois éléments de plus dans la liste => la scène a plus de primitives.
-        assert!(primitive_count(&state) > base);
+    /// Ajoute une tâche depuis un libellé.
+    fn add(state: &mut State, text: &str) {
+        update(state, Msg::DraftChanged(text.to_string()));
+        update(state, Msg::AddTodo);
     }
 
     #[test]
-    fn editing_updates_the_name() {
+    fn add_todo_from_draft_and_trims_blanks() {
         let mut state = State::default();
-        update(&mut state, Msg::NameChanged("Ada".to_string()));
-        assert_eq!(state.name, "Ada");
+        add(&mut state, "Acheter du pain");
+        assert_eq!(state.todos.len(), 1);
+        assert_eq!(state.todos[0].text, "Acheter du pain");
+        assert!(state.draft.is_empty(), "le champ est vidé après l'ajout");
+
+        // Une saisie vide / d'espaces n'ajoute rien.
+        add(&mut state, "   ");
+        assert_eq!(state.todos.len(), 1);
+    }
+
+    #[test]
+    fn toggle_delete_and_clear_done() {
+        let mut state = State::default();
+        for t in ["a", "b", "c"] {
+            add(&mut state, t);
+        }
+        let id_b = state.todos[1].id;
+        update(&mut state, Msg::ToggleTodo(id_b));
+        assert!(state.todos[1].done);
+        assert_eq!(done_count(&state), 1);
+        assert_eq!(active_count(&state), 2);
+
+        // Supprime "a" par identité.
+        let id_a = state.todos[0].id;
+        update(&mut state, Msg::DeleteTodo(id_a));
+        assert_eq!(state.todos.len(), 2);
+
+        // Efface les terminées : "b" disparaît, "c" reste.
+        update(&mut state, Msg::ConfirmClearDone);
+        assert_eq!(state.todos.len(), 1);
+        assert_eq!(state.todos[0].text, "c");
+    }
+
+    #[test]
+    fn view_builds_a_non_empty_scene() {
+        let mut state = State::default();
+        add(&mut state, "tâche");
+        assert!(primitive_count(&state) > 0);
     }
 }

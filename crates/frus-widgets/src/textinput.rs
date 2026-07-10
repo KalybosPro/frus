@@ -21,6 +21,7 @@ pub struct TextInput<Msg> {
     size: f32,
     width: Dimension,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
+    on_submit: Option<Msg>,
 }
 
 /// Largeur en pixels des `count` premiers caractères de `chars`, à la taille donnée.
@@ -49,6 +50,7 @@ impl<Msg> TextInput<Msg> {
             size: 18.0,
             width: Dimension::Length(220.0),
             on_input: None,
+            on_submit: None,
         }
     }
 
@@ -69,9 +71,15 @@ impl<Msg> TextInput<Msg> {
         self.on_input = Some(Box::new(on_input));
         self
     }
+
+    /// Message émis à la validation (touche Entrée), sans modifier la valeur.
+    pub fn on_submit(mut self, message: Msg) -> Self {
+        self.on_submit = Some(message);
+        self
+    }
 }
 
-impl<Msg> Widget<Msg> for TextInput<Msg> {
+impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     fn style(&self) -> Style {
         let height = frus_text::line_height(self.size) + PAD_Y * 2.0;
         Style {
@@ -189,7 +197,12 @@ impl<Msg> Widget<Msg> for TextInput<Msg> {
             }
             Key::Home { shift } => move_cursor(&mut cursor, &mut anchor, 0, *shift),
             Key::End { shift } => move_cursor(&mut cursor, &mut anchor, len, *shift),
-            Key::Enter => {}
+            Key::Enter => {
+                // Validation : n'altère pas la valeur, émet le message de soumission.
+                edit.cursor = cursor;
+                edit.anchor = anchor;
+                return self.on_submit.clone();
+            }
         }
 
         edit.cursor = cursor;
@@ -265,6 +278,7 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Changed(String),
+        Submitted,
     }
 
     fn input(value: &str) -> TextInput<Msg> {
@@ -314,6 +328,22 @@ mod tests {
         let inp = input("hello");
         let edit = Edit { cursor: 5, anchor: Some(2) };
         assert_eq!(inp.selected_text(&edit), Some("llo".to_string()));
+    }
+
+    #[test]
+    fn enter_submits_without_changing_value() {
+        let inp = input("acheter du lait").on_submit(Msg::Submitted);
+        let mut edit = Edit { cursor: 3, anchor: None };
+        // Entrée : émet la soumission, ne renvoie pas de changement de valeur.
+        assert_eq!(inp.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
+        assert_eq!(edit.cursor, 3); // curseur inchangé
+    }
+
+    #[test]
+    fn enter_without_submit_is_noop() {
+        let inp = input("x");
+        let mut edit = Edit { cursor: 1, anchor: None };
+        assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
     }
 
     #[test]
