@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    spring_step, Align, Button, Card, Checkbox, Container, Dropdown, Flex, Justify, NavBar,
-    Navigator, Placement, Portal, RadioGroup, Scroll, Slider, Switch, Text, TextInput, Theme,
-    Variant, Widget,
+    button, column, row, spacer, spring_step, text, Align, Card, Checkbox, Container, Dropdown,
+    Flex, Justify, NavBar, Navigator, Placement, Portal, RadioGroup, Scroll, Slider, Switch,
+    TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -412,7 +412,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 26 · Todo".to_string()
+        "frus — Jalon 27 · Todo".to_string()
     }
 
     fn can_go_back(&self) -> bool {
@@ -483,97 +483,75 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
 fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     let volume_pct = (app.volume * 100.0).round() as u32;
     let controls = Card::new().child(
-        Flex::column()
-            .gap(14.0)
-            .child(
-                Flex::row()
-                    .align(Align::Center)
-                    .gap(12.0)
-                    .child(Text::new("Notifications").size(18.0))
-                    .child(Flex::row().flex(1.0))
-                    .child(Switch::new(app.notifs).on_toggle(Msg::SetNotifs)),
-            )
-            .child(
-                Flex::row()
-                    .align(Align::Center)
-                    .gap(12.0)
-                    .child(Text::new(format!("Volume : {volume_pct}%")).size(18.0))
-                    .child(Slider::new(app.volume).width(220.0).on_change(Msg::SetVolume)),
-            )
-            .child(
-                RadioGroup::new(app.radio, Msg::SetRadio)
-                    .option("Petit")
-                    .option("Moyen")
-                    .option("Grand"),
-            )
-            .child(Dropdown::new(MENU[app.menu_choice], Msg::ToggleMenu).options(
+        column![
+            row![
+                text("Notifications").size(18.0),
+                spacer(),
+                Switch::new(app.notifs).on_toggle(Msg::SetNotifs),
+            ]
+            .align(Align::Center)
+            .gap(12.0),
+            row![
+                text(format!("Volume : {volume_pct}%")).size(18.0),
+                Slider::new(app.volume).width(220.0).on_change(Msg::SetVolume),
+            ]
+            .align(Align::Center)
+            .gap(12.0),
+            RadioGroup::new(app.radio, Msg::SetRadio)
+                .option("Petit")
+                .option("Moyen")
+                .option("Grand"),
+            Dropdown::new(MENU[app.menu_choice], Msg::ToggleMenu).options(
                 app.menu_open,
                 &MENU,
                 Msg::SetMenu,
-            )),
+            ),
+        ]
+        .gap(14.0),
     );
-    let content = Flex::column()
-        .padding(20.0)
-        .gap(16.0)
-        .child(Flex::row().justify(Justify::Center).child(controls));
-    let column = Flex::column()
-        .width(width)
-        .height(height)
-        .child(NavBar::new("Réglages").on_back(Msg::Pop))
-        .child(content);
+    let content = column![row![controls].justify(Justify::Center)].padding(20.0).gap(16.0);
+    let screen = column![NavBar::new("Réglages").on_back(Msg::Pop), content].width(width).height(height);
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(column)
+        .child(screen)
 }
 
 /// Une ligne de tâche : case à cocher, libellé (grisé si terminée) et suppression.
 fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     let id = todo.id;
     let label_color = if todo.done { theme.muted } else { theme.on_surface };
-    let row = Flex::row()
-        .align(Align::Center)
-        .gap(12.0)
-        .child(Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)))
-        .child(Text::new(todo.text.clone()).size(18.0).color(label_color))
-        .child(Flex::row().flex(1.0))
-        .child(
-            Button::new("×")
-                .variant(Variant::Danger)
-                .size(15.0)
-                .on_press(Msg::DeleteTodo(id)),
-        );
+    let line = row![
+        Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
+        text(todo.text.clone()).size(18.0).color(label_color),
+        spacer(),
+        button("×", Msg::DeleteTodo(id)).variant(Variant::Danger).size(15.0),
+    ]
+    .align(Align::Center)
+    .gap(12.0);
     Container::new()
         .radius(10.0)
         .color(theme.surface)
         .border(1.0, theme.border)
         .padding_each(8.0, 12.0, 8.0, 12.0)
-        .child(row)
+        .child(line)
 }
 
 /// Contenu de la modale de confirmation d'effacement des terminées.
 fn confirm_content(done: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
-        Flex::column()
-            .gap(16.0)
-            .child(Text::new("Effacer les tâches terminées ?").size(22.0))
-            .child(Text::new(format!("{done} tâche(s) seront supprimées.")).size(16.0))
-            .child(
-                Flex::row()
-                    .justify(Justify::Center)
-                    .gap(12.0)
-                    .child(
-                        Button::new("Annuler")
-                            .variant(Variant::Secondary)
-                            .on_press(Msg::CancelClear),
-                    )
-                    .child(
-                        Button::new("Supprimer")
-                            .variant(Variant::Danger)
-                            .on_press(Msg::ConfirmClearDone),
-                    ),
-            ),
+        column![
+            text("Effacer les tâches terminées ?").size(22.0),
+            text(format!("{done} tâche(s) seront supprimées.")).size(16.0),
+            row![
+                button("Annuler", Msg::CancelClear).variant(Variant::Secondary),
+                button("Supprimer", Msg::ConfirmClearDone).variant(Variant::Danger),
+            ]
+            .justify(Justify::Center)
+            .gap(12.0),
+        ]
+        .gap(16.0),
     )
 }
 
@@ -585,47 +563,28 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     // En-tête : titre + chrono + bascule de thème + accès Réglages.
     let theme_label = if app.light { "Sombre" } else { "Clair" };
     let timer_label = if app.running { "Pause" } else { "Reprendre" };
-    let header = Flex::row()
-        .align(Align::Center)
-        .gap(10.0)
-        .child(Text::new("Mes tâches").size(30.0))
-        .child(
-            Text::new(format!("· {}s", app.elapsed))
-                .size(18.0)
-                .color(theme.muted),
-        )
-        .child(Flex::row().flex(1.0))
-        .child(
-            Button::new(timer_label)
-                .variant(Variant::Secondary)
-                .size(15.0)
-                .on_press(Msg::ToggleTimer),
-        )
-        .child(
-            Button::new(theme_label)
-                .variant(Variant::Secondary)
-                .size(15.0)
-                .on_press(Msg::ToggleTheme),
-        )
-        .child(
-            Button::new("Réglages →")
-                .variant(Variant::Secondary)
-                .size(15.0)
-                .on_press(Msg::Push(Route::Settings)),
-        );
+    let header = row![
+        text("Mes tâches").size(30.0),
+        text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted),
+        spacer(),
+        button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0),
+        button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0),
+        button("Réglages →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
+    ]
+    .align(Align::Center)
+    .gap(10.0);
 
     // Saisie : champ (Entrée valide) + bouton d'ajout.
-    let input_row = Flex::row()
-        .align(Align::Center)
-        .gap(10.0)
-        .child(
-            TextInput::new(app.draft.as_str())
-                .width(400.0)
-                .size(18.0)
-                .on_input(Msg::DraftChanged)
-                .on_submit(Msg::AddTodo),
-        )
-        .child(Button::new("Ajouter").on_press(Msg::AddTodo));
+    let input_row = row![
+        TextInput::new(app.draft.as_str())
+            .width(400.0)
+            .size(18.0)
+            .on_input(Msg::DraftChanged)
+            .on_submit(Msg::AddTodo),
+        button("Ajouter", Msg::AddTodo),
+    ]
+    .align(Align::Center)
+    .gap(10.0);
 
     // Filtres : le filtre actif est mis en avant.
     let filter_button = |label: &str, f: Filter| {
@@ -634,16 +593,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         } else {
             Variant::Secondary
         };
-        Button::new(label)
-            .variant(variant)
-            .size(15.0)
-            .on_press(Msg::SetFilter(f))
+        button(label, Msg::SetFilter(f)).variant(variant).size(15.0)
     };
-    let filters = Flex::row()
-        .gap(8.0)
-        .child(filter_button("Toutes", Filter::All))
-        .child(filter_button("Actives", Filter::Active))
-        .child(filter_button("Terminées", Filter::Done));
+    let filters = row![
+        filter_button("Toutes", Filter::All),
+        filter_button("Actives", Filter::Active),
+        filter_button("Terminées", Filter::Done),
+    ]
+    .gap(8.0);
 
     // Liste filtrée (ou état vide).
     let mut list = Flex::column().gap(8.0);
@@ -657,19 +614,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         shown += 1;
     }
     if shown == 0 {
-        list = Flex::column().child(
-            Text::new("Rien à afficher pour ce filtre.")
-                .size(18.0)
-                .color(theme.muted),
-        );
+        list = column![text("Rien à afficher pour ce filtre.").size(18.0).color(theme.muted)];
     }
     let scroll = Scroll::new().flex(1.0).height(320.0).child(list);
 
     // Pied : compteurs + effacer les terminées (avec confirmation modale).
-    let clear_button = Button::new("Effacer les terminées")
+    let clear_button = button("Effacer les terminées", Msg::AskClearDone)
         .variant(Variant::Danger)
-        .size(15.0)
-        .on_press(Msg::AskClearDone);
+        .size(15.0);
     let clear = if app.confirm_clear {
         Portal::new(clear_button)
             .overlay(confirm_content(done), Placement::Center)
@@ -677,51 +629,30 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     } else {
         Portal::new(clear_button)
     };
-    let footer = Flex::row()
-        .align(Align::Center)
-        .gap(8.0)
-        .child(
-            Text::new(format!("{active} active(s) · {done} terminée(s)"))
-                .size(16.0)
-                .color(theme.muted),
-        )
-        .child(Flex::row().flex(1.0))
-        .child(
-            Button::new("Charger")
-                .variant(Variant::Secondary)
-                .size(15.0)
-                .on_press(Msg::Load),
-        )
-        .child(
-            Button::new("Sauver")
-                .variant(Variant::Secondary)
-                .size(15.0)
-                .on_press(Msg::Save),
-        )
-        .child(clear);
+    let footer = row![
+        text(format!("{active} active(s) · {done} terminée(s)")).size(16.0).color(theme.muted),
+        spacer(),
+        button("Charger", Msg::Load).variant(Variant::Secondary).size(15.0),
+        button("Sauver", Msg::Save).variant(Variant::Secondary).size(15.0),
+        clear,
+    ]
+    .align(Align::Center)
+    .gap(8.0);
 
     // Carte de l'app, largeur fixe, centrée en haut de l'écran.
-    let card = Card::new().padding(20.0).child(
-        Flex::column()
-            .width(560.0)
-            .gap(16.0)
-            .child(header)
-            .child(input_row)
-            .child(filters)
-            .child(scroll)
-            .child(footer),
-    );
-    let column = Flex::column()
+    let card = Card::new()
+        .padding(20.0)
+        .child(column![header, input_row, filters, scroll, footer].width(560.0).gap(16.0));
+    let screen = column![row![card].justify(Justify::Center)]
         .width(width)
         .height(height)
-        .padding(24.0)
-        .child(Flex::row().justify(Justify::Center).child(card));
+        .padding(24.0);
 
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(column)
+        .child(screen)
 }
 
 #[cfg(test)]
