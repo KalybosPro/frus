@@ -6,6 +6,7 @@ use frus_core::{Color, Point, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::WidgetId;
+use crate::portal::Placement;
 use crate::runtime::Runtime;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -111,6 +112,11 @@ fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeI
     if widget.scroll_content().is_some() {
         return layout.leaf(widget.style(), ());
     }
+    // Un portail ne met en page que son ancre (enfant 0) ; l'overlay est différé.
+    if widget.overlay().is_some() {
+        let anchor = build_layout(widget.children()[0].as_ref(), layout);
+        return layout.container(widget.style(), &[anchor]);
+    }
     let children = widget.children();
     if children.is_empty() {
         layout.leaf(widget.style(), ())
@@ -130,14 +136,17 @@ struct Builder<'a, Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    /// Overlays différés : (contenu, id, bornes de l'ancre, placement).
+    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement)>,
+    available: Size,
     runtime: &'a Runtime,
     theme: &'a Theme,
 }
 
-impl<Msg: Clone> Builder<'_, Msg> {
+impl<'a, Msg: Clone> Builder<'a, Msg> {
     fn walk(
         &mut self,
-        widget: &dyn Widget<Msg>,
+        widget: &'a dyn Widget<Msg>,
         id: WidgetId,
         translation: (f32, f32),
         clip: Rect,
@@ -227,6 +236,24 @@ impl<Msg: Clone> Builder<'_, Msg> {
             if max_x > 0.0 {
                 self.add_scrollbar(id, viewport, false, offset_x, max_x);
             }
+        } else if let Some((content, placement)) = widget.overlay() {
+            // Ancre (enfant 0) rendue inline ; overlay (enfant 1) différé.
+            self.walk(
+                widget.children()[0].as_ref(),
+                id.child(0),
+                translation,
+                clip,
+                rects,
+                index,
+            );
+            // Un tooltip ne s'affiche que si l'ancre est survolée.
+            let show = match placement {
+                Placement::Tooltip => self.runtime.input.hovered == Some(id.child(0)),
+                _ => true,
+            };
+            if show {
+                self.overlays.push((content, id.child(1), draw_rect, placement));
+            }
         } else {
             for (child_index, child) in widget.children().iter().enumerate() {
                 self.walk(
@@ -238,6 +265,45 @@ impl<Msg: Clone> Builder<'_, Msg> {
                     index,
                 );
             }
+        }
+    }
+
+    /// Traite les overlays différés : sous-layout, positionnement et rendu
+    /// **au-dessus** de tout (leurs zones cliquables priment). Peut engendrer
+    /// d'autres overlays (portails imbriqués).
+    fn process_overlays(&mut self) {
+        let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
+        while let Some((content, oid, anchor, placement)) = self.overlays.pop() {
+            let mut layout: Layout<()> = Layout::new();
+            let root = build_layout(content, &mut layout);
+            // Taille naturelle du contenu.
+            layout.compute_scroll(root, self.available.width, self.available.height, true, true);
+            let rects: Vec<Rect> = layout
+                .absolute_rects(root)
+                .into_iter()
+                .map(|(rect, _)| rect)
+                .collect();
+            let size = rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+
+            let pos = match placement {
+                Placement::Below => (anchor.x, anchor.y + anchor.height + 4.0),
+                Placement::Center => (
+                    (self.available.width - size.width) * 0.5,
+                    (self.available.height - size.height) * 0.5,
+                ),
+                Placement::Tooltip => (anchor.x, anchor.y - size.height - 6.0),
+            };
+
+            if placement == Placement::Center {
+                // Voile sombre derrière la modale.
+                self.scene.set_owner(0);
+                self.scene.set_clip(window);
+                self.scene
+                    .fill_rect(window, Color::rgba(0.0, 0.0, 0.0, 0.5));
+            }
+
+            let mut index = 0;
+            self.walk(content, oid, pos, window, &rects, &mut index);
         }
     }
 }
@@ -291,11 +357,11 @@ impl<Msg: Clone> Builder<'_, Msg> {
 
 /// Traduit un arbre de widgets en [`Ui`] pour une taille, un état runtime et un
 /// thème donnés.
-pub fn build_ui<Msg: Clone>(
-    root: &dyn Widget<Msg>,
+pub fn build_ui<'a, Msg: Clone>(
+    root: &'a dyn Widget<Msg>,
     available: Size,
-    runtime: &Runtime,
-    theme: &Theme,
+    runtime: &'a Runtime,
+    theme: &'a Theme,
 ) -> Ui<Msg> {
     let mut layout: Layout<()> = Layout::new();
     let root_node = build_layout(root, &mut layout);
@@ -313,11 +379,16 @@ pub fn build_ui<Msg: Clone>(
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
         draggables: Vec::new(),
+        overlays: Vec::new(),
+        available,
         runtime,
         theme,
     };
     let mut index = 0;
     builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
+
+    // Overlays (menus flottants, modales, tooltips) par-dessus tout le reste.
+    builder.process_overlays();
 
     // Rejoue les sous-arbres sortants, en fondu, par-dessus la scène courante.
     builder.scene.set_clip(Rect::UNBOUNDED);

@@ -11,8 +11,8 @@ use std::time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, find_widget, Align, Axis, Button, Card, Checkbox, Color, Container, Dropdown, Edit,
-    Flex, Justify, Key, Point, RadioGroup, Runtime, Scroll, Size, Slider, Switch, Text, TextInput,
-    Theme, Ui, Variant, Widget, WidgetId,
+    Flex, Justify, Key, Placement, Point, Portal, RadioGroup, Runtime, Scroll, Size, Slider, Switch,
+    Text, TextInput, Theme, Ui, Variant, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -77,7 +77,7 @@ impl ApplicationHandler for App {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title("frus — Jalon 15");
+        let attributes = Window::default_attributes().with_title("frus — Jalon 17");
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -539,6 +539,7 @@ struct State {
     radio: usize,
     menu_open: bool,
     menu_choice: usize,
+    modal_open: bool,
 }
 
 /// Messages émis par l'interface.
@@ -555,6 +556,8 @@ enum Msg {
     SetRadio(usize),
     ToggleMenu,
     SetMenu(usize),
+    OpenModal,
+    CloseModal,
 }
 
 /// Libellés du menu déroulant.
@@ -577,7 +580,35 @@ fn update(state: &mut State, message: Msg) {
             state.menu_choice = i;
             state.menu_open = false;
         }
+        Msg::OpenModal => state.modal_open = true,
+        Msg::CloseModal => state.modal_open = false,
     }
+}
+
+/// Bulle de tooltip (petite surface themée).
+fn tooltip(theme: &Theme, text: &str) -> Container<Msg> {
+    Container::new()
+        .radius(6.0)
+        .padding_each(6.0, 10.0, 6.0, 10.0)
+        .color(theme.on_surface)
+        .child(Text::new(text.to_string()).size(15.0).color(theme.surface))
+}
+
+/// Contenu d'une modale (carte centrée avec un bouton de fermeture).
+fn modal_content() -> Card<Msg> {
+    Card::new().padding(24.0).child(
+        Flex::column()
+            .gap(16.0)
+            .child(Text::new("Ceci est une modale flottante.").size(22.0))
+            .child(Text::new("Rendue au-dessus de tout, avec un voile.").size(16.0))
+            .child(
+                Flex::row().justify(Justify::Center).child(
+                    Button::new("Fermer")
+                        .variant(Variant::Danger)
+                        .on_press(Msg::CloseModal),
+                ),
+            ),
+    )
 }
 
 /// Thème courant selon l'état.
@@ -616,16 +647,28 @@ fn view(state: &State, theme: &Theme, width: f32, height: f32) -> Container<Msg>
         .child(Flex::row().flex(1.0))
         .child(toggle);
 
-    // Boutons themés (widgets nommés).
+    // Boutons themés ; le « Retirer » porte un tooltip, et un bouton ouvre une modale.
+    let remove = Button::new("− Retirer")
+        .variant(Variant::Danger)
+        .on_press(Msg::RemoveSquare);
+    let remove_tip =
+        Portal::new(remove).overlay(tooltip(theme, "Retire le dernier élément"), Placement::Tooltip);
+
+    let open_modal = Button::new("Modale")
+        .variant(Variant::Secondary)
+        .on_press(Msg::OpenModal);
+    let modal_portal = if state.modal_open {
+        Portal::new(open_modal).overlay(modal_content(), Placement::Center)
+    } else {
+        Portal::new(open_modal)
+    };
+
     let button_row = Flex::row()
         .justify(Justify::Center)
         .gap(12.0)
         .child(Button::new("+ Ajouter un élément").on_press(Msg::AddSquare))
-        .child(
-            Button::new("− Retirer")
-                .variant(Variant::Danger)
-                .on_press(Msg::RemoveSquare),
-        );
+        .child(remove_tip)
+        .child(modal_portal);
 
     // Carte de réglages : checkbox, switch, slider, radios, menu.
     let volume_pct = (state.volume * 100.0).round() as u32;

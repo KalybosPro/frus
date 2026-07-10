@@ -4,6 +4,7 @@ use frus_core::{Rect, Scene};
 use frus_layout::Style;
 
 use crate::interaction::{Key, Status};
+use crate::portal::Placement;
 use crate::runtime::Edit;
 use crate::theme::Theme;
 
@@ -71,5 +72,10 @@ pub trait Widget<Msg> {
     /// Axe(s) de défilement (pour un conteneur défilable).
     fn scroll_axis(&self) -> crate::scroll::Axis {
         crate::scroll::Axis::Vertical
+    }
+
+    /// Si le widget est un portail, renvoie son contenu flottant et son placement.
+    fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
+        None
     }
 }

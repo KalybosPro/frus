@@ -1,10 +1,12 @@
-//! [`Dropdown`] : une liste déroulante **contrôlée** (l'état ouvert vient de
-//! l'application). L'ouverture déploie les options **en place** (sous l'en-tête).
+//! [`Dropdown`] : une liste déroulante **contrôlée** dont les options flottent
+//! au-dessus du reste (via le mécanisme d'overlay), sous l'en-tête.
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
+use crate::flex::Flex;
 use crate::interaction::Status;
+use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -13,7 +15,7 @@ const ROW_H: f32 = 40.0;
 const PAD_X: f32 = 12.0;
 const SIZE: f32 = 18.0;
 
-/// Une ligne (en-tête ou option) de la liste déroulante.
+/// Une ligne (en-tête ou option).
 struct Row<Msg> {
     label: String,
     is_header: bool,
@@ -38,17 +40,17 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         let bg = theme
             .surface
             .lerp(theme.on_surface, 0.06 * status.hover_progress);
-        let border = if self.is_header { theme.border } else { theme.border.fade(0.5) };
-        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, border.fade(o));
+        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
+        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(
-            Point::new(bounds.x + PAD_X, bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5),
+            Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
             SIZE,
             theme.on_surface.fade(o),
         );
         if self.is_header {
             scene.text(
-                Point::new(bounds.x + WIDTH - PAD_X - 12.0, bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5),
+                Point::new(bounds.x + WIDTH - PAD_X - 12.0, ty),
                 "▾".to_string(),
                 SIZE,
                 theme.muted.fade(o),
@@ -61,9 +63,9 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     }
 }
 
-/// Une liste déroulante à sélection unique.
+/// Une liste déroulante à sélection unique (menu flottant).
 pub struct Dropdown<Msg> {
-    rows: Vec<Box<dyn Widget<Msg>>>,
+    children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Dropdown<Msg> {
@@ -75,26 +77,24 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
             on_click: Some(on_toggle),
         };
         Self {
-            rows: vec![Box::new(header)],
+            children: vec![Box::new(header)],
         }
     }
 
-    /// Ajoute les options ; si `open`, elles sont déployées. `on_select` mappe
-    /// l'index choisi vers un message.
-    pub fn options(
-        mut self,
-        open: bool,
-        labels: &[&str],
-        on_select: impl Fn(usize) -> Msg,
-    ) -> Self {
+    /// Ajoute les options ; si `open`, elles flottent sous l'en-tête. `on_select`
+    /// mappe l'index choisi vers un message.
+    pub fn options(mut self, open: bool, labels: &[&str], on_select: impl Fn(usize) -> Msg) -> Self {
         if open {
+            let mut menu = Flex::column().gap(4.0);
             for (index, label) in labels.iter().enumerate() {
-                self.rows.push(Box::new(Row {
+                menu = menu.child(Row {
                     label: (*label).to_string(),
                     is_header: false,
                     on_click: Some(on_select(index)),
-                }));
+                });
             }
+            self.children.truncate(1);
+            self.children.push(Box::new(menu));
         }
         self
     }
@@ -104,18 +104,23 @@ impl<Msg: Clone> Widget<Msg> for Dropdown<Msg> {
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Column,
-            gap: 4.0,
             ..Default::default()
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &self.rows
+        &self.children
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
+        self.children
+            .get(1)
+            .map(|menu| (menu.as_ref(), Placement::Below))
     }
 }
