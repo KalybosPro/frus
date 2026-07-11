@@ -1032,17 +1032,19 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
             .item("Clear completed", Msg::AskClearDone),
         );
     let title_size = if class == SizeClass::Compact { 22.0 } else { 30.0 };
-    // Bouton « hamburger » : ouvre le tiroir de navigation latéral (Lot A).
-    let menu_button = button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(15.0);
-    let header = row![
-        menu_button,
-        indicator,
-        text("My Tasks").size(title_size),
-        text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted),
-        actions,
-    ]
-    .align(Align::Center)
-    .gap(10.0);
+    // En grand écran, le tiroir est permanent (accosté) : le « hamburger » ne sert
+    // plus (le panneau est déjà visible), on le masque donc.
+    let expanded = class == SizeClass::Expanded;
+    let mut header = Flex::row().align(Align::Center).gap(10.0);
+    if !expanded {
+        // Bouton « hamburger » : ouvre le tiroir de navigation latéral.
+        header = header.child(button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(15.0));
+    }
+    let header = header
+        .child(indicator)
+        .child(text("My Tasks").size(title_size))
+        .child(text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted))
+        .child(actions);
 
     // Saisie : champ (Entrée valide) + bouton d'ajout.
     let input_row = row![
@@ -1179,10 +1181,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         );
     }
 
-    // Tiroir latéral (Lot A) : le corps est l'écran ; son panneau liste les
-    // sections + un accès aux réglages. Ouvert par le bouton « ☰ » de l'en-tête.
+    // Tiroir latéral accosté à droite : modal (glissant, ouvert par « ☰ ») en
+    // Compact/Medium, **permanent** en Expanded (panneau toujours visible à côté
+    // du corps, sans voile). En Expanded, on obtient une mise en page à 3 zones :
+    // rail (NavScaffold) · corps · panneau du tiroir.
     let drawer = Drawer::new(app.drawer_open)
         .on_dismiss(Msg::ToggleDrawer)
+        .right()
+        .permanent(expanded)
         .panel(drawer_menu(app, theme, active))
         .body(layers);
 
