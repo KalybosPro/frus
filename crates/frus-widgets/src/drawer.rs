@@ -290,9 +290,12 @@ mod tests {
             _ => None,
         });
         let edge = panel_edge.expect("le panneau du tiroir doit être présent");
+        // Le glissement suit la courbe en ressort : à t=0.5 linéaire, le bord droit
+        // vaut `spring_ease(0.5)·largeur` (déjà bien avancé).
+        let expected = crate::spring_ease(0.5) * DRAWER_WIDTH;
         assert!(
-            (edge - DRAWER_WIDTH * 0.5).abs() < 2.0,
-            "panneau à moitié rentré : bord droit ≈ largeur/2, obtenu {edge}"
+            (edge - expected).abs() < 2.0,
+            "bord droit attendu ≈ {expected}, obtenu {edge}"
         );
     }
 

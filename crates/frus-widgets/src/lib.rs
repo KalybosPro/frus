@@ -104,7 +104,7 @@ pub use progressbar::ProgressBar;
 pub use radio::RadioGroup;
 pub use rating::Rating;
 pub use responsive::{responsive, Responsive};
-pub use runtime::{spring_step, Anim, Edit, Runtime, ScrollState};
+pub use runtime::{spring_ease, spring_step, Anim, Edit, Runtime, ScrollState};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
 pub use skeleton::Skeleton;
