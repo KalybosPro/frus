@@ -9,8 +9,8 @@ use std::time::Duration;
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Align, Card, Checkbox, Container,
-    Dropdown, Flex, Justify, NavBar, Navigator, Placement, Portal, RadioGroup, Scroll, Slider,
-    Switch, TextInput, Theme, Variant, Widget,
+    Dropdown, Flex, Justify, List, NavBar, Navigator, Placement, Portal, RadioGroup, Scroll,
+    Slider, Switch, TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -54,6 +54,7 @@ enum Filter {
 enum Route {
     Home,
     Settings,
+    Journal,
 }
 
 /// Geste retour : progression suivie, puis détente à ressort (validation/annulation).
@@ -412,7 +413,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 30 · Todo".to_string()
+        "frus — Jalon 31 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -480,7 +481,33 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
     match route {
         Route::Home => todo_screen(app, theme, width, height),
         Route::Settings => settings_screen(app, theme, width, height),
+        Route::Journal => journal_screen(theme, width, height),
     }
+}
+
+/// Écran « Journal » : une **liste virtualisée** de 5000 lignes.
+fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+    let t = *theme; // Theme est Copy — capturé par la fabrique d'éléments.
+    let list = List::new(5000, 44.0, move |i| {
+        Container::<Msg>::new()
+            .height(44.0)
+            .radius(8.0)
+            .color(if i % 2 == 0 { t.surface } else { t.background })
+            .border(1.0, t.border)
+            .padding_each(12.0, 14.0, 12.0, 14.0)
+            .child(text(format!("Ligne {}", i + 1)).size(16.0))
+    })
+    .width((width - 48.0).max(200.0))
+    .height((height - 104.0).max(160.0));
+    let content = column![list].padding(24.0);
+    let screen = column![NavBar::new("Journal · 5000 lignes").on_back(Msg::Pop), content]
+        .width(width)
+        .height(height);
+    Container::new()
+        .width(width)
+        .height(height)
+        .color(theme.background)
+        .child(screen)
 }
 
 /// Écran « Réglages » : la carte de contrôles (démontre nav + geste + widgets).
@@ -573,6 +600,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         spacer(),
         button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0),
         button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0),
+        button("Journal →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0),
         button("Réglages →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
     ]
     .align(Align::Center)

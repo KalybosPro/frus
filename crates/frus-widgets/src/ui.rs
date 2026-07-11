@@ -149,8 +149,11 @@ pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<M
 
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
 fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
-    // Défilables et navigateurs : leur contenu est mis en page séparément.
-    if widget.scroll_content().is_some() || widget.navigator().is_some() {
+    // Défilables, navigateurs et listes virtualisées : contenu mis en page à part.
+    if widget.scroll_content().is_some()
+        || widget.navigator().is_some()
+        || widget.virtual_list().is_some()
+    {
         return layout.leaf(widget.style(), ());
     }
     // Un portail ne met en page que son ancre (enfant 0) ; l'overlay est différé.
@@ -198,41 +201,12 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         *index += 1;
         let draw_rect = rect.translate(translation.0, translation.1);
 
-        // Statut : interaction pointeur + focus + progression d'animation, plus
-        // curseur/sélection éventuels.
-        let mut status = self.runtime.input.status_for(id);
-        status.hover_progress = self.runtime.hover_progress(id);
-        status.focus_progress = self.runtime.focus_progress(id);
-        status.opacity = self.runtime.opacity(id);
-        status.value = self.runtime.value(id);
-        if status.focused {
-            if let Some(edit) = self.runtime.edits.get(&id) {
-                status.cursor = Some(edit.cursor);
-                status.selection = edit.selection_range();
-            }
-        }
+        let status = self.full_status(id);
 
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
-
-        // Anneau de focus générique (pour les widgets qui ne gèrent pas le leur).
-        if status.focused && widget.focusable() && !widget.draws_own_focus() {
-            let ring = Rect::new(
-                draw_rect.x - 2.0,
-                draw_rect.y - 2.0,
-                draw_rect.width + 4.0,
-                draw_rect.height + 4.0,
-            );
-            let alpha = 0.4 + 0.6 * status.focus_progress.clamp(0.0, 1.0);
-            self.scene.draw_rect(
-                ring,
-                Color::TRANSPARENT,
-                self.theme.radius + 2.0,
-                2.0,
-                self.theme.focus.fade(alpha),
-            );
-        }
+        self.draw_focus_ring(draw_rect, &status, widget);
 
         let visible = draw_rect.intersect(clip);
         if visible.width > 0.0 && visible.height > 0.0 {
@@ -324,6 +298,48 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             if max_x > 0.0 {
                 self.add_scrollbar(id, viewport, false, offset_x, max_x);
             }
+        } else if let Some(vlist) = widget.virtual_list() {
+            // Liste virtualisée : ne construire/poser/peindre que la fenêtre visible.
+            let viewport = draw_rect;
+            let content_clip = clip.intersect(viewport);
+            let (_, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+            let content_h = vlist.count as f32 * vlist.item_height;
+            let max_y = (content_h - viewport.height).max(0.0);
+            self.scrollables.push((id, viewport, 0.0, max_y));
+
+            if vlist.item_height > 0.0 && vlist.count > 0 {
+                let first = (offset_y / vlist.item_height).floor().max(0.0) as usize;
+                let last = (((offset_y + viewport.height) / vlist.item_height).ceil() as usize)
+                    .min(vlist.count);
+                for i in first..last {
+                    let item = (vlist.build)(i);
+                    let top = viewport.y + i as f32 * vlist.item_height - offset_y;
+
+                    let mut layout: Layout<()> = Layout::new();
+                    let root = build_layout(item.as_ref(), &mut layout);
+                    layout.compute(root, Size::new(viewport.width, vlist.item_height));
+                    let item_rects: Vec<Rect> = layout
+                        .absolute_rects(root)
+                        .into_iter()
+                        .map(|(rect, _)| rect)
+                        .collect();
+
+                    let mut item_index = 0;
+                    self.render_item(
+                        item.as_ref(),
+                        id.child(i),
+                        (viewport.x, top),
+                        content_clip,
+                        &item_rects,
+                        &mut item_index,
+                    );
+                }
+            }
+
+            self.scene.set_clip(clip);
+            if max_y > 0.0 {
+                self.add_scrollbar(id, viewport, true, offset_y, max_y);
+            }
         } else if let Some((content, placement)) = widget.overlay() {
             // Ancre (enfant 0) rendue inline ; overlay (enfant 1) différé.
             self.walk(
@@ -354,6 +370,94 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     index,
                 );
             }
+        }
+    }
+
+    /// Statut complet d'un widget : interaction pointeur + focus + progressions
+    /// d'animation + curseur/sélection éventuels.
+    fn full_status(&self, id: WidgetId) -> crate::interaction::Status {
+        let mut status = self.runtime.input.status_for(id);
+        status.hover_progress = self.runtime.hover_progress(id);
+        status.focus_progress = self.runtime.focus_progress(id);
+        status.opacity = self.runtime.opacity(id);
+        status.value = self.runtime.value(id);
+        if status.focused {
+            if let Some(edit) = self.runtime.edits.get(&id) {
+                status.cursor = Some(edit.cursor);
+                status.selection = edit.selection_range();
+            }
+        }
+        status
+    }
+
+    /// Anneau de focus générique (widgets qui ne gèrent pas le leur).
+    fn draw_focus_ring(
+        &mut self,
+        draw_rect: Rect,
+        status: &crate::interaction::Status,
+        widget: &dyn Widget<Msg>,
+    ) {
+        if status.focused && widget.focusable() && !widget.draws_own_focus() {
+            let ring = Rect::new(
+                draw_rect.x - 2.0,
+                draw_rect.y - 2.0,
+                draw_rect.width + 4.0,
+                draw_rect.height + 4.0,
+            );
+            let alpha = 0.4 + 0.6 * status.focus_progress.clamp(0.0, 1.0);
+            self.scene.draw_rect(
+                ring,
+                Color::TRANSPARENT,
+                self.theme.radius + 2.0,
+                2.0,
+                self.theme.focus.fade(alpha),
+            );
+        }
+    }
+
+    /// Rend un **élément de liste virtualisée** : construit à la volée, il ne peut
+    /// pas différer d'overlay (d'où un rendu propre, sans les branches spéciales).
+    fn render_item(
+        &mut self,
+        widget: &dyn Widget<Msg>,
+        id: WidgetId,
+        translation: (f32, f32),
+        clip: Rect,
+        rects: &[Rect],
+        index: &mut usize,
+    ) {
+        let rect = rects[*index];
+        *index += 1;
+        let draw_rect = rect.translate(translation.0, translation.1);
+
+        let status = self.full_status(id);
+        self.scene.set_clip(clip);
+        self.scene.set_owner(id.as_u64());
+        widget.paint(draw_rect, status, self.theme, &mut self.scene);
+        self.draw_focus_ring(draw_rect, &status, widget);
+
+        let visible = draw_rect.intersect(clip);
+        if visible.width > 0.0 && visible.height > 0.0 {
+            if let Some(msg) = widget.on_click() {
+                self.hits.push(Hit { id, rect: visible, msg });
+            }
+            if widget.focusable() {
+                self.focusables.push((id, visible));
+            }
+            if widget.draggable() {
+                self.draggables.push((id, visible));
+            }
+        }
+
+        for (child_index, child) in widget.children().iter().enumerate() {
+            self.render_item(
+                child.as_ref(),
+                child_id(id, child_index, child.as_ref()),
+                translation,
+                clip,
+                rects,
+                index,
+            );
         }
     }
 

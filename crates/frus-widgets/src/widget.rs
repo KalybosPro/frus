@@ -81,6 +81,12 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si le widget est une **liste virtualisée**, renvoie sa description (nombre
+    /// d'éléments, hauteur, fabrique). Seuls les éléments visibles sont construits.
+    fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
+        None
+    }
+
     /// Axe(s) de défilement (pour un conteneur défilable).
     fn scroll_axis(&self) -> crate::scroll::Axis {
         crate::scroll::Axis::Vertical
