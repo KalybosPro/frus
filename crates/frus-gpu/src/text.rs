@@ -77,10 +77,13 @@ impl TextPainter {
                 );
                 buffer.shape_until_scroll(&mut self.font_system, false);
 
+                // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter
+                // le double encodage (texte délavé). L'alpha reste tel quel.
+                let linear = color.to_linear();
                 let color = glyphon::Color::rgba(
-                    to_u8(color.r),
-                    to_u8(color.g),
-                    to_u8(color.b),
+                    to_u8(linear.r),
+                    to_u8(linear.g),
+                    to_u8(linear.b),
                     to_u8(color.a),
                 );
                 // Découpe = clip de la primitive, borné à la surface.
