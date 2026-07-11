@@ -294,37 +294,42 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.runtime.input.focused = focus.map(|(id, _)| id);
                 if let Some((id, rect)) = focus {
                     let local_x = self.cursor.x - rect.x;
+                    // Seuls les **champs texte** (`cursor_at` → `Some`) démarrent une
+                    // sélection ; les autres focusables (boutons, cases…) gardent le
+                    // focus mais ne doivent PAS capturer le clic (sinon il est avalé
+                    // au relâchement comme une fin de glissement).
                     let cursor = self
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.cursor_at(local_x))
-                        .unwrap_or(0);
-                    self.runtime.edits.insert(id, Edit { cursor, anchor: None });
-                    self.drag = Some(Drag::TextSelect { id, rect });
+                        .and_then(|widget| widget.cursor_at(local_x));
+                    if let Some(cursor) = cursor {
+                        self.runtime.edits.insert(id, Edit { cursor, anchor: None });
+                        self.drag = Some(Drag::TextSelect { id, rect });
 
-                    // Double-clic : sélectionne le mot sous le curseur.
-                    let now = Instant::now();
-                    let double = self
-                        .last_click_time
-                        .map(|t| (now - t).as_secs_f32() < 0.4)
-                        .unwrap_or(false);
-                    self.last_click_time = Some(now);
-                    if double {
-                        if let Some((start, end)) = self
-                            .tree
-                            .as_ref()
-                            .and_then(|tree| find_widget(tree.as_ref(), id))
-                            .and_then(|widget| widget.word_at(cursor))
-                        {
-                            self.runtime.edits.insert(
-                                id,
-                                Edit {
-                                    cursor: end,
-                                    anchor: Some(start),
-                                },
-                            );
-                            self.drag = None;
+                        // Double-clic : sélectionne le mot sous le curseur.
+                        let now = Instant::now();
+                        let double = self
+                            .last_click_time
+                            .map(|t| (now - t).as_secs_f32() < 0.4)
+                            .unwrap_or(false);
+                        self.last_click_time = Some(now);
+                        if double {
+                            if let Some((start, end)) = self
+                                .tree
+                                .as_ref()
+                                .and_then(|tree| find_widget(tree.as_ref(), id))
+                                .and_then(|widget| widget.word_at(cursor))
+                            {
+                                self.runtime.edits.insert(
+                                    id,
+                                    Edit {
+                                        cursor: end,
+                                        anchor: Some(start),
+                                    },
+                                );
+                                self.drag = None;
+                            }
                         }
                     }
                 }
