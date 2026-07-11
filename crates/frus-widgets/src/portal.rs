@@ -17,6 +17,9 @@ pub enum Placement {
     Center,
     /// Au-dessus de l'ancre, **uniquement si l'ancre est survolée** (tooltip).
     Tooltip,
+    /// Panneau plein-hauteur accolé au bord **gauche** de la fenêtre, avec un
+    /// voile (tiroir latéral). Voir [`crate::Drawer`].
+    Left,
 }
 
 /// Un portail : une **ancre** (dans le flux) et un **overlay** flottant optionnel.

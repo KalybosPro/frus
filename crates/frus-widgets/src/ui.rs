@@ -567,8 +567,14 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         while let Some((content, oid, anchor, placement, dismiss)) = self.overlays.pop() {
             let mut layout: Layout<()> = Layout::new();
             let root = build_layout(content, &mut layout);
-            // Taille naturelle du contenu.
-            layout.compute_scroll(root, self.available.width, self.available.height, true, true);
+            // Taille naturelle du contenu. Un tiroir (`Left`) est contraint en
+            // hauteur à la fenêtre (son panneau `Percent(1.0)` se déploie),
+            // largeur libre ; les autres overlays prennent leur taille naturelle.
+            let (free_x, free_y) = match placement {
+                Placement::Left => (true, false),
+                _ => (true, true),
+            };
+            layout.compute_scroll(root, self.available.width, self.available.height, free_x, free_y);
             let rects: Vec<Rect> = layout
                 .absolute_rects(root)
                 .into_iter()
@@ -583,6 +589,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     (self.available.height - size.height) * 0.5,
                 ),
                 Placement::Tooltip => (anchor.x, anchor.y - size.height - 6.0),
+                Placement::Left => (0.0, 0.0),
             };
 
             // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
@@ -609,8 +616,8 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 }
             }
 
-            if placement == Placement::Center {
-                // Voile sombre derrière la modale.
+            if matches!(placement, Placement::Center | Placement::Left) {
+                // Voile sombre derrière la modale / le tiroir.
                 self.scene.set_owner(0);
                 self.scene.set_clip(window);
                 self.scene

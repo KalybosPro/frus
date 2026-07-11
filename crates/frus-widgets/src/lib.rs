@@ -24,6 +24,7 @@ mod colorpicker;
 mod container;
 mod datepicker;
 mod divider;
+mod drawer;
 mod dropdown;
 mod dsl;
 mod flex;
@@ -81,6 +82,7 @@ pub use colorpicker::ColorPicker;
 pub use container::Container;
 pub use datepicker::DatePicker;
 pub use divider::Divider;
+pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;
 pub use dsl::{button, keyed, spacer, text};
 pub use flex::{Flex, Wrap};
@@ -124,5 +126,5 @@ pub use ui::{build_ui, collect_ids, find_widget, Scrollbar, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
-pub use frus_core::{Color, Insets, Point, Rect, Scene, SizeClass, Size};
+pub use frus_core::{Color, Insets, Orientation, Point, Rect, Scene, SizeClass, Size};
 pub use frus_layout::{Align, Justify};

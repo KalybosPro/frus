@@ -18,12 +18,18 @@ pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
 const ICON_SIZE: f32 = 22.0;
 const LABEL_SIZE: f32 = 12.0;
+const BADGE_SIZE: f32 = 10.0;
+/// Rouge de notification (constant : une pastille d'alerte se lit rouge quel
+/// que soit le thème).
+const BADGE_COLOR: Color = Color::rgb(0.90, 0.24, 0.24);
 
 /// Une destination de navigation (glyphe + libellé), peinte selon son état.
 struct NavItem<Msg> {
     icon: String,
     label: String,
     selected: bool,
+    /// Compteur de notifications (pastille sur l'icône). `0`/`None` = rien.
+    badge: Option<u32>,
     /// `true` = élément de rail (largeur fixe) ; `false` = élément de barre (flex).
     rail: bool,
     message: Msg,
@@ -91,6 +97,25 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             LABEL_SIZE,
             color.fade(o),
         );
+
+        // Pastille de notification, ancrée au coin haut-droit du glyphe d'icône.
+        if let Some(count) = self.badge.filter(|&n| n > 0) {
+            let text = if count > 99 { "99+".to_string() } else { count.to_string() };
+            let m = frus_text::measure(&text, BADGE_SIZE);
+            let bw = (m.width + 8.0).max(m.height + 4.0);
+            let bh = m.height + 4.0;
+            let icon_right = bounds.x + (bounds.width + icon_m.width) * 0.5;
+            let bx = (icon_right - bw * 0.4).min(bounds.x + bounds.width - bw);
+            let by = top - bh * 0.35;
+            let rect = Rect::new(bx, by, bw, bh);
+            scene.draw_rect(rect, BADGE_COLOR.fade(o), bh * 0.5, 0.0, Color::TRANSPARENT);
+            scene.text(
+                Point::new(bx + (bw - m.width) * 0.5, by + 2.0),
+                text,
+                BADGE_SIZE,
+                Color::WHITE.fade(o),
+            );
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -102,9 +127,12 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
     }
 }
 
+/// Une destination déclarée : glyphe, libellé, compteur de badge éventuel.
+type Destination = (String, String, Option<u32>);
+
 /// Construit les éléments de navigation depuis les destinations déclarées.
 fn build_items<Msg: Clone + 'static>(
-    items: &[(String, String)],
+    items: &[Destination],
     selected: usize,
     on_select: &dyn Fn(usize) -> Msg,
     rail: bool,
@@ -112,11 +140,12 @@ fn build_items<Msg: Clone + 'static>(
     items
         .iter()
         .enumerate()
-        .map(|(i, (icon, label))| {
+        .map(|(i, (icon, label, badge))| {
             Box::new(NavItem {
                 icon: icon.clone(),
                 label: label.clone(),
                 selected: i == selected,
+                badge: *badge,
                 rail,
                 message: on_select(i),
             }) as Box<dyn Widget<Msg>>
@@ -128,7 +157,7 @@ fn build_items<Msg: Clone + 'static>(
 pub struct NavRail<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    items: Vec<(String, String)>,
+    items: Vec<Destination>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -145,8 +174,17 @@ impl<Msg: Clone + 'static> NavRail<Msg> {
 
     /// Ajoute une destination (glyphe + libellé).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push((icon.into(), label.into()));
+        self.items.push((icon.into(), label.into(), None));
         self.children = build_items(&self.items, self.selected, &*self.on_select, true);
+        self
+    }
+
+    /// Ajoute un compteur de notifications à la **dernière** destination.
+    pub fn badge(mut self, count: u32) -> Self {
+        if let Some(last) = self.items.last_mut() {
+            last.2 = Some(count);
+            self.children = build_items(&self.items, self.selected, &*self.on_select, true);
+        }
         self
     }
 }
@@ -185,7 +223,7 @@ impl<Msg: Clone> Widget<Msg> for NavRail<Msg> {
 pub struct BottomBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    items: Vec<(String, String)>,
+    items: Vec<Destination>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -202,8 +240,17 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
 
     /// Ajoute une destination (glyphe + libellé).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.items.push((icon.into(), label.into()));
+        self.items.push((icon.into(), label.into(), None));
         self.children = build_items(&self.items, self.selected, &*self.on_select, false);
+        self
+    }
+
+    /// Ajoute un compteur de notifications à la **dernière** destination.
+    pub fn badge(mut self, count: u32) -> Self {
+        if let Some(last) = self.items.last_mut() {
+            last.2 = Some(count);
+            self.children = build_items(&self.items, self.selected, &*self.on_select, false);
+        }
         self
     }
 }
@@ -254,6 +301,56 @@ mod tests {
         let children = Widget::<Msg>::children(&rail);
         assert_eq!(children.len(), 3);
         assert_eq!(children[2].on_click(), Some(Msg::Go(2)));
+    }
+
+    #[test]
+    fn badge_decorates_last_item_and_paints_counter() {
+        let rail = NavRail::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("M", "Mail")
+            .badge(5);
+        let children = Widget::<Msg>::children(&rail);
+        // Le badge peint une pastille + le texte du compteur sur l'élément visé.
+        let mut scene = Scene::new();
+        children[1].paint(
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "5")));
+        // L'élément sans badge ne peint pas ce compteur.
+        let mut bare = Scene::new();
+        children[0].paint(
+            Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
+            Status::default(),
+            &Theme::default(),
+            &mut bare,
+        );
+        assert!(!bare
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "5")));
+    }
+
+    #[test]
+    fn badge_over_99_is_capped() {
+        let bar = BottomBar::new(0, Msg::Go).item("M", "Mail").badge(150);
+        let children = Widget::<Msg>::children(&bar);
+        let mut scene = Scene::new();
+        children[0].paint(
+            Rect::new(0.0, 0.0, 80.0, BAR_HEIGHT),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "99+")));
     }
 
     #[test]

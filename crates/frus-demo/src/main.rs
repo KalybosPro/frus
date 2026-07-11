@@ -10,10 +10,11 @@ use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
     Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
-    DatePicker, Divider, Dropdown, Flex, Grid, Justify, Kbd, LayoutBuilder, List, Menu, NavBar,
-    NavScaffold, Navigator, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating,
-    Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack, Stepper, Switch,
-    Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget, Wrap,
+    DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Justify, Kbd, LayoutBuilder, List, Menu,
+    NavBar, NavScaffold, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
+    RadioGroup, Rating, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack,
+    Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
+    Wrap,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -135,6 +136,8 @@ enum Msg {
     SelectStat(usize),
     /// Ferme le détail Stats (retour à la liste en panneau unique).
     CloseDetail,
+    /// Ouvre/ferme le tiroir de navigation latéral.
+    ToggleDrawer,
 }
 
 /// Chemin du fichier de persistance des tâches.
@@ -246,6 +249,10 @@ struct TodoApp {
     density: f32,
     /// Palier de taille courant (mis à jour par `on_resize`).
     size_class: Option<SizeClass>,
+    /// Orientation courante (mise à jour par `on_resize`).
+    orientation: Option<Orientation>,
+    /// Tiroir de navigation latéral ouvert ?
+    drawer_open: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -365,6 +372,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::Push(route) => {
+            app.drawer_open = false;
             app.nav_from = Some(current_route(app));
             app.routes.push(route);
             app.nav_progress = 0.0;
@@ -496,6 +504,8 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SetSection(i) => {
             app.section = i;
+            // Choisir une section depuis le tiroir le referme.
+            app.drawer_open = false;
             Command::none()
         }
         Msg::SelectStat(i) => {
@@ -509,6 +519,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SetDensity(d) => {
             app.density = d.clamp(0.8, 1.4);
+            Command::none()
+        }
+        Msg::ToggleDrawer => {
+            app.drawer_open = !app.drawer_open;
             Command::none()
         }
     }
@@ -548,7 +562,7 @@ impl Application for TodoApp {
         }
     }
 
-    fn on_resize(&mut self, width: f32, _height: f32) {
+    fn on_resize(&mut self, width: f32, height: f32) {
         // Réagit au changement de palier : ferme le détail Stats en étroit.
         let class = SizeClass::from_width(width);
         if self.size_class != Some(class) {
@@ -557,6 +571,12 @@ impl Application for TodoApp {
                 self.stat_detail_open = false;
             }
             eprintln!("[demo] palier : {class:?}");
+        }
+        // Axe supplémentaire de responsivité (Lot C) : orientation portrait/paysage.
+        let orientation = Orientation::from_size(width, height);
+        if self.orientation != Some(orientation) {
+            self.orientation = Some(orientation);
+            eprintln!("[demo] orientation : {orientation:?}");
         }
     }
 
@@ -639,7 +659,7 @@ impl Application for TodoApp {
     }
 
     fn can_go_back(&self) -> bool {
-        !self.routes.is_empty() && !self.confirm_clear && !self.menu_open
+        !self.routes.is_empty() && !self.confirm_clear && !self.menu_open && !self.drawer_open
     }
 
     fn back_gesture(&mut self, progress: f32) {
@@ -1012,7 +1032,10 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
             .item("Clear completed", Msg::AskClearDone),
         );
     let title_size = if class == SizeClass::Compact { 22.0 } else { 30.0 };
+    // Bouton « hamburger » : ouvre le tiroir de navigation latéral (Lot A).
+    let menu_button = button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(15.0);
     let header = row![
+        menu_button,
         indicator,
         text("My Tasks").size(title_size),
         text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted),
@@ -1065,7 +1088,10 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     if shown == 0 {
         list = column![text("Nothing to show for this filter.").size(18.0).color(theme.muted)];
     }
-    let scroll = Scroll::new().flex(1.0).height(320.0).child(list);
+    // Responsivité **verticale** (Lot C) : en fenêtre courte, la liste se réduit
+    // et l'astuce est masquée pour préserver la hauteur utile.
+    let short = SizeClass::from_height(height) == SizeClass::Compact;
+    let scroll = Scroll::new().flex(1.0).height(if short { 200.0 } else { 320.0 }).child(list);
 
     // Pied : compteurs + effacer les terminées (avec confirmation modale).
     let clear_button = button("Clear completed", Msg::AskClearDone)
@@ -1107,21 +1133,23 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     let progress = ProgressBar::new(done as f32 / total as f32).width((card_width - 40.0).max(200.0));
 
     // Carte de l'app, largeur responsive (Lot A), centrée en haut de l'écran.
-    let card = Card::new().padding(20.0).child(
-        column![
+    // Le corps est bâti de façon incrémentale pour omettre l'astuce si court.
+    let mut card_body = Flex::column().width(card_width).gap(16.0);
+    if !short {
+        card_body = card_body.child(
             Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
                 .title("Tip"),
-            header,
-            input_row,
-            filters,
-            scroll,
-            Divider::new(),
-            progress,
-            footer
-        ]
-        .width(card_width)
-        .gap(16.0),
-    );
+        );
+    }
+    card_body = card_body
+        .child(header)
+        .child(input_row)
+        .child(filters)
+        .child(scroll)
+        .child(Divider::new())
+        .child(progress)
+        .child(footer);
+    let card = Card::new().padding(20.0).child(card_body);
     let tasks_body = column![row![card].justify(Justify::Center)].padding(24.0);
 
     // Sections de l'accueil, choisies via la navigation adaptative (NavScaffold) :
@@ -1131,8 +1159,10 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         2 => Box::new(about_section(theme)),
         _ => Box::new(tasks_body),
     };
+    // Le compteur de tâches actives s'affiche en badge sur « Tasks » (Lot B).
     let shell = NavScaffold::new(class, app.section, Msg::SetSection)
         .destination("✔", "Tasks")
+        .badge(active as u32)
         .destination("▦", "Stats")
         .destination("★", "About")
         .body(section);
@@ -1149,11 +1179,42 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         );
     }
 
+    // Tiroir latéral (Lot A) : le corps est l'écran ; son panneau liste les
+    // sections + un accès aux réglages. Ouvert par le bouton « ☰ » de l'en-tête.
+    let drawer = Drawer::new(app.drawer_open)
+        .on_dismiss(Msg::ToggleDrawer)
+        .panel(drawer_menu(app, theme, active))
+        .body(layers);
+
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(layers)
+        .child(drawer)
+}
+
+/// Contenu du tiroir de navigation : en-tête + destinations + réglages.
+fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
+    let entry = |icon: &str, label: &str, index: usize| {
+        let variant = if app.section == index { Variant::Primary } else { Variant::Secondary };
+        button(format!("{icon}  {label}"), Msg::SetSection(index))
+            .variant(variant)
+            .size(16.0)
+    };
+    Container::new().padding(16.0).child(
+        column![
+            text("frus").size(22.0),
+            text("Navigation").size(13.0).color(theme.muted),
+            Divider::new(),
+            entry("✔", "Tasks", 0),
+            entry("▦", "Stats", 1),
+            entry("★", "About", 2),
+            Divider::new(),
+            text(format!("{active} task(s) pending")).size(14.0).color(theme.muted),
+            button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
+        ]
+        .gap(12.0),
+    )
 }
 
 /// Section « Stats » : un agencement maître-détail responsive (`TwoPane`). Côte à
@@ -1258,6 +1319,30 @@ mod tests {
         app.on_resize(500.0, 700.0);
         assert_eq!(app.size_class, Some(SizeClass::Compact));
         assert!(!app.stat_detail_open);
+    }
+
+    #[test]
+    fn drawer_toggles_and_section_choice_closes_it() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::ToggleDrawer);
+        assert!(app.drawer_open);
+        // Choisir une section referme le tiroir.
+        reduce(&mut app, Msg::SetSection(1));
+        assert_eq!(app.section, 1);
+        assert!(!app.drawer_open);
+        // Naviguer (Push) referme aussi le tiroir.
+        reduce(&mut app, Msg::ToggleDrawer);
+        reduce(&mut app, Msg::Push(Route::Settings));
+        assert!(!app.drawer_open);
+    }
+
+    #[test]
+    fn on_resize_tracks_orientation() {
+        let mut app = TodoApp::default();
+        app.on_resize(400.0, 800.0);
+        assert_eq!(app.orientation, Some(Orientation::Portrait));
+        app.on_resize(900.0, 500.0);
+        assert_eq!(app.orientation, Some(Orientation::Landscape));
     }
 
     #[test]
