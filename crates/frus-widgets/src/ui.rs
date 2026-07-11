@@ -586,11 +586,12 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 self.scene.set_clip(window);
                 self.scene
                     .fill_rect(window, Color::rgba(0.0, 0.0, 0.0, 0.5));
-                // Cliquer le voile (hors contenu) ferme la modale : hit plein
-                // écran ajouté **avant** le contenu, donc battu par lui au recouvrement.
-                if let Some(msg) = dismiss {
-                    self.hits.push(Hit { id: oid, rect: window, msg });
-                }
+            }
+
+            // Fermeture au clic **hors** du contenu (modale, menu…) : un hit plein
+            // écran ajouté **avant** le contenu, donc battu par lui au recouvrement.
+            if let Some(msg) = dismiss {
+                self.hits.push(Hit { id: oid, rect: window, msg });
             }
 
             let mut index = 0;

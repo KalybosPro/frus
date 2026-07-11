@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Align, Badge, Card, Checkbox, Container,
-    Divider, Dropdown, Flex, Justify, List, NavBar, Navigator, Placement, Portal, ProgressBar,
-    RadioGroup, Scroll, Slider, Spinner, Stack, Switch, Tabs, TextInput, Theme, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Align, Badge, Card, Checkbox, Chip,
+    Collapsible, Container, Divider, Dropdown, Flex, Justify, List, Menu, NavBar, Navigator,
+    Placement, Portal, ProgressBar, RadioGroup, Scroll, Slider, Spinner, Stack, Switch, Tabs,
+    TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -90,6 +91,10 @@ enum Msg {
     ToggleTimer,
     /// Change l'onglet actif des Réglages.
     SetSettingsTab(usize),
+    /// Ouvre/ferme le menu d'actions.
+    ToggleActions,
+    /// Déplie/replie « Options avancées ».
+    ToggleAdvanced,
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -171,6 +176,10 @@ struct TodoApp {
     elapsed: u32,
     /// Onglet actif de l'écran Réglages.
     settings_tab: usize,
+    /// Menu d'actions (en-tête) ouvert ?
+    actions_open: bool,
+    /// Section « Options avancées » dépliée ?
+    advanced_open: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -303,6 +312,14 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.settings_tab = i;
             Command::none()
         }
+        Msg::ToggleActions => {
+            app.actions_open = !app.actions_open;
+            Command::none()
+        }
+        Msg::ToggleAdvanced => {
+            app.advanced_open = !app.advanced_open;
+            Command::none()
+        }
         // --- Effets ---
         Msg::Save => {
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
@@ -421,7 +438,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 32 · Todo".to_string()
+        "frus — Jalon 33 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -551,9 +568,15 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     let about = column![
         text("frus — démonstration de widgets").size(18.0),
         Divider::new(),
-        text("Onglets, séparateur, pastille, barre de progression, pile et spinner.")
-            .size(15.0)
-            .color(theme.muted),
+        Collapsible::new("Options avancées", app.advanced_open, Msg::ToggleAdvanced).content(
+            column![
+                text("Onglets, séparateur, puces, menus, sections repliables…")
+                    .size(15.0)
+                    .color(theme.muted),
+                row![Chip::new("beta"), Chip::new("expérimental")].gap(8.0),
+            ]
+            .gap(8.0)
+        ),
     ]
     .gap(12.0);
     let tabs = Tabs::new(app.settings_tab, Msg::SetSettingsTab)
@@ -629,6 +652,13 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0),
         button("Journal →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0),
         button("Réglages →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
+        Menu::new(
+            button("⋯", Msg::ToggleActions).variant(Variant::Secondary).size(15.0),
+            app.actions_open,
+            Msg::ToggleActions,
+        )
+        .item("Sauvegarder", Msg::Save)
+        .item("Effacer les terminées", Msg::AskClearDone),
     ]
     .align(Align::Center)
     .gap(10.0);
@@ -654,12 +684,20 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         };
         button(label, Msg::SetFilter(f)).variant(variant).size(15.0)
     };
-    let filters = row![
+    let mut filters = row![
         filter_button("Toutes", Filter::All),
         filter_button("Actives", Filter::Active),
         filter_button("Terminées", Filter::Done),
     ]
+    .align(Align::Center)
     .gap(8.0);
+    // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
+    if app.filter != Filter::All {
+        let name = if app.filter == Filter::Active { "Actives" } else { "Terminées" };
+        filters = filters
+            .child(spacer())
+            .child(Chip::new(name).on_remove(Msg::SetFilter(Filter::All)));
+    }
 
     // Liste filtrée (ou état vide).
     let mut list = Flex::column().gap(8.0);
