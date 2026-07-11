@@ -46,6 +46,41 @@ impl Color {
         }
     }
 
+    /// Parse un code hexadécimal CSS (valeurs sRGB), avec ou sans `#` en tête.
+    ///
+    /// Formats acceptés : `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` (casse libre).
+    /// Retourne `None` si la chaîne est invalide. Voir [`Color::hex`] pour la
+    /// variante ergonomique (panique sur entrée invalide).
+    pub fn try_hex(s: &str) -> Option<Color> {
+        let s = s.strip_prefix('#').unwrap_or(s);
+        if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        // Développe les formes courtes (#RGB / #RGBA) en dupliquant chaque quartet.
+        let expand = |c: u8| (c << 4) | c;
+        let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
+        let nib = |i: usize| {
+            u8::from_str_radix(&s[i..i + 1], 16)
+                .ok()
+                .map(|c| expand(c))
+        };
+        match s.len() {
+            3 => Some(Self::rgb8(nib(0)?, nib(1)?, nib(2)?)),
+            4 => Some(Self::rgba8(nib(0)?, nib(1)?, nib(2)?, nib(3)?)),
+            6 => Some(Self::rgb8(byte(0)?, byte(2)?, byte(4)?)),
+            8 => Some(Self::rgba8(byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
+            _ => None,
+        }
+    }
+
+    /// Construit une couleur depuis un code hexadécimal CSS (voir [`Color::try_hex`]).
+    ///
+    /// Panique si la chaîne est invalide — pratique pour des littéraux connus
+    /// (`Color::hex("#3B82F6")`). Pour une entrée dynamique, préférer `try_hex`.
+    pub fn hex(s: &str) -> Color {
+        Self::try_hex(s).unwrap_or_else(|| panic!("code couleur hex invalide : {s:?}"))
+    }
+
     /// Représentation en tableau `[r, g, b, a]`, prête pour le GPU.
     pub const fn to_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
@@ -137,6 +172,25 @@ mod tests {
         assert!((round.r - 0.2).abs() < 1e-3 && (round.g - 0.6).abs() < 1e-3);
         // Alpha inchangé.
         assert_eq!(c.to_linear().a, 0.5);
+    }
+
+    #[test]
+    fn hex_parses_css_codes() {
+        assert_eq!(Color::hex("#000000"), Color::BLACK);
+        assert_eq!(Color::hex("#FFFFFF"), Color::WHITE);
+        // Sans '#', casse libre.
+        assert_eq!(Color::try_hex("ffffff"), Some(Color::WHITE));
+        // Forme courte : #RGB → #RRGGBB.
+        assert_eq!(Color::hex("#f00"), Color::rgb8(255, 0, 0));
+        // Alpha.
+        assert_eq!(Color::hex("#00000080").a, 128.0 / 255.0);
+        assert_eq!(Color::try_hex("#0008").unwrap().a, 0x88 as f32 / 255.0);
+        // Composante concrète.
+        assert_eq!(Color::hex("#3B82F6"), Color::rgb8(0x3B, 0x82, 0xF6));
+        // Invalides.
+        assert_eq!(Color::try_hex("#12"), None);
+        assert_eq!(Color::try_hex("#gggggg"), None);
+        assert_eq!(Color::try_hex(""), None);
     }
 
     #[test]
