@@ -4,9 +4,9 @@ use bytemuck::{Pod, Zeroable};
 
 /// Une couleur RGBA. Les composantes sont dans `[0.0, 1.0]`.
 ///
-/// À ce stade, les couleurs sont transmises telles quelles au GPU. La gestion
-/// fine de l'espace colorimétrique (sRGB vs linéaire) sera traitée dans un
-/// jalon ultérieur dédié à la colorimétrie.
+/// Les couleurs sont exprimées en **sRGB** (comme un sélecteur de couleur). La
+/// conversion en linéaire ([`Color::to_linear`]) se fait au dernier moment, à la
+/// frontière GPU, car la surface de rendu est sRGB (voir jalon colorimétrie).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct Color {
@@ -56,6 +56,46 @@ impl Color {
         Color::rgba(self.r, self.g, self.b, self.a * opacity.clamp(0.0, 1.0))
     }
 
+    /// Convertit une composante sRGB (`0..1`) en linéaire.
+    fn srgb_to_linear(c: f32) -> f32 {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    /// Convertit une composante linéaire (`0..1`) en sRGB.
+    fn linear_to_srgb(c: f32) -> f32 {
+        if c <= 0.0031308 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        }
+    }
+
+    /// Version **linéaire** de cette couleur (les valeurs `Color` sont en sRGB).
+    /// À appliquer avant l'envoi au GPU : une cible sRGB ré-encode linéaire→sRGB,
+    /// donc envoyer du linéaire restitue la couleur voulue. L'alpha est inchangé.
+    pub fn to_linear(self) -> Color {
+        Color::rgba(
+            Self::srgb_to_linear(self.r),
+            Self::srgb_to_linear(self.g),
+            Self::srgb_to_linear(self.b),
+            self.a,
+        )
+    }
+
+    /// Inverse de [`Color::to_linear`] : linéaire → sRGB.
+    pub fn to_srgb(self) -> Color {
+        Color::rgba(
+            Self::linear_to_srgb(self.r),
+            Self::linear_to_srgb(self.g),
+            Self::linear_to_srgb(self.b),
+            self.a,
+        )
+    }
+
     /// Interpolation linéaire vers `other` (`t` borné à `0.0..=1.0`).
     pub fn lerp(self, other: Color, t: f32) -> Color {
         let t = t.clamp(0.0, 1.0);
@@ -80,6 +120,23 @@ mod tests {
         assert_eq!(mid, Color::rgb(0.5, 0.25, 0.0));
         assert_eq!(a.lerp(b, 0.0), a);
         assert_eq!(a.lerp(b, 1.0), b);
+    }
+
+    #[test]
+    fn srgb_linear_roundtrip_and_values() {
+        // Points fixes.
+        assert_eq!(Color::rgb(0.0, 0.0, 0.0).to_linear(), Color::rgb(0.0, 0.0, 0.0));
+        let white = Color::rgb(1.0, 1.0, 1.0).to_linear();
+        assert!((white.r - 1.0).abs() < 1e-4);
+        // Milieu sRGB 0.5 → ~0.214 linéaire.
+        let mid = Color::rgb(0.5, 0.5, 0.5).to_linear();
+        assert!((mid.r - 0.214).abs() < 0.005, "0.5 sRGB → linéaire = {}", mid.r);
+        // Aller-retour.
+        let c = Color::rgba(0.2, 0.6, 0.9, 0.5);
+        let round = c.to_linear().to_srgb();
+        assert!((round.r - 0.2).abs() < 1e-3 && (round.g - 0.6).abs() < 1e-3);
+        // Alpha inchangé.
+        assert_eq!(c.to_linear().a, 0.5);
     }
 
     #[test]

@@ -63,6 +63,15 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     return out;
 }
 
+// Convertit une couleur sRGB (telle qu'écrite dans la scène) en linéaire. La
+// cible étant sRGB, le GPU ré-encode linéaire→sRGB à l'écriture : envoyer du
+// linéaire restitue exactement la couleur voulue (sinon double encodage = délavé).
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lower = c / 12.92;
+    let higher = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+    return select(higher, lower, c <= vec3<f32>(0.04045));
+}
+
 // Distance signée à un rectangle arrondi centré (négative à l'intérieur).
 fn sdf_round_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
     let q = abs(p) - b + vec2<f32>(r, r);
@@ -96,5 +105,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         fill = mix(fill, in.border, bt);
     }
 
-    return vec4<f32>(fill.rgb, fill.a * alpha);
+    return vec4<f32>(srgb_to_linear(fill.rgb), fill.a * alpha);
 }
