@@ -389,7 +389,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             let items: Vec<(bool, String)> =
                 app.todos.iter().map(|t| (t.done, t.text.clone())).collect();
             // Affiche une notification, auto-fermée après 2 s (effet minuté).
-            app.toast = Some("Sauvegardé".to_string());
+            app.toast = Some("Saved".to_string());
             Command::batch([
                 Command::run(move || {
                     let _ = save_todos(&todos_path(), &items);
@@ -552,7 +552,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 39 · Todo".to_string()
+        "frus — Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -634,12 +634,12 @@ fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
             .color(if i % 2 == 0 { t.surface } else { t.background })
             .border(1.0, t.border)
             .padding_each(12.0, 14.0, 12.0, 14.0)
-            .child(text(format!("Ligne {}", i + 1)).size(16.0))
+            .child(text(format!("Row {}", i + 1)).size(16.0))
     })
     .width((width - 48.0).max(200.0))
     .height((height - 104.0).max(160.0));
     let content = column![list].padding(24.0);
-    let screen = column![NavBar::new("Journal · 5000 lignes").on_back(Msg::Pop), content]
+    let screen = column![NavBar::new("Log · 5000 rows").on_back(Msg::Pop), content]
         .width(width)
         .height(height);
     Container::new()
@@ -676,29 +676,29 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
             .align(Align::Center)
             .gap(12.0),
             row![
-                text(format!("Volume : {volume_pct}%")).size(18.0),
+                text(format!("Volume: {volume_pct}%")).size(18.0),
                 Slider::new(app.volume).width(220.0).on_change(Msg::SetVolume),
             ]
             .align(Align::Center)
             .gap(12.0),
             RadioGroup::new(app.radio, Msg::SetRadio)
-                .option("Petit")
-                .option("Moyen")
-                .option("Grand"),
+                .option("Small")
+                .option("Medium")
+                .option("Large"),
             Dropdown::new(MENU[app.menu_choice], Msg::ToggleMenu).options(
                 app.menu_open,
                 &MENU,
                 Msg::SetMenu,
             ),
             row![
-                text("Votre avis").size(18.0),
+                text("Your rating").size(18.0),
                 spacer(),
                 Rating::new(app.rating, 5, Msg::SetRating),
             ]
             .align(Align::Center)
             .gap(12.0),
             row![
-                text("Quantité").size(18.0),
+                text("Quantity").size(18.0),
                 spacer(),
                 Stepper::new(app.count, Msg::SetCount).range(0, 20).step(1),
             ]
@@ -715,13 +715,13 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .gap(10.0)
         .width(360.0)
         .cell(stat_tile(theme, "Total", total))
-        .cell(stat_tile(theme, "Actives", total - done))
-        .cell(stat_tile(theme, "Terminées", done));
+        .cell(stat_tile(theme, "Active", total - done))
+        .cell(stat_tile(theme, "Done", done));
     let facts = Table::new(2)
         .width(320.0)
-        .header(&["Métrique", "Valeur"])
-        .row(&["Widgets", "32"])
-        .row(&["Jalons", "38"]);
+        .header(&["Metric", "Value"])
+        .row(&["Widgets", "35"])
+        .row(&["Milestones", "39"]);
 
     // Arbre de fichiers (déplié selon l'état).
     let open = |id: u64| app.expanded.contains(&id);
@@ -753,19 +753,19 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
 
     // Chronologie des jalons récents.
     let timeline = Timeline::new()
-        .event("Grille", "Jalon 35")
-        .event("Nouveaux widgets", "Jalons 36–37")
-        .event("Hiérarchie & couleur", "Jalon 38");
+        .event("Grid", "Milestone 35")
+        .event("New widgets", "Milestones 36–37")
+        .event("Hierarchy & color", "Milestone 38");
 
     // Carrousel : le slide courant est fourni selon l'index.
     let slide = match app.slide {
-        0 => text("Bienvenue dans frus").size(16.0),
-        1 => text("Une trentaine de widgets").size(16.0),
-        _ => text("Merci d'essayer !").size(16.0),
+        0 => text("Welcome to frus").size(16.0),
+        1 => text("About 35 widgets").size(16.0),
+        _ => text("Thanks for trying!").size(16.0),
     };
     let carousel = Carousel::new(app.slide, 3, Msg::SetSlide, slide);
     let about = column![
-        text("frus — démonstration de widgets").size(18.0),
+        text("frus — widget showcase").size(18.0),
         stats,
         facts,
         carousel,
@@ -776,30 +776,30 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         ]
         .gap(8.0),
         Divider::new(),
-        Collapsible::new("Options avancées", app.advanced_open, Msg::ToggleAdvanced).content(
+        Collapsible::new("Advanced options", app.advanced_open, Msg::ToggleAdvanced).content(
             column![
-                text("Explorateur, palette, chronologie :")
+                text("Explorer, palette, timeline:")
                     .size(15.0)
                     .color(theme.muted),
                 tree,
                 picker,
                 timeline,
-                row![Chip::new("beta"), Chip::new("expérimental")].gap(8.0),
+                row![Chip::new("beta"), Chip::new("experimental")].gap(8.0),
             ]
             .gap(10.0)
         ),
     ]
     .gap(12.0);
     let tabs = Tabs::new(app.settings_tab, Msg::SetSettingsTab)
-        .tab("Contrôles", controls)
-        .tab("À propos", about);
+        .tab("Controls", controls)
+        .tab("About", about);
     let content = column![
-        Breadcrumb::new(|_| Msg::Pop).crumb("Accueil").crumb("Réglages"),
+        Breadcrumb::new(|_| Msg::Pop).crumb("Home").crumb("Settings"),
         row![tabs].justify(Justify::Center),
     ]
     .padding(20.0)
     .gap(16.0);
-    let screen = column![NavBar::new("Réglages").on_back(Msg::Pop), content].width(width).height(height);
+    let screen = column![NavBar::new("Settings").on_back(Msg::Pop), content].width(width).height(height);
     Container::new()
         .width(width)
         .height(height)
@@ -832,11 +832,11 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
 fn confirm_content(done: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         column![
-            text("Effacer les tâches terminées ?").size(22.0),
-            text(format!("{done} tâche(s) seront supprimées.")).size(16.0),
+            text("Clear completed tasks?").size(22.0),
+            text(format!("{done} task(s) will be removed.")).size(16.0),
             row![
-                button("Annuler", Msg::CancelClear).variant(Variant::Secondary),
-                button("Supprimer", Msg::ConfirmClearDone).variant(Variant::Danger),
+                button("Cancel", Msg::CancelClear).variant(Variant::Secondary),
+                button("Delete", Msg::ConfirmClearDone).variant(Variant::Danger),
             ]
             .justify(Justify::Center)
             .gap(12.0),
@@ -851,8 +851,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     let done = done_count(app);
 
     // En-tête : titre + chrono + bascule de thème + accès Réglages.
-    let theme_label = if app.light { "Sombre" } else { "Clair" };
-    let timer_label = if app.running { "Pause" } else { "Reprendre" };
+    let theme_label = if app.light { "Dark" } else { "Light" };
+    let timer_label = if app.running { "Pause" } else { "Resume" };
     // Indicateur : un spinner (animation continue) avec une pastille du nombre
     // de tâches actives dans le coin (pile de couches).
     let indicator = Stack::new()
@@ -862,20 +862,20 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .layer(row![Badge::new(format!("{active}"))].justify(Justify::End).align(Align::Start));
     let header = row![
         indicator,
-        text("Mes tâches").size(30.0),
+        text("My Tasks").size(30.0),
         text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted),
         spacer(),
         button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0),
         button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0),
-        button("Journal →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0),
-        button("Réglages →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
+        button("Log →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0),
+        button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
         Menu::new(
             button("⋯", Msg::ToggleActions).variant(Variant::Secondary).size(15.0),
             app.actions_open,
             Msg::ToggleActions,
         )
-        .item("Sauvegarder", Msg::Save)
-        .item("Effacer les terminées", Msg::AskClearDone),
+        .item("Save", Msg::Save)
+        .item("Clear completed", Msg::AskClearDone),
     ]
     .align(Align::Center)
     .gap(10.0);
@@ -887,7 +887,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
             .size(18.0)
             .on_input(Msg::DraftChanged)
             .on_submit(Msg::AddTodo),
-        button("Ajouter", Msg::AddTodo),
+        button("Add", Msg::AddTodo),
     ]
     .align(Align::Center)
     .gap(10.0);
@@ -896,13 +896,13 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
         Msg::SetFilter(filter_from_index(i))
     })
-    .segment("Toutes")
-    .segment("Actives")
-    .segment("Terminées");
+    .segment("All")
+    .segment("Active")
+    .segment("Done");
     let mut filters = row![segmented].align(Align::Center).gap(8.0);
     // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
     if app.filter != Filter::All {
-        let name = if app.filter == Filter::Active { "Actives" } else { "Terminées" };
+        let name = if app.filter == Filter::Active { "Active" } else { "Done" };
         filters = filters
             .child(spacer())
             .child(Chip::new(name).on_remove(Msg::SetFilter(Filter::All)));
@@ -922,12 +922,12 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         shown += 1;
     }
     if shown == 0 {
-        list = column![text("Rien à afficher pour ce filtre.").size(18.0).color(theme.muted)];
+        list = column![text("Nothing to show for this filter.").size(18.0).color(theme.muted)];
     }
     let scroll = Scroll::new().flex(1.0).height(320.0).child(list);
 
     // Pied : compteurs + effacer les terminées (avec confirmation modale).
-    let clear_button = button("Effacer les terminées", Msg::AskClearDone)
+    let clear_button = button("Clear completed", Msg::AskClearDone)
         .variant(Variant::Danger)
         .size(15.0);
     let clear = if app.confirm_clear {
@@ -938,10 +938,10 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         Portal::new(clear_button)
     };
     let footer = row![
-        text(format!("{active} active(s) · {done} terminée(s)")).size(16.0).color(theme.muted),
+        text(format!("{active} active · {done} done")).size(16.0).color(theme.muted),
         spacer(),
-        button("Charger", Msg::Load).variant(Variant::Secondary).size(15.0),
-        button("Sauver", Msg::Save).variant(Variant::Secondary).size(15.0),
+        button("Load", Msg::Load).variant(Variant::Secondary).size(15.0),
+        button("Save", Msg::Save).variant(Variant::Secondary).size(15.0),
         clear,
     ]
     .align(Align::Center)
@@ -954,8 +954,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     // Carte de l'app, largeur fixe, centrée en haut de l'écran.
     let card = Card::new().padding(20.0).child(
         column![
-            Alert::new("Entrée ajoute une tâche ; glissez depuis le bord gauche pour revenir.")
-                .title("Astuce"),
+            Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
+                .title("Tip"),
             header,
             input_row,
             filters,
