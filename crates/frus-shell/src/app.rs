@@ -72,8 +72,10 @@ pub struct App<A: Application> {
     tree: Option<Box<dyn Widget<A::Message>>>,
     /// Dernière position connue du curseur, en pixels **logiques**.
     cursor: Point,
-    /// Facteur d'échelle de l'écran (physique = logique × scale).
+    /// Facteur d'échelle DPI de l'écran (physique = logique × scale × densité).
     scale: f32,
+    /// Dernière taille **logique** transmise à l'app (pour détecter les paliers).
+    last_size: Option<(f32, f32)>,
     /// État retenu entre frames (survol/focus, scroll, curseur/sélection).
     runtime: Runtime,
     /// Modificateurs clavier courants.
@@ -109,6 +111,7 @@ impl<A: Application> App<A> {
             tree: None,
             cursor: Point::new(0.0, 0.0),
             scale: 1.0,
+            last_size: None,
             runtime: Runtime::default(),
             shift: false,
             ctrl: false,
@@ -217,8 +220,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::CursorMoved { position, .. } => {
-                // winit fournit des px physiques ; on travaille en logique.
-                self.cursor = Point::new(position.x as f32 / self.scale, position.y as f32 / self.scale);
+                // winit fournit des px physiques ; on travaille en logique
+                // (échelle totale = DPI × densité).
+                let scale = self.total_scale();
+                self.cursor = Point::new(position.x as f32 / scale, position.y as f32 / scale);
 
                 // Glissement en cours : barre de défilement, sélection, geste…
                 if self.drag.is_some() {
@@ -478,7 +483,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_SPEED, y * SCROLL_SPEED),
                     // Delta physique → logique.
                     MouseScrollDelta::PixelDelta(pos) => {
-                        (pos.x as f32 / self.scale, pos.y as f32 / self.scale)
+                        let scale = self.total_scale();
+                        (pos.x as f32 / scale, pos.y as f32 / scale)
                     }
                 };
                 // Shift : la molette défile horizontalement.
@@ -516,8 +522,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     return;
                 }
                 // L'interface est décrite en pixels **logiques** ; la sortie GPU est
-                // mise à l'échelle physique juste avant le rendu.
-                let (width, height) = (size.width as f32 / self.scale, size.height as f32 / self.scale);
+                // mise à l'échelle physique (DPI × densité) juste avant le rendu.
+                let scale = self.total_scale();
+                let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
+
+                // Changement de taille logique (resize OU densité) → notifie l'app
+                // avant la vue, pour qu'elle réagisse au palier dans sa logique.
+                if self.last_size != Some((width, height)) {
+                    self.last_size = Some((width, height));
+                    self.app.on_resize(width, height);
+                }
 
                 // dt écoulé (clampé), pour toutes les animations.
                 let now = Instant::now();
@@ -586,8 +600,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | app_animating;
                 let ui = build_ui(tree.as_ref(), Size::new(width, height), &self.runtime, &theme);
 
-                // Scène logique → physique pour un rendu net en HiDPI.
-                let scene = ui.scene().scaled(self.scale);
+                // Scène logique → physique (DPI × densité) pour un rendu net.
+                let scene = ui.scene().scaled(scale);
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(&scene) {
                         Ok(()) => {}
@@ -621,6 +635,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 }
 
 impl<A: Application> App<A> {
+    /// Échelle totale : DPI système × densité applicative (physique = logique × ceci).
+    fn total_scale(&self) -> f32 {
+        (self.scale * self.app.density()).max(0.1)
+    }
+
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -745,10 +764,11 @@ impl<A: Application> App<A> {
                 last_t,
                 velocity,
             } => {
+                let scale = self.total_scale();
                 let width = self
                     .window
                     .as_ref()
-                    .map(|w| w.inner_size().width as f32 / self.scale)
+                    .map(|w| w.inner_size().width as f32 / scale)
                     .unwrap_or(1.0)
                     .max(1.0);
                 let now = Instant::now();
