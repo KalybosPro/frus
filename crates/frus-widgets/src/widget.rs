@@ -1,6 +1,6 @@
 //! Le trait [`Widget`], générique sur le type de message émis à l'interaction.
 
-use frus_core::{Rect, Scene};
+use frus_core::{Rect, Scene, Size};
 use frus_layout::Style;
 
 use crate::interaction::{Key, Status};
@@ -100,6 +100,14 @@ pub trait Widget<Msg> {
     /// Si le widget est une **liste virtualisée**, renvoie sa description (nombre
     /// d'éléments, hauteur, fabrique). Seuls les éléments visibles sont construits.
     fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
+        None
+    }
+
+    /// Si le widget construit son contenu **à partir de sa boîte réelle** (façon
+    /// Flutter `LayoutBuilder`), renvoie la fabrique `taille → widget`. Le contenu
+    /// est construit à la volée : pas d'état retenu ni d'overlay (comme un élément
+    /// de liste virtualisée).
+    fn layout_builder(&self) -> Option<&dyn Fn(Size) -> Box<dyn Widget<Msg>>> {
         None
     }
 

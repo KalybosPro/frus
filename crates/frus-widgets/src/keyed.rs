@@ -89,6 +89,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.scroll_content()
     }
 
+    fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
+        self.inner.virtual_list()
+    }
+
+    fn layout_builder(&self) -> Option<&dyn Fn(frus_core::Size) -> Box<dyn Widget<Msg>>> {
+        self.inner.layout_builder()
+    }
+
     fn scroll_axis(&self) -> Axis {
         self.inner.scroll_axis()
     }

@@ -174,6 +174,49 @@ mod tests {
     }
 
     #[test]
+    fn flex_wrap_moves_overflowing_child_to_next_line() {
+        let mut layout: Layout<()> = Layout::new();
+
+        // 3 enfants de 80px dans un conteneur de 200px : 80+80 tiennent sur la
+        // 1re ligne, le 3e (240 > 200) passe à la ligne suivante.
+        let kids: Vec<_> = (0..3)
+            .map(|_| {
+                layout.leaf(
+                    Style {
+                        width: Dimension::Length(80.0),
+                        height: Dimension::Length(40.0),
+                        ..Default::default()
+                    },
+                    (),
+                )
+            })
+            .collect();
+        let root = layout.container(
+            Style {
+                width: Dimension::Length(200.0),
+                height: Dimension::Length(200.0),
+                flex_direction: FlexDirection::Row,
+                align: Align::Start,
+                flex_wrap: true,
+                ..Default::default()
+            },
+            &kids,
+        );
+
+        layout.compute(root, Size::new(200.0, 200.0));
+        let rects = layout.absolute_rects(root);
+        // Parcours préfixe : [root, k0, k1, k2].
+        let (k0, _) = rects[1];
+        let (k1, _) = rects[2];
+        let (k2, _) = rects[3];
+
+        // k0 et k1 sur la 1re ligne ; k2 revient à gauche, plus bas.
+        assert_eq!(k0.y, k1.y);
+        assert_eq!(k2.x, k0.x);
+        assert!(k2.y >= k0.y + 40.0, "k2.y = {} attendu >= 40", k2.y);
+    }
+
+    #[test]
     fn justify_center_centers_child() {
         let mut layout: Layout<()> = Layout::new();
         let child = layout.leaf(
