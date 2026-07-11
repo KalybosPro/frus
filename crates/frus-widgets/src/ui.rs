@@ -813,6 +813,17 @@ mod tests {
     }
 
     #[test]
+    fn only_text_inputs_place_a_cursor() {
+        // Invariant du correctif de clic (J39) : un bouton focusable ne renvoie PAS
+        // de curseur (`cursor_at` = None), donc le shell ne démarre pas de sélection
+        // texte dessus et ne capture pas le clic. Seuls les champs texte en posent un.
+        let button = Button::<Msg>::new("x").on_press(Msg::A);
+        assert_eq!(Widget::<Msg>::cursor_at(&button, 10.0), None);
+        let input = TextInput::<Msg>::new("hi").on_input(Msg::Edited);
+        assert!(Widget::<Msg>::cursor_at(&input, 10.0).is_some());
+    }
+
+    #[test]
     fn tab_cycles_focusables_in_order() {
         let tree = Flex::<Msg>::column()
             .child(Button::new("un").on_press(Msg::A))
