@@ -103,9 +103,25 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
         let chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
-        let text_x = bounds.x + PAD_X;
+        let content_x = bounds.x + PAD_X;
+        let content_w = (bounds.width - PAD_X * 2.0).max(0.0);
         let text_y = bounds.y + PAD_Y;
         let line_h = frus_text::line_height(self.size);
+
+        // Défilement horizontal : garde le curseur visible quand le texte dépasse.
+        let scroll = if status.focused {
+            let cursor = status.cursor.unwrap_or(len).min(len);
+            (prefix_width(&chars, cursor, self.size) - content_w).max(0.0)
+        } else {
+            0.0
+        };
+        let text_x = content_x - scroll;
+
+        // Découpe au cadre de contenu (sinon le texte déborde sur les voisins).
+        let content_clip = scene
+            .current_clip()
+            .intersect(Rect::new(content_x, bounds.y, content_w, bounds.height));
+        scene.set_clip(content_clip);
 
         // Surbrillance de sélection (sous le texte).
         if status.focused {
@@ -287,6 +303,30 @@ mod tests {
 
     fn input(value: &str) -> TextInput<Msg> {
         TextInput::new(value).on_input(Msg::Changed)
+    }
+
+    #[test]
+    fn text_is_clipped_to_content_box() {
+        // Un texte plus long que le champ doit être découpé à sa largeur de contenu
+        // (sinon il déborde sur les widgets voisins).
+        let inp = input("a very long value that overflows the field width").width(100.0);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &inp,
+            Rect::new(0.0, 0.0, 100.0, 30.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        let clip = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { clip, .. } => Some(*clip),
+                _ => None,
+            })
+            .expect("primitive de texte");
+        assert!((clip.width - (100.0 - PAD_X * 2.0)).abs() < 0.5, "découpe = {clip:?}");
     }
 
     #[test]
