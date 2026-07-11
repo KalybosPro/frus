@@ -232,9 +232,13 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
     }
 
-    fn cursor_at(&self, local_x: f32) -> Option<usize> {
-        let target = local_x - PAD_X;
+    fn cursor_at(&self, local_x: f32, width: f32, scroll_cursor: usize) -> Option<usize> {
         let chars: Vec<char> = self.value.chars().collect();
+        // Recompose le même défilement que le rendu, pour un clic exact.
+        let content_w = (width - PAD_X * 2.0).max(0.0);
+        let scroll =
+            (prefix_width(&chars, scroll_cursor.min(chars.len()), self.size) - content_w).max(0.0);
+        let target = local_x - PAD_X + scroll;
         let mut best = 0;
         let mut best_dist = f32::MAX;
         for i in 0..=chars.len() {
@@ -327,6 +331,24 @@ mod tests {
             })
             .expect("primitive de texte");
         assert!((clip.width - (100.0 - PAD_X * 2.0)).abs() < 0.5, "découpe = {clip:?}");
+    }
+
+    #[test]
+    fn cursor_at_accounts_for_scroll() {
+        // Champ étroit + texte long → défilement quand le curseur est en fin.
+        let inp = input("0123456789 abcdefghij");
+        // Sans défilement (curseur 0) : clic au bord gauche → index 0.
+        assert_eq!(
+            Widget::<Msg>::cursor_at(&inp, PAD_X, 80.0, 0),
+            Some(0)
+        );
+        // Défilé (curseur en fin) : clic à droite tombe sur un index plus grand
+        // qu'un clic à gauche (le décalage est bien pris en compte).
+        let end = inp.value.chars().count();
+        let at_left = Widget::<Msg>::cursor_at(&inp, PAD_X, 80.0, end).unwrap();
+        let at_right = Widget::<Msg>::cursor_at(&inp, 76.0, 80.0, end).unwrap();
+        assert!(at_left > 0, "défilé : le bord gauche n'est plus l'index 0");
+        assert!(at_right > at_left, "clic à droite → index plus grand");
     }
 
     #[test]

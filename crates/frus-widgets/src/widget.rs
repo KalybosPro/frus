@@ -40,7 +40,11 @@ pub trait Widget<Msg> {
 
     /// Index de curseur correspondant à une position horizontale locale (px
     /// depuis le bord gauche du widget) — pour placer le curseur au clic.
-    fn cursor_at(&self, _local_x: f32) -> Option<usize> {
+    ///
+    /// `width` = largeur du champ, `scroll_cursor` = curseur d'où recalculer le
+    /// **défilement horizontal** courant (le même que le rendu), pour que le clic
+    /// tombe juste même quand le texte est défilé. `None` = pas un champ texte.
+    fn cursor_at(&self, _local_x: f32, _width: f32, _scroll_cursor: usize) -> Option<usize> {
         None
     }
 

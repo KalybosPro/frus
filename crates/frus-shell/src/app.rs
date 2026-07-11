@@ -290,10 +290,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
                 // 2) Focus + placement du curseur, et début d'une sélection texte.
+                let previously_focused = self.runtime.input.focused;
                 let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
                 self.runtime.input.focused = focus.map(|(id, _)| id);
                 if let Some((id, rect)) = focus {
                     let local_x = self.cursor.x - rect.x;
+                    // Défilement affiché juste avant ce clic : calculé depuis le
+                    // curseur courant si le champ était déjà focalisé, sinon 0.
+                    let scroll_cursor = if previously_focused == Some(id) {
+                        self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
+                    } else {
+                        0
+                    };
                     // Seuls les **champs texte** (`cursor_at` → `Some`) démarrent une
                     // sélection ; les autres focusables (boutons, cases…) gardent le
                     // focus mais ne doivent PAS capturer le clic (sinon il est avalé
@@ -302,7 +310,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.cursor_at(local_x));
+                        .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
                     if let Some(cursor) = cursor {
                         self.runtime.edits.insert(id, Edit { cursor, anchor: None });
                         self.drag = Some(Drag::TextSelect { id, rect });
@@ -715,11 +723,13 @@ impl<A: Application> App<A> {
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;
+                // Le champ est focalisé pendant le drag : défilement depuis le curseur courant.
+                let scroll_cursor = self.runtime.edits.get(id).map(|e| e.cursor).unwrap_or(0);
                 let cursor = self
                     .tree
                     .as_ref()
                     .and_then(|tree| find_widget(tree.as_ref(), *id))
-                    .and_then(|widget| widget.cursor_at(local_x));
+                    .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
                 if let Some(cursor) = cursor {
                     let edit = self.runtime.edits.entry(*id).or_default();
                     if edit.anchor.is_none() {
