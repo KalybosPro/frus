@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Align, Avatar, Badge, Breadcrumb, Card,
-    Checkbox, Chip, Collapsible, Color, ColorPicker, Container, Divider, Dropdown, Flex, Grid,
-    Justify, List, Menu, NavBar, Navigator, Pagination, Placement, Portal, ProgressBar, RadioGroup,
-    Rating, Scroll, SegmentedControl, Skeleton, Slider, Spinner, Stack, Stepper, Switch, Table,
-    Tabs, TextInput, Theme, Timeline, Toast, Tree, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Alert, Align, Avatar, Badge, Breadcrumb,
+    Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container, DatePicker, Divider,
+    Dropdown, Flex, Grid, Justify, List, Menu, NavBar, Navigator, Pagination, Placement, Portal,
+    ProgressBar, RadioGroup, Rating, Scroll, SegmentedControl, Skeleton, Slider, Spinner, Stack,
+    Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -108,6 +108,12 @@ enum Msg {
     ToggleNode(u64),
     /// Choisit une couleur.
     PickColor(Color),
+    /// Sélectionne un jour dans le calendrier.
+    PickDay(u32),
+    /// Change de mois (±1).
+    NavMonth(i32),
+    /// Change de slide du carrousel.
+    SetSlide(usize),
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -205,6 +211,12 @@ struct TodoApp {
     expanded: std::collections::HashSet<u64>,
     /// Couleur choisie (démo ColorPicker).
     picked: Option<Color>,
+    /// Calendrier : année / mois (1..12) / jour sélectionné.
+    year: i32,
+    month: u32,
+    selected_day: Option<u32>,
+    /// Slide courant du carrousel (démo).
+    slide: usize,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -407,6 +419,28 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.picked = Some(c);
             Command::none()
         }
+        Msg::PickDay(d) => {
+            app.selected_day = Some(d);
+            Command::none()
+        }
+        Msg::NavMonth(delta) => {
+            let mut m = app.month as i32 + delta;
+            while m < 1 {
+                m += 12;
+                app.year -= 1;
+            }
+            while m > 12 {
+                m -= 12;
+                app.year += 1;
+            }
+            app.month = m as u32;
+            app.selected_day = None;
+            Command::none()
+        }
+        Msg::SetSlide(i) => {
+            app.slide = i;
+            Command::none()
+        }
         Msg::Load => Command::perform(|| Msg::Loaded(load_todos(&todos_path()))),
         Msg::Loaded(items) => {
             app.todos = items
@@ -433,6 +467,8 @@ impl Application for TodoApp {
         // Démarre le chrono et charge les tâches persistées au démarrage.
         self.running = true;
         self.page = 1;
+        self.year = 2026;
+        self.month = 7;
         Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
     }
 
@@ -516,7 +552,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 38 · Todo".to_string()
+        "frus — Jalon 39 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -668,6 +704,8 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
             ]
             .align(Align::Center)
             .gap(12.0),
+            Divider::new(),
+            DatePicker::new(app.year, app.month, app.selected_day, Msg::PickDay, Msg::NavMonth),
         ]
         .gap(14.0),
     );
@@ -718,10 +756,19 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .event("Grille", "Jalon 35")
         .event("Nouveaux widgets", "Jalons 36–37")
         .event("Hiérarchie & couleur", "Jalon 38");
+
+    // Carrousel : le slide courant est fourni selon l'index.
+    let slide = match app.slide {
+        0 => text("Bienvenue dans frus").size(16.0),
+        1 => text("Une trentaine de widgets").size(16.0),
+        _ => text("Merci d'essayer !").size(16.0),
+    };
+    let carousel = Carousel::new(app.slide, 3, Msg::SetSlide, slide);
     let about = column![
         text("frus — démonstration de widgets").size(18.0),
         stats,
         facts,
+        carousel,
         Pagination::new(app.page, 8, Msg::SetPage),
         column![
             Skeleton::new().width(320.0),
@@ -907,6 +954,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     // Carte de l'app, largeur fixe, centrée en haut de l'écran.
     let card = Card::new().padding(20.0).child(
         column![
+            Alert::new("Entrée ajoute une tâche ; glissez depuis le bord gauche pour revenir.")
+                .title("Astuce"),
             header,
             input_row,
             filters,
