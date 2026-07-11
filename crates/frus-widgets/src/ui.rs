@@ -585,7 +585,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             // hauteur à la fenêtre (son panneau `Percent(1.0)` se déploie),
             // largeur libre ; les autres overlays prennent leur taille naturelle.
             let (free_x, free_y) = match placement {
-                Placement::Left => (true, false),
+                Placement::Left | Placement::Right => (true, false),
                 _ => (true, true),
             };
             layout.compute_scroll(root, self.available.width, self.available.height, free_x, free_y);
@@ -605,6 +605,8 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 Placement::Tooltip => (anchor.x, anchor.y - size.height - 6.0),
                 // Le tiroir glisse depuis la gauche : décalé de `(1-progress)·largeur`.
                 Placement::Left => (-(1.0 - progress) * size.width, 0.0),
+                // Idem depuis la droite : le bord droit reste collé à la fenêtre.
+                Placement::Right => (self.available.width - progress * size.width, 0.0),
             };
 
             // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
@@ -631,7 +633,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 }
             }
 
-            if matches!(placement, Placement::Center | Placement::Left) {
+            if matches!(placement, Placement::Center | Placement::Left | Placement::Right) {
                 // Voile sombre derrière la modale / le tiroir, modulé par la
                 // progression (fondu synchronisé avec le glissement).
                 self.scene.set_owner(0);
