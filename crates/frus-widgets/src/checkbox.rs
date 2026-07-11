@@ -93,6 +93,10 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn on_click(&self) -> Option<Msg> {
         self.on_toggle.as_ref().map(|make| make(!self.checked))
     }
+
+    fn focusable(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

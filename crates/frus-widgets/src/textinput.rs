@@ -269,6 +269,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     fn focusable(&self) -> bool {
         true
     }
+
+    fn draws_own_focus(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

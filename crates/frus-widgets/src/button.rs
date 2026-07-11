@@ -127,6 +127,10 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
     fn on_click(&self) -> Option<Msg> {
         self.on_press.clone()
     }
+
+    fn focusable(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

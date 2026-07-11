@@ -83,6 +83,22 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
+    /// Focusable suivant/précédent dans l'ordre d'arbre (avec bouclage), pour la
+    /// navigation Tab. Sans focus courant, renvoie le premier (ou dernier).
+    pub fn focus_next(&self, current: Option<WidgetId>, forward: bool) -> Option<WidgetId> {
+        if self.focusables.is_empty() {
+            return None;
+        }
+        let n = self.focusables.len();
+        match current.and_then(|c| self.focusables.iter().position(|(id, _)| *id == c)) {
+            Some(i) => {
+                let j = if forward { (i + 1) % n } else { (i + n - 1) % n };
+                Some(self.focusables[j].0)
+            }
+            None => Some(self.focusables[if forward { 0 } else { n - 1 }].0),
+        }
+    }
+
     /// Zone défilable la plus au-dessus contenant `point` : (id, max x, max y).
     pub fn scroll_hit(&self, point: Point) -> Option<(WidgetId, f32, f32)> {
         self.scrollables
@@ -199,6 +215,24 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
+
+        // Anneau de focus générique (pour les widgets qui ne gèrent pas le leur).
+        if status.focused && widget.focusable() && !widget.draws_own_focus() {
+            let ring = Rect::new(
+                draw_rect.x - 2.0,
+                draw_rect.y - 2.0,
+                draw_rect.width + 4.0,
+                draw_rect.height + 4.0,
+            );
+            let alpha = 0.4 + 0.6 * status.focus_progress.clamp(0.0, 1.0);
+            self.scene.draw_rect(
+                ring,
+                Color::TRANSPARENT,
+                self.theme.radius + 2.0,
+                2.0,
+                self.theme.focus.fade(alpha),
+            );
+        }
 
         let visible = draw_rect.intersect(clip);
         if visible.width > 0.0 && visible.height > 0.0 {
@@ -563,7 +597,7 @@ pub fn find_widget<Msg>(
 mod tests {
     use super::*;
     use crate::runtime::Edit;
-    use crate::{Container, Flex, Key, Keyed, Placement, Portal, Scroll, TextInput};
+    use crate::{Button, Container, Flex, Key, Keyed, Placement, Portal, Scroll, TextInput};
     use frus_core::{Color, Point, Primitive, Rect, Size};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -629,6 +663,47 @@ mod tests {
         } else {
             panic!("attendu un rectangle");
         }
+    }
+
+    #[test]
+    fn tab_cycles_focusables_in_order() {
+        let tree = Flex::<Msg>::column()
+            .child(Button::new("un").on_press(Msg::A))
+            .child(Button::new("deux").on_press(Msg::B));
+        let ui = build_ui(&tree, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        assert_eq!(ui.focusables.len(), 2, "les deux boutons sont focusables");
+        let first = ui.focusables[0].0;
+        let second = ui.focusables[1].0;
+
+        // Sans focus : Tab → premier, Shift+Tab → dernier.
+        assert_eq!(ui.focus_next(None, true), Some(first));
+        assert_eq!(ui.focus_next(None, false), Some(second));
+        // Bouclage.
+        assert_eq!(ui.focus_next(Some(first), true), Some(second));
+        assert_eq!(ui.focus_next(Some(second), true), Some(first));
+        assert_eq!(ui.focus_next(Some(first), false), Some(second));
+    }
+
+    #[test]
+    fn focus_ring_for_button_not_for_textinput() {
+        let theme = Theme::default();
+        let ring = theme.focus.fade(0.4); // focus_progress = 0 → alpha 0.4
+        let count_ring = |tree: &dyn Widget<Msg>| -> usize {
+            let mut rt = Runtime::default();
+            let probe = build_ui(tree, Size::new(200.0, 200.0), &rt, &theme);
+            rt.input.focused = probe.focusables.first().map(|(id, _)| *id);
+            let ui = build_ui(tree, Size::new(200.0, 200.0), &rt, &theme);
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, Primitive::Rect { border_color, .. } if *border_color == ring))
+                .count()
+        };
+        let with_button = Flex::<Msg>::column().child(Button::new("x").on_press(Msg::A));
+        assert!(count_ring(&with_button) >= 1, "un bouton focalisé a un anneau générique");
+
+        let with_input = Flex::<Msg>::column().child(TextInput::new("hi").on_input(Msg::Edited));
+        assert_eq!(count_ring(&with_input), 0, "le champ gère son propre focus");
     }
 
     #[test]

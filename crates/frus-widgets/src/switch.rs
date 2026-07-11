@@ -70,6 +70,10 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         self.on_toggle.as_ref().map(|make| make(!self.on))
     }
 
+    fn focusable(&self) -> bool {
+        true
+    }
+
     fn anim_target(&self) -> Option<f32> {
         Some(if self.on { 1.0 } else { 0.0 })
     }

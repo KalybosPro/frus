@@ -412,7 +412,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 28 · Todo".to_string()
+        "frus — Jalon 29 · Todo".to_string()
     }
 
     fn can_go_back(&self) -> bool {

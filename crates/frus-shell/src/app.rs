@@ -340,9 +340,43 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed =>
             {
+                // Tab / Shift+Tab : navigue entre les focusables (même sans focus).
+                if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) {
+                    let forward = !self.shift;
+                    let next = self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.focus_next(self.runtime.input.focused, forward));
+                    if next.is_some() {
+                        self.runtime.input.focused = next;
+                        self.request_redraw();
+                    }
+                    return;
+                }
+
                 let Some(focused) = self.runtime.input.focused else {
                     return;
                 };
+
+                // Activation clavier (Entrée/Espace) d'un focusable cliquable
+                // (bouton, case, interrupteur). Les champs texte (sans `on_click`)
+                // retombent sur l'édition normale (Entrée = soumettre, Espace = espace).
+                if matches!(
+                    event.logical_key,
+                    WinitKey::Named(NamedKey::Enter) | WinitKey::Named(NamedKey::Space)
+                ) {
+                    let message = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), focused))
+                        .filter(|widget| widget.focusable())
+                        .and_then(|widget| widget.on_click());
+                    if let Some(message) = message {
+                        self.dispatch(message);
+                        self.request_redraw();
+                        return;
+                    }
+                }
 
                 // Raccourcis presse-papier (Ctrl+C/X/V/A).
                 if self.ctrl {

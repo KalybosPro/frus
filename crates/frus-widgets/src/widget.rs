@@ -54,8 +54,14 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Si `true`, le widget peut recevoir le focus clavier (au clic).
+    /// Si `true`, le widget peut recevoir le focus clavier (clic ou Tab).
     fn focusable(&self) -> bool {
+        false
+    }
+
+    /// Si `true`, le widget dessine **lui-même** son indicateur de focus (le
+    /// pilote ne trace alors pas l'anneau générique). Ex. `TextInput`.
+    fn draws_own_focus(&self) -> bool {
         false
     }
 
