@@ -189,8 +189,10 @@ struct Builder<'a, Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
-    /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture).
-    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>)>,
+    /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
+    /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
+    /// voile qui se fond) ; elle vaut `1.0` pour les overlays non animés.
+    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>, f32)>,
     /// Un widget demande une animation continue (pilotée par le temps).
     wants_animation: bool,
     available: Size,
@@ -414,14 +416,26 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 rects,
                 index,
             );
-            // Un tooltip ne s'affiche que si l'ancre est survolée.
-            let show = match placement {
+            // Progression d'apparition : pour un overlay animé (tiroir), la valeur
+            // interpolée par le runtime ; sinon `1.0` (affiché d'emblée). Sans
+            // valeur enregistrée (rendu isolé), on adopte la cible immédiatement.
+            let target = widget.anim_target().unwrap_or(1.0);
+            let progress = self.runtime.value_or(id, target);
+            // Un tooltip ne s'affiche que si l'ancre est survolée ; un overlay animé
+            // disparaît une fois sa progression retombée à zéro.
+            let visible = match placement {
                 Placement::Tooltip => self.runtime.input.hovered == Some(id.child(0)),
                 _ => true,
             };
-            if show {
-                self.overlays
-                    .push((content, child_id(id, 1, content), draw_rect, placement, widget.overlay_dismiss()));
+            if visible && progress > 0.001 {
+                self.overlays.push((
+                    content,
+                    child_id(id, 1, content),
+                    draw_rect,
+                    placement,
+                    widget.overlay_dismiss(),
+                    progress,
+                ));
             }
         } else {
             for (child_index, child) in widget.children().iter().enumerate() {
@@ -564,7 +578,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
     /// d'autres overlays (portails imbriqués).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement, dismiss)) = self.overlays.pop() {
+        while let Some((content, oid, anchor, placement, dismiss, progress)) = self.overlays.pop() {
             let mut layout: Layout<()> = Layout::new();
             let root = build_layout(content, &mut layout);
             // Taille naturelle du contenu. Un tiroir (`Left`) est contraint en
@@ -589,7 +603,8 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     (self.available.height - size.height) * 0.5,
                 ),
                 Placement::Tooltip => (anchor.x, anchor.y - size.height - 6.0),
-                Placement::Left => (0.0, 0.0),
+                // Le tiroir glisse depuis la gauche : décalé de `(1-progress)·largeur`.
+                Placement::Left => (-(1.0 - progress) * size.width, 0.0),
             };
 
             // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
@@ -617,11 +632,12 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             }
 
             if matches!(placement, Placement::Center | Placement::Left) {
-                // Voile sombre derrière la modale / le tiroir.
+                // Voile sombre derrière la modale / le tiroir, modulé par la
+                // progression (fondu synchronisé avec le glissement).
                 self.scene.set_owner(0);
                 self.scene.set_clip(window);
                 self.scene
-                    .fill_rect(window, Color::rgba(0.0, 0.0, 0.0, 0.5));
+                    .fill_rect(window, Color::rgba(0.0, 0.0, 0.0, 0.5 * progress));
             }
 
             // Fermeture au clic **hors** du contenu (modale, menu…) : un hit plein

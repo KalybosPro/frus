@@ -116,19 +116,19 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
     }
 
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
-        if self.open {
-            self.panel.as_ref().map(|p| (p.as_ref(), Placement::Left))
-        } else {
-            None
-        }
+        // Toujours proposé quand un panneau existe : c'est la **progression**
+        // animée (`anim_target`) qui décide de son affichage et de son glissement.
+        self.panel.as_ref().map(|p| (p.as_ref(), Placement::Left))
     }
 
     fn overlay_dismiss(&self) -> Option<Msg> {
-        if self.open {
-            self.on_dismiss.clone()
-        } else {
-            None
-        }
+        self.on_dismiss.clone()
+    }
+
+    fn anim_target(&self) -> Option<f32> {
+        // Cible d'ouverture : le runtime interpole la progression `0↔1`, ce qui
+        // anime le glissement et le fondu du voile sans câblage côté application.
+        Some(if self.open { 1.0 } else { 0.0 })
     }
 }
 
@@ -143,23 +143,68 @@ mod tests {
     }
 
     #[test]
-    fn overlay_present_only_when_open() {
+    fn anim_target_reflects_open_state() {
         let closed = Drawer::new(false)
             .on_dismiss(Msg::Close)
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
-        assert!(Widget::<Msg>::overlay(&closed).is_none());
-        assert!(Widget::<Msg>::overlay_dismiss(&closed).is_none());
+        // La cible d'animation encode l'ouverture ; l'overlay est toujours proposé
+        // (c'est la progression qui décide de l'affichage).
+        assert_eq!(Widget::<Msg>::anim_target(&closed), Some(0.0));
+        assert!(Widget::<Msg>::overlay(&closed).is_some());
 
         let open = Drawer::new(true)
             .on_dismiss(Msg::Close)
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
-        assert!(matches!(
-            Widget::<Msg>::overlay(&open),
-            Some((_, Placement::Left))
-        ));
+        assert_eq!(Widget::<Msg>::anim_target(&open), Some(1.0));
         assert_eq!(Widget::<Msg>::overlay_dismiss(&open), Some(Msg::Close));
+    }
+
+    #[test]
+    fn closed_drawer_draws_no_scrim() {
+        // Fermé : progression 0 → aucun overlay (ni voile ni panneau).
+        let drawer = Drawer::new(false)
+            .on_dismiss(Msg::Close)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let ui = build_ui(
+            &drawer,
+            Size::new(500.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let scrim = ui.scene().primitives().iter().any(
+            |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
+        );
+        assert!(!scrim, "un tiroir fermé ne peint pas de voile");
+    }
+
+    #[test]
+    fn mid_animation_slides_panel_and_fades_scrim() {
+        // Progression 0.5 (injectée) : panneau à moitié rentré, voile à mi-opacité.
+        let drawer = Drawer::new(true)
+            .on_dismiss(Msg::Close)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let mut rt = Runtime::default();
+        rt.values.insert(crate::WidgetId::ROOT, 0.5);
+        let ui = build_ui(&drawer, Size::new(500.0, 400.0), &rt, &Theme::default());
+        // Le panneau (largeur DRAWER_WIDTH) est décalé à gauche : son bord droit
+        // tombe à ~0.5·largeur (moitié visible).
+        let panel_edge = ui.scene().primitives().iter().find_map(|p| match p {
+            frus_core::Primitive::Rect { rect, .. }
+                if (rect.width - DRAWER_WIDTH).abs() < 1.0 =>
+            {
+                Some(rect.x + rect.width)
+            }
+            _ => None,
+        });
+        let edge = panel_edge.expect("le panneau du tiroir doit être présent");
+        assert!(
+            (edge - DRAWER_WIDTH * 0.5).abs() < 2.0,
+            "panneau à moitié rentré : bord droit ≈ largeur/2, obtenu {edge}"
+        );
     }
 
     #[test]

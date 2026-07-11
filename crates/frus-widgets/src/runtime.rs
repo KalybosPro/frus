@@ -162,6 +162,13 @@ impl Runtime {
         self.values.get(&id).copied().unwrap_or(0.0)
     }
 
+    /// Valeur animée d'un widget, ou `default` si **aucune** valeur n'est encore
+    /// enregistrée (widget jamais animé — p. ex. rendu isolé sans boucle). Permet
+    /// d'adopter la cible immédiatement, comme au montage.
+    pub fn value_or(&self, id: WidgetId, default: f32) -> f32 {
+        self.values.get(&id).copied().unwrap_or(default)
+    }
+
     /// Fait tendre chaque valeur animée vers la cible déclarée par son widget
     /// (`Widget::anim_target`). Un widget vu pour la **première** fois adopte sa
     /// cible sans transition (pas d'animation au montage). Renvoie `true` s'il
