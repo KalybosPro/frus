@@ -412,7 +412,11 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 29 · Todo".to_string()
+        "frus — Jalon 30 · Todo".to_string()
+    }
+
+    fn window_size(&self) -> Option<(f32, f32)> {
+        Some((900.0, 680.0))
     }
 
     fn can_go_back(&self) -> bool {

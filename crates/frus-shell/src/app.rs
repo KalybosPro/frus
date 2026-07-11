@@ -91,6 +91,8 @@ pub struct App<A: Application> {
     leaving_counter: u64,
     /// Souscriptions actives : id → poignée d'annulation (drop = arrêt).
     running_subs: HashMap<u64, Sender<()>>,
+    /// Fenêtre masquée (occultée) : on suspend le rendu.
+    occluded: bool,
 }
 
 impl<A: Application> App<A> {
@@ -114,6 +116,7 @@ impl<A: Application> App<A> {
             last_click_time: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
+            occluded: false,
         }
     }
 }
@@ -125,7 +128,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         }
 
         self.clipboard = arboard::Clipboard::new().ok();
-        let attributes = Window::default_attributes().with_title(self.app.title());
+        let mut attributes = Window::default_attributes()
+            .with_title(self.app.title())
+            // Taille minimale raisonnable (px logiques) : évite une UI absurde.
+            .with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
+        if let Some((w, h)) = self.app.window_size() {
+            attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
+        }
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -187,7 +196,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
+                // Reconfigure la surface à la taille physique courante.
+                if let Some(window) = &self.window {
+                    let size = window.inner_size();
+                    if let Some(renderer) = self.renderer.as_mut() {
+                        renderer.resize(size.width, size.height);
+                    }
+                }
                 self.request_redraw();
+            }
+
+            WindowEvent::Occluded(occluded) => {
+                self.occluded = occluded;
+                if !occluded {
+                    self.request_redraw();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
@@ -462,11 +485,20 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::RedrawRequested => {
+                // Fenêtre masquée : rendu suspendu (reprise sur Occluded(false)).
+                if self.occluded {
+                    return;
+                }
                 let size = self
                     .window
                     .as_ref()
                     .map(|w| w.inner_size())
                     .unwrap_or_default();
+                // Minimisée / taille nulle : rien à dessiner (évite les erreurs GPU).
+                if size.width == 0 || size.height == 0 {
+                    self.last_frame = None; // pas de saut de dt à la restauration
+                    return;
+                }
                 // L'interface est décrite en pixels **logiques** ; la sortie GPU est
                 // mise à l'échelle physique juste avant le rendu.
                 let (width, height) = (size.width as f32 / self.scale, size.height as f32 / self.scale);

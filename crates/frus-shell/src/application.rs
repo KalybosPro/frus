@@ -52,6 +52,11 @@ pub trait Application {
         "frus".to_string()
     }
 
+    /// Taille **logique** initiale souhaitée de la fenêtre (`None` = défaut système).
+    fn window_size(&self) -> Option<(f32, f32)> {
+        None
+    }
+
     /// L'app peut-elle revenir en arrière ? (active le geste retour depuis le bord).
     fn can_go_back(&self) -> bool {
         false
