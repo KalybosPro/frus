@@ -8,11 +8,12 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Alert, Align, Avatar, Badge, Breadcrumb,
-    Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container, DatePicker, Divider,
-    Dropdown, Flex, Grid, Justify, List, Menu, NavBar, Navigator, Pagination, Placement, Portal,
-    ProgressBar, RadioGroup, Rating, Scroll, SegmentedControl, Skeleton, Slider, Spinner, Stack,
-    Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
+    Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
+    DatePicker, Divider, Dropdown, Flex, Grid, Justify, Kbd, List, Menu, NavBar, Navigator,
+    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Scroll, SegmentedControl,
+    Skeleton, Slider, Spinner, Stack, Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline,
+    Toast, Tree, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -114,6 +115,12 @@ enum Msg {
     NavMonth(i32),
     /// Change de slide du carrousel.
     SetSlide(usize),
+    /// Ouvre/ferme le popover d'info.
+    ToggleInfo,
+    /// Saisie de l'autocomplétion.
+    TagInput(String),
+    /// Choix d'une suggestion.
+    TagPick(String),
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -217,6 +224,10 @@ struct TodoApp {
     selected_day: Option<u32>,
     /// Slide courant du carrousel (démo).
     slide: usize,
+    /// Popover d'info ouvert ?
+    info_open: bool,
+    /// Saisie de l'autocomplétion (démo).
+    tag_draft: String,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -439,6 +450,18 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SetSlide(i) => {
             app.slide = i;
+            Command::none()
+        }
+        Msg::ToggleInfo => {
+            app.info_open = !app.info_open;
+            Command::none()
+        }
+        Msg::TagInput(s) => {
+            app.tag_draft = s;
+            Command::none()
+        }
+        Msg::TagPick(s) => {
+            app.tag_draft = s;
             Command::none()
         }
         Msg::Load => Command::perform(|| Msg::Loaded(load_todos(&todos_path()))),
@@ -764,8 +787,49 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         _ => text("Thanks for trying!").size(16.0),
     };
     let carousel = Carousel::new(app.slide, 3, Msg::SetSlide, slide);
+
+    // Popover d'info (contenu libre, fermeture au clic extérieur).
+    let info = Popover::new(
+        button("Info", Msg::ToggleInfo).variant(Variant::Secondary).size(15.0),
+        app.info_open,
+        Msg::ToggleInfo,
+    )
+    .content(Card::new().padding(16.0).child(
+        column![
+            text("Popover").size(16.0),
+            text("An arbitrary floating panel; closes on outside click.")
+                .size(14.0)
+                .color(theme.muted),
+        ]
+        .gap(6.0),
+    ));
+
+    // Autocomplétion : suggestions filtrées par la saisie (contrôlé).
+    const TAGS: [&str; 5] = ["apple", "apricot", "banana", "blueberry", "cherry"];
+    let mut tags = Autocomplete::new(app.tag_draft.clone(), Msg::TagInput, Msg::TagPick);
+    if !app.tag_draft.is_empty() {
+        let q = app.tag_draft.to_lowercase();
+        for tag in TAGS {
+            if tag.starts_with(&q) {
+                tags = tags.suggestion(tag);
+            }
+        }
+    }
+
+    // Indices de raccourcis clavier.
+    let shortcuts = row![
+        text("Shortcuts:").size(14.0).color(theme.muted),
+        Kbd::new("Enter"),
+        text("add").size(14.0).color(theme.muted),
+        Kbd::new("Tab"),
+        text("navigate").size(14.0).color(theme.muted),
+    ]
+    .align(Align::Center)
+    .gap(6.0);
     let about = column![
         text("frus — widget showcase").size(18.0),
+        row![info, tags].align(Align::Start).gap(12.0),
+        shortcuts,
         stats,
         facts,
         carousel,

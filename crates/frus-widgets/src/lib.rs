@@ -10,6 +10,7 @@
 //! vit dans un [`Runtime`], clé par identité de widget.
 
 mod alert;
+mod autocomplete;
 mod avatar;
 mod badge;
 mod breadcrumb;
@@ -28,9 +29,11 @@ mod dsl;
 mod flex;
 mod grid;
 mod interaction;
+mod kbd;
 mod keyed;
 mod list;
 mod menu;
+mod popover;
 mod navbar;
 mod navigator;
 mod pagination;
@@ -59,6 +62,7 @@ mod ui;
 mod widget;
 
 pub use alert::{Alert, AlertKind};
+pub use autocomplete::Autocomplete;
 pub use avatar::Avatar;
 pub use badge::Badge;
 pub use breadcrumb::Breadcrumb;
@@ -77,9 +81,11 @@ pub use dsl::{button, keyed, spacer, text};
 pub use flex::Flex;
 pub use grid::Grid;
 pub use interaction::{InputState, Interaction, Key, Status, WidgetId};
+pub use kbd::Kbd;
 pub use keyed::Keyed;
 pub use list::{List, VirtualList};
 pub use menu::Menu;
+pub use popover::Popover;
 pub use navbar::NavBar;
 pub use navigator::Navigator;
 pub use pagination::Pagination;
