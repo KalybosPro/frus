@@ -26,6 +26,12 @@ pub trait Widget<Msg> {
     /// Message à émettre au clic (`None` = non cliquable).
     fn on_click(&self) -> Option<Msg>;
 
+    /// Clé d'identité **stable** (indépendante de la position parmi les frères).
+    /// `None` = identité positionnelle. Voir [`crate::Keyed`].
+    fn key(&self) -> Option<u64> {
+        None
+    }
+
     /// Applique une touche au widget focalisé : mute l'état d'édition
     /// (curseur/sélection) et renvoie un message si la **valeur** change.
     fn on_edit(&self, _edit: &mut Edit, _key: &Key) -> Option<Msg> {

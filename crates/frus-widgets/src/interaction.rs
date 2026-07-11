@@ -18,11 +18,20 @@ impl WidgetId {
         self.0
     }
 
-    /// Dérive l'identité du `index`-ième enfant de ce widget.
+    /// Dérive l'identité du `index`-ième enfant de ce widget (positionnel).
     pub(crate) fn child(self, index: usize) -> WidgetId {
         let mut h = self.0 ^ (index as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
         h ^= h >> 29;
+        WidgetId(h)
+    }
+
+    /// Dérive l'identité d'un enfant **par clé** (stable quel que soit sa position).
+    /// Distincte de [`WidgetId::child`] (constante et décalage différents).
+    pub(crate) fn keyed(self, key: u64) -> WidgetId {
+        let mut h = self.0 ^ key.wrapping_add(0x517c_c1b7_2722_0a95);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        h ^= h >> 31;
         WidgetId(h)
     }
 }
@@ -144,6 +153,18 @@ mod tests {
         assert_ne!(WidgetId::ROOT.child(0), WidgetId::ROOT.child(1));
         assert_ne!(WidgetId::ROOT.child(0).child(1), WidgetId::ROOT.child(1).child(0));
         assert_ne!(WidgetId::ROOT, WidgetId::ROOT.child(0));
+    }
+
+    #[test]
+    fn keyed_is_stable_and_distinct() {
+        // Même clé sous le même parent → même identité (indépendante de la position).
+        assert_eq!(WidgetId::ROOT.keyed(7), WidgetId::ROOT.keyed(7));
+        // Clés différentes → identités différentes.
+        assert_ne!(WidgetId::ROOT.keyed(7), WidgetId::ROOT.keyed(8));
+        // Une clé n'entre pas en collision avec un indice positionnel de même valeur.
+        assert_ne!(WidgetId::ROOT.keyed(0), WidgetId::ROOT.child(0));
+        // Parents différents → identités différentes pour la même clé.
+        assert_ne!(WidgetId::ROOT.child(0).keyed(7), WidgetId::ROOT.child(1).keyed(7));
     }
 
     #[test]

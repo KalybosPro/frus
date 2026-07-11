@@ -120,6 +120,17 @@ impl<Msg: Clone> Ui<Msg> {
     }
 }
 
+/// Identité du `index`-ième enfant : **par clé** si l'enfant en déclare une
+/// (stable quel que soit sa position), sinon **positionnelle**. Doit être utilisée
+/// partout où l'on dérive une identité d'enfant (rendu, collecte, recherche,
+/// animations) pour rester cohérent.
+pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<Msg>) -> WidgetId {
+    match child.key() {
+        Some(key) => parent.keyed(key),
+        None => parent.child(index),
+    }
+}
+
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
 fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
     // Défilables et navigateurs : leur contenu est mis en page séparément.
@@ -221,7 +232,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 ];
                 // Ordre de profondeur : le plus décalé à gauche (arrière) d'abord.
                 let (back, front) = if off[0] <= off[1] { (0, 1) } else { (1, 0) };
-                self.render_screen(children[back].as_ref(), id.child(back), bounds, off[back], clip);
+                self.render_screen(children[back].as_ref(), child_id(id, back, children[back].as_ref()), bounds, off[back], clip);
                 // Assombrit l'écran arrière proportionnellement à son recouvrement.
                 let coverage = (off[back].abs() / (w * NAV_PARALLAX)).min(1.0);
                 if coverage > 0.0 {
@@ -230,9 +241,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     self.scene.set_clip(clip);
                     self.scene.fill_rect(scrim, Color::rgba(0.0, 0.0, 0.0, 0.22 * coverage));
                 }
-                self.render_screen(children[front].as_ref(), id.child(front), bounds, off[front], clip);
+                self.render_screen(children[front].as_ref(), child_id(id, front, children[front].as_ref()), bounds, off[front], clip);
             } else if let Some(screen) = children.first() {
-                self.render_screen(screen.as_ref(), id.child(0), bounds, 0.0, clip);
+                self.render_screen(screen.as_ref(), child_id(id, 0, screen.as_ref()), bounds, 0.0, clip);
             }
         } else if let Some(content) = widget.scroll_content() {
             let axis = widget.scroll_axis();
@@ -264,7 +275,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             let mut content_index = 0;
             self.walk(
                 content,
-                id.child(0),
+                child_id(id, 0, content),
                 content_translation,
                 content_clip,
                 &content_rects,
@@ -283,7 +294,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             // Ancre (enfant 0) rendue inline ; overlay (enfant 1) différé.
             self.walk(
                 widget.children()[0].as_ref(),
-                id.child(0),
+                child_id(id, 0, widget.children()[0].as_ref()),
                 translation,
                 clip,
                 rects,
@@ -296,13 +307,13 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             };
             if show {
                 self.overlays
-                    .push((content, id.child(1), draw_rect, placement, widget.overlay_dismiss()));
+                    .push((content, child_id(id, 1, content), draw_rect, placement, widget.overlay_dismiss()));
             }
         } else {
             for (child_index, child) in widget.children().iter().enumerate() {
                 self.walk(
                     child.as_ref(),
-                    id.child(child_index),
+                    child_id(id, child_index, child.as_ref()),
                     translation,
                     clip,
                     rects,
@@ -517,7 +528,7 @@ pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, out: &mut Vec<WidgetId>) {
         out.push(id);
         for (index, child) in widget.children().iter().enumerate() {
-            walk(child.as_ref(), id.child(index), out);
+            walk(child.as_ref(), child_id(id, index, child.as_ref()), out);
         }
     }
     let mut out = Vec::new();
@@ -539,7 +550,7 @@ pub fn find_widget<Msg>(
             return Some(widget);
         }
         for (index, child) in widget.children().iter().enumerate() {
-            if let Some(found) = walk(child.as_ref(), id.child(index), target) {
+            if let Some(found) = walk(child.as_ref(), child_id(id, index, child.as_ref()), target) {
                 return Some(found);
             }
         }
@@ -552,7 +563,7 @@ pub fn find_widget<Msg>(
 mod tests {
     use super::*;
     use crate::runtime::Edit;
-    use crate::{Container, Flex, Key, Placement, Portal, Scroll, TextInput};
+    use crate::{Container, Flex, Key, Keyed, Placement, Portal, Scroll, TextInput};
     use frus_core::{Color, Point, Primitive, Rect, Size};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -618,6 +629,52 @@ mod tests {
         } else {
             panic!("attendu un rectangle");
         }
+    }
+
+    #[test]
+    fn keyed_identity_survives_middle_removal() {
+        let colored = |c: Color| Container::<Msg>::new().width(50.0).height(20.0).color(c);
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let green = Color::rgb(0.0, 1.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+
+        let owner_of = |ui: &Ui<Msg>, c: Color| -> u64 {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, owner, .. } if *color == c => Some(*owner),
+                    _ => None,
+                })
+                .expect("primitive présente")
+        };
+
+        // Liste [rouge(clé 1), vert(clé 2), bleu(clé 3)].
+        let full = Flex::<Msg>::column()
+            .child(Keyed::new(1u64, colored(red)))
+            .child(Keyed::new(2u64, colored(green)))
+            .child(Keyed::new(3u64, colored(blue)));
+        let ui_full = build_ui(&full, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+
+        // Liste [rouge(1), bleu(3)] : le vert du milieu est retiré → bleu passe de l'indice 2 à 1.
+        let removed = Flex::<Msg>::column()
+            .child(Keyed::new(1u64, colored(red)))
+            .child(Keyed::new(3u64, colored(blue)));
+        let ui_removed =
+            build_ui(&removed, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+
+        // L'identité (owner) du bleu (clé 3) est INCHANGÉE malgré le décalage de position.
+        assert_eq!(owner_of(&ui_full, blue), owner_of(&ui_removed, blue));
+
+        // Sans clé, l'identité positionnelle du 2e enfant CHANGE (indice 2 vs 1).
+        let unkeyed_full = Flex::<Msg>::column()
+            .child(colored(red))
+            .child(colored(green))
+            .child(colored(blue));
+        let unkeyed_removed = Flex::<Msg>::column().child(colored(red)).child(colored(blue));
+        let u1 = build_ui(&unkeyed_full, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let u2 = build_ui(&unkeyed_removed, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        assert_ne!(owner_of(&u1, blue), owner_of(&u2, blue));
     }
 
     #[test]

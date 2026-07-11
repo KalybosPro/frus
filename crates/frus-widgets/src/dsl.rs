@@ -2,9 +2,13 @@
 //! [`row!`](crate::row) / [`column!`](crate::column) et quelques fonctions
 //! raccourcis. Purement additif — les constructeurs restent disponibles.
 
+use std::hash::Hash;
+
 use crate::button::Button;
 use crate::flex::Flex;
+use crate::keyed::Keyed;
 use crate::text::Text;
+use crate::widget::Widget;
 
 /// Raccourci : un widget de texte. `text("Bonjour")` = `Text::new("Bonjour")`.
 pub fn text(content: impl Into<String>) -> Text {
@@ -20,6 +24,12 @@ pub fn spacer<Msg>() -> Flex<Msg> {
 /// `button("Ajouter", Msg::Add)` = `Button::new("Ajouter").on_press(Msg::Add)`.
 pub fn button<Msg>(label: impl Into<String>, on_press: Msg) -> Button<Msg> {
     Button::new(label).on_press(on_press)
+}
+
+/// Raccourci : donne une **identité stable** à un widget (élément de liste).
+/// `keyed(todo.id, todo_row(todo))` = `Keyed::new(todo.id, todo_row(todo))`.
+pub fn keyed<Msg>(key: impl Hash, widget: impl Widget<Msg> + 'static) -> Keyed<Msg> {
+    Keyed::new(key, widget)
 }
 
 /// Une **rangée** flex. `row![a, b, c]` = `Flex::row().child(a).child(b).child(c)`.

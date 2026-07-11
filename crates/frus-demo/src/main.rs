@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, row, spacer, spring_step, text, Align, Card, Checkbox, Container, Dropdown,
-    Flex, Justify, NavBar, Navigator, Placement, Portal, RadioGroup, Scroll, Slider, Switch,
-    TextInput, Theme, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Align, Card, Checkbox, Container,
+    Dropdown, Flex, Justify, NavBar, Navigator, Placement, Portal, RadioGroup, Scroll, Slider,
+    Switch, TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -412,7 +412,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 27 · Todo".to_string()
+        "frus — Jalon 28 · Todo".to_string()
     }
 
     fn can_go_back(&self) -> bool {
@@ -610,7 +610,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         Filter::Active => !t.done,
         Filter::Done => t.done,
     }) {
-        list = list.child(todo_row(todo, theme));
+        // Identité stable par `id` : l'état retenu (survol/animations) ne saute
+        // pas quand on supprime une tâche au milieu.
+        list = list.child(keyed(todo.id, todo_row(todo, theme)));
         shown += 1;
     }
     if shown == 0 {

@@ -174,7 +174,7 @@ impl Runtime {
                 out.push((id, target));
             }
             for (index, child) in widget.children().iter().enumerate() {
-                collect(child.as_ref(), id.child(index), out);
+                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
             }
         }
         let mut targets: Vec<(WidgetId, f32)> = Vec::new();
