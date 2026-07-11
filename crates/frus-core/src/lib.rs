@@ -12,5 +12,5 @@ mod scene;
 
 pub use color::Color;
 pub use geometry::{Insets, Point, Rect, Size};
-pub use responsive::SizeClass;
+pub use responsive::{Orientation, SizeClass};
 pub use scene::{Primitive, Scene};

@@ -17,7 +17,7 @@ pub struct NavScaffold<Msg> {
     compact: bool,
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
-    destinations: Vec<(String, String)>,
+    destinations: Vec<(String, String, Option<u32>)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -38,7 +38,15 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
     ///
     /// [`body`]: NavScaffold::body
     pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
-        self.destinations.push((icon.into(), label.into()));
+        self.destinations.push((icon.into(), label.into(), None));
+        self
+    }
+
+    /// Ajoute un compteur de notifications à la **dernière** destination.
+    pub fn badge(mut self, count: u32) -> Self {
+        if let Some(last) = self.destinations.last_mut() {
+            last.2 = Some(count);
+        }
         self
     }
 
@@ -52,14 +60,20 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         // Un seul des deux bras s'exécute : `on_select` n'est déplacé qu'une fois.
         let nav: Box<dyn Widget<Msg>> = if self.compact {
             let mut bar = BottomBar::new(self.selected, on_select);
-            for (icon, label) in destinations {
+            for (icon, label, badge) in destinations {
                 bar = bar.item(icon, label);
+                if let Some(count) = badge {
+                    bar = bar.badge(count);
+                }
             }
             Box::new(bar)
         } else {
             let mut rail = NavRail::new(self.selected, on_select);
-            for (icon, label) in destinations {
+            for (icon, label, badge) in destinations {
                 rail = rail.item(icon, label);
+                if let Some(count) = badge {
+                    rail = rail.badge(count);
+                }
             }
             Box::new(rail)
         };

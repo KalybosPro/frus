@@ -14,8 +14,9 @@ pub use application::Application;
 pub use command::Command;
 pub use subscription::Subscription;
 
-/// Ré-export : les paliers de taille, pour piloter la responsivité côté app.
-pub use frus_widgets::SizeClass;
+/// Ré-export : paliers de taille et orientation, pour piloter la responsivité
+/// côté app.
+pub use frus_widgets::{Orientation, SizeClass};
 
 /// Lance une application : ouvre la fenêtre et pilote la boucle d'événements.
 ///
