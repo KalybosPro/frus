@@ -11,9 +11,9 @@ use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
     Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
     DatePicker, Divider, Dropdown, Flex, Grid, Justify, Kbd, LayoutBuilder, List, Menu, NavBar,
-    Navigator, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Scroll,
-    SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack, Stepper, Switch, Table,
-    Tabs, TextInput, Theme, Timeline, Toast, Tree, Variant, Widget, Wrap,
+    NavScaffold, Navigator, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating,
+    Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack, Stepper, Switch,
+    Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget, Wrap,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -127,6 +127,12 @@ enum Msg {
     Load,
     /// Tâches chargées depuis le disque (résultat d'un effet).
     Loaded(Vec<(bool, String)>),
+    /// Change la section active de l'accueil (navigation adaptative).
+    SetSection(usize),
+    /// Sélectionne une métrique dans la section Stats (ouvre le détail en étroit).
+    SelectStat(usize),
+    /// Ferme le détail Stats (retour à la liste en panneau unique).
+    CloseDetail,
 }
 
 /// Chemin du fichier de persistance des tâches.
@@ -228,6 +234,12 @@ struct TodoApp {
     info_open: bool,
     /// Saisie de l'autocomplétion (démo).
     tag_draft: String,
+    /// Section active de l'accueil (0 = Tasks, 1 = Stats, 2 = About) — NavScaffold.
+    section: usize,
+    /// Métrique sélectionnée dans la section Stats (TwoPane maître-détail).
+    stat_sel: usize,
+    /// En panneau unique (étroit), le détail Stats est-il ouvert ?
+    stat_detail_open: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -474,6 +486,19 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
                     Todo { id, text, done }
                 })
                 .collect();
+            Command::none()
+        }
+        Msg::SetSection(i) => {
+            app.section = i;
+            Command::none()
+        }
+        Msg::SelectStat(i) => {
+            app.stat_sel = i;
+            app.stat_detail_open = true;
+            Command::none()
+        }
+        Msg::CloseDetail => {
+            app.stat_detail_open = false;
             Command::none()
         }
     }
@@ -1064,10 +1089,21 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .width(card_width)
         .gap(16.0),
     );
-    let screen = column![row![card].justify(Justify::Center)]
-        .width(width)
-        .height(height)
-        .padding(24.0);
+    let tasks_body = column![row![card].justify(Justify::Center)].padding(24.0);
+
+    // Sections de l'accueil, choisies via la navigation adaptative (NavScaffold) :
+    // rail vertical en grand, barre basse en étroit.
+    let section: Box<dyn Widget<Msg>> = match app.section {
+        1 => Box::new(stats_section(app, theme, class)),
+        2 => Box::new(about_section(theme)),
+        _ => Box::new(tasks_body),
+    };
+    let shell = NavScaffold::new(class, app.section, Msg::SetSection)
+        .destination("✔", "Tasks")
+        .destination("▦", "Stats")
+        .destination("★", "About")
+        .body(section);
+    let screen = Container::new().width(width).height(height).child(shell);
 
     // La notification transitoire flotte en bas-centre, par-dessus l'écran.
     let mut layers = Stack::new().width(width).height(height).layer(screen);
@@ -1085,6 +1121,64 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .height(height)
         .color(theme.background)
         .child(layers)
+}
+
+/// Section « Stats » : un agencement maître-détail responsive (`TwoPane`). Côte à
+/// côte en grand, panneau unique en étroit (taper une métrique ouvre le détail).
+fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg> {
+    let total = app.todos.len();
+    let metrics = [
+        ("Total tasks", total),
+        ("Active tasks", active_count(app)),
+        ("Completed", done_count(app)),
+    ];
+
+    // Panneau maître : la liste des métriques (sélection).
+    let mut cats = Flex::column().gap(6.0);
+    for (i, (label, _)) in metrics.iter().enumerate() {
+        let variant = if app.stat_sel == i { Variant::Primary } else { Variant::Secondary };
+        cats = cats.child(button(*label, Msg::SelectStat(i)).variant(variant).size(15.0));
+    }
+    let list = Card::new().padding(12.0).child(cats);
+
+    // Panneau détail : la métrique sélectionnée.
+    let (label, value) = metrics[app.stat_sel.min(metrics.len() - 1)];
+    let mut detail_col = column![
+        text(label).size(22.0),
+        text(value.to_string()).size(44.0).color(theme.primary),
+        text("Detail for the selected metric.").size(14.0).color(theme.muted),
+    ]
+    .gap(10.0);
+    // En panneau unique, un retour vers la liste.
+    if class != SizeClass::Expanded {
+        detail_col = detail_col
+            .child(button("← Back", Msg::CloseDetail).variant(Variant::Secondary).size(15.0));
+    }
+    let detail = Card::new().padding(20.0).child(detail_col);
+
+    TwoPane::new(class)
+        .ratio(0.36)
+        .show_detail(app.stat_detail_open)
+        .list(list)
+        .detail(detail)
+}
+
+/// Section « About » : contenu statique de présentation.
+fn about_section(theme: &Theme) -> Container<Msg> {
+    Container::new().padding(24.0).child(
+        Card::new().padding(20.0).child(
+            column![
+                text("About frus").size(24.0),
+                text("A Rust cross-platform UI framework.").size(15.0).color(theme.muted),
+                Divider::new(),
+                Timeline::new()
+                    .event("Responsive primitives", "Milestone 42")
+                    .event("Adaptive navigation", "Milestone 43"),
+            ]
+            .gap(12.0)
+            .width(360.0),
+        ),
+    )
 }
 
 #[cfg(test)]
