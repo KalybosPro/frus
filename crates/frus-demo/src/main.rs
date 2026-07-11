@@ -8,10 +8,11 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Align, Avatar, Badge, Card, Checkbox,
-    Chip, Collapsible, Container, Divider, Dropdown, Flex, Grid, Justify, List, Menu, NavBar,
-    Navigator, Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll, SegmentedControl, Slider,
-    Spinner, Stack, Stepper, Switch, Table, Tabs, TextInput, Theme, Toast, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Align, Avatar, Badge, Breadcrumb, Card,
+    Checkbox, Chip, Collapsible, Container, Divider, Dropdown, Flex, Grid, Justify, List, Menu,
+    NavBar, Navigator, Pagination, Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll,
+    SegmentedControl, Skeleton, Slider, Spinner, Stack, Stepper, Switch, Table, Tabs, TextInput,
+    Theme, Toast, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -101,6 +102,8 @@ enum Msg {
     SetCount(i32),
     /// Ferme la notification transitoire.
     DismissToast,
+    /// Change la page (démo pagination).
+    SetPage(usize),
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -192,6 +195,8 @@ struct TodoApp {
     count: i32,
     /// Notification transitoire courante (auto-fermée).
     toast: Option<String>,
+    /// Page courante du sélecteur de pagination (démo).
+    page: usize,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -380,6 +385,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.toast = None;
             Command::none()
         }
+        Msg::SetPage(p) => {
+            app.page = p;
+            Command::none()
+        }
         Msg::Load => Command::perform(|| Msg::Loaded(load_todos(&todos_path()))),
         Msg::Loaded(items) => {
             app.todos = items
@@ -405,6 +414,7 @@ impl Application for TodoApp {
     fn init(&mut self) -> Command<Msg> {
         // Démarre le chrono et charge les tâches persistées au démarrage.
         self.running = true;
+        self.page = 1;
         Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
     }
 
@@ -488,7 +498,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 36 · Todo".to_string()
+        "frus — Jalon 37 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -660,6 +670,12 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         text("frus — démonstration de widgets").size(18.0),
         stats,
         facts,
+        Pagination::new(app.page, 8, Msg::SetPage),
+        column![
+            Skeleton::new().width(320.0),
+            Skeleton::new().width(260.0).height(14.0),
+        ]
+        .gap(8.0),
         Divider::new(),
         Collapsible::new("Options avancées", app.advanced_open, Msg::ToggleAdvanced).content(
             column![
@@ -675,7 +691,12 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     let tabs = Tabs::new(app.settings_tab, Msg::SetSettingsTab)
         .tab("Contrôles", controls)
         .tab("À propos", about);
-    let content = column![row![tabs].justify(Justify::Center)].padding(20.0).gap(16.0);
+    let content = column![
+        Breadcrumb::new(|_| Msg::Pop).crumb("Accueil").crumb("Réglages"),
+        row![tabs].justify(Justify::Center),
+    ]
+    .padding(20.0)
+    .gap(16.0);
     let screen = column![NavBar::new("Réglages").on_back(Msg::Pop), content].width(width).height(height);
     Container::new()
         .width(width)
