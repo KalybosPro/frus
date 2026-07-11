@@ -10,8 +10,8 @@ use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Align, Avatar, Badge, Card, Checkbox,
     Chip, Collapsible, Container, Divider, Dropdown, Flex, Grid, Justify, List, Menu, NavBar,
-    Navigator, Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll, Slider, Spinner, Stack,
-    Stepper, Switch, Tabs, TextInput, Theme, Variant, Widget,
+    Navigator, Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll, SegmentedControl, Slider,
+    Spinner, Stack, Stepper, Switch, Table, Tabs, TextInput, Theme, Toast, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -99,6 +99,8 @@ enum Msg {
     SetRating(u32),
     /// Nouvelle valeur du sélecteur numérique.
     SetCount(i32),
+    /// Ferme la notification transitoire.
+    DismissToast,
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -188,10 +190,30 @@ struct TodoApp {
     rating: u32,
     /// Compteur du sélecteur numérique (Réglages).
     count: i32,
+    /// Notification transitoire courante (auto-fermée).
+    toast: Option<String>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
     app.routes.last().copied().unwrap_or(Route::Home)
+}
+
+/// Index d'un filtre (pour le contrôle segmenté).
+fn filter_index(filter: Filter) -> usize {
+    match filter {
+        Filter::All => 0,
+        Filter::Active => 1,
+        Filter::Done => 2,
+    }
+}
+
+/// Filtre depuis un index de segment.
+fn filter_from_index(index: usize) -> Filter {
+    match index {
+        1 => Filter::Active,
+        2 => Filter::Done,
+        _ => Filter::All,
+    }
 }
 
 /// Nombre de tâches non terminées.
@@ -341,10 +363,22 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
             let items: Vec<(bool, String)> =
                 app.todos.iter().map(|t| (t.done, t.text.clone())).collect();
-            Command::run(move || {
-                let _ = save_todos(&todos_path(), &items);
-                None
-            })
+            // Affiche une notification, auto-fermée après 2 s (effet minuté).
+            app.toast = Some("Sauvegardé".to_string());
+            Command::batch([
+                Command::run(move || {
+                    let _ = save_todos(&todos_path(), &items);
+                    None
+                }),
+                Command::perform(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    Msg::DismissToast
+                }),
+            ])
+        }
+        Msg::DismissToast => {
+            app.toast = None;
+            Command::none()
         }
         Msg::Load => Command::perform(|| Msg::Loaded(load_todos(&todos_path()))),
         Msg::Loaded(items) => {
@@ -454,7 +488,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 35 · Todo".to_string()
+        "frus — Jalon 36 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -617,9 +651,15 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .cell(stat_tile(theme, "Total", total))
         .cell(stat_tile(theme, "Actives", total - done))
         .cell(stat_tile(theme, "Terminées", done));
+    let facts = Table::new(2)
+        .width(320.0)
+        .header(&["Métrique", "Valeur"])
+        .row(&["Widgets", "26"])
+        .row(&["Jalons", "36"]);
     let about = column![
         text("frus — démonstration de widgets").size(18.0),
         stats,
+        facts,
         Divider::new(),
         Collapsible::new("Options avancées", app.advanced_open, Msg::ToggleAdvanced).content(
             column![
@@ -729,22 +769,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     .align(Align::Center)
     .gap(10.0);
 
-    // Filtres : le filtre actif est mis en avant.
-    let filter_button = |label: &str, f: Filter| {
-        let variant = if app.filter == f {
-            Variant::Primary
-        } else {
-            Variant::Secondary
-        };
-        button(label, Msg::SetFilter(f)).variant(variant).size(15.0)
-    };
-    let mut filters = row![
-        filter_button("Toutes", Filter::All),
-        filter_button("Actives", Filter::Active),
-        filter_button("Terminées", Filter::Done),
-    ]
-    .align(Align::Center)
-    .gap(8.0);
+    // Filtres : un contrôle segmenté (sélection unique).
+    let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
+        Msg::SetFilter(filter_from_index(i))
+    })
+    .segment("Toutes")
+    .segment("Actives")
+    .segment("Terminées");
+    let mut filters = row![segmented].align(Align::Center).gap(8.0);
     // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
     if app.filter != Filter::All {
         let name = if app.filter == Filter::Active { "Actives" } else { "Terminées" };
@@ -815,11 +847,22 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .height(height)
         .padding(24.0);
 
+    // La notification transitoire flotte en bas-centre, par-dessus l'écran.
+    let mut layers = Stack::new().width(width).height(height).layer(screen);
+    if let Some(message) = &app.toast {
+        layers = layers.layer(
+            column![Toast::new(message.clone()).success()]
+                .justify(Justify::End)
+                .align(Align::Center)
+                .padding(20.0),
+        );
+    }
+
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(screen)
+        .child(layers)
 }
 
 #[cfg(test)]
