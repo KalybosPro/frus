@@ -103,6 +103,21 @@ pub fn spring_step(
     (progress, velocity, at_rest)
 }
 
+/// Courbe en **ressort** (réponse indicielle d'un ressort en amortissement
+/// **critique**) remappant une progression linéaire `t ∈ [0,1]` : départ au
+/// repos (pente nulle), montée franche, arrivée douce **sans dépassement** —
+/// même sensation que les transitions d'écran, mais sous forme fermée (pas
+/// d'état de vélocité). `f(0) = 0`, `f(1) = 1`, monotone croissante.
+pub fn spring_ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    // Réponse critique : y(τ) = 1 − e^{−ωτ}(1 + ωτ). On renormalise pour que
+    // f(1) vaille exactement 1 malgré la troncature à τ = 1.
+    const OMEGA: f32 = 8.0;
+    let resp = |x: f32| 1.0 - (-OMEGA * x).exp() * (1.0 + OMEGA * x);
+    let end = resp(1.0);
+    resp(t) / end
+}
+
 /// Fait tendre `value` vers `target` par pas de `step` ; note si ça bouge encore.
 fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
     if *value < target {
@@ -377,6 +392,25 @@ mod tests {
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_values(&empty, 1.0);
         assert!(rt.values.is_empty());
+    }
+
+    #[test]
+    fn spring_ease_is_monotonic_no_overshoot() {
+        assert!((spring_ease(0.0) - 0.0).abs() < 1e-6);
+        assert!((spring_ease(1.0) - 1.0).abs() < 1e-6);
+        // Croissante et bornée à [0,1] (aucun dépassement au-delà de 1).
+        let mut prev = 0.0;
+        for i in 0..=100 {
+            let v = spring_ease(i as f32 / 100.0);
+            assert!(v >= prev - 1e-6, "décroît en {i}");
+            assert!(v <= 1.0 + 1e-6, "dépasse 1 en {i}");
+            prev = v;
+        }
+        // Déjà bien avancée à mi-parcours (arrivée douce en fin).
+        assert!(spring_ease(0.5) > 0.7);
+        // Bornée hors domaine.
+        assert_eq!(spring_ease(-1.0), 0.0);
+        assert_eq!(spring_ease(2.0), 1.0);
     }
 
     #[test]

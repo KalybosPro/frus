@@ -579,6 +579,13 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
         while let Some((content, oid, anchor, placement, dismiss, progress)) = self.overlays.pop() {
+            // Les tiroirs glissent selon une **courbe en ressort** (arrivée douce),
+            // pas linéairement ; les autres overlays gardent leur progression brute.
+            let progress = if matches!(placement, Placement::Left | Placement::Right) {
+                crate::runtime::spring_ease(progress)
+            } else {
+                progress
+            };
             let mut layout: Layout<()> = Layout::new();
             let root = build_layout(content, &mut layout);
             // Taille naturelle du contenu. Un tiroir (`Left`) est contraint en
