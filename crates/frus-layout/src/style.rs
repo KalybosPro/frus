@@ -103,6 +103,9 @@ pub struct Style {
     pub padding: Insets,
     /// Espacement entre enfants, en pixels logiques.
     pub gap: f32,
+    /// Si `Some(n)`, le conteneur est une **grille** de `n` colonnes égales
+    /// (les enfants s'y placent automatiquement, ligne par ligne). `None` = flex.
+    pub grid_columns: Option<usize>,
 }
 
 impl Default for Style {
@@ -116,13 +119,14 @@ impl Default for Style {
             align: Align::Stretch,
             padding: Insets::ZERO,
             gap: 0.0,
+            grid_columns: None,
         }
     }
 }
 
 impl Style {
     pub(crate) fn to_taffy(self) -> taffy::Style {
-        taffy::Style {
+        let mut style = taffy::Style {
             size: taffy::Size {
                 width: self.width.to_taffy(),
                 height: self.height.to_taffy(),
@@ -142,6 +146,16 @@ impl Style {
                 height: taffy::LengthPercentage::Length(self.gap),
             },
             ..Default::default()
+        };
+
+        // Grille : `n` colonnes égales (1fr chacune) ; les enfants se placent
+        // automatiquement, ligne par ligne (auto-flow), lignes dimensionnées au contenu.
+        if let Some(columns) = self.grid_columns {
+            use taffy::style_helpers::fr;
+            style.display = taffy::Display::Grid;
+            style.grid_template_columns = (0..columns).map(|_| fr(1.0)).collect();
         }
+
+        style
     }
 }
