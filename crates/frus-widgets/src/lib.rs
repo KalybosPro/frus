@@ -9,6 +9,7 @@
 //! L'état retenu entre frames (survol/focus, offsets de scroll, curseur/sélection)
 //! vit dans un [`Runtime`], clé par identité de widget.
 
+mod avatar;
 mod badge;
 mod button;
 mod card;
@@ -29,11 +30,13 @@ mod navigator;
 mod portal;
 mod progressbar;
 mod radio;
+mod rating;
 mod runtime;
 mod scroll;
 mod slider;
 mod spinner;
 mod stack;
+mod stepper;
 mod switch;
 mod tabs;
 mod text;
@@ -42,6 +45,7 @@ mod theme;
 mod ui;
 mod widget;
 
+pub use avatar::Avatar;
 pub use badge::Badge;
 pub use button::{Button, Variant};
 pub use card::Card;
@@ -62,11 +66,13 @@ pub use navigator::Navigator;
 pub use portal::{Placement, Portal};
 pub use progressbar::ProgressBar;
 pub use radio::RadioGroup;
+pub use rating::Rating;
 pub use runtime::{spring_step, Anim, Edit, Runtime, ScrollState};
 pub use scroll::{Axis, Scroll};
 pub use slider::Slider;
 pub use spinner::Spinner;
 pub use stack::Stack;
+pub use stepper::Stepper;
 pub use switch::Switch;
 pub use tabs::Tabs;
 pub use text::Text;

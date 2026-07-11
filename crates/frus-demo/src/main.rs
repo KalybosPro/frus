@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Align, Badge, Card, Checkbox, Chip,
-    Collapsible, Container, Divider, Dropdown, Flex, Justify, List, Menu, NavBar, Navigator,
-    Placement, Portal, ProgressBar, RadioGroup, Scroll, Slider, Spinner, Stack, Switch, Tabs,
-    TextInput, Theme, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Align, Avatar, Badge, Card, Checkbox,
+    Chip, Collapsible, Container, Divider, Dropdown, Flex, Justify, List, Menu, NavBar, Navigator,
+    Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll, Slider, Spinner, Stack, Stepper,
+    Switch, Tabs, TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -95,6 +95,10 @@ enum Msg {
     ToggleActions,
     /// Déplie/replie « Options avancées ».
     ToggleAdvanced,
+    /// Note en étoiles choisie.
+    SetRating(u32),
+    /// Nouvelle valeur du sélecteur numérique.
+    SetCount(i32),
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -180,6 +184,10 @@ struct TodoApp {
     actions_open: bool,
     /// Section « Options avancées » dépliée ?
     advanced_open: bool,
+    /// Note en étoiles (Réglages).
+    rating: u32,
+    /// Compteur du sélecteur numérique (Réglages).
+    count: i32,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -320,6 +328,14 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.advanced_open = !app.advanced_open;
             Command::none()
         }
+        Msg::SetRating(r) => {
+            app.rating = r;
+            Command::none()
+        }
+        Msg::SetCount(c) => {
+            app.count = c;
+            Command::none()
+        }
         // --- Effets ---
         Msg::Save => {
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
@@ -438,7 +454,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 33 · Todo".to_string()
+        "frus — Jalon 34 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -562,6 +578,20 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
                 &MENU,
                 Msg::SetMenu,
             ),
+            row![
+                text("Votre avis").size(18.0),
+                spacer(),
+                Rating::new(app.rating, 5, Msg::SetRating),
+            ]
+            .align(Align::Center)
+            .gap(12.0),
+            row![
+                text("Quantité").size(18.0),
+                spacer(),
+                Stepper::new(app.count, Msg::SetCount).range(0, 20).step(1),
+            ]
+            .align(Align::Center)
+            .gap(12.0),
         ]
         .gap(14.0),
     );
@@ -596,6 +626,7 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     let id = todo.id;
     let label_color = if todo.done { theme.muted } else { theme.on_surface };
     let line = row![
+        Avatar::new(todo.text.clone()).size(30.0),
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
         text(todo.text.clone()).size(18.0).color(label_color),
         spacer(),
