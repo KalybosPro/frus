@@ -136,6 +136,11 @@ impl Scene {
         self.current_clip = clip;
     }
 
+    /// Rectangle de découpe courant (pour l'intersecter avec des bornes locales).
+    pub fn current_clip(&self) -> Rect {
+        self.current_clip
+    }
+
     /// Fixe l'identité du widget émetteur des primitives suivantes.
     pub fn set_owner(&mut self, owner: u64) {
         self.current_owner = owner;

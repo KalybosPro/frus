@@ -219,6 +219,8 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
+        // Un widget a pu resserrer la découpe (ex. TextInput) : on la restaure.
+        self.scene.set_clip(clip);
         self.draw_focus_ring(draw_rect, &status, widget);
 
         let visible = draw_rect.intersect(clip);
@@ -474,6 +476,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
+        self.scene.set_clip(clip);
         self.draw_focus_ring(draw_rect, &status, widget);
 
         let visible = draw_rect.intersect(clip);
