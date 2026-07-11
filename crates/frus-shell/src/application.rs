@@ -57,6 +57,19 @@ pub trait Application {
         None
     }
 
+    /// **Densité** de l'interface : un facteur de zoom **applicatif** (défaut
+    /// `1.0`) appliqué par-dessus l'échelle DPI système. `1.2` agrandit toute
+    /// l'UI de 20 % ; `0.9` la resserre. Change à chaud via l'état.
+    fn density(&self) -> f32 {
+        1.0
+    }
+
+    /// Appelé quand la taille **logique** de la surface change (redimensionnement
+    /// de la fenêtre **ou** changement de densité). Permet à l'app de réagir au
+    /// **changement de palier** dans sa logique (p. ex. fermer un tiroir en
+    /// rétrécissant), au-delà du simple rendu.
+    fn on_resize(&mut self, _width: f32, _height: f32) {}
+
     /// L'app peut-elle revenir en arrière ? (active le geste retour depuis le bord).
     fn can_go_back(&self) -> bool {
         false

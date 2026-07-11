@@ -115,6 +115,8 @@ enum Msg {
     NavMonth(i32),
     /// Change de slide du carrousel.
     SetSlide(usize),
+    /// Règle la densité (zoom applicatif).
+    SetDensity(f32),
     /// Ouvre/ferme le popover d'info.
     ToggleInfo,
     /// Saisie de l'autocomplétion.
@@ -240,6 +242,10 @@ struct TodoApp {
     stat_sel: usize,
     /// En panneau unique (étroit), le détail Stats est-il ouvert ?
     stat_detail_open: bool,
+    /// Densité (zoom applicatif de toute l'UI) — `1.0` par défaut.
+    density: f32,
+    /// Palier de taille courant (mis à jour par `on_resize`).
+    size_class: Option<SizeClass>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -501,6 +507,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.stat_detail_open = false;
             Command::none()
         }
+        Msg::SetDensity(d) => {
+            app.density = d.clamp(0.8, 1.4);
+            Command::none()
+        }
     }
 }
 
@@ -517,6 +527,7 @@ impl Application for TodoApp {
         self.page = 1;
         self.year = 2026;
         self.month = 7;
+        self.density = 1.0;
         Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
     }
 
@@ -526,6 +537,26 @@ impl Application for TodoApp {
             Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
         } else {
             Subscription::none()
+        }
+    }
+
+    fn density(&self) -> f32 {
+        if self.density > 0.0 {
+            self.density
+        } else {
+            1.0
+        }
+    }
+
+    fn on_resize(&mut self, width: f32, _height: f32) {
+        // Réagit au changement de palier : ferme le détail Stats en étroit.
+        let class = SizeClass::from_width(width);
+        if self.size_class != Some(class) {
+            self.size_class = Some(class);
+            if class == SizeClass::Compact {
+                self.stat_detail_open = false;
+            }
+            eprintln!("[demo] palier : {class:?}");
         }
     }
 
@@ -965,6 +996,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .gap(8.0)
         .justify(Justify::End)
         .align(Align::Center)
+        .child(button("A−", Msg::SetDensity(app.density - 0.1)).variant(Variant::Secondary).size(15.0))
+        .child(button("A+", Msg::SetDensity(app.density + 0.1)).variant(Variant::Secondary).size(15.0))
         .child(button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0))
         .child(button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0))
         .child(button("Log →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0))
@@ -1199,6 +1232,32 @@ mod tests {
             .scene()
             .primitives()
             .len()
+    }
+
+    #[test]
+    fn density_is_clamped() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::SetDensity(5.0));
+        assert_eq!(app.density, 1.4);
+        reduce(&mut app, Msg::SetDensity(0.1));
+        assert_eq!(app.density, 0.8);
+        // density() protège contre un état non initialisé (0.0 → 1.0).
+        app.density = 0.0;
+        assert_eq!(Application::density(&app), 1.0);
+    }
+
+    #[test]
+    fn on_resize_tracks_class_and_closes_detail_when_compact() {
+        let mut app = TodoApp::default();
+        app.stat_detail_open = true;
+        // Large : palier Expanded, le détail reste ouvert.
+        app.on_resize(1000.0, 700.0);
+        assert_eq!(app.size_class, Some(SizeClass::Expanded));
+        assert!(app.stat_detail_open);
+        // Étroit : bascule Compact et ferme le détail.
+        app.on_resize(500.0, 700.0);
+        assert_eq!(app.size_class, Some(SizeClass::Compact));
+        assert!(!app.stat_detail_open);
     }
 
     #[test]
