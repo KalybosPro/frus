@@ -9,9 +9,9 @@ use std::time::Duration;
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Align, Avatar, Badge, Card, Checkbox,
-    Chip, Collapsible, Container, Divider, Dropdown, Flex, Justify, List, Menu, NavBar, Navigator,
-    Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll, Slider, Spinner, Stack, Stepper,
-    Switch, Tabs, TextInput, Theme, Variant, Widget,
+    Chip, Collapsible, Container, Divider, Dropdown, Flex, Grid, Justify, List, Menu, NavBar,
+    Navigator, Placement, Portal, ProgressBar, RadioGroup, Rating, Scroll, Slider, Spinner, Stack,
+    Stepper, Switch, Tabs, TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -454,7 +454,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 34 · Todo".to_string()
+        "frus — Jalon 35 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -551,6 +551,20 @@ fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
         .child(screen)
 }
 
+/// Une tuile de statistique (grand nombre + libellé) pour la grille.
+fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container<Msg> {
+    Container::new()
+        .height(64.0)
+        .radius(10.0)
+        .color(theme.surface)
+        .border(1.0, theme.border)
+        .padding_each(10.0, 12.0, 10.0, 12.0)
+        .child(column![
+            text(value.to_string()).size(24.0),
+            text(label.to_string()).size(13.0).color(theme.muted),
+        ])
+}
+
 /// Écran « Réglages » : la carte de contrôles (démontre nav + geste + widgets).
 fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     let volume_pct = (app.volume * 100.0).round() as u32;
@@ -595,8 +609,17 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         ]
         .gap(14.0),
     );
+    let total = app.todos.len();
+    let done = app.todos.iter().filter(|t| t.done).count();
+    let stats = Grid::new(3)
+        .gap(10.0)
+        .width(360.0)
+        .cell(stat_tile(theme, "Total", total))
+        .cell(stat_tile(theme, "Actives", total - done))
+        .cell(stat_tile(theme, "Terminées", done));
     let about = column![
         text("frus — démonstration de widgets").size(18.0),
+        stats,
         Divider::new(),
         Collapsible::new("Options avancées", app.advanced_open, Msg::ToggleAdvanced).content(
             column![

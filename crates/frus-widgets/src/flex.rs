@@ -112,6 +112,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             align: self.align,
             padding: self.padding,
             gap: self.gap,
+            grid_columns: None,
         }
     }
 
