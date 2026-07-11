@@ -9,10 +9,12 @@
 //! L'état retenu entre frames (survol/focus, offsets de scroll, curseur/sélection)
 //! vit dans un [`Runtime`], clé par identité de widget.
 
+mod badge;
 mod button;
 mod card;
 mod checkbox;
 mod container;
+mod divider;
 mod dropdown;
 mod dsl;
 mod flex;
@@ -22,21 +24,27 @@ mod list;
 mod navbar;
 mod navigator;
 mod portal;
+mod progressbar;
 mod radio;
 mod runtime;
 mod scroll;
 mod slider;
+mod spinner;
+mod stack;
 mod switch;
+mod tabs;
 mod text;
 mod textinput;
 mod theme;
 mod ui;
 mod widget;
 
+pub use badge::Badge;
 pub use button::{Button, Variant};
 pub use card::Card;
 pub use checkbox::Checkbox;
 pub use container::Container;
+pub use divider::Divider;
 pub use dropdown::Dropdown;
 pub use dsl::{button, keyed, spacer, text};
 pub use flex::Flex;
@@ -46,11 +54,15 @@ pub use list::{List, VirtualList};
 pub use navbar::NavBar;
 pub use navigator::Navigator;
 pub use portal::{Placement, Portal};
+pub use progressbar::ProgressBar;
 pub use radio::RadioGroup;
 pub use runtime::{spring_step, Anim, Edit, Runtime, ScrollState};
 pub use scroll::{Axis, Scroll};
 pub use slider::Slider;
+pub use spinner::Spinner;
+pub use stack::Stack;
 pub use switch::Switch;
+pub use tabs::Tabs;
 pub use text::Text;
 pub use textinput::TextInput;
 pub use theme::Theme;

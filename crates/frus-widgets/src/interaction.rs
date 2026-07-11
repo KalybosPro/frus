@@ -88,6 +88,9 @@ pub struct Status {
     /// Valeur animée propre au widget (p. ex. `0 → 1` d'un interrupteur), pilotée
     /// par `Widget::anim_target`.
     pub value: f32,
+    /// Temps écoulé (secondes) depuis le démarrage — pour les animations
+    /// continues pilotées par le temps (ex. `Spinner`).
+    pub time: f32,
 }
 
 impl Default for Status {
@@ -101,6 +104,7 @@ impl Default for Status {
             focus_progress: 0.0,
             opacity: 1.0,
             value: 0.0,
+            time: 0.0,
         }
     }
 }
@@ -135,6 +139,7 @@ impl InputState {
             focus_progress: 0.0,
             opacity: 1.0,
             value: 0.0,
+            time: 0.0,
         }
     }
 }

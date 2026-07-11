@@ -137,6 +137,8 @@ pub struct Runtime {
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
     /// clé d'événement → (primitives capturées, opacité restante `1 → 0`).
     pub leaving: HashMap<u64, (Vec<Primitive>, f32)>,
+    /// Temps écoulé (secondes) depuis le démarrage, pour les animations continues.
+    pub time: f32,
 }
 
 impl Runtime {

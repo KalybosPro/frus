@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Align, Card, Checkbox, Container,
-    Dropdown, Flex, Justify, List, NavBar, Navigator, Placement, Portal, RadioGroup, Scroll,
-    Slider, Switch, TextInput, Theme, Variant, Widget,
+    button, column, keyed, row, spacer, spring_step, text, Align, Badge, Card, Checkbox, Container,
+    Divider, Dropdown, Flex, Justify, List, NavBar, Navigator, Placement, Portal, ProgressBar,
+    RadioGroup, Scroll, Slider, Spinner, Stack, Switch, Tabs, TextInput, Theme, Variant, Widget,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -88,6 +88,8 @@ enum Msg {
     Tick,
     /// Démarre/arrête le chrono.
     ToggleTimer,
+    /// Change l'onglet actif des Réglages.
+    SetSettingsTab(usize),
     /// Sauvegarde les tâches sur disque (effet).
     Save,
     /// Demande le chargement des tâches (effet).
@@ -167,6 +169,8 @@ struct TodoApp {
     running: bool,
     /// Secondes écoulées depuis le démarrage du chrono.
     elapsed: u32,
+    /// Onglet actif de l'écran Réglages.
+    settings_tab: usize,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -295,6 +299,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.running = !app.running;
             Command::none()
         }
+        Msg::SetSettingsTab(i) => {
+            app.settings_tab = i;
+            Command::none()
+        }
         // --- Effets ---
         Msg::Save => {
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
@@ -413,7 +421,7 @@ impl Application for TodoApp {
     }
 
     fn title(&self) -> String {
-        "frus — Jalon 31 · Todo".to_string()
+        "frus — Jalon 32 · Todo".to_string()
     }
 
     fn window_size(&self) -> Option<(f32, f32)> {
@@ -540,7 +548,18 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         ]
         .gap(14.0),
     );
-    let content = column![row![controls].justify(Justify::Center)].padding(20.0).gap(16.0);
+    let about = column![
+        text("frus — démonstration de widgets").size(18.0),
+        Divider::new(),
+        text("Onglets, séparateur, pastille, barre de progression, pile et spinner.")
+            .size(15.0)
+            .color(theme.muted),
+    ]
+    .gap(12.0);
+    let tabs = Tabs::new(app.settings_tab, Msg::SetSettingsTab)
+        .tab("Contrôles", controls)
+        .tab("À propos", about);
+    let content = column![row![tabs].justify(Justify::Center)].padding(20.0).gap(16.0);
     let screen = column![NavBar::new("Réglages").on_back(Msg::Pop), content].width(width).height(height);
     Container::new()
         .width(width)
@@ -594,7 +613,15 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     // En-tête : titre + chrono + bascule de thème + accès Réglages.
     let theme_label = if app.light { "Sombre" } else { "Clair" };
     let timer_label = if app.running { "Pause" } else { "Reprendre" };
+    // Indicateur : un spinner (animation continue) avec une pastille du nombre
+    // de tâches actives dans le coin (pile de couches).
+    let indicator = Stack::new()
+        .width(30.0)
+        .height(30.0)
+        .layer(Spinner::new().size(30.0))
+        .layer(row![Badge::new(format!("{active}"))].justify(Justify::End).align(Align::Start));
     let header = row![
+        indicator,
         text("Mes tâches").size(30.0),
         text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted),
         spacer(),
@@ -673,10 +700,24 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     .align(Align::Center)
     .gap(8.0);
 
+    // Barre de progression de complétion (terminées / total).
+    let total = app.todos.len().max(1);
+    let progress = ProgressBar::new(done as f32 / total as f32).width(520.0);
+
     // Carte de l'app, largeur fixe, centrée en haut de l'écran.
-    let card = Card::new()
-        .padding(20.0)
-        .child(column![header, input_row, filters, scroll, footer].width(560.0).gap(16.0));
+    let card = Card::new().padding(20.0).child(
+        column![
+            header,
+            input_row,
+            filters,
+            scroll,
+            Divider::new(),
+            progress,
+            footer
+        ]
+        .width(560.0)
+        .gap(16.0),
+    );
     let screen = column![row![card].justify(Justify::Center)]
         .width(width)
         .height(height)

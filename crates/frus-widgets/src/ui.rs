@@ -49,12 +49,18 @@ pub struct Ui<Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    wants_animation: bool,
 }
 
 impl<Msg: Clone> Ui<Msg> {
     /// La scène à envoyer au renderer.
     pub fn scene(&self) -> &Scene {
         &self.scene
+    }
+
+    /// `true` si un widget s'anime en continu (le framework doit redessiner).
+    pub fn wants_animation(&self) -> bool {
+        self.wants_animation
     }
 
     /// Identité du widget cliquable le plus au-dessus contenant `point`.
@@ -149,10 +155,12 @@ pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<M
 
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
 fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
-    // Défilables, navigateurs et listes virtualisées : contenu mis en page à part.
+    // Défilables, navigateurs, listes virtualisées et piles : contenu mis en page
+    // à part (couches / écrans / éléments indépendants).
     if widget.scroll_content().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
+        || widget.stack()
     {
         return layout.leaf(widget.style(), ());
     }
@@ -182,6 +190,8 @@ struct Builder<'a, Msg> {
     draggables: Vec<(WidgetId, Rect)>,
     /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture).
     overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>)>,
+    /// Un widget demande une animation continue (pilotée par le temps).
+    wants_animation: bool,
     available: Size,
     runtime: &'a Runtime,
     theme: &'a Theme,
@@ -202,6 +212,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         let draw_rect = rect.translate(translation.0, translation.1);
 
         let status = self.full_status(id);
+        if widget.continuous() {
+            self.wants_animation = true;
+        }
 
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
@@ -340,6 +353,29 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             if max_y > 0.0 {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
             }
+        } else if widget.stack() {
+            // Pile : chaque couche remplit la boîte, rendue dans l'ordre.
+            let bounds = draw_rect;
+            let layer_clip = clip.intersect(bounds);
+            for (i, layer) in widget.children().iter().enumerate() {
+                let mut layout: Layout<()> = Layout::new();
+                let root = build_layout(layer.as_ref(), &mut layout);
+                layout.compute(root, Size::new(bounds.width, bounds.height));
+                let layer_rects: Vec<Rect> = layout
+                    .absolute_rects(root)
+                    .into_iter()
+                    .map(|(rect, _)| rect)
+                    .collect();
+                let mut layer_index = 0;
+                self.walk(
+                    layer.as_ref(),
+                    child_id(id, i, layer.as_ref()),
+                    (bounds.x, bounds.y),
+                    layer_clip,
+                    &layer_rects,
+                    &mut layer_index,
+                );
+            }
         } else if let Some((content, placement)) = widget.overlay() {
             // Ancre (enfant 0) rendue inline ; overlay (enfant 1) différé.
             self.walk(
@@ -381,6 +417,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         status.focus_progress = self.runtime.focus_progress(id);
         status.opacity = self.runtime.opacity(id);
         status.value = self.runtime.value(id);
+        status.time = self.runtime.time;
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -431,6 +468,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         let draw_rect = rect.translate(translation.0, translation.1);
 
         let status = self.full_status(id);
+        if widget.continuous() {
+            self.wants_animation = true;
+        }
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
@@ -631,6 +671,7 @@ pub fn build_ui<'a, Msg: Clone>(
         scrollbars: Vec::new(),
         draggables: Vec::new(),
         overlays: Vec::new(),
+        wants_animation: false,
         available,
         runtime,
         theme,
@@ -656,6 +697,7 @@ pub fn build_ui<'a, Msg: Clone>(
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
+        wants_animation: builder.wants_animation,
     }
 }
 

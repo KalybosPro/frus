@@ -76,6 +76,18 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si `true`, le widget est une **pile** : ses enfants sont des couches
+    /// superposées (même boîte), rendues dans l'ordre (dernière au-dessus).
+    fn stack(&self) -> bool {
+        false
+    }
+
+    /// Si `true`, le widget s'anime **en continu** (piloté par le temps, pas par
+    /// une cible) : le framework continue de redessiner. Ex. `Spinner`.
+    fn continuous(&self) -> bool {
+        false
+    }
+
     /// Si le widget est un conteneur défilable, renvoie son contenu.
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         None

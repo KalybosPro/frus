@@ -93,6 +93,8 @@ pub struct App<A: Application> {
     running_subs: HashMap<u64, Sender<()>>,
     /// Fenêtre masquée (occultée) : on suspend le rendu.
     occluded: bool,
+    /// Temps écoulé cumulé (secondes), pour les animations continues.
+    elapsed: f32,
 }
 
 impl<A: Application> App<A> {
@@ -117,6 +119,7 @@ impl<A: Application> App<A> {
             leaving_counter: 0,
             running_subs: HashMap::new(),
             occluded: false,
+            elapsed: 0.0,
         }
     }
 }
@@ -511,6 +514,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
 
+                // Horloge continue (secondes) pour les animations pilotées par le temps.
+                self.elapsed += dt;
+                self.runtime.time = self.elapsed;
+
                 // L'application avance ses propres animations (thème, nav, geste).
                 let app_animating = self.app.tick(dt);
 
@@ -582,12 +589,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
+                // Un widget à animation continue (spinner…) force le redessin.
+                let wants_animation = ui.wants_animation();
+
                 // Conserve l'interface (hit-test) et l'arbre (routage clavier).
                 self.ui = Some(ui);
                 self.tree = Some(tree);
 
                 // Tant qu'une animation tourne, on redemande une frame.
-                if animating {
+                if animating || wants_animation {
                     self.request_redraw();
                 }
             }
