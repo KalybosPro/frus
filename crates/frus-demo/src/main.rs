@@ -10,10 +10,10 @@ use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
     Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
-    DatePicker, Divider, Dropdown, Flex, Grid, Justify, Kbd, List, Menu, NavBar, Navigator,
-    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Scroll, SegmentedControl,
-    Skeleton, Slider, Spinner, Stack, Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline,
-    Toast, Tree, Variant, Widget,
+    DatePicker, Divider, Dropdown, Flex, Grid, Justify, Kbd, LayoutBuilder, List, Menu, NavBar,
+    Navigator, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Scroll,
+    SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack, Stepper, Switch, Table,
+    Tabs, TextInput, Theme, Timeline, Toast, Tree, Variant, Widget, Wrap,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -914,6 +914,15 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     let active = active_count(app);
     let done = done_count(app);
 
+    // Responsivité : la carte s'élargit avec la fenêtre par paliers (Lot A). En
+    // Compact, elle suit la largeur disponible ; les champs internes s'y adaptent.
+    let class = SizeClass::from_width(width);
+    let card_width = match class {
+        SizeClass::Compact => (width - 40.0).max(280.0),
+        SizeClass::Medium => 560.0,
+        SizeClass::Expanded => 680.0,
+    };
+
     // En-tête : titre + chrono + bascule de thème + accès Réglages.
     let theme_label = if app.light { "Dark" } else { "Light" };
     let timer_label = if app.running { "Pause" } else { "Resume" };
@@ -924,22 +933,32 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .height(30.0)
         .layer(Spinner::new().size(30.0))
         .layer(row![Badge::new(format!("{active}"))].justify(Justify::End).align(Align::Start));
+    // Les actions passent à la ligne quand l'en-tête est trop étroit (Lot B :
+    // flex-wrap). `flex(1.0)` borne leur largeur pour déclencher le reflow.
+    let actions = Wrap::new::<Msg>()
+        .flex(1.0)
+        .gap(8.0)
+        .justify(Justify::End)
+        .align(Align::Center)
+        .child(button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0))
+        .child(button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0))
+        .child(button("Log →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0))
+        .child(button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0))
+        .child(
+            Menu::new(
+                button("⋯", Msg::ToggleActions).variant(Variant::Secondary).size(15.0),
+                app.actions_open,
+                Msg::ToggleActions,
+            )
+            .item("Save", Msg::Save)
+            .item("Clear completed", Msg::AskClearDone),
+        );
+    let title_size = if class == SizeClass::Compact { 22.0 } else { 30.0 };
     let header = row![
         indicator,
-        text("My Tasks").size(30.0),
+        text("My Tasks").size(title_size),
         text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted),
-        spacer(),
-        button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0),
-        button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0),
-        button("Log →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0),
-        button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
-        Menu::new(
-            button("⋯", Msg::ToggleActions).variant(Variant::Secondary).size(15.0),
-            app.actions_open,
-            Msg::ToggleActions,
-        )
-        .item("Save", Msg::Save)
-        .item("Clear completed", Msg::AskClearDone),
+        actions,
     ]
     .align(Align::Center)
     .gap(10.0);
@@ -947,7 +966,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     // Saisie : champ (Entrée valide) + bouton d'ajout.
     let input_row = row![
         TextInput::new(app.draft.as_str())
-            .width(400.0)
+            .width((card_width - 150.0).max(160.0))
             .size(18.0)
             .on_input(Msg::DraftChanged)
             .on_submit(Msg::AddTodo),
@@ -1001,9 +1020,24 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     } else {
         Portal::new(clear_button)
     };
+    let total = app.todos.len().max(1);
+    let pct = (done as f32 / total as f32 * 100.0).round() as u32;
+
+    // Résumé construit selon sa boîte RÉELLE (Lot C : LayoutBuilder). Texte long
+    // quand il y a de la place, court quand c'est étroit — hauteur fixe.
+    let muted = theme.muted;
+    let summary = LayoutBuilder::new(move |size: Size| {
+        let label = if size.width >= 360.0 {
+            format!("{active} active · {done} done · {pct}% complete")
+        } else {
+            format!("{active}·{done}")
+        };
+        text(label).size(16.0).color(muted)
+    })
+    .flex(1.0)
+    .height(20.0);
     let footer = row![
-        text(format!("{active} active · {done} done")).size(16.0).color(theme.muted),
-        spacer(),
+        summary,
         button("Load", Msg::Load).variant(Variant::Secondary).size(15.0),
         button("Save", Msg::Save).variant(Variant::Secondary).size(15.0),
         clear,
@@ -1012,10 +1046,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     .gap(8.0);
 
     // Barre de progression de complétion (terminées / total).
-    let total = app.todos.len().max(1);
-    let progress = ProgressBar::new(done as f32 / total as f32).width(520.0);
+    let progress = ProgressBar::new(done as f32 / total as f32).width((card_width - 40.0).max(200.0));
 
-    // Carte de l'app, largeur fixe, centrée en haut de l'écran.
+    // Carte de l'app, largeur responsive (Lot A), centrée en haut de l'écran.
     let card = Card::new().padding(20.0).child(
         column![
             Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
@@ -1028,7 +1061,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
             progress,
             footer
         ]
-        .width(560.0)
+        .width(card_width)
         .gap(16.0),
     );
     let screen = column![row![card].justify(Justify::Center)]

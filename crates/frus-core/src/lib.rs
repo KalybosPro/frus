@@ -7,8 +7,10 @@
 
 mod color;
 mod geometry;
+mod responsive;
 mod scene;
 
 pub use color::Color;
 pub use geometry::{Insets, Point, Rect, Size};
+pub use responsive::SizeClass;
 pub use scene::{Primitive, Scene};

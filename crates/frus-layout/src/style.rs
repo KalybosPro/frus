@@ -103,6 +103,9 @@ pub struct Style {
     pub padding: Insets,
     /// Espacement entre enfants, en pixels logiques.
     pub gap: f32,
+    /// Si `true`, les enfants **passent à la ligne** (flex-wrap) quand ils
+    /// débordent l'axe principal — reflow responsive automatique.
+    pub flex_wrap: bool,
     /// Si `Some(n)`, le conteneur est une **grille** de `n` colonnes égales
     /// (les enfants s'y placent automatiquement, ligne par ligne). `None` = flex.
     pub grid_columns: Option<usize>,
@@ -119,6 +122,7 @@ impl Default for Style {
             align: Align::Stretch,
             padding: Insets::ZERO,
             gap: 0.0,
+            flex_wrap: false,
             grid_columns: None,
         }
     }
@@ -133,6 +137,11 @@ impl Style {
             },
             flex_grow: self.flex_grow,
             flex_direction: self.flex_direction.to_taffy(),
+            flex_wrap: if self.flex_wrap {
+                taffy::FlexWrap::Wrap
+            } else {
+                taffy::FlexWrap::NoWrap
+            },
             justify_content: Some(self.justify.to_taffy()),
             align_items: Some(self.align.to_taffy()),
             padding: taffy::Rect {

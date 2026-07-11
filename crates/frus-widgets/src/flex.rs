@@ -18,6 +18,7 @@ pub struct Flex<Msg> {
     align: Align,
     padding: Insets,
     gap: f32,
+    wrap: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -42,6 +43,7 @@ impl<Msg> Flex<Msg> {
             align: Align::Stretch,
             padding: Insets::ZERO,
             gap: 0.0,
+            wrap: false,
             children: Vec::new(),
         }
     }
@@ -94,6 +96,14 @@ impl<Msg> Flex<Msg> {
         self
     }
 
+    /// Active le **passage à la ligne** : les enfants qui débordent l'axe
+    /// principal repassent sur une nouvelle ligne (reflow responsive). Voir aussi
+    /// [`Wrap`] comme point d'entrée nommé.
+    pub fn wrap(mut self) -> Self {
+        self.wrap = true;
+        self
+    }
+
     /// Ajoute un enfant.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.push(Box::new(child));
@@ -112,6 +122,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             align: self.align,
             padding: self.padding,
             gap: self.gap,
+            flex_wrap: self.wrap,
             grid_columns: None,
         }
     }
@@ -126,5 +137,34 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+}
+
+/// Point d'entrée nommé pour une rangée **qui passe à la ligne** (flex-wrap).
+///
+/// `Wrap::new().gap(8.0).child(a).child(b)…` — les enfants s'écoulent sur
+/// plusieurs lignes selon la largeur disponible, sans breakpoint. Renvoie un
+/// [`Flex`] (rangée avec `wrap` activé), donc tous ses réglages restent dispo.
+pub struct Wrap;
+
+impl Wrap {
+    /// Rangée avec passage à la ligne activé.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<Msg>() -> Flex<Msg> {
+        Flex::row().wrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_sets_flex_wrap_in_style() {
+        let plain = Flex::<()>::row();
+        assert!(!Widget::<()>::style(&plain).flex_wrap);
+
+        let wrapped = Wrap::new::<()>().child(Flex::<()>::row());
+        assert!(Widget::<()>::style(&wrapped).flex_wrap);
     }
 }

@@ -160,6 +160,7 @@ fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeI
     if widget.scroll_content().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
+        || widget.layout_builder().is_some()
         || widget.stack()
     {
         return layout.leaf(widget.style(), ());
@@ -355,6 +356,31 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             if max_y > 0.0 {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
             }
+        } else if let Some(build) = widget.layout_builder() {
+            // Construit le contenu à partir de la boîte réelle, puis le met en page
+            // et le rend à l'intérieur (comme un élément de liste : sans état retenu).
+            let bounds = draw_rect;
+            let content_clip = clip.intersect(bounds);
+            let child = build(Size::new(bounds.width, bounds.height));
+
+            let mut layout: Layout<()> = Layout::new();
+            let root = build_layout(child.as_ref(), &mut layout);
+            layout.compute(root, Size::new(bounds.width, bounds.height));
+            let child_rects: Vec<Rect> = layout
+                .absolute_rects(root)
+                .into_iter()
+                .map(|(rect, _)| rect)
+                .collect();
+
+            let mut child_index = 0;
+            self.render_item(
+                child.as_ref(),
+                id.child(0),
+                (bounds.x, bounds.y),
+                content_clip,
+                &child_rects,
+                &mut child_index,
+            );
         } else if widget.stack() {
             // Pile : chaque couche remplit la boîte, rendue dans l'ordre.
             let bounds = draw_rect;
