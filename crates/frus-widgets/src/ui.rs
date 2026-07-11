@@ -581,7 +581,10 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         while let Some((content, oid, anchor, placement, dismiss, progress)) = self.overlays.pop() {
             // Les tiroirs glissent selon une **courbe en ressort** (arrivée douce),
             // pas linéairement ; les autres overlays gardent leur progression brute.
-            let progress = if matches!(placement, Placement::Left | Placement::Right) {
+            let progress = if matches!(
+                placement,
+                Placement::Left | Placement::Right | Placement::Bottom
+            ) {
                 crate::runtime::spring_ease(progress)
             } else {
                 progress
@@ -593,6 +596,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             // largeur libre ; les autres overlays prennent leur taille naturelle.
             let (free_x, free_y) = match placement {
                 Placement::Left | Placement::Right => (true, false),
+                // La feuille est pleine-largeur (contrainte à la fenêtre), hauteur
+                // naturelle : son panneau `Percent(1.0)` en largeur se déploie.
+                Placement::Bottom => (false, true),
                 _ => (true, true),
             };
             layout.compute_scroll(root, self.available.width, self.available.height, free_x, free_y);
@@ -614,6 +620,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 Placement::Left => (-(1.0 - progress) * size.width, 0.0),
                 // Idem depuis la droite : le bord droit reste collé à la fenêtre.
                 Placement::Right => (self.available.width - progress * size.width, 0.0),
+                // La feuille glisse depuis le bas : le bord bas reste collé à la
+                // fenêtre, décalée de `(1-progress)·hauteur` vers le bas.
+                Placement::Bottom => (0.0, self.available.height - progress * size.height),
             };
 
             // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
@@ -640,7 +649,10 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 }
             }
 
-            if matches!(placement, Placement::Center | Placement::Left | Placement::Right) {
+            if matches!(
+                placement,
+                Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
+            ) {
                 // Voile sombre derrière la modale / le tiroir, modulé par la
                 // progression (fondu synchronisé avec le glissement).
                 self.scene.set_owner(0);

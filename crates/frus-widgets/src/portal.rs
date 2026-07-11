@@ -23,6 +23,9 @@ pub enum Placement {
     /// Panneau plein-hauteur accolé au bord **droit** de la fenêtre, avec un
     /// voile (tiroir latéral). Voir [`crate::Drawer`].
     Right,
+    /// Panneau pleine-largeur accolé au bord **bas** de la fenêtre, glissant vers
+    /// le haut, avec un voile (feuille modale). Voir [`crate::BottomSheet`].
+    Bottom,
 }
 
 /// Un portail : une **ancre** (dans le flux) et un **overlay** flottant optionnel.

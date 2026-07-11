@@ -9,7 +9,7 @@ use std::time::Duration;
 use frus_shell::{run, Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
-    Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
+    BottomSheet, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
     DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Justify, Kbd, LayoutBuilder, List, Menu,
     NavBar, NavScaffold, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack,
@@ -138,6 +138,8 @@ enum Msg {
     CloseDetail,
     /// Ouvre/ferme le tiroir de navigation latéral.
     ToggleDrawer,
+    /// Ouvre/ferme la feuille modale d'actions rapides.
+    ToggleSheet,
 }
 
 /// Chemin du fichier de persistance des tâches.
@@ -253,6 +255,8 @@ struct TodoApp {
     orientation: Option<Orientation>,
     /// Tiroir de navigation latéral ouvert ?
     drawer_open: bool,
+    /// Feuille modale d'actions rapides ouverte ?
+    sheet_open: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -331,6 +335,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::AskClearDone => {
+            app.sheet_open = false;
             app.confirm_clear = true;
             Command::none()
         }
@@ -422,6 +427,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         // --- Effets ---
         Msg::Save => {
+            app.sheet_open = false;
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
             let items: Vec<(bool, String)> =
                 app.todos.iter().map(|t| (t.done, t.text.clone())).collect();
@@ -523,6 +529,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::ToggleDrawer => {
             app.drawer_open = !app.drawer_open;
+            Command::none()
+        }
+        Msg::ToggleSheet => {
+            app.sheet_open = !app.sheet_open;
             Command::none()
         }
     }
@@ -659,7 +669,11 @@ impl Application for TodoApp {
     }
 
     fn can_go_back(&self) -> bool {
-        !self.routes.is_empty() && !self.confirm_clear && !self.menu_open && !self.drawer_open
+        !self.routes.is_empty()
+            && !self.confirm_clear
+            && !self.menu_open
+            && !self.drawer_open
+            && !self.sheet_open
     }
 
     fn back_gesture(&mut self, progress: f32) {
@@ -1044,7 +1058,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .child(indicator)
         .child(text("My Tasks").size(title_size))
         .child(text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted))
-        .child(actions);
+        .child(actions)
+        // « ⋯ » : ouvre une feuille modale d'actions rapides (glisse depuis le bas).
+        .child(button("⋯", Msg::ToggleSheet).variant(Variant::Secondary).size(15.0));
 
     // Saisie : champ (Entrée valide) + bouton d'ajout.
     let input_row = row![
@@ -1192,11 +1208,33 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         .panel(drawer_menu(app, theme, active))
         .body(layers);
 
+    // Feuille modale d'actions rapides (glisse depuis le bas, ferme au voile).
+    let sheet = BottomSheet::new(app.sheet_open)
+        .on_dismiss(Msg::ToggleSheet)
+        .sheet(quick_actions_sheet(theme))
+        .body(drawer);
+
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(drawer)
+        .child(sheet)
+}
+
+/// Contenu de la feuille modale : quelques actions rapides.
+fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
+    Container::new().padding(20.0).child(
+        Flex::column()
+            .gap(12.0)
+            .child(text("Quick actions").size(20.0).color(theme.on_surface))
+            .child(button("💾  Save", Msg::Save).variant(Variant::Primary).size(16.0))
+            .child(
+                button("🗑  Clear completed", Msg::AskClearDone)
+                    .variant(Variant::Secondary)
+                    .size(16.0),
+            )
+            .child(button("Close", Msg::ToggleSheet).variant(Variant::Secondary).size(16.0)),
+    )
 }
 
 /// Contenu du tiroir de navigation : en-tête + destinations + réglages.
@@ -1340,6 +1378,20 @@ mod tests {
         reduce(&mut app, Msg::ToggleDrawer);
         reduce(&mut app, Msg::Push(Route::Settings));
         assert!(!app.drawer_open);
+    }
+
+    #[test]
+    fn sheet_toggles_and_action_closes_it() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::ToggleSheet);
+        assert!(app.sheet_open);
+        // Une action de la feuille (Save) la referme.
+        reduce(&mut app, Msg::Save);
+        assert!(!app.sheet_open);
+        // Idem pour « Clear completed » (qui ouvre la confirmation).
+        reduce(&mut app, Msg::ToggleSheet);
+        reduce(&mut app, Msg::AskClearDone);
+        assert!(!app.sheet_open);
     }
 
     #[test]
