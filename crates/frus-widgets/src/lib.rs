@@ -9,16 +9,19 @@
 //! L'état retenu entre frames (survol/focus, offsets de scroll, curseur/sélection)
 //! vit dans un [`Runtime`], clé par identité de widget.
 
+mod alert;
 mod avatar;
 mod badge;
 mod breadcrumb;
 mod button;
 mod card;
+mod carousel;
 mod checkbox;
 mod chip;
 mod collapsible;
 mod colorpicker;
 mod container;
+mod datepicker;
 mod divider;
 mod dropdown;
 mod dsl;
@@ -55,16 +58,19 @@ mod tree;
 mod ui;
 mod widget;
 
+pub use alert::{Alert, AlertKind};
 pub use avatar::Avatar;
 pub use badge::Badge;
 pub use breadcrumb::Breadcrumb;
 pub use button::{Button, Variant};
 pub use card::Card;
+pub use carousel::Carousel;
 pub use checkbox::Checkbox;
 pub use chip::Chip;
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;
 pub use container::Container;
+pub use datepicker::DatePicker;
 pub use divider::Divider;
 pub use dropdown::Dropdown;
 pub use dsl::{button, keyed, spacer, text};
