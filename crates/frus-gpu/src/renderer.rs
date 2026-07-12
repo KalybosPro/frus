@@ -52,12 +52,18 @@ impl Renderer {
 
         log::info!("Adaptateur GPU : {:?}", adapter.get_info());
 
+        // Limites downlevel (compat GLES) mais avec la **résolution réelle** de
+        // l'adaptateur : sur mobile, l'écran (ex. 1080×2340) dépasse la texture
+        // max downlevel de 2048 — sans ça, `surface.configure` panique.
+        let required_limits =
+            wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("frus.device"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    required_limits,
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None,

@@ -8,9 +8,18 @@ license.workspace = true
 [dependencies]
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
-arboard.workspace = true
 winit.workspace = true
 pollster.workspace = true
 anyhow.workspace = true
-env_logger.workspace = true
 log.workspace = true
+
+# Presse-papier + logger console : plateformes de bureau uniquement.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard.workspace = true
+env_logger.workspace = true
+
+# Sur Android, winit passe par l'activité native (android-activity) et les logs
+# vont dans logcat.
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { workspace = true, features = ["android-native-activity"] }
+android_logger = "0.14"

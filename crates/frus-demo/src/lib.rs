@@ -1,12 +1,15 @@
 //! Application exemple : une **liste de tâches** écrite avec frus, en tant que
 //! **consommateur externe** du framework (implémente [`frus_shell::Application`]).
 //!
-//! Lancer avec : `cargo run -p frus-demo` (ajouter `RUST_LOG=info` pour les logs).
+//! Deux points d'entrée pour le même code :
+//! - bureau : `cargo run -p frus-demo` → binaire `src/bin/frus-demo.rs` → [`run_desktop`] ;
+//! - Android : la bibliothèque `cdylib` expose `android_main`, appelé par
+//!   l'activité native.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use frus_shell::{run, Application, Command, Subscription};
+use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
     BottomSheet, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
@@ -17,8 +20,20 @@ use frus_widgets::{
     Wrap,
 };
 
-fn main() -> anyhow::Result<()> {
-    run(TodoApp::default())
+/// Point d'entrée bureau : ouvre la fenêtre et lance la boucle winit.
+#[cfg(not(target_os = "android"))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    frus_shell::run(TodoApp::default())
+}
+
+/// Point d'entrée Android : appelé par l'activité native, reçoit l'`AndroidApp`
+/// et démarre la même application.
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(android_app: frus_shell::AndroidApp) {
+    if let Err(err) = frus_shell::run_android(TodoApp::default(), android_app) {
+        log::error!("frus-demo (android) s'est arrêté : {err:#}");
+    }
 }
 
 // --- Constantes de mouvement (partagées geste ↔ navigation) ---

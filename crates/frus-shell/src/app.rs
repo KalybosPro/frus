@@ -16,15 +16,56 @@ use frus_widgets::{
     build_ui, collect_ids, find_widget, Edit, Key, Point, Runtime, Size, Ui, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::application::Application;
 
+/// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android
+/// (pas de dépendance `arboard`, qui ne s'y compile pas). Une API uniforme pour
+/// que le corps du pilote reste sans `cfg`.
+mod clip {
+    #[cfg(not(target_os = "android"))]
+    pub struct Clipboard(Option<arboard::Clipboard>);
+
+    #[cfg(not(target_os = "android"))]
+    impl Clipboard {
+        pub fn new() -> Self {
+            Self(arboard::Clipboard::new().ok())
+        }
+        pub fn get_text(&mut self) -> Option<String> {
+            self.0.as_mut().and_then(|c| c.get_text().ok())
+        }
+        pub fn set_text(&mut self, text: String) {
+            if let Some(c) = self.0.as_mut() {
+                let _ = c.set_text(text);
+            }
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    pub struct Clipboard;
+
+    #[cfg(target_os = "android")]
+    impl Clipboard {
+        pub fn new() -> Self {
+            Self
+        }
+        pub fn get_text(&mut self) -> Option<String> {
+            None
+        }
+        pub fn set_text(&mut self, _text: String) {}
+    }
+}
+
 /// Vitesse de défilement (pixels par cran de molette).
 const SCROLL_SPEED: f32 = 40.0;
+
+/// Seuil de mouvement (px logiques) au-delà duquel un appui tactile devient un
+/// défilement plutôt qu'un tap.
+const TOUCH_SLOP: f32 = 8.0;
 
 /// Dépassement élastique autorisé au-delà des bornes de défilement (px) — rebond.
 const SCROLL_OVER: f32 = 48.0;
@@ -48,6 +89,9 @@ enum Drag {
     TextSelect { id: WidgetId, rect: frus_widgets::Rect },
     /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
     Widget { id: WidgetId, rect: frus_widgets::Rect },
+    /// Défilement d'une zone scrollable au doigt (tactile). `moved` distingue un
+    /// vrai défilement d'un simple tap (mouvement sous le seuil `TOUCH_SLOP`).
+    Scroll { id: WidgetId, last: Point, moved: bool },
     /// Geste « retour » : le framework mesure la progression et la vélocité du
     /// doigt et les transmet à l'application (qui décide de la navigation).
     Back {
@@ -81,8 +125,11 @@ pub struct App<A: Application> {
     /// Modificateurs clavier courants.
     shift: bool,
     ctrl: bool,
-    /// Accès presse-papier (initialisé au démarrage).
-    clipboard: Option<arboard::Clipboard>,
+    /// Accès presse-papier (no-op sur Android).
+    clipboard: clip::Clipboard,
+    /// Effet de démarrage (`init`) déjà exécuté ? Évite de le rejouer quand la
+    /// surface est recréée (retour d'arrière-plan sur Android).
+    started: bool,
     /// Instant de la dernière frame (pour le dt des animations).
     last_frame: Option<Instant>,
     /// Glissement souris en cours.
@@ -115,7 +162,8 @@ impl<A: Application> App<A> {
             runtime: Runtime::default(),
             shift: false,
             ctrl: false,
-            clipboard: None,
+            clipboard: clip::Clipboard::new(),
+            started: false,
             last_frame: None,
             drag: None,
             last_click_time: None,
@@ -133,7 +181,6 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             return;
         }
 
-        self.clipboard = arboard::Clipboard::new().ok();
         let mut attributes = Window::default_attributes()
             .with_title(self.app.title())
             // Taille minimale raisonnable (px logiques) : évite une UI absurde.
@@ -162,10 +209,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.scale = window.scale_factor() as f32;
                 self.window = Some(window.clone());
                 self.renderer = Some(renderer);
-                // Effet de démarrage (chargement initial, etc.).
-                let command = self.app.init();
-                self.run_command(command);
-                self.sync_subscriptions();
+                // Effet de démarrage (chargement initial, etc.) : une seule fois,
+                // pas à chaque recréation de surface (retour d'arrière-plan).
+                if !self.started {
+                    self.started = true;
+                    let command = self.app.init();
+                    self.run_command(command);
+                    self.sync_subscriptions();
+                }
                 window.request_redraw();
             }
             Err(err) => {
@@ -173,6 +224,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 event_loop.exit();
             }
         }
+    }
+
+    /// Mise en arrière-plan (Android) : la surface native est détruite. On
+    /// relâche renderer + fenêtre ; `resumed` les recrée au retour (sans rejouer
+    /// `init`, cf. `started`). Inoffensif sur bureau (l'événement n'y survient pas).
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.renderer = None;
+        self.window = None;
+        self.last_frame = None;
     }
 
     /// Message produit par un effet (thread de fond) : on l'applique et on
@@ -224,18 +284,22 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // (échelle totale = DPI × densité).
                 let scale = self.total_scale();
                 self.cursor = Point::new(position.x as f32 / scale, position.y as f32 / scale);
+                self.pointer_move();
+            }
 
-                // Glissement en cours : barre de défilement, sélection, geste…
-                if self.drag.is_some() {
-                    self.handle_drag();
-                    return;
-                }
-
-                // Met à jour le survol ; ne redessine que s'il a changé.
-                if let Some(ui) = &self.ui {
-                    let hovered = ui.hit(self.cursor);
-                    if hovered != self.runtime.input.hovered {
-                        self.runtime.input.hovered = hovered;
+            // Écran tactile : on ramène chaque phase au même chemin que la souris
+            // (un doigt = un pointeur), avec en plus le défilement au doigt.
+            WindowEvent::Touch(touch) => {
+                let scale = self.total_scale();
+                self.cursor =
+                    Point::new(touch.location.x as f32 / scale, touch.location.y as f32 / scale);
+                match touch.phase {
+                    TouchPhase::Started => self.pointer_down(true),
+                    TouchPhase::Moved => self.pointer_move(),
+                    TouchPhase::Ended => self.pointer_up(),
+                    TouchPhase::Cancelled => {
+                        self.drag = None;
+                        self.runtime.input.pressed = None;
                         self.request_redraw();
                     }
                 }
@@ -251,135 +315,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
-            } => {
-                // 0) Geste retour : appui sur le bord gauche, si l'app l'autorise.
-                if self.cursor.x < BACK_EDGE && self.app.can_go_back() {
-                    self.drag = Some(Drag::Back {
-                        start_x: self.cursor.x,
-                        last_x: self.cursor.x,
-                        last_t: Instant::now(),
-                        velocity: 0.0,
-                    });
-                    self.app.back_gesture(0.0);
-                    self.request_redraw();
-                    return;
-                }
-
-                // 1) Glissement d'une barre de défilement ?
-                if let Some(bar) = self.ui.as_ref().and_then(|ui| ui.scrollbar_at(self.cursor)) {
-                    let (along, thumb_start) = if bar.vertical {
-                        (self.cursor.y, bar.thumb.y)
-                    } else {
-                        (self.cursor.x, bar.thumb.x)
-                    };
-                    self.drag = Some(Drag::Scrollbar {
-                        id: bar.id,
-                        vertical: bar.vertical,
-                        grab: along - thumb_start,
-                        track_start: bar.track_start,
-                        track_len: bar.track_len,
-                        thumb_len: bar.thumb_len,
-                        max: bar.max,
-                    });
-                    self.request_redraw();
-                    return;
-                }
-
-                // 1 bis) Glissement d'un widget draggable (ex. Slider) ?
-                if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
-                    self.drag = Some(Drag::Widget { id, rect });
-                    self.apply_widget_drag(id, rect);
-                    self.request_redraw();
-                    return;
-                }
-
-                self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-                // 2) Focus + placement du curseur, et début d'une sélection texte.
-                let previously_focused = self.runtime.input.focused;
-                let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
-                self.runtime.input.focused = focus.map(|(id, _)| id);
-                if let Some((id, rect)) = focus {
-                    let local_x = self.cursor.x - rect.x;
-                    // Défilement affiché juste avant ce clic : calculé depuis le
-                    // curseur courant si le champ était déjà focalisé, sinon 0.
-                    let scroll_cursor = if previously_focused == Some(id) {
-                        self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
-                    } else {
-                        0
-                    };
-                    // Seuls les **champs texte** (`cursor_at` → `Some`) démarrent une
-                    // sélection ; les autres focusables (boutons, cases…) gardent le
-                    // focus mais ne doivent PAS capturer le clic (sinon il est avalé
-                    // au relâchement comme une fin de glissement).
-                    let cursor = self
-                        .tree
-                        .as_ref()
-                        .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
-                    if let Some(cursor) = cursor {
-                        self.runtime.edits.insert(id, Edit { cursor, anchor: None });
-                        self.drag = Some(Drag::TextSelect { id, rect });
-
-                        // Double-clic : sélectionne le mot sous le curseur.
-                        let now = Instant::now();
-                        let double = self
-                            .last_click_time
-                            .map(|t| (now - t).as_secs_f32() < 0.4)
-                            .unwrap_or(false);
-                        self.last_click_time = Some(now);
-                        if double {
-                            if let Some((start, end)) = self
-                                .tree
-                                .as_ref()
-                                .and_then(|tree| find_widget(tree.as_ref(), id))
-                                .and_then(|widget| widget.word_at(cursor))
-                            {
-                                self.runtime.edits.insert(
-                                    id,
-                                    Edit {
-                                        cursor: end,
-                                        anchor: Some(start),
-                                    },
-                                );
-                                self.drag = None;
-                            }
-                        }
-                    }
-                }
-                self.request_redraw();
-            }
+            } => self.pointer_down(false),
 
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => {
-                // Fin d'un éventuel glissement.
-                let ended = self.drag.take();
-                if let Some(Drag::Back { velocity, .. }) = ended {
-                    // L'app décide (valider / annuler) à partir de la vélocité.
-                    self.app.back_gesture_end(velocity);
-                    self.request_redraw();
-                    return;
-                }
-                if ended.is_some() {
-                    self.request_redraw();
-                    return;
-                }
-                // Le clic n'est validé que si press et release sont sur le même widget.
-                let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-                let message = match (self.runtime.input.pressed, released) {
-                    (Some(pressed), Some(released)) if pressed == released => {
-                        self.ui.as_ref().and_then(|ui| ui.msg_for(pressed))
-                    }
-                    _ => None,
-                };
-                self.runtime.input.pressed = None;
-                if let Some(message) = message {
-                    self.dispatch(message);
-                }
-                self.request_redraw();
-            }
+            } => self.pointer_up(),
 
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed =>
@@ -436,9 +378,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             return;
                         }
                         WinitKey::Character(c) if c.eq_ignore_ascii_case("v") => {
-                            if let Some(text) =
-                                self.clipboard.as_mut().and_then(|cb| cb.get_text().ok())
-                            {
+                            if let Some(text) = self.clipboard.get_text() {
                                 self.apply_key(focused, Key::Text(text));
                                 self.request_redraw();
                             }
@@ -646,6 +586,163 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Déplacement du pointeur (souris ou doigt) : poursuit un glissement en
+    /// cours, sinon met à jour le survol.
+    fn pointer_move(&mut self) {
+        if self.drag.is_some() {
+            self.handle_drag();
+            return;
+        }
+        if let Some(ui) = &self.ui {
+            let hovered = ui.hit(self.cursor);
+            if hovered != self.runtime.input.hovered {
+                self.runtime.input.hovered = hovered;
+                self.request_redraw();
+            }
+        }
+    }
+
+    /// Appui du pointeur (souris ou doigt) à la position `self.cursor`. `touch`
+    /// active le défilement au doigt quand aucun autre geste ne capture l'appui.
+    fn pointer_down(&mut self, touch: bool) {
+        // 0) Geste retour : appui sur le bord gauche, si l'app l'autorise.
+        if self.cursor.x < BACK_EDGE && self.app.can_go_back() {
+            self.drag = Some(Drag::Back {
+                start_x: self.cursor.x,
+                last_x: self.cursor.x,
+                last_t: Instant::now(),
+                velocity: 0.0,
+            });
+            self.app.back_gesture(0.0);
+            self.request_redraw();
+            return;
+        }
+
+        // 1) Glissement d'une barre de défilement ?
+        if let Some(bar) = self.ui.as_ref().and_then(|ui| ui.scrollbar_at(self.cursor)) {
+            let (along, thumb_start) = if bar.vertical {
+                (self.cursor.y, bar.thumb.y)
+            } else {
+                (self.cursor.x, bar.thumb.x)
+            };
+            self.drag = Some(Drag::Scrollbar {
+                id: bar.id,
+                vertical: bar.vertical,
+                grab: along - thumb_start,
+                track_start: bar.track_start,
+                track_len: bar.track_len,
+                thumb_len: bar.thumb_len,
+                max: bar.max,
+            });
+            self.request_redraw();
+            return;
+        }
+
+        // 1 bis) Glissement d'un widget draggable (ex. Slider) ?
+        if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
+            self.drag = Some(Drag::Widget { id, rect });
+            self.apply_widget_drag(id, rect);
+            self.request_redraw();
+            return;
+        }
+
+        self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+        // 2) Focus + placement du curseur, et début d'une sélection texte.
+        let previously_focused = self.runtime.input.focused;
+        let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
+        self.runtime.input.focused = focus.map(|(id, _)| id);
+        if let Some((id, rect)) = focus {
+            let local_x = self.cursor.x - rect.x;
+            // Défilement affiché juste avant ce clic : calculé depuis le
+            // curseur courant si le champ était déjà focalisé, sinon 0.
+            let scroll_cursor = if previously_focused == Some(id) {
+                self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
+            } else {
+                0
+            };
+            // Seuls les **champs texte** (`cursor_at` → `Some`) démarrent une
+            // sélection ; les autres focusables (boutons, cases…) gardent le
+            // focus mais ne doivent PAS capturer le clic (sinon il est avalé
+            // au relâchement comme une fin de glissement).
+            let cursor = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
+            if let Some(cursor) = cursor {
+                self.runtime.edits.insert(id, Edit { cursor, anchor: None });
+                self.drag = Some(Drag::TextSelect { id, rect });
+
+                // Double-clic : sélectionne le mot sous le curseur.
+                let now = Instant::now();
+                let double = self
+                    .last_click_time
+                    .map(|t| (now - t).as_secs_f32() < 0.4)
+                    .unwrap_or(false);
+                self.last_click_time = Some(now);
+                if double {
+                    if let Some((start, end)) = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                        .and_then(|widget| widget.word_at(cursor))
+                    {
+                        self.runtime.edits.insert(
+                            id,
+                            Edit {
+                                cursor: end,
+                                anchor: Some(start),
+                            },
+                        );
+                        self.drag = None;
+                    }
+                }
+            }
+        }
+
+        // 3) Tactile : si rien n'a capturé le geste (ni barre, ni widget, ni
+        // sélection texte), préparer un défilement au doigt sur la zone sous le
+        // doigt. Un relâchement sans mouvement (< TOUCH_SLOP) restera un tap.
+        if touch && self.drag.is_none() {
+            if let Some((id, _, _)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
+                self.drag = Some(Drag::Scroll { id, last: self.cursor, moved: false });
+            }
+        }
+        self.request_redraw();
+    }
+
+    /// Relâchement du pointeur (souris ou doigt) : termine un glissement ou
+    /// valide un clic/tap si le relâchement retombe sur le widget pressé.
+    fn pointer_up(&mut self) {
+        let ended = self.drag.take();
+        if let Some(Drag::Back { velocity, .. }) = ended {
+            // L'app décide (valider / annuler) à partir de la vélocité.
+            self.app.back_gesture_end(velocity);
+            self.request_redraw();
+            return;
+        }
+        // Un défilement tactile qui n'a pas bougé = un simple tap : on le laisse
+        // suivre le chemin normal du clic ci-dessous.
+        let was_tap = matches!(ended, Some(Drag::Scroll { moved: false, .. }));
+        if ended.is_some() && !was_tap {
+            self.request_redraw();
+            return;
+        }
+        // Le clic n'est validé que si press et release sont sur le même widget.
+        let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+        let message = match (self.runtime.input.pressed, released) {
+            (Some(pressed), Some(released)) if pressed == released => {
+                self.ui.as_ref().and_then(|ui| ui.msg_for(pressed))
+            }
+            _ => None,
+        };
+        self.runtime.input.pressed = None;
+        if let Some(message) = message {
+            self.dispatch(message);
+        }
+        self.request_redraw();
+    }
+
     /// Applique un message à l'application, exécute ses effets, puis réévalue les
     /// souscriptions (l'état a pu changer celles qui doivent tourner).
     fn dispatch(&mut self, message: A::Message) {
@@ -758,6 +855,34 @@ impl<A: Application> App<A> {
                 }
             }
             Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
+            Drag::Scroll { id, last, moved } => {
+                let dx = self.cursor.x - last.x;
+                let dy = self.cursor.y - last.y;
+                // Sous le seuil, on ne défile pas encore (le geste peut être un tap).
+                if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
+                    *moved = true;
+                }
+                if *moved {
+                    let maxes = self
+                        .ui
+                        .as_ref()
+                        .map(|u| u.scrollable_maxes())
+                        .unwrap_or_default();
+                    let (mx, my) = maxes
+                        .iter()
+                        .find(|(i, _, _)| *i == *id)
+                        .map(|(_, x, y)| (*x, *y))
+                        .unwrap_or((0.0, 0.0));
+                    let cur = self.runtime.scroll.get(id).copied().unwrap_or((0.0, 0.0));
+                    // Le doigt « pousse » le contenu : on suit le delta immédiatement.
+                    let nx = (cur.0 - dx).clamp(0.0, mx);
+                    let ny = (cur.1 - dy).clamp(0.0, my);
+                    self.runtime.scroll.insert(*id, (nx, ny));
+                    self.runtime.scroll_target.insert(*id, (nx, ny));
+                    self.runtime.scroll_velocity.remove(id);
+                    *last = self.cursor;
+                }
+            }
             Drag::Back {
                 start_x,
                 last_x,
@@ -830,8 +955,8 @@ impl<A: Application> App<A> {
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
             .and_then(|widget| widget.selected_text(&edit));
-        if let (Some(text), Some(clipboard)) = (text, self.clipboard.as_mut()) {
-            let _ = clipboard.set_text(text);
+        if let Some(text) = text {
+            self.clipboard.set_text(text);
         }
     }
 }
