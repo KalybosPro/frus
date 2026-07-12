@@ -13,7 +13,7 @@ use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
     BottomSheet, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
-    DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Justify, Kbd, LayoutBuilder, List, Menu,
+    DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List, Menu,
     NavBar, NavScaffold, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
@@ -272,6 +272,8 @@ struct TodoApp {
     drawer_open: bool,
     /// Feuille modale d'actions rapides ouverte ?
     sheet_open: bool,
+    /// Insets système (zone de sécurité) : barres d'état/navigation, encoches.
+    insets: Insets,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -605,8 +607,33 @@ impl Application for TodoApp {
         }
     }
 
+    fn on_insets(&mut self, insets: Insets) {
+        if self.insets != insets {
+            self.insets = insets;
+            eprintln!("[demo] insets : {insets:?}");
+        }
+    }
+
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-        Box::new(build_view(self, theme, width, height))
+        // Zone de sécurité : on construit l'interface aux dimensions **internes**
+        // (fenêtre moins insets système), puis on l'enrobe d'un fond plein-fenêtre
+        // écarté par `padding` — le fond s'étend sous les barres, le contenu non.
+        let i = self.insets;
+        let w = (width - i.left - i.right).max(0.0);
+        let h = (height - i.top - i.bottom).max(0.0);
+        let nav = build_view(self, theme, w, h);
+        if i == Insets::ZERO {
+            Box::new(nav)
+        } else {
+            Box::new(
+                Container::new()
+                    .width(width)
+                    .height(height)
+                    .color(theme.background)
+                    .padding_each(i.top, i.right, i.bottom, i.left)
+                    .child(nav),
+            )
+        }
     }
 
     fn theme(&self) -> Theme {
@@ -1393,6 +1420,19 @@ mod tests {
         reduce(&mut app, Msg::ToggleDrawer);
         reduce(&mut app, Msg::Push(Route::Settings));
         assert!(!app.drawer_open);
+    }
+
+    #[test]
+    fn on_insets_updates_safe_area() {
+        let mut app = TodoApp::default();
+        assert_eq!(app.insets, Insets::ZERO);
+        app.on_insets(Insets::new(84.0, 0.0, 45.0, 0.0));
+        assert_eq!(app.insets, Insets::new(84.0, 0.0, 45.0, 0.0));
+        // La vue se construit sans paniquer avec des insets non nuls (chemin d'enrobage).
+        let theme = Theme::dark();
+        let tree = Application::view(&app, &theme, 400.0, 800.0);
+        let ui = build_ui(tree.as_ref(), Size::new(400.0, 800.0), &Runtime::default(), &theme);
+        assert!(!ui.scene().primitives().is_empty());
     }
 
     #[test]

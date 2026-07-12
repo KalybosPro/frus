@@ -13,7 +13,8 @@ use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_widget, Edit, Key, Point, Runtime, Size, Ui, Widget, WidgetId,
+    build_ui, collect_ids, find_widget, Edit, Insets, Key, Point, Runtime, Size, Ui, Widget,
+    WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
@@ -144,6 +145,11 @@ pub struct App<A: Application> {
     occluded: bool,
     /// Temps écoulé cumulé (secondes), pour les animations continues.
     elapsed: f32,
+    /// Derniers insets système transmis à l'app (zone de sécurité), en logique.
+    last_insets: Insets,
+    /// Poignée de l'activité Android (pour interroger les insets, le clavier…).
+    #[cfg(target_os = "android")]
+    android_app: Option<winit::platform::android::activity::AndroidApp>,
 }
 
 impl<A: Application> App<A> {
@@ -171,7 +177,38 @@ impl<A: Application> App<A> {
             running_subs: HashMap::new(),
             occluded: false,
             elapsed: 0.0,
+            last_insets: Insets::ZERO,
+            #[cfg(target_os = "android")]
+            android_app: None,
         }
+    }
+
+    /// Mémorise la poignée de l'activité Android (source des insets système).
+    #[cfg(target_os = "android")]
+    pub(crate) fn set_android_app(
+        &mut self,
+        android_app: winit::platform::android::activity::AndroidApp,
+    ) {
+        self.android_app = Some(android_app);
+    }
+
+    /// Insets système (zone de sécurité) en px **logiques**. Sur Android, dérivés
+    /// de la zone de contenu de l'activité (hors barres système) ; ailleurs, zéro.
+    fn compute_insets(&self, phys_w: u32, phys_h: u32, scale: f32) -> Insets {
+        #[cfg(target_os = "android")]
+        if let Some(app) = &self.android_app {
+            let r = app.content_rect();
+            // Rectangle dégénéré (avant la première mise en page) → pas d'inset.
+            if r.right > r.left && r.bottom > r.top {
+                let left = r.left.max(0) as f32;
+                let top = r.top.max(0) as f32;
+                let right = (phys_w as i32 - r.right).max(0) as f32;
+                let bottom = (phys_h as i32 - r.bottom).max(0) as f32;
+                return Insets::new(top / scale, right / scale, bottom / scale, left / scale);
+            }
+        }
+        let _ = (phys_w, phys_h, scale);
+        Insets::ZERO
     }
 }
 
@@ -471,6 +508,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if self.last_size != Some((width, height)) {
                     self.last_size = Some((width, height));
                     self.app.on_resize(width, height);
+                }
+
+                // Insets système (zone de sécurité) : notifie l'app quand ils changent.
+                let insets = self.compute_insets(size.width, size.height, scale);
+                if self.last_insets != insets {
+                    self.last_insets = insets;
+                    self.app.on_insets(insets);
                 }
 
                 // dt écoulé (clampé), pour toutes les animations.
