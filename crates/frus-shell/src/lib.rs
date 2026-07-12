@@ -64,12 +64,14 @@ pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::R
     );
 
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event()
-        .with_android_app(android_app)
+        .with_android_app(android_app.clone())
         .build()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let proxy = event_loop.create_proxy();
     let mut app = App::new(app, proxy);
+    // Conserve la poignée d'activité pour interroger les insets système.
+    app.set_android_app(android_app);
     event_loop.run_app(&mut app)?;
     Ok(())
 }
