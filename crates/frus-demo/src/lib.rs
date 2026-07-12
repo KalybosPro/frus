@@ -11,11 +11,11 @@ use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Alert, Align, AppBar, Autocomplete, Avatar,
-    BottomSheet, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
-    DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
-    NavBar, NavScaffold, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
-    RadioGroup, Rating, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
+    button, column, keyed, row, spacer, spring_step, text, Alert, Align, AppBar,
+    Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
+    Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
+    NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
+    RadioGroup, Rating, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
 };
 
@@ -770,11 +770,11 @@ fn build_view(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Navigato
 }
 
 /// Construit l'écran correspondant à une route.
-fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     match route {
         Route::Home => todo_screen(app, theme, width, height),
-        Route::Settings => settings_screen(app, theme, width, height),
-        Route::Journal => journal_screen(theme, width, height),
+        Route::Settings => Box::new(settings_screen(app, theme, width, height)),
+        Route::Journal => Box::new(journal_screen(theme, width, height)),
     }
 }
 
@@ -1041,7 +1041,7 @@ fn confirm_content(done: usize) -> Card<Msg> {
 }
 
 /// Écran principal : la liste de tâches (l'app exemple).
-fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let active = active_count(app);
     let done = done_count(app);
 
@@ -1059,9 +1059,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     // overflow « ⋯ », selon la largeur — sans jamais brancher sur mobile/desktop.
     let theme_label = if app.light { "Dark" } else { "Light" };
     let timer_label = if app.running { "Pause" } else { "Resume" };
-    let expanded = class == SizeClass::Expanded;
     let header = AppBar::new("My Tasks")
-        .width((card_width - 48.0).max(0.0))
+        .width((width - 16.0).max(0.0))
         .leading(button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(16.0))
         .overflow(app.actions_open, Msg::ToggleActions)
         .action(timer_label, Msg::ToggleTimer)
@@ -1119,10 +1118,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
     if shown == 0 {
         list = column![text("Nothing to show for this filter.").size(18.0).color(theme.muted)];
     }
-    // Responsivité **verticale** (Lot C) : en fenêtre courte, la liste se réduit
-    // et l'astuce est masquée pour préserver la hauteur utile.
+    // Responsivité **verticale** (Lot C) : en fenêtre courte, l'astuce est masquée
+    // pour préserver la hauteur utile. Le défilement est assuré par le Scaffold.
     let short = SizeClass::from_height(height) == SizeClass::Compact;
-    let scroll = Scroll::new().flex(1.0).height(if short { 200.0 } else { 320.0 }).child(list);
 
     // Pied : compteurs + effacer les terminées (avec confirmation modale).
     let clear_button = button("Clear completed", Msg::AskClearDone)
@@ -1173,65 +1171,51 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         );
     }
     card_body = card_body
-        .child(header)
         .child(input_row)
         .child(filters)
-        .child(scroll)
+        .child(list)
         .child(Divider::new())
         .child(progress)
         .child(footer);
     let card = Card::new().padding(20.0).child(card_body);
     let tasks_body = column![row![card].justify(Justify::Center)].padding(24.0);
 
-    // Sections de l'accueil, choisies via la navigation adaptative (NavScaffold) :
-    // rail vertical en grand, barre basse en étroit.
+    // Corps selon la section active (la navigation adaptative est dans le Scaffold).
     let section: Box<dyn Widget<Msg>> = match app.section {
         1 => Box::new(stats_section(app, theme, class)),
         2 => Box::new(about_section(theme)),
         _ => Box::new(tasks_body),
     };
-    // Le compteur de tâches actives s'affiche en badge sur « Tasks » (Lot B).
-    let shell = NavScaffold::new(class, app.section, Msg::SetSection)
+
+    // Ossature d'écran : le Scaffold épingle la barre haute et la navigation, fait
+    // défiler le corps, et coordonne tiroir / feuille / FAB — un seul point d'entrée.
+    // Les insets sont déjà gérés par `view` (qui passe des dimensions sûres) ; le
+    // Scaffold s'épingle donc simplement dans ce viewport.
+    let scaffold = Scaffold::new(width, height)
+        .background(theme.background)
+        .app_bar(header)
+        .body(section)
+        .nav(app.section, Msg::SetSection)
         .destination("✔", "Tasks")
         .badge(active as u32)
         .destination("▦", "Stats")
         .destination("★", "About")
-        .body(section);
-    let screen = Container::new().width(width).height(height).child(shell);
+        .end_drawer(drawer_menu(app, theme, active), app.drawer_open, Msg::ToggleDrawer)
+        .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
+        .build();
 
-    // La notification transitoire flotte en bas-centre, par-dessus l'écran.
-    let mut layers = Stack::new().width(width).height(height).layer(screen);
-    if let Some(message) = &app.toast {
-        layers = layers.layer(
-            column![Toast::new(message.clone()).success()]
-                .justify(Justify::End)
-                .align(Align::Center)
-                .padding(20.0),
-        );
+    // La notification transitoire (toast) flotte au-dessus de tout.
+    match &app.toast {
+        Some(message) => Box::new(
+            Stack::new().width(width).height(height).layer(scaffold).layer(
+                column![Toast::new(message.clone()).success()]
+                    .justify(Justify::End)
+                    .align(Align::Center)
+                    .padding(20.0),
+            ),
+        ),
+        None => scaffold,
     }
-
-    // Tiroir latéral accosté à droite : modal (glissant, ouvert par « ☰ ») en
-    // Compact/Medium, **permanent** en Expanded (panneau toujours visible à côté
-    // du corps, sans voile). En Expanded, on obtient une mise en page à 3 zones :
-    // rail (NavScaffold) · corps · panneau du tiroir.
-    let drawer = Drawer::new(app.drawer_open)
-        .on_dismiss(Msg::ToggleDrawer)
-        .right()
-        .permanent(expanded)
-        .panel(drawer_menu(app, theme, active))
-        .body(layers);
-
-    // Feuille modale d'actions rapides (glisse depuis le bas, ferme au voile).
-    let sheet = BottomSheet::new(app.sheet_open)
-        .on_dismiss(Msg::ToggleSheet)
-        .sheet(quick_actions_sheet(theme))
-        .body(drawer);
-
-    Container::new()
-        .width(width)
-        .height(height)
-        .color(theme.background)
-        .child(sheet)
 }
 
 /// Contenu de la feuille modale : quelques actions rapides.
