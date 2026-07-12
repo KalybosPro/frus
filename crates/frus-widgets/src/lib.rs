@@ -10,6 +10,7 @@
 //! vit dans un [`Runtime`], clé par identité de widget.
 
 mod alert;
+mod appbar;
 mod autocomplete;
 mod avatar;
 mod badge;
@@ -69,6 +70,7 @@ mod ui;
 mod widget;
 
 pub use alert::{Alert, AlertKind};
+pub use appbar::AppBar;
 pub use autocomplete::Autocomplete;
 pub use avatar::Avatar;
 pub use badge::Badge;

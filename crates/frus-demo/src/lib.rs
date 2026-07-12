@@ -11,13 +11,12 @@ use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Alert, Align, Autocomplete, Avatar, Badge,
+    button, column, keyed, row, spacer, spring_step, text, Alert, Align, AppBar, Autocomplete, Avatar,
     BottomSheet, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
-    DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List, Menu,
+    DatePicker, Divider, Drawer, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, NavScaffold, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
-    RadioGroup, Rating, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Spinner, Stack,
+    RadioGroup, Rating, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
-    Wrap,
 };
 
 /// Point d'entrée bureau : ouvre la fenêtre et lance la boucle winit.
@@ -1055,54 +1054,26 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Contain
         SizeClass::Expanded => 680.0,
     };
 
-    // En-tête : titre + chrono + bascule de thème + accès Réglages.
+    // En-tête : une AppBar adaptative. On déclare un titre + des actions ; elle
+    // décide seule combien tiennent en ligne et replie le reste dans un menu
+    // overflow « ⋯ », selon la largeur — sans jamais brancher sur mobile/desktop.
     let theme_label = if app.light { "Dark" } else { "Light" };
     let timer_label = if app.running { "Pause" } else { "Resume" };
-    // Indicateur : un spinner (animation continue) avec une pastille du nombre
-    // de tâches actives dans le coin (pile de couches).
-    let indicator = Stack::new()
-        .width(30.0)
-        .height(30.0)
-        .layer(Spinner::new().size(30.0))
-        .layer(row![Badge::new(format!("{active}"))].justify(Justify::End).align(Align::Start));
-    // Les actions passent à la ligne quand l'en-tête est trop étroit (Lot B :
-    // flex-wrap). `flex(1.0)` borne leur largeur pour déclencher le reflow.
-    let actions = Wrap::new::<Msg>()
-        .flex(1.0)
-        .gap(8.0)
-        .justify(Justify::End)
-        .align(Align::Center)
-        .child(button("A−", Msg::SetDensity(app.density - 0.1)).variant(Variant::Secondary).size(15.0))
-        .child(button("A+", Msg::SetDensity(app.density + 0.1)).variant(Variant::Secondary).size(15.0))
-        .child(button(timer_label, Msg::ToggleTimer).variant(Variant::Secondary).size(15.0))
-        .child(button(theme_label, Msg::ToggleTheme).variant(Variant::Secondary).size(15.0))
-        .child(button("Log →", Msg::Push(Route::Journal)).variant(Variant::Secondary).size(15.0))
-        .child(button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0))
-        .child(
-            Menu::new(
-                button("⋯", Msg::ToggleActions).variant(Variant::Secondary).size(15.0),
-                app.actions_open,
-                Msg::ToggleActions,
-            )
-            .item("Save", Msg::Save)
-            .item("Clear completed", Msg::AskClearDone),
-        );
-    let title_size = if class == SizeClass::Compact { 22.0 } else { 30.0 };
-    // En grand écran, le tiroir est permanent (accosté) : le « hamburger » ne sert
-    // plus (le panneau est déjà visible), on le masque donc.
     let expanded = class == SizeClass::Expanded;
-    let mut header = Flex::row().align(Align::Center).gap(10.0);
-    if !expanded {
-        // Bouton « hamburger » : ouvre le tiroir de navigation latéral.
-        header = header.child(button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(15.0));
-    }
-    let header = header
-        .child(indicator)
-        .child(text("My Tasks").size(title_size))
-        .child(text(format!("· {}s", app.elapsed)).size(18.0).color(theme.muted))
-        .child(actions)
-        // « ⋯ » : ouvre une feuille modale d'actions rapides (glisse depuis le bas).
-        .child(button("⋯", Msg::ToggleSheet).variant(Variant::Secondary).size(15.0));
+    let header = AppBar::new("My Tasks")
+        .width((card_width - 48.0).max(0.0))
+        .leading(button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(16.0))
+        .overflow(app.actions_open, Msg::ToggleActions)
+        .action(timer_label, Msg::ToggleTimer)
+        .action(theme_label, Msg::ToggleTheme)
+        .action("A+", Msg::SetDensity(app.density + 0.1))
+        .action("A−", Msg::SetDensity(app.density - 0.1))
+        .action("Log →", Msg::Push(Route::Journal))
+        .action("Settings →", Msg::Push(Route::Settings))
+        .action("Quick actions", Msg::ToggleSheet)
+        .action("Save", Msg::Save)
+        .action("Clear completed", Msg::AskClearDone)
+        .build();
 
     // Saisie : champ (Entrée valide) + bouton d'ajout.
     let input_row = row![
