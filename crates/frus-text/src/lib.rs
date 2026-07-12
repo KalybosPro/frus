@@ -17,9 +17,39 @@ use frus_core::Size;
 /// Rapport interligne / taille de police par défaut.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
 
+/// Police de repli **embarquée** (sans-serif) et sa variante monospace. Les
+/// embarquer garantit un rendu de texte déterministe sur **toutes** les
+/// plateformes — notamment Android, où l'alias système « sans-serif » (défini
+/// dans `fonts.xml`, non lu par fontdb) ne résout aucune police par défaut.
+const DEJAVU_SANS: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+const DEJAVU_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
+
+/// Nom de famille interne des polices embarquées (doit correspondre aux TTF).
+const SANS_FAMILY: &str = "DejaVu Sans";
+const MONO_FAMILY: &str = "DejaVu Sans Mono";
+
+/// Construit un `FontSystem` prêt à l'emploi : polices système (repli emoji /
+/// scripts) **plus** la police embarquée, fixée comme famille par défaut. À
+/// utiliser partout où un `FontSystem` est créé (mesure ici, rendu dans
+/// `frus-gpu`) pour un rendu de texte cohérent et sans dépendance aux polices
+/// système, qui peuvent manquer un défaut résoluble (cas Android).
+pub fn new_font_system() -> FontSystem {
+    let mut font_system = FontSystem::new();
+    let db = font_system.db_mut();
+    db.load_font_data(DEJAVU_SANS.to_vec());
+    db.load_font_data(DEJAVU_MONO.to_vec());
+    // Fait résoudre chaque famille générique vers une police réellement présente.
+    db.set_sans_serif_family(SANS_FAMILY);
+    db.set_serif_family(SANS_FAMILY);
+    db.set_cursive_family(SANS_FAMILY);
+    db.set_fantasy_family(SANS_FAMILY);
+    db.set_monospace_family(MONO_FAMILY);
+    font_system
+}
+
 fn font_system() -> &'static Mutex<FontSystem> {
     static FONT_SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
-    FONT_SYSTEM.get_or_init(|| Mutex::new(FontSystem::new()))
+    FONT_SYSTEM.get_or_init(|| Mutex::new(new_font_system()))
 }
 
 /// Interligne pour une taille de police donnée (en pixels).

@@ -18,6 +18,11 @@ pub use subscription::Subscription;
 /// côté app.
 pub use frus_widgets::{Orientation, SizeClass};
 
+/// Ré-export du type d'entrée Android (fourni par `winit`/`android-activity`),
+/// pour typer le `android_main` côté application sans dépendre de winit.
+#[cfg(target_os = "android")]
+pub use winit::platform::android::activity::AndroidApp;
+
 /// Lance une application : ouvre la fenêtre et pilote la boucle d'événements.
 ///
 /// ```no_run
@@ -30,6 +35,7 @@ pub use frus_widgets::{Orientation, SizeClass};
 /// # }
 /// frus_shell::run(MyApp).unwrap();
 /// ```
+#[cfg(not(target_os = "android"))]
 pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
     // `RUST_LOG=info` pour voir les logs (adaptateur GPU, etc.).
     env_logger::init();
@@ -38,6 +44,28 @@ pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
     // renvoient leur résultat via un `EventLoopProxy<Message>`.
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
     // On redemande une frame tant qu'une animation tourne ; sinon on attend.
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+
+    let proxy = event_loop.create_proxy();
+    let mut app = App::new(app, proxy);
+    event_loop.run_app(&mut app)?;
+    Ok(())
+}
+
+/// Lance une application sur **Android** : l'activité native fournit l'[`AndroidApp`],
+/// à transmettre à la boucle winit. Point d'entrée appelé depuis `android_main`.
+#[cfg(target_os = "android")]
+pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
+    use winit::platform::android::EventLoopBuilderExtAndroid;
+
+    // Les logs partent dans logcat (`adb logcat`).
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+
+    let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event()
+        .with_android_app(android_app)
+        .build()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let proxy = event_loop.create_proxy();

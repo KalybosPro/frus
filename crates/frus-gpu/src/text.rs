@@ -26,7 +26,9 @@ impl TextPainter {
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
     ) -> Self {
-        let font_system = glyphon::FontSystem::new();
+        // Police embarquée + repli système : même politique que la mesure texte
+        // (`frus-text`), pour un rendu déterministe et un défaut résoluble partout.
+        let font_system = frus_text::new_font_system();
         let swash_cache = glyphon::SwashCache::new();
         let cache = glyphon::Cache::new(device);
         let viewport = glyphon::Viewport::new(device, &cache);

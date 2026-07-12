@@ -5,11 +5,25 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "frus-demo"
-path = "src/main.rs"
+# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+# Le binaire bureau est découvert automatiquement dans `src/bin/`.
+[lib]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 frus-shell = { path = "../frus-shell" }
 frus-widgets = { path = "../frus-widgets" }
 anyhow.workspace = true
+log.workspace = true
+
+# --- Empaquetage Android (cargo-apk) ---
+[package.metadata.android]
+package = "com.frus.demo"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.application]
+label = "frus demo"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34
