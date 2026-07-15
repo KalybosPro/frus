@@ -133,4 +133,14 @@ pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{Color, Insets, Orientation, Point, Rect, Scene, SizeClass, Size};
+/// Couche d'animation partagée (physique, courbes, pilote) — voir
+/// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent
+/// via `frus_widgets` sans dépendre directement de `frus-core`.
+pub use frus_core::{
+    AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
+    SpringDescription, SpringSimulation, Tolerance, Tween,
+};
+// `frus_core::Status` (avancement d'animation) est renommé pour ne pas masquer le
+// `Status` d'interaction (état de peinture : survol/pression/focus…).
+pub use frus_core::Status as AnimationStatus;
 pub use frus_layout::{Align, Justify};

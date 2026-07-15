@@ -85,6 +85,11 @@ impl AnimationController {
         Self::new(0.0, 1.0)
     }
 
+    /// Bornes `[lower, upper]` du contrôleur.
+    pub fn bounds(&self) -> (f32, f32) {
+        (self.lower, self.upper)
+    }
+
     /// Valeur courante.
     pub fn value(&self) -> f32 {
         self.value
@@ -167,6 +172,18 @@ impl AnimationController {
         ));
     }
 
+    /// Anime la valeur courante vers `target` par un **ressort** décrit par
+    /// `spring`, amorcé par `velocity` (unités/s). C'est le chemin des transitions
+    /// interruptibles amorcées par un geste (détente de glissement, retour amorcé
+    /// par l'élan du doigt) : le ressort part de la position *et* de la vitesse
+    /// courantes.
+    pub fn spring_to(&mut self, target: f32, spring: SpringDescription, velocity: f32) {
+        let target = target.clamp(self.lower, self.upper);
+        let heading_up = target >= self.value;
+        let sim = SpringSimulation::new(spring, self.value, target, velocity, Tolerance::default());
+        self.drive(Box::new(sim), heading_up);
+    }
+
     /// Pilote une simulation arbitraire (momentum de scroll, courbe sur mesure…).
     pub fn drive(&mut self, simulation: Box<dyn Simulation>, heading_up: bool) {
         self.heading_up = heading_up;
@@ -214,6 +231,13 @@ impl AnimationController {
         } else {
             true
         }
+    }
+}
+
+impl Default for AnimationController {
+    /// Un contrôleur standard sur `[0, 1]`, au repos à `0`.
+    fn default() -> Self {
+        Self::unit()
     }
 }
 
@@ -289,6 +313,19 @@ mod tests {
         settle(&mut ctrl, 2000);
         assert!(ctrl.value().abs() < 1e-2, "value = {}", ctrl.value());
         assert_eq!(ctrl.status(), Status::Dismissed);
+    }
+
+    #[test]
+    fn spring_to_settles_at_target_from_velocity() {
+        let mut ctrl = AnimationController::unit();
+        ctrl.set_value(0.2);
+        // Détente amorcée par un « flick » : ressort ~critique vers la borne haute.
+        let spring = SpringDescription::new(1.0, 220.0, 30.0);
+        ctrl.spring_to(1.0, spring, 5.0);
+        assert_eq!(ctrl.status(), Status::Forward);
+        settle(&mut ctrl, 2000);
+        assert!((ctrl.value() - 1.0).abs() < 1e-2, "value = {}", ctrl.value());
+        assert_eq!(ctrl.status(), Status::Completed);
     }
 
     #[test]

@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
-    button, column, keyed, row, spacer, spring_step, text, Alert, Align, AppBar,
-    Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
+    button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar,
+    SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
@@ -46,6 +46,19 @@ const NAV_SPRING_K: f32 = 220.0;
 /// Amortissement (~critique) → arrivée douce sans dépassement.
 const NAV_SPRING_C: f32 = 30.0;
 
+/// Le ressort partagé par la navigation et le geste retour, exprimé dans la
+/// couche d'animation de `frus-core` (`trait Simulation`).
+fn nav_spring() -> SpringDescription {
+    SpringDescription::new(1.0, NAV_SPRING_K, NAV_SPRING_C)
+}
+
+/// Démarre une transition d'écran : le ressort pousse la progression `0 → 1`.
+fn start_nav(app: &mut TodoApp, forward: bool) {
+    app.nav_forward = forward;
+    app.nav.set_value(0.0);
+    app.nav.spring_to(1.0, nav_spring(), 0.0);
+}
+
 /// Libellés du menu déroulant (écran Réglages).
 const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
 
@@ -75,12 +88,16 @@ enum Route {
     Journal,
 }
 
-/// Geste retour : progression suivie, puis détente à ressort (validation/annulation).
+/// Geste retour : progression suivie au doigt, puis détente à ressort
+/// (validation/annulation) pilotée par un [`AnimationController`].
 struct BackGesture {
     progress: f32,
     velocity: f32,
-    /// `Some(cible)` une fois relâché : `1.0` valide, `0.0` annule.
-    settling: Option<f32>,
+    /// `Some` une fois relâché : la détente à ressort en cours (`None` = suivi du
+    /// doigt).
+    settle: Option<AnimationController>,
+    /// La détente, à son terme, valide-t-elle le retour (dépilement) ?
+    commit: bool,
 }
 
 /// Messages émis par l'interface.
@@ -211,8 +228,8 @@ struct TodoApp {
     routes: Vec<Route>,
     /// Écran sortant pendant une transition.
     nav_from: Option<Route>,
-    nav_progress: f32,
-    nav_velocity: f32,
+    /// Progression de la transition d'écran (`0 → 1`), pilotée par ressort.
+    nav: AnimationController,
     nav_forward: bool,
     /// Geste retour en cours.
     back: Option<BackGesture>,
@@ -396,18 +413,14 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.drawer_open = false;
             app.nav_from = Some(current_route(app));
             app.routes.push(route);
-            app.nav_progress = 0.0;
-            app.nav_velocity = 0.0;
-            app.nav_forward = true;
+            start_nav(app, true);
             Command::none()
         }
         Msg::Pop => {
             if !app.routes.is_empty() {
                 app.nav_from = Some(current_route(app));
                 app.routes.pop();
-                app.nav_progress = 0.0;
-                app.nav_velocity = 0.0;
-                app.nav_forward = false;
+                start_nav(app, false);
             }
             Command::none()
         }
@@ -657,40 +670,25 @@ impl Application for TodoApp {
             }
         }
 
-        // Transition d'écran (ressort amorcé à vitesse nulle → ease-out).
+        // Transition d'écran : le contrôleur échantillonne le ressort partagé.
         if self.nav_from.is_some() {
-            let (p, v, done) = spring_step(
-                self.nav_progress,
-                self.nav_velocity,
-                1.0,
-                dt,
-                NAV_SPRING_K,
-                NAV_SPRING_C,
-            );
-            self.nav_progress = p;
-            self.nav_velocity = v;
-            if done {
-                self.nav_progress = 1.0;
-                self.nav_velocity = 0.0;
-                self.nav_from = None;
-            } else {
+            if self.nav.tick(dt) {
                 animating = true;
+            } else {
+                self.nav_from = None;
             }
         }
 
         // Détente du geste retour (même ressort, amorcé par l'élan du doigt).
         let mut commit_back = false;
         if let Some(g) = self.back.as_mut() {
-            if let Some(target) = g.settling {
-                let (p, v, done) =
-                    spring_step(g.progress, g.velocity, target, dt, NAV_SPRING_K, NAV_SPRING_C);
-                g.progress = p;
-                g.velocity = v;
-                if done {
-                    commit_back = target >= 1.0;
-                    self.back = None;
-                } else {
+            if let Some(settle) = g.settle.as_mut() {
+                if settle.tick(dt) {
+                    g.progress = settle.value();
                     animating = true;
+                } else {
+                    commit_back = g.commit;
+                    self.back = None;
                 }
             }
         }
@@ -724,7 +722,8 @@ impl Application for TodoApp {
                 self.back = Some(BackGesture {
                     progress,
                     velocity: 0.0,
-                    settling: None,
+                    settle: None,
+                    commit: false,
                 })
             }
         }
@@ -736,7 +735,13 @@ impl Application for TodoApp {
             // Projection à la iOS : la position + l'élan décident.
             let projected = g.progress + velocity * BACK_PROJECT;
             let commit = projected > BACK_COMMIT_POS && !self.routes.is_empty();
-            g.settling = Some(if commit { 1.0 } else { 0.0 });
+            g.commit = commit;
+            // Détente à ressort depuis la position courante, amorcée par l'élan
+            // du doigt, vers la cible (validée `1` ou annulée `0`).
+            let mut settle = AnimationController::unit();
+            settle.set_value(g.progress);
+            settle.spring_to(if commit { 1.0 } else { 0.0 }, nav_spring(), velocity);
+            g.settle = Some(settle);
         }
     }
 }
@@ -762,7 +767,7 @@ fn build_view(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Navigato
     match app.nav_from {
         Some(from) => Navigator::new(current, width, height).from(
             screen(from, app, theme, width, height),
-            app.nav_progress,
+            app.nav.value(),
             app.nav_forward,
         ),
         None => Navigator::new(current, width, height),
