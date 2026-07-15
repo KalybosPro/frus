@@ -129,6 +129,42 @@ impl Default for Style {
 }
 
 impl Style {
+    /// Mêle dans `hasher` **tous les champs qui influent sur la géométrie** de
+    /// mise en page. Deux styles produisant la même empreinte donnent la même
+    /// disposition — c'est ce qui permet un cache de relayout (sauter taffy quand
+    /// rien de pertinent n'a changé). Les `f32` sont hachés par motif binaire
+    /// (égalité exacte, bit à bit) ; la couleur/le texte n'entrent pas ici (ils ne
+    /// touchent que la peinture).
+    pub fn layout_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        fn dim<H: std::hash::Hasher>(d: Dimension, h: &mut H) {
+            match d {
+                Dimension::Auto => 0u8.hash(h),
+                Dimension::Length(v) => {
+                    1u8.hash(h);
+                    v.to_bits().hash(h);
+                }
+                Dimension::Percent(v) => {
+                    2u8.hash(h);
+                    v.to_bits().hash(h);
+                }
+            }
+        }
+        dim(self.width, hasher);
+        dim(self.height, hasher);
+        self.flex_grow.to_bits().hash(hasher);
+        (self.flex_direction as u8).hash(hasher);
+        (self.justify as u8).hash(hasher);
+        (self.align as u8).hash(hasher);
+        self.padding.top.to_bits().hash(hasher);
+        self.padding.right.to_bits().hash(hasher);
+        self.padding.bottom.to_bits().hash(hasher);
+        self.padding.left.to_bits().hash(hasher);
+        self.gap.to_bits().hash(hasher);
+        self.flex_wrap.hash(hasher);
+        self.grid_columns.hash(hasher);
+    }
+
     pub(crate) fn to_taffy(self) -> taffy::Style {
         let mut style = taffy::Style {
             size: taffy::Size {

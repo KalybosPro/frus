@@ -7,6 +7,7 @@ use frus_layout::{Layout, NodeId};
 
 use crate::interaction::WidgetId;
 use crate::portal::Placement;
+use crate::relayout::Constraints;
 use crate::runtime::Runtime;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -154,7 +155,7 @@ pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<M
 }
 
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
-fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
+pub(crate) fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
     // Défilables, navigateurs, listes virtualisées et piles : contenu mis en page
     // à part (couches / écrans / éléments indépendants).
     if widget.scroll_content().is_some()
@@ -201,6 +202,13 @@ struct Builder<'a, Msg> {
 }
 
 impl<'a, Msg: Clone> Builder<'a, Msg> {
+    /// Rectangles d'une racine de layout, via le cache de relayout retenu dans le
+    /// runtime (recalcule via taffy seulement si style/structure/contraintes ont
+    /// changé). Emprunt mutable bref : la `Vec` renvoyée est possédée.
+    fn cached_rects(&self, key: WidgetId, root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
+        self.runtime.layout_cache.borrow_mut().rects(key, root, c)
+    }
+
     fn walk(
         &mut self,
         widget: &'a dyn Widget<Msg>,
@@ -277,20 +285,11 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             let content_clip = clip.intersect(viewport);
             let (offset_x, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
 
-            let mut layout: Layout<()> = Layout::new();
-            let content_root = build_layout(content, &mut layout);
-            layout.compute_scroll(
-                content_root,
-                viewport.width,
-                viewport.height,
-                axis.free_x(),
-                axis.free_y(),
+            let content_rects = self.cached_rects(
+                child_id(id, 0, content),
+                content,
+                Constraints::scroll(viewport.width, viewport.height, axis.free_x(), axis.free_y()),
             );
-            let content_rects: Vec<Rect> = layout
-                .absolute_rects(content_root)
-                .into_iter()
-                .map(|(rect, _)| rect)
-                .collect();
 
             let content_size = content_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
             let max_x = (content_size.width - viewport.width).max(0.0);
@@ -333,14 +332,11 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     let item = (vlist.build)(i);
                     let top = viewport.y + i as f32 * vlist.item_height - offset_y;
 
-                    let mut layout: Layout<()> = Layout::new();
-                    let root = build_layout(item.as_ref(), &mut layout);
-                    layout.compute(root, Size::new(viewport.width, vlist.item_height));
-                    let item_rects: Vec<Rect> = layout
-                        .absolute_rects(root)
-                        .into_iter()
-                        .map(|(rect, _)| rect)
-                        .collect();
+                    let item_rects = self.cached_rects(
+                        id.child(i),
+                        item.as_ref(),
+                        Constraints::definite(Size::new(viewport.width, vlist.item_height)),
+                    );
 
                     let mut item_index = 0;
                     self.render_item(
@@ -365,14 +361,11 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             let content_clip = clip.intersect(bounds);
             let child = build(Size::new(bounds.width, bounds.height));
 
-            let mut layout: Layout<()> = Layout::new();
-            let root = build_layout(child.as_ref(), &mut layout);
-            layout.compute(root, Size::new(bounds.width, bounds.height));
-            let child_rects: Vec<Rect> = layout
-                .absolute_rects(root)
-                .into_iter()
-                .map(|(rect, _)| rect)
-                .collect();
+            let child_rects = self.cached_rects(
+                id.child(0),
+                child.as_ref(),
+                Constraints::definite(Size::new(bounds.width, bounds.height)),
+            );
 
             let mut child_index = 0;
             self.render_item(
@@ -388,14 +381,11 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             let bounds = draw_rect;
             let layer_clip = clip.intersect(bounds);
             for (i, layer) in widget.children().iter().enumerate() {
-                let mut layout: Layout<()> = Layout::new();
-                let root = build_layout(layer.as_ref(), &mut layout);
-                layout.compute(root, Size::new(bounds.width, bounds.height));
-                let layer_rects: Vec<Rect> = layout
-                    .absolute_rects(root)
-                    .into_iter()
-                    .map(|(rect, _)| rect)
-                    .collect();
+                let layer_rects = self.cached_rects(
+                    child_id(id, i, layer.as_ref()),
+                    layer.as_ref(),
+                    Constraints::definite(Size::new(bounds.width, bounds.height)),
+                );
                 let mut layer_index = 0;
                 self.walk(
                     layer.as_ref(),
@@ -553,14 +543,11 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         off_x: f32,
         clip: Rect,
     ) {
-        let mut layout: Layout<()> = Layout::new();
-        let root = build_layout(screen, &mut layout);
-        layout.compute(root, Size::new(bounds.width, bounds.height));
-        let rects: Vec<Rect> = layout
-            .absolute_rects(root)
-            .into_iter()
-            .map(|(rect, _)| rect)
-            .collect();
+        let rects = self.cached_rects(
+            id,
+            screen,
+            Constraints::definite(Size::new(bounds.width, bounds.height)),
+        );
         let screen_clip = clip.intersect(bounds);
         let mut index = 0;
         self.walk(
@@ -589,8 +576,6 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             } else {
                 progress
             };
-            let mut layout: Layout<()> = Layout::new();
-            let root = build_layout(content, &mut layout);
             // Taille naturelle du contenu. Un tiroir (`Left`) est contraint en
             // hauteur à la fenêtre (son panneau `Percent(1.0)` se déploie),
             // largeur libre ; les autres overlays prennent leur taille naturelle.
@@ -601,12 +586,11 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 Placement::Bottom => (false, true),
                 _ => (true, true),
             };
-            layout.compute_scroll(root, self.available.width, self.available.height, free_x, free_y);
-            let rects: Vec<Rect> = layout
-                .absolute_rects(root)
-                .into_iter()
-                .map(|(rect, _)| rect)
-                .collect();
+            let rects = self.cached_rects(
+                oid,
+                content,
+                Constraints::scroll(self.available.width, self.available.height, free_x, free_y),
+            );
             let size = rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
 
             let mut pos = match placement {
@@ -728,14 +712,10 @@ pub fn build_ui<'a, Msg: Clone>(
     runtime: &'a Runtime,
     theme: &'a Theme,
 ) -> Ui<Msg> {
-    let mut layout: Layout<()> = Layout::new();
-    let root_node = build_layout(root, &mut layout);
-    layout.compute(root_node, available);
-    let rects: Vec<Rect> = layout
-        .absolute_rects(root_node)
-        .into_iter()
-        .map(|(rect, _)| rect)
-        .collect();
+    let rects = runtime
+        .layout_cache
+        .borrow_mut()
+        .rects(WidgetId::ROOT, root, Constraints::definite(available));
 
     let mut builder = Builder {
         scene: Scene::new(),
@@ -755,6 +735,10 @@ pub fn build_ui<'a, Msg: Clone>(
 
     // Overlays (menus flottants, modales, tooltips) par-dessus tout le reste.
     builder.process_overlays();
+
+    // Fin de frame : oublie les racines de layout des widgets disparus et fige
+    // les compteurs de diagnostic du cache.
+    runtime.layout_cache.borrow_mut().end_frame();
 
     // Rejoue les sous-arbres sortants, en fondu, par-dessus la scène courante.
     builder.scene.set_clip(Rect::UNBOUNDED);
@@ -846,6 +830,28 @@ mod tests {
                     .color(Color::rgb(0.0, 0.0, 1.0))
                     .on_click(Msg::B),
             )
+    }
+
+    #[test]
+    fn relayout_cache_reuses_the_root_layout_across_frames() {
+        let rt = Runtime::default();
+        let size = Size::new(400.0, 100.0);
+        // Frame 1 : rien en cache → recalcul (au moins la racine).
+        let _ = build_ui(&clickable_sample(), size, &rt, &Theme::default());
+        let (hits1, misses1) = rt.layout_cache.borrow().last_frame_stats();
+        assert_eq!(hits1, 0, "1re frame : aucune réutilisation");
+        assert!(misses1 >= 1, "1re frame : au moins un calcul");
+
+        // Frame 2 : même arbre, mêmes contraintes → la racine est réutilisée.
+        let _ = build_ui(&clickable_sample(), size, &rt, &Theme::default());
+        let (hits2, misses2) = rt.layout_cache.borrow().last_frame_stats();
+        assert_eq!(hits2, 1, "2e frame : racine réutilisée");
+        assert_eq!(misses2, 0, "2e frame : aucun recalcul");
+
+        // Frame 3 : fenêtre redimensionnée → contraintes changées → recalcul.
+        let _ = build_ui(&clickable_sample(), Size::new(500.0, 100.0), &rt, &Theme::default());
+        let (hits3, misses3) = rt.layout_cache.borrow().last_frame_stats();
+        assert_eq!((hits3, misses3), (0, 1), "redimensionnement → recalcul");
     }
 
     #[test]

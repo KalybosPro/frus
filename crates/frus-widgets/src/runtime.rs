@@ -5,11 +5,13 @@
 //! défilement, et position curseur/sélection des champs. C'est la fondation
 //! d'une reconciliation par identité (posée au Jalon 6).
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use frus_core::Primitive;
 
 use crate::interaction::{InputState, WidgetId};
+use crate::relayout::LayoutCache;
 
 /// Offsets de défilement `(x, y)`, par zone défilable.
 pub type ScrollState = HashMap<WidgetId, (f32, f32)>;
@@ -150,6 +152,10 @@ pub struct Runtime {
     pub leaving: HashMap<u64, (Vec<Primitive>, f32)>,
     /// Temps écoulé (secondes) depuis le démarrage, pour les animations continues.
     pub time: f32,
+    /// Cache de frontière de relayout (rectangles retenus par racine de layout,
+    /// d'une frame à l'autre). Mutabilité intérieure : `build_ui` le met à jour
+    /// tout en ne tenant qu'une référence partagée au `Runtime`.
+    pub layout_cache: RefCell<LayoutCache>,
 }
 
 impl Runtime {
