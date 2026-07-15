@@ -109,13 +109,9 @@ pub fn spring_step(
 /// même sensation que les transitions d'écran, mais sous forme fermée (pas
 /// d'état de vélocité). `f(0) = 0`, `f(1) = 1`, monotone croissante.
 pub fn spring_ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    // Réponse critique : y(τ) = 1 − e^{−ωτ}(1 + ωτ). On renormalise pour que
-    // f(1) vaille exactement 1 malgré la troncature à τ = 1.
-    const OMEGA: f32 = 8.0;
-    let resp = |x: f32| 1.0 - (-OMEGA * x).exp() * (1.0 + OMEGA * x);
-    let end = resp(1.0);
-    resp(t) / end
+    // Réponse critique (`omega = 8`), désormais fournie par la couche d'animation
+    // partagée de `frus-core` : une seule source de vérité pour cette courbe.
+    frus_core::Curve::critical_spring().transform(t)
 }
 
 /// Fait tendre `value` vers `target` par pas de `step` ; note si ça bouge encore.

@@ -5,11 +5,16 @@
 //! socle commun à `frus-gpu`, `frus-layout`, etc., pour éviter la duplication et
 //! le couplage entre les couches.
 
+pub mod animation;
 mod color;
 mod geometry;
 mod responsive;
 mod scene;
 
+pub use animation::{
+    AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
+    SpringDescription, SpringSimulation, Status, Tolerance, Tween,
+};
 pub use color::Color;
 pub use geometry::{Insets, Point, Rect, Size};
 pub use responsive::{Orientation, SizeClass};
