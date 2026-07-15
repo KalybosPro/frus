@@ -133,6 +133,12 @@ pub struct App<A: Application> {
     started: bool,
     /// Instant de la dernière frame (pour le dt des animations).
     last_frame: Option<Instant>,
+    /// Phase **build** sale : l'état de l'app (ou la taille) a changé, il faut
+    /// reconstruire la `view`. La vue est une fonction pure de `(état, thème,
+    /// taille)` — jamais du survol/scroll/focus (qui vivent dans le `Runtime`) —,
+    /// donc une frame d'animation d'interaction se contente de **repeindre**
+    /// l'arbre retenu (§1 : « un survol ne touche que paint »).
+    build_dirty: bool,
     /// Glissement souris en cours.
     drag: Option<Drag>,
     /// Instant du dernier clic (détection du double-clic).
@@ -171,6 +177,7 @@ impl<A: Application> App<A> {
             clipboard: clip::Clipboard::new(),
             started: false,
             last_frame: None,
+            build_dirty: true,
             drag: None,
             last_click_time: None,
             leaving_counter: 0,
@@ -246,6 +253,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.scale = window.scale_factor() as f32;
                 self.window = Some(window.clone());
                 self.renderer = Some(renderer);
+                // Surface (re)créée : forcer une reconstruction complète à la 1re frame.
+                self.build_dirty = true;
                 // Effet de démarrage (chargement initial, etc.) : une seule fois,
                 // pas à chaque recréation de surface (retour d'arrière-plan).
                 if !self.started {
@@ -507,6 +516,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // avant la vue, pour qu'elle réagisse au palier dans sa logique.
                 if self.last_size != Some((width, height)) {
                     self.last_size = Some((width, height));
+                    self.build_dirty = true;
                     self.app.on_resize(width, height);
                 }
 
@@ -514,6 +524,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let insets = self.compute_insets(size.width, size.height, scale);
                 if self.last_insets != insets {
                     self.last_insets = insets;
+                    self.build_dirty = true;
                     self.app.on_insets(insets);
                 }
 
@@ -531,44 +542,63 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // L'application avance ses propres animations (thème, nav, geste).
                 let app_animating = self.app.tick(dt);
-
                 let theme = self.app.theme();
-                let tree = self.app.view(&theme, width, height);
-                let ids = collect_ids(tree.as_ref());
-                let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
-                // Sortie : capture l'instantané des widgets présents à N-1 mais
-                // absents à N, pour les faire disparaître en fondu.
-                let leaving: std::collections::HashSet<u64> = self
-                    .runtime
-                    .mounted
-                    .iter()
-                    .filter(|id| !present.contains(id))
-                    .map(|id| id.as_u64())
-                    .collect();
-                if !leaving.is_empty() {
-                    if let Some(ui) = &self.ui {
-                        let captured: Vec<_> = ui
-                            .scene()
-                            .primitives()
-                            .iter()
-                            .filter(|p| leaving.contains(&p.owner()))
-                            .cloned()
-                            .collect();
-                        if !captured.is_empty() {
-                            self.runtime.leaving.insert(self.leaving_counter, (captured, 1.0));
-                            self.leaving_counter = self.leaving_counter.wrapping_add(1);
+                // === Phase BUILD (conditionnelle) ===
+                // On ne reconstruit la `view` que si l'état de l'app ou la taille ont
+                // changé (`build_dirty`), ou si l'app anime (thème/nav/geste modifient
+                // l'état lu par la vue). Une frame d'animation d'interaction pure
+                // (survol, scroll, focus, curseur) **réutilise l'arbre retenu** et ne
+                // fait que repeindre : la `view` est une fonction pure de
+                // `(état, thème, taille)`, jamais du `Runtime`.
+                let need_build = self.build_dirty || app_animating || self.tree.is_none();
+                if need_build {
+                    let tree = self.app.view(&theme, width, height);
+                    let ids = collect_ids(tree.as_ref());
+                    let present: std::collections::HashSet<_> = ids.iter().copied().collect();
+
+                    // Sortie : capture l'instantané des widgets présents à N-1 mais
+                    // absents à N, pour les faire disparaître en fondu.
+                    let leaving: std::collections::HashSet<u64> = self
+                        .runtime
+                        .mounted
+                        .iter()
+                        .filter(|id| !present.contains(id))
+                        .map(|id| id.as_u64())
+                        .collect();
+                    if !leaving.is_empty() {
+                        if let Some(ui) = &self.ui {
+                            let captured: Vec<_> = ui
+                                .scene()
+                                .primitives()
+                                .iter()
+                                .filter(|p| leaving.contains(&p.owner()))
+                                .cloned()
+                                .collect();
+                            if !captured.is_empty() {
+                                self.runtime.leaving.insert(self.leaving_counter, (captured, 1.0));
+                                self.leaving_counter = self.leaving_counter.wrapping_add(1);
+                            }
                         }
                     }
-                }
 
-                // Montage : les nouveaux widgets démarrent en fondu.
-                for &id in &ids {
-                    if self.runtime.mounted.insert(id) {
-                        self.runtime.anims.entry(id).or_default().opacity = 0.0;
+                    // Montage : les nouveaux widgets démarrent en fondu.
+                    for &id in &ids {
+                        if self.runtime.mounted.insert(id) {
+                            self.runtime.anims.entry(id).or_default().opacity = 0.0;
+                        }
                     }
+                    self.runtime.mounted.retain(|id| present.contains(id));
+
+                    self.tree = Some(tree);
                 }
-                self.runtime.mounted.retain(|id| present.contains(id));
+                self.build_dirty = false;
+
+                // === Phase PAINT ===
+                // L'arbre retenu est (re)peint ; sa mise en page passe par le cache de
+                // relayout (jalon 55), donc taffy n'est rappelé qu'en cas de vrai
+                // changement de structure.
+                let tree = self.tree.as_deref().expect("view construite au moins une fois");
 
                 // Inertie de défilement (bornes issues de la frame précédente).
                 let scroll_maxes = self
@@ -579,10 +609,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 let animating = self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
-                    | self.runtime.advance_values(tree.as_ref(), dt)
+                    | self.runtime.advance_values(tree, dt)
                     | self.runtime.advance_scroll(&scroll_maxes, dt)
                     | app_animating;
-                let ui = build_ui(tree.as_ref(), Size::new(width, height), &self.runtime, &theme);
+                let ui = build_ui(tree, Size::new(width, height), &self.runtime, &theme);
 
                 // Scène logique → physique (DPI × densité) pour un rendu net.
                 let scene = ui.scene().scaled(scale);
@@ -603,9 +633,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Un widget à animation continue (spinner…) force le redessin.
                 let wants_animation = ui.wants_animation();
 
-                // Conserve l'interface (hit-test) et l'arbre (routage clavier).
+                // Conserve l'interface (hit-test). L'arbre est déjà retenu.
                 self.ui = Some(ui);
-                self.tree = Some(tree);
 
                 // Tant qu'une animation tourne, on redemande une frame.
                 if animating || wants_animation {
@@ -657,6 +686,7 @@ impl<A: Application> App<A> {
                 last_t: Instant::now(),
                 velocity: 0.0,
             });
+            self.build_dirty = true;
             self.app.back_gesture(0.0);
             self.request_redraw();
             return;
@@ -761,6 +791,7 @@ impl<A: Application> App<A> {
         let ended = self.drag.take();
         if let Some(Drag::Back { velocity, .. }) = ended {
             // L'app décide (valider / annuler) à partir de la vélocité.
+            self.build_dirty = true;
             self.app.back_gesture_end(velocity);
             self.request_redraw();
             return;
@@ -790,6 +821,8 @@ impl<A: Application> App<A> {
     /// Applique un message à l'application, exécute ses effets, puis réévalue les
     /// souscriptions (l'état a pu changer celles qui doivent tourner).
     fn dispatch(&mut self, message: A::Message) {
+        // L'app a (potentiellement) changé d'état → la `view` doit être reconstruite.
+        self.build_dirty = true;
         let command = self.app.update(message);
         self.run_command(command);
         self.sync_subscriptions();
@@ -951,6 +984,7 @@ impl<A: Application> App<A> {
                     *last_x = x;
                     *last_t = now;
                 }
+                self.build_dirty = true;
                 self.app.back_gesture(progress);
             }
         }
