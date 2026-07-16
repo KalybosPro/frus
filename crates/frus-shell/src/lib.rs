@@ -74,5 +74,11 @@ pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::R
     // Conserve la poignée d'activité pour interroger les insets système.
     app.set_android_app(android_app);
     event_loop.run_app(&mut app)?;
-    Ok(())
+
+    // Android garde le **processus** en cache après la fin de l'activité, mais
+    // winit n'autorise qu'une seule `EventLoop` par processus : un relancement
+    // dans le même processus échouerait aussitôt (l'icône ne « répond » plus
+    // jusqu'à ce qu'Android tue le cache). On termine donc le processus pour
+    // que le prochain lancement reparte propre.
+    std::process::exit(0);
 }
