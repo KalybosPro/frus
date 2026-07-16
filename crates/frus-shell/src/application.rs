@@ -76,6 +76,20 @@ pub trait Application {
     /// de `insets.safe()`). En px **logiques**. Sur bureau : toujours zéro.
     fn on_insets(&mut self, _insets: WindowInsets) {}
 
+    /// **Live-reload** (dev) : instantané sérialisé de l'état, capturé juste
+    /// avant qu'un binaire recompilé relance l'application (`FRUS_WATCH=1`).
+    /// `None` (défaut) = l'app ne participe pas — le rechargement repart alors
+    /// d'un état neuf. Le format des octets appartient à l'app.
+    fn save_state(&self) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Réhydrate l'état depuis un instantané [`Application::save_state`] pris
+    /// par le binaire **précédent** (appelé avant [`Application::init`]). Les
+    /// octets viennent d'une autre version du code : tolérer les formats
+    /// inattendus (ignorer vaut mieux que paniquer).
+    fn restore_state(&mut self, _bytes: &[u8]) {}
+
     /// L'app peut-elle revenir en arrière ? (active le geste retour depuis le bord).
     fn can_go_back(&self) -> bool {
         false

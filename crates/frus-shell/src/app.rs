@@ -131,6 +131,8 @@ pub struct App<A: Application> {
     last_size: Option<(f32, f32)>,
     /// État retenu entre frames (survol/focus, scroll, curseur/sélection).
     runtime: Runtime,
+    /// Surveillance live-reload (dev, `FRUS_WATCH=1`) : relance sur recompilation.
+    reload: Option<crate::reload::ReloadWatcher>,
     /// Inspecteur runtime actif ? (bascule F12, builds debug uniquement).
     inspector: bool,
     /// Dump de l'arbre à imprimer à la prochaine frame inspectée.
@@ -192,6 +194,7 @@ impl<A: Application> App<A> {
             scale: 1.0,
             last_size: None,
             runtime: Runtime::default(),
+            reload: crate::reload::ReloadWatcher::new(),
             inspector: false,
             inspector_dump: false,
             shift: false,
@@ -326,8 +329,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // Un défilement tactile en attente n'a plus lieu d'être.
             self.drag = None;
             self.request_redraw();
-            event_loop.set_control_flow(ControlFlow::Wait);
         }
+
+        // Live-reload (dev) : binaire remplacé par une recompilation →
+        // capture l'état et relance le nouveau binaire (ne revient pas).
+        if let Some(watcher) = self.reload.as_mut() {
+            if watcher.binary_changed() {
+                watcher.handoff(self.app.save_state());
+            }
+        }
+        event_loop.set_control_flow(self.idle_control_flow());
     }
 
     fn window_event(
@@ -877,10 +888,20 @@ impl<A: Application> App<A> {
                 self.request_redraw();
             }
         }
-        // Réveil de la boucle pile à l'échéance d'appui long, sinon repos.
-        match self.press.deadline() {
-            Some(deadline) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
-            None => event_loop.set_control_flow(ControlFlow::Wait),
+        // Réveil de la boucle pile à la prochaine échéance, sinon repos.
+        event_loop.set_control_flow(self.idle_control_flow());
+    }
+
+    /// Politique de repos de la boucle : réveil à la **plus proche** des
+    /// échéances (appui long, sondage du live-reload), sinon attente pure.
+    fn idle_control_flow(&self) -> ControlFlow {
+        let press = self.press.deadline();
+        let reload = self.reload.as_ref().map(|w| w.deadline());
+        match (press, reload) {
+            (Some(a), Some(b)) => ControlFlow::WaitUntil(a.min(b)),
+            (Some(a), None) => ControlFlow::WaitUntil(a),
+            (None, Some(b)) => ControlFlow::WaitUntil(b),
+            (None, None) => ControlFlow::Wait,
         }
     }
 

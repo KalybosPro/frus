@@ -295,6 +295,9 @@ struct TodoApp {
     insets: Insets,
     /// Graine du thème : `0` = schéma écrit main, sinon `from_seed` (HCT).
     seed_index: usize,
+    /// L'état vient d'un instantané live-reload : `init` ne recharge pas les
+    /// tâches depuis le disque (l'instantané fait foi).
+    restored: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -615,7 +618,75 @@ impl Application for TodoApp {
         self.year = 2026;
         self.month = 7;
         self.density = 1.0;
+        if self.restored {
+            // Live-reload : l'instantané fait foi, ne pas l'écraser du disque.
+            return Command::none();
+        }
         Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
+    }
+
+    /// Live-reload : l'essentiel de l'état survit à la recompilation — tâches,
+    /// brouillon, filtre, thème (clair/sombre + graine), onglet et écran.
+    fn save_state(&self) -> Option<Vec<u8>> {
+        let mut out = String::from("frus-demo-state v1\n");
+        out.push_str(&format!("light {}\n", self.light as u8));
+        out.push_str(&format!("seed {}\n", self.seed_index));
+        out.push_str(&format!("filter {}\n", filter_index(self.filter)));
+        out.push_str(&format!("section {}\n", self.section));
+        let route = match current_route(self) {
+            Route::Home => 0,
+            Route::Settings => 1,
+            Route::Journal => 2,
+        };
+        out.push_str(&format!("route {route}\n"));
+        out.push_str(&format!("draft {}\n", self.draft));
+        for todo in &self.todos {
+            out.push_str(&format!("todo {}\t{}\n", todo.done as u8, todo.text));
+        }
+        Some(out.into_bytes())
+    }
+
+    /// Réhydrate un instantané [`Application::save_state`] — tolérant : toute
+    /// ligne inconnue (autre version du code) est ignorée.
+    fn restore_state(&mut self, bytes: &[u8]) {
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return;
+        };
+        let mut lines = text.lines();
+        if lines.next() != Some("frus-demo-state v1") {
+            return;
+        }
+        for line in lines {
+            let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+            match key {
+                "light" => self.light = value == "1",
+                "seed" => self.seed_index = value.parse().unwrap_or(0),
+                "filter" => self.filter = filter_from_index(value.parse().unwrap_or(0)),
+                "section" => self.section = value.parse().unwrap_or(0),
+                "route" => {
+                    self.routes.clear();
+                    match value {
+                        "1" => self.routes.push(Route::Settings),
+                        "2" => self.routes.push(Route::Journal),
+                        _ => {}
+                    }
+                }
+                "draft" => self.draft = value.to_string(),
+                "todo" => {
+                    if let Some((done, text)) = value.split_once('\t') {
+                        let id = self.next_id;
+                        self.next_id += 1;
+                        self.todos.push(Todo {
+                            id,
+                            text: text.to_string(),
+                            done: done == "1",
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.restored = true;
     }
 
     fn subscription(&self) -> Subscription<Msg> {
@@ -1609,5 +1680,42 @@ mod tests {
             app.tick(0.05);
         }
         assert!(app.routes.is_empty(), "le flick a dépilé l'écran");
+    }
+
+    /// Live-reload : l'instantané `save_state` réhydrate un binaire neuf —
+    /// tâches, brouillon, filtre, thème (mode + graine), écran empilé.
+    #[test]
+    fn live_reload_state_round_trips() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::DraftChanged("Buy milk".to_string()));
+        reduce(&mut app, Msg::AddTodo);
+        let id = app.todos[0].id;
+        reduce(&mut app, Msg::ToggleTodo(id));
+        reduce(&mut app, Msg::DraftChanged("half-typed".to_string()));
+        reduce(&mut app, Msg::SetFilter(Filter::Done));
+        reduce(&mut app, Msg::ToggleTheme);
+        reduce(&mut app, Msg::CycleSeed);
+        reduce(&mut app, Msg::Push(Route::Settings));
+
+        let snapshot = Application::save_state(&app).expect("un instantané");
+
+        let mut fresh = TodoApp::default();
+        Application::restore_state(&mut fresh, &snapshot);
+        assert_eq!(fresh.todos.len(), 1);
+        assert_eq!(fresh.todos[0].text, "Buy milk");
+        assert!(fresh.todos[0].done);
+        assert_eq!(fresh.draft, "half-typed");
+        assert!(fresh.filter == Filter::Done);
+        assert_eq!(fresh.light, app.light);
+        assert_eq!(fresh.seed_index, 1);
+        assert_eq!(current_route(&fresh), Route::Settings);
+        // `init` après réhydratation ne relance PAS le chargement disque
+        // (l'instantané fait foi) : aucun effet émis.
+        assert!(fresh.init().is_empty(), "pas de Loaded après réhydratation");
+        // Un instantané corrompu / d'une autre version est ignoré sans paniquer.
+        let mut other = TodoApp::default();
+        Application::restore_state(&mut other, b"garbage \xFF");
+        Application::restore_state(&mut other, b"frus-demo-state v999\nlight 1\n");
+        assert!(other.todos.is_empty() && !other.restored);
     }
 }

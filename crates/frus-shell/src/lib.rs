@@ -8,6 +8,7 @@ mod app;
 mod application;
 mod command;
 mod gesture;
+mod reload;
 mod subscription;
 
 pub use app::App;
@@ -37,9 +38,13 @@ pub use winit::platform::android::activity::AndroidApp;
 /// frus_shell::run(MyApp).unwrap();
 /// ```
 #[cfg(not(target_os = "android"))]
-pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
+pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     // `RUST_LOG=info` pour voir les logs (adaptateur GPU, etc.).
     env_logger::init();
+
+    // Live-reload (dev) : réhydrate l'état laissé par le binaire précédent,
+    // avant `init` — voir [`Application::restore_state`].
+    reload::restore_from_env(&mut app);
 
     // Boucle avec **événements utilisateur** = messages : les effets asynchrones
     // renvoient leur résultat via un `EventLoopProxy<Message>`.
