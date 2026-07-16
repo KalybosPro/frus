@@ -22,9 +22,15 @@ const LINE_HEIGHT_FACTOR: f32 = 1.2;
 /// plateformes — notamment Android, où l'alias système « sans-serif » (défini
 /// dans `fonts.xml`, non lu par fontdb) ne résout aucune police par défaut.
 const DEJAVU_SANS: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
-/// Face **grasse** embarquée : sans elle, un poids `Bold` retomberait en douce sur
-/// la face normale partout où seules les polices embarquées existent (Android).
+/// Faces **grasse, oblique et grasse-oblique** embarquées : cosmic-text exige une
+/// correspondance **exacte** de style sur la famille primaire — sans face
+/// oblique, un simple `.italic()` **panique** (« no default font found ») partout
+/// où seules les polices embarquées existent (attrapé sur l'appareil Android).
+/// La matrice complète {400, 700} × {droit, italique} rend tous les styles
+/// atteignables par l'API sûrs et déterministes.
 const DEJAVU_SANS_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
+const DEJAVU_SANS_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
+const DEJAVU_SANS_BOLD_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
 const DEJAVU_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 
 /// Nom de famille interne des polices embarquées (doit correspondre aux TTF).
@@ -41,6 +47,8 @@ pub fn new_font_system() -> FontSystem {
     let db = font_system.db_mut();
     db.load_font_data(DEJAVU_SANS.to_vec());
     db.load_font_data(DEJAVU_SANS_BOLD.to_vec());
+    db.load_font_data(DEJAVU_SANS_OBLIQUE.to_vec());
+    db.load_font_data(DEJAVU_SANS_BOLD_OBLIQUE.to_vec());
     db.load_font_data(DEJAVU_MONO.to_vec());
     // Fait résoudre chaque famille générique vers une police réellement présente.
     db.set_sans_serif_family(SANS_FAMILY);
@@ -54,6 +62,20 @@ pub fn new_font_system() -> FontSystem {
 fn font_system() -> &'static Mutex<FontSystem> {
     static FONT_SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
     FONT_SYSTEM.get_or_init(|| Mutex::new(new_font_system()))
+}
+
+/// Poids **réellement disponible** dans les faces embarquées (400 ou 700) le
+/// plus proche du poids demandé. Indispensable : cosmic-text exige une
+/// correspondance **exacte** de poids sur la famille primaire — un poids absent
+/// (Medium 500 sur DejaVu) le fait basculer sur des listes de repli plateforme…
+/// inexistantes sur Android (panique « no default font found », attrapée sur
+/// l'appareil). Router tous les `Attrs` par ici garantit un rendu déterministe.
+pub fn available_weight(weight: FontWeight) -> u16 {
+    if weight.to_u16() < 550 {
+        400
+    } else {
+        700
+    }
 }
 
 /// Interligne pour une taille de police donnée (en pixels).
@@ -94,7 +116,7 @@ pub fn measure_wrapped(
     let mut buffer = Buffer::new(&mut font_system, metrics);
     // Largeur contrainte (repli) ou libre ; hauteur toujours libre.
     buffer.set_size(&mut font_system, max_width, None);
-    let attrs = Attrs::new().weight(Weight(weight.to_u16())).style(if italic {
+    let attrs = Attrs::new().weight(Weight(available_weight(weight))).style(if italic {
         Style::Italic
     } else {
         Style::Normal
@@ -134,7 +156,7 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
         (
             run.text.as_str(),
             Attrs::new()
-                .weight(Weight(run.weight.to_u16()))
+                .weight(Weight(available_weight(run.weight)))
                 .style(if run.italic { Style::Italic } else { Style::Normal })
                 .metrics(Metrics::new(run.size, line_height(run.size))),
         )
@@ -195,7 +217,7 @@ impl TextLayout {
             let metrics = Metrics::new(size_px, fallback_h);
             let mut buffer = Buffer::new(&mut font_system, metrics);
             buffer.set_size(&mut font_system, None, None);
-            let attrs = Attrs::new().weight(Weight(weight.to_u16())).style(if italic {
+            let attrs = Attrs::new().weight(Weight(available_weight(weight))).style(if italic {
                 Style::Italic
             } else {
                 Style::Normal
@@ -453,6 +475,63 @@ mod tests {
         assert_eq!(caret.x, 0.0);
         assert!(caret.height > 0.0, "hauteur de ligne de repli");
         assert_eq!(layout.hit_test(Point::new(50.0, 0.0)), 0);
+    }
+
+    /// Reproduit le pire cas Android (attrapé sur l'appareil) : **aucune**
+    /// police système exploitable, seules les faces embarquées existent. Le
+    /// shaping ne doit jamais paniquer (« no default font found ») — pour
+    /// **toute** combinaison poids × italique atteignable par l'API. cosmic-text
+    /// exige une correspondance *exacte* de style/poids sur la famille primaire :
+    /// sans face oblique embarquée, `.italic()` paniquait sur l'appareil.
+    #[test]
+    fn embedded_only_font_system_shapes_every_style() {
+        let mut db = cosmic_text::fontdb::Database::new();
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        db.load_font_data(DEJAVU_SANS_BOLD.to_vec());
+        db.load_font_data(DEJAVU_SANS_OBLIQUE.to_vec());
+        db.load_font_data(DEJAVU_SANS_BOLD_OBLIQUE.to_vec());
+        db.load_font_data(DEJAVU_MONO.to_vec());
+        db.set_sans_serif_family(SANS_FAMILY);
+        db.set_serif_family(SANS_FAMILY);
+        db.set_cursive_family(SANS_FAMILY);
+        db.set_fantasy_family(SANS_FAMILY);
+        db.set_monospace_family(MONO_FAMILY);
+        let mut fs = FontSystem::new_with_locale_and_db("en-TG".to_string(), db);
+
+        for weight in [FontWeight::Regular, FontWeight::Medium, FontWeight::SemiBold, FontWeight::Bold] {
+            for italic in [false, true] {
+                let attrs = Attrs::new()
+                    .weight(Weight(available_weight(weight)))
+                    .style(if italic { Style::Italic } else { Style::Normal });
+                let mut buffer = Buffer::new(&mut fs, Metrics::new(20.0, 24.0));
+                buffer.set_size(&mut fs, None, None);
+                buffer.set_text(&mut fs, "Nothing to show", attrs, Shaping::Advanced);
+                buffer.shape_until_scroll(&mut fs, false); // panique ici si cassé
+                let w: f32 = buffer.layout_runs().map(|r| r.line_w).fold(0.0, f32::max);
+                assert!(w > 0.0, "poids {weight:?} italique {italic} : rien shapé");
+            }
+        }
+    }
+
+    #[test]
+    fn weights_snap_to_embedded_faces() {
+        // Un poids sans face exacte (Medium 500) DOIT se rabattre sur une face
+        // embarquée — sinon cosmic-text bascule sur des listes de repli
+        // plateforme, inexistantes sur Android (panique sur l'appareil).
+        assert_eq!(available_weight(FontWeight::Regular), 400);
+        assert_eq!(available_weight(FontWeight::Medium), 400);
+        assert_eq!(available_weight(FontWeight::SemiBold), 700);
+        assert_eq!(available_weight(FontWeight::Bold), 700);
+        // Et le shaping est déterministe : Medium mesure comme Regular (même
+        // face), SemiBold comme Bold.
+        let text = "Titre de section";
+        let regular = measure_styled(text, 20.0, FontWeight::Regular, false);
+        let medium = measure_styled(text, 20.0, FontWeight::Medium, false);
+        assert_eq!(medium.width, regular.width);
+        let semibold = measure_styled(text, 20.0, FontWeight::SemiBold, false);
+        let bold = measure_styled(text, 20.0, FontWeight::Bold, false);
+        assert_eq!(semibold.width, bold.width);
+        assert!(bold.width > regular.width);
     }
 
     #[test]

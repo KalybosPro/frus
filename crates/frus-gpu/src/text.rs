@@ -99,7 +99,7 @@ impl TextPainter {
                     // Graisse + italique : cosmic-text choisit la face correspondante
                     // de la famille (repli sur la plus proche si absente).
                     let attrs = glyphon::Attrs::new()
-                        .weight(glyphon::Weight(weight.to_u16()))
+                        .weight(glyphon::Weight(frus_text::available_weight(*weight)))
                         .style(if *italic {
                             glyphon::Style::Italic
                         } else {
@@ -132,7 +132,7 @@ impl TextPainter {
                         (
                             run.text.as_str(),
                             glyphon::Attrs::new()
-                                .weight(glyphon::Weight(run.weight.to_u16()))
+                                .weight(glyphon::Weight(frus_text::available_weight(run.weight)))
                                 .style(if run.italic {
                                     glyphon::Style::Italic
                                 } else {
