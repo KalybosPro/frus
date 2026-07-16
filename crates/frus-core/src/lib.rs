@@ -7,6 +7,7 @@
 
 pub mod animation;
 mod color;
+mod decoration;
 mod geometry;
 mod responsive;
 mod scene;
@@ -16,6 +17,7 @@ pub use animation::{
     SpringDescription, SpringSimulation, Status, Tolerance, Tween,
 };
 pub use color::Color;
+pub use decoration::{Border, BoxDecoration, BoxShadow, LinearGradient};
 pub use geometry::{Insets, Point, Rect, Size};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{Primitive, Scene};

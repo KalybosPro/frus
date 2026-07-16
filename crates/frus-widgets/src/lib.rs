@@ -134,7 +134,10 @@ pub use ui::{build_ui, collect_ids, find_widget, Scrollbar, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
-pub use frus_core::{Color, Insets, Orientation, Point, Rect, Scene, SizeClass, Size};
+pub use frus_core::{
+    Border, BoxDecoration, BoxShadow, Color, Insets, LinearGradient, Orientation, Point, Rect,
+    Scene, SizeClass, Size,
+};
 /// Couche d'animation partagée (physique, courbes, pilote) — voir
 /// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent
 /// via `frus_widgets` sans dépendre directement de `frus-core`.

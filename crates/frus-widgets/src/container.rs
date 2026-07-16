@@ -1,7 +1,7 @@
 //! [`Container`] : une boîte décorée (taille, marge, couleur, coins arrondis,
 //! bordure, clic) avec un enfant optionnel.
 
-use frus_core::{Color, Insets, Rect, Scene};
+use frus_core::{Border, BoxDecoration, BoxShadow, Color, Insets, LinearGradient, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::{Interaction, Status};
@@ -174,41 +174,22 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             self.color
         };
 
-        // Opacité (fondu d'apparition) appliquée à toutes les couleurs.
-        let o = status.opacity;
-        let border = self.border_color.fade(o);
-
-        // Ombre portée (dessinée derrière, légèrement plus grande et floue).
-        if let Some((dx, dy, blur, shadow_color)) = self.shadow {
-            let shadow_rect = Rect::new(
-                bounds.x + dx - blur,
-                bounds.y + dy - blur,
-                bounds.width + 2.0 * blur,
-                bounds.height + 2.0 * blur,
-            );
-            scene.shadow(shadow_rect, shadow_color.fade(o), self.radius + blur, blur);
-        }
-
-        // Fond : dégradé si défini, sinon uni ; bordure éventuelle.
-        let has_border = self.border_width > 0.0 && self.border_color.a > 0.0;
-        match (color, self.gradient) {
-            (Some(color), Some((end, dir))) => scene.gradient_rect(
-                bounds,
-                color.fade(o),
-                end.fade(o),
-                dir,
-                self.radius,
-                self.border_width,
-                border,
-            ),
-            (Some(color), None) => {
-                scene.draw_rect(bounds, color.fade(o), self.radius, self.border_width, border)
-            }
-            (None, _) if has_border => {
-                scene.draw_rect(bounds, Color::TRANSPARENT, self.radius, self.border_width, border)
-            }
-            (None, _) => {}
-        }
+        // Compose la décoration (fond/dégradé/bordure/ombre) et l'abaisse en
+        // primitives dans l'ordre fixe ombre → fond → bordure. L'opacité (fondu
+        // d'apparition) module toutes les couleurs.
+        let decoration = BoxDecoration {
+            color,
+            gradient: self
+                .gradient
+                .map(|(end, dir)| LinearGradient::new(end, dir)),
+            border: (self.border_width > 0.0)
+                .then(|| Border::new(self.border_width, self.border_color)),
+            radius: self.radius,
+            shadow: self
+                .shadow
+                .map(|(dx, dy, blur, c)| BoxShadow::new(dx, dy, blur, c)),
+        };
+        decoration.paint_into(scene, bounds, status.opacity);
     }
 
     fn on_click(&self) -> Option<Msg> {

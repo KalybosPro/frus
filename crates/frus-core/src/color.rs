@@ -91,6 +91,27 @@ impl Color {
         Color::rgba(self.r, self.g, self.b, self.a * opacity.clamp(0.0, 1.0))
     }
 
+    /// Remplace le canal alpha (borné à `0.0..=1.0`), sans toucher au RGB.
+    pub fn with_alpha(self, alpha: f32) -> Color {
+        Color::rgba(self.r, self.g, self.b, alpha.clamp(0.0, 1.0))
+    }
+
+    /// Construit une couleur depuis un entier `0xAARRGGBB` (alpha en tête).
+    pub fn from_argb_u32(argb: u32) -> Color {
+        let a = (argb >> 24) & 0xFF;
+        let r = (argb >> 16) & 0xFF;
+        let g = (argb >> 8) & 0xFF;
+        let b = argb & 0xFF;
+        Color::rgba8(r as u8, g as u8, b as u8, a as u8)
+    }
+
+    /// Luminance relative (WCAG), calculée sur les canaux **linéarisés** — la base
+    /// d'un calcul de contraste. Ignore l'alpha. Résultat dans `[0, 1]`.
+    pub fn compute_luminance(self) -> f32 {
+        let lin = self.to_linear();
+        0.2126 * lin.r + 0.7152 * lin.g + 0.0722 * lin.b
+    }
+
     /// Convertit une composante sRGB (`0..1`) en linéaire.
     fn srgb_to_linear(c: f32) -> f32 {
         if c <= 0.04045 {
@@ -199,5 +220,40 @@ mod tests {
         assert_eq!(c.fade(0.5), Color::rgba(0.2, 0.4, 0.6, 0.4));
         assert_eq!(c.fade(1.0), c);
         assert_eq!(c.fade(0.0).a, 0.0);
+    }
+
+    #[test]
+    fn with_alpha_replaces_alpha() {
+        let c = Color::rgba(0.2, 0.4, 0.6, 0.8);
+        assert_eq!(c.with_alpha(0.3), Color::rgba(0.2, 0.4, 0.6, 0.3));
+        assert_eq!(c.with_alpha(2.0).a, 1.0, "borné à 1");
+    }
+
+    #[test]
+    fn from_argb_u32_decodes_channels() {
+        // 0x80FF0000 = rouge à 50 % d'alpha.
+        let c = Color::from_argb_u32(0x80FF_0000);
+        assert_eq!(c.r, 1.0);
+        assert_eq!(c.g, 0.0);
+        assert_eq!(c.b, 0.0);
+        assert_eq!(c.a, 128.0 / 255.0);
+        assert_eq!(Color::from_argb_u32(0xFFFF_FFFF), Color::WHITE);
+    }
+
+    #[test]
+    fn luminance_orders_black_grey_white() {
+        assert!(Color::BLACK.compute_luminance() < 1e-6);
+        assert!((Color::WHITE.compute_luminance() - 1.0).abs() < 1e-4);
+        let grey = Color::rgb(0.5, 0.5, 0.5).compute_luminance();
+        assert!(grey > 0.0 && grey < 1.0);
+        // Le vert pèse plus que le rouge, lui-même plus que le bleu (WCAG).
+        assert!(
+            Color::rgb(0.0, 1.0, 0.0).compute_luminance()
+                > Color::rgb(1.0, 0.0, 0.0).compute_luminance()
+        );
+        assert!(
+            Color::rgb(1.0, 0.0, 0.0).compute_luminance()
+                > Color::rgb(0.0, 0.0, 1.0).compute_luminance()
+        );
     }
 }
