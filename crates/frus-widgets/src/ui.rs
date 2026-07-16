@@ -297,6 +297,12 @@ struct Builder<'a, Msg> {
     available: Size,
     runtime: &'a Runtime,
     theme: &'a Theme,
+    /// Collecte de l'inspecteur (`Some` seulement quand il est actif) : un
+    /// nœud par widget peint, dans l'ordre de peinture.
+    inspector: Option<Vec<crate::inspector::InspectorNode>>,
+    /// Profondeur courante du walk (pour l'indentation du dump et le nuancier
+    /// des contours de l'inspecteur).
+    depth: usize,
 }
 
 impl<'a, Msg: Clone> Builder<'a, Msg> {
@@ -319,6 +325,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         let rect = rects[*index];
         *index += 1;
         let draw_rect = rect.translate(translation.0, translation.1);
+        self.inspect_enter(widget, id, draw_rect);
 
         let status = self.full_status(id);
         if widget.continuous() {
@@ -541,6 +548,22 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 );
             }
         }
+        self.depth -= 1;
+    }
+
+    /// Enregistre le widget dans la collecte de l'inspecteur (si active) et
+    /// ouvre un niveau de profondeur — chaque chemin de rendu le referme en
+    /// fin de fonction (`self.depth -= 1`).
+    fn inspect_enter(&mut self, widget: &dyn Widget<Msg>, id: WidgetId, draw_rect: Rect) {
+        if let Some(nodes) = &mut self.inspector {
+            nodes.push(crate::inspector::InspectorNode {
+                id,
+                rect: draw_rect,
+                name: widget.debug_name(),
+                depth: self.depth,
+            });
+        }
+        self.depth += 1;
     }
 
     /// Statut complet d'un widget : interaction pointeur + focus + progressions
@@ -606,6 +629,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         let rect = rects[*index];
         *index += 1;
         let draw_rect = rect.translate(translation.0, translation.1);
+        self.inspect_enter(widget, id, draw_rect);
 
         let status = self.full_status(id);
         if widget.continuous() {
@@ -643,6 +667,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 index,
             );
         }
+        self.depth -= 1;
     }
 
     /// Met en page un écran plein-fenêtre et le rend décalé de `off_x`.
@@ -836,6 +861,29 @@ pub fn build_ui<'a, Msg: Clone>(
     runtime: &'a Runtime,
     theme: &'a Theme,
 ) -> Ui<Msg> {
+    build_ui_impl(root, available, runtime, theme, false).0
+}
+
+/// Comme [`build_ui`], en collectant aussi les **nœuds d'inspection** (un par
+/// widget peint : nom, boîte, profondeur) — la matière de l'inspecteur runtime
+/// et du dump diagnostique. À réserver aux frames où l'inspecteur est actif.
+pub fn build_ui_inspected<'a, Msg: Clone>(
+    root: &'a dyn Widget<Msg>,
+    available: Size,
+    runtime: &'a Runtime,
+    theme: &'a Theme,
+) -> (Ui<Msg>, Vec<crate::inspector::InspectorNode>) {
+    let (ui, nodes) = build_ui_impl(root, available, runtime, theme, true);
+    (ui, nodes.unwrap_or_default())
+}
+
+fn build_ui_impl<'a, Msg: Clone>(
+    root: &'a dyn Widget<Msg>,
+    available: Size,
+    runtime: &'a Runtime,
+    theme: &'a Theme,
+    inspect: bool,
+) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
     let rects = runtime
         .layout_cache
         .borrow_mut()
@@ -856,11 +904,14 @@ pub fn build_ui<'a, Msg: Clone>(
         available,
         runtime,
         theme,
+        inspector: inspect.then(Vec::new),
+        depth: 0,
     };
     let mut index = 0;
     builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
 
     // Overlays (menus flottants, modales, tooltips) par-dessus tout le reste.
+    // (Leur walk repart de la profondeur 0 : des racines pour l'inspecteur.)
     builder.process_overlays();
 
     // Fin de frame : oublie les racines de layout des widgets disparus et fige
@@ -875,7 +926,7 @@ pub fn build_ui<'a, Msg: Clone>(
         }
     }
 
-    Ui {
+    let ui = Ui {
         scene: builder.scene,
         hits: builder.hits,
         long_presses: builder.long_presses,
@@ -886,7 +937,8 @@ pub fn build_ui<'a, Msg: Clone>(
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
         wants_animation: builder.wants_animation,
-    }
+    };
+    (ui, builder.inspector)
 }
 
 /// Collecte les identités de tous les widgets de l'arbre (ordre préfixe),

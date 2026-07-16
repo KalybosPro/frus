@@ -131,6 +131,10 @@ pub struct App<A: Application> {
     last_size: Option<(f32, f32)>,
     /// État retenu entre frames (survol/focus, scroll, curseur/sélection).
     runtime: Runtime,
+    /// Inspecteur runtime actif ? (bascule F12, builds debug uniquement).
+    inspector: bool,
+    /// Dump de l'arbre à imprimer à la prochaine frame inspectée.
+    inspector_dump: bool,
     /// Modificateurs clavier courants.
     shift: bool,
     ctrl: bool,
@@ -188,6 +192,8 @@ impl<A: Application> App<A> {
             scale: 1.0,
             last_size: None,
             runtime: Runtime::default(),
+            inspector: false,
+            inspector_dump: false,
             shift: false,
             ctrl: false,
             clipboard: clip::Clipboard::new(),
@@ -428,6 +434,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 ) {
                     if !event.repeat {
                         self.system_back(event_loop);
+                    }
+                    return;
+                }
+
+                // F12 : bascule l'**inspecteur** (contours + fiche du widget
+                // survolé + dump de l'arbre sur stderr) — debug uniquement.
+                if matches!(event.logical_key, WinitKey::Named(NamedKey::F12)) {
+                    if cfg!(debug_assertions) && !event.repeat {
+                        self.inspector = !self.inspector;
+                        self.inspector_dump = self.inspector;
+                        self.request_redraw();
                     }
                     return;
                 }
@@ -740,10 +757,35 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_values(tree, dt)
                     | self.runtime.advance_scroll(&scroll_maxes, dt)
                     | app_animating;
-                let ui = build_ui(tree, Size::new(width, height), &self.runtime, &theme);
-
-                // Scène logique → physique (DPI × densité) pour un rendu net.
-                let scene = ui.scene().scaled(scale);
+                // Inspecteur actif : la même construction collecte les nœuds
+                // observés, et le calque (contours + fiche du widget survolé)
+                // se peint par-dessus une copie de la scène.
+                let (ui, scene) = if self.inspector {
+                    let (ui, nodes) = frus_widgets::build_ui_inspected(
+                        tree,
+                        Size::new(width, height),
+                        &self.runtime,
+                        &theme,
+                    );
+                    if std::mem::take(&mut self.inspector_dump) {
+                        eprintln!("{}", frus_widgets::dump_tree(&nodes));
+                    }
+                    let mut scene = ui.scene().clone();
+                    frus_widgets::paint_inspector_overlay(
+                        &nodes,
+                        Some(self.cursor),
+                        Size::new(width, height),
+                        &theme,
+                        &mut scene,
+                    );
+                    // Scène logique → physique (DPI × densité).
+                    (ui, scene.scaled(scale))
+                } else {
+                    let ui = build_ui(tree, Size::new(width, height), &self.runtime, &theme);
+                    // Scène logique → physique (DPI × densité) pour un rendu net.
+                    let scene = ui.scene().scaled(scale);
+                    (ui, scene)
+                };
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(&scene) {
                         Ok(()) => {}
@@ -812,6 +854,11 @@ impl<A: Application> App<A> {
             PointerKind::Move => {
                 self.press.moved(self.cursor);
                 self.pointer_move();
+                // L'inspecteur suit le curseur (surlignage) : redessine même
+                // au-dessus de widgets inertes (aucune animation de survol).
+                if self.inspector {
+                    self.request_redraw();
+                }
             }
             PointerKind::Up => {
                 if self.press.up() {

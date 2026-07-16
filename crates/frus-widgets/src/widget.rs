@@ -33,6 +33,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Nom **court** du widget (l'équivalent du `runtimeType` Flutter) — pour
+    /// l'inspecteur et les dumps diagnostiques. Par défaut : le nom du type
+    /// concret, sans chemin de module ni génériques (chaque implémentation
+    /// reçoit sa propre copie monomorphisée de ce corps par défaut). Les
+    /// wrappers transparents (`Box`, [`crate::Keyed`]…) délèguent au contenu.
+    fn debug_name(&self) -> &'static str {
+        short_type_name::<Self>()
+    }
+
     /// Applique une touche au widget focalisé : mute l'état d'édition
     /// (curseur/sélection) et renvoie un message si la **valeur** change.
     fn on_edit(&self, _edit: &mut Edit, _key: &Key) -> Option<Msg> {
@@ -172,11 +181,22 @@ pub trait Widget<Msg> {
     }
 }
 
+/// Nom de type **court** : sans chemin de module ni paramètres génériques
+/// (`frus_widgets::text::Text` → `Text`, `Container<Msg>` → `Container`).
+pub(crate) fn short_type_name<T: ?Sized>() -> &'static str {
+    let full = std::any::type_name::<T>();
+    let no_generics = full.split('<').next().unwrap_or(full);
+    no_generics.rsplit("::").next().unwrap_or(no_generics)
+}
+
 /// Permet de composer un widget **déjà boxé** là où un `impl Widget` est attendu
 /// (p. ex. `Flex::child`). Délègue tout au widget contenu.
 impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn style(&self) -> Style {
         (**self).style()
+    }
+    fn debug_name(&self) -> &'static str {
+        (**self).debug_name()
     }
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         (**self).children()

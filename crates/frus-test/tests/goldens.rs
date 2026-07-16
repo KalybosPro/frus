@@ -57,6 +57,35 @@ fn widget_tree_matches_golden() {
     snapshot.assert_golden(golden("widget_column_text"));
 }
 
+/// Le calque **inspecteur** (contours + surlignage + fiche du widget désigné)
+/// par-dessus un arbre rendu — reproduit son golden.
+#[test]
+fn inspector_overlay_matches_golden() {
+    use frus_core::Size;
+    use frus_widgets::{build_ui_inspected, paint_inspector_overlay, Runtime};
+
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(10.0).child(
+        Flex::column()
+            .gap(6.0)
+            .child(Text::new("Inspect me").size(14.0))
+            .child(Text::new("plain").size(12.0)),
+    );
+    let runtime = Runtime::default();
+    let size = Size::new(180.0, 120.0);
+    let (ui, nodes) = build_ui_inspected(&root, size, &runtime, &theme);
+    assert!(nodes.len() >= 4, "l'arbre entier est observé ({})", nodes.len());
+
+    let mut scene = ui.scene().clone();
+    // Le curseur désigne le premier texte : surlignage + fiche.
+    paint_inspector_overlay(&nodes, Some(Point::new(20.0, 18.0)), size, &theme, &mut scene);
+    let Some(snapshot) = frus_test::render_scene(&scene, 180, 120, theme.background) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    snapshot.assert_golden(golden("inspector_overlay"));
+}
+
 /// Le comparateur : identique → 0 diff ; un pixel changé → 1 diff.
 #[test]
 fn diff_count_is_exact() {

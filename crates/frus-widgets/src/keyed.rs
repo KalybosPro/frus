@@ -41,6 +41,11 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.style()
     }
 
+    fn debug_name(&self) -> &'static str {
+        // Wrapper transparent : l'inspecteur montre le widget enveloppé.
+        self.inner.debug_name()
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         self.inner.children()
     }

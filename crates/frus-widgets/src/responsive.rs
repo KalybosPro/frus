@@ -80,6 +80,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().map(|w| w.style()).unwrap_or_default()
     }
 
+    fn debug_name(&self) -> &'static str {
+        // Wrapper transparent : l'inspecteur montre le widget réalisé.
+        self.inner
+            .as_ref()
+            .map(|w| w.debug_name())
+            .unwrap_or("Responsive")
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         self.inner.as_ref().map(|w| w.children()).unwrap_or(&[])
     }

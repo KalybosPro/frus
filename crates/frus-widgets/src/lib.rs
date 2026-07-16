@@ -31,6 +31,7 @@ mod dropdown;
 mod dsl;
 mod flex;
 mod grid;
+mod inspector;
 mod interaction;
 mod kbd;
 mod keyed;
@@ -132,7 +133,11 @@ pub use timeline::Timeline;
 pub use toast::{Toast, ToastKind};
 pub use tree::Tree;
 pub use twopane::TwoPane;
-pub use ui::{build_ui, collect_ids, find_path, find_widget, FocusDirection, Scrollbar, Ui};
+pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
+pub use ui::{
+    build_ui, build_ui_inspected, collect_ids, find_path, find_widget, FocusDirection, Scrollbar,
+    Ui,
+};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
