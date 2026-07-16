@@ -22,4 +22,4 @@ pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradi
 pub use geometry::{Insets, Point, Rect, Size, WindowInsets};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{Primitive, Scene};
-pub use text_style::{FontWeight, TextRun, TextSpan, TextStyle};
+pub use text_style::{FontWeight, TextDecoration, TextRun, TextSpan, TextStyle};

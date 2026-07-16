@@ -122,15 +122,19 @@ impl Renderer {
 
     /// Dessine la scène (rectangles + texte) et la présente.
     pub fn render(&mut self, scene: &Scene) -> Result<(), wgpu::SurfaceError> {
-        // Préparation (téléversements) avant l'ouverture du render pass.
-        let rect_count = self.painter.prepare_frame(&self.device, &self.queue, scene);
-        self.text.prepare_frame(
+        // Préparation (téléversements) avant l'ouverture du render pass. Le
+        // texte d'abord : il produit les quads de décoration (soulignement…)
+        // que la passe des rectangles dessine sous les glyphes.
+        let decorations = self.text.prepare_frame(
             &self.device,
             &self.queue,
             scene,
             self.config.width,
             self.config.height,
         );
+        let rect_count =
+            self.painter
+                .prepare_frame(&self.device, &self.queue, scene, &decorations);
 
         let frame = self.surface.get_current_texture()?;
         let view = frame

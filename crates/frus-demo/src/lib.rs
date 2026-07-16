@@ -1012,14 +1012,19 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .child(screen)
 }
 
-/// Une ligne de tâche : case à cocher, libellé (grisé si terminée) et suppression.
+/// Une ligne de tâche : case à cocher, libellé (grisé **et barré** si terminée)
+/// et suppression.
 fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     let id = todo.id;
     let label_color = if todo.done { theme.muted } else { theme.on_surface };
+    let mut label = text(todo.text.clone()).size(18.0).color(label_color);
+    if todo.done {
+        label = label.strikethrough();
+    }
     let line = row![
         Avatar::new(todo.text.clone()).size(30.0),
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
-        text(todo.text.clone()).size(18.0).color(label_color),
+        label,
         spacer(),
         button("×", Msg::DeleteTodo(id)).variant(Variant::Danger).size(15.0),
     ]
@@ -1321,7 +1326,7 @@ fn about_section(theme: &Theme) -> Container<Msg> {
                     TextSpan::new("A ")
                         .child(TextSpan::new("fast").bold())
                         .child(TextSpan::new(", "))
-                        .child(TextSpan::new("portable").italic())
+                        .child(TextSpan::new("portable").italic().underline())
                         .child(TextSpan::new(" Rust UI framework — "))
                         .child(TextSpan::new("no GC").bold().color(theme.primary))
                         .child(TextSpan::new(".")),

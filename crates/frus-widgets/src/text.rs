@@ -70,6 +70,30 @@ impl Text {
         self.style.color = Some(color);
         self
     }
+
+    /// Souligne le texte.
+    pub fn underline(mut self) -> Self {
+        self.style = self.style.underline();
+        self
+    }
+
+    /// Barre le texte.
+    pub fn strikethrough(mut self) -> Self {
+        self.style = self.style.strikethrough();
+        self
+    }
+
+    /// Fixe les lignes de décoration (combinaison libre, façon Flutter).
+    pub fn decoration(mut self, decoration: frus_core::TextDecoration) -> Self {
+        self.style.decoration = decoration;
+        self
+    }
+
+    /// Fixe la couleur des décorations (sinon celle du texte).
+    pub fn decoration_color(mut self, color: Color) -> Self {
+        self.style.decoration_color = Some(color);
+        self
+    }
 }
 
 impl<Msg> Widget<Msg> for Text {
@@ -177,6 +201,8 @@ mod tests {
                 weight: FontWeight::Regular,
                 italic: false,
                 max_width: None,
+                decoration: frus_core::TextDecoration::NONE,
+                decoration_color: None,
                 clip: Rect::UNBOUNDED,
                 owner: 0,
             }

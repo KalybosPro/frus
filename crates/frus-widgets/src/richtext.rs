@@ -65,6 +65,12 @@ impl RichText {
                 weight: style.weight,
                 italic: style.italic,
                 color: style.color.unwrap_or(fallback).fade(opacity),
+                decoration: style.decoration,
+                // Héritée = couleur du run : résolue ici pour que le fondu de
+                // sortie s'applique aussi aux décorations.
+                decoration_color: style
+                    .decoration_color
+                    .map(|c| c.fade(opacity)),
             })
             .collect()
     }

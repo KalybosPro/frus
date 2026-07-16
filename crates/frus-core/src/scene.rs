@@ -7,7 +7,7 @@
 //! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
-use crate::{BorderRadius, Color, FontWeight, Point, Rect, TextRun, TextStyle};
+use crate::{BorderRadius, Color, FontWeight, Point, Rect, TextDecoration, TextRun, TextStyle};
 
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +45,10 @@ pub enum Primitive {
         /// Largeur de repli : au-delà, le texte revient à la ligne (`None` =
         /// pas de repli — les `\n` explicites font les lignes).
         max_width: Option<f32>,
+        /// Lignes de décoration (soulignement, barré…).
+        decoration: TextDecoration,
+        /// Couleur des décorations ; `None` = la couleur du texte.
+        decoration_color: Option<Color>,
         /// Rectangle de découpe.
         clip: Rect,
         /// Identité du widget émetteur.
@@ -111,6 +115,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width,
+                decoration,
+                decoration_color,
                 clip,
                 owner,
             } => Primitive::Text {
@@ -121,6 +127,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width: max_width.map(|w| w * factor),
+                decoration,
+                decoration_color,
                 clip: clip.scale(factor),
                 owner,
             },
@@ -226,6 +234,8 @@ impl Scene {
                 weight,
                 italic,
                 max_width,
+                decoration,
+                decoration_color,
                 clip,
                 owner,
             } => Primitive::Text {
@@ -236,6 +246,8 @@ impl Scene {
                 weight,
                 italic,
                 max_width,
+                decoration,
+                decoration_color: decoration_color.map(|c| c.fade(opacity)),
                 clip,
                 owner,
             },
@@ -248,6 +260,7 @@ impl Scene {
             } => {
                 for run in &mut runs {
                     run.color = run.color.fade(opacity);
+                    run.decoration_color = run.decoration_color.map(|c| c.fade(opacity));
                 }
                 Primitive::RichText {
                     position,
@@ -359,6 +372,8 @@ impl Scene {
             weight: FontWeight::Regular,
             italic: false,
             max_width: None,
+            decoration: TextDecoration::NONE,
+            decoration_color: None,
             clip: self.current_clip,
             owner: self.current_owner,
         });
@@ -406,6 +421,8 @@ impl Scene {
             weight: style.weight,
             italic: style.italic,
             max_width: None,
+            decoration: style.decoration,
+            decoration_color: style.decoration_color,
             clip: self.current_clip,
             owner: self.current_owner,
         });
@@ -429,6 +446,8 @@ impl Scene {
             weight: style.weight,
             italic: style.italic,
             max_width: Some(max_width),
+            decoration: style.decoration,
+            decoration_color: style.decoration_color,
             clip: self.current_clip,
             owner: self.current_owner,
         });

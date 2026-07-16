@@ -2,10 +2,66 @@
 //! de glyphes wgpu). Dessine les primitives [`Primitive::Text`] dans le render
 //! pass, par-dessus les rectangles.
 
-use frus_core::{Primitive, Scene};
+use frus_core::{Color, Point, Primitive, Rect, Scene, TextDecoration};
 
 /// Rapport interligne / taille de police (cohérent avec `frus-text`).
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
+
+/// Un quad de **décoration de texte** (soulignement, barré…) calculé à partir
+/// des lignes mises en forme. Rendu par le pipeline des rectangles, *avant* les
+/// glyphes (même couleur → indiscernable ; le texte reste lisible sinon).
+pub(crate) struct DecorationQuad {
+    pub rect: Rect,
+    pub color: Color,
+    pub clip: Rect,
+}
+
+/// Position du soulignement sous la ligne de base (fraction de la taille).
+const UNDERLINE_OFFSET: f32 = 0.12;
+/// Position du barré au-dessus de la ligne de base (≈ mi-hauteur d'x).
+const STRIKETHROUGH_OFFSET: f32 = 0.28;
+/// Position de la ligne au-dessus (≈ hauteur d'ascendante).
+const OVERLINE_OFFSET: f32 = 0.90;
+
+/// Émet les quads d'une ligne décorée : `[x0, x1]` en avance depuis `origin`,
+/// `baseline` relative au haut du paragraphe, épaisseur dérivée de `size`.
+fn push_line_quads(
+    quads: &mut Vec<DecorationQuad>,
+    origin: Point,
+    x0: f32,
+    x1: f32,
+    baseline: f32,
+    size: f32,
+    decoration: TextDecoration,
+    color: Color,
+    clip: Rect,
+) {
+    if x1 <= x0 {
+        return;
+    }
+    let thickness = (size / 14.0).max(1.0);
+    let mut line = |y: f32| {
+        quads.push(DecorationQuad {
+            rect: Rect::new(
+                origin.x + x0,
+                origin.y + baseline + y - thickness / 2.0,
+                x1 - x0,
+                thickness,
+            ),
+            color,
+            clip,
+        });
+    };
+    if decoration.underline {
+        line(UNDERLINE_OFFSET * size);
+    }
+    if decoration.strikethrough {
+        line(-STRIKETHROUGH_OFFSET * size);
+    }
+    if decoration.overline {
+        line(-OVERLINE_OFFSET * size);
+    }
+}
 
 fn to_u8(channel: f32) -> u8 {
     (channel.clamp(0.0, 1.0) * 255.0).round() as u8
@@ -46,6 +102,9 @@ impl TextPainter {
     }
 
     /// Prépare le rendu du texte de la scène. À appeler avant le render pass.
+    /// Renvoie les **quads de décoration** (soulignement, barré…) calculés à
+    /// partir des lignes mises en forme — à dessiner par le pipeline des
+    /// rectangles.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
@@ -53,8 +112,9 @@ impl TextPainter {
         scene: &Scene,
         width: u32,
         height: u32,
-    ) {
+    ) -> Vec<DecorationQuad> {
         self.viewport.update(queue, glyphon::Resolution { width, height });
+        let mut decorations = Vec::new();
 
         // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter le
         // double encodage (texte délavé). L'alpha reste tel quel.
@@ -87,6 +147,8 @@ impl TextPainter {
                     weight,
                     italic,
                     max_width,
+                    decoration,
+                    decoration_color,
                     clip,
                     ..
                 } => {
@@ -108,6 +170,29 @@ impl TextPainter {
                     buffer.set_text(&mut self.font_system, text, attrs, glyphon::Shaping::Advanced);
                     buffer.shape_until_scroll(&mut self.font_system, false);
 
+                    // Décorations : une ligne par run de mise en forme, de la
+                    // première à la dernière avance de glyphe.
+                    if !decoration.is_none() {
+                        let deco_color = decoration_color.unwrap_or(*color);
+                        for run in buffer.layout_runs() {
+                            let (Some(first), Some(last)) = (run.glyphs.first(), run.glyphs.last())
+                            else {
+                                continue;
+                            };
+                            push_line_quads(
+                                &mut decorations,
+                                *position,
+                                first.x,
+                                last.x + last.w,
+                                run.line_y,
+                                *size,
+                                *decoration,
+                                deco_color,
+                                *clip,
+                            );
+                        }
+                    }
+
                     buffers.push((buffer, position.x, position.y, to_glyphon(color), to_bounds(clip)));
                 }
                 Primitive::RichText {
@@ -128,7 +213,7 @@ impl TextPainter {
                     // Un paragraphe riche se replie à sa largeur de mise en page.
                     let wrap_w = max_width.unwrap_or(width as f32);
                     buffer.set_size(&mut self.font_system, Some(wrap_w), Some(height as f32));
-                    let spans = runs.iter().map(|run| {
+                    let spans = runs.iter().enumerate().map(|(index, run)| {
                         (
                             run.text.as_str(),
                             glyphon::Attrs::new()
@@ -142,7 +227,10 @@ impl TextPainter {
                                     run.size,
                                     run.size * LINE_HEIGHT_FACTOR,
                                 ))
-                                .color(to_glyphon(&run.color)),
+                                .color(to_glyphon(&run.color))
+                                // Rattache chaque glyphe à son run source (pour
+                                // les décorations par-span).
+                                .metadata(index),
                         )
                     });
                     buffer.set_rich_text(
@@ -152,6 +240,39 @@ impl TextPainter {
                         glyphon::Shaping::Advanced,
                     );
                     buffer.shape_until_scroll(&mut self.font_system, false);
+
+                    // Décorations par run : les glyphes consécutifs d'un même run
+                    // (métadonnée) forment un segment décoré d'un seul tenant.
+                    if runs.iter().any(|r| !r.decoration.is_none()) {
+                        for lrun in buffer.layout_runs() {
+                            let glyphs = lrun.glyphs;
+                            let mut start = 0;
+                            while start < glyphs.len() {
+                                let meta = glyphs[start].metadata;
+                                let mut end = start + 1;
+                                while end < glyphs.len() && glyphs[end].metadata == meta {
+                                    end += 1;
+                                }
+                                if let Some(run) = runs.get(meta) {
+                                    if !run.decoration.is_none() {
+                                        let last = &glyphs[end - 1];
+                                        push_line_quads(
+                                            &mut decorations,
+                                            *position,
+                                            glyphs[start].x,
+                                            last.x + last.w,
+                                            lrun.line_y,
+                                            run.size,
+                                            run.decoration,
+                                            run.decoration_color.unwrap_or(run.color),
+                                            *clip,
+                                        );
+                                    }
+                                }
+                                start = end;
+                            }
+                        }
+                    }
 
                     // Chaque run porte sa couleur par attrs ; le défaut ne sert
                     // qu'aux glyphes sans couleur (il n'y en a pas).
@@ -185,6 +306,7 @@ impl TextPainter {
         ) {
             log::warn!("glyphon prepare a échoué : {err:?}");
         }
+        decorations
     }
 
     /// Dessine le texte préparé dans un render pass ouvert.
@@ -247,8 +369,13 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = TextPainter::new(&device, &queue, format);
-        painter.prepare_frame(&device, &queue, scene, SIZE, SIZE);
+        // Même ordre que le Renderer : texte préparé d'abord (produit les quads
+        // de décoration), la passe des rectangles les dessine sous les glyphes.
+        let mut text_painter = TextPainter::new(&device, &queue, format);
+        let decorations = text_painter.prepare_frame(&device, &queue, scene, SIZE, SIZE);
+        let mut rect_painter = crate::painter::Painter::new(&device, format);
+        rect_painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
+        let rect_count = rect_painter.prepare_frame(&device, &queue, scene, &decorations);
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -267,7 +394,8 @@ mod tests {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            painter.draw(&mut pass);
+            rect_painter.draw(&mut pass, rect_count);
+            text_painter.draw(&mut pass);
         }
 
         let bytes_per_row = SIZE * 4;
@@ -336,6 +464,8 @@ mod tests {
             weight,
             italic: false,
             color: Color::WHITE,
+            decoration: TextDecoration::NONE,
+            decoration_color: None,
         };
         let mut scene = Scene::new();
         scene.rich_text(
@@ -347,6 +477,79 @@ mod tests {
             Some(lit) => {
                 assert!(lit > 0, "le texte riche devrait produire des pixels non-noirs ({lit})")
             }
+        }
+    }
+
+    /// Le **soulignement** ajoute des pixels par rapport au même texte nu —
+    /// preuve par readback que les quads de décoration traversent tout le
+    /// chemin (calcul depuis les lignes mises en forme + passe des rectangles).
+    #[test]
+    fn underline_lights_more_pixels_than_plain_text() {
+        use frus_core::TextStyle;
+        let plain = {
+            let mut scene = Scene::new();
+            scene.text_styled(Point::new(4.0, 4.0), "Hello", &TextStyle::new(40.0), Color::WHITE);
+            scene
+        };
+        let underlined = {
+            let mut scene = Scene::new();
+            scene.text_styled(
+                Point::new(4.0, 4.0),
+                "Hello",
+                &TextStyle::new(40.0).underline(),
+                Color::WHITE,
+            );
+            scene
+        };
+        match (lit_pixels_for(&plain), lit_pixels_for(&underlined)) {
+            (Some(bare), Some(deco)) => {
+                assert!(
+                    deco > bare + 50,
+                    "le soulignement doit ajouter des pixels (nu {bare}, décoré {deco})"
+                );
+            }
+            _ => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+        }
+    }
+
+    /// Le **barré par-span** d'un texte riche n'ajoute des pixels que sur le run
+    /// décoré (chemin métadonnées → segments par run).
+    #[test]
+    fn rich_text_strikethrough_is_per_run() {
+        use frus_core::{FontWeight, TextRun};
+        let run = |text: &str, decoration: TextDecoration| TextRun {
+            text: text.to_string(),
+            size: 40.0,
+            weight: FontWeight::Regular,
+            italic: false,
+            color: Color::WHITE,
+            decoration,
+            decoration_color: None,
+        };
+        let plain = {
+            let mut scene = Scene::new();
+            scene.rich_text(
+                Point::new(4.0, 4.0),
+                vec![run("ab", TextDecoration::NONE), run("cd", TextDecoration::NONE)],
+            );
+            scene
+        };
+        let struck = {
+            let mut scene = Scene::new();
+            scene.rich_text(
+                Point::new(4.0, 4.0),
+                vec![run("ab", TextDecoration::NONE), run("cd", TextDecoration::STRIKETHROUGH)],
+            );
+            scene
+        };
+        match (lit_pixels_for(&plain), lit_pixels_for(&struck)) {
+            (Some(bare), Some(deco)) => {
+                assert!(
+                    deco > bare,
+                    "le barré du second run doit ajouter des pixels (nu {bare}, décoré {deco})"
+                );
+            }
+            _ => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
         }
     }
 }

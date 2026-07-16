@@ -387,6 +387,8 @@ mod tests {
             weight,
             italic: false,
             color: Color::WHITE,
+            decoration: frus_core::TextDecoration::NONE,
+            decoration_color: None,
         };
         // « normal GRAS » : plus large que « normal » seul ; hauteur = du plus grand run.
         let plain = measure_runs(&[run("normal", 16.0, FontWeight::Regular)]);

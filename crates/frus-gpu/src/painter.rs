@@ -3,8 +3,10 @@
 //! une texture offscreen — ce qui rend le rendu testable en headless.
 
 use bytemuck::{Pod, Zeroable};
-use frus_core::{Primitive, Scene};
+use frus_core::{Color, Primitive, Scene};
 use wgpu::util::DeviceExt;
+
+use crate::text::DecorationQuad;
 
 /// Sommet du quad unité (coin dans `[0,1]²`).
 #[repr(C)]
@@ -208,7 +210,13 @@ impl Painter {
 
     /// Traduit les primitives de la scène en instances GPU et les téléverse,
     /// en agrandissant le buffer si besoin. Renvoie le nombre d'instances.
-    fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, scene: &Scene) -> u32 {
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        scene: &Scene,
+        decorations: &[DecorationQuad],
+    ) -> u32 {
         self.instances.clear();
         for primitive in scene.primitives() {
             match primitive {
@@ -239,6 +247,21 @@ impl Painter {
             }
         }
 
+        // Quads de décoration de texte (soulignement, barré…) : des rectangles
+        // pleins, dessinés dans la passe des quads (donc sous les glyphes).
+        for quad in decorations {
+            self.instances.push(Instance {
+                rect: quad.rect.to_array(),
+                color: quad.color.to_array(),
+                color2: quad.color.to_array(),
+                border_color: Color::TRANSPARENT.to_array(),
+                params: [0.0, 0.0, 0.0, 0.0],
+                gradient: [0.0, 0.0, 0.0, 0.0],
+                clip: quad.clip.to_array(),
+                radii: [0.0, 0.0, 0.0, 0.0],
+            });
+        }
+
         let count = self.instances.len();
         if count == 0 {
             return 0;
@@ -258,14 +281,16 @@ impl Painter {
     }
 
     /// Prépare le rendu (téléverse les instances) et renvoie leur nombre.
+    /// `decorations` : quads issus du texte (voir [`TextPainter::prepare_frame`]).
     /// À appeler **avant** d'ouvrir le render pass.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &Scene,
+        decorations: &[DecorationQuad],
     ) -> u32 {
-        self.prepare(device, queue, scene)
+        self.prepare(device, queue, scene, decorations)
     }
 
     /// Dessine les rectangles dans un render pass déjà ouvert.
@@ -354,7 +379,7 @@ mod tests {
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        let count = painter.prepare_frame(&device, &queue, &scene);
+        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -459,7 +484,7 @@ mod tests {
             Color::TRANSPARENT,
         );
 
-        let count = painter.prepare_frame(&device, &queue, &scene);
+        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -573,7 +598,7 @@ mod tests {
             Color::TRANSPARENT,
         );
 
-        let count = painter.prepare_frame(&device, &queue, &scene);
+        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -681,7 +706,7 @@ mod tests {
         scene.set_clip(Rect::new(0.0, 0.0, 16.0, 16.0));
         scene.fill_rect(Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32), Color::rgb(1.0, 0.0, 0.0));
 
-        let count = painter.prepare_frame(&device, &queue, &scene);
+        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
