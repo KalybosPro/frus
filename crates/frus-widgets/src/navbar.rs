@@ -21,6 +21,10 @@ const TITLE_SIZE: f32 = 20.0;
 /// Une barre de navigation : titre + bouton retour optionnel.
 pub struct NavBar<Msg> {
     title: String,
+    /// Style du titre (défaut : 20 px, graisse medium, couleur du thème).
+    title_style: TextStyle,
+    /// Hauteur de la barre (défaut : [`HEIGHT`]).
+    height: f32,
     /// `[]` (racine) ou `[bouton retour]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -30,8 +34,22 @@ impl<Msg: Clone + 'static> NavBar<Msg> {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
+            title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
+            height: HEIGHT,
             children: Vec::new(),
         }
+    }
+
+    /// Surcharge le style du titre (taille/graisse/italique/couleur).
+    pub fn title_style(mut self, style: TextStyle) -> Self {
+        self.title_style = style;
+        self
+    }
+
+    /// Surcharge la hauteur de la barre (défaut : 56 px).
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = height;
+        self
     }
 
     /// Ajoute un bouton retour émettant `message`.
@@ -47,7 +65,7 @@ impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Auto,
-            height: Dimension::Length(HEIGHT),
+            height: Dimension::Length(self.height),
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Center,
@@ -69,9 +87,10 @@ impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
             theme.border.fade(o),
         );
 
-        // Titre centré horizontalement dans la barre, graisse medium (échelle
-        // typographique : un titre de barre est un « title », pas un corps).
-        let style = TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium);
+        // Titre centré horizontalement dans la barre, selon `title_style`
+        // (défaut : graisse medium — un titre de barre est un « title », pas un
+        // corps ; la couleur du style est héritée du thème si absente).
+        let style = self.title_style;
         let measured =
             frus_text::measure_styled(&self.title, style.size, style.weight, style.italic);
         let tx = bounds.x + (bounds.width - measured.width) * 0.5;
@@ -80,7 +99,7 @@ impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
             Point::new(tx, ty),
             self.title.clone(),
             &style,
-            theme.on_surface.fade(o),
+            style.color.unwrap_or(theme.on_surface).fade(o),
         );
     }
 
@@ -104,6 +123,27 @@ mod tests {
     fn root_bar_has_no_back_button() {
         let bar: NavBar<Msg> = NavBar::new("Accueil");
         assert!(Widget::children(&bar).is_empty());
+    }
+
+    #[test]
+    fn title_style_and_height_are_customizable() {
+        // Style de titre et hauteur surchargés (défauts : medium 20, 56 px).
+        let bar: NavBar<Msg> = NavBar::new("Titre")
+            .title_style(TextStyle::new(24.0).weight(FontWeight::Bold).italic())
+            .height(72.0);
+        match Widget::style(&bar).height {
+            Dimension::Length(h) => assert_eq!(h, 72.0),
+            _ => panic!("hauteur imposée attendue"),
+        }
+        let ui = build_ui(&bar, Size::new(400.0, 72.0), &Runtime::default(), &Theme::default());
+        let styled = ui.scene().primitives().iter().any(|p| {
+            matches!(
+                p,
+                Primitive::Text { text, size, weight, italic, .. }
+                    if text == "Titre" && *size == 24.0 && *weight == FontWeight::Bold && *italic
+            )
+        });
+        assert!(styled, "le titre doit porter le style surchargé");
     }
 
     #[test]
