@@ -15,7 +15,8 @@ use frus_widgets::{
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
-    RadioGroup, Rating, RichText, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
+    RadioGroup, Rating, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
+    Slider, Stack,
     TextSpan, WindowInsets,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
 };
@@ -1107,7 +1108,12 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     ]
     .padding(20.0)
     .gap(16.0);
-    let screen = column![NavBar::new("Settings").on_back(Msg::Pop), content].width(width).height(height);
+    // Le contenu (calendrier, options avancées…) dépasse l'écran : il défile
+    // sous la barre, qui reste épinglée.
+    let body = Scroll::new().width(width).flex(1.0).child(content);
+    let screen = column![NavBar::new("Settings").on_back(Msg::Pop), body]
+        .width(width)
+        .height(height);
     Container::new()
         .width(width)
         .height(height)
@@ -1168,8 +1174,11 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     // Responsivité : la carte s'élargit avec la fenêtre par paliers (Lot A). En
     // Compact, elle suit la largeur disponible ; les champs internes s'y adaptent.
     let class = SizeClass::from_width(width);
+    // Largeur **interne** de la carte : la fenêtre moins le padding du corps
+    // (24 × 2) et celui de la carte (20 × 2) — sinon la carte déborde du
+    // viewport Compact et tout l'écran défile horizontalement.
     let card_width = match class {
-        SizeClass::Compact => (width - 40.0).max(280.0),
+        SizeClass::Compact => (width - 88.0).max(240.0),
         SizeClass::Medium => 560.0,
         SizeClass::Expanded => 680.0,
     };

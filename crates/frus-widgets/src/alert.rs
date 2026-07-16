@@ -82,30 +82,51 @@ impl Alert {
         }
     }
 
-    fn content_width(&self) -> f32 {
-        let text_w = frus_text::measure(&self.text, TEXT_SIZE).width;
-        let title_w = self
-            .title
-            .as_ref()
-            .map(|t| frus_text::measure(t, TITLE_SIZE).width)
-            .unwrap_or(0.0);
-        text_w.max(title_w)
-    }
 }
 
 impl<Msg> Widget<Msg> for Alert {
     fn style(&self) -> Style {
-        let line = frus_text::line_height(TEXT_SIZE);
-        let height = if self.title.is_some() {
-            PAD * 2.0 + frus_text::line_height(TITLE_SIZE) + 4.0 + line
-        } else {
-            PAD * 2.0 + line
-        };
-        Style {
-            width: Dimension::Length((ACCENT + ICON_W + self.content_width() + PAD).ceil()),
-            height: Dimension::Length(height.ceil()),
-            ..Default::default()
-        }
+        // Paragraphe : dimensions libres, la taille vient de `measure()` —
+        // le message se replie à la largeur offerte par le parent.
+        Style::default()
+    }
+
+    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+        let text = self.text.clone();
+        let title = self.title.clone();
+        Some(Box::new(move |max_width, _| {
+            use frus_core::FontWeight;
+            let chrome = ACCENT + ICON_W + PAD; // barre + icône + marge droite
+            let text_avail = max_width.map(|w| (w - chrome).max(40.0));
+            let body = frus_text::measure_wrapped(
+                &text,
+                TEXT_SIZE,
+                FontWeight::Regular,
+                false,
+                text_avail,
+            );
+            let title_h = title
+                .as_ref()
+                .map(|_| frus_text::line_height(TITLE_SIZE) + 4.0)
+                .unwrap_or(0.0);
+            let title_w = title
+                .as_ref()
+                .map(|t| frus_text::measure(t, TITLE_SIZE).width)
+                .unwrap_or(0.0);
+            let natural_w = chrome + body.width.max(title_w);
+            frus_core::Size::new(
+                max_width.map_or(natural_w, |w| w.min(natural_w)).ceil(),
+                (PAD * 2.0 + title_h + body.height).ceil(),
+            )
+        }))
+    }
+
+    fn measure_key(&self) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.text.hash(&mut hasher);
+        self.title.hash(&mut hasher);
+        Some(hasher.finish())
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -133,6 +154,10 @@ impl<Msg> Widget<Msg> for Alert {
             accent.fade(o),
         );
         let text_x = bounds.x + ACCENT + ICON_W;
+        // Le message se replie à la largeur réellement disponible (celle de la
+        // mise en page), en cohérence avec `measure()`.
+        let wrap_w = (bounds.width - (ACCENT + ICON_W + PAD)).max(40.0);
+        let body_style = frus_core::TextStyle::new(TEXT_SIZE);
         match &self.title {
             Some(title) => {
                 scene.text(
@@ -141,19 +166,21 @@ impl<Msg> Widget<Msg> for Alert {
                     TITLE_SIZE,
                     theme.on_surface.fade(o),
                 );
-                scene.text(
+                scene.text_wrapped(
                     Point::new(text_x, bounds.y + PAD + frus_text::line_height(TITLE_SIZE) + 4.0),
                     self.text.clone(),
-                    TEXT_SIZE,
+                    &body_style,
                     theme.muted.fade(o),
+                    wrap_w,
                 );
             }
             None => {
-                scene.text(
+                scene.text_wrapped(
                     Point::new(text_x, bounds.y + PAD),
                     self.text.clone(),
-                    TEXT_SIZE,
+                    &body_style,
                     theme.on_surface.fade(o),
+                    wrap_w,
                 );
             }
         }
@@ -183,5 +210,26 @@ mod tests {
         // Titre + texte peints.
         assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "Alerte")));
         assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "Attention !")));
+    }
+
+    /// Le message se **replie** à la largeur offerte : plus étroit → plus haut
+    /// (et jamais plus large que l'offre) — fini l'encadré qui déborde.
+    #[test]
+    fn message_wraps_to_the_offered_width() {
+        let alert = Alert::new(
+            "Press Enter to add a task; swipe from the left edge to go back.",
+        )
+        .title("Tip");
+        let measure = Widget::<()>::measure(&alert).expect("closure de mesure");
+        let free = measure(None, None);
+        let narrow = measure(Some(280.0), None);
+        assert!(narrow.width <= 280.0, "bornée à l'offre ({})", narrow.width);
+        assert!(narrow.height > free.height, "repliée → plus haute");
+        // La clé de mesure suit le contenu (cache de relayout).
+        let other = Alert::new("court");
+        assert_ne!(
+            Widget::<()>::measure_key(&alert),
+            Widget::<()>::measure_key(&other)
+        );
     }
 }
