@@ -93,7 +93,14 @@ enum Drag {
     Widget { id: WidgetId, rect: frus_widgets::Rect },
     /// Défilement d'une zone scrollable au doigt (tactile). `moved` distingue un
     /// vrai défilement d'un simple tap (mouvement sous le seuil `TOUCH_SLOP`).
-    Scroll { id: WidgetId, last: Point, moved: bool },
+    /// La vitesse (en espace **défilement**, px/s, lissée) alimente le fling.
+    Scroll {
+        id: WidgetId,
+        last: Point,
+        moved: bool,
+        velocity: (f32, f32),
+        last_t: Instant,
+    },
     /// Geste « retour » : le framework mesure la progression et la vélocité du
     /// doigt et les transmet à l'application (qui décide de la navigation).
     Back {
@@ -905,7 +912,13 @@ impl<A: Application> App<A> {
         // doigt. Un relâchement sans mouvement (< TOUCH_SLOP) restera un tap.
         if touch && self.drag.is_none() {
             if let Some((id, _, _)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
-                self.drag = Some(Drag::Scroll { id, last: self.cursor, moved: false });
+                self.drag = Some(Drag::Scroll {
+                    id,
+                    last: self.cursor,
+                    moved: false,
+                    velocity: (0.0, 0.0),
+                    last_t: Instant::now(),
+                });
             }
         }
         self.request_redraw();
@@ -925,6 +938,11 @@ impl<A: Application> App<A> {
         // Un défilement tactile qui n'a pas bougé = un simple tap : on le laisse
         // suivre le chemin normal du clic ci-dessous.
         let was_tap = matches!(ended, Some(Drag::Scroll { moved: false, .. }));
+        // Fling : l'élan du doigt projette une destination balistique (friction),
+        // le ressort de défilement existant y glisse (rebond aux bornes compris).
+        if let Some(Drag::Scroll { id, moved: true, velocity, .. }) = &ended {
+            self.fling(*id, *velocity);
+        }
         if ended.is_some() && !was_tap {
             self.request_redraw();
             return;
@@ -1058,7 +1076,7 @@ impl<A: Application> App<A> {
                 }
             }
             Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
-            Drag::Scroll { id, last, moved } => {
+            Drag::Scroll { id, last, moved, velocity, last_t } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
                 // Sous le seuil, on ne défile pas encore (le geste peut être un tap).
@@ -1083,6 +1101,16 @@ impl<A: Application> App<A> {
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
                     self.runtime.scroll_velocity.remove(id);
+                    // Vitesse en espace défilement (le contenu va à l'opposé du
+                    // doigt), lissée par moyenne exponentielle — l'élan du fling.
+                    let now = Instant::now();
+                    let dt = (now - *last_t).as_secs_f32();
+                    if dt > 1e-4 {
+                        let inst = (-dx / dt, -dy / dt);
+                        velocity.0 = velocity.0 * 0.5 + inst.0 * 0.5;
+                        velocity.1 = velocity.1 * 0.5 + inst.1 * 0.5;
+                    }
+                    *last_t = now;
                     *last = self.cursor;
                 }
             }
@@ -1116,6 +1144,34 @@ impl<A: Application> App<A> {
         }
         self.drag = Some(drag);
         self.request_redraw();
+    }
+
+    /// Fling de défilement : projette la destination balistique de chaque axe
+    /// (friction en forme close), bornée avec le dépassement élastique, et amorce
+    /// le ressort de défilement avec l'élan du doigt.
+    fn fling(&mut self, id: WidgetId, velocity: (f32, f32)) {
+        let (max_x, max_y) = self
+            .ui
+            .as_ref()
+            .map(|ui| ui.scrollable_maxes())
+            .unwrap_or_default()
+            .iter()
+            .find(|(i, _, _)| *i == id)
+            .map(|(_, x, y)| (*x, *y))
+            .unwrap_or((0.0, 0.0));
+        let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+
+        let dest_x = crate::gesture::fling_destination(current.0, velocity.0)
+            .map(|d| d.clamp(-SCROLL_OVER, max_x + SCROLL_OVER));
+        let dest_y = crate::gesture::fling_destination(current.1, velocity.1)
+            .map(|d| d.clamp(-SCROLL_OVER, max_y + SCROLL_OVER));
+        if dest_x.is_none() && dest_y.is_none() {
+            return; // relâchement lent : pas d'entraînement.
+        }
+        self.runtime
+            .scroll_target
+            .insert(id, (dest_x.unwrap_or(current.0), dest_y.unwrap_or(current.1)));
+        self.runtime.scroll_velocity.insert(id, velocity);
     }
 
     /// Applique un glissement de widget : calcule la fraction horizontale et

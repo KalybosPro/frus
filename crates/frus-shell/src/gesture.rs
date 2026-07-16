@@ -14,12 +14,29 @@
 
 use std::time::{Duration, Instant};
 
-use frus_widgets::Point;
+use frus_widgets::{FrictionSimulation, Point, Tolerance};
 
 /// Délai d'appui long (pression immobile) avant acceptation.
 pub(crate) const LONG_PRESS_DELAY: Duration = Duration::from_millis(500);
 /// Mouvement (px logiques) au-delà duquel l'appui long est rejeté.
 const SLOP: f32 = 8.0;
+
+/// Décélération du fling : fraction de la vitesse conservée après 1 s
+/// (`dx(t) = v·drag^t`, la constante de friction usuelle du défilement).
+const FLING_DRAG: f32 = 0.135;
+/// Vitesse minimale (px/s) au relâchement pour déclencher un fling.
+const FLING_MIN_VELOCITY: f32 = 50.0;
+
+/// Destination **balistique** d'un fling de défilement : la position finale
+/// d'une [`FrictionSimulation`] amorcée à `velocity` depuis `current` — le
+/// momentum du doigt, en forme close. `None` sous le seuil de vitesse (le
+/// relâchement lent n'entraîne pas le contenu).
+pub(crate) fn fling_destination(current: f32, velocity: f32) -> Option<f32> {
+    if velocity.abs() < FLING_MIN_VELOCITY {
+        return None;
+    }
+    Some(FrictionSimulation::new(FLING_DRAG, current, velocity, Tolerance::PIXELS).final_x())
+}
 
 /// Un événement pointeur **normalisé** (souris ou doigt) : l'entrée unique du
 /// routage — palier 0 du brief, avec `Cancel` explicite.
@@ -129,6 +146,23 @@ mod tests {
 
     fn start() -> Instant {
         Instant::now()
+    }
+
+    #[test]
+    fn fling_projects_a_friction_final_position() {
+        // Sous le seuil : pas de fling.
+        assert_eq!(fling_destination(100.0, 0.0), None);
+        assert_eq!(fling_destination(100.0, 30.0), None);
+
+        // Momentum : destination = position + v / ln(1/drag) (forme close).
+        let dest = fling_destination(0.0, 2000.0).expect("fling");
+        let expected = 2000.0 / (1.0f32 / FLING_DRAG).ln();
+        assert!((dest - expected).abs() < 1.0, "dest = {dest}, attendu ≈ {expected}");
+        assert!(dest > 900.0 && dest < 1100.0, "≈ 1000 px de course : {dest}");
+
+        // Symétrique vers l'arrière.
+        let back = fling_destination(500.0, -2000.0).expect("fling arrière");
+        assert!((back - (500.0 - expected)).abs() < 1.0);
     }
 
     #[test]
