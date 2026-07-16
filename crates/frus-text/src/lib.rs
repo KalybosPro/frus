@@ -115,6 +115,12 @@ pub fn measure_wrapped(
 /// Mesure la taille naturelle d'un **texte riche** (runs résolus, styles/tailles
 /// mêlés) : largeur de la plus longue ligne, hauteur réelle des lignes shapées.
 pub fn measure_runs(runs: &[TextRun]) -> Size {
+    measure_runs_wrapped(runs, None)
+}
+
+/// Mesure un texte riche **sous contrainte de largeur** : au-delà de
+/// `max_width`, les runs reviennent à la ligne. `None` = non contraint.
+pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     if runs.iter().all(|r| r.text.is_empty()) {
         return Size::new(0.0, 0.0);
     }
@@ -123,7 +129,7 @@ pub fn measure_runs(runs: &[TextRun]) -> Size {
     let mut font_system = font_system().lock().expect("FontSystem lock");
     let metrics = Metrics::new(base, line_height(base));
     let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(&mut font_system, None, None);
+    buffer.set_size(&mut font_system, max_width, None);
     let spans = runs.iter().map(|run| {
         (
             run.text.as_str(),

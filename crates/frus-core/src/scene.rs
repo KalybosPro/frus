@@ -54,6 +54,9 @@ pub enum Primitive {
     RichText {
         position: Point,
         runs: Vec<TextRun>,
+        /// Largeur de repli : au-delà, le texte revient à la ligne (`None` =
+        /// pas de repli).
+        max_width: Option<f32>,
         /// Rectangle de découpe.
         clip: Rect,
         /// Identité du widget émetteur.
@@ -123,6 +126,7 @@ impl Primitive {
             Primitive::RichText {
                 position,
                 mut runs,
+                max_width,
                 clip,
                 owner,
             } => {
@@ -132,6 +136,7 @@ impl Primitive {
                 Primitive::RichText {
                     position: position.scale(factor),
                     runs,
+                    max_width: max_width.map(|w| w * factor),
                     clip: clip.scale(factor),
                     owner,
                 }
@@ -236,6 +241,7 @@ impl Scene {
             Primitive::RichText {
                 position,
                 mut runs,
+                max_width,
                 clip,
                 owner,
             } => {
@@ -245,6 +251,7 @@ impl Scene {
                 Primitive::RichText {
                     position,
                     runs,
+                    max_width,
                     clip,
                     owner,
                 }
@@ -355,6 +362,19 @@ impl Scene {
         self.primitives.push(Primitive::RichText {
             position,
             runs,
+            max_width: None,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Ajoute un **paragraphe riche** : les runs reviennent à la ligne au-delà de
+    /// `max_width` (le repli du rendu suit celui de la mise en page).
+    pub fn rich_text_wrapped(&mut self, position: Point, runs: Vec<TextRun>, max_width: f32) {
+        self.primitives.push(Primitive::RichText {
+            position,
+            runs,
+            max_width: Some(max_width),
             clip: self.current_clip,
             owner: self.current_owner,
         });

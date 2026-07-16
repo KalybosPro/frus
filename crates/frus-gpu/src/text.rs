@@ -113,6 +113,7 @@ impl TextPainter {
                 Primitive::RichText {
                     position,
                     runs,
+                    max_width,
                     clip,
                     ..
                 } => {
@@ -124,7 +125,9 @@ impl TextPainter {
                     let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
                     let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
                     let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
+                    // Un paragraphe riche se replie à sa largeur de mise en page.
+                    let wrap_w = max_width.unwrap_or(width as f32);
+                    buffer.set_size(&mut self.font_system, Some(wrap_w), Some(height as f32));
                     let spans = runs.iter().map(|run| {
                         (
                             run.text.as_str(),

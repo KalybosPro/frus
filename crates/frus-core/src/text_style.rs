@@ -204,6 +204,22 @@ impl TextSpan {
         runs
     }
 
+    /// Mêle dans `hasher` tout ce qui influe sur la **mesure** de l'arbre :
+    /// textes, tailles, graisses, italiques (les couleurs, sans effet sur la
+    /// géométrie, sont exclues). Sert d'empreinte de mesure (`measure_key`) sans
+    /// avoir à aplatir l'arbre.
+    pub fn measure_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        self.text.hash(hasher);
+        self.overrides.size.map(f32::to_bits).hash(hasher);
+        self.overrides.weight.map(FontWeight::to_u16).hash(hasher);
+        self.overrides.italic.hash(hasher);
+        self.children.len().hash(hasher);
+        for child in &self.children {
+            child.measure_hash(hasher);
+        }
+    }
+
     fn collect(&self, inherited: TextStyle, out: &mut Vec<(String, TextStyle)>) {
         let effective = self.overrides.apply(inherited);
         if !self.text.is_empty() {

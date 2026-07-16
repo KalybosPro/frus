@@ -1320,7 +1320,8 @@ fn about_section(theme: &Theme) -> Container<Msg> {
                         .child(TextSpan::new("no GC").bold().color(theme.primary))
                         .child(TextSpan::new(".")),
                 )
-                .base_style(theme.text.body_medium.color(theme.muted)),
+                .base_style(theme.text.body_medium.color(theme.muted))
+                .wrap(),
                 Divider::new(),
                 Timeline::new()
                     .event("Responsive primitives", "Milestone 42")
