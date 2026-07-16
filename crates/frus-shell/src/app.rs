@@ -438,7 +438,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // `Portal` la consomme pour se fermer) ; à défaut, fermeture de
                 // l'overlay le plus au-dessus — Échap marche donc sans focus.
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
-                    self.escape();
+                    // La répétition automatique ne re-déclenche pas de fermeture.
+                    if !event.repeat {
+                        self.escape();
+                    }
                     return;
                 }
 
@@ -492,8 +495,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .filter(|widget| widget.focusable())
                         .and_then(|widget| widget.on_click());
                     if let Some(message) = message {
-                        self.dispatch(message);
-                        self.request_redraw();
+                        // La répétition automatique ne mitraille pas l'activation
+                        // (maintenir Espace sur un bouton = un seul clic).
+                        if !event.repeat {
+                            self.dispatch(message);
+                            self.request_redraw();
+                        }
                         return;
                     }
                 }
@@ -537,7 +544,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let key = match &event.logical_key {
                     WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
                     WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
-                    WinitKey::Named(NamedKey::Enter) => Some(Key::Enter),
+                    // La répétition d'Entrée ne re-soumet pas (le texte et
+                    // l'effacement, eux, répètent normalement).
+                    WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
+                    WinitKey::Named(NamedKey::Enter) => None,
                     WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left { shift }),
                     WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right { shift }),
                     WinitKey::Named(NamedKey::Home) => Some(Key::Home { shift }),
