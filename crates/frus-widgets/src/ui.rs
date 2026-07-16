@@ -59,6 +59,10 @@ pub struct Ui<Msg> {
     /// Messages de fermeture des overlays, du dessous vers le **dessus**.
     dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
+    /// **Scope de focus** : index du premier focusable de l'overlay modal le
+    /// plus au-dessus — Tab/flèches/focus au clic sont piégés à partir de là
+    /// (`None` = pas de modale, tous les focusables participent).
+    focus_scope_start: Option<usize>,
     /// (id, viewport, offset max x, offset max y)
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
@@ -110,11 +114,20 @@ impl<Msg: Clone> Ui<Msg> {
 
     /// Widget focalisable le plus au-dessus contenant `point` : (id, ses bornes).
     pub fn focus_hit(&self, point: Point) -> Option<(WidgetId, Rect)> {
-        self.focusables
+        self.focus_pool()
             .iter()
             .rev()
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, rect)| (*id, *rect))
+    }
+
+    /// Les focusables **participants** : ceux du scope modal le plus au-dessus
+    /// s'il y en a un (piège à focus), sinon tous.
+    fn focus_pool(&self) -> &[(WidgetId, Rect)] {
+        match self.focus_scope_start {
+            Some(start) => &self.focusables[start.min(self.focusables.len())..],
+            None => &self.focusables,
+        }
     }
 
     /// Focusable le plus proche dans la **direction** donnée (navigation aux
@@ -126,6 +139,8 @@ impl<Msg: Clone> Ui<Msg> {
         current: WidgetId,
         direction: FocusDirection,
     ) -> Option<WidgetId> {
+        // Le point de départ peut être hors scope (focus d'avant l'ouverture) ;
+        // les **candidats**, eux, sont piégés dans le scope.
         let from = self
             .focusables
             .iter()
@@ -135,7 +150,7 @@ impl<Msg: Clone> Ui<Msg> {
         let (fx, fy) = center(from);
 
         let mut best: Option<(WidgetId, f32)> = None;
-        for (id, rect) in &self.focusables {
+        for (id, rect) in self.focus_pool() {
             if *id == current {
                 continue;
             }
@@ -164,16 +179,19 @@ impl<Msg: Clone> Ui<Msg> {
     /// Focusable suivant/précédent dans l'ordre d'arbre (avec bouclage), pour la
     /// navigation Tab. Sans focus courant, renvoie le premier (ou dernier).
     pub fn focus_next(&self, current: Option<WidgetId>, forward: bool) -> Option<WidgetId> {
-        if self.focusables.is_empty() {
+        let pool = self.focus_pool();
+        if pool.is_empty() {
             return None;
         }
-        let n = self.focusables.len();
-        match current.and_then(|c| self.focusables.iter().position(|(id, _)| *id == c)) {
+        let n = pool.len();
+        // Un focus courant **hors scope** (pris avant l'ouverture de la modale)
+        // est traité comme « aucun » : Tab entre dans le piège.
+        match current.and_then(|c| pool.iter().position(|(id, _)| *id == c)) {
             Some(i) => {
                 let j = if forward { (i + 1) % n } else { (i + n - 1) % n };
-                Some(self.focusables[j].0)
+                Some(pool[j].0)
             }
-            None => Some(self.focusables[if forward { 0 } else { n - 1 }].0),
+            None => Some(pool[if forward { 0 } else { n - 1 }].0),
         }
     }
 
@@ -265,6 +283,8 @@ struct Builder<'a, Msg> {
     long_presses: Vec<Hit<Msg>>,
     dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
+    /// Début du scope de focus de l'overlay modal le plus au-dessus.
+    focus_scope_start: Option<usize>,
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
@@ -745,6 +765,16 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 self.hits.push(Hit { id: oid, rect: window, msg });
             }
 
+            // Overlay **modal** (voilé) : ses focusables forment un **scope** qui
+            // piège Tab/flèches/focus au clic. Le dernier rendu (le plus au-dessus)
+            // l'emporte ; les overlays ancrés (menu, tooltip) ne piègent pas.
+            if matches!(
+                placement,
+                Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
+            ) {
+                self.focus_scope_start = Some(self.focusables.len());
+            }
+
             let mut index = 0;
             self.walk(content, oid, pos, window, &rects, &mut index);
         }
@@ -817,6 +847,7 @@ pub fn build_ui<'a, Msg: Clone>(
         long_presses: Vec::new(),
         dismisses: Vec::new(),
         focusables: Vec::new(),
+        focus_scope_start: None,
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
         draggables: Vec::new(),
@@ -850,6 +881,7 @@ pub fn build_ui<'a, Msg: Clone>(
         long_presses: builder.long_presses,
         dismisses: builder.dismisses,
         focusables: builder.focusables,
+        focus_scope_start: builder.focus_scope_start,
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
@@ -1026,6 +1058,49 @@ mod tests {
         let _ = build_ui(&clickable_sample(), Size::new(500.0, 100.0), &rt, &Theme::default());
         let (hits3, misses3) = rt.layout_cache.borrow().last_frame_stats();
         assert_eq!((hits3, misses3), (0, 1), "redimensionnement → recalcul");
+    }
+
+    #[test]
+    fn modal_traps_tab_arrows_and_pointer_focus() {
+        use crate::portal::{Placement, Portal};
+        // Fond : deux boutons focusables ; modale ouverte : deux boutons aussi.
+        let dialog = Flex::<Msg>::row()
+            .child(Button::new("ok").on_press(Msg::C))
+            .child(Button::new("no").on_press(Msg::D));
+        let tree: Flex<Msg> = Flex::column()
+            .child(Button::new("bg1").on_press(Msg::A))
+            .child(Button::new("bg2").on_press(Msg::B))
+            .child(
+                Portal::new(Container::new())
+                    .overlay(dialog, Placement::Center)
+                    .dismiss(Msg::A),
+            );
+        let ui = build_ui(&tree, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+
+        // Tab entre dans le piège (premier focusable de la modale), et y boucle.
+        let first = ui.focus_next(None, true).expect("premier du scope");
+        assert_eq!(ui.msg_for(first), Some(Msg::C));
+        let second = ui.focus_next(Some(first), true).expect("suivant");
+        assert_eq!(ui.msg_for(second), Some(Msg::D));
+        let wrapped = ui.focus_next(Some(second), true).expect("boucle");
+        assert_eq!(ui.msg_for(wrapped), Some(Msg::C), "Tab boucle dans la modale");
+
+        // Les flèches restent dans le scope : rien au-dessus du dialogue.
+        assert_eq!(ui.focus_directional(first, FocusDirection::Up), None);
+        let right = ui.focus_directional(first, FocusDirection::Right).expect("droite");
+        assert_eq!(ui.msg_for(right), Some(Msg::D));
+
+        // Le focus au pointeur ignore le fond (le bouton bg1 est en haut-gauche).
+        assert_eq!(ui.focus_hit(Point::new(10.0, 10.0)), None, "fond hors scope");
+
+        // Sans modale : pas de piège, Tab commence au fond.
+        let open_less: Flex<Msg> = Flex::column()
+            .child(Button::new("bg1").on_press(Msg::A))
+            .child(Button::new("bg2").on_press(Msg::B));
+        let ui2 =
+            build_ui(&open_less, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let f = ui2.focus_next(None, true).expect("premier");
+        assert_eq!(ui2.msg_for(f), Some(Msg::A));
     }
 
     #[test]
