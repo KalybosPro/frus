@@ -3,17 +3,12 @@
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::interaction::{Interaction, Status};
+use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
 const PAD_X: f32 = 20.0;
 const PAD_Y: f32 = 12.0;
-
-fn ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
 
 /// Variante visuelle d'un bouton.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -69,7 +64,7 @@ impl<Msg> Button<Msg> {
         match self.variant {
             Variant::Primary => (theme.primary, theme.on_primary, None),
             Variant::Secondary => (theme.surface, theme.on_surface, Some(theme.border)),
-            Variant::Danger => (Color::rgb8(210, 96, 96), Color::WHITE, None),
+            Variant::Danger => (theme.error, theme.on_error, None),
         }
     }
 }
@@ -92,11 +87,8 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         let o = status.opacity;
         let (base, on_color, border) = self.palette(theme);
 
-        let color = if status.interaction == Interaction::Pressed {
-            base.lerp(Color::BLACK, 0.14)
-        } else {
-            base.lerp(base.lerp(Color::WHITE, 0.16), ease(status.hover_progress))
-        };
+        // État survol/pression/focus via la state-layer bakée du thème.
+        let color = theme.state_layer(base, on_color, &status);
 
         let blur = 10.0;
         let shadow_rect = Rect::new(

@@ -6,7 +6,15 @@
 
 use frus_core::Color;
 
+use crate::interaction::{Interaction, Status};
+
 /// Ensemble de tokens de style.
+///
+/// Les champs « à plat » (`background`, `surface`, `primary`, …) sont les **rôles
+/// sémantiques** de base — les widgets s'y réfèrent, jamais à des couleurs
+/// littérales. Un jeu de rôles Material étendu (conteneurs, erreur, contour
+/// discret) complète le tout ; l'objectif à terme est une `ColorScheme` dérivée
+/// d'une graine, mais l'écriture manuelle clair/sombre vient d'abord.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
     /// Fond de l'application.
@@ -19,14 +27,24 @@ pub struct Theme {
     pub on_primary: Color,
     /// Texte par défaut sur les surfaces.
     pub on_surface: Color,
-    /// Texte secondaire / éléments discrets.
+    /// Texte secondaire / éléments discrets (≈ `on_surface_variant` de M3).
     pub muted: Color,
-    /// Bordures au repos.
+    /// Bordures au repos (≈ `outline` de M3).
     pub border: Color,
     /// Accent de focus.
     pub focus: Color,
     /// Surbrillance de sélection de texte.
     pub selection: Color,
+    /// Conteneur d'accent tonal (puces douces, surfaces sélectionnées légères).
+    pub primary_container: Color,
+    /// Contenu sur `primary_container`.
+    pub on_primary_container: Color,
+    /// Couleur d'erreur / danger.
+    pub error: Color,
+    /// Contenu sur `error`.
+    pub on_error: Color,
+    /// Variante discrète de contour (séparateurs fins, traits internes).
+    pub outline_variant: Color,
     /// Rayon de coin par défaut.
     pub radius: f32,
     /// Unité d'espacement de base.
@@ -46,6 +64,11 @@ impl Theme {
             border: Color::rgb8(70, 76, 88),
             focus: Color::rgb8(90, 158, 242),
             selection: Color::rgba(0.35, 0.62, 0.95, 0.40),
+            primary_container: Color::rgb8(30, 64, 44),
+            on_primary_container: Color::rgb8(178, 240, 200),
+            error: Color::rgb8(224, 108, 108),
+            on_error: Color::rgb8(38, 12, 12),
+            outline_variant: Color::rgb8(48, 52, 62),
             radius: 10.0,
             spacing: 8.0,
         }
@@ -63,9 +86,29 @@ impl Theme {
             border: Color::rgb8(206, 210, 218),
             focus: Color::rgb8(40, 120, 220),
             selection: Color::rgba(0.20, 0.50, 0.90, 0.30),
+            primary_container: Color::rgb8(200, 238, 214),
+            on_primary_container: Color::rgb8(10, 64, 36),
+            error: Color::rgb8(200, 64, 64),
+            on_error: Color::rgb8(255, 255, 255),
+            outline_variant: Color::rgb8(226, 230, 236),
             radius: 10.0,
             spacing: 8.0,
         }
+    }
+
+    /// Applique la **state-layer** Material sur `base` : superpose la couleur de
+    /// contenu `on` à faible opacité selon l'état d'interaction — survol 8 %,
+    /// focus 10 %, pression 12 % — en tenant compte des progressions animées
+    /// (`hover_progress`/`focus_progress`). C'est la règle d'états **bakée** dans le
+    /// thème : les widgets restent déclaratifs (ils passent leur couleur de base et
+    /// leur couleur de contenu, le thème décide de l'overlay).
+    pub fn state_layer(&self, base: Color, on: Color, status: &Status) -> Color {
+        let mut overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
+            + 0.10 * status.focus_progress.clamp(0.0, 1.0);
+        if status.interaction == Interaction::Pressed {
+            overlay += 0.12;
+        }
+        base.lerp(on, overlay.min(1.0))
     }
 }
 
@@ -85,6 +128,11 @@ impl Theme {
             border: self.border.lerp(other.border, t),
             focus: self.focus.lerp(other.focus, t),
             selection: self.selection.lerp(other.selection, t),
+            primary_container: self.primary_container.lerp(other.primary_container, t),
+            on_primary_container: self.on_primary_container.lerp(other.on_primary_container, t),
+            error: self.error.lerp(other.error, t),
+            on_error: self.on_error.lerp(other.on_error, t),
+            outline_variant: self.outline_variant.lerp(other.outline_variant, t),
             radius: f(self.radius, other.radius),
             spacing: f(self.spacing, other.spacing),
         }
@@ -105,6 +153,32 @@ mod tests {
     fn dark_and_light_differ() {
         assert_ne!(Theme::dark().background, Theme::light().background);
         assert_ne!(Theme::dark().on_surface, Theme::light().on_surface);
+    }
+
+    #[test]
+    fn state_layer_darkens_toward_content_on_interaction() {
+        let theme = Theme::dark();
+        let base = Color::rgb(0.4, 0.4, 0.4);
+        let on = Color::BLACK;
+
+        // Au repos : aucune superposition.
+        let idle = Status::default();
+        assert_eq!(theme.state_layer(base, on, &idle), base);
+
+        // Survolé à fond : base tirée de 8 % vers `on` (plus sombre ici).
+        let hovered = Status {
+            hover_progress: 1.0,
+            ..Default::default()
+        };
+        let h = theme.state_layer(base, on, &hovered);
+        assert!(h.r < base.r && (base.r - h.r - 0.4 * 0.08).abs() < 1e-4);
+
+        // Pressé : superposition plus forte que le survol seul.
+        let pressed = Status {
+            interaction: Interaction::Pressed,
+            ..Default::default()
+        };
+        assert!(theme.state_layer(base, on, &pressed).r < h.r);
     }
 
     #[test]
