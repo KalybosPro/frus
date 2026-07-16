@@ -132,7 +132,7 @@ pub use timeline::Timeline;
 pub use toast::{Toast, ToastKind};
 pub use tree::Tree;
 pub use twopane::TwoPane;
-pub use ui::{build_ui, collect_ids, find_widget, Scrollbar, Ui};
+pub use ui::{build_ui, collect_ids, find_widget, FocusDirection, Scrollbar, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.

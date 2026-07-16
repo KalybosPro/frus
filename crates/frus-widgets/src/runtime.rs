@@ -152,6 +152,10 @@ pub struct Runtime {
     pub leaving: HashMap<u64, (Vec<Primitive>, f32)>,
     /// Temps écoulé (secondes) depuis le démarrage, pour les animations continues.
     pub time: f32,
+    /// La dernière interaction était-elle **clavier** ? L'anneau de focus
+    /// générique n'est peint que dans ce cas (`FocusHighlightMode` : un clic ne
+    /// doit pas faire flasher d'anneau). Le focus lui-même reste actif.
+    pub focus_visible: bool,
     /// Cache de frontière de relayout (rectangles retenus par racine de layout,
     /// d'une frame à l'autre). Mutabilité intérieure : `build_ui` le met à jour
     /// tout en ne tenant qu'une référence partagée au `Runtime`.

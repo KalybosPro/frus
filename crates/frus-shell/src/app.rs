@@ -13,8 +13,8 @@ use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_widget, Edit, Insets, Key, Point, Runtime, Size, Ui, Widget,
-    WidgetId,
+    build_ui, collect_ids, find_widget, Edit, FocusDirection, Insets, Key, Point, Runtime, Size,
+    Ui, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -402,6 +402,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed =>
             {
+                // Interaction clavier : l'anneau de focus (re)devient visible.
+                if !self.runtime.focus_visible {
+                    self.runtime.focus_visible = true;
+                    self.request_redraw();
+                }
+
                 // Tab / Shift+Tab : navigue entre les focusables (même sans focus).
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) {
                     let forward = !self.shift;
@@ -419,6 +425,38 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let Some(focused) = self.runtime.input.focused else {
                     return;
                 };
+
+                // Flèches : navigation **géométrique** du focus — sauf gauche/
+                // droite dans un champ texte (elles y déplacent le curseur ;
+                // haut/bas naviguent même depuis un champ mono-ligne).
+                let arrow = match event.logical_key {
+                    WinitKey::Named(NamedKey::ArrowUp) => Some(FocusDirection::Up),
+                    WinitKey::Named(NamedKey::ArrowDown) => Some(FocusDirection::Down),
+                    WinitKey::Named(NamedKey::ArrowLeft) => Some(FocusDirection::Left),
+                    WinitKey::Named(NamedKey::ArrowRight) => Some(FocusDirection::Right),
+                    _ => None,
+                };
+                if let Some(direction) = arrow {
+                    let is_text = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), focused))
+                        .and_then(|widget| widget.cursor_at(0.0, 1.0, 0))
+                        .is_some();
+                    let navigates = !is_text
+                        || matches!(direction, FocusDirection::Up | FocusDirection::Down);
+                    if navigates {
+                        if let Some(next) = self
+                            .ui
+                            .as_ref()
+                            .and_then(|ui| ui.focus_directional(focused, direction))
+                        {
+                            self.runtime.input.focused = Some(next);
+                            self.request_redraw();
+                        }
+                        return;
+                    }
+                }
 
                 // Activation clavier (Entrée/Espace) d'un focusable cliquable
                 // (bouton, case, interrupteur). Les champs texte (sans `on_click`)
@@ -696,6 +734,8 @@ impl<A: Application> App<A> {
         self.cursor = event.position;
         match event.kind {
             PointerKind::Down => {
+                // Interaction pointeur : l'anneau de focus clavier s'efface.
+                self.runtime.focus_visible = false;
                 self.pointer_down(event.touch);
                 // Candidat à l'appui long : seulement si l'appui n'a pas été
                 // capturé par un glissement (barre, poignée, sélection) — un

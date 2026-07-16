@@ -35,6 +35,15 @@ pub struct Scrollbar {
     pub max: f32,
 }
 
+/// Direction de navigation du focus aux flèches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
 struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
@@ -99,6 +108,50 @@ impl<Msg: Clone> Ui<Msg> {
             .rev()
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, rect)| (*id, *rect))
+    }
+
+    /// Focusable le plus proche dans la **direction** donnée (navigation aux
+    /// flèches, politique géométrique) : parmi les focusables dont le centre est
+    /// du bon côté, minimise la distance sur l'axe principal avec une pénalité
+    /// sur l'écart transversal. `None` si rien dans cette direction.
+    pub fn focus_directional(
+        &self,
+        current: WidgetId,
+        direction: FocusDirection,
+    ) -> Option<WidgetId> {
+        let from = self
+            .focusables
+            .iter()
+            .find(|(id, _)| *id == current)
+            .map(|(_, rect)| rect)?;
+        let center = |r: &Rect| (r.x + r.width * 0.5, r.y + r.height * 0.5);
+        let (fx, fy) = center(from);
+
+        let mut best: Option<(WidgetId, f32)> = None;
+        for (id, rect) in &self.focusables {
+            if *id == current {
+                continue;
+            }
+            let (cx, cy) = center(rect);
+            // (avance dans la direction, écart transversal)
+            let (ahead, cross) = match direction {
+                FocusDirection::Right => (cx - fx, (cy - fy).abs()),
+                FocusDirection::Left => (fx - cx, (cy - fy).abs()),
+                FocusDirection::Down => (cy - fy, (cx - fx).abs()),
+                FocusDirection::Up => (fy - cy, (cx - fx).abs()),
+            };
+            // Dans un **cône** autour de la direction (pas un simple demi-plan) :
+            // un candidat quasi aligné transversalement mais à peine « devant »
+            // (largeurs légèrement différentes) n'est pas une cible directionnelle.
+            if ahead <= 0.5 || cross > ahead * 3.0 {
+                continue;
+            }
+            let score = ahead + cross * 3.0;
+            if best.map(|(_, s)| score < s).unwrap_or(true) {
+                best = Some((*id, score));
+            }
+        }
+        best.map(|(id, _)| id)
     }
 
     /// Focusable suivant/précédent dans l'ordre d'arbre (avec bouclage), pour la
@@ -487,7 +540,13 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         status: &crate::interaction::Status,
         widget: &dyn Widget<Msg>,
     ) {
-        if status.focused && widget.focusable() && !widget.draws_own_focus() {
+        // L'anneau générique n'apparaît que si la dernière interaction était
+        // **clavier** (`focus_visible`) — un clic ne fait pas flasher d'anneau.
+        if status.focused
+            && self.runtime.focus_visible
+            && widget.focusable()
+            && !widget.draws_own_focus()
+        {
             let ring = Rect::new(
                 draw_rect.x - 2.0,
                 draw_rect.y - 2.0,
@@ -834,6 +893,8 @@ mod tests {
     enum Msg {
         A,
         B,
+        C,
+        D,
         Edited(String),
     }
 
@@ -1014,10 +1075,11 @@ mod tests {
     fn focus_ring_for_button_not_for_textinput() {
         let theme = Theme::default();
         let ring = theme.focus.fade(0.4); // focus_progress = 0 → alpha 0.4
-        let count_ring = |tree: &dyn Widget<Msg>| -> usize {
+        let count_ring = |tree: &dyn Widget<Msg>, keyboard: bool| -> usize {
             let mut rt = Runtime::default();
             let probe = build_ui(tree, Size::new(200.0, 200.0), &rt, &theme);
             rt.input.focused = probe.focusables.first().map(|(id, _)| *id);
+            rt.focus_visible = keyboard;
             let ui = build_ui(tree, Size::new(200.0, 200.0), &rt, &theme);
             ui.scene()
                 .primitives()
@@ -1026,10 +1088,48 @@ mod tests {
                 .count()
         };
         let with_button = Flex::<Msg>::column().child(Button::new("x").on_press(Msg::A));
-        assert!(count_ring(&with_button) >= 1, "un bouton focalisé a un anneau générique");
+        assert!(
+            count_ring(&with_button, true) >= 1,
+            "un bouton focalisé au clavier a un anneau générique"
+        );
+        // Focus obtenu au pointeur : pas d'anneau (FocusHighlightMode).
+        assert_eq!(
+            count_ring(&with_button, false),
+            0,
+            "un clic ne fait pas flasher d'anneau"
+        );
 
         let with_input = Flex::<Msg>::column().child(TextInput::new("hi").on_input(Msg::Edited));
-        assert_eq!(count_ring(&with_input), 0, "le champ gère son propre focus");
+        assert_eq!(count_ring(&with_input, true), 0, "le champ gère son propre focus");
+    }
+
+    #[test]
+    fn arrow_focus_navigates_geometrically() {
+        // Grille 2×2 de boutons ; on identifie chaque cible par son message.
+        let grid: Flex<Msg> = Flex::column()
+            .child(
+                Flex::row()
+                    .child(Button::new("a").on_press(Msg::A))
+                    .child(Button::new("b").on_press(Msg::B)),
+            )
+            .child(
+                Flex::row()
+                    .child(Button::new("c").on_press(Msg::C))
+                    .child(Button::new("d").on_press(Msg::D)),
+            );
+        let ui = build_ui(&grid, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        let top_left = ui.focus_next(None, true).expect("premier focusable");
+        assert_eq!(ui.msg_for(top_left), Some(Msg::A));
+
+        // Droite : a → b ; bas : a → c ; et rien à gauche de a.
+        let right = ui.focus_directional(top_left, FocusDirection::Right).expect("droite");
+        assert_eq!(ui.msg_for(right), Some(Msg::B));
+        let down = ui.focus_directional(top_left, FocusDirection::Down).expect("bas");
+        assert_eq!(ui.msg_for(down), Some(Msg::C));
+        assert_eq!(ui.focus_directional(top_left, FocusDirection::Left), None);
+        // Diagonale contrôlée : depuis b, bas → d (aligné), pas c.
+        let down_right = ui.focus_directional(right, FocusDirection::Down).expect("bas depuis b");
+        assert_eq!(ui.msg_for(down_right), Some(Msg::D));
     }
 
     #[test]
