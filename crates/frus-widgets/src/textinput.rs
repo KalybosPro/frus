@@ -217,6 +217,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             }
             Key::Home { shift } => move_cursor(&mut cursor, &mut anchor, 0, *shift),
             Key::End { shift } => move_cursor(&mut cursor, &mut anchor, len, *shift),
+            // Échap ne concerne pas l'édition (routé feuille→racine par le shell).
+            Key::Escape => {}
             Key::Enter => {
                 // Validation : n'altère pas la valeur, émet le message de soumission.
                 edit.cursor = cursor;

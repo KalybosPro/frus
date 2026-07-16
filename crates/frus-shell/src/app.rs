@@ -13,8 +13,8 @@ use std::time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_widget, Edit, FocusDirection, Insets, Key, Point, Runtime, Size,
-    Ui, Widget, WidgetId,
+    build_ui, collect_ids, find_path, find_widget, Edit, FocusDirection, Insets, Key, KeyResponse,
+    Point, Runtime, Size, Ui, Widget, WidgetId,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -419,6 +419,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.runtime.input.focused = next;
                         self.request_redraw();
                     }
+                    return;
+                }
+
+                // Échap : montée **feuille→racine** depuis le focalisé (un
+                // `Portal` la consomme pour se fermer) ; à défaut, fermeture de
+                // l'overlay le plus au-dessus — Échap marche donc sans focus.
+                if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
+                    self.escape();
                     return;
                 }
 
@@ -1125,6 +1133,44 @@ impl<A: Application> App<A> {
             .and_then(|widget| widget.on_drag(fraction));
         if let Some(message) = message {
             self.dispatch(message);
+        }
+    }
+
+    /// Route **Échap** : montée feuille→racine depuis le widget focalisé
+    /// (résultat à 3 états — `Ignored` continue de remonter, `Handled` consomme,
+    /// `Skip` arrête sans repli), puis repli sur la fermeture de l'overlay le
+    /// plus au-dessus si personne n'a répondu (ou sans focus).
+    fn escape(&mut self) {
+        // 1) Montée le long du chemin de focus. `Some(None)` = consommé sans
+        // message ; `None` extérieur = tout le chemin a ignoré → repli.
+        let outcome: Option<Option<A::Message>> =
+            self.runtime.input.focused.and_then(|focused| {
+                let tree = self.tree.as_ref()?;
+                let path = find_path(tree.as_ref(), focused);
+                for widget in path.iter().rev() {
+                    match widget.on_key(&Key::Escape) {
+                        KeyResponse::Handled(message) => return Some(message),
+                        KeyResponse::Skip => return Some(None),
+                        KeyResponse::Ignored => {}
+                    }
+                }
+                None
+            });
+
+        match outcome {
+            Some(message) => {
+                if let Some(message) = message {
+                    self.dispatch(message);
+                    self.request_redraw();
+                }
+            }
+            // 2) Personne sur le chemin (ou pas de focus) : overlay du dessus.
+            None => {
+                if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
+                    self.dispatch(message);
+                    self.request_redraw();
+                }
+            }
         }
     }
 

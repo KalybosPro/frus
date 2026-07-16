@@ -94,7 +94,7 @@ pub use dropdown::Dropdown;
 pub use dsl::{button, keyed, spacer, text};
 pub use flex::{Flex, Wrap};
 pub use grid::Grid;
-pub use interaction::{InputState, Interaction, Key, Status, WidgetId};
+pub use interaction::{InputState, Interaction, Key, KeyResponse, Status, WidgetId};
 pub use kbd::Kbd;
 pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
@@ -132,7 +132,7 @@ pub use timeline::Timeline;
 pub use toast::{Toast, ToastKind};
 pub use tree::Tree;
 pub use twopane::TwoPane;
-pub use ui::{build_ui, collect_ids, find_widget, FocusDirection, Scrollbar, Ui};
+pub use ui::{build_ui, collect_ids, find_path, find_widget, FocusDirection, Scrollbar, Ui};
 pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.

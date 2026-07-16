@@ -128,6 +128,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
     fn on_long_press(&self) -> Option<Msg> {
         self.inner.on_long_press()
     }
+
+    fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
+        self.inner.on_key(key)
+    }
 }
 
 #[cfg(test)]

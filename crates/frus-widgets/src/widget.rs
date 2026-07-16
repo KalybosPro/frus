@@ -148,6 +148,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Touche reçue pendant la **montée feuille→racine** : le widget focalisé la
+    /// reçoit d'abord, puis chaque ancêtre tant que la réponse est `Ignored`.
+    /// (Ex. : un `Portal` consomme `Escape` pour se fermer.)
+    fn on_key(&self, _key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
+        crate::interaction::KeyResponse::Ignored
+    }
+
     /// **Mesure sous contraintes** : pour un widget dont la taille dépend de
     /// l'espace offert (paragraphe qui se replie…), renvoie la closure branchée
     /// sur taffy. `None` = taille fixée par `style()`. Contrat : doit être
@@ -245,5 +252,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_long_press(&self) -> Option<Msg> {
         (**self).on_long_press()
+    }
+    fn on_key(&self, key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
+        (**self).on_key(key)
     }
 }

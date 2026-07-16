@@ -56,6 +56,8 @@ pub struct Ui<Msg> {
     hits: Vec<Hit<Msg>>,
     /// Cibles d'appui long (id, bornes visibles, message).
     long_presses: Vec<Hit<Msg>>,
+    /// Messages de fermeture des overlays, du dessous vers le **dessus**.
+    dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
     /// (id, viewport, offset max x, offset max y)
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
@@ -90,6 +92,11 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .find(|hit| hit.id == id)
             .map(|hit| hit.msg.clone())
+    }
+
+    /// Message de fermeture de l'overlay **le plus au-dessus** (pour Échap).
+    pub fn top_dismiss(&self) -> Option<Msg> {
+        self.dismisses.last().cloned()
     }
 
     /// Message d'**appui long** de la cible la plus au-dessus contenant `point`.
@@ -256,6 +263,7 @@ struct Builder<'a, Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
     long_presses: Vec<Hit<Msg>>,
+    dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
@@ -730,7 +738,10 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
 
             // Fermeture au clic **hors** du contenu (modale, menu…) : un hit plein
             // écran ajouté **avant** le contenu, donc battu par lui au recouvrement.
+            // La fermeture est aussi mémorisée pour Échap (le dernier rendu = le
+            // plus au-dessus).
             if let Some(msg) = dismiss {
+                self.dismisses.push(msg.clone());
                 self.hits.push(Hit { id: oid, rect: window, msg });
             }
 
@@ -804,6 +815,7 @@ pub fn build_ui<'a, Msg: Clone>(
         scene: Scene::new(),
         hits: Vec::new(),
         long_presses: Vec::new(),
+        dismisses: Vec::new(),
         focusables: Vec::new(),
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
@@ -836,6 +848,7 @@ pub fn build_ui<'a, Msg: Clone>(
         scene: builder.scene,
         hits: builder.hits,
         long_presses: builder.long_presses,
+        dismisses: builder.dismisses,
         focusables: builder.focusables,
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
@@ -860,6 +873,34 @@ pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
 }
 
 /// Retrouve le widget d'identité `target` dans l'arbre (identités positionnelles).
+/// Chemin de la **racine jusqu'au widget** d'identité `target` (`[racine, …,
+/// cible]`), pour la montée feuille→racine des touches. Vide si introuvable.
+pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widget<Msg>> {
+    fn walk<'a, Msg>(
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        target: WidgetId,
+        path: &mut Vec<&'a dyn Widget<Msg>>,
+    ) -> bool {
+        path.push(widget);
+        if id == target {
+            return true;
+        }
+        for (index, child) in widget.children().iter().enumerate() {
+            if walk(child.as_ref(), child_id(id, index, child.as_ref()), target, path) {
+                return true;
+            }
+        }
+        path.pop();
+        false
+    }
+    let mut path = Vec::new();
+    if !walk(root, WidgetId::ROOT, target, &mut path) {
+        path.clear();
+    }
+    path
+}
+
 pub fn find_widget<Msg>(
     root: &dyn Widget<Msg>,
     target: WidgetId,
@@ -985,6 +1026,41 @@ mod tests {
         let _ = build_ui(&clickable_sample(), Size::new(500.0, 100.0), &rt, &Theme::default());
         let (hits3, misses3) = rt.layout_cache.borrow().last_frame_stats();
         assert_eq!((hits3, misses3), (0, 1), "redimensionnement → recalcul");
+    }
+
+    #[test]
+    fn escape_infrastructure_finds_path_and_topmost_dismiss() {
+        use crate::portal::{Placement, Portal};
+        // Un portail ouvert (modale avec fermeture) autour d'un ancrage cliquable.
+        let anchor = Container::<Msg>::new().width(50.0).height(30.0).on_click(Msg::A);
+        let content = Container::<Msg>::new().width(80.0).height(40.0).on_click(Msg::B);
+        let portal = Portal::new(anchor)
+            .overlay(content, Placement::Center)
+            .dismiss(Msg::C);
+        let tree: Flex<Msg> = Flex::column().child(portal);
+
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        // La fermeture du dessus est celle du portail.
+        assert_eq!(ui.top_dismiss(), Some(Msg::C));
+
+        // Focus « dans le dialogue » : le chemin racine→contenu passe par le
+        // portail, qui consomme Échap en montée. (Le contenu Center 80×40 est
+        // centré dans 300×200 → son centre est à (150, 100).)
+        let inner = ui.hit(Point::new(150.0, 100.0)).expect("contenu de la modale");
+        let path = find_path(&tree, inner);
+        assert!(path.len() >= 3, "racine, portail, contenu : {}", path.len());
+        assert_eq!(path.last().unwrap().on_click(), Some(Msg::B), "la cible ferme le chemin");
+        let consumed = path.iter().rev().find_map(|w| match w.on_key(&crate::Key::Escape) {
+            crate::KeyResponse::Handled(msg) => Some(msg),
+            _ => None,
+        });
+        assert_eq!(consumed, Some(Some(Msg::C)), "le portail consomme Échap en montée");
+
+        // Chemin introuvable → vide ; pas d'overlay → pas de fermeture.
+        assert!(find_path(&tree, WidgetId::ROOT.child(99)).is_empty());
+        let closed: Flex<Msg> = Flex::column().child(Container::new().on_click(Msg::A));
+        let ui2 = build_ui(&closed, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        assert_eq!(ui2.top_dismiss(), None);
     }
 
     #[test]

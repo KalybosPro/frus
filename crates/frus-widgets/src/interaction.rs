@@ -36,6 +36,18 @@ impl WidgetId {
     }
 }
 
+/// Réponse d'un widget à une touche reçue pendant la **montée feuille→racine**
+/// (le focalisé d'abord, puis ses ancêtres tant que le résultat est `Ignored`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyResponse<Msg> {
+    /// Pas concerné : la touche continue de remonter.
+    Ignored,
+    /// Consommée (avec un message éventuel à émettre) : la montée s'arrête.
+    Handled(Option<Msg>),
+    /// Non consommée mais la montée s'arrête (et aucun repli n'est tenté).
+    Skip,
+}
+
 /// Une touche transmise au widget focalisé.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Key {
@@ -51,6 +63,8 @@ pub enum Key {
     Left { shift: bool },
     /// Flèche droite.
     Right { shift: bool },
+    /// Échappement (fermer/annuler) — routé feuille→racine, jamais à l'édition.
+    Escape,
     /// Début de ligne.
     Home { shift: bool },
     /// Fin de ligne.

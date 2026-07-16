@@ -86,6 +86,17 @@ impl<Msg: Clone> Widget<Msg> for Portal<Msg> {
     fn overlay_dismiss(&self) -> Option<Msg> {
         self.on_dismiss.clone()
     }
+
+    /// `Escape` ferme le portail (si un message de fermeture est configuré) —
+    /// consommé pendant la montée feuille→racine quand le focus est à l'intérieur.
+    fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
+        match (key, &self.on_dismiss) {
+            (crate::Key::Escape, Some(message)) => {
+                crate::KeyResponse::Handled(Some(message.clone()))
+            }
+            _ => crate::KeyResponse::Ignored,
+        }
+    }
 }
 
 #[cfg(test)]

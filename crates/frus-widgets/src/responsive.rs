@@ -186,6 +186,13 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     fn on_long_press(&self) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_long_press())
     }
+
+    fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
+        self.inner
+            .as_ref()
+            .map(|w| w.on_key(key))
+            .unwrap_or(crate::KeyResponse::Ignored)
+    }
 }
 
 #[cfg(test)]
