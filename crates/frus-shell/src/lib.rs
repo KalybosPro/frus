@@ -4,6 +4,8 @@
 //! `frus-gpu` et pilote la boucle `événement → frame` pour n'importe quelle
 //! [`Application`]. C'est la seule couche dépendante de la plateforme.
 
+#[cfg(target_os = "android")]
+mod android_ime;
 mod app;
 mod application;
 mod command;
@@ -76,6 +78,9 @@ pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::R
 
     let proxy = event_loop.create_proxy();
     let mut app = App::new(app, proxy);
+    // Pont de saisie (InputConnection réelle) : composition/swipe/CJK. En cas
+    // d'échec, le shell retombe sur le mode touches (TYPE_NULL).
+    android_ime::install(&android_app);
     // Conserve la poignée d'activité pour interroger les insets système.
     app.set_android_app(android_app);
     event_loop.run_app(&mut app)?;

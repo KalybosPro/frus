@@ -23,3 +23,5 @@ env_logger.workspace = true
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
 android_logger = "0.14"
+# Pont de saisie (InputConnection) : chargement du dex embarqué + natives.
+jni = "0.21"

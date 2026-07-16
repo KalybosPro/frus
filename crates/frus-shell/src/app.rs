@@ -181,6 +181,10 @@ pub struct App<A: Application> {
     /// Le clavier logiciel est-il demandé ? (suit le focus des champs texte).
     #[cfg(target_os = "android")]
     soft_input_shown: bool,
+    /// Longueur (en caractères) de la **composition** IME en cours dans le
+    /// champ focalisé — remplacée à chaque mise à jour de l'IME.
+    #[cfg(target_os = "android")]
+    ime_composing: usize,
 }
 
 impl<A: Application> App<A> {
@@ -220,6 +224,8 @@ impl<A: Application> App<A> {
             android_app: None,
             #[cfg(target_os = "android")]
             soft_input_shown: false,
+            #[cfg(target_os = "android")]
+            ime_composing: 0,
         }
     }
 
@@ -242,7 +248,16 @@ impl<A: Application> App<A> {
                 .is_some();
             if editing != self.soft_input_shown {
                 self.soft_input_shown = editing;
-                if let Some(app) = &self.android_app {
+                self.ime_composing = 0;
+                if crate::android_ime::installed() {
+                    // Pont InputConnection : la view Java capte l'IME.
+                    if editing {
+                        crate::android_ime::start_input();
+                    } else {
+                        crate::android_ime::stop_input();
+                    }
+                } else if let Some(app) = &self.android_app {
+                    // Repli TYPE_NULL : ouverture simple, touches latines.
                     if editing {
                         app.show_soft_input(true);
                     } else {
@@ -251,6 +266,72 @@ impl<A: Application> App<A> {
                 }
             }
         }
+    }
+
+    /// Applique les opérations IME en attente au champ focalisé (pont §6).
+    /// La composition est matérialisée **dans le champ** : chaque mise à jour
+    /// efface la précédente (le modèle contrôlé n'a pas encore de région de
+    /// composition stylée — voir docs/jalon-81.md).
+    #[cfg(target_os = "android")]
+    fn drain_ime(&mut self) {
+        use crate::android_ime::ImeEvent;
+        let events = crate::android_ime::drain();
+        if events.is_empty() {
+            return;
+        }
+        let Some(focused) = self.runtime.input.focused else {
+            self.ime_composing = 0;
+            return;
+        };
+        for event in events {
+            match event {
+                // Un commit `\n` (certains IME) = soumission, pas insertion.
+                ImeEvent::Commit(text) if text == "\n" || text == "\r" => {
+                    self.clear_composing(focused);
+                    self.apply_key(focused, Key::Enter);
+                }
+                ImeEvent::Commit(text) => {
+                    self.clear_composing(focused);
+                    self.apply_key(focused, Key::Text(text));
+                }
+                ImeEvent::Composing(text) => {
+                    self.clear_composing(focused);
+                    self.ime_composing = text.chars().count();
+                    if !text.is_empty() {
+                        self.apply_key(focused, Key::Text(text));
+                    }
+                }
+                ImeEvent::FinishComposing => self.ime_composing = 0,
+                ImeEvent::Delete { before, after } => {
+                    for _ in 0..before {
+                        self.apply_key(focused, Key::Backspace);
+                    }
+                    for _ in 0..after {
+                        self.apply_key(focused, Key::Delete);
+                    }
+                }
+                ImeEvent::Action => self.apply_key(focused, Key::Enter),
+                ImeEvent::Key { code, unicode } => match code {
+                    66 => self.apply_key(focused, Key::Enter),
+                    67 => self.apply_key(focused, Key::Backspace),
+                    _ => {
+                        if let Some(c) = char::from_u32(unicode).filter(|c| !c.is_control()) {
+                            self.apply_key(focused, Key::Text(c.to_string()));
+                        }
+                    }
+                },
+            }
+        }
+        self.request_redraw();
+    }
+
+    /// Efface la composition courante du champ (curseur en fin de composition).
+    #[cfg(target_os = "android")]
+    fn clear_composing(&mut self, focused: WidgetId) {
+        for _ in 0..self.ime_composing {
+            self.apply_key(focused, Key::Backspace);
+        }
+        self.ime_composing = 0;
     }
 
     /// Mémorise la poignée de l'activité Android (source des insets système).
@@ -365,6 +446,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             self.drag = None;
             self.request_redraw();
         }
+
+        // Opérations IME en attente (pont de saisie Android).
+        #[cfg(target_os = "android")]
+        self.drain_ime();
 
         // Live-reload (dev) : binaire remplacé par une recompilation →
         // capture l'état et relance le nouveau binaire (ne revient pas).
@@ -613,6 +698,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         }
                         _ => {}
                     }
+                }
+
+                // Pont de saisie actif : l'édition passe EXCLUSIVEMENT par
+                // l'InputConnection (file IME) — la view pont reçoit aussi les
+                // touches matérielles. Sans cette garde, chaque frappe
+                // arriverait en double (file native winit + pont).
+                #[cfg(target_os = "android")]
+                if crate::android_ime::installed() {
+                    return;
                 }
 
                 let shift = self.shift;

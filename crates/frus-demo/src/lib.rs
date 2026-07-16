@@ -1291,10 +1291,13 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                 .title("Tip"),
         );
     }
+    // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —
+    // sans clés, sa disparition (clavier ouvert → écran court) décale les ids
+    // positionnels des frères, et l'état retenu (focus du champ !) saute.
     card_body = card_body
-        .child(input_row)
-        .child(filters)
-        .child(list)
+        .child(keyed("draft-row", input_row))
+        .child(keyed("filters", filters))
+        .child(keyed("todo-list", list))
         .child(Divider::new())
         .child(progress)
         .child(footer);
