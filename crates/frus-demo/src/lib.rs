@@ -1325,6 +1325,14 @@ fn about_section(theme: &Theme) -> Container<Msg> {
                 Timeline::new()
                     .event("Responsive primitives", "Milestone 42")
                     .event("Adaptive navigation", "Milestone 43"),
+                // Paragraphe : revient à la ligne à la largeur de la carte.
+                text(
+                    "Layout, painting, typography and animation are engine-level \
+                     foundations shared by every widget in this gallery.",
+                )
+                .size(13.0)
+                .color(theme.muted)
+                .wrap(),
             ]
             .gap(12.0)
             .width(360.0),

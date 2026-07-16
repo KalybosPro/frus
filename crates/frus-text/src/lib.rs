@@ -70,6 +70,20 @@ pub fn measure(text: &str, size_px: f32) -> Size {
 /// Mesure la taille naturelle d'un texte **stylé** (graisse/italique comptent :
 /// un gras est plus large qu'un normal — la mise en page doit le savoir).
 pub fn measure_styled(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Size {
+    measure_wrapped(text, size_px, weight, italic, None)
+}
+
+/// Mesure un texte stylé **sous contrainte de largeur** : au-delà de
+/// `max_width`, le texte se replie à la ligne (la hauteur grandit). `None` =
+/// non contraint (taille naturelle). C'est la mesure branchée sur la closure de
+/// mesure de taffy pour les paragraphes.
+pub fn measure_wrapped(
+    text: &str,
+    size_px: f32,
+    weight: FontWeight,
+    italic: bool,
+    max_width: Option<f32>,
+) -> Size {
     let line_h = line_height(size_px);
     if text.is_empty() {
         return Size::new(0.0, line_h);
@@ -78,8 +92,8 @@ pub fn measure_styled(text: &str, size_px: f32, weight: FontWeight, italic: bool
     let mut font_system = font_system().lock().expect("FontSystem lock");
     let metrics = Metrics::new(size_px, line_h);
     let mut buffer = Buffer::new(&mut font_system, metrics);
-    // Largeur/hauteur non contraintes : on mesure la taille naturelle.
-    buffer.set_size(&mut font_system, None, None);
+    // Largeur contrainte (repli) ou libre ; hauteur toujours libre.
+    buffer.set_size(&mut font_system, max_width, None);
     let attrs = Attrs::new().weight(Weight(weight.to_u16())).style(if italic {
         Style::Italic
     } else {
@@ -360,6 +374,15 @@ mod tests {
         );
         // Vide → taille nulle.
         assert_eq!(measure_runs(&[]), Size::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn wrapped_text_grows_taller_within_the_width() {
+        let text = "un texte assez long pour se replier sur plusieurs lignes";
+        let free = measure_wrapped(text, 16.0, FontWeight::Regular, false, None);
+        let narrow = measure_wrapped(text, 16.0, FontWeight::Regular, false, Some(120.0));
+        assert!(narrow.width <= 120.0, "replié dans la largeur : {}", narrow.width);
+        assert!(narrow.height > free.height, "le repli grandit la hauteur");
     }
 
     #[test]

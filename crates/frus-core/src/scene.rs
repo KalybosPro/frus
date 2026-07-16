@@ -41,6 +41,9 @@ pub enum Primitive {
         weight: FontWeight,
         /// Italique.
         italic: bool,
+        /// Largeur de repli : au-delà, le texte revient à la ligne (`None` =
+        /// pas de repli — les `\n` explicites font les lignes).
+        max_width: Option<f32>,
         /// Rectangle de découpe.
         clip: Rect,
         /// Identité du widget émetteur.
@@ -103,6 +106,7 @@ impl Primitive {
                 color,
                 weight,
                 italic,
+                max_width,
                 clip,
                 owner,
             } => Primitive::Text {
@@ -112,6 +116,7 @@ impl Primitive {
                 color,
                 weight,
                 italic,
+                max_width: max_width.map(|w| w * factor),
                 clip: clip.scale(factor),
                 owner,
             },
@@ -214,6 +219,7 @@ impl Scene {
                 color,
                 weight,
                 italic,
+                max_width,
                 clip,
                 owner,
             } => Primitive::Text {
@@ -223,6 +229,7 @@ impl Scene {
                 color: color.fade(opacity),
                 weight,
                 italic,
+                max_width,
                 clip,
                 owner,
             },
@@ -336,6 +343,7 @@ impl Scene {
             color,
             weight: FontWeight::Regular,
             italic: false,
+            max_width: None,
             clip: self.current_clip,
             owner: self.current_owner,
         });
@@ -369,6 +377,30 @@ impl Scene {
             color,
             weight: style.weight,
             italic: style.italic,
+            max_width: None,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Ajoute un **paragraphe** : texte stylé qui revient à la ligne au-delà de
+    /// `max_width` (le repli du rendu suit celui de la mise en page).
+    pub fn text_wrapped(
+        &mut self,
+        position: Point,
+        text: impl Into<String>,
+        style: &TextStyle,
+        color: Color,
+        max_width: f32,
+    ) {
+        self.primitives.push(Primitive::Text {
+            position,
+            text: text.into(),
+            size: style.size,
+            color,
+            weight: style.weight,
+            italic: style.italic,
+            max_width: Some(max_width),
             clip: self.current_clip,
             owner: self.current_owner,
         });

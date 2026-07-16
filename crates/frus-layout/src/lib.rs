@@ -11,7 +11,7 @@ mod style;
 mod tree;
 
 pub use style::{Align, Dimension, FlexDirection, Justify, Style};
-pub use tree::{Layout, NodeId};
+pub use tree::{Layout, MeasureFn, NodeId};
 
 // Ré-export des types géométriques du socle, par commodité pour les appelants.
 pub use frus_core::{Rect, Size};

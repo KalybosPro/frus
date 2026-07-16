@@ -15,6 +15,8 @@ use crate::widget::Widget;
 pub struct Text {
     content: String,
     style: TextStyle,
+    /// Paragraphe : revient à la ligne à la largeur offerte par le parent.
+    wrap: bool,
 }
 
 impl Text {
@@ -23,6 +25,7 @@ impl Text {
         Self {
             content: content.into(),
             style: TextStyle::new(16.0),
+            wrap: false,
         }
     }
 
@@ -32,7 +35,16 @@ impl Text {
         Self {
             content: content.into(),
             style,
+            wrap: false,
         }
+    }
+
+    /// Fait du texte un **paragraphe** : il revient à la ligne à la largeur
+    /// offerte par le parent (mesure sous contraintes via taffy) au lieu de
+    /// s'étendre sur une seule ligne.
+    pub fn wrap(mut self) -> Self {
+        self.wrap = true;
+        self
     }
 
     /// Fixe la taille de police, en pixels.
@@ -62,6 +74,10 @@ impl Text {
 
 impl<Msg> Widget<Msg> for Text {
     fn style(&self) -> Style {
+        // Paragraphe : dimensions libres, la taille vient de `measure()`.
+        if self.wrap {
+            return Style::default();
+        }
         let measured = frus_text::measure_styled(
             &self.content,
             self.style.size,
@@ -75,6 +91,30 @@ impl<Msg> Widget<Msg> for Text {
         }
     }
 
+    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+        if !self.wrap {
+            return None;
+        }
+        let content = self.content.clone();
+        let style = self.style;
+        Some(Box::new(move |max_width, _| {
+            frus_text::measure_wrapped(&content, style.size, style.weight, style.italic, max_width)
+        }))
+    }
+
+    fn measure_key(&self) -> Option<u64> {
+        if !self.wrap {
+            return None;
+        }
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.content.hash(&mut hasher);
+        self.style.size.to_bits().hash(&mut hasher);
+        self.style.weight.to_u16().hash(&mut hasher);
+        self.style.italic.hash(&mut hasher);
+        Some(hasher.finish())
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &[]
     }
@@ -85,12 +125,23 @@ impl<Msg> Widget<Msg> for Text {
             .color
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
-        scene.text_styled(
-            Point::new(bounds.x, bounds.y),
-            self.content.clone(),
-            &self.style,
-            color,
-        );
+        if self.wrap {
+            // Le rendu se replie à la largeur donnée par la mise en page.
+            scene.text_wrapped(
+                Point::new(bounds.x, bounds.y),
+                self.content.clone(),
+                &self.style,
+                color,
+                bounds.width,
+            );
+        } else {
+            scene.text_styled(
+                Point::new(bounds.x, bounds.y),
+                self.content.clone(),
+                &self.style,
+                color,
+            );
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -125,10 +176,33 @@ mod tests {
                 color: Color::rgb(1.0, 0.0, 0.0),
                 weight: FontWeight::Regular,
                 italic: false,
+                max_width: None,
                 clip: Rect::UNBOUNDED,
                 owner: 0,
             }
         );
+    }
+
+    #[test]
+    fn wrapped_text_measures_to_the_offered_width() {
+        let long = "un paragraphe assez long pour se replier sur plusieurs lignes";
+        let text = Text::new(long).wrap();
+        // La mesure sous contraintes se replie : plus haut à 120 px qu'en libre.
+        let measure = Widget::<()>::measure(&text).expect("closure de mesure");
+        let free = measure(None, None);
+        let narrow = measure(Some(120.0), None);
+        assert!(narrow.width <= 120.0);
+        assert!(narrow.height > free.height, "replié → plus haut");
+        // Et la clé de mesure change avec le contenu (correction du cache).
+        let other = Text::new("court").wrap();
+        assert_ne!(
+            Widget::<()>::measure_key(&text),
+            Widget::<()>::measure_key(&other)
+        );
+        // Un texte sans repli n'expose ni mesure ni clé.
+        let plain = Text::new(long);
+        assert!(Widget::<()>::measure(&plain).is_none());
+        assert!(Widget::<()>::measure_key(&plain).is_none());
     }
 
     #[test]

@@ -1,5 +1,7 @@
 //! Construction de l'arbre de mise en page et calcul des rectangles absolus.
 
+use std::collections::HashMap;
+
 use frus_core::{Rect, Size};
 use taffy::{AvailableSpace, TaffyTree, TraversePartialTree};
 
@@ -8,10 +10,19 @@ use crate::style::Style;
 /// Identifiant opaque d'un nœud de mise en page.
 pub type NodeId = taffy::NodeId;
 
+/// Une **mesure sous contraintes** pour une feuille dont la taille dépend de
+/// l'espace offert (texte qui se replie, contenu peint sur mesure). Reçoit les
+/// largeur/hauteur maximales (`None` = non contraint) et renvoie la taille du
+/// contenu. Appelée par taffy pendant le calcul — y compris pour les tailles
+/// **intrinsèques** (min-content → largeur `Some(0.0)`, max-content → `None`).
+pub type MeasureFn = Box<dyn Fn(Option<f32>, Option<f32>) -> Size>;
+
 /// Un arbre de mise en page. `T` est une donnée utilisateur attachée aux nœuds
 /// (par exemple une couleur), restituée avec chaque rectangle calculé.
 pub struct Layout<T> {
     tree: TaffyTree<T>,
+    /// Mesures sous contraintes, par feuille « mesurée ».
+    measures: HashMap<NodeId, MeasureFn>,
 }
 
 impl<T> Layout<T> {
@@ -19,6 +30,7 @@ impl<T> Layout<T> {
     pub fn new() -> Self {
         Self {
             tree: TaffyTree::new(),
+            measures: HashMap::new(),
         }
     }
 
@@ -27,6 +39,14 @@ impl<T> Layout<T> {
         self.tree
             .new_leaf_with_context(style.to_taffy(), data)
             .expect("création d'une feuille de layout")
+    }
+
+    /// Ajoute une feuille **mesurée** : sa taille est calculée par `measure`
+    /// selon l'espace offert (au lieu d'une dimension fixée dans le style).
+    pub fn measured_leaf(&mut self, style: Style, data: T, measure: MeasureFn) -> NodeId {
+        let node = self.leaf(style, data);
+        self.measures.insert(node, measure);
+        node
     }
 
     /// Ajoute un conteneur (nœud avec enfants), sans donnée associée.
@@ -38,15 +58,13 @@ impl<T> Layout<T> {
 
     /// Calcule la mise en page à partir de `root`, dans l'espace disponible donné.
     pub fn compute(&mut self, root: NodeId, available: Size) {
-        self.tree
-            .compute_layout(
-                root,
-                taffy::Size {
-                    width: AvailableSpace::Definite(available.width),
-                    height: AvailableSpace::Definite(available.height),
-                },
-            )
-            .expect("calcul de la mise en page");
+        self.compute_in(
+            root,
+            taffy::Size {
+                width: AvailableSpace::Definite(available.width),
+                height: AvailableSpace::Definite(available.height),
+            },
+        );
     }
 
     /// Calcule la mise en page d'un contenu scrollable : chaque axe est soit
@@ -67,15 +85,52 @@ impl<T> Layout<T> {
                 AvailableSpace::Definite(size)
             }
         };
+        self.compute_in(
+            root,
+            taffy::Size {
+                width: axis(free_x, width),
+                height: axis(free_y, height),
+            },
+        );
+    }
+
+    /// Le calcul commun : taffy, avec les **mesures sous contraintes** des
+    /// feuilles mesurées routées vers leur closure.
+    fn compute_in(&mut self, root: NodeId, available: taffy::Size<AvailableSpace>) {
+        let measures = &self.measures;
         self.tree
-            .compute_layout(
+            .compute_layout_with_measure(
                 root,
-                taffy::Size {
-                    width: axis(free_x, width),
-                    height: axis(free_y, height),
+                available,
+                |known: taffy::Size<Option<f32>>,
+                 space: taffy::Size<AvailableSpace>,
+                 node,
+                 _ctx,
+                 _style| {
+                    let Some(measure) = measures.get(&node) else {
+                        return taffy::Size::ZERO;
+                    };
+                    // Contrainte résolue par axe : dimension connue si taffy l'a
+                    // déjà tranchée, sinon selon l'espace offert (min-content =
+                    // le plus étroit possible → 0 ; max-content = non contraint).
+                    let bound = |known: Option<f32>, space: AvailableSpace| {
+                        known.or(match space {
+                            AvailableSpace::Definite(v) => Some(v),
+                            AvailableSpace::MinContent => Some(0.0),
+                            AvailableSpace::MaxContent => None,
+                        })
+                    };
+                    let size = measure(
+                        bound(known.width, space.width),
+                        bound(known.height, space.height),
+                    );
+                    taffy::Size {
+                        width: size.width,
+                        height: size.height,
+                    }
                 },
             )
-            .expect("calcul de la mise en page (scroll)");
+            .expect("calcul de la mise en page");
     }
 
     /// Parcourt l'arbre (préfixe) et renvoie, pour chaque nœud, son rectangle en
@@ -214,6 +269,36 @@ mod tests {
         assert_eq!(k0.y, k1.y);
         assert_eq!(k2.x, k0.x);
         assert!(k2.y >= k0.y + 40.0, "k2.y = {} attendu >= 40", k2.y);
+    }
+
+    #[test]
+    fn measured_leaf_wraps_to_the_offered_width() {
+        // Simule un texte de 250 px qui se replie : à largeur W offerte, il
+        // occupe min(W, 250) de large et grandit en hauteur s'il se replie.
+        let measure: crate::MeasureFn = Box::new(|w, _| {
+            let w = w.unwrap_or(250.0).min(250.0);
+            let lines = (250.0 / w).ceil();
+            Size::new(w, lines * 20.0)
+        });
+        let mut layout: Layout<()> = Layout::new();
+        let text = layout.measured_leaf(Style::default(), (), measure);
+        let root = layout.container(
+            Style {
+                width: Dimension::Length(100.0),
+                flex_direction: FlexDirection::Column,
+                align: Align::Start,
+                ..Default::default()
+            },
+            &[text],
+        );
+        layout.compute(root, Size::new(100.0, 600.0));
+        let rects = layout.absolute_rects(root);
+        let (text_rect, _) = rects[1];
+        assert!(text_rect.width <= 100.0, "replié à la largeur offerte : {text_rect:?}");
+        assert!(
+            text_rect.height >= 60.0,
+            "3 lignes attendues (250/100 → 3 × 20) : {text_rect:?}"
+        );
     }
 
     #[test]

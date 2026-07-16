@@ -174,6 +174,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }
+
+    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+        self.inner.as_ref().and_then(|w| w.measure())
+    }
+
+    fn measure_key(&self) -> Option<u64> {
+        self.inner.as_ref().and_then(|w| w.measure_key())
+    }
 }
 
 #[cfg(test)]

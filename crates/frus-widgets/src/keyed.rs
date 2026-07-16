@@ -116,6 +116,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }
+
+    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+        self.inner.measure()
+    }
+
+    fn measure_key(&self) -> Option<u64> {
+        self.inner.measure_key()
+    }
 }
 
 #[cfg(test)]

@@ -173,6 +173,11 @@ pub(crate) fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()
     }
     let children = widget.children();
     if children.is_empty() {
+        // Feuille à mesure sous contraintes (paragraphe qui se replie…) : taffy
+        // interroge la closure pendant le calcul.
+        if let Some(measure) = widget.measure() {
+            return layout.measured_leaf(widget.style(), (), measure);
+        }
         layout.leaf(widget.style(), ())
     } else {
         let child_ids: Vec<NodeId> = children
@@ -830,6 +835,52 @@ mod tests {
                     .color(Color::rgb(0.0, 0.0, 1.0))
                     .on_click(Msg::B),
             )
+    }
+
+    #[test]
+    fn wrapped_text_wraps_in_layout_and_invalidates_the_cache() {
+        let tree = |text: &str| {
+            crate::Flex::column()
+                .width(120.0)
+                .child(crate::Text::new(text).wrap())
+                .child(Container::new().height(10.0).on_click(Msg::A))
+        };
+        // Position du suiveur cliquable : premier y touché en balayant.
+        let follower_y = |ui: &Ui<Msg>| {
+            (0..600)
+                .map(|y| y as f32)
+                .find(|&y| ui.hit(Point::new(60.0, y)).is_some())
+                .expect("suiveur cliquable")
+        };
+
+        let rt = Runtime::default();
+        let long = "un paragraphe assez long pour se replier sur plusieurs lignes";
+        let ui = build_ui(&tree(long), Size::new(120.0, 600.0), &rt, &Theme::default());
+
+        // Le rendu du paragraphe porte sa largeur de repli (≤ colonne).
+        let max_w = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Text { max_width, .. } => *max_width,
+                _ => None,
+            })
+            .expect("paragraphe replié");
+        assert!(max_w <= 120.5, "repli à la largeur de la colonne : {max_w}");
+
+        // Le texte replié occupe plusieurs lignes : le suiveur est repoussé.
+        let y_long = follower_y(&ui);
+        assert!(y_long > 30.0, "suiveur repoussé par le repli : {y_long}");
+
+        // MÊME structure/styles, contenu différent, MÊME runtime (cache chaud) :
+        // la clé de mesure doit invalider le cache — sinon vieux rectangles.
+        let ui2 = build_ui(&tree("court"), Size::new(120.0, 600.0), &rt, &Theme::default());
+        let y_short = follower_y(&ui2);
+        assert!(
+            y_short < y_long,
+            "contenu plus court → suiveur plus haut (cache invalidé) : {y_short} vs {y_long}"
+        );
     }
 
     #[test]

@@ -140,6 +140,22 @@ pub trait Widget<Msg> {
     fn navigator(&self) -> Option<(f32, bool)> {
         None
     }
+
+    /// **Mesure sous contraintes** : pour un widget dont la taille dépend de
+    /// l'espace offert (paragraphe qui se replie…), renvoie la closure branchée
+    /// sur taffy. `None` = taille fixée par `style()`. Contrat : doit être
+    /// `Some` **si et seulement si** [`Widget::measure_key`] l'est.
+    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+        None
+    }
+
+    /// Empreinte du **contenu** dont dépend [`Widget::measure`] (texte, style…),
+    /// mêlée à l'empreinte de relayout : sans elle, deux contenus différents de
+    /// même style seraient confondus par le cache et garderaient une vieille
+    /// géométrie. Contrat : `Some` si et seulement si `measure()` l'est.
+    fn measure_key(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// Permet de composer un widget **déjà boxé** là où un `impl Widget` est attendu
@@ -213,5 +229,11 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()
+    }
+    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+        (**self).measure()
+    }
+    fn measure_key(&self) -> Option<u64> {
+        (**self).measure_key()
     }
 }

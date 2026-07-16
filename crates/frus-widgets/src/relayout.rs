@@ -173,6 +173,10 @@ fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, hasher: &mut H) {
     let children = widget.children();
     3u8.hash(hasher);
     widget.style().layout_hash(hasher);
+    // Feuille mesurée : son **contenu** (texte…) influe sur la géométrie sans
+    // passer par le style — sans cette empreinte, deux contenus différents
+    // seraient confondus et le cache garderait une vieille mise en page.
+    widget.measure_key().hash(hasher);
     children.len().hash(hasher);
     for child in children.iter() {
         hash_node(child.as_ref(), hasher);

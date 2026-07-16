@@ -86,12 +86,16 @@ impl TextPainter {
                     color,
                     weight,
                     italic,
+                    max_width,
                     clip,
                     ..
                 } => {
                     let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
                     let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
+                    // Un paragraphe se replie à sa largeur de mise en page ; un
+                    // texte libre ne se replie qu'à la surface (jamais atteint).
+                    let wrap_w = max_width.unwrap_or(width as f32);
+                    buffer.set_size(&mut self.font_system, Some(wrap_w), Some(height as f32));
                     // Graisse + italique : cosmic-text choisit la face correspondante
                     // de la famille (repli sur la plus proche si absente).
                     let attrs = glyphon::Attrs::new()
