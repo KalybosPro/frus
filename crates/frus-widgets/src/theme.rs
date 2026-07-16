@@ -155,6 +155,88 @@ impl ColorScheme {
         }
     }
 
+    /// Génère un schéma complet depuis **une couleur graine** (Material 3
+    /// « dynamic color », via [HCT](frus_core::Hct)). La teinte de la graine
+    /// irrigue cinq palettes tonales (primaire, secondaire, tertiaire — non
+    /// exposée pour l'instant —, neutres) ; chaque rôle est un **ton** précis
+    /// de sa palette, ce qui garantit les contrastes des paires `X`/`on_X`.
+    ///
+    /// Écarts assumés vis-à-vis de la spec M3 : `surface` est légèrement
+    /// décollée du `background` (nos cartes posent une surface sur le fond,
+    /// tons 12/6 en sombre, 100/98 en clair) — la spec 2023 les confond.
+    pub fn from_seed(seed: Color, dark: bool) -> Self {
+        use frus_core::{Hct, TonalPalette};
+
+        let hct = Hct::from_color(seed);
+        // Chromas M3 : la primaire garde le chroma de la graine (plancher 48),
+        // les autres palettes sont des déclinaisons assourdies de la teinte.
+        let primary = TonalPalette::new(hct.hue, hct.chroma.max(48.0));
+        let secondary = TonalPalette::new(hct.hue, 16.0);
+        let neutral = TonalPalette::new(hct.hue, 4.0);
+        let neutral_variant = TonalPalette::new(hct.hue, 8.0);
+        let error = TonalPalette::new(25.0, 84.0);
+
+        let p = |tone: f64| primary.tone(tone);
+        let s = |tone: f64| secondary.tone(tone);
+        let n = |tone: f64| neutral.tone(tone);
+        let nv = |tone: f64| neutral_variant.tone(tone);
+        let e = |tone: f64| error.tone(tone);
+
+        if dark {
+            Self {
+                primary: p(80.0),
+                on_primary: p(20.0),
+                primary_container: p(30.0),
+                on_primary_container: p(90.0),
+                secondary: s(80.0),
+                on_secondary: s(20.0),
+                secondary_container: s(30.0),
+                on_secondary_container: s(90.0),
+                background: n(6.0),
+                surface: n(12.0),
+                on_surface: n(90.0),
+                surface_variant: nv(20.0),
+                on_surface_variant: nv(80.0),
+                surface_container: n(17.0),
+                surface_container_high: n(22.0),
+                inverse_surface: n(90.0),
+                on_inverse_surface: n(20.0),
+                outline: nv(60.0),
+                outline_variant: nv(30.0),
+                error: e(80.0),
+                on_error: e(20.0),
+                scrim: n(0.0),
+                shadow: n(0.0),
+            }
+        } else {
+            Self {
+                primary: p(40.0),
+                on_primary: p(100.0),
+                primary_container: p(90.0),
+                on_primary_container: p(10.0),
+                secondary: s(40.0),
+                on_secondary: s(100.0),
+                secondary_container: s(90.0),
+                on_secondary_container: s(10.0),
+                background: n(98.0),
+                surface: n(100.0),
+                on_surface: n(10.0),
+                surface_variant: nv(94.0),
+                on_surface_variant: nv(30.0),
+                surface_container: n(96.0),
+                surface_container_high: n(94.0),
+                inverse_surface: n(20.0),
+                on_inverse_surface: n(95.0),
+                outline: nv(50.0),
+                outline_variant: nv(80.0),
+                error: e(40.0),
+                on_error: e(100.0),
+                scrim: n(0.0),
+                shadow: n(0.0),
+            }
+        }
+    }
+
     /// Interpole rôle à rôle vers `other` (fondu de bascule clair/sombre).
     pub fn lerp(&self, other: &ColorScheme, t: f32) -> ColorScheme {
         let c = |a: Color, b: Color| a.lerp(b, t);
@@ -277,6 +359,17 @@ impl Theme {
         )
     }
 
+    /// Thème généré depuis une **couleur graine** (voir
+    /// [`ColorScheme::from_seed`]). L'anneau de focus et la sélection dérivent
+    /// de la primaire du schéma (rôles d'interaction propres à frus, hors
+    /// schéma M3).
+    pub fn from_seed(seed: Color, dark: bool) -> Self {
+        let scheme = ColorScheme::from_seed(seed, dark);
+        let focus = scheme.primary;
+        let selection = scheme.primary.with_alpha(if dark { 0.40 } else { 0.30 });
+        Self::from_scheme(scheme, focus, selection)
+    }
+
     /// Applique la **state-layer** Material sur `base` : superpose la couleur de
     /// contenu `on` à faible opacité selon l'état d'interaction — survol 8 %,
     /// focus 10 %, pression 12 % — en tenant compte des progressions animées
@@ -323,6 +416,60 @@ impl Default for Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Contraste WCAG entre deux couleurs (rapport ≥ 1).
+    fn contrast(a: Color, b: Color) -> f32 {
+        let (la, lb) = (a.compute_luminance() + 0.05, b.compute_luminance() + 0.05);
+        if la > lb {
+            la / lb
+        } else {
+            lb / la
+        }
+    }
+
+    #[test]
+    fn from_seed_generates_contrasting_pairs() {
+        // Toute paire X / on_X doit rester lisible (≥ 4,5:1, l'exigence AA),
+        // pour n'importe quelle graine — même très peu chromatique.
+        for seed in [
+            Color::rgb8(0x42, 0x85, 0xF4), // bleu Google
+            Color::rgb8(0x9C, 0x27, 0xB0), // violet
+            Color::rgb8(0x80, 0x80, 0x80), // gris (chroma quasi nul)
+        ] {
+            for dark in [false, true] {
+                let s = ColorScheme::from_seed(seed, dark);
+                for (name, base, on) in [
+                    ("primary", s.primary, s.on_primary),
+                    ("secondary", s.secondary, s.on_secondary),
+                    ("surface", s.surface, s.on_surface),
+                    ("error", s.error, s.on_error),
+                    ("inverse", s.inverse_surface, s.on_inverse_surface),
+                ] {
+                    let ratio = contrast(base, on);
+                    assert!(
+                        ratio >= 4.5,
+                        "contraste {name} insuffisant ({ratio:.2}) — graine {seed:?}, dark={dark}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn from_seed_light_and_dark_share_the_hue() {
+        // Les deux modes déclinent la même teinte (la primaire sombre est la
+        // version ton 80 de la primaire claire ton 40).
+        let seed = Color::rgb8(0x42, 0x85, 0xF4);
+        let light = ColorScheme::from_seed(seed, false);
+        let dark = ColorScheme::from_seed(seed, true);
+        let hue = |c: Color| frus_core::Hct::from_color(c).hue;
+        let delta = (hue(light.primary) - hue(dark.primary)).abs();
+        let delta = delta.min(360.0 - delta);
+        assert!(delta < 12.0, "teintes clair/sombre divergentes ({delta:.1}°)");
+        // Et le sombre est bien… sombre.
+        assert!(dark.background.compute_luminance() < 0.1);
+        assert!(light.background.compute_luminance() > 0.85);
+    }
 
     #[test]
     fn dark_and_light_differ() {

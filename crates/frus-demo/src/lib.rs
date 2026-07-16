@@ -113,6 +113,8 @@ enum Msg {
     ConfirmClearDone,
     CancelClear,
     ToggleTheme,
+    /// Passe à la graine de thème suivante (default → Blue → Purple → Orange).
+    CycleSeed,
     SetNotifs(bool),
     SetVolume(f32),
     SetRadio(usize),
@@ -291,6 +293,8 @@ struct TodoApp {
     sheet_open: bool,
     /// Insets système (zone de sécurité) : barres d'état/navigation, encoches.
     insets: Insets,
+    /// Graine du thème : `0` = schéma écrit main, sinon `from_seed` (HCT).
+    seed_index: usize,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -325,12 +329,33 @@ fn done_count(app: &TodoApp) -> usize {
     app.todos.iter().filter(|t| t.done).count()
 }
 
-/// Thème « cible » selon l'état (avant fondu).
+/// Graines de démonstration du thème dynamique (`from_seed`, HCT).
+const THEME_SEEDS: [(&str, Color); 3] = [
+    ("Blue", Color { r: 0x42 as f32 / 255.0, g: 0x85 as f32 / 255.0, b: 0xF4 as f32 / 255.0, a: 1.0 }),
+    ("Purple", Color { r: 0x9C as f32 / 255.0, g: 0x27 as f32 / 255.0, b: 0xB0 as f32 / 255.0, a: 1.0 }),
+    ("Orange", Color { r: 0xE8 as f32 / 255.0, g: 0x71 as f32 / 255.0, b: 0x0A as f32 / 255.0, a: 1.0 }),
+];
+
+/// Libellé de l'action « graine » du menu (la **prochaine** graine du cycle).
+fn seed_label(app: &TodoApp) -> String {
+    match THEME_SEEDS.get(app.seed_index) {
+        Some((name, _)) => format!("Seed: {name}"),
+        None => "Seed: default".to_string(),
+    }
+}
+
+/// Thème « cible » selon l'état (avant fondu) : schéma écrit main par défaut,
+/// ou généré depuis une graine (Material 3 `from_seed`, HCT).
 fn theme_of(app: &TodoApp) -> Theme {
-    if app.light {
-        Theme::light()
-    } else {
-        Theme::dark()
+    match app.seed_index.checked_sub(1).and_then(|i| THEME_SEEDS.get(i)) {
+        Some((_, seed)) => Theme::from_seed(*seed, !app.light),
+        None => {
+            if app.light {
+                Theme::light()
+            } else {
+                Theme::dark()
+            }
+        }
     }
 }
 
@@ -386,6 +411,13 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             // Capture le thème courant (avant bascule) comme point de départ du fondu.
             app.theme_from = Some(theme_of(app));
             app.light = !app.light;
+            app.theme_progress = 0.0;
+            Command::none()
+        }
+        Msg::CycleSeed => {
+            // Même fondu que la bascule clair/sombre, vers le schéma généré.
+            app.theme_from = Some(theme_of(app));
+            app.seed_index = (app.seed_index + 1) % (THEME_SEEDS.len() + 1);
             app.theme_progress = 0.0;
             Command::none()
         }
@@ -1082,6 +1114,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .overflow(app.actions_open, Msg::ToggleActions)
         .action(timer_label, Msg::ToggleTimer)
         .action(theme_label, Msg::ToggleTheme)
+        .action(seed_label(app), Msg::CycleSeed)
         .action("A+", Msg::SetDensity(app.density + 0.1))
         .action("A−", Msg::SetDensity(app.density - 0.1))
         .action("Log →", Msg::Push(Route::Journal))
