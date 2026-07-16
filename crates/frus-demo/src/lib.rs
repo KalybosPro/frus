@@ -12,7 +12,7 @@ use std::time::Duration;
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar,
-    SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
+    FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
@@ -1032,7 +1032,7 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
 fn confirm_content(done: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         column![
-            text("Clear completed tasks?").size(22.0),
+            text("Clear completed tasks?").size(22.0).weight(FontWeight::Medium),
             text(format!("{done} task(s) will be removed.")).size(16.0),
             row![
                 button("Cancel", Msg::CancelClear).variant(Variant::Secondary),
@@ -1121,7 +1121,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         shown += 1;
     }
     if shown == 0 {
-        list = column![text("Nothing to show for this filter.").size(18.0).color(theme.muted)];
+        list = column![text("Nothing to show for this filter.").size(18.0).italic().color(theme.muted)];
     }
     // Responsivité **verticale** (Lot C) : en fenêtre courte, l'astuce est masquée
     // pour préserver la hauteur utile. Le défilement est assuré par le Scaffold.

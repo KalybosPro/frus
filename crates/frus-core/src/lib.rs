@@ -11,6 +11,7 @@ mod decoration;
 mod geometry;
 mod responsive;
 mod scene;
+mod text_style;
 
 pub use animation::{
     AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
@@ -21,3 +22,4 @@ pub use decoration::{Border, BoxDecoration, BoxShadow, LinearGradient};
 pub use geometry::{Insets, Point, Rect, Size};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{Primitive, Scene};
+pub use text_style::{FontWeight, TextStyle};

@@ -125,7 +125,7 @@ pub use table::Table;
 pub use tabs::Tabs;
 pub use text::Text;
 pub use textinput::TextInput;
-pub use theme::Theme;
+pub use theme::{TextTheme, Theme};
 pub use timeline::Timeline;
 pub use toast::{Toast, ToastKind};
 pub use tree::Tree;
@@ -135,8 +135,8 @@ pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{
-    Border, BoxDecoration, BoxShadow, Color, Insets, LinearGradient, Orientation, Point, Rect,
-    Scene, SizeClass, Size,
+    Border, BoxDecoration, BoxShadow, Color, FontWeight, Insets, LinearGradient, Orientation,
+    Point, Rect, Scene, SizeClass, Size, TextStyle,
 };
 /// Couche d'animation partagée (physique, courbes, pilote) — voir
 /// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent

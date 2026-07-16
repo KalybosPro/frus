@@ -4,9 +4,57 @@
 //! widgets l'utilisent pour leurs valeurs par défaut (couleur de texte, champ de
 //! saisie, barres de défilement…), sans empêcher une surcharge explicite.
 
-use frus_core::Color;
+use frus_core::{Color, FontWeight, TextStyle};
 
 use crate::interaction::{Interaction, Status};
+
+/// Échelle typographique **nommée** (les 15 crans de Material 3). Les widgets
+/// choisissent un cran (`theme.text.title_medium`), jamais une taille en dur —
+/// changer l'échelle retypographie toute l'app. Les couleurs restent héritées
+/// (`None` → résolues contre le thème au paint).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextTheme {
+    pub display_large: TextStyle,
+    pub display_medium: TextStyle,
+    pub display_small: TextStyle,
+    pub headline_large: TextStyle,
+    pub headline_medium: TextStyle,
+    pub headline_small: TextStyle,
+    pub title_large: TextStyle,
+    pub title_medium: TextStyle,
+    pub title_small: TextStyle,
+    pub body_large: TextStyle,
+    pub body_medium: TextStyle,
+    pub body_small: TextStyle,
+    pub label_large: TextStyle,
+    pub label_medium: TextStyle,
+    pub label_small: TextStyle,
+}
+
+impl Default for TextTheme {
+    /// L'échelle Material 3 de référence (tailles en px logiques ; les crans
+    /// title/label portent une graisse medium, comme le spec).
+    fn default() -> Self {
+        let medium = |size: f32| TextStyle::new(size).weight(FontWeight::Medium);
+        Self {
+            display_large: TextStyle::new(57.0),
+            display_medium: TextStyle::new(45.0),
+            display_small: TextStyle::new(36.0),
+            headline_large: TextStyle::new(32.0),
+            headline_medium: TextStyle::new(28.0),
+            headline_small: TextStyle::new(24.0),
+            title_large: TextStyle::new(22.0),
+            title_medium: medium(16.0),
+            title_small: medium(14.0),
+            body_large: TextStyle::new(16.0),
+            body_medium: TextStyle::new(14.0),
+            body_small: TextStyle::new(12.0),
+            label_large: medium(14.0),
+            label_medium: medium(12.0),
+            label_small: medium(11.0),
+        }
+    }
+}
 
 /// Ensemble de tokens de style.
 ///
@@ -45,6 +93,8 @@ pub struct Theme {
     pub on_error: Color,
     /// Variante discrète de contour (séparateurs fins, traits internes).
     pub outline_variant: Color,
+    /// Échelle typographique nommée (15 crans Material).
+    pub text: TextTheme,
     /// Rayon de coin par défaut.
     pub radius: f32,
     /// Unité d'espacement de base.
@@ -69,6 +119,7 @@ impl Theme {
             error: Color::rgb8(224, 108, 108),
             on_error: Color::rgb8(38, 12, 12),
             outline_variant: Color::rgb8(48, 52, 62),
+            text: TextTheme::default(),
             radius: 10.0,
             spacing: 8.0,
         }
@@ -91,6 +142,7 @@ impl Theme {
             error: Color::rgb8(200, 64, 64),
             on_error: Color::rgb8(255, 255, 255),
             outline_variant: Color::rgb8(226, 230, 236),
+            text: TextTheme::default(),
             radius: 10.0,
             spacing: 8.0,
         }
@@ -133,6 +185,8 @@ impl Theme {
             error: self.error.lerp(other.error, t),
             on_error: self.on_error.lerp(other.on_error, t),
             outline_variant: self.outline_variant.lerp(other.outline_variant, t),
+            // La typographie ne participe pas au fondu (identique clair/sombre).
+            text: self.text,
             radius: f(self.radius, other.radius),
             spacing: f(self.spacing, other.spacing),
         }

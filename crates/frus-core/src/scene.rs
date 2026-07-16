@@ -7,7 +7,7 @@
 //! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
-use crate::{Color, Point, Rect};
+use crate::{Color, FontWeight, Point, Rect, TextStyle};
 
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +37,10 @@ pub enum Primitive {
         text: String,
         size: f32,
         color: Color,
+        /// Graisse de police.
+        weight: FontWeight,
+        /// Italique.
+        italic: bool,
         /// Rectangle de découpe.
         clip: Rect,
         /// Identité du widget émetteur.
@@ -86,6 +90,8 @@ impl Primitive {
                 text,
                 size,
                 color,
+                weight,
+                italic,
                 clip,
                 owner,
             } => Primitive::Text {
@@ -93,6 +99,8 @@ impl Primitive {
                 text,
                 size: size * factor,
                 color,
+                weight,
+                italic,
                 clip: clip.scale(factor),
                 owner,
             },
@@ -177,6 +185,8 @@ impl Scene {
                 text,
                 size,
                 color,
+                weight,
+                italic,
                 clip,
                 owner,
             } => Primitive::Text {
@@ -184,6 +194,8 @@ impl Scene {
                 text,
                 size,
                 color: color.fade(opacity),
+                weight,
+                italic,
                 clip,
                 owner,
             },
@@ -271,13 +283,38 @@ impl Scene {
         });
     }
 
-    /// Ajoute une ligne de texte, ancrée par son coin haut-gauche.
+    /// Ajoute une ligne de texte, ancrée par son coin haut-gauche (graisse
+    /// normale, droit). Voir [`Scene::text_styled`] pour la graisse/l'italique.
     pub fn text(&mut self, position: Point, text: impl Into<String>, size: f32, color: Color) {
         self.primitives.push(Primitive::Text {
             position,
             text: text.into(),
             size,
             color,
+            weight: FontWeight::Regular,
+            italic: false,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Ajoute une ligne de texte stylée (taille/graisse/italique du [`TextStyle`]).
+    /// `color` est la couleur **résolue** (la `color` optionnelle du style ayant
+    /// été tranchée par l'appelant, généralement contre le thème).
+    pub fn text_styled(
+        &mut self,
+        position: Point,
+        text: impl Into<String>,
+        style: &TextStyle,
+        color: Color,
+    ) {
+        self.primitives.push(Primitive::Text {
+            position,
+            text: text.into(),
+            size: style.size,
+            color,
+            weight: style.weight,
+            italic: style.italic,
             clip: self.current_clip,
             owner: self.current_owner,
         });

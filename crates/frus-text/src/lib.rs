@@ -11,8 +11,8 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
-use frus_core::Size;
+use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
+use frus_core::{FontWeight, Size};
 
 /// Rapport interligne / taille de police par défaut.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
@@ -22,6 +22,9 @@ const LINE_HEIGHT_FACTOR: f32 = 1.2;
 /// plateformes — notamment Android, où l'alias système « sans-serif » (défini
 /// dans `fonts.xml`, non lu par fontdb) ne résout aucune police par défaut.
 const DEJAVU_SANS: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+/// Face **grasse** embarquée : sans elle, un poids `Bold` retomberait en douce sur
+/// la face normale partout où seules les polices embarquées existent (Android).
+const DEJAVU_SANS_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
 const DEJAVU_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 
 /// Nom de famille interne des polices embarquées (doit correspondre aux TTF).
@@ -37,6 +40,7 @@ pub fn new_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
     db.load_font_data(DEJAVU_SANS.to_vec());
+    db.load_font_data(DEJAVU_SANS_BOLD.to_vec());
     db.load_font_data(DEJAVU_MONO.to_vec());
     // Fait résoudre chaque famille générique vers une police réellement présente.
     db.set_sans_serif_family(SANS_FAMILY);
@@ -57,11 +61,15 @@ pub fn line_height(size_px: f32) -> f32 {
     size_px * LINE_HEIGHT_FACTOR
 }
 
-/// Mesure la taille naturelle d'un texte (multi-lignes autorisé), en pixels.
-///
-/// La largeur est celle de la plus longue ligne ; la hauteur, le nombre de
-/// lignes multiplié par l'interligne.
+/// Mesure la taille naturelle d'un texte (multi-lignes autorisé), en pixels,
+/// en graisse normale. Voir [`measure_styled`] pour la graisse/l'italique.
 pub fn measure(text: &str, size_px: f32) -> Size {
+    measure_styled(text, size_px, FontWeight::Regular, false)
+}
+
+/// Mesure la taille naturelle d'un texte **stylé** (graisse/italique comptent :
+/// un gras est plus large qu'un normal — la mise en page doit le savoir).
+pub fn measure_styled(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Size {
     let line_h = line_height(size_px);
     if text.is_empty() {
         return Size::new(0.0, line_h);
@@ -72,7 +80,12 @@ pub fn measure(text: &str, size_px: f32) -> Size {
     let mut buffer = Buffer::new(&mut font_system, metrics);
     // Largeur/hauteur non contraintes : on mesure la taille naturelle.
     buffer.set_size(&mut font_system, None, None);
-    buffer.set_text(&mut font_system, text, Attrs::new(), Shaping::Advanced);
+    let attrs = Attrs::new().weight(Weight(weight.to_u16())).style(if italic {
+        Style::Italic
+    } else {
+        Style::Normal
+    });
+    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut font_system, false);
 
     let mut width = 0.0_f32;
@@ -101,5 +114,19 @@ mod tests {
         let size = measure("Bonjour", 24.0);
         assert!(size.width > 0.0, "largeur = {}", size.width);
         assert!(size.height > 0.0, "hauteur = {}", size.height);
+    }
+
+    #[test]
+    fn bold_measures_wider_than_regular() {
+        // La face grasse embarquée doit réellement être choisie : un gras est
+        // plus large qu'un normal à taille égale.
+        let regular = measure_styled("Bonjour le monde", 24.0, FontWeight::Regular, false);
+        let bold = measure_styled("Bonjour le monde", 24.0, FontWeight::Bold, false);
+        assert!(
+            bold.width > regular.width,
+            "gras {} <= normal {}",
+            bold.width,
+            regular.width
+        );
     }
 }

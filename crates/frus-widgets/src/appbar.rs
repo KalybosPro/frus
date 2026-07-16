@@ -16,6 +16,8 @@
 //!     .build()
 //! ```
 
+use frus_core::FontWeight;
+
 use crate::button::Variant;
 use crate::container::Container;
 use crate::dsl::{button, text};
@@ -96,7 +98,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // Budget horizontal restant pour les actions en ligne, après le leading,
         // le titre et les marges. Conservateur : en cas de doute, on replie.
         let leading_w = if leading.is_some() { LEADING_SLOT } else { 0.0 };
-        let title_w = frus_text::measure(&title, TITLE_SIZE).width;
+        let title_w =
+            frus_text::measure_styled(&title, TITLE_SIZE, FontWeight::Medium, false).width;
         let budget = width - leading_w - title_w - GAP * 3.0;
         let overflow_btn_w = Self::action_width("⋯") + GAP;
 
@@ -124,7 +127,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         if let Some(leading) = leading {
             row = row.child(leading);
         }
-        row = row.child(text(title).size(TITLE_SIZE));
+        row = row.child(text(title).size(TITLE_SIZE).weight(FontWeight::Medium));
         // Ressort : pousse les actions vers la droite.
         row = row.child(Container::new().flex(1.0));
         for (label, message) in actions.iter().take(inline_count) {

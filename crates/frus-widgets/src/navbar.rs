@@ -2,7 +2,7 @@
 //! retour optionnel à gauche. Placée en tête d'un écran, elle **glisse et fond
 //! avec lui** pendant les transitions du [`crate::Navigator`].
 
-use frus_core::{Insets, Point, Rect, Scene};
+use frus_core::{FontWeight, Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::button::{Button, Variant};
@@ -69,14 +69,17 @@ impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
             theme.border.fade(o),
         );
 
-        // Titre centré horizontalement dans la barre.
-        let measured = frus_text::measure(&self.title, TITLE_SIZE);
+        // Titre centré horizontalement dans la barre, graisse medium (échelle
+        // typographique : un titre de barre est un « title », pas un corps).
+        let style = TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium);
+        let measured =
+            frus_text::measure_styled(&self.title, style.size, style.weight, style.italic);
         let tx = bounds.x + (bounds.width - measured.width) * 0.5;
         let ty = bounds.y + (bounds.height - measured.height) * 0.5;
-        scene.text(
+        scene.text_styled(
             Point::new(tx, ty),
             self.title.clone(),
-            TITLE_SIZE,
+            &style,
             theme.on_surface.fade(o),
         );
     }

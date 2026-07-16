@@ -64,6 +64,8 @@ impl TextPainter {
                 text,
                 size,
                 color,
+                weight,
+                italic,
                 clip,
                 ..
             } = primitive
@@ -71,12 +73,16 @@ impl TextPainter {
                 let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
                 let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
                 buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
-                buffer.set_text(
-                    &mut self.font_system,
-                    text,
-                    glyphon::Attrs::new(),
-                    glyphon::Shaping::Advanced,
-                );
+                // Graisse + italique : cosmic-text choisit la face correspondante
+                // de la famille (repli sur la plus proche si absente).
+                let attrs = glyphon::Attrs::new()
+                    .weight(glyphon::Weight(weight.to_u16()))
+                    .style(if *italic {
+                        glyphon::Style::Italic
+                    } else {
+                        glyphon::Style::Normal
+                    });
+                buffer.set_text(&mut self.font_system, text, attrs, glyphon::Shaping::Advanced);
                 buffer.shape_until_scroll(&mut self.font_system, false);
 
                 // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter
