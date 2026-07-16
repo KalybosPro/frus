@@ -420,6 +420,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.request_redraw();
                 }
 
+                // Retour **système** (bouton/geste Android, touche « précédent ») :
+                // ferme l'overlay du dessus, sinon dépile un écran, sinon quitte.
+                if matches!(
+                    event.logical_key,
+                    WinitKey::Named(NamedKey::BrowserBack) | WinitKey::Named(NamedKey::GoBack)
+                ) {
+                    if !event.repeat {
+                        self.system_back(event_loop);
+                    }
+                    return;
+                }
+
                 // Tab / Shift+Tab : navigue entre les focusables (même sans focus).
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) {
                     let forward = !self.shift;
@@ -1223,6 +1235,29 @@ impl<A: Application> App<A> {
         if let Some(message) = message {
             self.dispatch(message);
         }
+    }
+
+    /// Retour **système** (Android `KEYCODE_BACK`, touche « précédent ») — la
+    /// chaîne native : ① l'overlay du dessus se ferme (feuille, tiroir, modale,
+    /// menu) ; ② sinon un écran se dépile, en rejouant le **geste retour validé
+    /// d'emblée** (mêmes hooks que le swipe → détente animée) ; ③ sinon, à la
+    /// racine, le retour **quitte l'application** (comportement Android).
+    fn system_back(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
+            self.dispatch(message);
+            self.request_redraw();
+            return;
+        }
+        if self.app.can_go_back() {
+            self.build_dirty = true;
+            self.app.back_gesture(0.0);
+            // Élan « validé » : la projection dépasse le seuil de commit, la
+            // détente anime le dépilement.
+            self.app.back_gesture_end(5.0);
+            self.request_redraw();
+            return;
+        }
+        event_loop.exit();
     }
 
     /// Route **Échap** : montée feuille→racine depuis le widget focalisé

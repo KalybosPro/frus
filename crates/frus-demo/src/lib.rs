@@ -412,6 +412,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::Push(route) => {
             app.drawer_open = false;
+            app.menu_open = false;
             app.nav_from = Some(current_route(app));
             app.routes.push(route);
             start_nav(app, true);
