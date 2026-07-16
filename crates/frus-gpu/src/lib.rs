@@ -11,10 +11,12 @@
 // (ex. `SurfaceError`) sans avoir à dépendre directement de `wgpu`.
 pub use wgpu;
 
+mod offscreen;
 mod painter;
 mod renderer;
 mod text;
 
 // Types de données (géométrie, couleur, scène) proviennent du socle partagé.
 pub use frus_core::{Color, Rect, Scene};
+pub use offscreen::{render_offscreen, OffscreenFrame};
 pub use renderer::Renderer;

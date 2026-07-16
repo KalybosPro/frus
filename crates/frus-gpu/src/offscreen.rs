@@ -1,0 +1,190 @@
+//! Rendu **hors écran** : la scène dessinée dans une texture puis relue par le
+//! CPU — aucune fenêtre requise. C'est la brique des tests de rendu (goldens
+//! `frus-test`) et la seule façon d'observer le pipeline sous WSL/CI.
+//!
+//! Le pipeline est **le même** que celui de la fenêtre ([`crate::Renderer`]) :
+//! quads (+ quads de décoration de texte) puis glyphes, cible sRGB — les
+//! octets relus correspondent à ce qu'une capture d'écran donnerait.
+
+use frus_core::{Color, Scene};
+
+use crate::painter::Painter;
+use crate::text::TextPainter;
+
+/// Une frame rendue hors écran : octets RGBA **sRGB**, ligne par ligne.
+pub struct OffscreenFrame {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height * 4` octets, ordre RGBA, origine en haut-gauche.
+    pub rgba: Vec<u8>,
+}
+
+/// Rend `scene` dans une texture `width`×`height` effacée à `clear`, et relit
+/// les pixels. `None` si aucun adaptateur GPU n'est disponible (machine sans
+/// GPU ni rasteriseur logiciel) — les appelants de test s'ignorent alors.
+pub fn render_offscreen(
+    scene: &Scene,
+    width: u32,
+    height: u32,
+    clear: Color,
+) -> Option<OffscreenFrame> {
+    let (device, queue) = headless_device()?;
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("frus.offscreen.target"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Même ordre que `Renderer::render` : le texte se prépare d'abord (il
+    // produit les quads de décoration), les rectangles les dessinent.
+    let mut text_painter = TextPainter::new(&device, &queue, format);
+    let decorations = text_painter.prepare_frame(&device, &queue, scene, width, height);
+    let mut rect_painter = Painter::new(&device, format);
+    rect_painter.set_viewport(&queue, width as f32, height as f32);
+    let rect_count = rect_painter.prepare_frame(&device, &queue, scene, &decorations);
+
+    // Le clear est en sRGB (couleur d'auteur) : la cible sRGB attend du linéaire.
+    let clear_linear = clear.to_linear();
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("frus.offscreen.pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: clear_linear.r as f64,
+                        g: clear_linear.g as f64,
+                        b: clear_linear.b as f64,
+                        a: clear.a as f64,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        rect_painter.draw(&mut pass, rect_count);
+        text_painter.draw(&mut pass);
+    }
+
+    // Relecture : wgpu impose des lignes alignées sur 256 octets — on rembourre
+    // puis on retire le rembourrage côté CPU.
+    let unpadded_bytes_per_row = width * 4;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("frus.offscreen.readback"),
+        size: (padded_bytes_per_row * height) as wgpu::BufferAddress,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &readback,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = tx.send(result);
+    });
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().ok()?.ok()?;
+
+    let data = slice.get_mapped_range();
+    let mut rgba = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
+    for row in 0..height {
+        let start = (row * padded_bytes_per_row) as usize;
+        rgba.extend_from_slice(&data[start..start + unpadded_bytes_per_row as usize]);
+    }
+
+    Some(OffscreenFrame {
+        width,
+        height,
+        rgba,
+    })
+}
+
+/// Instancie un device wgpu sans surface. `None` si aucun adaptateur.
+fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..Default::default()
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    }))?;
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: Some("frus.offscreen.device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            memory_hints: wgpu::MemoryHints::default(),
+        },
+        None,
+    ))
+    .ok()?;
+    Some((device, queue))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frus_core::Rect;
+
+    /// Le chemin hors écran rend la même chose que le pipeline fenêtré : un
+    /// rectangle rouge plein → pixel central rouge, hors du rect → clear.
+    #[test]
+    fn renders_rect_and_reads_back_srgb() {
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(0.0, 0.0, 20.0, 20.0), Color::rgb(1.0, 0.0, 0.0));
+        // Largeur non multiple de 64 : exerce le rembourrage de relecture.
+        let Some(frame) = render_offscreen(&scene, 70, 40, Color::BLACK) else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        assert_eq!(frame.rgba.len(), 70 * 40 * 4);
+        let px = |x: u32, y: u32| {
+            let i = ((y * frame.width + x) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        assert_eq!(px(10, 10), [255, 0, 0], "dans le rect → rouge");
+        assert_eq!(px(60, 30), [0, 0, 0], "hors du rect → clear");
+    }
+}

@@ -6,7 +6,7 @@ Greenfield Rust cross-platform UI framework (Flutter-like). Elm architecture.
 Rust workspace (edition 2021). wgpu 22 · winit 0.30 · taffy 0.7 (flex/grid) · glyphon+cosmic-text. `Application` trait: `update(msg) -> Command`, `view -> Box<dyn Widget>`, `subscription`.
 
 ## Crate layering (respect this dep order)
-`frus-core` (geometry/Color/Scene/SizeClass, zero-dep) ← `frus-gpu` (wgpu renderer, no winit), `frus-layout` (taffy wrapper), `frus-text`, `frus-widgets` (←layout+text, NO gpu) ← `frus-shell` (winit host, owns `run(app)`) ← `frus-demo` (bin).
+`frus-core` (geometry/Color/Scene/SizeClass, zero-dep) ← `frus-gpu` (wgpu renderer, no winit), `frus-layout` (taffy wrapper), `frus-text`, `frus-widgets` (←layout+text, NO gpu) ← `frus-shell` (winit host, owns `run(app)`) ← `frus-demo` (bin). `frus-test` (←gpu+widgets) = headless snapshot/golden harness, dev-only.
 
 ## ⚠ Dev runs in WSL2, NOT native Windows
 Windows Smart App Control is enforced and blocks Cargo build scripts (os error 4551) — native builds are a dead end. Build/test/run inside WSL Ubuntu-24.04 as root (repo is at `/mnt/d/...`):
