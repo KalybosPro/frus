@@ -154,11 +154,21 @@ impl<Msg> Default for Container<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn style(&self) -> Style {
+        // La bordure **réserve sa place** dans la mise en page (comme le
+        // `content_padding` d'une décoration) : le contenu d'une boîte bordée
+        // n'est pas mangé par le trait.
+        let mut padding = self.padding;
+        if Border::new(self.border_width, self.border_color).is_visible() {
+            padding.top += self.border_width;
+            padding.right += self.border_width;
+            padding.bottom += self.border_width;
+            padding.left += self.border_width;
+        }
         Style {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
-            padding: self.padding,
+            padding,
             ..Default::default()
         }
     }
@@ -197,5 +207,24 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         self.on_click.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_border_reserves_layout_padding() {
+        // Bordure visible : le padding de mise en page réserve son épaisseur.
+        let bordered: Container<()> = Container::new().padding(4.0).border(2.0, Color::WHITE);
+        assert_eq!(Widget::style(&bordered).padding, Insets::uniform(6.0));
+
+        // Sans bordure (ou invisible) : padding inchangé.
+        let plain: Container<()> = Container::new().padding(4.0);
+        assert_eq!(Widget::style(&plain).padding, Insets::uniform(4.0));
+        let invisible: Container<()> =
+            Container::new().padding(4.0).border(2.0, Color::TRANSPARENT);
+        assert_eq!(Widget::style(&invisible).padding, Insets::uniform(4.0));
     }
 }

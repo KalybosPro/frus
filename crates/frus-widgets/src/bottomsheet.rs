@@ -51,9 +51,20 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Surface opaque + fin liseré sur le bord haut.
-        scene.fill_rect(bounds, theme.surface.fade(o));
-        scene.fill_rect(Rect::new(bounds.x, bounds.y, bounds.width, 1.0), theme.border.fade(o));
+        // Surface opaque aux coins **hauts** arrondis (le bord bas est collé à la
+        // fenêtre) + fin liseré haut, en retrait des arrondis.
+        let radius = theme.radius + 6.0;
+        scene.draw_rect(
+            bounds,
+            theme.surface.fade(o),
+            frus_core::BorderRadius::top(radius),
+            0.0,
+            Color::TRANSPARENT,
+        );
+        scene.fill_rect(
+            Rect::new(bounds.x + radius, bounds.y, (bounds.width - 2.0 * radius).max(0.0), 1.0),
+            theme.border.fade(o),
+        );
         // Poignée arrondie centrée près du haut.
         let gx = bounds.x + (bounds.width - GRABBER_WIDTH) * 0.5;
         let gy = bounds.y + 8.0;

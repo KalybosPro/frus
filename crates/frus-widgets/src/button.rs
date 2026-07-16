@@ -1,6 +1,6 @@
 //! [`Button`] : un bouton themé avec libellé, variantes et états d'interaction.
 
-use frus_core::{Color, Point, Rect, Scene};
+use frus_core::{BorderRadius, Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -27,6 +27,8 @@ pub struct Button<Msg> {
     label: String,
     size: f32,
     variant: Variant,
+    /// Rayons surchargés ; `None` = rayon du thème (uniforme).
+    radius: Option<BorderRadius>,
     on_press: Option<Msg>,
 }
 
@@ -37,8 +39,17 @@ impl<Msg> Button<Msg> {
             label: label.into(),
             size: 18.0,
             variant: Variant::Primary,
+            radius: None,
             on_press: None,
         }
+    }
+
+    /// Surcharge les rayons des coins (uniforme via `f32`, par coin via
+    /// [`BorderRadius`] — segments connectés, groupes de boutons…). Défaut :
+    /// rayon du thème.
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.radius = Some(radius.into());
+        self
     }
 
     /// Choisit la variante visuelle.
@@ -89,6 +100,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
 
         // État survol/pression/focus via la state-layer bakée du thème.
         let color = theme.state_layer(base, on_color, &status);
+        let radius = self.radius.unwrap_or_else(|| theme.radius.into());
 
         let blur = 10.0;
         let shadow_rect = Rect::new(
@@ -100,14 +112,14 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         scene.shadow(
             shadow_rect,
             Color::rgba(0.0, 0.0, 0.0, 0.35).fade(o),
-            theme.radius + blur,
+            radius.inflate(blur),
             blur,
         );
         let (bw, bc) = match border {
             Some(c) => (1.0, c.fade(o)),
             None => (0.0, Color::TRANSPARENT),
         };
-        scene.draw_rect(bounds, color.fade(o), theme.radius, bw, bc);
+        scene.draw_rect(bounds, color.fade(o), radius, bw, bc);
         scene.text(
             Point::new(bounds.x + PAD_X, bounds.y + PAD_Y),
             self.label.clone(),
