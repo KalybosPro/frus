@@ -5,7 +5,7 @@
 //! Une app minimale n'implémente que `update` et `view`. Les autres méthodes ont
 //! des valeurs par défaut (thème sombre fixe, pas d'animation, pas de navigation).
 
-use frus_widgets::{Insets, Theme, Widget};
+use frus_widgets::{Theme, Widget, WindowInsets};
 
 use crate::command::Command;
 use crate::subscription::Subscription;
@@ -70,11 +70,11 @@ pub trait Application {
     /// rétrécissant), au-delà du simple rendu.
     fn on_resize(&mut self, _width: f32, _height: f32) {}
 
-    /// Appelé quand les **insets système** (zone de sécurité) changent : marges,
-    /// en px **logiques**, occupées par les barres système (état, navigation) et
-    /// les encoches. À l'app d'écarter son contenu de ces zones (le fond peut, lui,
-    /// s'étendre bord à bord). Sur les plateformes de bureau : toujours zéro.
-    fn on_insets(&mut self, _insets: Insets) {}
+    /// Appelé quand les **insets fenêtre** changent, séparés par nature :
+    /// `padding` = barres système/encoche (statique), `view_insets` = clavier
+    /// logiciel (dynamique — l'évitement du clavier consiste à écarter le contenu
+    /// de `insets.safe()`). En px **logiques**. Sur bureau : toujours zéro.
+    fn on_insets(&mut self, _insets: WindowInsets) {}
 
     /// L'app peut-elle revenir en arrière ? (active le geste retour depuis le bord).
     fn can_go_back(&self) -> bool {

@@ -14,7 +14,7 @@ use std::time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_path, find_widget, Edit, FocusDirection, Insets, Key, KeyResponse,
-    Point, Runtime, Size, Ui, Widget, WidgetId,
+    Point, Runtime, Size, Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -163,8 +163,12 @@ pub struct App<A: Application> {
     occluded: bool,
     /// Temps écoulé cumulé (secondes), pour les animations continues.
     elapsed: f32,
-    /// Derniers insets système transmis à l'app (zone de sécurité), en logique.
-    last_insets: Insets,
+    /// Derniers insets fenêtre transmis à l'app (padding + clavier), en logique.
+    last_insets: WindowInsets,
+    /// Référence d'insets **sans clavier** (et la taille physique où elle a été
+    /// prise — une rotation la réinitialise) : l'excédent bas au-delà d'elle est
+    /// attribué au clavier logiciel.
+    inset_baseline: Option<(Insets, (u32, u32))>,
     /// Poignée de l'activité Android (pour interroger les insets, le clavier…).
     #[cfg(target_os = "android")]
     android_app: Option<winit::platform::android::activity::AndroidApp>,
@@ -198,7 +202,8 @@ impl<A: Application> App<A> {
             running_subs: HashMap::new(),
             occluded: false,
             elapsed: 0.0,
-            last_insets: Insets::ZERO,
+            last_insets: WindowInsets::ZERO,
+            inset_baseline: None,
             #[cfg(target_os = "android")]
             android_app: None,
         }
@@ -603,8 +608,26 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.app.on_resize(width, height);
                 }
 
-                // Insets système (zone de sécurité) : notifie l'app quand ils changent.
-                let insets = self.compute_insets(size.width, size.height, scale);
+                // Insets fenêtre : sépare le **padding** statique (barres/encoche)
+                // du **clavier** (excédent bas au-delà de la référence sans
+                // clavier). La référence est prise à la première mesure pour cette
+                // taille physique (rotation → nouvelle référence), et se corrige
+                // vers le bas si un état plus « nu » apparaît (clavier ouvert au
+                // démarrage, barres masquées…).
+                let raw = self.compute_insets(size.width, size.height, scale);
+                let phys = (size.width, size.height);
+                let mut baseline = match self.inset_baseline {
+                    Some((b, s)) if s == phys => b,
+                    _ => {
+                        self.inset_baseline = Some((raw, phys));
+                        raw
+                    }
+                };
+                if raw.bottom < baseline.bottom {
+                    baseline = raw;
+                    self.inset_baseline = Some((raw, phys));
+                }
+                let insets = WindowInsets::from_baseline(baseline, raw);
                 if self.last_insets != insets {
                     self.last_insets = insets;
                     self.build_dirty = true;

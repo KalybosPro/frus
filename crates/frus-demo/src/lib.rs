@@ -16,7 +16,7 @@ use frus_widgets::{
     Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, RichText, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
-    TextSpan,
+    TextSpan, WindowInsets,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
 };
 
@@ -620,10 +620,13 @@ impl Application for TodoApp {
         }
     }
 
-    fn on_insets(&mut self, insets: Insets) {
-        if self.insets != insets {
-            self.insets = insets;
-            eprintln!("[demo] insets : {insets:?}");
+    fn on_insets(&mut self, insets: WindowInsets) {
+        // Zone sûre totale : barres système **et** clavier logiciel — le contenu
+        // (champs de saisie compris) reste au-dessus du clavier.
+        let safe = insets.safe();
+        if self.insets != safe {
+            self.insets = safe;
+            eprintln!("[demo] insets : {safe:?}");
         }
     }
 
@@ -1408,8 +1411,18 @@ mod tests {
     fn on_insets_updates_safe_area() {
         let mut app = TodoApp::default();
         assert_eq!(app.insets, Insets::ZERO);
-        app.on_insets(Insets::new(84.0, 0.0, 45.0, 0.0));
+        // Barres système seules.
+        app.on_insets(WindowInsets {
+            padding: Insets::new(84.0, 0.0, 45.0, 0.0),
+            view_insets: Insets::ZERO,
+        });
         assert_eq!(app.insets, Insets::new(84.0, 0.0, 45.0, 0.0));
+        // Clavier ouvert : la zone sûre du bas suit le clavier (évitement).
+        app.on_insets(WindowInsets {
+            padding: Insets::new(84.0, 0.0, 45.0, 0.0),
+            view_insets: Insets::new(0.0, 0.0, 345.0, 0.0),
+        });
+        assert_eq!(app.insets, Insets::new(84.0, 0.0, 345.0, 0.0));
         // La vue se construit sans paniquer avec des insets non nuls (chemin d'enrobage).
         let theme = Theme::dark();
         let tree = Application::view(&app, &theme, 400.0, 800.0);

@@ -60,6 +60,67 @@ impl Size {
     }
 }
 
+/// Les insets **fenêtre**, séparés par nature (façon `MediaQuery` de Flutter) :
+/// `padding` = zones occupées **en permanence** par le système (barres d'état/
+/// navigation, encoche — statiques) ; `view_insets` = zones couvertes par une UI
+/// **transitoire** (clavier logiciel — dynamiques). L'évitement du clavier
+/// consiste à écarter le contenu de [`WindowInsets::safe`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowInsets {
+    /// Zones système permanentes (barres, encoche).
+    pub padding: Insets,
+    /// Zones transitoires (clavier logiciel) — seul le bas bouge en pratique.
+    pub view_insets: Insets,
+}
+
+impl WindowInsets {
+    /// Aucun inset.
+    pub const ZERO: Self = Self {
+        padding: Insets::ZERO,
+        view_insets: Insets::ZERO,
+    };
+
+    /// La zone à éviter au total : le **maximum** côté à côté des deux natures
+    /// (le clavier recouvre la barre de navigation — on n'additionne pas).
+    pub fn safe(&self) -> Insets {
+        Insets::new(
+            self.padding.top.max(self.view_insets.top),
+            self.padding.right.max(self.view_insets.right),
+            self.padding.bottom.max(self.view_insets.bottom),
+            self.padding.left.max(self.view_insets.left),
+        )
+    }
+
+    /// Sépare des insets bruts en `(padding, view_insets)` à partir d'une
+    /// **référence sans clavier**. Un excédent **bas** au-delà de la référence
+    /// signale le clavier ; `view_insets.bottom` mesure alors l'occultation
+    /// **totale depuis le bord** de la fenêtre (barre comprise — la convention
+    /// `MediaQuery.viewInsets`, qui rend la combinaison par `max` correcte).
+    pub fn from_baseline(baseline: Insets, current: Insets) -> WindowInsets {
+        let keyboard = (current.bottom - baseline.bottom).max(0.0);
+        WindowInsets {
+            padding: Insets::new(
+                current.top,
+                current.right,
+                current.bottom - keyboard,
+                current.left,
+            ),
+            view_insets: Insets::new(
+                0.0,
+                0.0,
+                if keyboard > 0.0 { current.bottom } else { 0.0 },
+                0.0,
+            ),
+        }
+    }
+}
+
+impl Default for WindowInsets {
+    fn default() -> Self {
+        Self::ZERO
+    }
+}
+
 /// Un rectangle aligné sur les axes, en pixels logiques.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
@@ -138,6 +199,31 @@ impl Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_insets_split_and_safe_area() {
+        // Référence sans clavier : barres système haut/bas.
+        let baseline = Insets::new(84.0, 0.0, 45.0, 0.0);
+
+        // Clavier fermé : tout est du padding statique, rien de transitoire.
+        let closed = WindowInsets::from_baseline(baseline, baseline);
+        assert_eq!(closed.padding, baseline);
+        assert_eq!(closed.view_insets, Insets::ZERO);
+        assert_eq!(closed.safe(), baseline);
+
+        // Clavier ouvert (excédent bas 300) : `view_insets.bottom` mesure
+        // l'occultation totale depuis le bord (345, barre comprise).
+        let open = WindowInsets::from_baseline(baseline, Insets::new(84.0, 0.0, 345.0, 0.0));
+        assert_eq!(open.padding, baseline);
+        assert_eq!(open.view_insets, Insets::new(0.0, 0.0, 345.0, 0.0));
+        // La zone sûre = max côté à côté (le clavier recouvre la barre).
+        assert_eq!(open.safe(), Insets::new(84.0, 0.0, 345.0, 0.0));
+
+        // Bas courant SOUS la référence (barres masquées) : pas de clavier négatif.
+        let hidden = WindowInsets::from_baseline(baseline, Insets::new(84.0, 0.0, 10.0, 0.0));
+        assert_eq!(hidden.view_insets, Insets::ZERO);
+        assert_eq!(hidden.padding.bottom, 10.0);
+    }
 
     #[test]
     fn rect_from_point_size_roundtrips() {
