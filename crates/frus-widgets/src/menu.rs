@@ -36,7 +36,8 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let bg = theme.state_layer(theme.surface, theme.on_surface, &status);
+        // Panneau flottant = surface **élevée** (rôle `surface_container_high`).
+        let bg = theme.state_layer(theme.scheme.surface_container_high, theme.on_surface, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(

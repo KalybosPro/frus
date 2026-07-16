@@ -278,7 +278,8 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     let scrim = Rect::new(bounds.x + off[back], bounds.y, bounds.width, bounds.height);
                     self.scene.set_owner(0);
                     self.scene.set_clip(clip);
-                    self.scene.fill_rect(scrim, Color::rgba(0.0, 0.0, 0.0, 0.22 * coverage));
+                    self.scene
+                        .fill_rect(scrim, self.theme.scheme.scrim.with_alpha(0.22 * coverage));
                 }
                 self.render_screen(children[front].as_ref(), child_id(id, front, children[front].as_ref()), bounds, off[front], clip);
             } else if let Some(screen) = children.first() {
@@ -642,12 +643,12 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                 placement,
                 Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
             ) {
-                // Voile sombre derrière la modale / le tiroir, modulé par la
-                // progression (fondu synchronisé avec le glissement).
+                // Voile derrière la modale / le tiroir (rôle `scrim`), modulé par
+                // la progression (fondu synchronisé avec le glissement).
                 self.scene.set_owner(0);
                 self.scene.set_clip(window);
                 self.scene
-                    .fill_rect(window, Color::rgba(0.0, 0.0, 0.0, 0.5 * progress));
+                    .fill_rect(window, self.theme.scheme.scrim.with_alpha(0.5 * progress));
             }
 
             // Fermeture au clic **hors** du contenu (modale, menu…) : un hit plein

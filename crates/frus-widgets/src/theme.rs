@@ -56,42 +56,174 @@ impl Default for TextTheme {
     }
 }
 
+/// Les **rôles de couleur** (Material 3) — la **source de vérité** des couleurs
+/// du thème. Les widgets référencent des rôles, jamais des couleurs littérales :
+/// changer de schéma recolore toute l'app et garantit le contraste (paires
+/// `X`/`on_X`). Écrit à la main clair/sombre ; `from_seed` (HCT) viendra après.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColorScheme {
+    pub primary: Color,
+    pub on_primary: Color,
+    pub primary_container: Color,
+    pub on_primary_container: Color,
+    pub secondary: Color,
+    pub on_secondary: Color,
+    pub secondary_container: Color,
+    pub on_secondary_container: Color,
+    pub background: Color,
+    pub surface: Color,
+    pub on_surface: Color,
+    /// Surface tonale discrète (fonds de zones, pistes).
+    pub surface_variant: Color,
+    /// Contenu secondaire sur les surfaces (le `muted` historique).
+    pub on_surface_variant: Color,
+    /// Surface **élevée** (panneaux flottants, menus).
+    pub surface_container: Color,
+    /// Surface encore plus élevée (menus au-dessus de dialogues…).
+    pub surface_container_high: Color,
+    /// Surface inversée (toasts/snackbars qui tranchent sur le fond).
+    pub inverse_surface: Color,
+    pub on_inverse_surface: Color,
+    /// Contours au repos.
+    pub outline: Color,
+    /// Contours discrets (séparateurs fins).
+    pub outline_variant: Color,
+    pub error: Color,
+    pub on_error: Color,
+    /// Voile des modales/tiroirs (l'alpha est appliqué à l'usage).
+    pub scrim: Color,
+    /// Couleur des ombres portées (l'alpha est appliqué à l'usage).
+    pub shadow: Color,
+}
+
+impl ColorScheme {
+    /// Schéma sombre.
+    pub fn dark() -> Self {
+        Self {
+            primary: Color::rgb8(96, 200, 130),
+            on_primary: Color::rgb8(16, 28, 20),
+            primary_container: Color::rgb8(30, 64, 44),
+            on_primary_container: Color::rgb8(178, 240, 200),
+            secondary: Color::rgb8(150, 170, 200),
+            on_secondary: Color::rgb8(20, 26, 36),
+            secondary_container: Color::rgb8(44, 52, 68),
+            on_secondary_container: Color::rgb8(205, 220, 240),
+            background: Color::rgb8(18, 20, 24),
+            surface: Color::rgb8(30, 33, 40),
+            on_surface: Color::rgb8(230, 232, 236),
+            surface_variant: Color::rgb8(38, 42, 52),
+            on_surface_variant: Color::rgb8(150, 156, 168),
+            surface_container: Color::rgb8(36, 40, 48),
+            surface_container_high: Color::rgb8(44, 48, 58),
+            inverse_surface: Color::rgb8(226, 228, 234),
+            on_inverse_surface: Color::rgb8(28, 32, 38),
+            outline: Color::rgb8(70, 76, 88),
+            outline_variant: Color::rgb8(48, 52, 62),
+            error: Color::rgb8(224, 108, 108),
+            on_error: Color::rgb8(38, 12, 12),
+            scrim: Color::BLACK,
+            shadow: Color::BLACK,
+        }
+    }
+
+    /// Schéma clair.
+    pub fn light() -> Self {
+        Self {
+            primary: Color::rgb8(46, 160, 96),
+            on_primary: Color::rgb8(255, 255, 255),
+            primary_container: Color::rgb8(200, 238, 214),
+            on_primary_container: Color::rgb8(10, 64, 36),
+            secondary: Color::rgb8(90, 110, 150),
+            on_secondary: Color::rgb8(255, 255, 255),
+            secondary_container: Color::rgb8(220, 228, 244),
+            on_secondary_container: Color::rgb8(30, 42, 66),
+            background: Color::rgb8(245, 246, 248),
+            surface: Color::rgb8(255, 255, 255),
+            on_surface: Color::rgb8(28, 32, 38),
+            surface_variant: Color::rgb8(238, 240, 244),
+            on_surface_variant: Color::rgb8(110, 116, 126),
+            surface_container: Color::rgb8(244, 245, 248),
+            surface_container_high: Color::rgb8(238, 240, 244),
+            inverse_surface: Color::rgb8(45, 50, 58),
+            on_inverse_surface: Color::rgb8(240, 242, 246),
+            outline: Color::rgb8(206, 210, 218),
+            outline_variant: Color::rgb8(226, 230, 236),
+            error: Color::rgb8(200, 64, 64),
+            on_error: Color::rgb8(255, 255, 255),
+            scrim: Color::BLACK,
+            shadow: Color::BLACK,
+        }
+    }
+
+    /// Interpole rôle à rôle vers `other` (fondu de bascule clair/sombre).
+    pub fn lerp(&self, other: &ColorScheme, t: f32) -> ColorScheme {
+        let c = |a: Color, b: Color| a.lerp(b, t);
+        ColorScheme {
+            primary: c(self.primary, other.primary),
+            on_primary: c(self.on_primary, other.on_primary),
+            primary_container: c(self.primary_container, other.primary_container),
+            on_primary_container: c(self.on_primary_container, other.on_primary_container),
+            secondary: c(self.secondary, other.secondary),
+            on_secondary: c(self.on_secondary, other.on_secondary),
+            secondary_container: c(self.secondary_container, other.secondary_container),
+            on_secondary_container: c(self.on_secondary_container, other.on_secondary_container),
+            background: c(self.background, other.background),
+            surface: c(self.surface, other.surface),
+            on_surface: c(self.on_surface, other.on_surface),
+            surface_variant: c(self.surface_variant, other.surface_variant),
+            on_surface_variant: c(self.on_surface_variant, other.on_surface_variant),
+            surface_container: c(self.surface_container, other.surface_container),
+            surface_container_high: c(self.surface_container_high, other.surface_container_high),
+            inverse_surface: c(self.inverse_surface, other.inverse_surface),
+            on_inverse_surface: c(self.on_inverse_surface, other.on_inverse_surface),
+            outline: c(self.outline, other.outline),
+            outline_variant: c(self.outline_variant, other.outline_variant),
+            error: c(self.error, other.error),
+            on_error: c(self.on_error, other.on_error),
+            scrim: c(self.scrim, other.scrim),
+            shadow: c(self.shadow, other.shadow),
+        }
+    }
+}
+
 /// Ensemble de tokens de style.
 ///
-/// Les champs « à plat » (`background`, `surface`, `primary`, …) sont les **rôles
-/// sémantiques** de base — les widgets s'y réfèrent, jamais à des couleurs
-/// littérales. Un jeu de rôles Material étendu (conteneurs, erreur, contour
-/// discret) complète le tout ; l'objectif à terme est une `ColorScheme` dérivée
-/// d'une graine, mais l'écriture manuelle clair/sombre vient d'abord.
+/// La [`ColorScheme`] (`theme.scheme`) est la **source de vérité** des couleurs ;
+/// les champs « à plat » (`background`, `surface`, `primary`, …) sont des **vues
+/// de commodité** sur les rôles les plus employés, dérivées du schéma — l'API
+/// historique des widgets reste intacte. `focus`/`selection` sont des accents
+/// d'interaction propres à frus (hors rôles M3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
-    /// Fond de l'application.
+    /// Rôles de couleur (la source de vérité).
+    pub scheme: ColorScheme,
+    /// Fond de l'application (= `scheme.background`).
     pub background: Color,
-    /// Fond des surfaces (cartes, champs, panneaux).
+    /// Fond des surfaces (= `scheme.surface`).
     pub surface: Color,
-    /// Couleur d'accent (boutons principaux).
+    /// Couleur d'accent (= `scheme.primary`).
     pub primary: Color,
-    /// Texte/contenu sur `primary`.
+    /// Texte/contenu sur `primary` (= `scheme.on_primary`).
     pub on_primary: Color,
-    /// Texte par défaut sur les surfaces.
+    /// Texte par défaut sur les surfaces (= `scheme.on_surface`).
     pub on_surface: Color,
-    /// Texte secondaire / éléments discrets (≈ `on_surface_variant` de M3).
+    /// Texte secondaire / éléments discrets (= `scheme.on_surface_variant`).
     pub muted: Color,
-    /// Bordures au repos (≈ `outline` de M3).
+    /// Bordures au repos (= `scheme.outline`).
     pub border: Color,
-    /// Accent de focus.
+    /// Accent de focus (accent d'interaction frus, hors schéma).
     pub focus: Color,
-    /// Surbrillance de sélection de texte.
+    /// Surbrillance de sélection de texte (idem).
     pub selection: Color,
-    /// Conteneur d'accent tonal (puces douces, surfaces sélectionnées légères).
+    /// Conteneur d'accent tonal (= `scheme.primary_container`).
     pub primary_container: Color,
-    /// Contenu sur `primary_container`.
+    /// Contenu sur `primary_container` (= `scheme.on_primary_container`).
     pub on_primary_container: Color,
-    /// Couleur d'erreur / danger.
+    /// Couleur d'erreur / danger (= `scheme.error`).
     pub error: Color,
-    /// Contenu sur `error`.
+    /// Contenu sur `error` (= `scheme.on_error`).
     pub on_error: Color,
-    /// Variante discrète de contour (séparateurs fins, traits internes).
+    /// Variante discrète de contour (= `scheme.outline_variant`).
     pub outline_variant: Color,
     /// Échelle typographique nommée (15 crans Material).
     pub text: TextTheme,
@@ -102,50 +234,47 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// Thème sombre.
-    pub fn dark() -> Self {
+    /// Construit un thème depuis un schéma : les champs plats sont **dérivés**
+    /// des rôles (une seule source de vérité).
+    pub fn from_scheme(scheme: ColorScheme, focus: Color, selection: Color) -> Self {
         Self {
-            background: Color::rgb8(18, 20, 24),
-            surface: Color::rgb8(30, 33, 40),
-            primary: Color::rgb8(96, 200, 130),
-            on_primary: Color::rgb8(16, 28, 20),
-            on_surface: Color::rgb8(230, 232, 236),
-            muted: Color::rgb8(150, 156, 168),
-            border: Color::rgb8(70, 76, 88),
-            focus: Color::rgb8(90, 158, 242),
-            selection: Color::rgba(0.35, 0.62, 0.95, 0.40),
-            primary_container: Color::rgb8(30, 64, 44),
-            on_primary_container: Color::rgb8(178, 240, 200),
-            error: Color::rgb8(224, 108, 108),
-            on_error: Color::rgb8(38, 12, 12),
-            outline_variant: Color::rgb8(48, 52, 62),
+            scheme,
+            background: scheme.background,
+            surface: scheme.surface,
+            primary: scheme.primary,
+            on_primary: scheme.on_primary,
+            on_surface: scheme.on_surface,
+            muted: scheme.on_surface_variant,
+            border: scheme.outline,
+            focus,
+            selection,
+            primary_container: scheme.primary_container,
+            on_primary_container: scheme.on_primary_container,
+            error: scheme.error,
+            on_error: scheme.on_error,
+            outline_variant: scheme.outline_variant,
             text: TextTheme::default(),
             radius: 10.0,
             spacing: 8.0,
         }
     }
 
+    /// Thème sombre.
+    pub fn dark() -> Self {
+        Self::from_scheme(
+            ColorScheme::dark(),
+            Color::rgb8(90, 158, 242),
+            Color::rgba(0.35, 0.62, 0.95, 0.40),
+        )
+    }
+
     /// Thème clair.
     pub fn light() -> Self {
-        Self {
-            background: Color::rgb8(245, 246, 248),
-            surface: Color::rgb8(255, 255, 255),
-            primary: Color::rgb8(46, 160, 96),
-            on_primary: Color::rgb8(255, 255, 255),
-            on_surface: Color::rgb8(28, 32, 38),
-            muted: Color::rgb8(110, 116, 126),
-            border: Color::rgb8(206, 210, 218),
-            focus: Color::rgb8(40, 120, 220),
-            selection: Color::rgba(0.20, 0.50, 0.90, 0.30),
-            primary_container: Color::rgb8(200, 238, 214),
-            on_primary_container: Color::rgb8(10, 64, 36),
-            error: Color::rgb8(200, 64, 64),
-            on_error: Color::rgb8(255, 255, 255),
-            outline_variant: Color::rgb8(226, 230, 236),
-            text: TextTheme::default(),
-            radius: 10.0,
-            spacing: 8.0,
-        }
+        Self::from_scheme(
+            ColorScheme::light(),
+            Color::rgb8(40, 120, 220),
+            Color::rgba(0.20, 0.50, 0.90, 0.30),
+        )
     }
 
     /// Applique la **state-layer** Material sur `base` : superpose la couleur de
@@ -166,30 +295,22 @@ impl Theme {
 
 impl Theme {
     /// Interpole vers `other` à l'avancement `t` (`0` = `self`, `1` = `other`).
-    /// Sert au fondu de thème au basculement clair/sombre.
+    /// Sert au fondu de thème au basculement clair/sombre. Le **schéma** est
+    /// interpolé rôle à rôle et les champs plats en sont re-dérivés (une seule
+    /// source de vérité, même en cours de fondu).
     pub fn lerp(&self, other: &Theme, t: f32) -> Theme {
         let t = t.clamp(0.0, 1.0);
         let f = |a: f32, b: f32| a + (b - a) * t;
-        Theme {
-            background: self.background.lerp(other.background, t),
-            surface: self.surface.lerp(other.surface, t),
-            primary: self.primary.lerp(other.primary, t),
-            on_primary: self.on_primary.lerp(other.on_primary, t),
-            on_surface: self.on_surface.lerp(other.on_surface, t),
-            muted: self.muted.lerp(other.muted, t),
-            border: self.border.lerp(other.border, t),
-            focus: self.focus.lerp(other.focus, t),
-            selection: self.selection.lerp(other.selection, t),
-            primary_container: self.primary_container.lerp(other.primary_container, t),
-            on_primary_container: self.on_primary_container.lerp(other.on_primary_container, t),
-            error: self.error.lerp(other.error, t),
-            on_error: self.on_error.lerp(other.on_error, t),
-            outline_variant: self.outline_variant.lerp(other.outline_variant, t),
-            // La typographie ne participe pas au fondu (identique clair/sombre).
-            text: self.text,
-            radius: f(self.radius, other.radius),
-            spacing: f(self.spacing, other.spacing),
-        }
+        let mut out = Theme::from_scheme(
+            self.scheme.lerp(&other.scheme, t),
+            self.focus.lerp(other.focus, t),
+            self.selection.lerp(other.selection, t),
+        );
+        // La typographie ne participe pas au fondu (identique clair/sombre).
+        out.text = self.text;
+        out.radius = f(self.radius, other.radius);
+        out.spacing = f(self.spacing, other.spacing);
+        out
     }
 }
 
@@ -207,6 +328,24 @@ mod tests {
     fn dark_and_light_differ() {
         assert_ne!(Theme::dark().background, Theme::light().background);
         assert_ne!(Theme::dark().on_surface, Theme::light().on_surface);
+    }
+
+    #[test]
+    fn flat_fields_mirror_the_scheme() {
+        // Les champs plats sont des vues dérivées du schéma — y compris au
+        // milieu d'un fondu (le lerp passe par le schéma).
+        for theme in [Theme::dark(), Theme::light(), Theme::dark().lerp(&Theme::light(), 0.37)] {
+            assert_eq!(theme.background, theme.scheme.background);
+            assert_eq!(theme.surface, theme.scheme.surface);
+            assert_eq!(theme.primary, theme.scheme.primary);
+            assert_eq!(theme.on_primary, theme.scheme.on_primary);
+            assert_eq!(theme.on_surface, theme.scheme.on_surface);
+            assert_eq!(theme.muted, theme.scheme.on_surface_variant);
+            assert_eq!(theme.border, theme.scheme.outline);
+            assert_eq!(theme.primary_container, theme.scheme.primary_container);
+            assert_eq!(theme.error, theme.scheme.error);
+            assert_eq!(theme.outline_variant, theme.scheme.outline_variant);
+        }
     }
 
     #[test]

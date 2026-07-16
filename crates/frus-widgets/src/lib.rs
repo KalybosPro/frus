@@ -127,7 +127,7 @@ pub use table::Table;
 pub use tabs::Tabs;
 pub use text::Text;
 pub use textinput::TextInput;
-pub use theme::{TextTheme, Theme};
+pub use theme::{ColorScheme, TextTheme, Theme};
 pub use timeline::Timeline;
 pub use toast::{Toast, ToastKind};
 pub use tree::Tree;

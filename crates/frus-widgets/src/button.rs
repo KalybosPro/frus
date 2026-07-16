@@ -111,7 +111,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         );
         scene.shadow(
             shadow_rect,
-            Color::rgba(0.0, 0.0, 0.0, 0.35).fade(o),
+            theme.scheme.shadow.with_alpha(0.35).fade(o),
             radius.inflate(blur),
             blur,
         );
