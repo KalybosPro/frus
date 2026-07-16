@@ -49,6 +49,7 @@ mod radio;
 mod rating;
 mod relayout;
 mod responsive;
+mod richtext;
 mod runtime;
 mod scaffold;
 mod scroll;
@@ -111,6 +112,7 @@ pub use radio::RadioGroup;
 pub use rating::Rating;
 pub use relayout::LayoutCache;
 pub use responsive::{responsive, Responsive};
+pub use richtext::RichText;
 pub use runtime::{spring_ease, spring_step, Anim, Edit, Runtime, ScrollState};
 pub use scaffold::{fab_button, Scaffold};
 pub use scroll::{Axis, Scroll};
@@ -136,7 +138,7 @@ pub use widget::Widget;
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{
     Border, BoxDecoration, BoxShadow, Color, FontWeight, Insets, LinearGradient, Orientation,
-    Point, Rect, Scene, SizeClass, Size, TextStyle,
+    Point, Rect, Scene, SizeClass, Size, TextSpan, TextStyle,
 };
 /// Couche d'animation partagée (physique, courbes, pilote) — voir
 /// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent

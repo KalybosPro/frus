@@ -229,8 +229,8 @@ impl Painter {
                     gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
                     clip: clip.to_array(),
                 }),
-                // Le texte est rendu séparément par le TextPainter.
-                Primitive::Text { .. } => {}
+                // Le texte (simple ou riche) est rendu séparément par le TextPainter.
+                Primitive::Text { .. } | Primitive::RichText { .. } => {}
             }
         }
 

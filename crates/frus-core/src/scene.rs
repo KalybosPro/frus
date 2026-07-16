@@ -7,7 +7,7 @@
 //! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
-use crate::{Color, FontWeight, Point, Rect, TextStyle};
+use crate::{Color, FontWeight, Point, Rect, TextRun, TextStyle};
 
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +46,16 @@ pub enum Primitive {
         /// Identité du widget émetteur.
         owner: u64,
     },
+    /// Du texte **riche** : une suite de runs résolus (styles/couleurs mêlés),
+    /// mise en forme d'un seul tenant (une seule ligne de base partagée).
+    RichText {
+        position: Point,
+        runs: Vec<TextRun>,
+        /// Rectangle de découpe.
+        clip: Rect,
+        /// Identité du widget émetteur.
+        owner: u64,
+    },
 }
 
 impl Primitive {
@@ -54,6 +64,7 @@ impl Primitive {
         match self {
             Primitive::Rect { owner, .. } => *owner,
             Primitive::Text { owner, .. } => *owner,
+            Primitive::RichText { owner, .. } => *owner,
         }
     }
 
@@ -104,6 +115,22 @@ impl Primitive {
                 clip: clip.scale(factor),
                 owner,
             },
+            Primitive::RichText {
+                position,
+                mut runs,
+                clip,
+                owner,
+            } => {
+                for run in &mut runs {
+                    run.size *= factor;
+                }
+                Primitive::RichText {
+                    position: position.scale(factor),
+                    runs,
+                    clip: clip.scale(factor),
+                    owner,
+                }
+            }
         }
     }
 }
@@ -199,6 +226,22 @@ impl Scene {
                 clip,
                 owner,
             },
+            Primitive::RichText {
+                position,
+                mut runs,
+                clip,
+                owner,
+            } => {
+                for run in &mut runs {
+                    run.color = run.color.fade(opacity);
+                }
+                Primitive::RichText {
+                    position,
+                    runs,
+                    clip,
+                    owner,
+                }
+            }
         };
         self.primitives.push(faded);
     }
@@ -293,6 +336,17 @@ impl Scene {
             color,
             weight: FontWeight::Regular,
             italic: false,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Ajoute du texte **riche** : des runs résolus (styles/couleurs mêlés) mis en
+    /// forme d'un seul tenant, ancré par son coin haut-gauche.
+    pub fn rich_text(&mut self, position: Point, runs: Vec<TextRun>) {
+        self.primitives.push(Primitive::RichText {
+            position,
+            runs,
             clip: self.current_clip,
             owner: self.current_owner,
         });

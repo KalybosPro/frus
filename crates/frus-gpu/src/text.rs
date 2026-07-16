@@ -56,52 +56,102 @@ impl TextPainter {
     ) {
         self.viewport.update(queue, glyphon::Resolution { width, height });
 
-        // Construit un buffer glyphon par primitive de texte.
+        // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter le
+        // double encodage (texte délavé). L'alpha reste tel quel.
+        let to_glyphon = |color: &frus_core::Color| {
+            let linear = color.to_linear();
+            glyphon::Color::rgba(
+                to_u8(linear.r),
+                to_u8(linear.g),
+                to_u8(linear.b),
+                to_u8(color.a),
+            )
+        };
+        // Découpe = clip de la primitive, borné à la surface.
+        let to_bounds = |clip: &frus_core::Rect| glyphon::TextBounds {
+            left: clip.x.max(0.0) as i32,
+            top: clip.y.max(0.0) as i32,
+            right: (clip.x + clip.width).min(width as f32) as i32,
+            bottom: (clip.y + clip.height).min(height as f32) as i32,
+        };
+
+        // Construit un buffer glyphon par primitive de texte (simple ou riche).
         let mut buffers = Vec::new();
         for primitive in scene.primitives() {
-            if let Primitive::Text {
-                position,
-                text,
-                size,
-                color,
-                weight,
-                italic,
-                clip,
-                ..
-            } = primitive
-            {
-                let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
-                let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
-                // Graisse + italique : cosmic-text choisit la face correspondante
-                // de la famille (repli sur la plus proche si absente).
-                let attrs = glyphon::Attrs::new()
-                    .weight(glyphon::Weight(weight.to_u16()))
-                    .style(if *italic {
-                        glyphon::Style::Italic
-                    } else {
-                        glyphon::Style::Normal
-                    });
-                buffer.set_text(&mut self.font_system, text, attrs, glyphon::Shaping::Advanced);
-                buffer.shape_until_scroll(&mut self.font_system, false);
+            match primitive {
+                Primitive::Text {
+                    position,
+                    text,
+                    size,
+                    color,
+                    weight,
+                    italic,
+                    clip,
+                    ..
+                } => {
+                    let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
+                    let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+                    buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
+                    // Graisse + italique : cosmic-text choisit la face correspondante
+                    // de la famille (repli sur la plus proche si absente).
+                    let attrs = glyphon::Attrs::new()
+                        .weight(glyphon::Weight(weight.to_u16()))
+                        .style(if *italic {
+                            glyphon::Style::Italic
+                        } else {
+                            glyphon::Style::Normal
+                        });
+                    buffer.set_text(&mut self.font_system, text, attrs, glyphon::Shaping::Advanced);
+                    buffer.shape_until_scroll(&mut self.font_system, false);
 
-                // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter
-                // le double encodage (texte délavé). L'alpha reste tel quel.
-                let linear = color.to_linear();
-                let color = glyphon::Color::rgba(
-                    to_u8(linear.r),
-                    to_u8(linear.g),
-                    to_u8(linear.b),
-                    to_u8(color.a),
-                );
-                // Découpe = clip de la primitive, borné à la surface.
-                let bounds = glyphon::TextBounds {
-                    left: clip.x.max(0.0) as i32,
-                    top: clip.y.max(0.0) as i32,
-                    right: (clip.x + clip.width).min(width as f32) as i32,
-                    bottom: (clip.y + clip.height).min(height as f32) as i32,
-                };
-                buffers.push((buffer, position.x, position.y, color, bounds));
+                    buffers.push((buffer, position.x, position.y, to_glyphon(color), to_bounds(clip)));
+                }
+                Primitive::RichText {
+                    position,
+                    runs,
+                    clip,
+                    ..
+                } => {
+                    if runs.is_empty() {
+                        continue;
+                    }
+                    // Métriques de base : le plus grand run (les runs plus petits
+                    // portent leurs propres métriques par-span).
+                    let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
+                    let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
+                    let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+                    buffer.set_size(&mut self.font_system, Some(width as f32), Some(height as f32));
+                    let spans = runs.iter().map(|run| {
+                        (
+                            run.text.as_str(),
+                            glyphon::Attrs::new()
+                                .weight(glyphon::Weight(run.weight.to_u16()))
+                                .style(if run.italic {
+                                    glyphon::Style::Italic
+                                } else {
+                                    glyphon::Style::Normal
+                                })
+                                .metrics(glyphon::Metrics::new(
+                                    run.size,
+                                    run.size * LINE_HEIGHT_FACTOR,
+                                ))
+                                .color(to_glyphon(&run.color)),
+                        )
+                    });
+                    buffer.set_rich_text(
+                        &mut self.font_system,
+                        spans,
+                        glyphon::Attrs::new(),
+                        glyphon::Shaping::Advanced,
+                    );
+                    buffer.shape_until_scroll(&mut self.font_system, false);
+
+                    // Chaque run porte sa couleur par attrs ; le défaut ne sert
+                    // qu'aux glyphes sans couleur (il n'y en a pas).
+                    let default_color = to_glyphon(&runs[0].color);
+                    buffers.push((buffer, position.x, position.y, default_color, to_bounds(clip)));
+                }
+                Primitive::Rect { .. } => {}
             }
         }
 
@@ -166,14 +216,10 @@ mod tests {
         Some((device, queue))
     }
 
-    /// Rend un texte blanc sur fond noir dans une texture offscreen et vérifie
-    /// qu'il produit des pixels non-noirs : preuve que la rasterisation marche.
-    #[test]
-    fn renders_text_to_non_background_pixels() {
-        let Some((device, queue)) = headless_device() else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
-            return;
-        };
+    /// Rend `scene` (sur fond noir) dans une texture offscreen et compte les
+    /// pixels « allumés » (canal rouge > 16). `None` si aucun GPU n'est dispo.
+    fn lit_pixels_for(scene: &Scene) -> Option<usize> {
+        let (device, queue) = headless_device()?;
 
         const SIZE: u32 = 128; // 128 * 4 = 512, aligné pour la copie.
         let format = wgpu::TextureFormat::Rgba8Unorm;
@@ -195,9 +241,7 @@ mod tests {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut painter = TextPainter::new(&device, &queue, format);
-        let mut scene = Scene::new();
-        scene.text(Point::new(4.0, 4.0), "Hello", 48.0, Color::WHITE);
-        painter.prepare_frame(&device, &queue, &scene, SIZE, SIZE);
+        painter.prepare_frame(&device, &queue, scene, SIZE, SIZE);
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -258,11 +302,44 @@ mod tests {
         rx.recv().expect("map_async").expect("mapping échoué");
 
         let data = slice.get_mapped_range();
-        let lit_pixels = data.chunks_exact(4).filter(|px| px[0] > 16).count();
+        Some(data.chunks_exact(4).filter(|px| px[0] > 16).count())
+    }
 
-        assert!(
-            lit_pixels > 0,
-            "le texte devrait produire des pixels non-noirs (trouvés : {lit_pixels})"
+    /// Preuve de rasterisation : un texte blanc produit des pixels non-noirs.
+    #[test]
+    fn renders_text_to_non_background_pixels() {
+        let mut scene = Scene::new();
+        scene.text(Point::new(4.0, 4.0), "Hello", 48.0, Color::WHITE);
+        match lit_pixels_for(&scene) {
+            None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            Some(lit) => {
+                assert!(lit > 0, "le texte devrait produire des pixels non-noirs ({lit})")
+            }
+        }
+    }
+
+    /// Le texte **riche** (`set_rich_text`, runs mêlés tailles/graisses) rasterise
+    /// aussi — preuve de bout en bout du nouveau chemin GPU.
+    #[test]
+    fn renders_rich_text_to_non_background_pixels() {
+        use frus_core::{FontWeight, TextRun};
+        let run = |text: &str, size: f32, weight: FontWeight| TextRun {
+            text: text.to_string(),
+            size,
+            weight,
+            italic: false,
+            color: Color::WHITE,
+        };
+        let mut scene = Scene::new();
+        scene.rich_text(
+            Point::new(4.0, 4.0),
+            vec![run("Ri", 40.0, FontWeight::Regular), run("ch", 24.0, FontWeight::Bold)],
         );
+        match lit_pixels_for(&scene) {
+            None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            Some(lit) => {
+                assert!(lit > 0, "le texte riche devrait produire des pixels non-noirs ({lit})")
+            }
+        }
     }
 }

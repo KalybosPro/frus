@@ -324,7 +324,8 @@ mod tests {
         let ui = build_ui(s.as_ref(), Size::new(400.0, 800.0), &Runtime::default(), &Theme::default());
         let pinned_low = ui.scene().primitives().iter().any(|p| match p {
             frus_core::Primitive::Rect { rect, .. } => rect.y >= 700.0 && rect.height < 100.0,
-            frus_core::Primitive::Text { position, .. } => position.y >= 700.0,
+            frus_core::Primitive::Text { position, .. }
+            | frus_core::Primitive::RichText { position, .. } => position.y >= 700.0,
         });
         assert!(pinned_low, "la barre basse doit être épinglée dans la bande basse");
     }

@@ -15,7 +15,8 @@ use frus_widgets::{
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
-    RadioGroup, Rating, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
+    RadioGroup, Rating, RichText, Scaffold, SegmentedControl, Size, SizeClass, Skeleton, Slider, Stack,
+    TextSpan,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
 };
 
@@ -1309,7 +1310,17 @@ fn about_section(theme: &Theme) -> Container<Msg> {
         Card::new().padding(20.0).child(
             column![
                 text("About frus").size(24.0),
-                text("A Rust cross-platform UI framework.").size(15.0).color(theme.muted),
+                // Texte riche : styles mêlés en une ligne, héritage en cascade.
+                RichText::new(
+                    TextSpan::new("A ")
+                        .child(TextSpan::new("fast").bold())
+                        .child(TextSpan::new(", "))
+                        .child(TextSpan::new("portable").italic())
+                        .child(TextSpan::new(" Rust UI framework — "))
+                        .child(TextSpan::new("no GC").bold().color(theme.primary))
+                        .child(TextSpan::new(".")),
+                )
+                .base_style(theme.text.body_medium.color(theme.muted)),
                 Divider::new(),
                 Timeline::new()
                     .event("Responsive primitives", "Milestone 42")

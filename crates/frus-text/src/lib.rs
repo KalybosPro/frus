@@ -12,7 +12,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
-use frus_core::{FontWeight, Size};
+use frus_core::{FontWeight, Size, TextRun};
 
 /// Rapport interligne / taille de police par défaut.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
@@ -98,6 +98,39 @@ pub fn measure_styled(text: &str, size_px: f32, weight: FontWeight, italic: bool
     Size::new(width, lines.max(1.0) * line_h)
 }
 
+/// Mesure la taille naturelle d'un **texte riche** (runs résolus, styles/tailles
+/// mêlés) : largeur de la plus longue ligne, hauteur réelle des lignes shapées.
+pub fn measure_runs(runs: &[TextRun]) -> Size {
+    if runs.iter().all(|r| r.text.is_empty()) {
+        return Size::new(0.0, 0.0);
+    }
+    let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
+
+    let mut font_system = font_system().lock().expect("FontSystem lock");
+    let metrics = Metrics::new(base, line_height(base));
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    buffer.set_size(&mut font_system, None, None);
+    let spans = runs.iter().map(|run| {
+        (
+            run.text.as_str(),
+            Attrs::new()
+                .weight(Weight(run.weight.to_u16()))
+                .style(if run.italic { Style::Italic } else { Style::Normal })
+                .metrics(Metrics::new(run.size, line_height(run.size))),
+        )
+    });
+    buffer.set_rich_text(&mut font_system, spans, Attrs::new(), Shaping::Advanced);
+    buffer.shape_until_scroll(&mut font_system, false);
+
+    let mut width = 0.0_f32;
+    let mut height = 0.0_f32;
+    for run in buffer.layout_runs() {
+        width = width.max(run.line_w);
+        height = height.max(run.line_top + run.line_height);
+    }
+    Size::new(width, height)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,6 +147,32 @@ mod tests {
         let size = measure("Bonjour", 24.0);
         assert!(size.width > 0.0, "largeur = {}", size.width);
         assert!(size.height > 0.0, "hauteur = {}", size.height);
+    }
+
+    #[test]
+    fn rich_runs_measure_mixed_styles() {
+        use frus_core::Color;
+        let run = |text: &str, size: f32, weight: FontWeight| TextRun {
+            text: text.to_string(),
+            size,
+            weight,
+            italic: false,
+            color: Color::WHITE,
+        };
+        // « normal GRAS » : plus large que « normal » seul ; hauteur = du plus grand run.
+        let plain = measure_runs(&[run("normal", 16.0, FontWeight::Regular)]);
+        let mixed = measure_runs(&[
+            run("normal", 16.0, FontWeight::Regular),
+            run(" GRAS", 24.0, FontWeight::Bold),
+        ]);
+        assert!(mixed.width > plain.width);
+        assert!(
+            mixed.height >= line_height(24.0) - 1.0,
+            "hauteur pilotée par le run 24 px : {}",
+            mixed.height
+        );
+        // Vide → taille nulle.
+        assert_eq!(measure_runs(&[]), Size::new(0.0, 0.0));
     }
 
     #[test]
