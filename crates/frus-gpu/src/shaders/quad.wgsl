@@ -16,9 +16,10 @@ struct InstanceInput {
     @location(2) color: vec4<f32>,    // remplissage (début du dégradé)
     @location(3) color2: vec4<f32>,   // fin du dégradé
     @location(4) border: vec4<f32>,   // couleur de bordure
-    @location(5) params: vec4<f32>,   // radius, border_width, blur, _
+    @location(5) params: vec4<f32>,   // _, border_width, blur, _
     @location(6) gradient: vec4<f32>, // dir.x, dir.y, _, _
     @location(7) clip: vec4<f32>,     // x, y, width, height
+    @location(8) radii: vec4<f32>,    // rayons par coin : tl, tr, br, bl
 };
 
 struct VertexOutput {
@@ -26,7 +27,7 @@ struct VertexOutput {
     @location(0) local_px: vec2<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) @interpolate(flat) half_size: vec2<f32>,
-    @location(3) @interpolate(flat) radius: f32,
+    @location(3) @interpolate(flat) radii: vec4<f32>,
     @location(4) @interpolate(flat) border_width: f32,
     @location(5) @interpolate(flat) blur: f32,
     @location(6) @interpolate(flat) color: vec4<f32>,
@@ -51,7 +52,7 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.local_px = (vert.unit_pos - vec2<f32>(0.5, 0.5)) * inst.rect.zw;
     out.uv = vert.unit_pos;
     out.half_size = inst.rect.zw * 0.5;
-    out.radius = inst.params.x;
+    out.radii = inst.radii;
     out.border_width = inst.params.y;
     out.blur = inst.params.z;
     out.color = inst.color;
@@ -78,6 +79,15 @@ fn sdf_round_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
     return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0, 0.0))) - r;
 }
 
+// Rayon du coin correspondant au quadrant de `p` (coordonnées centrées,
+// y vers le bas). radii = (tl, tr, br, bl).
+fn corner_radius(p: vec2<f32>, radii: vec4<f32>) -> f32 {
+    if (p.x < 0.0) {
+        return select(radii.w, radii.x, p.y < 0.0); // gauche : haut → tl, bas → bl
+    }
+    return select(radii.z, radii.y, p.y < 0.0);     // droite : haut → tr, bas → br
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Découpe.
@@ -88,7 +98,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         && in.frag_px.y <= in.clip.y + in.clip.w
     );
 
-    let r = min(in.radius, min(in.half_size.x, in.half_size.y));
+    let r = min(corner_radius(in.local_px, in.radii), min(in.half_size.x, in.half_size.y));
     let d = sdf_round_box(in.local_px, in.half_size, r);
 
     // Bord net (0.5px) ou doux (rayon de flou) pour les ombres.

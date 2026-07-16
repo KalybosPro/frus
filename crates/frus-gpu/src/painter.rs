@@ -33,18 +33,20 @@ struct Instance {
     color: [f32; 4],
     color2: [f32; 4],
     border_color: [f32; 4],
-    /// radius, border_width, blur, (réservé).
+    /// (réservé), border_width, blur, (réservé).
     params: [f32; 4],
     /// direction du dégradé (x, y), puis (réservé, réservé).
     gradient: [f32; 4],
     /// Rectangle de découpe : x, y, width, height.
     clip: [f32; 4],
+    /// Rayons d'arrondi par coin : tl, tr, br, bl.
+    radii: [f32; 4],
 }
 
 impl Instance {
-    /// Layout du buffer d'instances (locations 1..=7 ; la 0 est le quad unité).
+    /// Layout du buffer d'instances (locations 1..=8 ; la 0 est le quad unité).
     fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
             1 => Float32x4,
             2 => Float32x4,
             3 => Float32x4,
@@ -52,6 +54,7 @@ impl Instance {
             5 => Float32x4,
             6 => Float32x4,
             7 => Float32x4,
+            8 => Float32x4,
         ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
@@ -225,9 +228,11 @@ impl Painter {
                     color: color.to_array(),
                     color2: color2.to_array(),
                     border_color: border_color.to_array(),
-                    params: [*radius, *border_width, *blur, 0.0],
+                    params: [0.0, *border_width, *blur, 0.0],
                     gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
                     clip: clip.to_array(),
+                    // Rayons négatifs bornés à zéro avant rendu.
+                    radii: radius.clamped().to_array(),
                 }),
                 // Le texte (simple ou riche) est rendu séparément par le TextPainter.
                 Primitive::Text { .. } | Primitive::RichText { .. } => {}
@@ -522,6 +527,123 @@ mod tests {
         // Centre rouge, coin (0,0) découpé (noir).
         assert_eq!(px(SIZE / 2, SIZE / 2), [255, 0, 0, 255], "centre rouge");
         assert_eq!(px(0, 0), [0, 0, 0, 255], "coin découpé");
+    }
+
+    /// Rayons **par coin** : seul le coin haut-gauche arrondi est découpé, les
+    /// trois autres restent carrés — preuve du chemin GPU par readback.
+    #[test]
+    fn per_corner_radius_rounds_only_selected_corners() {
+        let Some((device, queue)) = headless_device() else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+
+        const SIZE: u32 = 64;
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("frus.test.per_corner"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut painter = Painter::new(&device, format);
+        painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
+
+        let mut scene = Scene::new();
+        scene.draw_rect(
+            Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32),
+            Color::rgb(1.0, 0.0, 0.0),
+            frus_core::BorderRadius {
+                top_left: 30.0,
+                top_right: 0.0,
+                bottom_right: 0.0,
+                bottom_left: 0.0,
+            },
+            0.0,
+            Color::TRANSPARENT,
+        );
+
+        let count = painter.prepare_frame(&device, &queue, &scene);
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            painter.draw(&mut pass, count);
+        }
+
+        let bytes_per_row = SIZE * 4;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (bytes_per_row * SIZE) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &readback,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(bytes_per_row),
+                    rows_per_image: Some(SIZE),
+                },
+            },
+            wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = readback.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().expect("map_async").expect("mapping échoué");
+
+        let data = slice.get_mapped_range();
+        let px = |x: u32, y: u32| {
+            let idx = (y * bytes_per_row + x * 4) as usize;
+            [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]
+        };
+
+        // Seul le coin haut-gauche est découpé ; les trois autres sont carrés.
+        assert_eq!(px(0, 0), [0, 0, 0, 255], "haut-gauche arrondi (découpé)");
+        assert_eq!(px(SIZE - 1, 0), [255, 0, 0, 255], "haut-droit carré");
+        assert_eq!(px(0, SIZE - 1), [255, 0, 0, 255], "bas-gauche carré");
+        assert_eq!(px(SIZE - 1, SIZE - 1), [255, 0, 0, 255], "bas-droit carré");
+        assert_eq!(px(SIZE / 2, SIZE / 2), [255, 0, 0, 255], "centre plein");
     }
 
     /// Un rectangle plein rouge dont le clip ne couvre qu'un coin : le centre

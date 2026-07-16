@@ -1,7 +1,9 @@
 //! [`Container`] : une boîte décorée (taille, marge, couleur, coins arrondis,
 //! bordure, clic) avec un enfant optionnel.
 
-use frus_core::{Border, BoxDecoration, BoxShadow, Color, Insets, LinearGradient, Rect, Scene};
+use frus_core::{
+    Border, BorderRadius, BoxDecoration, BoxShadow, Color, Insets, LinearGradient, Rect, Scene,
+};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::{Interaction, Status};
@@ -20,7 +22,7 @@ pub struct Container<Msg> {
     height: Dimension,
     flex_grow: f32,
     padding: Insets,
-    radius: f32,
+    radius: BorderRadius,
     border_width: f32,
     border_color: Color,
     color: Option<Color>,
@@ -42,7 +44,7 @@ impl<Msg> Container<Msg> {
             height: Dimension::Auto,
             flex_grow: 0.0,
             padding: Insets::ZERO,
-            radius: 0.0,
+            radius: BorderRadius::ZERO,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             color: None,
@@ -85,9 +87,10 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Rayon des coins arrondis, en pixels.
-    pub fn radius(mut self, radius: f32) -> Self {
-        self.radius = radius;
+    /// Rayons des coins arrondis : uniforme via `f32` (`.radius(10.0)`) ou par
+    /// coin via [`BorderRadius`] (`.radius(BorderRadius::top(12.0))`).
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.radius = radius.into();
         self
     }
 

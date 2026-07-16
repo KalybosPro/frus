@@ -7,7 +7,7 @@
 //! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
-use crate::{Color, FontWeight, Point, Rect, TextRun, TextStyle};
+use crate::{BorderRadius, Color, FontWeight, Point, Rect, TextRun, TextStyle};
 
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
@@ -21,7 +21,8 @@ pub enum Primitive {
         color2: Color,
         /// Direction du dégradé en espace `[0,1]²` ; `(0,0)` = uni.
         gradient_dir: [f32; 2],
-        radius: f32,
+        /// Rayons d'arrondi, par coin.
+        radius: BorderRadius,
         border_width: f32,
         border_color: Color,
         /// Adoucissement du bord, en pixels (0 = net ; > 0 = ombre floue).
@@ -95,7 +96,7 @@ impl Primitive {
                 color,
                 color2,
                 gradient_dir,
-                radius: radius * factor,
+                radius: radius.scale(factor),
                 border_width: border_width * factor,
                 border_color,
                 blur: blur * factor,
@@ -267,7 +268,7 @@ impl Scene {
             color,
             color2: color,
             gradient_dir: [0.0, 0.0],
-            radius: 0.0,
+            radius: BorderRadius::ZERO,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             blur: 0.0,
@@ -276,12 +277,13 @@ impl Scene {
         });
     }
 
-    /// Ajoute un rectangle avec coins arrondis et/ou bordure.
+    /// Ajoute un rectangle avec coins arrondis (uniformes via `f32`, ou par coin
+    /// via [`BorderRadius`]) et/ou bordure.
     pub fn draw_rect(
         &mut self,
         rect: Rect,
         color: Color,
-        radius: f32,
+        radius: impl Into<BorderRadius>,
         border_width: f32,
         border_color: Color,
     ) {
@@ -290,7 +292,7 @@ impl Scene {
             color,
             color2: color,
             gradient_dir: [0.0, 0.0],
-            radius,
+            radius: radius.into(),
             border_width,
             border_color,
             blur: 0.0,
@@ -306,7 +308,7 @@ impl Scene {
         color: Color,
         color2: Color,
         dir: [f32; 2],
-        radius: f32,
+        radius: impl Into<BorderRadius>,
         border_width: f32,
         border_color: Color,
     ) {
@@ -315,7 +317,7 @@ impl Scene {
             color,
             color2,
             gradient_dir: dir,
-            radius,
+            radius: radius.into(),
             border_width,
             border_color,
             blur: 0.0,
@@ -325,13 +327,19 @@ impl Scene {
     }
 
     /// Ajoute une ombre douce (rectangle arrondi au bord flou), sans bordure.
-    pub fn shadow(&mut self, rect: Rect, color: Color, radius: f32, blur: f32) {
+    pub fn shadow(
+        &mut self,
+        rect: Rect,
+        color: Color,
+        radius: impl Into<BorderRadius>,
+        blur: f32,
+    ) {
         self.primitives.push(Primitive::Rect {
             rect,
             color,
             color2: color,
             gradient_dir: [0.0, 0.0],
-            radius,
+            radius: radius.into(),
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             blur,
@@ -470,7 +478,7 @@ mod tests {
                 color: Color::WHITE,
                 color2: Color::WHITE,
                 gradient_dir: [0.0, 0.0],
-                radius: 0.0,
+                radius: BorderRadius::ZERO,
                 border_width: 0.0,
                 border_color: Color::TRANSPARENT,
                 blur: 0.0,
@@ -508,7 +516,7 @@ mod tests {
         match &big.primitives()[0] {
             Primitive::Rect { rect, radius, border_width, color, .. } => {
                 assert_eq!(*rect, Rect::new(4.0, 8.0, 20.0, 40.0));
-                assert_eq!(*radius, 6.0);
+                assert_eq!(*radius, BorderRadius::uniform(6.0));
                 assert_eq!(*border_width, 2.0);
                 assert_eq!(*color, Color::rgb(1.0, 0.0, 0.0)); // couleur inchangée
             }

@@ -10,6 +10,97 @@
 
 use crate::{Color, Insets, Rect, Scene};
 
+/// Rayons d'arrondi **par coin** (px logiques). `From<f32>` fournit le cas
+/// uniforme : partout où un rayon est attendu, un simple `10.0` reste valide.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BorderRadius {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_right: f32,
+    pub bottom_left: f32,
+}
+
+impl BorderRadius {
+    /// Aucun arrondi.
+    pub const ZERO: Self = Self::uniform(0.0);
+
+    /// Le même rayon aux quatre coins.
+    pub const fn uniform(radius: f32) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    /// Seuls les coins **hauts** arrondis (en-têtes, feuilles montantes).
+    pub const fn top(radius: f32) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: 0.0,
+            bottom_left: 0.0,
+        }
+    }
+
+    /// Seuls les coins **bas** arrondis.
+    pub const fn bottom(radius: f32) -> Self {
+        Self {
+            top_left: 0.0,
+            top_right: 0.0,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rayons **bornés à zéro** (un rayon négatif n'a pas de sens au rendu).
+    pub fn clamped(self) -> Self {
+        Self {
+            top_left: self.top_left.max(0.0),
+            top_right: self.top_right.max(0.0),
+            bottom_right: self.bottom_right.max(0.0),
+            bottom_left: self.bottom_left.max(0.0),
+        }
+    }
+
+    /// Chaque coin augmenté de `by` (l'enveloppe d'une ombre floutée).
+    pub fn inflate(self, by: f32) -> Self {
+        Self {
+            top_left: self.top_left + by,
+            top_right: self.top_right + by,
+            bottom_right: self.bottom_right + by,
+            bottom_left: self.bottom_left + by,
+        }
+    }
+
+    /// Tous les rayons multipliés par `factor` (échelle DPI).
+    pub fn scale(self, factor: f32) -> Self {
+        Self {
+            top_left: self.top_left * factor,
+            top_right: self.top_right * factor,
+            bottom_right: self.bottom_right * factor,
+            bottom_left: self.bottom_left * factor,
+        }
+    }
+
+    /// `[tl, tr, br, bl]`, prêt pour le GPU.
+    pub fn to_array(self) -> [f32; 4] {
+        [
+            self.top_left,
+            self.top_right,
+            self.bottom_right,
+            self.bottom_left,
+        ]
+    }
+}
+
+impl From<f32> for BorderRadius {
+    fn from(radius: f32) -> Self {
+        Self::uniform(radius)
+    }
+}
+
 /// Une bordure uniforme (même épaisseur/couleur sur les quatre côtés).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
@@ -105,8 +196,8 @@ pub struct BoxDecoration {
     pub gradient: Option<LinearGradient>,
     /// Bordure uniforme.
     pub border: Option<Border>,
-    /// Rayon des coins arrondis, en pixels.
-    pub radius: f32,
+    /// Rayons des coins arrondis, par coin.
+    pub radius: BorderRadius,
     /// Ombre portée.
     pub shadow: Option<BoxShadow>,
 }
@@ -120,9 +211,10 @@ impl BoxDecoration {
         }
     }
 
-    /// Fixe le rayon des coins.
-    pub fn radius(mut self, radius: f32) -> Self {
-        self.radius = radius;
+    /// Fixe les rayons des coins (uniforme via `f32`, par coin via
+    /// [`BorderRadius`]).
+    pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
+        self.radius = radius.into();
         self
     }
 
@@ -162,7 +254,7 @@ impl BoxDecoration {
             scene.shadow(
                 shadow.bounds(rect),
                 shadow.color.fade(opacity),
-                self.radius + shadow.blur + shadow.spread,
+                self.radius.inflate(shadow.blur + shadow.spread),
                 shadow.blur,
             );
         }
