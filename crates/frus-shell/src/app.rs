@@ -178,6 +178,9 @@ pub struct App<A: Application> {
     /// Poignée de l'activité Android (pour interroger les insets, le clavier…).
     #[cfg(target_os = "android")]
     android_app: Option<winit::platform::android::activity::AndroidApp>,
+    /// Le clavier logiciel est-il demandé ? (suit le focus des champs texte).
+    #[cfg(target_os = "android")]
+    soft_input_shown: bool,
 }
 
 impl<A: Application> App<A> {
@@ -215,6 +218,38 @@ impl<A: Application> App<A> {
             inset_baseline: None,
             #[cfg(target_os = "android")]
             android_app: None,
+            #[cfg(target_os = "android")]
+            soft_input_shown: false,
+        }
+    }
+
+    /// Synchronise le **clavier logiciel** avec le focus : demandé quand le
+    /// focus est dans un champ texte (`cursor_at` → `Some`), refermé sinon.
+    /// Appelé en fin de frame (tout changement de focus redessine déjà).
+    fn sync_soft_input(&mut self) {
+        #[cfg(target_os = "android")]
+        {
+            let editing = self
+                .runtime
+                .input
+                .focused
+                .and_then(|id| {
+                    self.tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                })
+                .and_then(|widget| widget.cursor_at(0.0, 1.0, 0))
+                .is_some();
+            if editing != self.soft_input_shown {
+                self.soft_input_shown = editing;
+                if let Some(app) = &self.android_app {
+                    if editing {
+                        app.show_soft_input(true);
+                    } else {
+                        app.hide_soft_input(false);
+                    }
+                }
+            }
         }
     }
 
@@ -816,6 +851,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // Conserve l'interface (hit-test). L'arbre est déjà retenu.
                 self.ui = Some(ui);
+
+                // Clavier logiciel Android : suit le focus des champs texte.
+                self.sync_soft_input();
 
                 // Tant qu'une animation tourne, on redemande une frame.
                 if animating || wants_animation {
