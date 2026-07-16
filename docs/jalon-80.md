@@ -32,10 +32,22 @@ sinon (blur, Escape, retour, fermeture de modale…). Transitions dédupliquées
   `InputConnection` JNI + événements de composition (le vrai FFI §6).
 - L'évitement du clavier (J74, `view_insets`) se validera dans la foulée.
 
-## Validation
+## Validation on-device (STK-L21, IME SwiftKey) — et deux correctifs
 
-- Workspace : 18 suites vertes ; APK construit. **Validation on-device en
-  attente** (téléphone débranché au moment du jalon) : tap sur le champ →
-  clavier ouvert (`dumpsys input_method` : `mInputShown=true`), saisie
-  `adb input text` → texte dans le champ, Entrée → tâche ajoutée, blur →
-  clavier refermé.
+- Tap sur le champ → **le clavier monte** et le contenu **s'écarte au-dessus**
+  (première preuve réelle de l'évitement clavier du J74). Blur → refermé.
+- Deux bugs réels débusqués par la saisie injectée (`adb input text`) :
+  1. **Rafales de touches** : des frappes plus rapprochées qu'une frame
+     s'appliquaient sur l'arbre **retenu** (valeur du champ en retard d'une
+     frame) — chaque frappe écrasait la précédente (« Hello » → « o »).
+     Fix : `apply_key` rafraîchit l'arbre (`view`) sitôt le message d'édition
+     dispatché ; `build_dirty` reste levé pour la passe complète suivante.
+  2. **Entrée Android** arrive en `Character("\n")` (KeyCharacterMap), pas en
+     `Named(Enter)` → elle s'insérait comme texte au lieu de soumettre.
+     Fix : `"\n"`/`"\r"` mappés sur `Key::Enter` (répétition non re-soumise).
+- Après correctifs : « World » arrive entier (majuscule via méta Maj incluse),
+  Entrée ajoute la tâche et vide le champ. ✔
+- Artefacts d'injection (pas des bugs frus) : clavier **ouvert**, SwiftKey
+  consomme une partie des événements injectés (connexion nulle) — la vraie
+  saisie utilisateur passe par l'IME lui-même ; et `adb input text` s'arrête
+  au premier espace (utiliser `%s`).

@@ -628,6 +628,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     WinitKey::Named(NamedKey::Home) => Some(Key::Home { shift }),
                     WinitKey::Named(NamedKey::End) => Some(Key::End { shift }),
                     WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
+                    // Android livre Entrée en `Character("\n")` (KeyCharacterMap),
+                    // pas en `Named(Enter)` : même soumission, sans insérer de
+                    // retour à la ligne dans le champ.
+                    WinitKey::Character(c) if c == "\n" || c == "\r" => {
+                        if event.repeat {
+                            None
+                        } else {
+                            Some(Key::Enter)
+                        }
+                    }
                     _ => event.text.as_ref().map(|text| Key::Text(text.to_string())),
                 };
 
@@ -1416,6 +1426,16 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(id, edit);
         if let Some(message) = message {
             self.dispatch(message);
+            // Les touches peuvent arriver en **rafale** (plus vite qu'une
+            // frame — clavier logiciel, `adb input text`, répétition) : la
+            // suivante doit voir la valeur À JOUR, pas celle de l'arbre
+            // retenu (sinon elle écrase la frappe précédente). On rafraîchit
+            // l'arbre tout de suite ; `build_dirty` reste levé, la prochaine
+            // frame refera la passe complète (montages, fondus de sortie).
+            if let Some((width, height)) = self.last_size {
+                let theme = self.app.theme();
+                self.tree = Some(self.app.view(&theme, width, height));
+            }
         }
     }
 
