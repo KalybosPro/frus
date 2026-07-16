@@ -12,7 +12,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
-use frus_core::{FontWeight, Size, TextRun};
+use frus_core::{FontWeight, Point, Rect, Size, TextRun};
 
 /// Rapport interligne / taille de police par défaut.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
@@ -131,6 +131,193 @@ pub fn measure_runs(runs: &[TextRun]) -> Size {
     Size::new(width, height)
 }
 
+/// Une ligne shapée d'un [`TextLayout`] : les offsets `x` de chaque **frontière
+/// de caractère**, extraits des glyphes réels (kerning/ligatures compris).
+struct LayoutLine {
+    /// Index (en caractères, global au texte) de la première frontière de la ligne.
+    start_char: usize,
+    /// `x` de chaque frontière de caractère de la ligne (`chars + 1` entrées).
+    offsets: Vec<f32>,
+    /// Bord haut de la ligne.
+    top: f32,
+    /// Hauteur de la ligne.
+    height: f32,
+}
+
+/// La mise en forme **shapée** d'un texte (une seule passe cosmic-text), exposant
+/// la géométrie dont un widget d'édition a besoin : position de caret par index
+/// de caractère, hit-test inverse, rectangles de sélection. Les coordonnées sont
+/// **locales** au texte (origine à son coin haut-gauche). Les indices sont en
+/// **caractères** (la convention d'édition de frus), frontières `0..=len`.
+///
+/// Contrairement à une mesure de préfixe re-shapée sous-chaîne par sous-chaîne,
+/// les offsets viennent de la ligne shapée **entière** : cohérents entre eux
+/// (kerning), et calculés en une passe au lieu de `n`.
+pub struct TextLayout {
+    lines: Vec<LayoutLine>,
+    size: Size,
+    /// Nombre total de caractères (la dernière frontière valide).
+    chars: usize,
+}
+
+impl TextLayout {
+    /// Shape `text` (multi-lignes autorisé, non contraint en largeur) au style
+    /// donné et en extrait la géométrie.
+    pub fn new(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Self {
+        let fallback_h = line_height(size_px);
+        let mut lines: Vec<LayoutLine> = Vec::new();
+        let mut width = 0.0_f32;
+        let mut height = 0.0_f32;
+        let mut start_char = 0usize;
+
+        if !text.is_empty() {
+            let mut font_system = font_system().lock().expect("FontSystem lock");
+            let metrics = Metrics::new(size_px, fallback_h);
+            let mut buffer = Buffer::new(&mut font_system, metrics);
+            buffer.set_size(&mut font_system, None, None);
+            let attrs = Attrs::new().weight(Weight(weight.to_u16())).style(if italic {
+                Style::Italic
+            } else {
+                Style::Normal
+            });
+            buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+            buffer.shape_until_scroll(&mut font_system, false);
+
+            for run in buffer.layout_runs() {
+                // Frontières de caractères de la ligne, en offsets d'octets.
+                let char_bytes: Vec<usize> = run.text.char_indices().map(|(b, _)| b).collect();
+                let n = char_bytes.len();
+                let mut offsets = vec![f32::NAN; n + 1];
+                offsets[0] = 0.0;
+
+                // Chaque glyphe couvre un cluster d'octets [start, end) sur
+                // [x, x+w) ; les frontières internes d'un cluster (ligature)
+                // sont interpolées linéairement.
+                for glyph in run.glyphs.iter() {
+                    let covered: Vec<usize> = (0..n)
+                        .filter(|&i| char_bytes[i] >= glyph.start && char_bytes[i] < glyph.end)
+                        .collect();
+                    let k = covered.len().max(1) as f32;
+                    for (j, &i) in covered.iter().enumerate() {
+                        offsets[i] = glyph.x + glyph.w * (j as f32 / k);
+                    }
+                    // La frontière qui SUIT le cluster (si c'est un début de char).
+                    if let Some(next) = (0..=n).find(|&i| {
+                        let b = if i == n { run.text.len() } else { char_bytes[i] };
+                        b == glyph.end
+                    }) {
+                        offsets[next] = glyph.x + glyph.w;
+                    }
+                }
+                // Frontières restées sans glyphe (espaces réduits…) : continuité.
+                for i in 1..=n {
+                    if offsets[i].is_nan() {
+                        offsets[i] = offsets[i - 1];
+                    }
+                }
+
+                width = width.max(run.line_w);
+                height = height.max(run.line_top + run.line_height);
+                lines.push(LayoutLine {
+                    start_char,
+                    offsets,
+                    top: run.line_top,
+                    height: run.line_height,
+                });
+                // +1 : le séparateur de ligne (`\n`) compte un caractère.
+                start_char += n + 1;
+            }
+        }
+
+        // Texte vide (ou aucune ligne shapée) : une ligne vide synthétique pour
+        // que caret/hit restent définis (caret à x = 0).
+        if lines.is_empty() {
+            lines.push(LayoutLine {
+                start_char: 0,
+                offsets: vec![0.0],
+                top: 0.0,
+                height: fallback_h,
+            });
+            height = fallback_h;
+        }
+
+        let chars = text.chars().count();
+        Self {
+            lines,
+            size: Size::new(width, height),
+            chars,
+        }
+    }
+
+    /// Taille naturelle du texte shapé.
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
+    /// La ligne contenant la frontière de caractère `index`.
+    fn line_of(&self, index: usize) -> &LayoutLine {
+        self.lines
+            .iter()
+            .rev()
+            .find(|line| index >= line.start_char)
+            .unwrap_or(&self.lines[0])
+    }
+
+    /// Rectangle du caret à la frontière `index` (largeur nulle : au widget de
+    /// choisir l'épaisseur du trait). `index` est borné au texte.
+    pub fn caret_rect(&self, index: usize) -> Rect {
+        let index = index.min(self.chars);
+        let line = self.line_of(index);
+        let local = (index - line.start_char).min(line.offsets.len() - 1);
+        Rect::new(line.offsets[local], line.top, 0.0, line.height)
+    }
+
+    /// Frontière de caractère la **plus proche** de `point` (coordonnées locales
+    /// au texte). Le `y` choisit la ligne (borné), le `x` la frontière.
+    pub fn hit_test(&self, point: Point) -> usize {
+        let line = self
+            .lines
+            .iter()
+            .find(|line| point.y < line.top + line.height)
+            .unwrap_or(self.lines.last().expect("au moins une ligne"));
+
+        let mut best = 0;
+        let mut best_dist = f32::MAX;
+        for (i, x) in line.offsets.iter().enumerate() {
+            let dist = (x - point.x).abs();
+            if dist < best_dist {
+                best_dist = dist;
+                best = i;
+            }
+        }
+        (line.start_char + best).min(self.chars)
+    }
+
+    /// Rectangles couvrant la plage de caractères `[start, end)` (un par ligne
+    /// traversée ; vides omis).
+    pub fn selection_rects(&self, start: usize, end: usize) -> Vec<Rect> {
+        let (start, end) = (start.min(self.chars), end.min(self.chars));
+        if start >= end {
+            return Vec::new();
+        }
+        let mut rects = Vec::new();
+        for line in &self.lines {
+            let line_len = line.offsets.len() - 1;
+            let lo = start.max(line.start_char);
+            let hi = end.min(line.start_char + line_len);
+            if lo >= hi {
+                continue;
+            }
+            let x0 = line.offsets[lo - line.start_char];
+            let x1 = line.offsets[hi - line.start_char];
+            if x1 > x0 {
+                rects.push(Rect::new(x0, line.top, x1 - x0, line.height));
+            }
+        }
+        rects
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +360,70 @@ mod tests {
         );
         // Vide → taille nulle.
         assert_eq!(measure_runs(&[]), Size::new(0.0, 0.0));
+    }
+
+    #[test]
+    fn layout_offsets_are_monotonic_and_match_size() {
+        let layout = TextLayout::new("Bonjour le monde", 18.0, FontWeight::Regular, false);
+        let mut prev = -1.0;
+        for i in 0..=16 {
+            let x = layout.caret_rect(i).x;
+            assert!(x >= prev, "offset décroissant à la frontière {i}");
+            prev = x;
+        }
+        // La dernière frontière atteint la largeur naturelle.
+        assert!((layout.caret_rect(16).x - layout.size().width).abs() < 0.5);
+        // Frontière au-delà du texte : bornée.
+        assert_eq!(layout.caret_rect(99).x, layout.caret_rect(16).x);
+    }
+
+    #[test]
+    fn hit_test_roundtrips_caret_positions() {
+        let layout = TextLayout::new("Bonjour", 18.0, FontWeight::Regular, false);
+        for i in 0..=7 {
+            let caret = layout.caret_rect(i);
+            let hit = layout.hit_test(Point::new(caret.x, caret.y + 1.0));
+            assert_eq!(hit, i, "aller-retour caret→hit à la frontière {i}");
+        }
+        // Loin à gauche / à droite : bornes.
+        assert_eq!(layout.hit_test(Point::new(-100.0, 0.0)), 0);
+        assert_eq!(layout.hit_test(Point::new(10_000.0, 0.0)), 7);
+    }
+
+    #[test]
+    fn selection_rects_cover_the_range() {
+        let layout = TextLayout::new("Bonjour", 18.0, FontWeight::Regular, false);
+        let rects = layout.selection_rects(2, 5);
+        assert_eq!(rects.len(), 1);
+        let r = rects[0];
+        assert!((r.x - layout.caret_rect(2).x).abs() < 0.01);
+        assert!((r.x + r.width - layout.caret_rect(5).x).abs() < 0.01);
+        assert!(r.height > 0.0);
+        // Plage vide ou inversée : aucun rectangle.
+        assert!(layout.selection_rects(3, 3).is_empty());
+        assert!(layout.selection_rects(5, 2).is_empty());
+    }
+
+    #[test]
+    fn multiline_layout_maps_lines_and_indices() {
+        // "ab\ncd" : frontières 0..=2 sur la ligne 1, 3..=5 sur la ligne 2.
+        let layout = TextLayout::new("ab\ncd", 18.0, FontWeight::Regular, false);
+        let first = layout.caret_rect(0);
+        let second = layout.caret_rect(3);
+        assert!(second.y > first.y, "la 2e ligne est plus bas");
+        assert_eq!(second.x, 0.0, "début de 2e ligne à x = 0");
+        // Hit dans la 2e ligne → indices de la 2e ligne.
+        let hit = layout.hit_test(Point::new(0.0, second.y + 1.0));
+        assert_eq!(hit, 3);
+    }
+
+    #[test]
+    fn empty_layout_keeps_caret_at_origin() {
+        let layout = TextLayout::new("", 18.0, FontWeight::Regular, false);
+        let caret = layout.caret_rect(0);
+        assert_eq!(caret.x, 0.0);
+        assert!(caret.height > 0.0, "hauteur de ligne de repli");
+        assert_eq!(layout.hit_test(Point::new(50.0, 0.0)), 0);
     }
 
     #[test]
