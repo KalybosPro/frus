@@ -17,12 +17,13 @@ use frus_widgets::{
     WidgetId,
 };
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::application::Application;
+use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
 /// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android
 /// (pas de dépendance `arboard`, qui ne s'y compile pas). Une API uniforme pour
@@ -141,6 +142,10 @@ pub struct App<A: Application> {
     build_dirty: bool,
     /// Glissement souris en cours.
     drag: Option<Drag>,
+    /// Reconnaisseur tap-ou-appui-long (palier 1 des gestes).
+    press: PressRecognizer,
+    /// Message d'appui long de la cible pressée, capturé à l'appui.
+    long_press_msg: Option<A::Message>,
     /// Instant du dernier clic (détection du double-clic).
     last_click_time: Option<Instant>,
     /// Compteur pour clés d'événements de sortie (fondu de disparition).
@@ -179,6 +184,8 @@ impl<A: Application> App<A> {
             last_frame: None,
             build_dirty: true,
             drag: None,
+            press: PressRecognizer::new(),
+            long_press_msg: None,
             last_click_time: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
@@ -288,6 +295,23 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         self.request_redraw();
     }
 
+    /// Réveil de la boucle : si l'échéance d'appui long est atteinte, le
+    /// reconnaisseur **accepte avidement** — le message est émis et le
+    /// relâchement à venir sera avalé (l'appui long évince le tap).
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        if matches!(cause, StartCause::ResumeTimeReached { .. })
+            && self.press.poll(Instant::now())
+        {
+            if let Some(message) = self.long_press_msg.take() {
+                self.dispatch(message);
+            }
+            // Un défilement tactile en attente n'a plus lieu d'être.
+            self.drag = None;
+            self.request_redraw();
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
+    }
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -325,30 +349,30 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
             }
 
+            // Toutes les sources pointeur (souris, tactile) convergent vers
+            // l'entrée **normalisée** `pointer()` — palier 0 des gestes, avec
+            // `Cancel` explicite. winit fournit des px physiques ; on travaille
+            // en logique (échelle totale = DPI × densité).
             WindowEvent::CursorMoved { position, .. } => {
-                // winit fournit des px physiques ; on travaille en logique
-                // (échelle totale = DPI × densité).
                 let scale = self.total_scale();
-                self.cursor = Point::new(position.x as f32 / scale, position.y as f32 / scale);
-                self.pointer_move();
+                let position = Point::new(position.x as f32 / scale, position.y as f32 / scale);
+                self.pointer(
+                    event_loop,
+                    PointerEvent { kind: PointerKind::Move, position, touch: false },
+                );
             }
 
-            // Écran tactile : on ramène chaque phase au même chemin que la souris
-            // (un doigt = un pointeur), avec en plus le défilement au doigt.
             WindowEvent::Touch(touch) => {
                 let scale = self.total_scale();
-                self.cursor =
+                let position =
                     Point::new(touch.location.x as f32 / scale, touch.location.y as f32 / scale);
-                match touch.phase {
-                    TouchPhase::Started => self.pointer_down(true),
-                    TouchPhase::Moved => self.pointer_move(),
-                    TouchPhase::Ended => self.pointer_up(),
-                    TouchPhase::Cancelled => {
-                        self.drag = None;
-                        self.runtime.input.pressed = None;
-                        self.request_redraw();
-                    }
-                }
+                let kind = match touch.phase {
+                    TouchPhase::Started => PointerKind::Down,
+                    TouchPhase::Moved => PointerKind::Move,
+                    TouchPhase::Ended => PointerKind::Up,
+                    TouchPhase::Cancelled => PointerKind::Cancel,
+                };
+                self.pointer(event_loop, PointerEvent { kind, position, touch: true });
             }
 
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -361,13 +385,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
-            } => self.pointer_down(false),
+            } => self.pointer(
+                event_loop,
+                PointerEvent { kind: PointerKind::Down, position: self.cursor, touch: false },
+            ),
 
             WindowEvent::MouseInput {
                 state: ElementState::Released,
                 button: MouseButton::Left,
                 ..
-            } => self.pointer_up(),
+            } => self.pointer(
+                event_loop,
+                PointerEvent { kind: PointerKind::Up, position: self.cursor, touch: false },
+            ),
 
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed =>
@@ -656,6 +686,54 @@ impl<A: Application> App<A> {
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+    }
+
+    /// Entrée pointeur **normalisée** (palier 0 des gestes) : souris et tactile
+    /// convergent ici, avec `Cancel` explicite ; le reconnaisseur d'appui long
+    /// est alimenté au passage et la boucle est réveillée à son échéance.
+    fn pointer(&mut self, event_loop: &ActiveEventLoop, event: PointerEvent) {
+        self.cursor = event.position;
+        match event.kind {
+            PointerKind::Down => {
+                self.pointer_down(event.touch);
+                // Candidat à l'appui long : seulement si l'appui n'a pas été
+                // capturé par un glissement (barre, poignée, sélection) — un
+                // défilement tactile pas encore en mouvement reste candidat.
+                let free = matches!(self.drag, None | Some(Drag::Scroll { moved: false, .. }));
+                self.long_press_msg = if free {
+                    self.ui.as_ref().and_then(|ui| ui.long_press_at(self.cursor))
+                } else {
+                    None
+                };
+                self.press
+                    .down(self.cursor, Instant::now(), self.long_press_msg.is_some());
+            }
+            PointerKind::Move => {
+                self.press.moved(self.cursor);
+                self.pointer_move();
+            }
+            PointerKind::Up => {
+                if self.press.up() {
+                    // L'appui long a évincé le tap : relâchement avalé.
+                    self.drag = None;
+                    self.runtime.input.pressed = None;
+                    self.request_redraw();
+                } else {
+                    self.pointer_up();
+                }
+            }
+            PointerKind::Cancel => {
+                self.press.cancel();
+                self.drag = None;
+                self.runtime.input.pressed = None;
+                self.request_redraw();
+            }
+        }
+        // Réveil de la boucle pile à l'échéance d'appui long, sinon repos.
+        match self.press.deadline() {
+            Some(deadline) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 

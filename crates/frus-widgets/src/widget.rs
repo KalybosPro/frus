@@ -141,6 +141,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Message émis par un **appui long** (pression maintenue ~500 ms sans
+    /// mouvement). L'appui long *évince* le clic : le relâchement qui le suit
+    /// n'émet pas `on_click`.
+    fn on_long_press(&self) -> Option<Msg> {
+        None
+    }
+
     /// **Mesure sous contraintes** : pour un widget dont la taille dépend de
     /// l'espace offert (paragraphe qui se replie…), renvoie la closure branchée
     /// sur taffy. `None` = taille fixée par `style()`. Contrat : doit être
@@ -235,5 +242,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn measure_key(&self) -> Option<u64> {
         (**self).measure_key()
+    }
+    fn on_long_press(&self) -> Option<Msg> {
+        (**self).on_long_press()
     }
 }

@@ -33,6 +33,7 @@ pub struct Container<Msg> {
     /// Ombre : (dx, dy, flou, couleur).
     shadow: Option<(f32, f32, f32, Color)>,
     on_click: Option<Msg>,
+    on_long_press: Option<Msg>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -53,6 +54,7 @@ impl<Msg> Container<Msg> {
             gradient: None,
             shadow: None,
             on_click: None,
+            on_long_press: None,
             children: Vec::new(),
         }
     }
@@ -138,6 +140,13 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// Message émis par un **appui long** (pression maintenue sans mouvement).
+    /// L'appui long évince le clic.
+    pub fn on_long_press(mut self, message: Msg) -> Self {
+        self.on_long_press = Some(message);
+        self
+    }
+
     /// Définit l'enfant du conteneur.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
@@ -207,6 +216,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         self.on_click.clone()
+    }
+
+    fn on_long_press(&self) -> Option<Msg> {
+        self.on_long_press.clone()
     }
 }
 

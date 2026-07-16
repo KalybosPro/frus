@@ -45,6 +45,8 @@ struct Hit<Msg> {
 pub struct Ui<Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
+    /// Cibles d'appui long (id, bornes visibles, message).
+    long_presses: Vec<Hit<Msg>>,
     focusables: Vec<(WidgetId, Rect)>,
     /// (id, viewport, offset max x, offset max y)
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
@@ -78,6 +80,15 @@ impl<Msg: Clone> Ui<Msg> {
         self.hits
             .iter()
             .find(|hit| hit.id == id)
+            .map(|hit| hit.msg.clone())
+    }
+
+    /// Message d'**appui long** de la cible la plus au-dessus contenant `point`.
+    pub fn long_press_at(&self, point: Point) -> Option<Msg> {
+        self.long_presses
+            .iter()
+            .rev()
+            .find(|hit| hit.rect.contains(point))
             .map(|hit| hit.msg.clone())
     }
 
@@ -191,6 +202,7 @@ pub(crate) fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()
 struct Builder<'a, Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
+    long_presses: Vec<Hit<Msg>>,
     focusables: Vec<(WidgetId, Rect)>,
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
@@ -247,6 +259,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
                     rect: visible,
                     msg,
                 });
+            }
+            if let Some(msg) = widget.on_long_press() {
+                self.long_presses.push(Hit { id, rect: visible, msg });
             }
             if widget.focusable() {
                 self.focusables.push((id, visible));
@@ -520,6 +535,9 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             if let Some(msg) = widget.on_click() {
                 self.hits.push(Hit { id, rect: visible, msg });
             }
+            if let Some(msg) = widget.on_long_press() {
+                self.long_presses.push(Hit { id, rect: visible, msg });
+            }
             if widget.focusable() {
                 self.focusables.push((id, visible));
             }
@@ -726,6 +744,7 @@ pub fn build_ui<'a, Msg: Clone>(
     let mut builder = Builder {
         scene: Scene::new(),
         hits: Vec::new(),
+        long_presses: Vec::new(),
         focusables: Vec::new(),
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
@@ -757,6 +776,7 @@ pub fn build_ui<'a, Msg: Clone>(
     Ui {
         scene: builder.scene,
         hits: builder.hits,
+        long_presses: builder.long_presses,
         focusables: builder.focusables,
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
@@ -904,6 +924,23 @@ mod tests {
         let _ = build_ui(&clickable_sample(), Size::new(500.0, 100.0), &rt, &Theme::default());
         let (hits3, misses3) = rt.layout_cache.borrow().last_frame_stats();
         assert_eq!((hits3, misses3), (0, 1), "redimensionnement → recalcul");
+    }
+
+    #[test]
+    fn long_press_targets_are_collected_topmost_first() {
+        // Un conteneur à appui long contenant un enfant à appui long : le point
+        // dans l'enfant renvoie le message de l'enfant (le plus au-dessus).
+        let tree: Container<Msg> = Container::new()
+            .width(200.0)
+            .height(100.0)
+            .on_long_press(Msg::A)
+            .child(
+                Container::new().width(50.0).height(50.0).on_long_press(Msg::B),
+            );
+        let ui = build_ui(&tree, Size::new(200.0, 100.0), &Runtime::default(), &Theme::default());
+        assert_eq!(ui.long_press_at(Point::new(25.0, 25.0)), Some(Msg::B));
+        assert_eq!(ui.long_press_at(Point::new(150.0, 80.0)), Some(Msg::A));
+        assert_eq!(ui.long_press_at(Point::new(500.0, 500.0)), None);
     }
 
     #[test]

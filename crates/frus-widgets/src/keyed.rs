@@ -124,6 +124,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
     fn measure_key(&self) -> Option<u64> {
         self.inner.measure_key()
     }
+
+    fn on_long_press(&self) -> Option<Msg> {
+        self.inner.on_long_press()
+    }
 }
 
 #[cfg(test)]

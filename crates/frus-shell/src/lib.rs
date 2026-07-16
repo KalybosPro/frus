@@ -7,6 +7,7 @@
 mod app;
 mod application;
 mod command;
+mod gesture;
 mod subscription;
 
 pub use app::App;

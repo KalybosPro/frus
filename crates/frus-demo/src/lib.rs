@@ -1022,6 +1022,8 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     .align(Align::Center)
     .gap(12.0);
     Container::new()
+        // Appui long sur la ligne = suppression (le motif mobile, en plus du ×).
+        .on_long_press(Msg::DeleteTodo(id))
         .radius(10.0)
         .color(theme.surface)
         .border(1.0, theme.border)
