@@ -36,7 +36,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let bg = theme.surface.lerp(theme.on_surface, 0.07 * status.hover_progress);
+        let bg = theme.state_layer(theme.surface, theme.on_surface, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(

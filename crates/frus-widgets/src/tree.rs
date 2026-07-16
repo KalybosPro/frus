@@ -38,7 +38,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         if self.message.is_some() && status.hover_progress > 0.0 {
-            let bg = theme.surface.lerp(theme.on_surface, 0.05 * status.hover_progress);
+            let bg = theme.state_layer(theme.surface, theme.on_surface, &status);
             scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, frus_core::Color::TRANSPARENT);
         }
         let x = bounds.x + self.depth as f32 * INDENT;

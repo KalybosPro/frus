@@ -72,7 +72,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
         let (bg, fg) = if self.selected {
             (theme.primary, theme.on_primary)
         } else {
-            let hovered = theme.surface.lerp(theme.on_surface, 0.08 * status.hover_progress);
+            let hovered = theme.state_layer(theme.surface, theme.on_surface, &status);
             (hovered, theme.on_surface)
         };
         scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
