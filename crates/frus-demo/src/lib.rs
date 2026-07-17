@@ -116,6 +116,8 @@ enum Msg {
     ToggleTheme,
     /// Passe à la graine de thème suivante (default → Blue → Purple → Orange).
     CycleSeed,
+    /// Bascule la direction de mise en page (LTR ↔ RTL).
+    ToggleRtl,
     SetNotifs(bool),
     SetVolume(f32),
     SetRadio(usize),
@@ -296,6 +298,8 @@ struct TodoApp {
     insets: Insets,
     /// Graine du thème : `0` = schéma écrit main, sinon `from_seed` (HCT).
     seed_index: usize,
+    /// Mise en page droite-à-gauche (arabe/hébreu) ?
+    rtl: bool,
     /// L'état vient d'un instantané live-reload : `init` ne recharge pas les
     /// tâches depuis le disque (l'instantané fait foi).
     restored: bool,
@@ -351,7 +355,7 @@ fn seed_label(app: &TodoApp) -> String {
 /// Thème « cible » selon l'état (avant fondu) : schéma écrit main par défaut,
 /// ou généré depuis une graine (Material 3 `from_seed`, HCT).
 fn theme_of(app: &TodoApp) -> Theme {
-    match app.seed_index.checked_sub(1).and_then(|i| THEME_SEEDS.get(i)) {
+    let theme = match app.seed_index.checked_sub(1).and_then(|i| THEME_SEEDS.get(i)) {
         Some((_, seed)) => Theme::from_seed(*seed, !app.light),
         None => {
             if app.light {
@@ -360,6 +364,12 @@ fn theme_of(app: &TodoApp) -> Theme {
                 Theme::dark()
             }
         }
+    };
+    // Direction ambiante : en RTL, tout le layout se retourne.
+    if app.rtl {
+        theme.rtl()
+    } else {
+        theme
     }
 }
 
@@ -423,6 +433,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.theme_from = Some(theme_of(app));
             app.seed_index = (app.seed_index + 1) % (THEME_SEEDS.len() + 1);
             app.theme_progress = 0.0;
+            Command::none()
+        }
+        Msg::ToggleRtl => {
+            // La direction est discrète (pas de fondu) : bascule immédiate.
+            app.rtl = !app.rtl;
             Command::none()
         }
         Msg::SetNotifs(v) => {
@@ -1204,6 +1219,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .action(timer_label, Msg::ToggleTimer)
         .action(theme_label, Msg::ToggleTheme)
         .action(seed_label(app), Msg::CycleSeed)
+        .action(if app.rtl { "LTR" } else { "RTL" }, Msg::ToggleRtl)
         .action("A+", Msg::SetDensity(app.density + 0.1))
         .action("A−", Msg::SetDensity(app.density - 0.1))
         .action("Log →", Msg::Push(Route::Journal))

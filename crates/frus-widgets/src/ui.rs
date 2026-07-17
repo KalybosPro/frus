@@ -303,14 +303,41 @@ struct Builder<'a, Msg> {
     /// Profondeur courante du walk (pour l'indentation du dump et le nuancier
     /// des contours de l'inspecteur).
     depth: usize,
+    /// Direction de mise en page : en RTL, les rectangles de chaque racine sont
+    /// **retournés** horizontalement autour de la largeur de la racine.
+    rtl: bool,
 }
 
 impl<'a, Msg: Clone> Builder<'a, Msg> {
     /// Rectangles d'une racine de layout, via le cache de relayout retenu dans le
     /// runtime (recalcule via taffy seulement si style/structure/contraintes ont
     /// changé). Emprunt mutable bref : la `Vec` renvoyée est possédée.
+    ///
+    /// En **RTL**, taffy calcule en LTR (canonique, mis en cache), puis on
+    /// **miroite** chaque rectangle autour de la largeur de la racine (le 1ᵉʳ
+    /// rect) : les rangées s'inversent, l'alignement et les marges se
+    /// retournent — sans toucher aux widgets. Le texte, lui, se dessine
+    /// normalement dans sa boîte déplacée (le bidi *interne* est géré par
+    /// cosmic-text).
     fn cached_rects(&self, key: WidgetId, root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
-        self.runtime.layout_cache.borrow_mut().rects(key, root, c)
+        let mut rects = self.runtime.layout_cache.borrow_mut().rects(key, root, c);
+        self.mirror(&mut rects);
+        rects
+    }
+
+    /// Retourne horizontalement les rectangles d'une racine (RTL). Le premier
+    /// rect est la racine elle-même : sa largeur est l'axe de symétrie.
+    fn mirror(&self, rects: &mut [Rect]) {
+        if !self.rtl {
+            return;
+        }
+        let Some(root) = rects.first().copied() else {
+            return;
+        };
+        // Axe : les rects sont relatifs à la racine (origine à root.x).
+        for r in rects.iter_mut() {
+            r.x = root.x + (root.width - (r.x - root.x) - r.width);
+        }
     }
 
     fn walk(
@@ -885,7 +912,7 @@ fn build_ui_impl<'a, Msg: Clone>(
     theme: &'a Theme,
     inspect: bool,
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
-    let rects = runtime
+    let mut rects = runtime
         .layout_cache
         .borrow_mut()
         .rects(WidgetId::ROOT, root, Constraints::definite(available));
@@ -907,7 +934,10 @@ fn build_ui_impl<'a, Msg: Clone>(
         theme,
         inspector: inspect.then(Vec::new),
         depth: 0,
+        rtl: theme.direction.is_rtl(),
     };
+    // Racine mirroitée en RTL (comme toute racine de layout).
+    builder.mirror(&mut rects);
     let mut index = 0;
     builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
 
@@ -1043,6 +1073,27 @@ mod tests {
                     .color(Color::rgb(0.0, 0.0, 1.0))
                     .on_click(Msg::B),
             )
+    }
+
+    #[test]
+    fn rtl_mirrors_row_horizontally() {
+        let size = Size::new(400.0, 100.0);
+        // A = bouton fixe 120 px (à gauche en LTR), B = reste flexible.
+        let ltr = build_ui(&clickable_sample(), size, &Runtime::default(), &Theme::default());
+        let rtl = build_ui(
+            &clickable_sample(),
+            size,
+            &Runtime::default(),
+            &Theme::default().rtl(),
+        );
+        let hit = |ui: &Ui<Msg>, x: f32| ui.hit(Point::new(x, 50.0)).and_then(|id| ui.msg_for(id));
+
+        // LTR : le bouton A occupe le bord gauche.
+        assert_eq!(hit(&ltr, 40.0), Some(Msg::A));
+        assert_eq!(hit(&ltr, 360.0), Some(Msg::B));
+        // RTL : tout est retourné — A passe à droite, B occupe la gauche.
+        assert_eq!(hit(&rtl, 360.0), Some(Msg::A), "A à droite en RTL");
+        assert_eq!(hit(&rtl, 40.0), Some(Msg::B), "B à gauche en RTL");
     }
 
     #[test]

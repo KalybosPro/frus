@@ -23,6 +23,25 @@ impl Point {
     }
 }
 
+/// La **direction de lecture** du texte et de la mise en page. Contexte
+/// ambiant (façon `Directionality` de Flutter) : en RTL, les rangées, l'aligne-
+/// ment et les marges directionnelles se retournent horizontalement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TextDirection {
+    /// Gauche → droite (latin, par défaut).
+    #[default]
+    Ltr,
+    /// Droite → gauche (arabe, hébreu…).
+    Rtl,
+}
+
+impl TextDirection {
+    /// `true` si droite-à-gauche.
+    pub fn is_rtl(self) -> bool {
+        matches!(self, TextDirection::Rtl)
+    }
+}
+
 /// Marges (intérieures ou extérieures) par côté, en pixels logiques.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Insets {
@@ -42,6 +61,40 @@ impl Insets {
     /// La même marge sur les quatre côtés.
     pub const fn uniform(value: f32) -> Self {
         Self::new(value, value, value, value)
+    }
+}
+
+/// Marges **directionnelles** : `start`/`end` au lieu de `left`/`right`. En LTR,
+/// `start` = gauche ; en RTL, `start` = droite. Résolues en [`Insets`] concrets
+/// au moment de la mise en page (façon `EdgeInsetsDirectional` de Flutter).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct InsetsDirectional {
+    pub top: f32,
+    pub end: f32,
+    pub bottom: f32,
+    pub start: f32,
+}
+
+impl InsetsDirectional {
+    pub const ZERO: Self = Self::new(0.0, 0.0, 0.0, 0.0);
+
+    pub const fn new(top: f32, end: f32, bottom: f32, start: f32) -> Self {
+        Self { top, end, bottom, start }
+    }
+
+    /// Marge `start`/`end` symétrique horizontale (façon `symmetric`).
+    pub const fn horizontal(value: f32) -> Self {
+        Self::new(0.0, value, 0.0, value)
+    }
+
+    /// Résout en marges concrètes selon la direction : en RTL, `start`↔droite.
+    pub fn resolve(self, direction: TextDirection) -> Insets {
+        let (left, right) = if direction.is_rtl() {
+            (self.end, self.start)
+        } else {
+            (self.start, self.end)
+        };
+        Insets::new(self.top, right, self.bottom, left)
     }
 }
 
@@ -199,6 +252,18 @@ impl Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directional_insets_flip_start_end() {
+        // start=10, end=4 : en LTR start→gauche ; en RTL start→droite.
+        let d = InsetsDirectional::new(1.0, 4.0, 2.0, 10.0);
+        let ltr = d.resolve(TextDirection::Ltr);
+        assert_eq!((ltr.left, ltr.right, ltr.top, ltr.bottom), (10.0, 4.0, 1.0, 2.0));
+        let rtl = d.resolve(TextDirection::Rtl);
+        assert_eq!((rtl.left, rtl.right), (4.0, 10.0), "start passe à droite en RTL");
+        // Le vertical ne bouge jamais.
+        assert_eq!((rtl.top, rtl.bottom), (1.0, 2.0));
+    }
 
     #[test]
     fn window_insets_split_and_safe_area() {

@@ -142,9 +142,9 @@ pub use widget::Widget;
 
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{
-    Border, BorderRadius, BoxDecoration, BoxShadow, Color, FontWeight, Insets, LinearGradient,
-    Orientation, Point, Rect, Scene, SizeClass, Size, TextDecoration, TextSpan, TextStyle,
-    WindowInsets,
+    Border, BorderRadius, BoxDecoration, BoxShadow, Color, FontWeight, Insets, InsetsDirectional,
+    LinearGradient, Orientation, Point, Rect, Scene, SizeClass, Size, TextDecoration, TextDirection,
+    TextSpan, TextStyle, WindowInsets,
 };
 /// Couche d'animation partagée (physique, courbes, pilote) — voir
 /// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent

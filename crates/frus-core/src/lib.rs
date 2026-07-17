@@ -20,7 +20,7 @@ pub use animation::{
 };
 pub use color::Color;
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
-pub use geometry::{Insets, Point, Rect, Size, WindowInsets};
+pub use geometry::{Insets, InsetsDirectional, Point, Rect, Size, TextDirection, WindowInsets};
 pub use hct::{Hct, TonalPalette};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{Primitive, Scene};

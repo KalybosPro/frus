@@ -86,6 +86,40 @@ fn inspector_overlay_matches_golden() {
     snapshot.assert_golden(golden("inspector_overlay"));
 }
 
+/// **RTL** : la même rangée [rouge][vert][bleu] se retourne horizontalement —
+/// le rouge (1er enfant) passe à droite. Preuve indépendante de la police du
+/// miroir de mise en page.
+#[test]
+fn rtl_mirrors_the_row() {
+    let red = Color::rgb(0.9, 0.2, 0.2);
+    let blue = Color::rgb(0.2, 0.4, 0.9);
+    let make = || {
+        Flex::<()>::row()
+            .width(150.0)
+            .height(40.0)
+            .child(Container::new().width(50.0).height(40.0).color(red))
+            .child(Container::new().width(50.0).height(40.0).color(Color::rgb(0.2, 0.8, 0.4)))
+            .child(Container::new().width(50.0).height(40.0).color(blue))
+    };
+    // LTR : rouge à gauche, bleu à droite.
+    let ltr_theme = Theme::dark();
+    let rtl_theme = Theme::dark().rtl();
+    let (Some(ltr), Some(rtl)) = (
+        render_widget(&make(), 150, 40, &ltr_theme),
+        render_widget(&make(), 150, 40, &rtl_theme),
+    ) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    let is_red = |px: [u8; 4]| px[0] > 180 && px[1] < 120;
+    let is_blue = |px: [u8; 4]| px[2] > 180 && px[0] < 120;
+    // LTR : rouge au bord gauche, bleu au bord droit.
+    assert!(is_red(ltr.pixel(10, 20)) && is_blue(ltr.pixel(140, 20)), "LTR normal");
+    // RTL : miroir — rouge à droite, bleu à gauche.
+    assert!(is_red(rtl.pixel(140, 20)) && is_blue(rtl.pixel(10, 20)), "RTL retourné");
+    rtl.assert_golden(golden("rtl_row"));
+}
+
 /// Le comparateur : identique → 0 diff ; un pixel changé → 1 diff.
 #[test]
 fn diff_count_is_exact() {

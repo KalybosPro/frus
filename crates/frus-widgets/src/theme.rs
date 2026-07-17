@@ -4,7 +4,7 @@
 //! widgets l'utilisent pour leurs valeurs par défaut (couleur de texte, champ de
 //! saisie, barres de défilement…), sans empêcher une surcharge explicite.
 
-use frus_core::{Color, FontWeight, TextStyle};
+use frus_core::{Color, FontWeight, TextDirection, TextStyle};
 
 use crate::interaction::{Interaction, Status};
 
@@ -313,6 +313,10 @@ pub struct Theme {
     pub radius: f32,
     /// Unité d'espacement de base.
     pub spacing: f32,
+    /// **Direction de lecture/mise en page** ambiante (LTR par défaut). En RTL,
+    /// le pilote retourne horizontalement la mise en page. Porté ici (contexte
+    /// ambiant threadé jusqu'au paint) en attendant un `Env` dédié (§2).
+    pub direction: TextDirection,
 }
 
 impl Theme {
@@ -338,7 +342,14 @@ impl Theme {
             text: TextTheme::default(),
             radius: 10.0,
             spacing: 8.0,
+            direction: TextDirection::Ltr,
         }
+    }
+
+    /// Le même thème en **droite-à-gauche** (arabe, hébreu…).
+    pub fn rtl(mut self) -> Self {
+        self.direction = TextDirection::Rtl;
+        self
     }
 
     /// Thème sombre.
@@ -403,6 +414,8 @@ impl Theme {
         out.text = self.text;
         out.radius = f(self.radius, other.radius);
         out.spacing = f(self.spacing, other.spacing);
+        // La direction est discrète : on garde celle de la cible du fondu.
+        out.direction = other.direction;
         out
     }
 }
