@@ -62,6 +62,36 @@ struct Bridge {
 unsafe impl Send for Bridge {}
 unsafe impl Sync for Bridge {}
 
+/// Instantané de l'état d'édition du champ focalisé — le contexte que l'IME
+/// interroge (texte avant/après le curseur, sélection). Mis à jour par le
+/// shell, lu par les natives sur le thread UI Java.
+#[derive(Default)]
+struct EditorState {
+    /// Caractères du champ (indices en **caractères**, pas en octets).
+    chars: Vec<char>,
+    cursor: usize,
+    selection: Option<(usize, usize)>,
+}
+
+static EDITOR: Mutex<Option<EditorState>> = Mutex::new(None);
+
+/// Pousse l'état d'édition du champ focalisé (appelé par le shell à chaque
+/// changement) — sert de contexte aux suggestions de l'IME.
+pub(crate) fn set_editor_state(text: &str, cursor: usize, selection: Option<(usize, usize)>) {
+    let chars: Vec<char> = text.chars().collect();
+    let cursor = cursor.min(chars.len());
+    *EDITOR.lock().unwrap() = Some(EditorState {
+        chars,
+        cursor,
+        selection,
+    });
+}
+
+/// Efface le contexte (le focus quitte les champs texte).
+pub(crate) fn clear_editor_state() {
+    *EDITOR.lock().unwrap() = None;
+}
+
 /// Le dex du pont, compilé par `scripts/build-input-dex.sh` et versionné.
 static BRIDGE_DEX: &[u8] = include_bytes!("../assets/frus_input.dex");
 
@@ -126,6 +156,21 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
             method("nativeDelete", "(II)V", native_delete as *mut _),
             method("nativeEditorAction", "(I)V", native_editor_action as *mut _),
             method("nativeKey", "(IZII)Z", native_key as *mut _),
+            method(
+                "nativeTextBeforeCursor",
+                "(I)Ljava/lang/String;",
+                native_text_before as *mut _,
+            ),
+            method(
+                "nativeTextAfterCursor",
+                "(I)Ljava/lang/String;",
+                native_text_after as *mut _,
+            ),
+            method(
+                "nativeSelectedText",
+                "()Ljava/lang/String;",
+                native_selected_text as *mut _,
+            ),
         ],
     )?;
 
@@ -248,4 +293,58 @@ extern "system" fn native_key(
         });
     }
     handled as jboolean
+}
+
+// --- Contexte de saisie (lu par l'IME via l'InputConnection) -----------------
+
+/// Renvoie une `jstring` Java (ou une chaîne vide) sans propager d'erreur.
+fn to_jstring(env: &JNIEnv, text: &str) -> jni::sys::jstring {
+    env.new_string(text)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
+extern "system" fn native_text_before(
+    env: JNIEnv,
+    _class: JClass,
+    n: jint,
+) -> jni::sys::jstring {
+    let guard = EDITOR.lock().unwrap();
+    let text = guard
+        .as_ref()
+        .map(|s| {
+            let n = (n.max(0) as usize).min(s.cursor);
+            s.chars[s.cursor - n..s.cursor].iter().collect::<String>()
+        })
+        .unwrap_or_default();
+    to_jstring(&env, &text)
+}
+
+extern "system" fn native_text_after(
+    env: JNIEnv,
+    _class: JClass,
+    n: jint,
+) -> jni::sys::jstring {
+    let guard = EDITOR.lock().unwrap();
+    let text = guard
+        .as_ref()
+        .map(|s| {
+            let end = (s.cursor + n.max(0) as usize).min(s.chars.len());
+            s.chars[s.cursor..end].iter().collect::<String>()
+        })
+        .unwrap_or_default();
+    to_jstring(&env, &text)
+}
+
+extern "system" fn native_selected_text(env: JNIEnv, _class: JClass) -> jni::sys::jstring {
+    let guard = EDITOR.lock().unwrap();
+    let text = guard
+        .as_ref()
+        .and_then(|s| {
+            let (a, b) = s.selection?;
+            let (a, b) = (a.min(s.chars.len()), b.min(s.chars.len()));
+            (a < b).then(|| s.chars[a..b].iter().collect::<String>())
+        })
+        .unwrap_or_default();
+    to_jstring(&env, &text)
 }

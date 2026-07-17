@@ -145,6 +145,25 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             );
         }
 
+        // Région de **composition** IME : soulignée (texte provisoire, façon
+        // Material/Flutter). Dessinée par-dessus le texte, sous la ligne de base.
+        if status.focused {
+            if let Some((start, end)) = status.composing {
+                let (start, end) = (start.min(len), end.min(len));
+                for r in layout.selection_rects(start, end) {
+                    scene.fill_rect(
+                        Rect::new(
+                            text_x + r.x,
+                            text_y + r.y + r.height - 1.5,
+                            r.width,
+                            1.5,
+                        ),
+                        theme.on_surface.fade(o * 0.7),
+                    );
+                }
+            }
+        }
+
         // Curseur.
         if status.focused {
             let cursor = status.cursor.unwrap_or(len).min(len);
@@ -247,6 +266,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         Some(layout.hit_test(Point::new(target, 0.0)))
     }
 
+    fn text_value(&self) -> Option<&str> {
+        Some(&self.value)
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         let chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
@@ -330,6 +353,35 @@ mod tests {
     }
 
     #[test]
+    fn composing_region_draws_an_underline() {
+        // La région composée ajoute des rectangles fins (soulignement) sous le
+        // texte, absents quand aucune composition n'est en cours.
+        let inp = input("konnichiwa");
+        let base = Status { focused: true, cursor: Some(5), ..Default::default() };
+        let composing = Status { composing: Some((0, 5)), ..base };
+
+        let count_thin_rects = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(&inp, Rect::new(0.0, 0.0, 220.0, 30.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.height <= 2.0 && rect.width > 2.0))
+                .count()
+        };
+        let plain = count_thin_rects(base);
+        let underlined = count_thin_rects(composing);
+        assert!(underlined > plain, "la composition doit souligner ({plain} → {underlined})");
+    }
+
+    #[test]
+    fn text_value_exposes_the_field_content() {
+        // Le contexte de saisie (suggestions IME) lit la valeur du champ.
+        let inp = input("hello");
+        assert_eq!(Widget::<Msg>::text_value(&inp), Some("hello"));
+    }
+
+    #[test]
     fn cursor_at_accounts_for_scroll() {
         // Champ étroit + texte long → défilement quand le curseur est en fin.
         let inp = input("0123456789 abcdefghij");
@@ -350,7 +402,7 @@ mod tests {
     #[test]
     fn insert_at_cursor() {
         let inp = input("ac");
-        let mut edit = Edit { cursor: 1, anchor: None };
+        let mut edit = Edit { cursor: 1, anchor: None, composing: None };
         assert_eq!(
             inp.on_edit(&mut edit, &Key::Text("b".to_string())),
             Some(Msg::Changed("abc".to_string()))
@@ -362,7 +414,7 @@ mod tests {
     fn shift_arrow_selects_then_delete() {
         let inp = input("hello");
         // Curseur en fin, Shift+Left deux fois -> sélectionne "lo".
-        let mut edit = Edit { cursor: 5, anchor: None };
+        let mut edit = Edit { cursor: 5, anchor: None, composing: None };
         inp.on_edit(&mut edit, &Key::Left { shift: true });
         inp.on_edit(&mut edit, &Key::Left { shift: true });
         assert_eq!(edit.selection_range(), Some((3, 5)));
@@ -378,7 +430,7 @@ mod tests {
     #[test]
     fn home_end_bounds() {
         let inp = input("abc");
-        let mut edit = Edit { cursor: 1, anchor: None };
+        let mut edit = Edit { cursor: 1, anchor: None, composing: None };
         inp.on_edit(&mut edit, &Key::End { shift: false });
         assert_eq!(edit.cursor, 3);
         inp.on_edit(&mut edit, &Key::Home { shift: false });
@@ -388,14 +440,14 @@ mod tests {
     #[test]
     fn selected_text_reads_range() {
         let inp = input("hello");
-        let edit = Edit { cursor: 5, anchor: Some(2) };
+        let edit = Edit { cursor: 5, anchor: Some(2), composing: None };
         assert_eq!(inp.selected_text(&edit), Some("llo".to_string()));
     }
 
     #[test]
     fn enter_submits_without_changing_value() {
         let inp = input("acheter du lait").on_submit(Msg::Submitted);
-        let mut edit = Edit { cursor: 3, anchor: None };
+        let mut edit = Edit { cursor: 3, anchor: None, composing: None };
         // Entrée : émet la soumission, ne renvoie pas de changement de valeur.
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
         assert_eq!(edit.cursor, 3); // curseur inchangé
@@ -404,7 +456,7 @@ mod tests {
     #[test]
     fn enter_without_submit_is_noop() {
         let inp = input("x");
-        let mut edit = Edit { cursor: 1, anchor: None };
+        let mut edit = Edit { cursor: 1, anchor: None, composing: None };
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
     }
 

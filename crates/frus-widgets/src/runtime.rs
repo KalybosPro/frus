@@ -26,6 +26,9 @@ pub struct Edit {
     pub cursor: usize,
     /// Ancre de sélection (`None` = pas de sélection).
     pub anchor: Option<usize>,
+    /// Plage `(début, fin)` en **cours de composition** IME (texte provisoire,
+    /// souligné à l'écran) ; `None` hors composition. En indices de caractères.
+    pub composing: Option<(usize, usize)>,
 }
 
 impl Edit {

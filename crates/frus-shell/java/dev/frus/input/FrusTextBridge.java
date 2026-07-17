@@ -8,6 +8,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.ExtractedText;
+import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 
@@ -30,6 +32,11 @@ public final class FrusTextBridge extends View {
     private static native void nativeEditorAction(int action);
     /** Renvoie true si le natif a consommé la touche (édition). */
     private static native boolean nativeKey(int keyCode, boolean down, int unicode, int meta);
+    // Contexte de saisie : l'état d'édition réel du champ focalisé, pour que
+    // l'IME propose des suggestions pertinentes.
+    private static native String nativeTextBeforeCursor(int n);
+    private static native String nativeTextAfterCursor(int n);
+    private static native String nativeSelectedText();
 
     private static FrusTextBridge instance;
 
@@ -92,7 +99,10 @@ public final class FrusTextBridge extends View {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo out) {
-        out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+        // Texte libre AVEC composition/suggestions actives (le contexte est
+        // fourni par les natives get*Cursor) : c'est ce qui allume le
+        // soulignement de composition et les propositions de l'IME.
+        out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
         out.imeOptions = EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_FULLSCREEN;
         return new Connection(this);
     }
@@ -146,6 +156,42 @@ public final class FrusTextBridge extends View {
         public boolean performEditorAction(int actionCode) {
             nativeEditorAction(actionCode);
             return true;
+        }
+
+        // Contexte : réponses tirées de l'état d'édition natif (et non de
+        // l'Editable locale, vide) → suggestions/corrections pertinentes.
+        @Override
+        public CharSequence getTextBeforeCursor(int n, int flags) {
+            String s = nativeTextBeforeCursor(n);
+            return s != null ? s : "";
+        }
+
+        @Override
+        public CharSequence getTextAfterCursor(int n, int flags) {
+            String s = nativeTextAfterCursor(n);
+            return s != null ? s : "";
+        }
+
+        @Override
+        public CharSequence getSelectedText(int flags) {
+            String s = nativeSelectedText();
+            return (s != null && s.length() > 0) ? s : null;
+        }
+
+        // État d'édition **complet** : beaucoup d'IME (SwiftKey…) n'activent la
+        // composition/prédiction que s'ils peuvent extraire le champ entier.
+        @Override
+        public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
+            String before = nativeTextBeforeCursor(100000);
+            String after = nativeTextAfterCursor(100000);
+            ExtractedText et = new ExtractedText();
+            et.text = before + after;
+            et.startOffset = 0;
+            et.selectionStart = before.length();
+            et.selectionEnd = before.length();
+            et.partialStartOffset = -1;
+            et.partialEndOffset = -1;
+            return et;
         }
 
         @Override

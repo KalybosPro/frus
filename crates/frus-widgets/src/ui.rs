@@ -579,6 +579,7 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
                 status.selection = edit.selection_range();
+                status.composing = edit.composing;
             }
         }
         status
@@ -1407,7 +1408,7 @@ mod tests {
         let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ");
 
         let widget = find_widget(&tree, id).expect("widget trouvé");
-        let mut edit = Edit { cursor: 2, anchor: None };
+        let mut edit = Edit { cursor: 2, anchor: None, composing: None };
         assert_eq!(
             widget.on_edit(&mut edit, &Key::Text("!".to_string())),
             Some(Msg::Edited("hi!".to_string()))

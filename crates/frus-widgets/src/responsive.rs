@@ -120,6 +120,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.selected_text(edit))
     }
 
+    fn text_value(&self) -> Option<&str> {
+        self.inner.as_ref().and_then(|w| w.text_value())
+    }
+
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         self.inner.as_ref().and_then(|w| w.word_at(index))
     }

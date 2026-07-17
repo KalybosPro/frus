@@ -93,6 +93,9 @@ pub struct Status {
     pub cursor: Option<usize>,
     /// Plage `(début, fin)` sélectionnée, en indices de caractères.
     pub selection: Option<(usize, usize)>,
+    /// Plage `(début, fin)` en **cours de composition** IME (texte provisoire,
+    /// souligné) ; `None` hors composition. En indices de caractères.
+    pub composing: Option<(usize, usize)>,
     /// Progression de la transition de survol (`0.0..=1.0`).
     pub hover_progress: f32,
     /// Progression de la transition de focus (`0.0..=1.0`).
@@ -114,6 +117,7 @@ impl Default for Status {
             focused: false,
             cursor: None,
             selection: None,
+            composing: None,
             hover_progress: 0.0,
             focus_progress: 0.0,
             opacity: 1.0,
@@ -149,6 +153,7 @@ impl InputState {
             focused: self.focused == Some(id),
             cursor: None,
             selection: None,
+            composing: None,
             hover_progress: 0.0,
             focus_progress: 0.0,
             opacity: 1.0,

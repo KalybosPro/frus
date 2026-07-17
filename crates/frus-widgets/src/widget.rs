@@ -63,6 +63,12 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Valeur **complète** du champ, si ce widget est un champ texte — pour
+    /// fournir le contexte de saisie à l'IME (suggestions). `None` sinon.
+    fn text_value(&self) -> Option<&str> {
+        None
+    }
+
     /// Plage `(début, fin)` du mot autour de l'index donné (pour le double-clic).
     fn word_at(&self, _index: usize) -> Option<(usize, usize)> {
         None
@@ -218,6 +224,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         (**self).selected_text(edit)
+    }
+    fn text_value(&self) -> Option<&str> {
+        (**self).text_value()
     }
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         (**self).word_at(index)

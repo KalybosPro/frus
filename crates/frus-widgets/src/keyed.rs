@@ -74,6 +74,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.selected_text(edit)
     }
 
+    fn text_value(&self) -> Option<&str> {
+        self.inner.text_value()
+    }
+
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
         self.inner.word_at(index)
     }

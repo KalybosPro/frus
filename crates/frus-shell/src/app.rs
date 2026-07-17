@@ -252,8 +252,12 @@ impl<A: Application> App<A> {
                 if crate::android_ime::installed() {
                     // Pont InputConnection : la view Java capte l'IME.
                     if editing {
+                        if let Some(id) = self.runtime.input.focused {
+                            self.push_ime_context(id);
+                        }
                         crate::android_ime::start_input();
                     } else {
+                        crate::android_ime::clear_editor_state();
                         crate::android_ime::stop_input();
                     }
                 } else if let Some(app) = &self.android_app {
@@ -296,12 +300,24 @@ impl<A: Application> App<A> {
                 }
                 ImeEvent::Composing(text) => {
                     self.clear_composing(focused);
-                    self.ime_composing = text.chars().count();
+                    let n = text.chars().count();
+                    self.ime_composing = n;
+                    // Position AVANT insertion = début de la région composée.
+                    let start = self.runtime.edits.get(&focused).map(|e| e.cursor).unwrap_or(0);
                     if !text.is_empty() {
                         self.apply_key(focused, Key::Text(text));
                     }
+                    // Enregistre la plage soulignée (curseur désormais en fin).
+                    if let Some(edit) = self.runtime.edits.get_mut(&focused) {
+                        edit.composing = if n > 0 { Some((start, start + n)) } else { None };
+                    }
                 }
-                ImeEvent::FinishComposing => self.ime_composing = 0,
+                ImeEvent::FinishComposing => {
+                    self.ime_composing = 0;
+                    if let Some(edit) = self.runtime.edits.get_mut(&focused) {
+                        edit.composing = None;
+                    }
+                }
                 ImeEvent::Delete { before, after } => {
                     for _ in 0..before {
                         self.apply_key(focused, Key::Backspace);
@@ -322,16 +338,37 @@ impl<A: Application> App<A> {
                 },
             }
         }
+        // Rafraîchit le contexte de saisie (l'IME l'interroge pour ses suggestions).
+        self.push_ime_context(focused);
         self.request_redraw();
     }
 
-    /// Efface la composition courante du champ (curseur en fin de composition).
+    /// Publie l'état d'édition du champ `id` vers le pont (texte + curseur +
+    /// sélection) — le contexte que l'IME lit pour ses suggestions.
+    #[cfg(target_os = "android")]
+    fn push_ime_context(&self, id: WidgetId) {
+        let value = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.text_value().map(|s| s.to_string()));
+        if let Some(text) = value {
+            let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
+            crate::android_ime::set_editor_state(&text, edit.cursor, edit.selection_range());
+        }
+    }
+
+    /// Efface la composition courante du champ (curseur en fin de composition)
+    /// et remet la plage soulignée à zéro.
     #[cfg(target_os = "android")]
     fn clear_composing(&mut self, focused: WidgetId) {
         for _ in 0..self.ime_composing {
             self.apply_key(focused, Key::Backspace);
         }
         self.ime_composing = 0;
+        if let Some(edit) = self.runtime.edits.get_mut(&focused) {
+            edit.composing = None;
+        }
     }
 
     /// Mémorise la poignée de l'activité Android (source des insets système).
@@ -691,6 +728,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                                 Edit {
                                     cursor: usize::MAX,
                                     anchor: Some(0),
+                                    composing: None,
                                 },
                             );
                             self.request_redraw();
@@ -1132,7 +1170,7 @@ impl<A: Application> App<A> {
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
             if let Some(cursor) = cursor {
-                self.runtime.edits.insert(id, Edit { cursor, anchor: None });
+                self.runtime.edits.insert(id, Edit { cursor, anchor: None, composing: None });
                 self.drag = Some(Drag::TextSelect { id, rect });
 
                 // Double-clic : sélectionne le mot sous le curseur.
@@ -1154,6 +1192,7 @@ impl<A: Application> App<A> {
                             Edit {
                                 cursor: end,
                                 anchor: Some(start),
+                                composing: None,
                             },
                         );
                         self.drag = None;
