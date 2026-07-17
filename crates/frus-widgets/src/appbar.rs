@@ -44,6 +44,9 @@ const BTN_PAD_X: f32 = 20.0;
 const GAP: f32 = 8.0;
 /// Largeur réservée à l'emplacement `leading` (icône de tête, façon Material).
 const LEADING_SLOT: f32 = 56.0;
+/// Marge horizontale de la barre : le contenu ne touche pas les bords (façon
+/// Material). Comptée dans le budget de repli.
+const H_PAD: f32 = 8.0;
 
 /// Le titre : un texte stylé, ou n'importe quel widget (façon Flutter).
 enum Title<Msg> {
@@ -208,7 +211,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
             Title::Widget(widget) => Self::widget_width(widget.as_ref()),
         };
-        let budget = width - leading_w - title_w - gap * 3.0;
+        // La marge horizontale ampute le budget des deux côtés (le contenu ne
+        // touche pas les bords). `width` non fixé (f32::MAX) reste ~infini.
+        let budget = (width - H_PAD * 2.0).min(width) - leading_w - title_w - gap * 3.0;
         let overflow_btn_w = Self::action_width("⋯", action_size) + gap;
 
         // Largeur de chaque action ; les widgets libres sont **toujours** en ligne.
@@ -303,11 +308,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
         }
 
-        // Chrome optionnel : fond et/ou hauteur imposés (sinon, la rangée nue).
-        if background.is_none() && height.is_none() {
-            return Box::new(row);
-        }
-        let mut chrome = Container::new();
+        // Marge horizontale (+ chrome optionnel : fond, hauteur). La rangée est
+        // toujours encadrée pour que le contenu ne touche pas les bords.
+        let mut chrome = Container::new().padding_each(0.0, H_PAD, 0.0, H_PAD);
         if let Some(color) = background {
             chrome = chrome.color(color);
         }
@@ -361,6 +364,34 @@ mod tests {
         let n = inline_buttons(300.0, false);
         assert!(n < 3, "attendu un repli en overflow, obtenu {n} boutons en ligne");
         assert!(n >= 1, "le bouton overflow doit être présent");
+    }
+
+    /// La barre garde une marge horizontale : le contenu (leading à gauche,
+    /// dernière action à droite) ne touche pas les bords du viewport.
+    #[test]
+    fn content_keeps_a_horizontal_margin() {
+        const W: f32 = 400.0;
+        let bar = AppBar::new("Title")
+            .width(W)
+            .leading(button("M", Msg::Menu).size(16.0))
+            .overflow(false, Msg::Menu)
+            .action("One", Msg::A)
+            .build();
+        let ui = build_ui(bar.as_ref(), Size::new(W, 80.0), &Runtime::default(), &Theme::default());
+        // Bornes horizontales des **textes** (titre + libellés) : sans ombre,
+        // ils reflètent la position réelle du contenu (le flou des ombres, lui,
+        // déborde légitimement).
+        let mut min_x = f32::MAX;
+        let mut max_x = f32::MIN;
+        for p in ui.scene().primitives() {
+            if let frus_core::Primitive::Text { position, size, text, .. } = p {
+                min_x = min_x.min(position.x);
+                // Largeur approchée du texte (borne haute suffisante ici).
+                max_x = max_x.max(position.x + text.chars().count() as f32 * size * 0.7);
+            }
+        }
+        assert!(min_x >= H_PAD - 0.5, "contenu collé au bord gauche ({min_x})");
+        assert!(max_x <= W - H_PAD + 0.5, "contenu débordant à droite ({max_x} > {})", W - H_PAD);
     }
 
     #[test]

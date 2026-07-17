@@ -1188,8 +1188,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     // overflow « ⋯ », selon la largeur — sans jamais brancher sur mobile/desktop.
     let theme_label = if app.light { "Dark" } else { "Light" };
     let timer_label = if app.running { "Pause" } else { "Resume" };
-    let header = AppBar::new("My Tasks")
-        .width((width - 16.0).max(0.0))
+    // Le titre suit la section active (comme le ferait une vraie app).
+    let section_title = match app.section {
+        1 => "Stats",
+        2 => "About",
+        _ => "My Tasks",
+    };
+    let header = AppBar::new(section_title)
+        .width(width)
         .leading(button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(16.0))
         .overflow(app.actions_open, Msg::ToggleActions)
         .action(timer_label, Msg::ToggleTimer)
@@ -1316,7 +1322,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     // Corps selon la section active (la navigation adaptative est dans le Scaffold).
     let section: Box<dyn Widget<Msg>> = match app.section {
         1 => Box::new(stats_section(app, theme, class)),
-        2 => Box::new(about_section(theme)),
+        2 => Box::new(about_section(theme, width)),
         _ => Box::new(tasks_body),
     };
 
@@ -1432,7 +1438,11 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
 }
 
 /// Section « About » : contenu statique de présentation.
-fn about_section(theme: &Theme) -> Container<Msg> {
+fn about_section(theme: &Theme, width: f32) -> Container<Msg> {
+    // Largeur du contenu = viewport moins les paddings (conteneur 24×2 +
+    // carte 20×2), bornée à une lecture confortable — sinon débordement
+    // horizontal en Compact.
+    let content_width = (width - 88.0).max(240.0).min(560.0);
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
             column![
@@ -1463,7 +1473,7 @@ fn about_section(theme: &Theme) -> Container<Msg> {
                 .wrap(),
             ]
             .gap(12.0)
-            .width(360.0),
+            .width(content_width),
         ),
     )
 }
