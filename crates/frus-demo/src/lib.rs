@@ -979,14 +979,17 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     );
     let total = app.todos.len();
     let done = app.todos.iter().filter(|t| t.done).count();
+    // Largeur utile de l'onglet (viewport moins les paddings colonne/tab),
+    // bornée : les vitrines s'adaptent au Compact au lieu de déborder.
+    let inner_w = (width - 72.0).clamp(240.0, 480.0);
     let stats = Grid::new(3)
         .gap(10.0)
-        .width(360.0)
+        .width(inner_w)
         .cell(stat_tile(theme, "Total", total))
         .cell(stat_tile(theme, "Active", total - done))
         .cell(stat_tile(theme, "Done", done));
     let facts = Table::new(2)
-        .width(320.0)
+        .width(inner_w)
         .header(&["Metric", "Value"])
         .row(&["Widgets", "35"])
         .row(&["Milestones", "39"]);
@@ -1080,8 +1083,8 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         carousel,
         Pagination::new(app.page, 8, Msg::SetPage),
         column![
-            Skeleton::new().width(320.0),
-            Skeleton::new().width(260.0).height(14.0),
+            Skeleton::new().width(inner_w),
+            Skeleton::new().width(inner_w * 0.8).height(14.0),
         ]
         .gap(8.0),
         Divider::new(),
