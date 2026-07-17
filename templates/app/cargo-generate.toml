@@ -1,0 +1,11 @@
+# Template `cargo generate` d'une application frus.
+#
+#   cargo install cargo-generate       # une fois
+#   cargo generate --path templates/app --name my-app
+#
+# (Depuis un dépôt distant : `cargo generate --git <url> templates/app`.)
+[template]
+description = "A minimal frus application (counter)"
+
+[placeholders]
+frus_path = { type = "string", prompt = "Chemin vers votre checkout frus (contient crates/)", default = "../frus" }

@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# `templates/app` est un gabarit `cargo generate` (fichiers `{{…}}` non
+# compilables) : jamais un membre du workspace.
+exclude = ["templates"]
 
 [workspace.package]
 edition = "2021"

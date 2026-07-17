@@ -1,0 +1,28 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2021"
+
+# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# frus n'est pas (encore) publié sur crates.io : on référence le checkout local.
+# Une fois publié, remplacer par :  frus-shell = "0.1"  (etc.)
+frus-shell = { path = "{{frus_path}}/crates/frus-shell" }
+frus-widgets = { path = "{{frus_path}}/crates/frus-widgets" }
+anyhow = "1"
+log = "0.4"
+
+# --- Empaquetage Android (cargo-apk : `cargo apk run`) ---
+[package.metadata.android]
+package = "com.example.{{crate_name}}"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.application]
+label = "{{project-name}}"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34

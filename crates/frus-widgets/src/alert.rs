@@ -2,7 +2,7 @@
 //! [`crate::Toast`] transitoire.
 
 use frus_core::{Color, Point, Rect, Scene};
-use frus_layout::{Dimension, Style};
+use frus_layout::Style;
 
 use crate::interaction::Status;
 use crate::theme::Theme;
