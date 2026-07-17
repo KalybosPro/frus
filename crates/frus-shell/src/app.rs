@@ -1014,6 +1014,21 @@ impl<A: Application> App<A> {
         (self.scale * self.app.density()).max(0.1)
     }
 
+    /// Direction de mise en page courante (RTL retourne le layout et les gestes).
+    fn is_rtl(&self) -> bool {
+        self.app.theme().direction.is_rtl()
+    }
+
+    /// Largeur **logique** de la fenêtre (px), pour les seuils de bord.
+    fn logical_width(&self) -> f32 {
+        let scale = self.total_scale();
+        self.window
+            .as_ref()
+            .map(|w| w.inner_size().width as f32 / scale)
+            .unwrap_or(1.0)
+            .max(1.0)
+    }
+
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -1104,8 +1119,14 @@ impl<A: Application> App<A> {
     /// Appui du pointeur (souris ou doigt) à la position `self.cursor`. `touch`
     /// active le défilement au doigt quand aucun autre geste ne capture l'appui.
     fn pointer_down(&mut self, touch: bool) {
-        // 0) Geste retour : appui sur le bord gauche, si l'app l'autorise.
-        if self.cursor.x < BACK_EDGE && self.app.can_go_back() {
+        // 0) Geste retour : appui sur le **bord de départ** (gauche en LTR,
+        // droite en RTL), si l'app l'autorise.
+        let on_back_edge = if self.is_rtl() {
+            self.cursor.x > self.logical_width() - BACK_EDGE
+        } else {
+            self.cursor.x < BACK_EDGE
+        };
+        if on_back_edge && self.app.can_go_back() {
             self.drag = Some(Drag::Back {
                 start_x: self.cursor.x,
                 last_x: self.cursor.x,
@@ -1423,11 +1444,14 @@ impl<A: Application> App<A> {
                     .max(1.0);
                 let now = Instant::now();
                 let x = self.cursor.x;
-                let progress = ((x - *start_x) / width).clamp(0.0, 1.0);
+                // En RTL, le doigt glisse vers la **gauche** depuis le bord droit :
+                // la progression (et la vélocité) suivent le sens inverse.
+                let sign = if self.is_rtl() { -1.0 } else { 1.0 };
+                let progress = (sign * (x - *start_x) / width).clamp(0.0, 1.0);
                 let dt = (now - *last_t).as_secs_f32();
                 if dt > 1e-4 {
                     // Vitesse instantanée (fraction/s), lissée par moyenne exponentielle.
-                    let inst = (x - *last_x) / width / dt;
+                    let inst = sign * (x - *last_x) / width / dt;
                     *velocity = *velocity * 0.5 + inst * 0.5;
                     *last_x = x;
                     *last_t = now;

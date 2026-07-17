@@ -120,6 +120,38 @@ fn rtl_mirrors_the_row() {
     rtl.assert_golden(golden("rtl_row"));
 }
 
+/// **RTL** : un tiroir de bord (`end_drawer`, côté *end* = droite en LTR)
+/// passe à **gauche** en RTL — le placement des overlays suit la direction.
+#[test]
+fn rtl_flips_the_drawer_side() {
+    use frus_widgets::Scaffold;
+    let drawer_color = Color::rgb(0.9, 0.3, 0.3);
+    let make = || {
+        Scaffold::<()>::new(200.0, 120.0)
+            .body(Container::new().width(200.0).height(120.0).color(Color::rgb(0.1, 0.1, 0.12)))
+            .end_drawer(
+                Container::new().width(90.0).height(120.0).color(drawer_color),
+                true,
+                (),
+            )
+            .build()
+    };
+    let is_drawer = |px: [u8; 4]| px[0] > 180 && px[1] < 120 && px[2] < 120;
+    let (Some(ltr), Some(rtl)) = (
+        render_widget(make().as_ref(), 200, 120, &Theme::dark()),
+        render_widget(make().as_ref(), 200, 120, &Theme::dark().rtl()),
+    ) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    let edge = |s: &frus_test::Snapshot, x: u32| is_drawer(s.pixel(x, 60));
+    // LTR : le tiroir est ancré au bord **gauche** (côté start).
+    assert!(edge(&ltr, 2) && !edge(&ltr, 197), "LTR : tiroir à gauche");
+    // RTL : miroir — le tiroir passe au bord **droit**.
+    assert!(edge(&rtl, 197) && !edge(&rtl, 2), "RTL : tiroir à droite");
+    rtl.assert_golden(golden("rtl_drawer"));
+}
+
 /// Le comparateur : identique → 0 diff ; un pixel changé → 1 diff.
 #[test]
 fn diff_count_is_exact() {

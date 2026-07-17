@@ -757,17 +757,29 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             );
             let size = rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
 
+            // Glissements d'un tiroir depuis le bord gauche / droit.
+            let from_left = -(1.0 - progress) * size.width;
+            let from_right = self.available.width - progress * size.width;
+            // Menu/tooltip ancré : aligné au bord **de départ** de l'ancre — en
+            // RTL, ce bord est la droite (le menu s'ouvre vers la gauche).
+            let anchor_x = if self.rtl {
+                anchor.x + anchor.width - size.width
+            } else {
+                anchor.x
+            };
             let mut pos = match placement {
-                Placement::Below => (anchor.x, anchor.y + anchor.height + 4.0),
+                Placement::Below => (anchor_x, anchor.y + anchor.height + 4.0),
                 Placement::Center => (
                     (self.available.width - size.width) * 0.5,
                     (self.available.height - size.height) * 0.5,
                 ),
-                Placement::Tooltip => (anchor.x, anchor.y - size.height - 6.0),
-                // Le tiroir glisse depuis la gauche : décalé de `(1-progress)·largeur`.
-                Placement::Left => (-(1.0 - progress) * size.width, 0.0),
-                // Idem depuis la droite : le bord droit reste collé à la fenêtre.
-                Placement::Right => (self.available.width - progress * size.width, 0.0),
+                Placement::Tooltip => (anchor_x, anchor.y - size.height - 6.0),
+                // `Left` = tiroir du côté **start** ; en RTL, start = droite.
+                Placement::Left if self.rtl => (from_right, 0.0),
+                Placement::Left => (from_left, 0.0),
+                // `Right` = côté **end** ; en RTL, end = gauche.
+                Placement::Right if self.rtl => (from_left, 0.0),
+                Placement::Right => (from_right, 0.0),
                 // La feuille glisse depuis le bas : le bord bas reste collé à la
                 // fenêtre, décalée de `(1-progress)·hauteur` vers le bas.
                 Placement::Bottom => (0.0, self.available.height - progress * size.height),
