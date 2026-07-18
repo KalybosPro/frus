@@ -10,6 +10,35 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
+use frus_l10n::{args, Localizer};
+use std::sync::OnceLock;
+
+/// Le localiseur de la démo : anglais + français, chargés une seule fois depuis
+/// des ressources Fluent embarquées (`i18n/*.ftl`).
+fn l10n() -> &'static Localizer {
+    static L10N: OnceLock<Localizer> = OnceLock::new();
+    L10N.get_or_init(|| {
+        let mut l = Localizer::new("en");
+        l.add("en", include_str!("../i18n/en.ftl"));
+        l.add("fr", include_str!("../i18n/fr.ftl"));
+        l
+    })
+}
+
+/// Les langues proposées par la démo (étiquette du menu, code de locale).
+const LANGS: [(&str, &str); 2] = [("English", "en"), ("Français", "fr")];
+
+/// Traduit une clé sans argument dans la langue d'index `lang`.
+fn tr(lang: usize, key: &str) -> String {
+    let loc = l10n();
+    loc.format_for(&loc.langid(LANGS[lang].1), key, args![])
+}
+
+/// Traduit une clé avec un argument numérique `n` (pluriels CLDR).
+fn tr_n(lang: usize, key: &str, n: usize) -> String {
+    let loc = l10n();
+    loc.format_for(&loc.langid(LANGS[lang].1), key, args![n: n])
+}
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
@@ -118,6 +147,8 @@ enum Msg {
     CycleSeed,
     /// Bascule la direction de mise en page (LTR ↔ RTL).
     ToggleRtl,
+    /// Passe à la langue suivante (English ↔ Français).
+    CycleLang,
     SetNotifs(bool),
     SetVolume(f32),
     SetRadio(usize),
@@ -300,6 +331,8 @@ struct TodoApp {
     seed_index: usize,
     /// Mise en page droite-à-gauche (arabe/hébreu) ?
     rtl: bool,
+    /// Langue courante (index dans `LANGS` : 0 = English, 1 = Français).
+    lang: usize,
     /// L'état vient d'un instantané live-reload : `init` ne recharge pas les
     /// tâches depuis le disque (l'instantané fait foi).
     restored: bool,
@@ -438,6 +471,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::ToggleRtl => {
             // La direction est discrète (pas de fondu) : bascule immédiate.
             app.rtl = !app.rtl;
+            Command::none()
+        }
+        Msg::CycleLang => {
+            app.lang = (app.lang + 1) % LANGS.len();
             Command::none()
         }
         Msg::SetNotifs(v) => {
@@ -1206,11 +1243,12 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     // overflow « ⋯ », selon la largeur — sans jamais brancher sur mobile/desktop.
     let theme_label = if app.light { "Dark" } else { "Light" };
     let timer_label = if app.running { "Pause" } else { "Resume" };
-    // Le titre suit la section active (comme le ferait une vraie app).
+    // Le titre suit la section active (comme le ferait une vraie app) — la
+    // section Tasks est localisée (Fluent) pour la démo i18n.
     let section_title = match app.section {
-        1 => "Stats",
-        2 => "About",
-        _ => "My Tasks",
+        1 => "Stats".to_string(),
+        2 => "About".to_string(),
+        _ => tr(app.lang, "app-title"),
     };
     let header = AppBar::new(section_title)
         .width(width)
@@ -1220,6 +1258,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .action(theme_label, Msg::ToggleTheme)
         .action(seed_label(app), Msg::CycleSeed)
         .action(if app.rtl { "LTR" } else { "RTL" }, Msg::ToggleRtl)
+        // Bascule de langue : l'étiquette montre la LANGUE VERS LAQUELLE on va.
+        .action(LANGS[(app.lang + 1) % LANGS.len()].0, Msg::CycleLang)
         .action("A+", Msg::SetDensity(app.density + 0.1))
         .action("A−", Msg::SetDensity(app.density - 0.1))
         .action("Log →", Msg::Push(Route::Journal))
@@ -1245,9 +1285,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
         Msg::SetFilter(filter_from_index(i))
     })
-    .segment("All")
-    .segment("Active")
-    .segment("Done");
+    .segment(tr(app.lang, "filter-all"))
+    .segment(tr(app.lang, "filter-active"))
+    .segment(tr(app.lang, "filter-done"));
     let mut filters = row![segmented].align(Align::Center).gap(8.0);
     // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
     if app.filter != Filter::All {
@@ -1292,11 +1332,18 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let pct = (done as f32 / total as f32 * 100.0).round() as u32;
 
     // Résumé construit selon sa boîte RÉELLE (Lot C : LayoutBuilder). Texte long
-    // quand il y a de la place, court quand c'est étroit — hauteur fixe.
+    // (compteurs pluralisés, localisés Fluent) quand il y a de la place, court
+    // quand c'est étroit — hauteur fixe.
     let muted = theme.muted;
+    let lang = app.lang;
+    let total = active + done;
     let summary = LayoutBuilder::new(move |size: Size| {
         let label = if size.width >= 360.0 {
-            format!("{active} active · {done} done · {pct}% complete")
+            format!(
+                "{} · {} · {pct}%",
+                tr_n(lang, "task-count", total),
+                tr_n(lang, "remaining", active)
+            )
         } else {
             format!("{active}·{done}")
         };

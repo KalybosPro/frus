@@ -13,6 +13,7 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 frus-shell = { path = "../frus-shell" }
 frus-widgets = { path = "../frus-widgets" }
+frus-l10n = { path = "../frus-l10n" }
 anyhow.workspace = true
 log.workspace = true
 

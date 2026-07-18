@@ -1,0 +1,11 @@
+[package]
+name = "frus-l10n"
+description = "frus — localisation (i18n/l10n) : bundles Fluent + négociation de locale"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Fluent (Mozilla) : le standard i18n Rust. On ne réinvente pas.
+fluent-bundle = "0.16"
+unic-langid = "0.9"
