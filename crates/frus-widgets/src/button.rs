@@ -135,6 +135,14 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
     fn focusable(&self) -> bool {
         true
     }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        Some(
+            frus_core::Semantics::new(frus_core::Role::Button)
+                .label(self.label.clone())
+                .clickable(),
+        )
+    }
 }
 
 #[cfg(test)]

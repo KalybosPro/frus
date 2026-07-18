@@ -12,6 +12,7 @@ mod geometry;
 mod hct;
 mod responsive;
 mod scene;
+mod semantics;
 mod text_style;
 
 pub use animation::{
@@ -23,5 +24,6 @@ pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradi
 pub use geometry::{Insets, InsetsDirectional, Point, Rect, Size, TextDirection, WindowInsets};
 pub use hct::{Hct, TonalPalette};
 pub use responsive::{Orientation, SizeClass};
+pub use semantics::{Role, Semantics, Toggled};
 pub use scene::{Primitive, Scene};
 pub use text_style::{FontWeight, TextDecoration, TextRun, TextSpan, TextStyle};

@@ -18,6 +18,14 @@ impl WidgetId {
         self.0
     }
 
+    /// Reconstruit une identité depuis sa valeur brute (inverse d'[`as_u64`]) —
+    /// pour router une action venue d'une couche externe (accessibilité).
+    ///
+    /// [`as_u64`]: WidgetId::as_u64
+    pub fn from_u64(raw: u64) -> WidgetId {
+        WidgetId(raw)
+    }
+
     /// Dérive l'identité du `index`-ième enfant de ce widget (positionnel).
     pub(crate) fn child(self, index: usize) -> WidgetId {
         let mut h = self.0 ^ (index as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);

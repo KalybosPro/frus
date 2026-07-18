@@ -88,6 +88,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .unwrap_or("Responsive")
     }
 
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        self.inner.as_ref().and_then(|w| w.semantics())
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         self.inner.as_ref().map(|w| w.children()).unwrap_or(&[])
     }

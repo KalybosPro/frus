@@ -97,6 +97,16 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn focusable(&self) -> bool {
         true
     }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        let mut s = frus_core::Semantics::new(frus_core::Role::CheckBox)
+            .toggled(self.checked)
+            .clickable();
+        if let Some(label) = &self.label {
+            s = s.label(label.clone());
+        }
+        Some(s)
+    }
 }
 
 #[cfg(test)]

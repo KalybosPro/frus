@@ -1,6 +1,6 @@
 //! Le trait [`Widget`], générique sur le type de message émis à l'interaction.
 
-use frus_core::{Rect, Scene, Size};
+use frus_core::{Rect, Scene, Semantics, Size};
 use frus_layout::Style;
 
 use crate::interaction::{Key, Status};
@@ -40,6 +40,14 @@ pub trait Widget<Msg> {
     /// wrappers transparents (`Box`, [`crate::Keyed`]…) délèguent au contenu.
     fn debug_name(&self) -> &'static str {
         short_type_name::<Self>()
+    }
+
+    /// **Annotation d'accessibilité** du widget (rôle, libellé, valeur, état),
+    /// exposée aux technologies d'assistance via l'arbre AccessKit. `None` =
+    /// pas de sémantique propre (conteneur de mise en page — ses enfants, eux,
+    /// peuvent en avoir). Voir [`frus_core::Semantics`].
+    fn semantics(&self) -> Option<Semantics> {
+        None
     }
 
     /// Applique une touche au widget focalisé : mute l'état d'édition
@@ -203,6 +211,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn debug_name(&self) -> &'static str {
         (**self).debug_name()
+    }
+    fn semantics(&self) -> Option<Semantics> {
+        (**self).semantics()
     }
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         (**self).children()

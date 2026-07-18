@@ -67,6 +67,15 @@ impl<Msg> Widget<Msg> for ProgressBar {
     fn on_click(&self) -> Option<Msg> {
         None
     }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        let pct = (self.value * 100.0).round();
+        Some(
+            frus_core::Semantics::new(frus_core::Role::ProgressBar)
+                .value(format!("{pct}%"))
+                .range(0.0, self.value, 1.0),
+        )
+    }
 }
 
 #[cfg(test)]

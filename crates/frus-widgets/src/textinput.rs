@@ -270,6 +270,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         Some(&self.value)
     }
 
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        Some(frus_core::Semantics::new(frus_core::Role::TextInput).value(self.value.clone()))
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         let chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();

@@ -4,6 +4,8 @@
 //! `frus-gpu` et pilote la boucle `événement → frame` pour n'importe quelle
 //! [`Application`]. C'est la seule couche dépendante de la plateforme.
 
+#[cfg(not(target_os = "android"))]
+mod a11y;
 #[cfg(target_os = "android")]
 mod android_ime;
 mod app;

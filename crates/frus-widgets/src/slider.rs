@@ -89,6 +89,15 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         None
     }
 
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        let pct = (self.value * 100.0).round();
+        Some(
+            frus_core::Semantics::new(frus_core::Role::Slider)
+                .value(format!("{pct}%"))
+                .range(0.0, self.value, 1.0),
+        )
+    }
+
     fn draggable(&self) -> bool {
         true
     }

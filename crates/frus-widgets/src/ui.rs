@@ -68,12 +68,22 @@ pub struct Ui<Msg> {
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
     wants_animation: bool,
+    /// Arbre d'accessibilité : nœuds sémantiques (id, bornes, annotation),
+    /// dans l'ordre de peinture. Le shell le mappe vers AccessKit.
+    semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
     /// La scène à envoyer au renderer.
     pub fn scene(&self) -> &Scene {
         &self.scene
+    }
+
+    /// L'**arbre d'accessibilité** de la frame : chaque nœud porteur de sens
+    /// avec ses bornes à l'écran et son annotation ([`frus_core::Semantics`]).
+    /// Ordre de peinture (= ordre de lecture). Le shell le pousse à AccessKit.
+    pub fn semantics(&self) -> &[(WidgetId, Rect, frus_core::Semantics)] {
+        &self.semantics
     }
 
     /// `true` si un widget s'anime en continu (le framework doit redessiner).
@@ -306,6 +316,8 @@ struct Builder<'a, Msg> {
     /// Direction de mise en page : en RTL, les rectangles de chaque racine sont
     /// **retournés** horizontalement autour de la largeur de la racine.
     rtl: bool,
+    /// Nœuds d'accessibilité collectés pendant le walk (ordre de peinture).
+    semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
 impl<'a, Msg: Clone> Builder<'a, Msg> {
@@ -383,6 +395,10 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             }
             if widget.draggable() {
                 self.draggables.push((id, visible));
+            }
+            // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
+            if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
+                self.semantics.push((id, visible, sem));
             }
         }
 
@@ -683,6 +699,10 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
             if widget.draggable() {
                 self.draggables.push((id, visible));
             }
+            // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
+            if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
+                self.semantics.push((id, visible, sem));
+            }
         }
 
         for (child_index, child) in widget.children().iter().enumerate() {
@@ -947,6 +967,7 @@ fn build_ui_impl<'a, Msg: Clone>(
         inspector: inspect.then(Vec::new),
         depth: 0,
         rtl: theme.direction.is_rtl(),
+        semantics: Vec::new(),
     };
     // Racine mirroitée en RTL (comme toute racine de layout).
     builder.mirror(&mut rects);
@@ -980,6 +1001,7 @@ fn build_ui_impl<'a, Msg: Clone>(
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
         wants_animation: builder.wants_animation,
+        semantics: builder.semantics,
     };
     (ui, builder.inspector)
 }
@@ -1064,6 +1086,30 @@ mod tests {
         C,
         D,
         Edited(String),
+    }
+
+    #[test]
+    fn semantics_tree_carries_roles_and_labels() {
+        use crate::{Button, Checkbox, Role, Text};
+        let rt = Runtime::default();
+        let tree = crate::Flex::column()
+            .child(Text::new("Titre"))
+            .child(Button::new("Valider").on_press(Msg::A))
+            .child(Checkbox::new(true).on_toggle(|_| Msg::B));
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let sem = ui.semantics();
+        // Un nœud par widget porteur de sens (le Flex conteneur est ignoré).
+        let roles: Vec<Role> = sem.iter().map(|(_, _, s)| s.role).collect();
+        assert!(roles.contains(&Role::Label));
+        assert!(roles.contains(&Role::Button));
+        assert!(roles.contains(&Role::CheckBox));
+        // Le bouton porte son libellé et est actionnable.
+        let button = sem.iter().find(|(_, _, s)| s.role == Role::Button).unwrap();
+        assert_eq!(button.2.label.as_deref(), Some("Valider"));
+        assert!(button.2.clickable);
+        // La case cochée reflète son état.
+        let check = sem.iter().find(|(_, _, s)| s.role == Role::CheckBox).unwrap();
+        assert_eq!(check.2.toggled, crate::Toggled::True);
     }
 
     fn clickable_sample() -> Flex<Msg> {

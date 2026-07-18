@@ -13,10 +13,14 @@ pollster.workspace = true
 anyhow.workspace = true
 log.workspace = true
 
-# Presse-papier + logger console : plateformes de bureau uniquement.
+# Presse-papier + logger console + accessibilité : bureau uniquement.
+# (AccessKit expose l'arbre sémantique aux lecteurs d'écran natifs — UIA
+# Windows, AT-SPI Linux, macOS ; le provider Android est un chantier distinct.)
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard.workspace = true
 env_logger.workspace = true
+accesskit = "0.24"
+accesskit_winit = "0.33"
 
 # Sur Android, winit passe par l'activité native (android-activity) et les logs
 # vont dans logcat.

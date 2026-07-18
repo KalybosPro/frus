@@ -74,6 +74,14 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         true
     }
 
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        Some(
+            frus_core::Semantics::new(frus_core::Role::Switch)
+                .toggled(self.on)
+                .clickable(),
+        )
+    }
+
     fn anim_target(&self) -> Option<f32> {
         Some(if self.on { 1.0 } else { 0.0 })
     }

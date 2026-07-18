@@ -171,6 +171,11 @@ impl<Msg> Widget<Msg> for Text {
     fn on_click(&self) -> Option<Msg> {
         None
     }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        // Un texte porte son contenu comme libellé accessible.
+        Some(frus_core::Semantics::new(frus_core::Role::Label).label(self.content.clone()))
+    }
 }
 
 #[cfg(test)]

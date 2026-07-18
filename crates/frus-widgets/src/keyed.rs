@@ -46,6 +46,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.debug_name()
     }
 
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        self.inner.semantics()
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         self.inner.children()
     }

@@ -119,6 +119,9 @@ pub struct App<A: Application> {
     proxy: EventLoopProxy<A::Message>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    /// Pont accessibilité (AccessKit) de la fenêtre — bureau uniquement.
+    #[cfg(not(target_os = "android"))]
+    a11y: Option<crate::a11y::A11y>,
     /// Dernière interface construite (hit-test, focus, scroll).
     ui: Option<Ui<A::Message>>,
     /// Dernier arbre de widgets construit (routage clavier/édition).
@@ -195,6 +198,8 @@ impl<A: Application> App<A> {
             proxy,
             window: None,
             renderer: None,
+            #[cfg(not(target_os = "android"))]
+            a11y: None,
             ui: None,
             tree: None,
             cursor: Point::new(0.0, 0.0),
@@ -226,6 +231,32 @@ impl<A: Application> App<A> {
             soft_input_shown: false,
             #[cfg(target_os = "android")]
             ime_composing: 0,
+        }
+    }
+
+    /// Rejoue les actions demandées par une technologie d'assistance : un clic
+    /// AT active le widget (comme un clic pointeur), un focus AT le focalise.
+    #[cfg(not(target_os = "android"))]
+    fn drain_a11y_actions(&mut self) {
+        use crate::a11y::A11yAction;
+        let actions = match self.a11y.as_ref() {
+            Some(a11y) => a11y.take_actions(),
+            None => return,
+        };
+        for action in actions {
+            match action {
+                A11yAction::Click(id) => {
+                    if let Some(msg) = self.ui.as_ref().and_then(|ui| ui.msg_for(id)) {
+                        self.dispatch(msg);
+                        self.request_redraw();
+                    }
+                }
+                A11yAction::Focus(id) => {
+                    self.runtime.input.focused = Some(id);
+                    self.runtime.focus_visible = true;
+                    self.request_redraw();
+                }
+            }
         }
     }
 
@@ -410,6 +441,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             .with_title(self.app.title())
             // Taille minimale raisonnable (px logiques) : évite une UI absurde.
             .with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
+        // L'adaptateur AccessKit doit être créé **avant** que la fenêtre soit
+        // montrée : on la crée cachée puis on la révèle après (bureau).
+        #[cfg(not(target_os = "android"))]
+        {
+            attributes = attributes.with_visible(false);
+        }
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }
@@ -432,6 +469,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         match renderer {
             Ok(renderer) => {
                 self.scale = window.scale_factor() as f32;
+                // Pont accessibilité (AccessKit) — créé pendant que la fenêtre
+                // est encore cachée, puis on la révèle. Inerte sans lecteur d'écran.
+                #[cfg(not(target_os = "android"))]
+                {
+                    self.a11y = Some(crate::a11y::A11y::new(event_loop, &window));
+                    window.set_visible(true);
+                }
                 self.window = Some(window.clone());
                 self.renderer = Some(renderer);
                 // Surface (re)créée : forcer une reconstruction complète à la 1re frame.
@@ -488,6 +532,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         #[cfg(target_os = "android")]
         self.drain_ime();
 
+        // Actions demandées par une technologie d'assistance (AccessKit).
+        #[cfg(not(target_os = "android"))]
+        self.drain_a11y_actions();
+
         // Live-reload (dev) : binaire remplacé par une recompilation →
         // capture l'état et relance le nouveau binaire (ne revient pas).
         if let Some(watcher) = self.reload.as_mut() {
@@ -504,6 +552,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        // L'adaptateur AccessKit observe les événements fenêtre (focus, taille…).
+        #[cfg(not(target_os = "android"))]
+        if let (Some(a11y), Some(window)) = (self.a11y.as_mut(), self.window.as_ref()) {
+            a11y.process_event(window, &event);
+        }
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
@@ -993,6 +1047,16 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // Conserve l'interface (hit-test). L'arbre est déjà retenu.
                 self.ui = Some(ui);
+
+                // Publie l'arbre sémantique de la frame à AccessKit.
+                #[cfg(not(target_os = "android"))]
+                if let Some(a11y) = self.a11y.as_mut() {
+                    let focus = self.runtime.input.focused;
+                    let title = self.app.title();
+                    if let Some(ui) = self.ui.as_ref() {
+                        a11y.update(ui.semantics(), focus, &title);
+                    }
+                }
 
                 // Clavier logiciel Android : suit le focus des champs texte.
                 self.sync_soft_input();
