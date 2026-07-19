@@ -7,7 +7,9 @@
 //! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
-use crate::{BorderRadius, Color, FontWeight, Point, Rect, TextDecoration, TextRun, TextStyle};
+use crate::{
+    BorderRadius, Color, FontWeight, Path, Point, Rect, Stroke, TextDecoration, TextRun, TextStyle,
+};
 
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +69,19 @@ pub enum Primitive {
         /// Identité du widget émetteur.
         owner: u64,
     },
+    /// Un **chemin vectoriel** : géométrie 2D arbitraire, remplie (`fill`)
+    /// et/ou tracée (`stroke`). La brique des icônes et du dessin personnalisé.
+    Path {
+        path: Path,
+        /// Couleur de remplissage intérieur (`None` = pas de remplissage).
+        fill: Option<Color>,
+        /// Contour (couleur + épaisseur), `None` = pas de contour.
+        stroke: Option<Stroke>,
+        /// Rectangle de découpe.
+        clip: Rect,
+        /// Identité du widget émetteur.
+        owner: u64,
+    },
 }
 
 impl Primitive {
@@ -76,6 +91,7 @@ impl Primitive {
             Primitive::Rect { owner, .. } => *owner,
             Primitive::Text { owner, .. } => *owner,
             Primitive::RichText { owner, .. } => *owner,
+            Primitive::Path { owner, .. } => *owner,
         }
     }
 
@@ -150,6 +166,19 @@ impl Primitive {
                     owner,
                 }
             }
+            Primitive::Path {
+                path,
+                fill,
+                stroke,
+                clip,
+                owner,
+            } => Primitive::Path {
+                path: path.scaled(factor),
+                fill,
+                stroke: stroke.map(|s| Stroke::new(s.color, s.width * factor)),
+                clip: clip.scale(factor),
+                owner,
+            },
         }
     }
 }
@@ -277,6 +306,19 @@ impl Scene {
                     owner,
                 }
             }
+            Primitive::Path {
+                path,
+                fill,
+                stroke,
+                clip,
+                owner,
+            } => Primitive::Path {
+                path,
+                fill: fill.map(|c| c.fade(opacity)),
+                stroke: stroke.map(|s| Stroke::new(s.color.fade(opacity), s.width)),
+                clip,
+                owner,
+            },
         };
         self.primitives.push(faded);
     }
@@ -363,6 +405,39 @@ impl Scene {
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             blur,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Remplit un chemin vectoriel d'une couleur unie (règle *non-zero*).
+    pub fn fill_path(&mut self, path: &Path, color: Color) {
+        self.primitives.push(Primitive::Path {
+            path: path.clone(),
+            fill: Some(color),
+            stroke: None,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Trace le contour d'un chemin (couleur + épaisseur), sans remplissage.
+    pub fn stroke_path(&mut self, path: &Path, color: Color, width: f32) {
+        self.primitives.push(Primitive::Path {
+            path: path.clone(),
+            fill: None,
+            stroke: Some(Stroke::new(color, width)),
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Ajoute un chemin rempli **et/ou** tracé (les deux passes en une primitive).
+    pub fn paint_path(&mut self, path: &Path, fill: Option<Color>, stroke: Option<Stroke>) {
+        self.primitives.push(Primitive::Path {
+            path: path.clone(),
+            fill,
+            stroke,
             clip: self.current_clip,
             owner: self.current_owner,
         });

@@ -4,6 +4,7 @@
 use frus_core::Scene;
 
 use crate::painter::Painter;
+use crate::path::PathPainter;
 use crate::text::TextPainter;
 
 /// Couleur de fond (bleu nuit).
@@ -21,6 +22,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painter: Painter,
+    path: PathPainter,
     text: TextPainter,
 }
 
@@ -93,6 +95,9 @@ impl Renderer {
         let painter = Painter::new(&device, format);
         painter.set_viewport(&queue, width as f32, height as f32);
 
+        let path = PathPainter::new(&device, format);
+        path.set_viewport(&queue, width as f32, height as f32);
+
         let text = TextPainter::new(&device, &queue, format);
 
         Ok(Self {
@@ -101,6 +106,7 @@ impl Renderer {
             queue,
             config,
             painter,
+            path,
             text,
         })
     }
@@ -112,6 +118,7 @@ impl Renderer {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.painter.set_viewport(&self.queue, width as f32, height as f32);
+            self.path.set_viewport(&self.queue, width as f32, height as f32);
         }
     }
 
@@ -135,6 +142,7 @@ impl Renderer {
         let rect_count =
             self.painter
                 .prepare_frame(&self.device, &self.queue, scene, &decorations);
+        let path_index_count = self.path.prepare_frame(&self.device, &self.queue, scene);
 
         let frame = self.surface.get_current_texture()?;
         let view = frame
@@ -164,6 +172,7 @@ impl Renderer {
             });
 
             self.painter.draw(&mut pass, rect_count);
+            self.path.draw(&mut pass, path_index_count);
             self.text.draw(&mut pass);
         }
 

@@ -13,6 +13,7 @@ pub use wgpu;
 
 mod offscreen;
 mod painter;
+mod path;
 mod renderer;
 mod text;
 

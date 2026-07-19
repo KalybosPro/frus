@@ -326,6 +326,7 @@ mod tests {
             frus_core::Primitive::Rect { rect, .. } => rect.y >= 700.0 && rect.height < 100.0,
             frus_core::Primitive::Text { position, .. }
             | frus_core::Primitive::RichText { position, .. } => position.y >= 700.0,
+            frus_core::Primitive::Path { .. } => false,
         });
         assert!(pinned_low, "la barre basse doit être épinglée dans la bande basse");
     }

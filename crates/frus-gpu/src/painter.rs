@@ -242,8 +242,9 @@ impl Painter {
                     // Rayons négatifs bornés à zéro avant rendu.
                     radii: radius.clamped().to_array(),
                 }),
-                // Le texte (simple ou riche) est rendu séparément par le TextPainter.
-                Primitive::Text { .. } | Primitive::RichText { .. } => {}
+                // Texte (simple/riche) et chemins vectoriels sont rendus par
+                // leurs painters dédiés (TextPainter / PathPainter).
+                Primitive::Text { .. } | Primitive::RichText { .. } | Primitive::Path { .. } => {}
             }
         }
 

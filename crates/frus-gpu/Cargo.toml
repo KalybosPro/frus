@@ -11,6 +11,8 @@ frus-text = { path = "../frus-text" }
 wgpu.workspace = true
 glyphon.workspace = true
 bytemuck.workspace = true
+# Tessellation des chemins vectoriels (fill/stroke) → triangles GPU.
+lyon.workspace = true
 anyhow.workspace = true
 log.workspace = true
 # Attente bloquante de l'init device (rendu hors écran, sans boucle async).

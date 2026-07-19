@@ -50,7 +50,7 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
-    Container, DatePicker, Divider, Dropdown, Flex, Grid, Insets, Justify, Kbd, LayoutBuilder, List,
+    Container, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
@@ -1384,6 +1384,17 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                 Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
                     .title("Tip"),
             ),
+        );
+        // Rangée d'icônes vectorielles (jalon 89) : chemins tessellisés, colorés
+        // au thème — la coche reprend la couleur d'accent.
+        card_body = card_body.child(
+            Flex::row()
+                .gap(16.0)
+                .child(Icon::new(IconName::Check).color(theme.primary))
+                .child(Icon::new(IconName::Star))
+                .child(Icon::new(IconName::Heart))
+                .child(Icon::new(IconName::Menu))
+                .child(Icon::new(IconName::ChevronRight)),
         );
     }
     // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —

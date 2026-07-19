@@ -9,6 +9,7 @@
 use frus_core::{Color, Scene};
 
 use crate::painter::Painter;
+use crate::path::PathPainter;
 use crate::text::TextPainter;
 
 /// Une frame rendue hors écran : octets RGBA **sRGB**, ligne par ligne.
@@ -54,6 +55,9 @@ pub fn render_offscreen(
     let mut rect_painter = Painter::new(&device, format);
     rect_painter.set_viewport(&queue, width as f32, height as f32);
     let rect_count = rect_painter.prepare_frame(&device, &queue, scene, &decorations);
+    let mut path_painter = PathPainter::new(&device, format);
+    path_painter.set_viewport(&queue, width as f32, height as f32);
+    let path_index_count = path_painter.prepare_frame(&device, &queue, scene);
 
     // Le clear est en sRGB (couleur d'auteur) : la cible sRGB attend du linéaire.
     let clear_linear = clear.to_linear();
@@ -80,6 +84,7 @@ pub fn render_offscreen(
             occlusion_query_set: None,
         });
         rect_painter.draw(&mut pass, rect_count);
+        path_painter.draw(&mut pass, path_index_count);
         text_painter.draw(&mut pass);
     }
 
@@ -166,7 +171,7 @@ fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frus_core::Rect;
+    use frus_core::{Path, Point, Rect};
 
     /// Le chemin hors écran rend la même chose que le pipeline fenêtré : un
     /// rectangle rouge plein → pixel central rouge, hors du rect → clear.
@@ -186,5 +191,56 @@ mod tests {
         };
         assert_eq!(px(10, 10), [255, 0, 0], "dans le rect → rouge");
         assert_eq!(px(60, 30), [0, 0, 0], "hors du rect → clear");
+    }
+
+    /// Un **triangle vectoriel** rempli en vert : un point bien à l'intérieur est
+    /// vert, un coin hors du triangle reste au clear. Preuve que la tessellation
+    /// + le pipeline de chemins produisent bien des pixels.
+    #[test]
+    fn fills_a_vector_triangle() {
+        // Triangle couvrant le bas de la surface : sommet en haut au centre,
+        // base sur toute la largeur en bas.
+        let triangle = Path::new()
+            .move_to(Point::new(32.0, 4.0))
+            .line_to(Point::new(60.0, 60.0))
+            .line_to(Point::new(4.0, 60.0))
+            .close();
+        let mut scene = Scene::new();
+        scene.fill_path(&triangle, Color::rgb(0.0, 1.0, 0.0));
+
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        let px = |x: u32, y: u32| {
+            let i = ((y * frame.width + x) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        // Près de la base, au centre : bien à l'intérieur → vert.
+        assert_eq!(px(32, 54), [0, 255, 0], "intérieur du triangle → vert");
+        // Coin haut-gauche : au-dessus/à côté du sommet → hors triangle → clear.
+        assert_eq!(px(4, 4), [0, 0, 0], "hors du triangle → clear");
+    }
+
+    /// Le **contour** (stroke) d'un chemin peint des pixels sur le trait mais pas
+    /// au centre (chemin non rempli).
+    #[test]
+    fn strokes_a_path_outline_only() {
+        // Un carré tracé (non rempli) de 40×40 centré.
+        let square = Path::rect(Rect::new(12.0, 12.0, 40.0, 40.0));
+        let mut scene = Scene::new();
+        scene.stroke_path(&square, Color::rgb(0.0, 0.0, 1.0), 4.0);
+
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        let px = |x: u32, y: u32| {
+            let i = ((y * frame.width + x) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        // Sur le bord gauche du carré → bleu ; au centre → clear (pas de fill).
+        assert_eq!(px(12, 32), [0, 0, 255], "sur le contour → bleu");
+        assert_eq!(px(32, 32), [0, 0, 0], "au centre → clear (non rempli)");
     }
 }
