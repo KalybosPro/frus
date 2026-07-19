@@ -32,10 +32,42 @@ const DEJAVU_SANS_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
 const DEJAVU_SANS_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
 const DEJAVU_SANS_BOLD_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
 const DEJAVU_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
+/// **Arabe** (Noto Naskh) : DejaVu ne couvre pas l'écriture arabe (pas de formes
+/// de jonction contextuelles) ; cette face fournit le repli pour les runs
+/// arabes, embarquée pour un rendu déterministe partout (y compris Android, où
+/// aucune police système n'est chargée).
+const NOTO_ARABIC: &[u8] = include_bytes!("../assets/NotoNaskhArabic-Regular.ttf");
+const NOTO_ARABIC_BOLD: &[u8] = include_bytes!("../assets/NotoNaskhArabic-Bold.ttf");
 
 /// Nom de famille interne des polices embarquées (doit correspondre aux TTF).
 const SANS_FAMILY: &str = "DejaVu Sans";
 const MONO_FAMILY: &str = "DejaVu Sans Mono";
+/// Famille de la face arabe embarquée (Noto Naskh).
+const ARABIC_FAMILY: &str = "Noto Naskh Arabic";
+
+/// `true` si `text` contient au moins un caractère de l'écriture **arabe**
+/// (blocs Arabic, Supplement, Extended-A, Presentation Forms A/B).
+fn contains_arabic(text: &str) -> bool {
+    text.chars().any(|c| {
+        matches!(c as u32,
+            0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF)
+    })
+}
+
+/// La **famille de police** à employer pour `text` : la face arabe embarquée si
+/// le texte contient de l'arabe, sinon la sans-serif par défaut.
+///
+/// Indispensable car cosmic-text ne fait **pas** de repli cross-famille sur
+/// Android (listes de fallback plateforme vides) : sans assignation explicite,
+/// un run arabe ne rendrait rien. On choisit donc la famille par script à la
+/// source (mesure **et** rendu partagent cette règle).
+pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
+    if contains_arabic(text) {
+        cosmic_text::Family::Name(ARABIC_FAMILY)
+    } else {
+        cosmic_text::Family::Name(SANS_FAMILY)
+    }
+}
 
 /// Construit un `FontSystem` prêt à l'emploi : polices système (repli emoji /
 /// scripts) **plus** la police embarquée, fixée comme famille par défaut. À
@@ -50,6 +82,8 @@ pub fn new_font_system() -> FontSystem {
     db.load_font_data(DEJAVU_SANS_OBLIQUE.to_vec());
     db.load_font_data(DEJAVU_SANS_BOLD_OBLIQUE.to_vec());
     db.load_font_data(DEJAVU_MONO.to_vec());
+    db.load_font_data(NOTO_ARABIC.to_vec());
+    db.load_font_data(NOTO_ARABIC_BOLD.to_vec());
     // Fait résoudre chaque famille générique vers une police réellement présente.
     db.set_sans_serif_family(SANS_FAMILY);
     db.set_serif_family(SANS_FAMILY);
@@ -116,11 +150,10 @@ pub fn measure_wrapped(
     let mut buffer = Buffer::new(&mut font_system, metrics);
     // Largeur contrainte (repli) ou libre ; hauteur toujours libre.
     buffer.set_size(&mut font_system, max_width, None);
-    let attrs = Attrs::new().weight(Weight(available_weight(weight))).style(if italic {
-        Style::Italic
-    } else {
-        Style::Normal
-    });
+    let attrs = Attrs::new()
+        .family(family_for(text))
+        .weight(Weight(available_weight(weight)))
+        .style(if italic { Style::Italic } else { Style::Normal });
     buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut font_system, false);
 
@@ -156,6 +189,7 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
         (
             run.text.as_str(),
             Attrs::new()
+                .family(family_for(&run.text))
                 .weight(Weight(available_weight(run.weight)))
                 .style(if run.italic { Style::Italic } else { Style::Normal })
                 .metrics(Metrics::new(run.size, line_height(run.size))),
@@ -217,11 +251,10 @@ impl TextLayout {
             let metrics = Metrics::new(size_px, fallback_h);
             let mut buffer = Buffer::new(&mut font_system, metrics);
             buffer.set_size(&mut font_system, None, None);
-            let attrs = Attrs::new().weight(Weight(available_weight(weight))).style(if italic {
-                Style::Italic
-            } else {
-                Style::Normal
-            });
+            let attrs = Attrs::new()
+                .family(family_for(text))
+                .weight(Weight(available_weight(weight)))
+                .style(if italic { Style::Italic } else { Style::Normal });
             buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(&mut font_system, false);
 
@@ -513,6 +546,97 @@ mod tests {
                 assert!(w > 0.0, "poids {weight:?} italique {italic} : rien shapé");
             }
         }
+    }
+
+    /// Reproduit **exactement** le cas Android pour l'arabe : db embarquée
+    /// seule (aucune police système, donc aucune liste de repli plateforme) —
+    /// avec la face Noto Naskh chargée. `family_for` doit router le run arabe
+    /// vers la famille Naskh, et le shaping doit produire de **vrais** glyphes
+    /// (identifiants non nuls), pas des `.notdef`. Si `Family::Name` ne résout
+    /// pas ici, on obtient des glyphes vides — le blanc observé sur l'appareil.
+    #[test]
+    fn arabic_shapes_with_embedded_only_font_system() {
+        let mut db = cosmic_text::fontdb::Database::new();
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        db.load_font_data(NOTO_ARABIC.to_vec());
+        db.load_font_data(NOTO_ARABIC_BOLD.to_vec());
+        db.set_sans_serif_family(SANS_FAMILY);
+        let mut fs = FontSystem::new_with_locale_and_db("en-TG".to_string(), db);
+
+        let text = "مهامي";
+        let attrs = Attrs::new().family(family_for(text));
+        let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
+        buffer.set_size(&mut fs, None, None);
+        buffer.set_text(&mut fs, text, attrs, Shaping::Advanced);
+        buffer.shape_until_scroll(&mut fs, false);
+
+        let mut glyphs = 0usize;
+        let mut real = 0usize; // glyphes dont le glyph_id != 0 (pas .notdef)
+        for run in buffer.layout_runs() {
+            for g in run.glyphs.iter() {
+                glyphs += 1;
+                if g.glyph_id != 0 {
+                    real += 1;
+                }
+            }
+        }
+        assert!(glyphs > 0, "aucun glyphe shapé pour l'arabe");
+        assert!(
+            real > 0,
+            "seulement des .notdef ({glyphs} glyphes, 0 réel) : Family::Name(\"{ARABIC_FAMILY}\") n'a pas résolu la face Naskh"
+        );
+    }
+
+    /// Diagnostic de position : un run RTL dans un buffer **large** (largeur =
+    /// surface) se fait **aligner à droite** par cosmic-text → les glyphes
+    /// atterrissent près du bord droit (x ≈ largeur), donc hors écran une fois
+    /// décalés par `position.x`. Sans contrainte de largeur (`None`), ils
+    /// commencent à x ≈ 0. C'est la cause du blanc arabe sur l'appareil.
+    #[test]
+    fn rtl_right_aligns_to_buffer_width() {
+        let mut db = cosmic_text::fontdb::Database::new();
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        db.load_font_data(NOTO_ARABIC.to_vec());
+        db.set_sans_serif_family(SANS_FAMILY);
+        let mut fs = FontSystem::new_with_locale_and_db("en-TG".to_string(), db);
+        let text = "العربية";
+        let attrs = Attrs::new().family(family_for(text));
+
+        let mut first_glyph_x = |width: Option<f32>| {
+            let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
+            buffer.set_size(&mut fs, width, Some(200.0));
+            buffer.set_text(&mut fs, text, attrs.clone(), Shaping::Advanced);
+            buffer.shape_until_scroll(&mut fs, false);
+            buffer
+                .layout_runs()
+                .flat_map(|r| r.glyphs.iter().map(|g| g.x))
+                .fold(f32::MAX, f32::min)
+        };
+
+        let wide = first_glyph_x(Some(1080.0));
+        let free = first_glyph_x(None);
+        assert!(wide > 500.0, "RTL large devrait pousser à droite (x={wide})");
+        assert!(free < 50.0, "RTL non contraint devrait commencer à gauche (x={free})");
+    }
+
+    #[test]
+    fn arabic_falls_back_to_the_embedded_naskh_face() {
+        // DejaVu ne couvre pas l'arabe : le repli embarqué (Noto Naskh) doit
+        // prendre le relais et **façonner** les glyphes (largeur non nulle,
+        // sensible). Un repli manquant donnerait 0 ou des .notdef.
+        let hello = "مرحبا بالعالم"; // « bonjour le monde »
+        let m = measure(hello, 24.0);
+        assert!(m.width > 60.0, "l'arabe doit se façonner (largeur {})", m.width);
+        assert!(m.height > 0.0);
+
+        // Le repli n'écrase pas le latin : « Hello » garde une largeur cohérente.
+        let latin = measure("Hello", 24.0);
+        assert!(latin.width > 0.0);
+
+        // Bidi mixte (arabe + chiffres latins) : mesuré d'un seul tenant, sans
+        // panique (cosmic-text réordonne en interne).
+        let mixed = measure("قيمة 42 نقطة", 24.0);
+        assert!(mixed.width > 0.0, "texte bidi mixte non shapé");
     }
 
     #[test]

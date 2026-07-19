@@ -21,12 +21,20 @@ fn l10n() -> &'static Localizer {
         let mut l = Localizer::new("en");
         l.add("en", include_str!("../i18n/en.ftl"));
         l.add("fr", include_str!("../i18n/fr.ftl"));
+        l.add("ar", include_str!("../i18n/ar.ftl"));
         l
     })
 }
 
-/// Les langues proposées par la démo (étiquette du menu, code de locale).
-const LANGS: [(&str, &str); 2] = [("English", "en"), ("Français", "fr")];
+/// Les langues proposées par la démo (étiquette du menu, code de locale). La
+/// dernière, l'arabe, est **droite-à-gauche** : la sélectionner retourne aussi
+/// la mise en page (bidi + miroir).
+const LANGS: [(&str, &str); 3] = [("English", "en"), ("Français", "fr"), ("العربية", "ar")];
+
+/// La langue d'index `lang` s'écrit-elle de droite à gauche ?
+fn lang_is_rtl(lang: usize) -> bool {
+    LANGS[lang].1 == "ar"
+}
 
 /// Traduit une clé sans argument dans la langue d'index `lang`.
 fn tr(lang: usize, key: &str) -> String {
@@ -398,8 +406,9 @@ fn theme_of(app: &TodoApp) -> Theme {
             }
         }
     };
-    // Direction ambiante : en RTL, tout le layout se retourne.
-    if app.rtl {
+    // Direction ambiante : RTL si l'utilisateur l'a demandé OU si la langue
+    // courante s'écrit de droite à gauche (arabe). Tout le layout se retourne.
+    if app.rtl || lang_is_rtl(app.lang) {
         theme.rtl()
     } else {
         theme

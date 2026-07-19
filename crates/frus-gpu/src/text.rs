@@ -154,13 +154,18 @@ impl TextPainter {
                 } => {
                     let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
                     let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    // Un paragraphe se replie à sa largeur de mise en page ; un
-                    // texte libre ne se replie qu'à la surface (jamais atteint).
-                    let wrap_w = max_width.unwrap_or(width as f32);
-                    buffer.set_size(&mut self.font_system, Some(wrap_w), Some(height as f32));
+                    // Un paragraphe se replie à sa largeur de mise en page. Un
+                    // texte libre reste **non contraint** (`None`) — surtout pas
+                    // borné à la surface : en RTL, cosmic-text aligne à droite de
+                    // la largeur du buffer, ce qui pousserait les glyphes hors
+                    // écran (bord droit) une fois décalés par `position.x`.
+                    buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
                     // Graisse + italique : cosmic-text choisit la face correspondante
                     // de la famille (repli sur la plus proche si absente).
                     let attrs = glyphon::Attrs::new()
+                        // Famille par script (arabe → Noto) : pas de repli
+                        // cross-famille sur Android, on choisit à la source.
+                        .family(frus_text::family_for(text))
                         .weight(glyphon::Weight(frus_text::available_weight(*weight)))
                         .style(if *italic {
                             glyphon::Style::Italic
@@ -210,13 +215,15 @@ impl TextPainter {
                     let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
                     let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
                     let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    // Un paragraphe riche se replie à sa largeur de mise en page.
-                    let wrap_w = max_width.unwrap_or(width as f32);
-                    buffer.set_size(&mut self.font_system, Some(wrap_w), Some(height as f32));
+                    // Idem texte simple : un paragraphe riche se replie à sa
+                    // largeur de mise en page ; sinon non contraint (`None`),
+                    // jamais borné à la surface (alignement RTL hors écran).
+                    buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
                     let spans = runs.iter().enumerate().map(|(index, run)| {
                         (
                             run.text.as_str(),
                             glyphon::Attrs::new()
+                                .family(frus_text::family_for(&run.text))
                                 .weight(glyphon::Weight(frus_text::available_weight(run.weight)))
                                 .style(if run.italic {
                                     glyphon::Style::Italic
@@ -338,6 +345,21 @@ mod tests {
             None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
             Some(lit) => {
                 assert!(lit > 0, "le texte devrait produire des pixels non-noirs ({lit})")
+            }
+        }
+    }
+
+    /// L'**arabe** rasterise via la face Naskh embarquée (`family_for` route le
+    /// script arabe vers "Noto Naskh Arabic"). Preuve que le chemin de rendu —
+    /// pas seulement la mesure — façonne bien les glyphes arabes.
+    #[test]
+    fn renders_arabic_to_non_background_pixels() {
+        let mut scene = Scene::new();
+        scene.text(Point::new(4.0, 40.0), "مهامي", 40.0, Color::WHITE);
+        match lit_pixels_for(&scene) {
+            None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            Some(lit) => {
+                assert!(lit > 20, "l'arabe devrait rasteriser des glyphes ({lit})")
             }
         }
     }
