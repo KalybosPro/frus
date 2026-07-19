@@ -200,6 +200,13 @@ impl Scene {
         self.current_owner = owner;
     }
 
+    /// Rajoute une primitive **déjà formée** (découpe et propriétaire déjà
+    /// baked dans la primitive). Sert à rejouer un sous-arbre mis en cache
+    /// (frontière de repaint) tel quel, sans le repeindre.
+    pub fn push_primitive(&mut self, primitive: Primitive) {
+        self.primitives.push(primitive);
+    }
+
     /// Rejoue une primitive existante avec une opacité réduite (fondu de sortie).
     pub fn push_faded(&mut self, primitive: &Primitive, opacity: f32) {
         let faded = match primitive.clone() {

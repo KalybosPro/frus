@@ -34,6 +34,9 @@ pub struct Container<Msg> {
     shadow: Option<(f32, f32, f32, Color)>,
     on_click: Option<Msg>,
     on_long_press: Option<Msg>,
+    /// Frontière de repaint : met en cache le sous-arbre peint (voir
+    /// [`crate::Widget::repaint_boundary`]).
+    repaint_boundary: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -55,8 +58,18 @@ impl<Msg> Container<Msg> {
             shadow: None,
             on_click: None,
             on_long_press: None,
+            repaint_boundary: false,
             children: Vec::new(),
         }
+    }
+
+    /// Marque ce conteneur comme **frontière de repaint** : son sous-arbre est
+    /// mis en cache et réutilisé tant que sa géométrie et l'état d'interaction
+    /// de ses descendants sont stables. À poser autour de contenu **statique**
+    /// qui, sinon, serait repeint à chaque frame d'animation voisine.
+    pub fn repaint_boundary(mut self) -> Self {
+        self.repaint_boundary = true;
+        self
     }
 
     /// Fixe la largeur, en pixels logiques.
@@ -220,6 +233,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
     fn on_long_press(&self) -> Option<Msg> {
         self.on_long_press.clone()
+    }
+
+    fn repaint_boundary(&self) -> bool {
+        self.repaint_boundary
     }
 }
 

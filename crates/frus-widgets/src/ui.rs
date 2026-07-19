@@ -2,10 +2,12 @@
 //! produit la [`Scene`] et les cartes de hit-test (clic, focus, scroll), et
 //! permet de retrouver un widget par identité pour lui router clavier/édition.
 
+use std::hash::{Hash, Hasher};
+
 use frus_core::{Color, Point, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
-use crate::interaction::WidgetId;
+use crate::interaction::{Status, WidgetId};
 use crate::portal::Placement;
 use crate::relayout::Constraints;
 use crate::runtime::Runtime;
@@ -44,10 +46,87 @@ pub enum FocusDirection {
     Right,
 }
 
+#[derive(Clone)]
 struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
     msg: Msg,
+}
+
+/// Sortie peinte d'un sous-arbre de frontière de repaint, mise en cache (voir
+/// `paintcache.rs`) et rejouée telle quelle sur un *hit*. Effacée derrière un
+/// `Box<dyn Any>` dans le cache ; redescendue vers `Msg` ici (une seule
+/// instance de `Msg` par app → le `downcast` réussit toujours).
+#[derive(Clone)]
+struct BoundaryData<Msg> {
+    prims: Vec<frus_core::Primitive>,
+    hits: Vec<Hit<Msg>>,
+    long_presses: Vec<Hit<Msg>>,
+    dismisses: Vec<Msg>,
+    focusables: Vec<(WidgetId, Rect)>,
+    scrollables: Vec<(WidgetId, Rect, f32, f32)>,
+    draggables: Vec<(WidgetId, Rect)>,
+    semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
+}
+
+/// Longueurs des collectes du builder à l'entrée d'une frontière : bornes
+/// basses des tranches à capturer à la sortie.
+struct Snapshot {
+    scene: usize,
+    hits: usize,
+    long_presses: usize,
+    dismisses: usize,
+    focusables: usize,
+    scrollables: usize,
+    draggables: usize,
+    semantics: usize,
+    overlays: usize,
+    focus_scope_start: Option<usize>,
+}
+
+/// Nombre de nœuds du sous-arbre **si** il est « plat » — c.-à-d. si la
+/// frontière et **tous** ses descendants empruntent la branche de parcours par
+/// défaut (enfants en préfixe) : ni défilable, ni navigateur, ni liste
+/// virtualisée, ni `layout_builder`, ni pile, ni overlay, ni animation continue.
+/// Ce comptage suit alors **exactement** l'ordre des rectangles du walk, ce qui
+/// garantit une empreinte et une rejoue bit-à-bit correctes. `None` = sous-arbre
+/// non cachable (on repeint intégralement — repli sûr).
+fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
+    if widget.continuous()
+        || widget.scroll_content().is_some()
+        || widget.navigator().is_some()
+        || widget.virtual_list().is_some()
+        || widget.layout_builder().is_some()
+        || widget.stack()
+        || widget.overlay().is_some()
+    {
+        return None;
+    }
+    let mut n = 1;
+    for child in widget.children() {
+        n += plain_subtree_len(child.as_ref())?;
+    }
+    Some(n)
+}
+
+/// Quantifie un flottant `[0,1]` pour l'empreinte (indépendant des micro-écarts
+/// binaires : deux progressions visuellement identiques ⇒ même empreinte).
+fn quant(x: f32) -> i32 {
+    (x * 4096.0).round() as i32
+}
+
+/// Ajoute à `h` tout ce que la peinture lit dans un `Status`, **sauf** le temps
+/// (exclu : une frontière cachable n'a aucun widget `continuous`).
+fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
+    (s.interaction as u8).hash(h);
+    s.focused.hash(h);
+    s.cursor.hash(h);
+    s.selection.hash(h);
+    s.composing.hash(h);
+    quant(s.hover_progress).hash(h);
+    quant(s.focus_progress).hash(h);
+    quant(s.opacity).hash(h);
+    quant(s.value).hash(h);
 }
 
 /// Résultat de la construction d'une interface pour une frame donnée.
@@ -320,7 +399,7 @@ struct Builder<'a, Msg> {
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
-impl<'a, Msg: Clone> Builder<'a, Msg> {
+impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// Rectangles d'une racine de layout, via le cache de relayout retenu dans le
     /// runtime (recalcule via taffy seulement si style/structure/contraintes ont
     /// changé). Emprunt mutable bref : la `Vec` renvoyée est possédée.
@@ -352,7 +431,150 @@ impl<'a, Msg: Clone> Builder<'a, Msg> {
         }
     }
 
+    /// Empreinte 64-bit de tout ce que la peinture d'un sous-arbre de frontière
+    /// lit **sans** reconstruire la `view` : le `Status` de chaque descendant
+    /// (dans l'ordre du walk) et les rectangles absolus du sous-arbre. Empreinte
+    /// + génération inchangées ⇒ peinture bit-à-bit identique. Le temps est
+    /// exclu (une frontière cachable ne contient aucun widget `continuous`).
+    fn boundary_fingerprint(
+        &self,
+        widget: &dyn Widget<Msg>,
+        id: WidgetId,
+        translation: (f32, f32),
+        sub: &[Rect],
+    ) -> u64 {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.rtl.hash(&mut h);
+        translation.0.to_bits().hash(&mut h);
+        translation.1.to_bits().hash(&mut h);
+        for r in sub {
+            r.x.to_bits().hash(&mut h);
+            r.y.to_bits().hash(&mut h);
+            r.width.to_bits().hash(&mut h);
+            r.height.to_bits().hash(&mut h);
+        }
+        self.hash_statuses(widget, id, &mut h);
+        h.finish()
+    }
+
+    /// Ajoute à `h` le `Status` de `widget` puis, récursivement, de ses enfants
+    /// — **exactement** le schéma d'identités du walk (`child_id`), donc aligné
+    /// sur l'ordre dans lequel `walk_node` les peint.
+    fn hash_statuses<H: Hasher>(&self, widget: &dyn Widget<Msg>, id: WidgetId, h: &mut H) {
+        hash_status(&self.full_status(id), h);
+        for (i, child) in widget.children().iter().enumerate() {
+            self.hash_statuses(child.as_ref(), child_id(id, i, child.as_ref()), h);
+        }
+    }
+
+    /// Longueurs courantes des collectes du builder : la borne basse des tranches
+    /// à capturer pour une frontière (voir [`capture_since`](Self::capture_since)).
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            scene: self.scene.primitives().len(),
+            hits: self.hits.len(),
+            long_presses: self.long_presses.len(),
+            dismisses: self.dismisses.len(),
+            focusables: self.focusables.len(),
+            scrollables: self.scrollables.len(),
+            draggables: self.draggables.len(),
+            semantics: self.semantics.len(),
+            overlays: self.overlays.len(),
+            focus_scope_start: self.focus_scope_start,
+        }
+    }
+
+    /// Capture la sortie produite depuis `snap` (les *tranches de queue* des
+    /// collectes) en une [`BoundaryData`]. Renvoie `None` — donc **non
+    /// cachable** — si le sous-arbre a poussé un overlay ou touché le scope de
+    /// focus modal (état global non capturable ici).
+    fn capture_since(&self, snap: &Snapshot) -> Option<BoundaryData<Msg>> {
+        if self.overlays.len() != snap.overlays || self.focus_scope_start != snap.focus_scope_start {
+            return None;
+        }
+        Some(BoundaryData {
+            prims: self.scene.primitives()[snap.scene..].to_vec(),
+            hits: self.hits[snap.hits..].to_vec(),
+            long_presses: self.long_presses[snap.long_presses..].to_vec(),
+            dismisses: self.dismisses[snap.dismisses..].to_vec(),
+            focusables: self.focusables[snap.focusables..].to_vec(),
+            scrollables: self.scrollables[snap.scrollables..].to_vec(),
+            draggables: self.draggables[snap.draggables..].to_vec(),
+            semantics: self.semantics[snap.semantics..].to_vec(),
+        })
+    }
+
+    /// Rejoue une frontière depuis le cache : primitives déjà formées (découpe/
+    /// propriétaire baked) et cartes d'interaction, ajoutées telles quelles.
+    fn splice_boundary(&mut self, data: BoundaryData<Msg>) {
+        for p in data.prims {
+            self.scene.push_primitive(p);
+        }
+        self.hits.extend(data.hits);
+        self.long_presses.extend(data.long_presses);
+        self.dismisses.extend(data.dismisses);
+        self.focusables.extend(data.focusables);
+        self.scrollables.extend(data.scrollables);
+        self.draggables.extend(data.draggables);
+        self.semantics.extend(data.semantics);
+    }
+
+    /// Point d'entrée du parcours d'un nœud. Si le nœud est une **frontière de
+    /// repaint** cachable, tente de rejouer son sous-arbre depuis le cache de
+    /// peinture ; sinon (ou sur *miss*), délègue au parcours complet
+    /// [`walk_node`](Self::walk_node) en capturant sa sortie pour la prochaine
+    /// frame. Toutes les récursions passent par ici → les frontières imbriquées
+    /// sont mises en cache elles aussi.
     fn walk(
+        &mut self,
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        translation: (f32, f32),
+        clip: Rect,
+        rects: &[Rect],
+        index: &mut usize,
+    ) {
+        // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne
+        // met en cache que hors inspection.
+        if self.inspector.is_none() && widget.repaint_boundary() {
+            if let Some(count) = plain_subtree_len(widget) {
+                let start = *index;
+                let sub = &rects[start..start + count];
+                let fp = self.boundary_fingerprint(widget, id, translation, sub);
+
+                // Hit : même génération (config) + même empreinte (état+géométrie)
+                // ⇒ la peinture serait identique. On clone la sortie et la rejoue.
+                let hit = {
+                    let mut pc = self.runtime.paint_cache.borrow_mut();
+                    pc.get(id, fp).and_then(|(rc, any)| {
+                        any.downcast_ref::<BoundaryData<Msg>>().map(|d| (rc, d.clone()))
+                    })
+                };
+                if let Some((rc, data)) = hit {
+                    self.runtime.paint_cache.borrow_mut().note_hit();
+                    self.splice_boundary(data);
+                    *index += rc;
+                    return;
+                }
+
+                // Miss : peint normalement, en capturant la sortie du sous-arbre
+                // (primitives + cartes d'interaction) pour la prochaine frame.
+                let snap = self.snapshot();
+                self.walk_node(widget, id, translation, clip, rects, index);
+                self.runtime.paint_cache.borrow_mut().note_miss();
+                if let Some(data) = self.capture_since(&snap) {
+                    self.runtime
+                        .paint_cache
+                        .borrow_mut()
+                        .put(id, fp, count, Box::new(data));
+                }
+                return;
+            }
+        }
+        self.walk_node(widget, id, translation, clip, rects, index);
+    }
+
+    fn walk_node(
         &mut self,
         widget: &'a dyn Widget<Msg>,
         id: WidgetId,
@@ -915,7 +1137,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
 
 /// Traduit un arbre de widgets en [`Ui`] pour une taille, un état runtime et un
 /// thème donnés.
-pub fn build_ui<'a, Msg: Clone>(
+pub fn build_ui<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
     runtime: &'a Runtime,
@@ -927,7 +1149,7 @@ pub fn build_ui<'a, Msg: Clone>(
 /// Comme [`build_ui`], en collectant aussi les **nœuds d'inspection** (un par
 /// widget peint : nom, boîte, profondeur) — la matière de l'inspecteur runtime
 /// et du dump diagnostique. À réserver aux frames où l'inspecteur est actif.
-pub fn build_ui_inspected<'a, Msg: Clone>(
+pub fn build_ui_inspected<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
     runtime: &'a Runtime,
@@ -937,7 +1159,7 @@ pub fn build_ui_inspected<'a, Msg: Clone>(
     (ui, nodes.unwrap_or_default())
 }
 
-fn build_ui_impl<'a, Msg: Clone>(
+fn build_ui_impl<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
     runtime: &'a Runtime,
@@ -978,9 +1200,10 @@ fn build_ui_impl<'a, Msg: Clone>(
     // (Leur walk repart de la profondeur 0 : des racines pour l'inspecteur.)
     builder.process_overlays();
 
-    // Fin de frame : oublie les racines de layout des widgets disparus et fige
-    // les compteurs de diagnostic du cache.
+    // Fin de frame : oublie les racines de layout et les frontières de repaint
+    // des widgets disparus, et fige les compteurs de diagnostic des caches.
     runtime.layout_cache.borrow_mut().end_frame();
+    runtime.paint_cache.borrow_mut().end_frame();
 
     // Rejoue les sous-arbres sortants, en fondu, par-dessus la scène courante.
     builder.scene.set_clip(Rect::UNBOUNDED);
@@ -1556,5 +1779,85 @@ mod tests {
             }
             panic!("aucun rectangle");
         }
+    }
+
+    /// Un sous-arbre statique sous `RepaintBoundary` (contenu mêlé texte +
+    /// boîtes) — assez pour produire plusieurs primitives.
+    fn boundary_tree() -> Container<Msg> {
+        use crate::Text;
+        Container::new().repaint_boundary().child(
+            Flex::<Msg>::column()
+                .child(Text::new("Statique"))
+                .child(Container::new().width(30.0).height(20.0).on_click(Msg::A))
+                .child(Button::new("ok").on_press(Msg::B)),
+        )
+    }
+
+    #[test]
+    fn repaint_boundary_reuses_a_static_subtree_bit_identical() {
+        let tree = boundary_tree();
+        let size = Size::new(200.0, 200.0);
+        let theme = Theme::default();
+        let rt = Runtime::default();
+
+        // Frame 1 : rien en cache → 1 miss (peinture complète), sous-arbre capturé.
+        let ui1 = build_ui(&tree, size, &rt, &theme);
+        // On compare les **primitives** (l'état ambiant transitoire de la scène —
+        // découpe/propriétaire courants — n'est pas rendu).
+        let dbg1 = format!("{:?}", ui1.scene().primitives());
+        assert_eq!(rt.paint_cache.borrow().last_frame_stats(), (0, 1));
+
+        // Frame 2 : même génération + même état → la frontière est réutilisée.
+        let ui2 = build_ui(&tree, size, &rt, &theme);
+        let dbg2 = format!("{:?}", ui2.scene().primitives());
+        assert_eq!(rt.paint_cache.borrow().last_frame_stats(), (1, 0), "frontière réutilisée");
+        assert_eq!(dbg1, dbg2, "la scène rejouée est bit-à-bit identique au repaint complet");
+        // Les cartes d'interaction sont aussi rejouées (le clic reste routable).
+        assert_eq!(ui1.hits.len(), ui2.hits.len());
+        assert!(!ui2.hits.is_empty(), "le hit du sous-arbre est bien rejoué");
+    }
+
+    #[test]
+    fn repaint_boundary_invalidated_by_generation_bump() {
+        let tree = boundary_tree();
+        let size = Size::new(200.0, 200.0);
+        let theme = Theme::default();
+        let rt = Runtime::default();
+
+        build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
+        // Reconstruction de la `view` (config potentiellement changée).
+        rt.paint_cache.borrow_mut().bump_generation();
+        build_ui(&tree, size, &rt, &theme); // frame 2
+        assert_eq!(
+            rt.paint_cache.borrow().last_frame_stats(),
+            (0, 1),
+            "génération périmée → repaint complet"
+        );
+    }
+
+    #[test]
+    fn repaint_boundary_invalidated_by_interaction_change() {
+        let tree = boundary_tree();
+        let size = Size::new(200.0, 200.0);
+        let theme = Theme::default();
+        let mut rt = Runtime::default();
+
+        build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
+        // Sans reconstruction, mais l'état d'interaction d'un descendant change
+        // (survol animé de la frontière) → l'empreinte diffère → repaint.
+        rt.anims.insert(
+            WidgetId::ROOT,
+            crate::Anim { hover: 0.5, focus: 0.0, opacity: 1.0 },
+        );
+        build_ui(&tree, size, &rt, &theme); // frame 2
+        assert_eq!(
+            rt.paint_cache.borrow().last_frame_stats(),
+            (0, 1),
+            "état d'interaction changé → repaint complet"
+        );
+
+        // Une fois l'état stabilisé, la frontière se réutilise de nouveau.
+        build_ui(&tree, size, &rt, &theme); // frame 3
+        assert_eq!(rt.paint_cache.borrow().last_frame_stats(), (1, 0));
     }
 }

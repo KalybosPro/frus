@@ -163,6 +163,9 @@ pub struct Runtime {
     /// d'une frame à l'autre). Mutabilité intérieure : `build_ui` le met à jour
     /// tout en ne tenant qu'une référence partagée au `Runtime`.
     pub layout_cache: RefCell<LayoutCache>,
+    /// Cache de frontière de **repaint** (primitives + interactions retenues par
+    /// frontière, d'une frame à l'autre). Même mutabilité intérieure.
+    pub paint_cache: RefCell<crate::paintcache::PaintCache>,
 }
 
 impl Runtime {

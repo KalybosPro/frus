@@ -978,13 +978,21 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.runtime.mounted.retain(|id| present.contains(id));
 
                     self.tree = Some(tree);
+
+                    // La config a pu changer : invalide le cache de peinture
+                    // (frontières de repaint). Ses entrées d'une génération
+                    // périmée ne seront plus des *hits* → repaint complet cette
+                    // frame, puis réutilisation aux frames d'interaction pure.
+                    self.runtime.paint_cache.borrow_mut().bump_generation();
                 }
                 self.build_dirty = false;
 
                 // === Phase PAINT ===
-                // L'arbre retenu est (re)peint ; sa mise en page passe par le cache de
-                // relayout (jalon 55), donc taffy n'est rappelé qu'en cas de vrai
-                // changement de structure.
+                // L'arbre retenu est (re)peint. La mise en page passe par le cache
+                // de relayout (jalon 55 : taffy rappelé seulement si structure
+                // changée) ; la peinture par le cache de repaint (jalon 88 : un
+                // sous-arbre `RepaintBoundary` statique est rejoué sans repeindre
+                // tant que sa géométrie et l'état d'interaction sont stables).
                 let tree = self.tree.as_deref().expect("view construite au moins une fois");
 
                 // Inertie de défilement (bornes issues de la frame précédente).

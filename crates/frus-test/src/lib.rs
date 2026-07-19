@@ -43,7 +43,7 @@ pub fn render_scene(scene: &Scene, width: u32, height: u32, clear: Color) -> Opt
 /// (taffy) + peinture (thème fourni) sur fond `theme.background`, dans une
 /// fenêtre virtuelle `width`×`height`. État retenu neutre (pas de survol, pas
 /// de focus, défilement à zéro). `None` sans GPU.
-pub fn render_widget<Msg: Clone>(
+pub fn render_widget<Msg: Clone + 'static>(
     root: &dyn Widget<Msg>,
     width: u32,
     height: u32,

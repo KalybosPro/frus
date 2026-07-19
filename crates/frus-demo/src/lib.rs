@@ -1376,9 +1376,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     // Le corps est bâti de façon incrémentale pour omettre l'astuce si court.
     let mut card_body = Flex::column().width(card_width).gap(16.0);
     if !short {
+        // Bannière **statique** : frontière de repaint (jalon 88). Elle est
+        // rejouée depuis le cache aux frames d'interaction pure (survol, focus,
+        // défilement ailleurs) au lieu d'être repeinte à chaque frame.
         card_body = card_body.child(
-            Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
-                .title("Tip"),
+            Container::new().repaint_boundary().child(
+                Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
+                    .title("Tip"),
+            ),
         );
     }
     // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —

@@ -116,6 +116,15 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// Si `true`, ce widget est une **frontière de repaint** : son sous-arbre est
+    /// mis en cache (primitives + cartes d'interaction) et **réutilisé tel quel**
+    /// tant que sa géométrie et l'état d'interaction de ses descendants ne
+    /// changent pas — un widget qui s'anime ailleurs ne le fait plus repeindre.
+    /// Voir [`crate::RepaintBoundary`] et `paintcache.rs`.
+    fn repaint_boundary(&self) -> bool {
+        false
+    }
+
     /// Si le widget est un conteneur défilable, renvoie son contenu.
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         None
