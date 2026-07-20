@@ -8,6 +8,7 @@
 
 use frus_core::{Color, Scene};
 
+use crate::image::ImagePainter;
 use crate::painter::Painter;
 use crate::path::PathPainter;
 use crate::text::TextPainter;
@@ -55,6 +56,9 @@ pub fn render_offscreen(
     let mut rect_painter = Painter::new(&device, format);
     rect_painter.set_viewport(&queue, width as f32, height as f32);
     let rect_count = rect_painter.prepare_frame(&device, &queue, scene, &decorations);
+    let mut image_painter = ImagePainter::new(&device, format);
+    image_painter.set_viewport(&queue, width as f32, height as f32);
+    let image_count = image_painter.prepare_frame(&device, &queue, scene);
     let mut path_painter = PathPainter::new(&device, format);
     path_painter.set_viewport(&queue, width as f32, height as f32);
     let path_index_count = path_painter.prepare_frame(&device, &queue, scene);
@@ -84,6 +88,7 @@ pub fn render_offscreen(
             occlusion_query_set: None,
         });
         rect_painter.draw(&mut pass, rect_count);
+        image_painter.draw(&mut pass, image_count);
         path_painter.draw(&mut pass, path_index_count);
         text_painter.draw(&mut pass);
     }
@@ -242,5 +247,35 @@ mod tests {
         // Sur le bord gauche du carré → bleu ; au centre → clear (pas de fill).
         assert_eq!(px(12, 32), [0, 0, 255], "sur le contour → bleu");
         assert_eq!(px(32, 32), [0, 0, 0], "au centre → clear (non rempli)");
+    }
+
+    /// Échantillonnage de texture : une image 2×2 (rouge/vert/bleu/blanc) étirée
+    /// (`Fill`) sur toute la surface — chaque quadrant lit sa couleur. Preuve du
+    /// téléversement + de l'échantillonnage + du mapping UV.
+    #[test]
+    fn samples_a_texture_by_quadrant() {
+        use frus_core::{BoxFit, ImageData};
+        // 2×2 : (0,0) rouge, (1,0) vert, (0,1) bleu, (1,1) blanc.
+        let pixels = vec![
+            255, 0, 0, 255, /* R */ 0, 255, 0, 255, /* G */
+            0, 0, 255, 255, /* B */ 255, 255, 255, 255, /* W */
+        ];
+        let image = ImageData::from_rgba(2, 2, pixels).into_handle();
+        let mut scene = Scene::new();
+        scene.image(&image, Rect::new(0.0, 0.0, 64.0, 64.0), BoxFit::Fill);
+
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        let px = |x: u32, y: u32| {
+            let i = ((y * frame.width + x) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        // Un point bien au cœur de chaque quadrant (loin des bords interpolés).
+        assert_eq!(px(10, 10), [255, 0, 0], "haut-gauche → rouge");
+        assert_eq!(px(54, 10), [0, 255, 0], "haut-droit → vert");
+        assert_eq!(px(10, 54), [0, 0, 255], "bas-gauche → bleu");
+        assert_eq!(px(54, 54), [255, 255, 255], "bas-droit → blanc");
     }
 }

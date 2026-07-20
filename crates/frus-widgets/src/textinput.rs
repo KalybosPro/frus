@@ -124,21 +124,6 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             .intersect(Rect::new(content_x, bounds.y, content_w, bounds.height));
         scene.set_clip(content_clip);
 
-        // Défilement horizontal : garde le curseur visible quand le texte dépasse.
-        let scroll = if status.focused {
-            let cursor = status.cursor.unwrap_or(len).min(len);
-            (prefix_width(&chars, cursor, self.size) - content_w).max(0.0)
-        } else {
-            0.0
-        };
-        let text_x = content_x - scroll;
-
-        // Découpe au cadre de contenu (sinon le texte déborde sur les voisins).
-        let content_clip = scene
-            .current_clip()
-            .intersect(Rect::new(content_x, bounds.y, content_w, bounds.height));
-        scene.set_clip(content_clip);
-
         // Surbrillance de sélection (sous le texte).
         if status.focused {
             if let Some((start, end)) = status.selection {

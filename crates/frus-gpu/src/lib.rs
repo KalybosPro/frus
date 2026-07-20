@@ -11,6 +11,7 @@
 // (ex. `SurfaceError`) sans avoir à dépendre directement de `wgpu`.
 pub use wgpu;
 
+mod image;
 mod offscreen;
 mod painter;
 mod path;

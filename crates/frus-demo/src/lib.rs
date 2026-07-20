@@ -48,15 +48,38 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
     loc.format_for(&loc.langid(LANGS[lang].1), key, args![n: n])
 }
 use frus_widgets::{
-    button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar,
+    button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BoxFit,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
-    Container, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Insets, Justify, Kbd, LayoutBuilder, List,
+    Container, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
     TextSpan, WindowInsets,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
 };
+
+/// Image de démo **générée** une fois (dégradé 64×64), partagée pour tout le
+/// process via `OnceLock` — évite de la re-construire (et de la re-téléverser)
+/// à chaque reconstruction de vue ; le renderer la met en cache par identité.
+fn demo_image() -> ImageHandle {
+    use std::sync::OnceLock;
+    static IMG: OnceLock<ImageHandle> = OnceLock::new();
+    IMG.get_or_init(|| {
+        const W: u32 = 64;
+        const H: u32 = 64;
+        let mut rgba = Vec::with_capacity((W * H * 4) as usize);
+        for y in 0..H {
+            for x in 0..W {
+                rgba.push((x * 255 / (W - 1)) as u8); // R : gradient horizontal
+                rgba.push((y * 255 / (H - 1)) as u8); // G : gradient vertical
+                rgba.push(160u8); // B : constant
+                rgba.push(255u8); // A : opaque
+            }
+        }
+        ImageData::from_rgba(W, H, rgba).into_handle()
+    })
+    .clone()
+}
 
 /// Point d'entrée bureau : ouvre la fenêtre et lance la boucle winit.
 #[cfg(not(target_os = "android"))]
@@ -1385,16 +1408,18 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                     .title("Tip"),
             ),
         );
-        // Rangée d'icônes vectorielles (jalon 89) : chemins tessellisés, colorés
-        // au thème — la coche reprend la couleur d'accent.
+        // Rangée d'icônes vectorielles (jalon 89) + image bitmap (jalon 90) :
+        // chemins tessellisés colorés au thème, et une texture GPU ajustée `Cover`.
         card_body = card_body.child(
             Flex::row()
                 .gap(16.0)
+                .align(Align::Center)
                 .child(Icon::new(IconName::Check).color(theme.primary))
                 .child(Icon::new(IconName::Star))
                 .child(Icon::new(IconName::Heart))
                 .child(Icon::new(IconName::Menu))
-                .child(Icon::new(IconName::ChevronRight)),
+                .child(Icon::new(IconName::ChevronRight))
+                .child(Image::new(demo_image(), 72.0, 48.0).fit(BoxFit::Cover)),
         );
     }
     // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —

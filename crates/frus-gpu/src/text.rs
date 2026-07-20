@@ -286,8 +286,8 @@ impl TextPainter {
                     let default_color = to_glyphon(&runs[0].color);
                     buffers.push((buffer, position.x, position.y, default_color, to_bounds(clip)));
                 }
-                // Rectangles et chemins ne concernent pas le rendu du texte.
-                Primitive::Rect { .. } | Primitive::Path { .. } => {}
+                // Rectangles, chemins et images ne concernent pas le texte.
+                Primitive::Rect { .. } | Primitive::Path { .. } | Primitive::Image { .. } => {}
             }
         }
 

@@ -8,7 +8,8 @@
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
 use crate::{
-    BorderRadius, Color, FontWeight, Path, Point, Rect, Stroke, TextDecoration, TextRun, TextStyle,
+    BorderRadius, Color, FontWeight, ImageHandle, Path, Point, Rect, Stroke, TextDecoration,
+    TextRun, TextStyle,
 };
 
 /// Une primitive de dessin.
@@ -82,6 +83,21 @@ pub enum Primitive {
         /// Identité du widget émetteur.
         owner: u64,
     },
+    /// Une **image** bitmap échantillonnée dans un rectangle de destination.
+    Image {
+        /// Handle partagé vers les pixels (cache GPU par [`crate::ImageData::id`]).
+        image: ImageHandle,
+        /// Rectangle de destination (déjà ajusté selon le [`crate::BoxFit`]).
+        rect: Rect,
+        /// Sous-région de la texture échantillonnée, en `0..1` (rognage `Cover`).
+        uv: Rect,
+        /// Teinte multiplicative (blanc = inchangé ; alpha pour le fondu).
+        tint: Color,
+        /// Rectangle de découpe.
+        clip: Rect,
+        /// Identité du widget émetteur.
+        owner: u64,
+    },
 }
 
 impl Primitive {
@@ -92,6 +108,7 @@ impl Primitive {
             Primitive::Text { owner, .. } => *owner,
             Primitive::RichText { owner, .. } => *owner,
             Primitive::Path { owner, .. } => *owner,
+            Primitive::Image { owner, .. } => *owner,
         }
     }
 
@@ -176,6 +193,22 @@ impl Primitive {
                 path: path.scaled(factor),
                 fill,
                 stroke: stroke.map(|s| Stroke::new(s.color, s.width * factor)),
+                clip: clip.scale(factor),
+                owner,
+            },
+            Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint,
+                clip,
+                owner,
+            } => Primitive::Image {
+                image,
+                rect: rect.scale(factor),
+                // L'UV est en 0..1 : indépendant de l'échelle.
+                uv,
+                tint,
                 clip: clip.scale(factor),
                 owner,
             },
@@ -319,6 +352,21 @@ impl Scene {
                 clip,
                 owner,
             },
+            Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint,
+                clip,
+                owner,
+            } => Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint: tint.fade(opacity),
+                clip,
+                owner,
+            },
         };
         self.primitives.push(faded);
     }
@@ -441,6 +489,27 @@ impl Scene {
             clip: self.current_clip,
             owner: self.current_owner,
         });
+    }
+
+    /// Dessine une image dans `rect`, en échantillonnant la sous-région `uv`
+    /// (en `0..1`) et en la teintant par `tint` (blanc = inchangé). Bas niveau :
+    /// voir [`Scene::image`] pour l'ajustement automatique par [`crate::BoxFit`].
+    pub fn draw_image(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color) {
+        self.primitives.push(Primitive::Image {
+            image: image.clone(),
+            rect,
+            uv,
+            tint,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Dessine une image ajustée dans `rect` selon `fit` (aspect conservé,
+    /// letterbox ou rognage), sans teinte.
+    pub fn image(&mut self, image: &ImageHandle, rect: Rect, fit: crate::BoxFit) {
+        let (dst, uv) = fit.apply(image.size(), rect);
+        self.draw_image(image, dst, uv, Color::WHITE);
     }
 
     /// Ajoute une ligne de texte, ancrée par son coin haut-gauche (graisse

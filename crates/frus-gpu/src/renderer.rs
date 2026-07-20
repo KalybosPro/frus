@@ -3,6 +3,7 @@
 
 use frus_core::Scene;
 
+use crate::image::ImagePainter;
 use crate::painter::Painter;
 use crate::path::PathPainter;
 use crate::text::TextPainter;
@@ -22,6 +23,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painter: Painter,
+    image: ImagePainter,
     path: PathPainter,
     text: TextPainter,
 }
@@ -98,6 +100,9 @@ impl Renderer {
         let path = PathPainter::new(&device, format);
         path.set_viewport(&queue, width as f32, height as f32);
 
+        let image = ImagePainter::new(&device, format);
+        image.set_viewport(&queue, width as f32, height as f32);
+
         let text = TextPainter::new(&device, &queue, format);
 
         Ok(Self {
@@ -106,6 +111,7 @@ impl Renderer {
             queue,
             config,
             painter,
+            image,
             path,
             text,
         })
@@ -118,6 +124,7 @@ impl Renderer {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.painter.set_viewport(&self.queue, width as f32, height as f32);
+            self.image.set_viewport(&self.queue, width as f32, height as f32);
             self.path.set_viewport(&self.queue, width as f32, height as f32);
         }
     }
@@ -142,6 +149,7 @@ impl Renderer {
         let rect_count =
             self.painter
                 .prepare_frame(&self.device, &self.queue, scene, &decorations);
+        let image_count = self.image.prepare_frame(&self.device, &self.queue, scene);
         let path_index_count = self.path.prepare_frame(&self.device, &self.queue, scene);
 
         let frame = self.surface.get_current_texture()?;
@@ -172,6 +180,7 @@ impl Renderer {
             });
 
             self.painter.draw(&mut pass, rect_count);
+            self.image.draw(&mut pass, image_count);
             self.path.draw(&mut pass, path_index_count);
             self.text.draw(&mut pass);
         }
