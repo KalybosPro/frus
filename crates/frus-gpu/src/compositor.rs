@@ -86,6 +86,17 @@ struct LayerComposite {
     clip: [f32; 4],
 }
 
+/// Texture d'un calque **conservée entre frames** (frontière de repaint côté
+/// GPU), avec l'instantané de son contenu et ses dimensions : tant qu'ils ne
+/// changent pas, on réutilise la texture telle quelle — la pré-passe (submit +
+/// tessellation + dessin) est entièrement sautée.
+struct CachedLayer {
+    primitives: Vec<Primitive>,
+    width: u32,
+    height: u32,
+    texture: wgpu::Texture,
+}
+
 /// Texture MSAA intermédiaire réutilisée comme cible de rendu : on peint dedans
 /// (multi-échantillon) puis on **résout** vers la cible mono-échantillon. Une
 /// seule suffit — pré-passes de calques et passe principale, toutes pleine
@@ -323,6 +334,11 @@ pub(crate) struct Painters {
     sample_count: u32,
     /// Texture MSAA intermédiaire (créée à la demande, recréée au resize).
     msaa: Option<MsaaScratch>,
+    /// Textures de calques conservées entre frames, indexées par rang du calque.
+    layer_cache: Vec<CachedLayer>,
+    /// Compteur de pré-passes de calque réellement rendues (preuve du cache).
+    #[allow(dead_code)]
+    layer_renders: u64,
 }
 
 impl Painters {
@@ -340,7 +356,15 @@ impl Painters {
             composite: CompositePainter::new(device, format, sample_count),
             sample_count,
             msaa: None,
+            layer_cache: Vec::new(),
+            layer_renders: 0,
         }
+    }
+
+    /// Nombre de pré-passes de calque rendues depuis la création (test du cache).
+    #[cfg(test)]
+    pub(crate) fn layer_render_count(&self) -> u64 {
+        self.layer_renders
     }
 
     /// Renvoie une vue neuve de la texture MSAA (recréée si taille/format
@@ -405,18 +429,19 @@ impl Painters {
     ) {
         self.set_viewport(queue, w as f32, h as f32);
 
-        // Pré-passes : chaque calque rendu sur sa propre texture pleine surface.
+        // Pré-passes : chaque calque sur sa propre texture pleine surface, mais
+        // **réutilisée** telle quelle si son contenu n'a pas changé (cache GPU).
         let mut layers: Vec<LayerComposite> = Vec::new();
+        let mut layer_index = 0usize;
         for primitive in scene.primitives() {
             if let Primitive::Layer { primitives, opacity, clip, .. } = primitive {
-                let texture = self.render_group(device, queue, format, primitives, w, h);
-                layers.push(LayerComposite {
-                    view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
-                    opacity: *opacity,
-                    clip: clip.to_array(),
-                });
+                let view = self.layer_texture(device, queue, format, layer_index, primitives, w, h);
+                layers.push(LayerComposite { view, opacity: *opacity, clip: clip.to_array() });
+                layer_index += 1;
             }
         }
+        // Oublie les calques disparus (la scène en a moins qu'à la frame passée).
+        self.layer_cache.truncate(layer_index);
 
         self.composite.prepare(device, queue, &layers, w as f32, h as f32);
         let decorations = self.text.prepare_frame(device, queue, scene, w, h);
@@ -459,6 +484,39 @@ impl Painters {
         queue.submit(std::iter::once(encoder.finish()));
     }
 
+    /// Renvoie la vue de la texture d'un calque : **réutilisée** telle quelle si
+    /// son contenu et ses dimensions sont inchangés depuis la frame précédente,
+    /// sinon (re)rendue par [`Painters::render_group`]. `index` = rang du calque
+    /// dans la scène, clé stable du cache ; une clé qui « glisse » (calques
+    /// réordonnés) ne fait que rater le cache → re-render correct, jamais faux.
+    fn layer_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        index: usize,
+        primitives: &[Primitive],
+        w: u32,
+        h: u32,
+    ) -> wgpu::TextureView {
+        let hit = matches!(
+            self.layer_cache.get(index),
+            Some(c) if c.width == w && c.height == h && c.primitives.as_slice() == primitives
+        );
+        if !hit {
+            let texture = self.render_group(device, queue, format, primitives, w, h);
+            let entry = CachedLayer { primitives: primitives.to_vec(), width: w, height: h, texture };
+            if index < self.layer_cache.len() {
+                self.layer_cache[index] = entry;
+            } else {
+                self.layer_cache.push(entry);
+            }
+        }
+        self.layer_cache[index]
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
     /// Rend un groupe de primitives sur une texture pleine surface (fond
     /// transparent), pour compositing ultérieur. Les calques **imbriqués** ne
     /// sont pas recompositionnés à ce niveau (limite assumée).
@@ -471,6 +529,7 @@ impl Painters {
         w: u32,
         h: u32,
     ) -> wgpu::Texture {
+        self.layer_renders += 1;
         let mut sub = Scene::new();
         for primitive in primitives {
             sub.push_primitive(primitive.clone());
@@ -552,5 +611,82 @@ impl Painters {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.render(device, queue, format, &view, 4, 4, &scene, Some(wgpu::Color::BLACK));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headless() -> Option<(wgpu::Device, wgpu::Queue)> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))?;
+        pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("frus.compositor.test.device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                memory_hints: wgpu::MemoryHints::default(),
+            },
+            None,
+        ))
+        .ok()
+    }
+
+    fn target(device: &wgpu::Device, format: wgpu::TextureFormat, n: u32) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("frus.compositor.test.target"),
+            size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    }
+
+    /// Un calque **statique** n'est rendu qu'une fois : la 2ᵉ frame réutilise sa
+    /// texture (aucune nouvelle pré-passe). Changer son contenu force un
+    /// re-render ; le supprimer purge le cache.
+    #[test]
+    fn static_layer_texture_is_reused_across_frames() {
+        let Some((device, queue)) = headless() else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        // sample_count 1 : le cache est indépendant du MSAA.
+        let mut painters = Painters::new(&device, &queue, format, 1);
+        let tex = target(&device, format, 16);
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let clear = Some(wgpu::Color::BLACK);
+
+        let red = |s: &mut Scene| s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(1.0, 0.0, 0.0));
+        let mut scene = Scene::new();
+        scene.layer(0.5, red);
+
+        painters.render(&device, &queue, format, &view, 16, 16, &scene, clear);
+        assert_eq!(painters.layer_render_count(), 1, "1re frame : calque rendu");
+        painters.render(&device, &queue, format, &view, 16, 16, &scene, clear);
+        assert_eq!(painters.layer_render_count(), 1, "calque inchangé : texture réutilisée");
+
+        // Contenu changé → re-render.
+        let mut scene2 = Scene::new();
+        scene2.layer(0.5, |s| s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(0.0, 1.0, 0.0)));
+        painters.render(&device, &queue, format, &view, 16, 16, &scene2, clear);
+        assert_eq!(painters.layer_render_count(), 2, "contenu changé : re-render");
+
+        // Calque disparu → cache purgé (aucune pré-passe).
+        painters.render(&device, &queue, format, &view, 16, 16, &Scene::new(), clear);
+        assert_eq!(painters.layer_render_count(), 2, "plus de calque : rien à rendre");
+        assert!(painters.layer_cache.is_empty(), "cache purgé");
     }
 }
