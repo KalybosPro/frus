@@ -3,10 +3,7 @@
 
 use frus_core::Scene;
 
-use crate::image::ImagePainter;
-use crate::painter::Painter;
-use crate::path::PathPainter;
-use crate::text::TextPainter;
+use crate::compositor::Painters;
 
 /// Couleur de fond (bleu nuit).
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
@@ -22,10 +19,7 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    painter: Painter,
-    image: ImagePainter,
-    path: PathPainter,
-    text: TextPainter,
+    painters: Painters,
 }
 
 impl Renderer {
@@ -94,38 +88,26 @@ impl Renderer {
         };
         surface.configure(&device, &config);
 
-        let painter = Painter::new(&device, format);
-        painter.set_viewport(&queue, width as f32, height as f32);
-
-        let path = PathPainter::new(&device, format);
-        path.set_viewport(&queue, width as f32, height as f32);
-
-        let image = ImagePainter::new(&device, format);
-        image.set_viewport(&queue, width as f32, height as f32);
-
-        let text = TextPainter::new(&device, &queue, format);
+        let mut painters = Painters::new(&device, &queue, format);
+        // Échauffe tous les pipelines avant la première vraie frame (anti-jank).
+        painters.warm_up(&device, &queue, format);
 
         Ok(Self {
             surface,
             device,
             queue,
             config,
-            painter,
-            image,
-            path,
-            text,
+            painters,
         })
     }
 
-    /// Reconfigure la surface après un redimensionnement de la fenêtre.
+    /// Reconfigure la surface après un redimensionnement de la fenêtre. Les
+    /// viewports des painters sont réglés à chaque frame par [`Painters::render`].
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
-            self.painter.set_viewport(&self.queue, width as f32, height as f32);
-            self.image.set_viewport(&self.queue, width as f32, height as f32);
-            self.path.set_viewport(&self.queue, width as f32, height as f32);
         }
     }
 
@@ -134,58 +116,24 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// Dessine la scène (rectangles + texte) et la présente.
+    /// Dessine la scène (rectangles, images, chemins, texte, calques) et la présente.
     pub fn render(&mut self, scene: &Scene) -> Result<(), wgpu::SurfaceError> {
-        // Préparation (téléversements) avant l'ouverture du render pass. Le
-        // texte d'abord : il produit les quads de décoration (soulignement…)
-        // que la passe des rectangles dessine sous les glyphes.
-        let decorations = self.text.prepare_frame(
-            &self.device,
-            &self.queue,
-            scene,
-            self.config.width,
-            self.config.height,
-        );
-        let rect_count =
-            self.painter
-                .prepare_frame(&self.device, &self.queue, scene, &decorations);
-        let image_count = self.image.prepare_frame(&self.device, &self.queue, scene);
-        let path_index_count = self.path.prepare_frame(&self.device, &self.queue, scene);
-
         let frame = self.surface.get_current_texture()?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("frus.encoder"),
-            });
+        self.painters.render(
+            &self.device,
+            &self.queue,
+            self.config.format,
+            &view,
+            self.config.width,
+            self.config.height,
+            scene,
+            Some(CLEAR_COLOR),
+        );
 
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frus.render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(CLEAR_COLOR),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            self.painter.draw(&mut pass, rect_count);
-            self.image.draw(&mut pass, image_count);
-            self.path.draw(&mut pass, path_index_count);
-            self.text.draw(&mut pass);
-        }
-
-        self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
         Ok(())
     }

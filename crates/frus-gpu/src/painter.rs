@@ -247,7 +247,8 @@ impl Painter {
                 Primitive::Text { .. }
                 | Primitive::RichText { .. }
                 | Primitive::Path { .. }
-                | Primitive::Image { .. } => {}
+                | Primitive::Image { .. }
+                | Primitive::Layer { .. } => {}
             }
         }
 

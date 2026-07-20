@@ -8,10 +8,7 @@
 
 use frus_core::{Color, Scene};
 
-use crate::image::ImagePainter;
-use crate::painter::Painter;
-use crate::path::PathPainter;
-use crate::text::TextPainter;
+use crate::compositor::Painters;
 
 /// Une frame rendue hors écran : octets RGBA **sRGB**, ligne par ligne.
 pub struct OffscreenFrame {
@@ -49,49 +46,25 @@ pub fn render_offscreen(
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    // Même ordre que `Renderer::render` : le texte se prépare d'abord (il
-    // produit les quads de décoration), les rectangles les dessinent.
-    let mut text_painter = TextPainter::new(&device, &queue, format);
-    let decorations = text_painter.prepare_frame(&device, &queue, scene, width, height);
-    let mut rect_painter = Painter::new(&device, format);
-    rect_painter.set_viewport(&queue, width as f32, height as f32);
-    let rect_count = rect_painter.prepare_frame(&device, &queue, scene, &decorations);
-    let mut image_painter = ImagePainter::new(&device, format);
-    image_painter.set_viewport(&queue, width as f32, height as f32);
-    let image_count = image_painter.prepare_frame(&device, &queue, scene);
-    let mut path_painter = PathPainter::new(&device, format);
-    path_painter.set_viewport(&queue, width as f32, height as f32);
-    let path_index_count = path_painter.prepare_frame(&device, &queue, scene);
-
+    // Même pipeline que `Renderer::render`, via le compositeur (calques compris).
     // Le clear est en sRGB (couleur d'auteur) : la cible sRGB attend du linéaire.
     let clear_linear = clear.to_linear();
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("frus.offscreen.pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: clear_linear.r as f64,
-                        g: clear_linear.g as f64,
-                        b: clear_linear.b as f64,
-                        a: clear.a as f64,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        rect_painter.draw(&mut pass, rect_count);
-        image_painter.draw(&mut pass, image_count);
-        path_painter.draw(&mut pass, path_index_count);
-        text_painter.draw(&mut pass);
-    }
+    let mut painters = Painters::new(&device, &queue, format);
+    painters.render(
+        &device,
+        &queue,
+        format,
+        &view,
+        width,
+        height,
+        scene,
+        Some(wgpu::Color {
+            r: clear_linear.r as f64,
+            g: clear_linear.g as f64,
+            b: clear_linear.b as f64,
+            a: clear.a as f64,
+        }),
+    );
 
     // Relecture : wgpu impose des lignes alignées sur 256 octets — on rembourre
     // puis on retire le rembourrage côté CPU.
@@ -104,6 +77,8 @@ pub fn render_offscreen(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frus.offscreen.copy") });
     encoder.copy_texture_to_buffer(
         wgpu::ImageCopyTexture {
             texture: &texture,
@@ -277,5 +252,36 @@ mod tests {
         assert_eq!(px(54, 10), [0, 255, 0], "haut-droit → vert");
         assert_eq!(px(10, 54), [0, 0, 255], "bas-gauche → bleu");
         assert_eq!(px(54, 54), [255, 255, 255], "bas-droit → blanc");
+    }
+
+    /// **Compositing de calque** : deux rectangles rouges **opaques** qui se
+    /// chevauchent, groupés dans un calque à opacité 0.5. L'alpha de groupe est
+    /// **uniforme** — le chevauchement a la même couleur qu'une simple couverture
+    /// (pas de double-superposition), et c'est bien ~moitié rouge sur fond noir.
+    #[test]
+    fn layer_group_opacity_is_uniform_over_overlap() {
+        let mut scene = Scene::new();
+        scene.layer(0.5, |inner| {
+            inner.fill_rect(Rect::new(0.0, 0.0, 40.0, 40.0), Color::rgb(1.0, 0.0, 0.0));
+            inner.fill_rect(Rect::new(24.0, 24.0, 40.0, 40.0), Color::rgb(1.0, 0.0, 0.0));
+        });
+
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        let px = |x: u32, y: u32| {
+            let i = ((y * frame.width + x) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        let single = px(8, 8); // couvert par le 1er rectangle seulement
+        let overlap = px(32, 32); // couvert par les deux
+        assert_eq!(single, overlap, "l'alpha de groupe est uniforme sur le chevauchement");
+        // ~50 % rouge sur noir : ni plein rouge (255) ni fond (0).
+        assert!(single[0] > 120 && single[0] < 215, "≈ moitié rouge (R={})", single[0]);
+        assert_eq!(single[1], 0, "pas de vert");
+        assert_eq!(single[2], 0, "pas de bleu");
+        // Hors des deux rectangles : fond noir.
+        assert_eq!(px(60, 8), [0, 0, 0], "hors du calque → fond");
     }
 }

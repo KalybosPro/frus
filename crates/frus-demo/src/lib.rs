@@ -50,9 +50,9 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BoxFit,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
-    Container, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, List,
+    Container, CustomPaint, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
-    RadioGroup, Rating, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
+    RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
     TextSpan, WindowInsets,
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
@@ -1426,7 +1426,17 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                 .child(Icon::new(IconName::Heart))
                 .child(Icon::new(IconName::Menu))
                 .child(Icon::new(IconName::ChevronRight))
-                .child(Image::new(demo_image(), 72.0, 48.0).fit(BoxFit::Cover)),
+                .child(Image::new(demo_image(), 72.0, 48.0).fit(BoxFit::Cover))
+                // Calque à opacité de groupe (jalon 92) : deux carrés qui se
+                // chevauchent, composités d'un bloc → le chevauchement ne fonce
+                // pas (pas de double-superposition de l'alpha).
+                .child(CustomPaint::new(72.0, 48.0, |scene, bounds, theme| {
+                    scene.layer(0.55, |inner| {
+                        let c = theme.primary;
+                        inner.fill_rect(Rect::new(bounds.x + 6.0, bounds.y + 8.0, 32.0, 32.0), c);
+                        inner.fill_rect(Rect::new(bounds.x + 30.0, bounds.y + 8.0, 32.0, 32.0), c);
+                    });
+                })),
         );
     }
     // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —

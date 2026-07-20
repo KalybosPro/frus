@@ -98,6 +98,21 @@ pub enum Primitive {
         /// Identité du widget émetteur.
         owner: u64,
     },
+    /// Un **calque** : un sous-groupe de primitives composité **d'un bloc** à
+    /// `opacity`. Rendu à part sur une texture (pleine opacité) puis composité —
+    /// l'alpha de groupe est ainsi correct (pas de double-superposition là où les
+    /// primitives internes se chevauchent), comme le `saveLayer`/`Opacity` de
+    /// Flutter.
+    Layer {
+        /// Les primitives du groupe (coordonnées absolues, comme la scène mère).
+        primitives: Vec<Primitive>,
+        /// Opacité de groupe appliquée au calque entier (`0..1`).
+        opacity: f32,
+        /// Rectangle de découpe du calque.
+        clip: Rect,
+        /// Identité du widget émetteur.
+        owner: u64,
+    },
 }
 
 impl Primitive {
@@ -109,6 +124,7 @@ impl Primitive {
             Primitive::RichText { owner, .. } => *owner,
             Primitive::Path { owner, .. } => *owner,
             Primitive::Image { owner, .. } => *owner,
+            Primitive::Layer { owner, .. } => *owner,
         }
     }
 
@@ -209,6 +225,17 @@ impl Primitive {
                 // L'UV est en 0..1 : indépendant de l'échelle.
                 uv,
                 tint,
+                clip: clip.scale(factor),
+                owner,
+            },
+            Primitive::Layer {
+                primitives,
+                opacity,
+                clip,
+                owner,
+            } => Primitive::Layer {
+                primitives: primitives.iter().map(|p| p.scaled(factor)).collect(),
+                opacity,
                 clip: clip.scale(factor),
                 owner,
             },
@@ -367,6 +394,18 @@ impl Scene {
                 clip,
                 owner,
             },
+            Primitive::Layer {
+                primitives,
+                opacity: group,
+                clip,
+                owner,
+            } => Primitive::Layer {
+                primitives,
+                // Fondre un calque = atténuer son opacité de groupe.
+                opacity: group * opacity,
+                clip,
+                owner,
+            },
         };
         self.primitives.push(faded);
     }
@@ -510,6 +549,24 @@ impl Scene {
     pub fn image(&mut self, image: &ImageHandle, rect: Rect, fit: crate::BoxFit) {
         let (dst, uv) = fit.apply(image.size(), rect);
         self.draw_image(image, dst, uv, Color::WHITE);
+    }
+
+    /// Compose un **calque** : `build` remplit un sous-groupe de primitives, qui
+    /// est ensuite composité **d'un bloc** à `opacity` (`0..1`). Contrairement à
+    /// une opacité appliquée primitive par primitive, l'alpha de groupe reste
+    /// correct là où les primitives internes se chevauchent (façon `Opacity` de
+    /// Flutter). Le calque hérite de la découpe et du propriétaire courants.
+    pub fn layer(&mut self, opacity: f32, build: impl FnOnce(&mut Scene)) {
+        let mut inner = Scene::new();
+        inner.current_clip = self.current_clip;
+        inner.current_owner = self.current_owner;
+        build(&mut inner);
+        self.primitives.push(Primitive::Layer {
+            primitives: inner.primitives,
+            opacity,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
     }
 
     /// Ajoute une ligne de texte, ancrée par son coin haut-gauche (graisse
@@ -699,6 +756,54 @@ mod tests {
                 assert_eq!(text, "hi"); // texte inchangé
             }
             _ => panic!("attendu du texte"),
+        }
+    }
+
+    #[test]
+    fn layer_captures_subprimitives_and_opacity() {
+        let mut scene = Scene::new();
+        scene.set_owner(7);
+        scene.set_clip(Rect::new(0.0, 0.0, 50.0, 50.0));
+        scene.layer(0.5, |inner| {
+            inner.fill_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::WHITE);
+            inner.fill_rect(Rect::new(5.0, 5.0, 10.0, 10.0), Color::BLACK);
+        });
+        assert_eq!(scene.len(), 1);
+        match &scene.primitives()[0] {
+            Primitive::Layer { primitives, opacity, clip, owner } => {
+                assert_eq!(primitives.len(), 2);
+                assert_eq!(*opacity, 0.5);
+                assert_eq!(*clip, Rect::new(0.0, 0.0, 50.0, 50.0));
+                assert_eq!(*owner, 7);
+            }
+            _ => panic!("attendu un calque"),
+        }
+    }
+
+    #[test]
+    fn fading_a_layer_scales_its_group_opacity() {
+        let mut scene = Scene::new();
+        scene.layer(0.8, |inner| inner.fill_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::WHITE));
+        let layer = scene.primitives()[0].clone();
+        let mut target = Scene::new();
+        target.push_faded(&layer, 0.5);
+        match &target.primitives()[0] {
+            Primitive::Layer { opacity, .. } => assert!((*opacity - 0.4).abs() < 1e-6),
+            _ => panic!("attendu un calque"),
+        }
+    }
+
+    #[test]
+    fn scaling_a_layer_scales_its_children() {
+        let mut scene = Scene::new();
+        scene.layer(1.0, |inner| inner.fill_rect(Rect::new(2.0, 3.0, 4.0, 5.0), Color::WHITE));
+        let big = scene.scaled(2.0);
+        match &big.primitives()[0] {
+            Primitive::Layer { primitives, .. } => match &primitives[0] {
+                Primitive::Rect { rect, .. } => assert_eq!(*rect, Rect::new(4.0, 6.0, 8.0, 10.0)),
+                _ => panic!("attendu un rectangle"),
+            },
+            _ => panic!("attendu un calque"),
         }
     }
 
