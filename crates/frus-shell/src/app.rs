@@ -62,6 +62,43 @@ mod clip {
     }
 }
 
+/// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android
+/// (pas de dépendance `arboard`, qui ne s'y compile pas). Une API uniforme pour
+/// que le corps du pilote reste sans `cfg`.
+mod clip {
+    #[cfg(not(target_os = "android"))]
+    pub struct Clipboard(Option<arboard::Clipboard>);
+
+    #[cfg(not(target_os = "android"))]
+    impl Clipboard {
+        pub fn new() -> Self {
+            Self(arboard::Clipboard::new().ok())
+        }
+        pub fn get_text(&mut self) -> Option<String> {
+            self.0.as_mut().and_then(|c| c.get_text().ok())
+        }
+        pub fn set_text(&mut self, text: String) {
+            if let Some(c) = self.0.as_mut() {
+                let _ = c.set_text(text);
+            }
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    pub struct Clipboard;
+
+    #[cfg(target_os = "android")]
+    impl Clipboard {
+        pub fn new() -> Self {
+            Self
+        }
+        pub fn get_text(&mut self) -> Option<String> {
+            None
+        }
+        pub fn set_text(&mut self, _text: String) {}
+    }
+}
+
 /// Vitesse de défilement (pixels par cran de molette).
 const SCROLL_SPEED: f32 = 40.0;
 
