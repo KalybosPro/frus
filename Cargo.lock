@@ -1215,6 +1215,7 @@ name = "frus-demo"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "frus-image",
  "frus-l10n",
  "frus-shell",
  "frus-widgets",
@@ -1244,6 +1245,14 @@ dependencies = [
  "frus-shell",
  "frus-widgets",
  "log",
+]
+
+[[package]]
+name = "frus-image"
+version = "0.0.0"
+dependencies = [
+ "frus-core",
+ "image",
 ]
 
 [[package]]
@@ -1578,6 +1587,8 @@ dependencies = [
  "num-traits",
  "png 0.18.1",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

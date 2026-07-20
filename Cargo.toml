@@ -17,6 +17,8 @@ taffy = "0.7"
 glyphon = "0.6"
 cosmic-text = "0.12"
 lyon = "1"
+# Décodage d'images (PNG/JPEG). Formats limités pour alléger l'arbre de deps.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 arboard = "3"
 pollster = "0.3"
 bytemuck = { version = "1", features = ["derive"] }

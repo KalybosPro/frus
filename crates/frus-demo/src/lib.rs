@@ -58,27 +58,34 @@ use frus_widgets::{
     Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
 };
 
-/// Image de démo **générée** une fois (dégradé 64×64), partagée pour tout le
-/// process via `OnceLock` — évite de la re-construire (et de la re-téléverser)
-/// à chaque reconstruction de vue ; le renderer la met en cache par identité.
+/// Logo de démo **décodé** depuis un PNG embarqué (jalon 91), partagé pour tout
+/// le process via `OnceLock` — décodé une fois, mis en cache par identité côté
+/// renderer. Repli sur un dégradé généré si le décodage échoue (robustesse).
 fn demo_image() -> ImageHandle {
     use std::sync::OnceLock;
     static IMG: OnceLock<ImageHandle> = OnceLock::new();
     IMG.get_or_init(|| {
-        const W: u32 = 64;
-        const H: u32 = 64;
-        let mut rgba = Vec::with_capacity((W * H * 4) as usize);
-        for y in 0..H {
-            for x in 0..W {
-                rgba.push((x * 255 / (W - 1)) as u8); // R : gradient horizontal
-                rgba.push((y * 255 / (H - 1)) as u8); // G : gradient vertical
-                rgba.push(160u8); // B : constant
-                rgba.push(255u8); // A : opaque
-            }
-        }
-        ImageData::from_rgba(W, H, rgba).into_handle()
+        frus_image::decode(include_bytes!("../assets/logo.png"))
+            .map(ImageData::into_handle)
+            .unwrap_or_else(|_| fallback_gradient())
     })
     .clone()
+}
+
+/// Dégradé 64×64 généré — repli si le décodage du PNG échoue.
+fn fallback_gradient() -> ImageHandle {
+    const W: u32 = 64;
+    const H: u32 = 64;
+    let mut rgba = Vec::with_capacity((W * H * 4) as usize);
+    for y in 0..H {
+        for x in 0..W {
+            rgba.push((x * 255 / (W - 1)) as u8);
+            rgba.push((y * 255 / (H - 1)) as u8);
+            rgba.push(160u8);
+            rgba.push(255u8);
+        }
+    }
+    ImageData::from_rgba(W, H, rgba).into_handle()
 }
 
 /// Point d'entrée bureau : ouvre la fenêtre et lance la boucle winit.

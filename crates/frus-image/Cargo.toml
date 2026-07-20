@@ -1,0 +1,10 @@
+[package]
+name = "frus-image"
+description = "frus — décodage d'images (PNG/JPEG) vers ImageData"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+frus-core = { path = "../frus-core" }
+image.workspace = true
