@@ -81,6 +81,7 @@ impl TextPainter {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
+        sample_count: u32,
     ) -> Self {
         // Police embarquée + repli système : même politique que la mesure texte
         // (`frus-text`), pour un rendu déterministe et un défaut résoluble partout.
@@ -89,8 +90,18 @@ impl TextPainter {
         let cache = glyphon::Cache::new(device);
         let viewport = glyphon::Viewport::new(device, &cache);
         let mut atlas = glyphon::TextAtlas::new(device, queue, &cache, format);
-        let renderer =
-            glyphon::TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
+        // Le renderer de glyphon doit être compilé au même `sample_count` que la
+        // passe (MSAA) sous peine de mismatch de pipeline.
+        let renderer = glyphon::TextRenderer::new(
+            &mut atlas,
+            device,
+            wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            None,
+        );
 
         Self {
             font_system,

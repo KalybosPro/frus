@@ -103,7 +103,8 @@ pub(crate) struct Painter {
 
 impl Painter {
     /// Construit le painter pour un format de cible donné (surface ou texture).
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.quad.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/quad.wgsl").into()),
@@ -170,7 +171,11 @@ impl Painter {
                 ..Default::default()
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             multiview: None,
             cache: None,
         });
@@ -373,7 +378,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format);
+        let mut painter = Painter::new(&device, format, 1);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
@@ -477,7 +482,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format);
+        let mut painter = Painter::new(&device, format, 1);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
@@ -586,7 +591,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format);
+        let mut painter = Painter::new(&device, format, 1);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
@@ -703,7 +708,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut painter = Painter::new(&device, format);
+        let mut painter = Painter::new(&device, format, 1);
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();

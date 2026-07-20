@@ -3,7 +3,7 @@
 
 use frus_core::Scene;
 
-use crate::compositor::Painters;
+use crate::compositor::{preferred_sample_count, Painters};
 
 /// Couleur de fond (bleu nuit).
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
@@ -88,7 +88,11 @@ impl Renderer {
         };
         surface.configure(&device, &config);
 
-        let mut painters = Painters::new(&device, &queue, format);
+        // MSAA si l'adaptateur le supporte pour ce format (sinon 1 = désactivé).
+        let sample_count = preferred_sample_count(&adapter, format);
+        log::info!("MSAA : {sample_count}×");
+
+        let mut painters = Painters::new(&device, &queue, format, sample_count);
         // Échauffe tous les pipelines avant la première vraie frame (anti-jank).
         painters.warm_up(&device, &queue, format);
 

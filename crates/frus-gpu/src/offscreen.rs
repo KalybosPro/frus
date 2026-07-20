@@ -16,6 +16,9 @@ pub struct OffscreenFrame {
     pub height: u32,
     /// `width * height * 4` octets, ordre RGBA, origine en haut-gauche.
     pub rgba: Vec<u8>,
+    /// Nombre d'échantillons MSAA effectivement employé (1 = pas de lissage,
+    /// GPU sans support MSAA). Informatif — utile aux tests d'anti-aliasing.
+    pub samples: u32,
 }
 
 /// Rend `scene` dans une texture `width`×`height` effacée à `clear`, et relit
@@ -27,7 +30,7 @@ pub fn render_offscreen(
     height: u32,
     clear: Color,
 ) -> Option<OffscreenFrame> {
-    let (device, queue) = headless_device()?;
+    let (device, queue, sample_count) = headless_device()?;
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
 
     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -49,7 +52,7 @@ pub fn render_offscreen(
     // Même pipeline que `Renderer::render`, via le compositeur (calques compris).
     // Le clear est en sRGB (couleur d'auteur) : la cible sRGB attend du linéaire.
     let clear_linear = clear.to_linear();
-    let mut painters = Painters::new(&device, &queue, format);
+    let mut painters = Painters::new(&device, &queue, format, sample_count);
     painters.render(
         &device,
         &queue,
@@ -121,11 +124,13 @@ pub fn render_offscreen(
         width,
         height,
         rgba,
+        samples: sample_count,
     })
 }
 
-/// Instancie un device wgpu sans surface. `None` si aucun adaptateur.
-fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+/// Instancie un device wgpu sans surface, avec le nombre d'échantillons MSAA
+/// supporté pour la cible sRGB. `None` si aucun adaptateur.
+fn headless_device() -> Option<(wgpu::Device, wgpu::Queue, u32)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
         ..Default::default()
@@ -135,6 +140,8 @@ fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         compatible_surface: None,
         force_fallback_adapter: false,
     }))?;
+    let sample_count =
+        crate::compositor::preferred_sample_count(&adapter, wgpu::TextureFormat::Rgba8UnormSrgb);
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: Some("frus.offscreen.device"),
@@ -145,7 +152,7 @@ fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         None,
     ))
     .ok()?;
-    Some((device, queue))
+    Some((device, queue, sample_count))
 }
 
 #[cfg(test)]
@@ -252,6 +259,49 @@ mod tests {
         assert_eq!(px(54, 10), [0, 255, 0], "haut-droit → vert");
         assert_eq!(px(10, 54), [0, 0, 255], "bas-gauche → bleu");
         assert_eq!(px(54, 54), [255, 255, 255], "bas-droit → blanc");
+    }
+
+    /// **Anti-aliasing (MSAA)** : le bord **oblique** d'un triangle produit des
+    /// pixels **partiellement** couverts (mélange fond/forme) — signature du
+    /// multi-échantillon, impossible avec un rendu net. Si le GPU ne supporte pas
+    /// le MSAA (`samples == 1`), le test s'ignore.
+    #[test]
+    fn msaa_smooths_a_diagonal_edge() {
+        // Triangle rectangle : hypoténuse sur l'anti-diagonale x + y = 64.
+        let triangle = Path::new()
+            .move_to(Point::new(0.0, 0.0))
+            .line_to(Point::new(64.0, 0.0))
+            .line_to(Point::new(0.0, 64.0))
+            .close();
+        let mut scene = Scene::new();
+        scene.fill_path(&triangle, Color::rgb(0.0, 1.0, 0.0));
+
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            return;
+        };
+        if frame.samples == 1 {
+            eprintln!("MSAA non supporté par ce GPU : test ignoré");
+            return;
+        }
+        let px = |x: u32, y: u32| {
+            let i = ((y * frame.width + x) * 4) as usize;
+            [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
+        };
+        // Le long du bord oblique, au moins un pixel doit être un vert
+        // **intermédiaire** (ni plein 255, ni fond 0) — preuve du lissage. Un
+        // rendu net ne produirait que du 0 ou du 255. On balaye toute la surface :
+        // seuls les pixels du bord partiellement couverts sont intermédiaires.
+        let found_partial = (0..frame.height).any(|y| {
+            (0..frame.width).any(|x| {
+                let g = px(x, y)[1];
+                g > 20 && g < 235
+            })
+        });
+        assert!(found_partial, "un bord oblique lissé a des pixels de vert intermédiaire");
+        // Loin dans le triangle → plein vert ; loin dehors → fond noir.
+        assert_eq!(px(4, 4), [0, 255, 0], "intérieur → vert plein");
+        assert_eq!(px(60, 60), [0, 0, 0], "extérieur → fond");
     }
 
     /// **Compositing de calque** : deux rectangles rouges **opaques** qui se

@@ -5,9 +5,9 @@
 //! sa couleur (sRGB) et son rectangle de découpe, à l'image du `Painter` des
 //! rectangles — le shader `path.wgsl` projette et découpe.
 //!
-//! Anti-aliasing : la géométrie tessellisée est nette mais **non lissée** (pas
-//! de MSAA ici, pour un readback déterministe sous le GPU logiciel). Les bords
-//! obliques sont donc crénelés ; un lissage viendra avec le compositing.
+//! Anti-aliasing : la géométrie tessellisée est nette ; le **lissage des bords
+//! obliques** est fourni par le MSAA de la passe (voir `compositor.rs`), le
+//! pipeline étant compilé au `sample_count` de la cible.
 
 use bytemuck::{Pod, Zeroable};
 use frus_core::{Path, PathVerb, Primitive, Scene};
@@ -91,7 +91,8 @@ pub(crate) struct PathPainter {
 
 impl PathPainter {
     /// Construit le painter pour un format de cible donné.
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.path.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/path.wgsl").into()),
@@ -157,7 +158,11 @@ impl PathPainter {
                 ..Default::default()
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             multiview: None,
             cache: None,
         });

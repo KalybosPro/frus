@@ -63,11 +63,38 @@ struct Viewport {
     _pad: [f32; 2],
 }
 
+/// Nombre d'échantillons MSAA visé : 4× est un bon compromis qualité/coût et le
+/// plus largement supporté (y compris le rasteriseur logiciel llvmpipe).
+pub(crate) const MSAA_SAMPLES: u32 = 4;
+
+/// Renvoie le nombre d'échantillons MSAA à utiliser pour `format` sur cet
+/// adaptateur : [`MSAA_SAMPLES`] si supporté, sinon 1 (MSAA désactivé). Appelé
+/// une fois à l'init par le renderer fenêtré comme par le rendu hors écran.
+pub(crate) fn preferred_sample_count(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> u32 {
+    let flags = adapter.get_texture_format_features(format).flags;
+    if flags.sample_count_supported(MSAA_SAMPLES) {
+        MSAA_SAMPLES
+    } else {
+        1
+    }
+}
+
 /// Un calque prêt à composer : sa texture, son opacité et sa découpe.
 struct LayerComposite {
     view: wgpu::TextureView,
     opacity: f32,
     clip: [f32; 4],
+}
+
+/// Texture MSAA intermédiaire réutilisée comme cible de rendu : on peint dedans
+/// (multi-échantillon) puis on **résout** vers la cible mono-échantillon. Une
+/// seule suffit — pré-passes de calques et passe principale, toutes pleine
+/// surface, l'emploient tour à tour (submits séquentiels).
+struct MsaaScratch {
+    width: u32,
+    height: u32,
+    format: wgpu::TextureFormat,
+    texture: wgpu::Texture,
 }
 
 /// Pipeline de compositing des calques.
@@ -85,7 +112,7 @@ struct CompositePainter {
 }
 
 impl CompositePainter {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.composite.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/composite.wgsl").into()),
@@ -180,7 +207,11 @@ impl CompositePainter {
                 ..Default::default()
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             multiview: None,
             cache: None,
         });
@@ -288,17 +319,64 @@ pub(crate) struct Painters {
     path: PathPainter,
     text: TextPainter,
     composite: CompositePainter,
+    /// Nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    sample_count: u32,
+    /// Texture MSAA intermédiaire (créée à la demande, recréée au resize).
+    msaa: Option<MsaaScratch>,
 }
 
 impl Painters {
-    pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+    ) -> Self {
         Self {
-            rect: Painter::new(device, format),
-            image: ImagePainter::new(device, format),
-            path: PathPainter::new(device, format),
-            text: TextPainter::new(device, queue, format),
-            composite: CompositePainter::new(device, format),
+            rect: Painter::new(device, format, sample_count),
+            image: ImagePainter::new(device, format, sample_count),
+            path: PathPainter::new(device, format, sample_count),
+            text: TextPainter::new(device, queue, format, sample_count),
+            composite: CompositePainter::new(device, format, sample_count),
+            sample_count,
+            msaa: None,
         }
+    }
+
+    /// Renvoie une vue neuve de la texture MSAA (recréée si taille/format
+    /// changent), ou `None` si le MSAA est désactivé (`sample_count == 1`). La vue
+    /// est créée à la volée (peu coûteux) et renvoyée par valeur : l'emprunt de
+    /// `self` est ainsi libéré avant l'ouverture du render pass.
+    fn ensure_msaa(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        w: u32,
+        h: u32,
+    ) -> Option<wgpu::TextureView> {
+        if self.sample_count == 1 {
+            return None;
+        }
+        let stale = match &self.msaa {
+            Some(s) => s.width != w || s.height != h || s.format != format,
+            None => true,
+        };
+        if stale {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("frus.msaa.scratch"),
+                size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: self.sample_count,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.msaa = Some(MsaaScratch { width: w, height: h, format, texture });
+        }
+        self.msaa
+            .as_ref()
+            .map(|s| s.texture.create_view(&wgpu::TextureViewDescriptor::default()))
     }
 
     fn set_viewport(&self, queue: &wgpu::Queue, w: f32, h: f32) {
@@ -310,6 +388,10 @@ impl Painters {
     /// Rend `scene` (calques compris) dans `target` de taille `w×h`. `clear` :
     /// `Some(couleur)` pour effacer la cible, `None` pour peindre par-dessus.
     /// **Submise en interne** (une passe par calque, plus la passe principale).
+    ///
+    /// Note : sous MSAA, `clear == None` (peindre par-dessus) n'est pas pris en
+    /// charge — la cible multi-échantillon ne contient pas le contenu existant de
+    /// `target`. Tous les appelants actuels passent `Some(_)`.
     pub(crate) fn render(
         &mut self,
         device: &wgpu::Device,
@@ -342,6 +424,10 @@ impl Painters {
         let image_count = self.image.prepare_frame(device, queue, scene);
         let path_count = self.path.prepare_frame(device, queue, scene);
 
+        // MSAA : on peint dans la texture multi-échantillon puis on résout vers
+        // `target` ; sans MSAA on peint directement dans `target`.
+        let msaa_view = self.ensure_msaa(device, format, w, h);
+
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frus.encoder") });
         {
@@ -349,11 +435,15 @@ impl Painters {
                 Some(c) => wgpu::LoadOp::Clear(c),
                 None => wgpu::LoadOp::Load,
             };
+            let (view, resolve_target) = match &msaa_view {
+                Some(msaa) => (msaa, Some(target)),
+                None => (target, None),
+            };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("frus.render_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    resolve_target: None,
+                    view,
+                    resolve_target,
                     ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
                 })],
                 depth_stencil_attachment: None,
@@ -403,14 +493,22 @@ impl Painters {
         let image_count = self.image.prepare_frame(device, queue, &sub);
         let path_count = self.path.prepare_frame(device, queue, &sub);
 
+        // MSAA : le calque est peint multi-échantillon puis résolu vers sa texture
+        // mono-échantillon (celle échantillonnée ensuite par le compositeur).
+        let msaa_view = self.ensure_msaa(device, format, w, h);
+
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frus.layer.encoder") });
         {
+            let (attachment, resolve_target) = match &msaa_view {
+                Some(msaa) => (msaa, Some(&view)),
+                None => (&view, None),
+            };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("frus.layer.pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: attachment,
+                    resolve_target,
                     ops: wgpu::Operations {
                         // Fond transparent : le calque ne couvre que ses primitives.
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
