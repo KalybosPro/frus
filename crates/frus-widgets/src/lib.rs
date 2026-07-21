@@ -10,6 +10,7 @@
 //! vit dans un [`Runtime`], clé par identité de widget.
 
 mod alert;
+mod animated;
 mod appbar;
 mod autocomplete;
 mod avatar;
@@ -92,6 +93,7 @@ pub use checkbox::Checkbox;
 pub use chip::Chip;
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;
+pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use container::Container;
 pub use custompaint::CustomPaint;
 pub use datepicker::DatePicker;
