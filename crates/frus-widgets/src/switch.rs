@@ -85,4 +85,10 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
     fn anim_target(&self) -> Option<f32> {
         Some(if self.on { 1.0 } else { 0.0 })
     }
+
+    /// Le pouce glisse en douceur (accélère puis freine) plutôt qu'à vitesse
+    /// constante — l'animation implicite standard d'une bascule.
+    fn anim_curve(&self) -> frus_core::Curve {
+        frus_core::Curve::ease_in_out()
+    }
 }

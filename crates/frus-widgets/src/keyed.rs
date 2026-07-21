@@ -126,6 +126,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.anim_target()
     }
 
+    fn anim_duration(&self) -> f32 {
+        self.inner.anim_duration()
+    }
+
+    fn anim_curve(&self) -> frus_core::Curve {
+        self.inner.anim_curve()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

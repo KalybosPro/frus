@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::Primitive;
+use frus_core::{Curve, Primitive};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
@@ -40,8 +40,9 @@ impl Edit {
     }
 }
 
-/// Durée des transitions, en secondes.
-const ANIM_DURATION: f32 = 0.12;
+/// Durée **par défaut** des transitions, en secondes. Un widget peut la régler
+/// via [`crate::widget::Widget::anim_duration`].
+pub(crate) const ANIM_DURATION: f32 = 0.12;
 
 /// Raideur du ressort de défilement (px·s⁻²).
 const SCROLL_K: f32 = 200.0;
@@ -83,6 +84,29 @@ impl Default for Anim {
             focus: 0.0,
             opacity: 1.0,
         }
+    }
+}
+
+/// **Timeline** d'une valeur animée implicitement (`Widget::anim_target`) :
+/// interpole `from → to` selon la courbe et la durée du widget. `current` est la
+/// valeur restituée au paint. Un changement de cible **rebase** la timeline
+/// depuis la valeur courante (départ franc et continu, façon Flutter implicit).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ValueAnim {
+    /// Valeur interpolée courante (ce que lit le paint).
+    pub current: f32,
+    /// Valeur de départ de la transition en cours.
+    from: f32,
+    /// Cible de la transition en cours.
+    to: f32,
+    /// Temps écoulé (s) depuis le début de la transition.
+    elapsed: f32,
+}
+
+impl ValueAnim {
+    /// Une valeur **au repos** à `v` (aucune transition en cours).
+    fn settled(v: f32) -> Self {
+        Self { current: v, from: v, to: v, elapsed: 0.0 }
     }
 }
 
@@ -146,8 +170,9 @@ pub struct Runtime {
     pub edits: HashMap<WidgetId, Edit>,
     /// Progressions d'animation (survol/focus/opacité), par widget.
     pub anims: HashMap<WidgetId, Anim>,
-    /// Valeurs animées propres aux widgets (`Widget::anim_target`), par widget.
-    pub values: HashMap<WidgetId, f32>,
+    /// Valeurs animées propres aux widgets (`Widget::anim_target`), par widget —
+    /// chacune une **timeline** courbée (voir [`ValueAnim`]).
+    pub values: HashMap<WidgetId, ValueAnim>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
@@ -186,14 +211,21 @@ impl Runtime {
 
     /// Valeur animée d'un widget (0 par défaut).
     pub fn value(&self, id: WidgetId) -> f32 {
-        self.values.get(&id).copied().unwrap_or(0.0)
+        self.values.get(&id).map(|v| v.current).unwrap_or(0.0)
     }
 
     /// Valeur animée d'un widget, ou `default` si **aucune** valeur n'est encore
     /// enregistrée (widget jamais animé — p. ex. rendu isolé sans boucle). Permet
     /// d'adopter la cible immédiatement, comme au montage.
     pub fn value_or(&self, id: WidgetId, default: f32) -> f32 {
-        self.values.get(&id).copied().unwrap_or(default)
+        self.values.get(&id).map(|v| v.current).unwrap_or(default)
+    }
+
+    /// Fixe la valeur animée d'un widget à `v` (au repos, aucune transition en
+    /// cours) — pour les rendus/tests isolés qui veulent une progression précise
+    /// sans dérouler l'animation.
+    pub fn set_value(&mut self, id: WidgetId, v: f32) {
+        self.values.insert(id, ValueAnim::settled(v));
     }
 
     /// Fait tendre chaque valeur animée vers la cible déclarée par son widget
@@ -204,33 +236,52 @@ impl Runtime {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
-            out: &mut Vec<(WidgetId, f32)>,
+            out: &mut Vec<(WidgetId, f32, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_target() {
-                out.push((id, target));
+                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
             }
             for (index, child) in widget.children().iter().enumerate() {
                 collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
             }
         }
-        let mut targets: Vec<(WidgetId, f32)> = Vec::new();
+        let mut targets: Vec<(WidgetId, f32, f32, Curve)> = Vec::new();
         collect(root, WidgetId::ROOT, &mut targets);
 
         // Oublie les valeurs des widgets disparus.
         let present: std::collections::HashSet<WidgetId> =
-            targets.iter().map(|(id, _)| *id).collect();
+            targets.iter().map(|(id, ..)| *id).collect();
         self.values.retain(|id, _| present.contains(id));
 
-        let step = if ANIM_DURATION > 0.0 { dt / ANIM_DURATION } else { 1.0 };
         let mut animating = false;
-        for (id, target) in targets {
+        for (id, target, duration, curve) in targets {
             match self.values.entry(id) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
-                    approach(e.get_mut(), target, step, &mut animating);
+                    let v = e.get_mut();
+                    // Nouvelle cible : rebase la timeline depuis la valeur courante.
+                    if v.to != target {
+                        v.from = v.current;
+                        v.to = target;
+                        v.elapsed = 0.0;
+                    }
+                    if v.from == v.to {
+                        v.current = v.to;
+                    } else {
+                        v.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (v.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        v.current = v.from + (v.to - v.from) * curve.transform(t);
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
                     // Montage : adopte la cible sans transition.
-                    e.insert(target);
+                    e.insert(ValueAnim::settled(target));
                 }
             }
         }
@@ -404,6 +455,92 @@ mod tests {
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_values(&empty, 1.0);
         assert!(rt.values.is_empty());
+    }
+
+    /// Widget minimal exposant une valeur animée réglable (cible, durée, courbe)
+    /// — pour tester la timeline sans dépendre d'un widget concret.
+    struct Mock {
+        target: f32,
+        duration: f32,
+        curve: Curve,
+    }
+
+    impl crate::widget::Widget<()> for Mock {
+        fn style(&self) -> frus_layout::Style {
+            frus_layout::Style::default()
+        }
+        fn children(&self) -> &[Box<dyn crate::widget::Widget<()>>] {
+            &[]
+        }
+        fn paint(
+            &self,
+            _bounds: frus_core::Rect,
+            _status: crate::interaction::Status,
+            _theme: &crate::theme::Theme,
+            _scene: &mut frus_core::Scene,
+        ) {
+        }
+        fn on_click(&self) -> Option<()> {
+            None
+        }
+        fn anim_target(&self) -> Option<f32> {
+            Some(self.target)
+        }
+        fn anim_duration(&self) -> f32 {
+            self.duration
+        }
+        fn anim_curve(&self) -> Curve {
+            self.curve.clone()
+        }
+    }
+
+    /// La **courbe** façonne la trajectoire : à t=0.25, un *ease-in* est en
+    /// retard sur la progression linéaire, un *ease-out* en avance ; toutes
+    /// convergent vers la cible.
+    #[test]
+    fn curve_shapes_the_value_timeline() {
+        let id = WidgetId::ROOT;
+        let dt = 0.03; // t = 0.25 sur une durée de 0.12
+        let dur = 0.12;
+        let sample = |curve: Curve| {
+            let mut rt = Runtime::default();
+            rt.set_value(id, 0.0);
+            rt.advance_values(&Mock { target: 1.0, duration: dur, curve }, dt);
+            (rt.value(id), rt)
+        };
+        let (ein, mut rt_in) = sample(Curve::ease_in());
+        let (eout, mut rt_out) = sample(Curve::ease_out());
+        let (lin, mut rt_lin) = sample(Curve::Linear);
+
+        assert!((lin - 0.25).abs() < 1e-3, "linéaire = t : {lin}");
+        assert!(ein < 0.25, "ease-in en retard : {ein}");
+        assert!(eout > 0.25, "ease-out en avance : {eout}");
+
+        // Grand pas : toutes atteignent la cible (les courbes finissent à 1).
+        for rt in [&mut rt_in, &mut rt_out, &mut rt_lin] {
+            rt.advance_values(&Mock { target: 1.0, duration: dur, curve: Curve::Linear }, 1.0);
+        }
+        assert_eq!(rt_in.value(id), 1.0);
+        assert_eq!(rt_out.value(id), 1.0);
+        assert_eq!(rt_lin.value(id), 1.0);
+    }
+
+    /// La **durée** règle la vitesse : à `dt` égal, une transition plus courte
+    /// est plus avancée.
+    #[test]
+    fn shorter_duration_animates_faster() {
+        let id = WidgetId::ROOT;
+        let advance = |duration: f32| {
+            let mut rt = Runtime::default();
+            rt.set_value(id, 0.0);
+            rt.advance_values(&Mock { target: 1.0, duration, curve: Curve::Linear }, 0.025);
+            rt.value(id)
+        };
+        let fast = advance(0.05); // t = 0.5
+        let slow = advance(0.20); // t = 0.125
+        assert!(fast > slow, "courte durée plus avancée : {fast} vs {slow}");
+        assert!((fast - 0.5).abs() < 1e-3, "fast = {fast}");
+        assert!((slow - 0.125).abs() < 1e-3, "slow = {slow}");
     }
 
     #[test]

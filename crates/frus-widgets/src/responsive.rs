@@ -187,6 +187,20 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_target())
     }
 
+    fn anim_duration(&self) -> f32 {
+        self.inner
+            .as_ref()
+            .map(|w| w.anim_duration())
+            .unwrap_or(crate::runtime::ANIM_DURATION)
+    }
+
+    fn anim_curve(&self) -> frus_core::Curve {
+        self.inner
+            .as_ref()
+            .map(|w| w.anim_curve())
+            .unwrap_or(frus_core::Curve::Linear)
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

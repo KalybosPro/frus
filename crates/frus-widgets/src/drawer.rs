@@ -279,7 +279,7 @@ mod tests {
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
         let mut rt = Runtime::default();
-        rt.values.insert(crate::WidgetId::ROOT, 0.5);
+        rt.set_value(crate::WidgetId::ROOT, 0.5);
         let ui = build_ui(&drawer, Size::new(500.0, 400.0), &rt, &Theme::default());
         let panel_edge = ui.scene().primitives().iter().find_map(|p| match p {
             frus_core::Primitive::Rect { rect, .. }

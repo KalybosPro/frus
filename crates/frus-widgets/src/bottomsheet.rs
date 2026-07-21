@@ -254,7 +254,7 @@ mod tests {
             .sheet(Container::<Msg>::new().height(120.0))
             .body(Container::<Msg>::new());
         let mut rt = Runtime::default();
-        rt.values.insert(crate::WidgetId::ROOT, 0.5);
+        rt.set_value(crate::WidgetId::ROOT, 0.5);
         let ui = build_ui(&sheet, Size::new(500.0, 400.0), &rt, &Theme::default());
         // Bord haut du panneau pleine-largeur (hauteur ≈ 140, pas le voile 500×400).
         let top = ui.scene().primitives().iter().find_map(|p| match p {

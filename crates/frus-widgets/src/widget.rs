@@ -166,6 +166,18 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Durée (secondes) de la transition de la valeur animée (`anim_target`) —
+    /// façon `duration` de Flutter. Défaut : la durée standard du framework.
+    fn anim_duration(&self) -> f32 {
+        crate::runtime::ANIM_DURATION
+    }
+
+    /// Courbe d'accélération de la transition de la valeur animée (`anim_target`)
+    /// — façon `curve` de Flutter (`Curves.easeInOut`…). Défaut : linéaire.
+    fn anim_curve(&self) -> frus_core::Curve {
+        frus_core::Curve::Linear
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -289,6 +301,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_target(&self) -> Option<f32> {
         (**self).anim_target()
+    }
+    fn anim_duration(&self) -> f32 {
+        (**self).anim_duration()
+    }
+    fn anim_curve(&self) -> frus_core::Curve {
+        (**self).anim_curve()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()
