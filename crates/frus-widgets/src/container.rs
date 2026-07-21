@@ -2,7 +2,8 @@
 //! bordure, clic) avec un enfant optionnel.
 
 use frus_core::{
-    Border, BorderRadius, BoxDecoration, BoxShadow, Color, Insets, LinearGradient, Rect, Scene,
+    Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets, LinearGradient, Rect,
+    Scene,
 };
 use frus_layout::{Dimension, Style};
 
@@ -37,6 +38,12 @@ pub struct Container<Msg> {
     /// Frontière de repaint : met en cache le sous-arbre peint (voir
     /// [`crate::Widget::repaint_boundary`]).
     repaint_boundary: bool,
+    /// Opacité de **groupe** `[0,1]` appliquée au sous-arbre entier (façon
+    /// `Opacity` de Flutter). `None` = opaque.
+    opacity: Option<f32>,
+    /// Si l'opacité de groupe est **animée** : `(durée, courbe)` de la transition
+    /// (façon `AnimatedOpacity`). `None` = opacité fixe (pas de transition).
+    opacity_anim: Option<(f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -59,6 +66,8 @@ impl<Msg> Container<Msg> {
             on_click: None,
             on_long_press: None,
             repaint_boundary: false,
+            opacity: None,
+            opacity_anim: None,
             children: Vec::new(),
         }
     }
@@ -166,6 +175,23 @@ impl<Msg> Container<Msg> {
         self.children.push(Box::new(child));
         self
     }
+
+    /// Applique une **opacité de groupe** `[0,1]` à tout le sous-arbre, d'un bloc
+    /// (façon `Opacity` de Flutter) : le rendu passe par un calque composité, donc
+    /// pas de double-superposition sur les chevauchements. `1.0` = aucun effet.
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = Some(opacity.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Comme [`Container::opacity`], mais l'opacité **s'anime** vers `opacity` à
+    /// chaque changement (façon `AnimatedOpacity`), avec `duration` (secondes) et
+    /// `curve`. Le fondu porte sur le groupe entier.
+    pub fn animated_opacity(mut self, opacity: f32, duration: f32, curve: Curve) -> Self {
+        self.opacity = Some(opacity.clamp(0.0, 1.0));
+        self.opacity_anim = Some((duration, curve));
+        self
+    }
 }
 
 impl<Msg> Default for Container<Msg> {
@@ -238,11 +264,96 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn repaint_boundary(&self) -> bool {
         self.repaint_boundary
     }
+
+    fn opacity_group(&self) -> Option<f32> {
+        self.opacity
+    }
+
+    /// Cible de l'opacité animée (uniquement si `animated_opacity` est posée) —
+    /// c'est cette valeur que le runtime tween et que la marche relit pour le
+    /// calque.
+    fn anim_target(&self) -> Option<f32> {
+        self.opacity_anim.as_ref().and(self.opacity)
+    }
+
+    fn anim_duration(&self) -> f32 {
+        self.opacity_anim
+            .as_ref()
+            .map(|(d, _)| *d)
+            .unwrap_or(crate::runtime::ANIM_DURATION)
+    }
+
+    fn anim_curve(&self) -> Curve {
+        self.opacity_anim
+            .as_ref()
+            .map(|(_, c)| c.clone())
+            .unwrap_or(Curve::Linear)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un `Container` avec opacité de groupe < 1 fait envelopper son sous-arbre
+    /// peint dans un [`frus_core::Primitive::Layer`] à cette opacité.
+    #[test]
+    fn opacity_group_wraps_subtree_in_a_layer() {
+        use frus_core::{Primitive, Size};
+        let root: Container<()> = Container::new()
+            .width(40.0)
+            .height(40.0)
+            .color(Color::rgb(1.0, 0.0, 0.0))
+            .opacity(0.5);
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(64.0, 64.0), &rt, &theme);
+        let layer = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Layer { opacity, primitives, .. } => Some((*opacity, primitives.len())),
+            _ => None,
+        });
+        let (op, n) = layer.expect("un calque d'opacité de groupe");
+        assert!((op - 0.5).abs() < 1e-6, "opacité de groupe = {op}");
+        assert!(n >= 1, "le calque enveloppe le contenu peint ({n} primitives)");
+    }
+
+    /// Opacité pleine (`1.0`) : aucun calque n'est émis (chemin opaque, coût nul).
+    #[test]
+    fn full_opacity_emits_no_layer() {
+        use frus_core::{Primitive, Size};
+        let root: Container<()> = Container::new()
+            .width(40.0)
+            .height(40.0)
+            .color(Color::rgb(1.0, 0.0, 0.0))
+            .opacity(1.0);
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(64.0, 64.0), &rt, &theme);
+        assert!(
+            !ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Layer { .. })),
+            "aucun calque à opacité pleine"
+        );
+    }
+
+    /// `animated_opacity` déclare une valeur animée (le runtime la tween) avec la
+    /// durée et la courbe fournies ; `opacity` seule non (opacité fixe).
+    #[test]
+    fn animated_opacity_declares_anim_target() {
+        let animated: Container<()> =
+            Container::new().animated_opacity(0.0, 0.3, Curve::ease_in());
+        assert_eq!(Widget::<()>::anim_target(&animated), Some(0.0));
+        assert_eq!(Widget::<()>::anim_duration(&animated), 0.3);
+        assert_eq!(Widget::<()>::anim_curve(&animated), Curve::ease_in());
+        assert_eq!(Widget::<()>::opacity_group(&animated), Some(0.0));
+
+        // Opacité fixe : groupe oui, mais pas de valeur animée.
+        let fixed: Container<()> = Container::new().opacity(0.5);
+        assert_eq!(Widget::<()>::anim_target(&fixed), None);
+        assert_eq!(Widget::<()>::opacity_group(&fixed), Some(0.5));
+    }
 
     #[test]
     fn visible_border_reserves_layout_padding() {

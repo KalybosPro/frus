@@ -152,6 +152,34 @@ fn rtl_flips_the_drawer_side() {
     rtl.assert_golden(golden("rtl_drawer"));
 }
 
+/// **Opacité de groupe** (widget → walk → calque → GPU) : un `Container` à
+/// `opacity(0.5)` atténue son fond rouge par rapport au même à `opacity(1.0)`
+/// (rendu opaque, sans calque). Preuve pixel de bout en bout du fondu de groupe.
+#[test]
+fn group_opacity_fades_the_box() {
+    let make = |o: f32| {
+        Container::<()>::new()
+            .width(40.0)
+            .height(40.0)
+            .color(Color::rgb(1.0, 0.0, 0.0))
+            .opacity(o)
+    };
+    let (Some(opaque), Some(faded)) = (
+        render_widget(&make(1.0), 40, 40, &Theme::dark()),
+        render_widget(&make(0.5), 40, 40, &Theme::dark()),
+    ) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    let r_opaque = opaque.pixel(20, 20)[0];
+    let r_faded = faded.pixel(20, 20)[0];
+    assert!(r_opaque > 230, "opaque → plein rouge : {r_opaque}");
+    assert!(
+        r_faded < r_opaque - 40,
+        "opacité de groupe 0.5 atténue le rouge : {r_faded} vs {r_opaque}"
+    );
+}
+
 /// Le comparateur : identique → 0 diff ; un pixel changé → 1 diff.
 #[test]
 fn diff_count_is_exact() {

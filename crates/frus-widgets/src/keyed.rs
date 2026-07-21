@@ -134,6 +134,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.anim_curve()
     }
 
+    fn opacity_group(&self) -> Option<f32> {
+        self.inner.opacity_group()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

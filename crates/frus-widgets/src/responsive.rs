@@ -201,6 +201,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .unwrap_or(frus_core::Curve::Linear)
     }
 
+    fn opacity_group(&self) -> Option<f32> {
+        self.inner.as_ref().and_then(|w| w.opacity_group())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

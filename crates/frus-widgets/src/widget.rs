@@ -178,6 +178,16 @@ pub trait Widget<Msg> {
         frus_core::Curve::Linear
     }
 
+    /// Si le widget est un **groupe d'opacité**, renvoie l'opacité (cible) `[0,1]`
+    /// appliquée à tout son sous-arbre **d'un bloc** (façon `Opacity` de Flutter) :
+    /// la marche de peinture enveloppe ses primitives dans un calque composité à
+    /// cette opacité — pas de double-superposition sur les chevauchements. `None`
+    /// = pas un groupe. Combiné à `anim_target`, l'opacité **s'anime** (fondu de
+    /// groupe, façon `AnimatedOpacity`).
+    fn opacity_group(&self) -> Option<f32> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -307,6 +317,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_curve(&self) -> frus_core::Curve {
         (**self).anim_curve()
+    }
+    fn opacity_group(&self) -> Option<f32> {
+        (**self).opacity_group()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

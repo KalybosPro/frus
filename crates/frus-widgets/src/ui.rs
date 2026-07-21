@@ -4,7 +4,7 @@
 
 use std::hash::{Hash, Hasher};
 
-use frus_core::{Color, Point, Rect, Scene, Size};
+use frus_core::{Color, Point, Primitive, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::{Status, WidgetId};
@@ -534,6 +534,28 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects: &[Rect],
         index: &mut usize,
     ) {
+        // Groupe d'opacité (Opacity/AnimatedOpacity) : on peint le sous-arbre
+        // normalement puis on **draine** sa plage de primitives dans un calque
+        // composité à l'opacité de groupe (façon `saveLayer` de Flutter — pas de
+        // double-superposition). L'opacité animée est la valeur tweenée par le
+        // runtime ; sinon la cible fixe. Opaque (≈1) : aucun calque (coût nul).
+        if let Some(target) = widget.opacity_group() {
+            let opacity = self.runtime.value_or(id, target).clamp(0.0, 1.0);
+            if opacity < 0.999 {
+                let start = self.scene.primitives().len();
+                self.walk_node(widget, id, translation, clip, rects, index);
+                let group = self.scene.split_off(start);
+                self.scene.push_primitive(Primitive::Layer {
+                    primitives: group,
+                    opacity,
+                    clip,
+                    owner: id.as_u64(),
+                });
+                return;
+            }
+            // Totalement opaque : rendu normal (pas de calque inutile).
+        }
+
         // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne
         // met en cache que hors inspection.
         if self.inspector.is_none() && widget.repaint_boundary() {

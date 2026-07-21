@@ -296,6 +296,14 @@ impl Scene {
         self.primitives.push(primitive);
     }
 
+    /// Retire et renvoie les primitives à partir de l'index `start` (ordre
+    /// conservé). Sert à **envelopper** un sous-arbre déjà peint dans un calque
+    /// ([`Primitive::Layer`]) : on peint le sous-arbre, puis on déplace sa plage
+    /// de primitives dans un calque (opacité de groupe).
+    pub fn split_off(&mut self, start: usize) -> Vec<Primitive> {
+        self.primitives.split_off(start)
+    }
+
     /// Rejoue une primitive existante avec une opacité réduite (fondu de sortie).
     pub fn push_faded(&mut self, primitive: &Primitive, opacity: f32) {
         let faded = match primitive.clone() {
