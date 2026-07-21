@@ -861,6 +861,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         status.focus_progress = self.runtime.focus_progress(id);
         status.opacity = self.runtime.opacity(id);
         status.value = self.runtime.value(id);
+        status.anim_color = self.runtime.anim_color(id);
         status.time = self.runtime.time;
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {

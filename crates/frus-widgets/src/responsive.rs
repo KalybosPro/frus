@@ -205,6 +205,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.opacity_group())
     }
 
+    fn anim_color(&self) -> Option<frus_core::Color> {
+        self.inner.as_ref().and_then(|w| w.anim_color())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

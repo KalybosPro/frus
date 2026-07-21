@@ -44,6 +44,9 @@ pub struct Container<Msg> {
     /// Si l'opacité de groupe est **animée** : `(durée, courbe)` de la transition
     /// (façon `AnimatedOpacity`). `None` = opacité fixe (pas de transition).
     opacity_anim: Option<(f32, Curve)>,
+    /// Si le fond est une **couleur animée** : `(cible, durée, courbe)` de la
+    /// transition (façon `AnimatedContainer`). `None` = couleur fixe.
+    color_anim: Option<(Color, f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -68,6 +71,7 @@ impl<Msg> Container<Msg> {
             repaint_boundary: false,
             opacity: None,
             opacity_anim: None,
+            color_anim: None,
             children: Vec::new(),
         }
     }
@@ -192,6 +196,17 @@ impl<Msg> Container<Msg> {
         self.opacity_anim = Some((duration, curve));
         self
     }
+
+    /// Fond dont la couleur **s'anime** vers `color` à chaque changement (façon
+    /// `AnimatedContainer`), avec `duration` (secondes) et `curve`. Le runtime
+    /// interpole depuis la couleur courante ; au montage, adopte `color` sans
+    /// transition. Note : une même boîte partage une `(durée, courbe)` entre ses
+    /// animations (opacité/couleur).
+    pub fn animated_color(mut self, color: Color, duration: f32, curve: Curve) -> Self {
+        self.color = Some(color);
+        self.color_anim = Some((color, duration, curve));
+        self
+    }
 }
 
 impl<Msg> Default for Container<Msg> {
@@ -226,8 +241,12 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
+        // Fond à **couleur animée** : la couleur interpolée par le runtime prime
+        // (l'interpolation survol/pressé ne s'applique pas à un fond animé).
         // Pressé : instantané. Sinon, transition animée repos → survol.
-        let color = if status.interaction == Interaction::Pressed {
+        let color = if self.color_anim.is_some() {
+            status.anim_color.or(self.color)
+        } else if status.interaction == Interaction::Pressed {
             self.pressed_color.or(self.hover_color).or(self.color)
         } else if let (Some(base), Some(hover)) = (self.color, self.hover_color) {
             Some(base.lerp(hover, ease(status.hover_progress)))
@@ -276,10 +295,16 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.opacity_anim.as_ref().and(self.opacity)
     }
 
+    fn anim_color(&self) -> Option<Color> {
+        self.color_anim.as_ref().and(self.color)
+    }
+
     fn anim_duration(&self) -> f32 {
+        // Opacité et couleur partagent une même durée (opacité prioritaire).
         self.opacity_anim
             .as_ref()
             .map(|(d, _)| *d)
+            .or(self.color_anim.as_ref().map(|(_, d, _)| *d))
             .unwrap_or(crate::runtime::ANIM_DURATION)
     }
 
@@ -287,6 +312,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.opacity_anim
             .as_ref()
             .map(|(_, c)| c.clone())
+            .or(self.color_anim.as_ref().map(|(_, _, c)| c.clone()))
             .unwrap_or(Curve::Linear)
     }
 }
@@ -353,6 +379,39 @@ mod tests {
         let fixed: Container<()> = Container::new().opacity(0.5);
         assert_eq!(Widget::<()>::anim_target(&fixed), None);
         assert_eq!(Widget::<()>::opacity_group(&fixed), Some(0.5));
+    }
+
+    /// Un fond `animated_color` peint la couleur **interpolée** par le runtime
+    /// (pas la cible) : montée au rouge, transition vers bleu à mi-parcours → le
+    /// rectangle de fond est ~ mi rouge/bleu.
+    #[test]
+    fn animated_color_paints_the_interpolated_color() {
+        use frus_core::{Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let mut rt = crate::runtime::Runtime::default();
+        let start: Container<()> =
+            Container::new().width(20.0).height(20.0).animated_color(red, 0.10, Curve::Linear);
+        rt.advance_colors(&start, 1.0); // montage → rouge
+        let to_blue: Container<()> =
+            Container::new().width(20.0).height(20.0).animated_color(blue, 0.10, Curve::Linear);
+        rt.advance_colors(&to_blue, 0.05); // t = 0.5
+
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&to_blue, Size::new(20.0, 20.0), &rt, &theme);
+        let color = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .expect("un rectangle de fond");
+        assert!(
+            (color.r - 0.5).abs() < 0.1 && (color.b - 0.5).abs() < 0.1,
+            "couleur interpolée peinte : {color:?}"
+        );
     }
 
     #[test]

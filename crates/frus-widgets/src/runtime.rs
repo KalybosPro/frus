@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{Curve, Primitive};
+use frus_core::{Color, Curve, Primitive};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
@@ -110,6 +110,23 @@ impl ValueAnim {
     }
 }
 
+/// Timeline d'une **couleur** animée (`Container::animated_color`) : interpole
+/// `from → to` par canal, selon la courbe et la durée du widget. Même modèle de
+/// rebase que [`ValueAnim`], appliqué à une couleur.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct ColorAnim {
+    current: Color,
+    from: Color,
+    to: Color,
+    elapsed: f32,
+}
+
+impl ColorAnim {
+    fn settled(c: Color) -> Self {
+        Self { current: c, from: c, to: c, elapsed: 0.0 }
+    }
+}
+
 /// Un pas de ressort amorti (Euler semi-implicite) faisant tendre `progress` vers
 /// `target`, amorcé par `velocity`. `stiffness`/`damping` règlent la raideur et
 /// l'amortissement (≈ `2·√stiffness` = amortissement critique, sans dépassement).
@@ -173,6 +190,8 @@ pub struct Runtime {
     /// Valeurs animées propres aux widgets (`Widget::anim_target`), par widget —
     /// chacune une **timeline** courbée (voir [`ValueAnim`]).
     pub values: HashMap<WidgetId, ValueAnim>,
+    /// Couleurs de fond animées (`Container::animated_color`), par widget.
+    colors: HashMap<WidgetId, ColorAnim>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
@@ -282,6 +301,68 @@ impl Runtime {
                 std::collections::hash_map::Entry::Vacant(e) => {
                     // Montage : adopte la cible sans transition.
                     e.insert(ValueAnim::settled(target));
+                }
+            }
+        }
+        animating
+    }
+
+    /// Couleur de fond animée d'un widget, si en transition (`None` sinon).
+    pub fn anim_color(&self, id: WidgetId) -> Option<Color> {
+        self.colors.get(&id).map(|c| c.current)
+    }
+
+    /// Fait tendre chaque couleur de fond animée vers la cible déclarée par son
+    /// widget (`Widget::anim_color`), suivant sa durée/courbe (`anim_duration`/
+    /// `anim_curve`). Montage : adopte la cible sans transition. Renvoie `true`
+    /// s'il reste une couleur en mouvement. Même modèle que [`Self::advance_values`].
+    pub fn advance_colors<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            out: &mut Vec<(WidgetId, Color, f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_color() {
+                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+            }
+        }
+        let mut targets: Vec<(WidgetId, Color, f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.colors.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.colors.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let c = e.get_mut();
+                    if c.to != target {
+                        c.from = c.current;
+                        c.to = target;
+                        c.elapsed = 0.0;
+                    }
+                    if c.from == c.to {
+                        c.current = c.to;
+                    } else {
+                        c.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (c.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        c.current = c.from.lerp(c.to, curve.transform(t));
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(ColorAnim::settled(target));
                 }
             }
         }
@@ -523,6 +604,36 @@ mod tests {
         assert_eq!(rt_in.value(id), 1.0);
         assert_eq!(rt_out.value(id), 1.0);
         assert_eq!(rt_lin.value(id), 1.0);
+    }
+
+    /// La couleur animée **snap** au montage puis **tween** au changement de
+    /// cible, canal par canal ; le widget disparu est oublié.
+    #[test]
+    fn animated_color_tweens_between_frames() {
+        let id = WidgetId::ROOT;
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let mut rt = Runtime::default();
+
+        // Montage au rouge : adopte la cible sans transition.
+        let start: crate::Container<()> = crate::Container::new().animated_color(red, 0.10, Curve::Linear);
+        assert!(!rt.advance_colors(&start, 1.0));
+        assert_eq!(rt.anim_color(id), Some(red));
+
+        // Cible bleue : tween linéaire, à mi-parcours ≈ (0.5, 0, 0.5).
+        let to_blue: crate::Container<()> = crate::Container::new().animated_color(blue, 0.10, Curve::Linear);
+        assert!(rt.advance_colors(&to_blue, 0.05));
+        let mid = rt.anim_color(id).unwrap();
+        assert!((mid.r - 0.5).abs() < 0.05 && (mid.b - 0.5).abs() < 0.05, "mi-parcours = {mid:?}");
+
+        // Fin : atteint le bleu.
+        rt.advance_colors(&to_blue, 1.0);
+        assert_eq!(rt.anim_color(id), Some(blue));
+
+        // Widget disparu : la couleur est oubliée.
+        let empty: crate::Container<()> = crate::Container::new();
+        rt.advance_colors(&empty, 1.0);
+        assert_eq!(rt.anim_color(id), None);
     }
 
     /// La **durée** règle la vitesse : à `dt` égal, une transition plus courte

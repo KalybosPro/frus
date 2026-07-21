@@ -188,6 +188,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Couleur de fond **cible** d'un fond animé (`Container::animated_color`) :
+    /// le runtime la tween (via `anim_duration`/`anim_curve`) et restitue
+    /// l'interpolée dans `Status::anim_color`. `None` = pas de couleur animée.
+    fn anim_color(&self) -> Option<frus_core::Color> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -320,6 +327,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn opacity_group(&self) -> Option<f32> {
         (**self).opacity_group()
+    }
+    fn anim_color(&self) -> Option<frus_core::Color> {
+        (**self).anim_color()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

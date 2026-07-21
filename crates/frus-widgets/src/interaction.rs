@@ -116,6 +116,9 @@ pub struct Status {
     /// Temps écoulé (secondes) depuis le démarrage — pour les animations
     /// continues pilotées par le temps (ex. `Spinner`).
     pub time: f32,
+    /// Couleur **interpolée** d'un fond animé (`Container::animated_color`), si en
+    /// transition ; `None` = pas de couleur animée (le widget utilise sa couleur).
+    pub anim_color: Option<frus_core::Color>,
 }
 
 impl Default for Status {
@@ -131,6 +134,7 @@ impl Default for Status {
             opacity: 1.0,
             value: 0.0,
             time: 0.0,
+            anim_color: None,
         }
     }
 }
@@ -167,6 +171,7 @@ impl InputState {
             opacity: 1.0,
             value: 0.0,
             time: 0.0,
+            anim_color: None,
         }
     }
 }

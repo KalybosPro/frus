@@ -138,6 +138,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.opacity_group()
     }
 
+    fn anim_color(&self) -> Option<frus_core::Color> {
+        self.inner.anim_color()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }
