@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{Color, Curve, Primitive, Size};
+use frus_core::{BorderRadius, Color, Curve, Primitive, Size};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
@@ -149,6 +149,34 @@ fn lerp_size(a: Size, b: Size, t: f32) -> Size {
     Size::new(a.width + (b.width - a.width) * t, a.height + (b.height - a.height) * t)
 }
 
+/// Timeline d'un **rayon de coin** animé (`Container::animated_radius`) :
+/// interpole `from → to` (les quatre coins) selon la courbe et la durée du
+/// widget. Propriété **picturale** : livrée au paint via `Status::anim_radius`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct RadiusAnim {
+    current: BorderRadius,
+    from: BorderRadius,
+    to: BorderRadius,
+    elapsed: f32,
+}
+
+impl RadiusAnim {
+    fn settled(r: BorderRadius) -> Self {
+        Self { current: r, from: r, to: r, elapsed: 0.0 }
+    }
+}
+
+/// Interpolation linéaire de deux rayons (par coin).
+fn lerp_radius(a: BorderRadius, b: BorderRadius, t: f32) -> BorderRadius {
+    let mix = |x: f32, y: f32| x + (y - x) * t;
+    BorderRadius {
+        top_left: mix(a.top_left, b.top_left),
+        top_right: mix(a.top_right, b.top_right),
+        bottom_right: mix(a.bottom_right, b.bottom_right),
+        bottom_left: mix(a.bottom_left, b.bottom_left),
+    }
+}
+
 /// Un pas de ressort amorti (Euler semi-implicite) faisant tendre `progress` vers
 /// `target`, amorcé par `velocity`. `stiffness`/`damping` règlent la raideur et
 /// l'amortissement (≈ `2·√stiffness` = amortissement critique, sans dépassement).
@@ -216,6 +244,8 @@ pub struct Runtime {
     colors: HashMap<WidgetId, ColorAnim>,
     /// Tailles animées (`Container::animated_size`), par widget — injectées au layout.
     sizes: HashMap<WidgetId, SizeAnim>,
+    /// Rayons de coin animés (`Container::animated_radius`), par widget.
+    radii: HashMap<WidgetId, RadiusAnim>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
@@ -450,6 +480,68 @@ impl Runtime {
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(SizeAnim::settled(target));
+                }
+            }
+        }
+        animating
+    }
+
+    /// Rayon de coin animé d'un widget, si en transition (`None` sinon).
+    pub fn anim_radius(&self, id: WidgetId) -> Option<BorderRadius> {
+        self.radii.get(&id).map(|r| r.current)
+    }
+
+    /// Fait tendre chaque rayon de coin animé vers la cible déclarée par son
+    /// widget (`Widget::anim_radius`), suivant sa durée/courbe. Montage : adopte
+    /// la cible sans transition. Renvoie `true` s'il reste un rayon en mouvement.
+    /// Même modèle que [`Self::advance_colors`], appliqué à un [`BorderRadius`].
+    pub fn advance_radii<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            out: &mut Vec<(WidgetId, BorderRadius, f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_radius() {
+                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+            }
+        }
+        let mut targets: Vec<(WidgetId, BorderRadius, f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.radii.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.radii.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let r = e.get_mut();
+                    if r.to != target {
+                        r.from = r.current;
+                        r.to = target;
+                        r.elapsed = 0.0;
+                    }
+                    if r.from == r.to {
+                        r.current = r.to;
+                    } else {
+                        r.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (r.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        r.current = lerp_radius(r.from, r.to, curve.transform(t));
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(RadiusAnim::settled(target));
                 }
             }
         }
@@ -751,6 +843,33 @@ mod tests {
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_sizes(&empty, 1.0);
         assert_eq!(rt.anim_size(id), None);
+    }
+
+    /// Le rayon de coin animé **snap** au montage puis **tween** au changement
+    /// de cible (par coin) ; le widget disparu est oublié.
+    #[test]
+    fn animated_radius_tweens_between_frames() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+
+        let sharp: crate::Container<()> =
+            crate::Container::new().animated_radius(0.0, 0.10, Curve::Linear);
+        assert!(!rt.advance_radii(&sharp, 1.0));
+        assert_eq!(rt.anim_radius(id), Some(BorderRadius::from(0.0)));
+
+        // Cible 20 : à mi-parcours linéaire ≈ 10.
+        let round: crate::Container<()> =
+            crate::Container::new().animated_radius(20.0, 0.10, Curve::Linear);
+        assert!(rt.advance_radii(&round, 0.05));
+        let mid = rt.anim_radius(id).unwrap();
+        assert!((mid.top_left - 10.0).abs() < 0.5, "mi-parcours = {}", mid.top_left);
+
+        rt.advance_radii(&round, 1.0);
+        assert_eq!(rt.anim_radius(id), Some(BorderRadius::from(20.0)));
+
+        let empty: crate::Container<()> = crate::Container::new();
+        rt.advance_radii(&empty, 1.0);
+        assert_eq!(rt.anim_radius(id), None);
     }
 
     /// La **durée** règle la vitesse : à `dt` égal, une transition plus courte

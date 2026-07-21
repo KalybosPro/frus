@@ -146,6 +146,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.anim_size()
     }
 
+    fn anim_radius(&self) -> Option<frus_core::BorderRadius> {
+        self.inner.anim_radius()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

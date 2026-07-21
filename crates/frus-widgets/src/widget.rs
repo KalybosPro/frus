@@ -202,6 +202,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Rayon de coin **cible** d'un rayon animé (`Container::animated_radius`) :
+    /// le runtime le tween et restitue l'interpolé dans `Status::anim_radius`.
+    /// `None` = rayon fixe.
+    fn anim_radius(&self) -> Option<frus_core::BorderRadius> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -340,6 +347,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_size(&self) -> Option<Size> {
         (**self).anim_size()
+    }
+    fn anim_radius(&self) -> Option<frus_core::BorderRadius> {
+        (**self).anim_radius()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

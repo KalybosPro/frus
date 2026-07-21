@@ -119,6 +119,9 @@ pub struct Status {
     /// Couleur **interpolée** d'un fond animé (`Container::animated_color`), si en
     /// transition ; `None` = pas de couleur animée (le widget utilise sa couleur).
     pub anim_color: Option<frus_core::Color>,
+    /// Rayon de coin **interpolé** (`Container::animated_radius`), si en
+    /// transition ; `None` = rayon fixe (le widget utilise le sien).
+    pub anim_radius: Option<frus_core::BorderRadius>,
 }
 
 impl Default for Status {
@@ -135,6 +138,7 @@ impl Default for Status {
             value: 0.0,
             time: 0.0,
             anim_color: None,
+            anim_radius: None,
         }
     }
 }
@@ -172,6 +176,7 @@ impl InputState {
             value: 0.0,
             time: 0.0,
             anim_color: None,
+            anim_radius: None,
         }
     }
 }

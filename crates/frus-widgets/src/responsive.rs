@@ -213,6 +213,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_size())
     }
 
+    fn anim_radius(&self) -> Option<frus_core::BorderRadius> {
+        self.inner.as_ref().and_then(|w| w.anim_radius())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

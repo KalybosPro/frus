@@ -50,6 +50,9 @@ pub struct Container<Msg> {
     /// Si la **taille** est animée : `(cible, durée, courbe)` — interpolée au
     /// layout (façon `AnimatedContainer`). `None` = taille fixe.
     size_anim: Option<(Size, f32, Curve)>,
+    /// Si le **rayon de coin** est animé : `(cible, durée, courbe)` — interpolé au
+    /// paint (façon `AnimatedContainer`). `None` = rayon fixe.
+    radius_anim: Option<(BorderRadius, f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -76,6 +79,7 @@ impl<Msg> Container<Msg> {
             opacity_anim: None,
             color_anim: None,
             size_anim: None,
+            radius_anim: None,
             children: Vec::new(),
         }
     }
@@ -222,6 +226,22 @@ impl<Msg> Container<Msg> {
         self.size_anim = Some((Size::new(width, height), duration, curve));
         self
     }
+
+    /// Boîte dont le **rayon de coin** s'anime vers `radius` à chaque changement
+    /// (façon `AnimatedContainer`), avec `duration` et `curve` — les coins se
+    /// morphent en douceur. Uniforme via `f32` ou par coin via [`BorderRadius`].
+    /// Au montage, adopte la cible sans transition.
+    pub fn animated_radius(
+        mut self,
+        radius: impl Into<BorderRadius>,
+        duration: f32,
+        curve: Curve,
+    ) -> Self {
+        let radius = radius.into();
+        self.radius = radius;
+        self.radius_anim = Some((radius, duration, curve));
+        self
+    }
 }
 
 impl<Msg> Default for Container<Msg> {
@@ -272,6 +292,13 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         // Compose la décoration (fond/dégradé/bordure/ombre) et l'abaisse en
         // primitives dans l'ordre fixe ombre → fond → bordure. L'opacité (fondu
         // d'apparition) module toutes les couleurs.
+        // Rayon animé : le rayon interpolé par le runtime prime sur le fixe.
+        let radius = if self.radius_anim.is_some() {
+            status.anim_radius.unwrap_or(self.radius)
+        } else {
+            self.radius
+        };
+
         let decoration = BoxDecoration {
             color,
             gradient: self
@@ -279,7 +306,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
                 .map(|(end, dir)| LinearGradient::new(end, dir)),
             border: (self.border_width > 0.0)
                 .then(|| Border::new(self.border_width, self.border_color)),
-            radius: self.radius,
+            radius,
             shadow: self
                 .shadow
                 .map(|(dx, dy, blur, c)| BoxShadow::new(dx, dy, blur, c)),
@@ -318,14 +345,19 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.size_anim.as_ref().map(|(s, _, _)| *s)
     }
 
+    fn anim_radius(&self) -> Option<BorderRadius> {
+        self.radius_anim.as_ref().map(|(r, _, _)| *r)
+    }
+
     fn anim_duration(&self) -> f32 {
-        // Les animations d'une même boîte (opacité/couleur/taille) partagent une
-        // durée (ordre de priorité : opacité, couleur, taille).
+        // Les animations d'une même boîte (opacité/couleur/taille/rayon) partagent
+        // une durée (ordre de priorité : opacité, couleur, taille, rayon).
         self.opacity_anim
             .as_ref()
             .map(|(d, _)| *d)
             .or(self.color_anim.as_ref().map(|(_, d, _)| *d))
             .or(self.size_anim.as_ref().map(|(_, d, _)| *d))
+            .or(self.radius_anim.as_ref().map(|(_, d, _)| *d))
             .unwrap_or(crate::runtime::ANIM_DURATION)
     }
 
@@ -335,6 +367,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             .map(|(_, c)| c.clone())
             .or(self.color_anim.as_ref().map(|(_, _, c)| c.clone()))
             .or(self.size_anim.as_ref().map(|(_, _, c)| c.clone()))
+            .or(self.radius_anim.as_ref().map(|(_, _, c)| c.clone()))
             .unwrap_or(Curve::Linear)
     }
 }
@@ -464,6 +497,34 @@ mod tests {
             .expect("un rectangle de fond");
         assert!((rect.width - 30.0).abs() < 1.0, "largeur interpolée : {}", rect.width);
         assert!((rect.height - 30.0).abs() < 1.0, "hauteur interpolée : {}", rect.height);
+    }
+
+    /// Un `animated_radius` peint le rayon **interpolé** : montée à 0, transition
+    /// vers 20 à mi-parcours → le rectangle de fond a un rayon ~10.
+    #[test]
+    fn animated_radius_paints_the_interpolated_radius() {
+        use frus_core::{Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let mut rt = crate::runtime::Runtime::default();
+        let sharp: Container<()> =
+            Container::new().width(40.0).height(40.0).color(red).animated_radius(0.0, 0.10, Curve::Linear);
+        rt.advance_radii(&sharp, 1.0); // montage → 0
+        let round: Container<()> =
+            Container::new().width(40.0).height(40.0).color(red).animated_radius(20.0, 0.10, Curve::Linear);
+        rt.advance_radii(&round, 0.05); // t = 0.5 → 10
+
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&round, Size::new(60.0, 60.0), &rt, &theme);
+        let radius = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { radius, .. } => Some(*radius),
+                _ => None,
+            })
+            .expect("un rectangle de fond");
+        assert!((radius.top_left - 10.0).abs() < 1.0, "rayon interpolé : {}", radius.top_left);
     }
 
     #[test]
