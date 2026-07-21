@@ -142,6 +142,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.anim_color()
     }
 
+    fn anim_size(&self) -> Option<frus_core::Size> {
+        self.inner.anim_size()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

@@ -3,7 +3,7 @@
 
 use frus_core::{
     Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets, LinearGradient, Rect,
-    Scene,
+    Scene, Size,
 };
 use frus_layout::{Dimension, Style};
 
@@ -47,6 +47,9 @@ pub struct Container<Msg> {
     /// Si le fond est une **couleur animée** : `(cible, durée, courbe)` de la
     /// transition (façon `AnimatedContainer`). `None` = couleur fixe.
     color_anim: Option<(Color, f32, Curve)>,
+    /// Si la **taille** est animée : `(cible, durée, courbe)` — interpolée au
+    /// layout (façon `AnimatedContainer`). `None` = taille fixe.
+    size_anim: Option<(Size, f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -72,6 +75,7 @@ impl<Msg> Container<Msg> {
             opacity: None,
             opacity_anim: None,
             color_anim: None,
+            size_anim: None,
             children: Vec::new(),
         }
     }
@@ -207,6 +211,17 @@ impl<Msg> Container<Msg> {
         self.color_anim = Some((color, duration, curve));
         self
     }
+
+    /// Boîte dont la **taille** s'anime vers `width×height` à chaque changement
+    /// (façon `AnimatedContainer`), avec `duration` et `curve`. La taille
+    /// interpolée est injectée **au layout** (les enfants se replacent en
+    /// conséquence). Au montage, adopte la cible sans transition.
+    pub fn animated_size(mut self, width: f32, height: f32, duration: f32, curve: Curve) -> Self {
+        self.width = Dimension::Length(width);
+        self.height = Dimension::Length(height);
+        self.size_anim = Some((Size::new(width, height), duration, curve));
+        self
+    }
 }
 
 impl<Msg> Default for Container<Msg> {
@@ -299,12 +314,18 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.color_anim.as_ref().and(self.color)
     }
 
+    fn anim_size(&self) -> Option<Size> {
+        self.size_anim.as_ref().map(|(s, _, _)| *s)
+    }
+
     fn anim_duration(&self) -> f32 {
-        // Opacité et couleur partagent une même durée (opacité prioritaire).
+        // Les animations d'une même boîte (opacité/couleur/taille) partagent une
+        // durée (ordre de priorité : opacité, couleur, taille).
         self.opacity_anim
             .as_ref()
             .map(|(d, _)| *d)
             .or(self.color_anim.as_ref().map(|(_, d, _)| *d))
+            .or(self.size_anim.as_ref().map(|(_, d, _)| *d))
             .unwrap_or(crate::runtime::ANIM_DURATION)
     }
 
@@ -313,6 +334,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             .as_ref()
             .map(|(_, c)| c.clone())
             .or(self.color_anim.as_ref().map(|(_, _, c)| c.clone()))
+            .or(self.size_anim.as_ref().map(|(_, _, c)| c.clone()))
             .unwrap_or(Curve::Linear)
     }
 }
@@ -412,6 +434,36 @@ mod tests {
             (color.r - 0.5).abs() < 0.1 && (color.b - 0.5).abs() < 0.1,
             "couleur interpolée peinte : {color:?}"
         );
+    }
+
+    /// Une `animated_size` **pilote la mise en page** : après avancement à
+    /// mi-parcours (20×20 → 40×40, linéaire), le rectangle de fond mesure ~30×30
+    /// (taille interpolée injectée au layout via `effective_style`).
+    #[test]
+    fn animated_size_drives_the_layout() {
+        use frus_core::{Primitive, Size};
+        let mut rt = crate::runtime::Runtime::default();
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let start: Container<()> =
+            Container::new().color(red).animated_size(20.0, 20.0, 0.10, Curve::Linear);
+        rt.advance_sizes(&start, 1.0); // montage → 20×20
+        let to_big: Container<()> =
+            Container::new().color(red).animated_size(40.0, 40.0, 0.10, Curve::Linear);
+        rt.advance_sizes(&to_big, 0.05); // t = 0.5 → 30×30
+
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&to_big, Size::new(100.0, 100.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("un rectangle de fond");
+        assert!((rect.width - 30.0).abs() < 1.0, "largeur interpolée : {}", rect.width);
+        assert!((rect.height - 30.0).abs() < 1.0, "hauteur interpolée : {}", rect.height);
     }
 
     #[test]

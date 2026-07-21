@@ -21,7 +21,8 @@ use std::hash::{Hash, Hasher};
 use frus_core::{Rect, Size};
 
 use crate::interaction::WidgetId;
-use crate::ui::build_layout;
+use crate::runtime::Runtime;
+use crate::ui::{build_layout, child_id, effective_style};
 use crate::widget::Widget;
 
 /// Contraintes passées à taffy pour une racine de layout. `free_x`/`free_y`
@@ -86,10 +87,11 @@ impl LayoutCache {
         &mut self,
         key: WidgetId,
         root: &dyn Widget<Msg>,
+        runtime: &Runtime,
         c: Constraints,
     ) -> Vec<Rect> {
         self.touched.insert(key);
-        let signature = layout_signature(root);
+        let signature = layout_signature(root, key, runtime);
         if let Some(entry) = self.entries.get(&key) {
             if entry.signature == signature && entry.constraints == c {
                 self.hits += 1;
@@ -97,7 +99,7 @@ impl LayoutCache {
             }
         }
         self.misses += 1;
-        let rects = compute_rects(root, c);
+        let rects = compute_rects(root, key, runtime, c);
         self.entries.insert(
             key,
             Entry {
@@ -128,9 +130,14 @@ impl LayoutCache {
 
 /// Calcule les rectangles absolus d'une racine — le chemin « complet » (build +
 /// taffy + collecte), emprunté à chaque *miss* du cache.
-fn compute_rects<Msg>(root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
+fn compute_rects<Msg>(
+    root: &dyn Widget<Msg>,
+    key: WidgetId,
+    runtime: &Runtime,
+    c: Constraints,
+) -> Vec<Rect> {
     let mut layout = frus_layout::Layout::new();
-    let node = build_layout(root, &mut layout);
+    let node = build_layout(root, key, runtime, &mut layout);
     // `compute_scroll(_, _, false, false)` équivaut à `compute` (deux axes
     // `Definite`) : un seul chemin couvre les deux cas.
     layout.compute_scroll(node, c.w, c.h, c.free_x, c.free_y);
@@ -145,15 +152,17 @@ fn compute_rects<Msg>(root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
 /// en suivant **exactement** le branchement de [`build_layout`] (défilable/
 /// navigateur/liste/pile = feuille ; portail = ancre seule). Couleurs, textes et
 /// messages en sont exclus (ils ne touchent que la peinture).
-pub(crate) fn layout_signature<Msg>(root: &dyn Widget<Msg>) -> u64 {
+pub(crate) fn layout_signature<Msg>(root: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hash_node(root, &mut hasher);
+    hash_node(root, id, runtime, &mut hasher);
     hasher.finish()
 }
 
-fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, hasher: &mut H) {
+fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, hasher: &mut H) {
     // Ces branches doivent rester alignées sur `build_layout` : la forme de
     // l'arbre taffy (donc le nombre et l'ordre des rectangles) en dépend.
+    // On hache le style **effectif** (taille animée injectée) — même source que
+    // `build_layout`, donc l'empreinte change tant que la taille bouge.
     if widget.scroll_content().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
@@ -161,25 +170,26 @@ fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, hasher: &mut H) {
         || widget.stack()
     {
         1u8.hash(hasher);
-        widget.style().layout_hash(hasher);
+        effective_style(widget, id, runtime).layout_hash(hasher);
         return;
     }
     if widget.overlay().is_some() {
         2u8.hash(hasher);
-        widget.style().layout_hash(hasher);
-        hash_node(widget.children()[0].as_ref(), hasher);
+        effective_style(widget, id, runtime).layout_hash(hasher);
+        let anchor = widget.children()[0].as_ref();
+        hash_node(anchor, child_id(id, 0, anchor), runtime, hasher);
         return;
     }
     let children = widget.children();
     3u8.hash(hasher);
-    widget.style().layout_hash(hasher);
+    effective_style(widget, id, runtime).layout_hash(hasher);
     // Feuille mesurée : son **contenu** (texte…) influe sur la géométrie sans
     // passer par le style — sans cette empreinte, deux contenus différents
     // seraient confondus et le cache garderait une vieille mise en page.
     widget.measure_key().hash(hasher);
     children.len().hash(hasher);
-    for child in children.iter() {
-        hash_node(child.as_ref(), hasher);
+    for (i, child) in children.iter().enumerate() {
+        hash_node(child.as_ref(), child_id(id, i, child.as_ref()), runtime, hasher);
     }
 }
 
@@ -188,36 +198,41 @@ mod tests {
     use super::*;
     use crate::{Container, Flex};
 
+    fn sig<Msg>(w: &dyn Widget<Msg>) -> u64 {
+        layout_signature(w, WidgetId::ROOT, &Runtime::default())
+    }
+
     #[test]
     fn identical_trees_share_a_signature() {
         let a: Container<()> = Container::new().width(100.0).height(40.0);
         let b: Container<()> = Container::new().width(100.0).height(40.0);
-        assert_eq!(layout_signature(&a), layout_signature(&b));
+        assert_eq!(sig(&a), sig(&b));
     }
 
     #[test]
     fn a_size_change_changes_the_signature() {
         let a: Container<()> = Container::new().width(100.0).height(40.0);
         let b: Container<()> = Container::new().width(101.0).height(40.0);
-        assert_ne!(layout_signature(&a), layout_signature(&b));
+        assert_ne!(sig(&a), sig(&b));
     }
 
     #[test]
     fn child_count_changes_the_signature() {
         let one: Flex<()> = Flex::row().child(Container::new());
         let two: Flex<()> = Flex::row().child(Container::new()).child(Container::new());
-        assert_ne!(layout_signature(&one), layout_signature(&two));
+        assert_ne!(sig(&one), sig(&two));
     }
 
     #[test]
     fn cache_hits_on_repeated_identical_root() {
         let mut cache = LayoutCache::default();
+        let rt = Runtime::default();
         let key = WidgetId::ROOT;
         let c = Constraints::definite(Size::new(200.0, 100.0));
 
         let tree: Container<()> = Container::new().width(200.0).height(100.0);
-        let first = cache.rects(key, &tree, c);
-        let second = cache.rects(key, &tree, c);
+        let first = cache.rects(key, &tree, &rt, c);
+        let second = cache.rects(key, &tree, &rt, c);
         assert_eq!(first, second, "mêmes rectangles");
         // 1 miss (calcul), puis 1 hit (réutilisation).
         assert_eq!((cache.hits, cache.misses), (1, 1));
@@ -226,25 +241,27 @@ mod tests {
     #[test]
     fn changed_constraints_miss() {
         let mut cache = LayoutCache::default();
+        let rt = Runtime::default();
         let key = WidgetId::ROOT;
         let tree: Container<()> = Container::new();
-        cache.rects(key, &tree, Constraints::definite(Size::new(200.0, 100.0)));
-        cache.rects(key, &tree, Constraints::definite(Size::new(300.0, 100.0)));
+        cache.rects(key, &tree, &rt, Constraints::definite(Size::new(200.0, 100.0)));
+        cache.rects(key, &tree, &rt, Constraints::definite(Size::new(300.0, 100.0)));
         assert_eq!((cache.hits, cache.misses), (0, 2), "taille changée → recalcul");
     }
 
     #[test]
     fn end_frame_evicts_untouched_roots() {
         let mut cache = LayoutCache::default();
+        let rt = Runtime::default();
         let c = Constraints::definite(Size::new(10.0, 10.0));
         let tree: Container<()> = Container::new();
-        cache.rects(WidgetId::ROOT, &tree, c);
-        cache.rects(WidgetId::ROOT.child(0), &tree, c);
+        cache.rects(WidgetId::ROOT, &tree, &rt, c);
+        cache.rects(WidgetId::ROOT.child(0), &tree, &rt, c);
         cache.end_frame();
         assert_eq!(cache.entries.len(), 2);
 
         // Frame suivante : une seule racine touchée → l'autre est évincée.
-        cache.rects(WidgetId::ROOT, &tree, c);
+        cache.rects(WidgetId::ROOT, &tree, &rt, c);
         cache.end_frame();
         assert_eq!(cache.entries.len(), 1);
         assert!(cache.entries.contains_key(&WidgetId::ROOT));

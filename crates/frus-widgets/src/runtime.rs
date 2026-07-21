@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{Color, Curve, Primitive};
+use frus_core::{Color, Curve, Primitive, Size};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
@@ -127,6 +127,28 @@ impl ColorAnim {
     }
 }
 
+/// Timeline d'une **taille** animée (`Container::animated_size`) : interpole
+/// `from → to` (largeur/hauteur) selon la courbe et la durée du widget. La taille
+/// interpolée est injectée **au layout** (pas au paint) via `effective_style`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct SizeAnim {
+    current: Size,
+    from: Size,
+    to: Size,
+    elapsed: f32,
+}
+
+impl SizeAnim {
+    fn settled(s: Size) -> Self {
+        Self { current: s, from: s, to: s, elapsed: 0.0 }
+    }
+}
+
+/// Interpolation linéaire de deux tailles (par composante).
+fn lerp_size(a: Size, b: Size, t: f32) -> Size {
+    Size::new(a.width + (b.width - a.width) * t, a.height + (b.height - a.height) * t)
+}
+
 /// Un pas de ressort amorti (Euler semi-implicite) faisant tendre `progress` vers
 /// `target`, amorcé par `velocity`. `stiffness`/`damping` règlent la raideur et
 /// l'amortissement (≈ `2·√stiffness` = amortissement critique, sans dépassement).
@@ -192,6 +214,8 @@ pub struct Runtime {
     pub values: HashMap<WidgetId, ValueAnim>,
     /// Couleurs de fond animées (`Container::animated_color`), par widget.
     colors: HashMap<WidgetId, ColorAnim>,
+    /// Tailles animées (`Container::animated_size`), par widget — injectées au layout.
+    sizes: HashMap<WidgetId, SizeAnim>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
@@ -363,6 +387,69 @@ impl Runtime {
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(ColorAnim::settled(target));
+                }
+            }
+        }
+        animating
+    }
+
+    /// Taille animée d'un widget, si en transition (`None` sinon).
+    pub fn anim_size(&self, id: WidgetId) -> Option<Size> {
+        self.sizes.get(&id).map(|s| s.current)
+    }
+
+    /// Fait tendre chaque taille animée vers la cible déclarée par son widget
+    /// (`Widget::anim_size`), suivant sa durée/courbe. Montage : adopte la cible
+    /// sans transition. Renvoie `true` s'il reste une taille en mouvement. Même
+    /// modèle que [`Self::advance_values`], mais la sortie est **consommée au
+    /// layout** (`effective_style`), pas au paint.
+    pub fn advance_sizes<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            out: &mut Vec<(WidgetId, Size, f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_size() {
+                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+            }
+        }
+        let mut targets: Vec<(WidgetId, Size, f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.sizes.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.sizes.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let s = e.get_mut();
+                    if s.to != target {
+                        s.from = s.current;
+                        s.to = target;
+                        s.elapsed = 0.0;
+                    }
+                    if s.from == s.to {
+                        s.current = s.to;
+                    } else {
+                        s.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (s.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        s.current = lerp_size(s.from, s.to, curve.transform(t));
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(SizeAnim::settled(target));
                 }
             }
         }
@@ -634,6 +721,36 @@ mod tests {
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_colors(&empty, 1.0);
         assert_eq!(rt.anim_color(id), None);
+    }
+
+    /// La taille animée **snap** au montage puis **tween** au changement de
+    /// cible (largeur/hauteur) ; le widget disparu est oublié.
+    #[test]
+    fn animated_size_tweens_between_frames() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+
+        let small: crate::Container<()> =
+            crate::Container::new().animated_size(20.0, 20.0, 0.10, Curve::Linear);
+        assert!(!rt.advance_sizes(&small, 1.0));
+        assert_eq!(rt.anim_size(id), Some(Size::new(20.0, 20.0)));
+
+        // Cible 40×40 : à mi-parcours linéaire ≈ 30×30.
+        let big: crate::Container<()> =
+            crate::Container::new().animated_size(40.0, 40.0, 0.10, Curve::Linear);
+        assert!(rt.advance_sizes(&big, 0.05));
+        let mid = rt.anim_size(id).unwrap();
+        assert!(
+            (mid.width - 30.0).abs() < 0.5 && (mid.height - 30.0).abs() < 0.5,
+            "mi-parcours = {mid:?}"
+        );
+
+        rt.advance_sizes(&big, 1.0);
+        assert_eq!(rt.anim_size(id), Some(Size::new(40.0, 40.0)));
+
+        let empty: crate::Container<()> = crate::Container::new();
+        rt.advance_sizes(&empty, 1.0);
+        assert_eq!(rt.anim_size(id), None);
     }
 
     /// La **durée** règle la vitesse : à `dt` égal, une transition plus courte

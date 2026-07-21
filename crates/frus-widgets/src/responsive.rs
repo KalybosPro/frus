@@ -209,6 +209,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_color())
     }
 
+    fn anim_size(&self) -> Option<frus_core::Size> {
+        self.inner.as_ref().and_then(|w| w.anim_size())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

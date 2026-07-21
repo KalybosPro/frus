@@ -195,6 +195,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Taille **cible** d'une taille animée (`Container::animated_size`) : le
+    /// runtime la tween (via `anim_duration`/`anim_curve`) et la taille interpolée
+    /// est injectée **au layout** (voir `effective_style`). `None` = taille fixe.
+    fn anim_size(&self) -> Option<Size> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -330,6 +337,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_color(&self) -> Option<frus_core::Color> {
         (**self).anim_color()
+    }
+    fn anim_size(&self) -> Option<Size> {
+        (**self).anim_size()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

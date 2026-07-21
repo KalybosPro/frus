@@ -332,8 +332,36 @@ pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<M
     }
 }
 
+/// Style **effectif** d'un widget pour le layout : son `style()`, dont la taille
+/// est **remplacée par la taille interpolée** du runtime si le widget est animé
+/// (`Widget::anim_size` + `Container::animated_size`). C'est le seul point où la
+/// taille animée entre dans la mise en page — utilisé **à l'identique** par
+/// [`build_layout`] et par l'empreinte du cache (`hash_node`), garantissant leur
+/// cohérence (le cache s'invalide tant que la taille bouge).
+pub(crate) fn effective_style<Msg>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+) -> frus_layout::Style {
+    let mut style = widget.style();
+    if widget.anim_size().is_some() {
+        if let Some(size) = runtime.anim_size(id) {
+            style.width = frus_layout::Dimension::Length(size.width);
+            style.height = frus_layout::Dimension::Length(size.height);
+        }
+    }
+    style
+}
+
 /// Construit l'arbre de layout principal (un défilable est une **feuille**).
-pub(crate) fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()>) -> NodeId {
+/// `id`/`runtime` servent à injecter la taille animée via [`effective_style`],
+/// en suivant **exactement** le schéma d'identités du walk (`child_id`).
+pub(crate) fn build_layout<Msg>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+    layout: &mut Layout<()>,
+) -> NodeId {
     // Défilables, navigateurs, listes virtualisées et piles : contenu mis en page
     // à part (couches / écrans / éléments indépendants).
     if widget.scroll_content().is_some()
@@ -342,27 +370,31 @@ pub(crate) fn build_layout<Msg>(widget: &dyn Widget<Msg>, layout: &mut Layout<()
         || widget.layout_builder().is_some()
         || widget.stack()
     {
-        return layout.leaf(widget.style(), ());
+        return layout.leaf(effective_style(widget, id, runtime), ());
     }
     // Un portail ne met en page que son ancre (enfant 0) ; l'overlay est différé.
     if widget.overlay().is_some() {
-        let anchor = build_layout(widget.children()[0].as_ref(), layout);
-        return layout.container(widget.style(), &[anchor]);
+        let anchor_w = widget.children()[0].as_ref();
+        let anchor = build_layout(anchor_w, child_id(id, 0, anchor_w), runtime, layout);
+        return layout.container(effective_style(widget, id, runtime), &[anchor]);
     }
     let children = widget.children();
     if children.is_empty() {
         // Feuille à mesure sous contraintes (paragraphe qui se replie…) : taffy
         // interroge la closure pendant le calcul.
         if let Some(measure) = widget.measure() {
-            return layout.measured_leaf(widget.style(), (), measure);
+            return layout.measured_leaf(effective_style(widget, id, runtime), (), measure);
         }
-        layout.leaf(widget.style(), ())
+        layout.leaf(effective_style(widget, id, runtime), ())
     } else {
         let child_ids: Vec<NodeId> = children
             .iter()
-            .map(|child| build_layout(child.as_ref(), layout))
+            .enumerate()
+            .map(|(i, child)| {
+                build_layout(child.as_ref(), child_id(id, i, child.as_ref()), runtime, layout)
+            })
             .collect();
-        layout.container(widget.style(), &child_ids)
+        layout.container(effective_style(widget, id, runtime), &child_ids)
     }
 }
 
@@ -411,7 +443,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// normalement dans sa boîte déplacée (le bidi *interne* est géré par
     /// cosmic-text).
     fn cached_rects(&self, key: WidgetId, root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
-        let mut rects = self.runtime.layout_cache.borrow_mut().rects(key, root, c);
+        let mut rects = self
+            .runtime
+            .layout_cache
+            .borrow_mut()
+            .rects(key, root, self.runtime, c);
         self.mirror(&mut rects);
         rects
     }
@@ -1192,7 +1228,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     let mut rects = runtime
         .layout_cache
         .borrow_mut()
-        .rects(WidgetId::ROOT, root, Constraints::definite(available));
+        .rects(WidgetId::ROOT, root, runtime, Constraints::definite(available));
 
     let mut builder = Builder {
         scene: Scene::new(),
