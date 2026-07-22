@@ -24,4 +24,4 @@ pub use simulation::{
     ClampedSimulation, FrictionSimulation, Simulation, SpringDescription, SpringSimulation,
     Tolerance,
 };
-pub use tween::{Animatable, Animation, Curved, Lerp, Tween};
+pub use tween::{Animatable, Animation, Curved, Lerp, Tween, TweenSequence};

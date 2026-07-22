@@ -20,7 +20,7 @@ mod text_style;
 pub use animation::{
     Animatable, Animation, AnimationController, ClampedSimulation, Curve, Curved,
     FrictionSimulation, Lerp, Simulation, SpringDescription, SpringSimulation, Status, Tolerance,
-    Tween,
+    Tween, TweenSequence,
 };
 pub use color::Color;
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
