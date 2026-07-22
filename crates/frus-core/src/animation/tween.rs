@@ -1,6 +1,8 @@
 //! Interpolation typée : une progression `[0,1]` pilote n'importe quelle valeur
 //! interpolable (nombre, couleur, point, taille…).
 
+use super::controller::{AnimationController, Status};
+use super::curve::Curve;
 use crate::{Color, Point, Size};
 
 /// Une valeur interpolable linéairement.
@@ -57,6 +59,96 @@ impl<T: Lerp> Tween<T> {
     }
 }
 
+/// Une valeur **façonnable** par une progression `[0,1]` — l'abstraction que
+/// partagent tweens et courbes (Flutter `Animatable`). C'est le pont entre le
+/// versant *explicite* (un [`AnimationController`] qui produit un `[0,1]` frame par
+/// frame) et une valeur *typée* : `tween.animate(&controller).value()` lit à tout
+/// instant la couleur / taille / point courant, sans que la vue ne connaisse le
+/// contrôleur autrement que par cette valeur.
+pub trait Animatable {
+    /// Le type de valeur produit (couleur, taille, nombre…).
+    type Output;
+
+    /// Valeur à la progression `t ∈ [0,1]`.
+    fn evaluate(&self, t: f32) -> Self::Output;
+
+    /// Enchaîne une [`Curve`] **avant** l'évaluation : `t` est d'abord façonné par
+    /// la courbe (façon `CurveTween` de Flutter). Une seule progression linéaire
+    /// pilote ainsi une valeur au timing non linéaire.
+    fn curved(self, curve: Curve) -> Curved<Self>
+    where
+        Self: Sized,
+    {
+        Curved { inner: self, curve }
+    }
+
+    /// Lie cette animation à la progression d'un [`AnimationController`], produisant
+    /// une [`Animation`] dont `value()` suit la valeur courante du contrôleur. La
+    /// valeur du contrôleur est **normalisée** par ses bornes, si bien qu'un
+    /// contrôleur non unitaire pilote quand même un `[0,1]` complet.
+    fn animate<'a>(&'a self, controller: &'a AnimationController) -> Animation<'a, Self>
+    where
+        Self: Sized,
+    {
+        Animation { animatable: self, controller }
+    }
+}
+
+impl<T: Lerp> Animatable for Tween<T> {
+    type Output = T;
+
+    fn evaluate(&self, t: f32) -> T {
+        self.eval(t)
+    }
+}
+
+/// Un [`Animatable`] dont la progression est d'abord façonnée par une [`Curve`]
+/// (résultat de [`Animatable::curved`]).
+#[derive(Clone, Debug)]
+pub struct Curved<A> {
+    inner: A,
+    curve: Curve,
+}
+
+impl<A: Animatable> Animatable for Curved<A> {
+    type Output = A::Output;
+
+    fn evaluate(&self, t: f32) -> Self::Output {
+        self.inner.evaluate(self.curve.transform(t))
+    }
+}
+
+/// Une valeur typée **vivante** : un [`Animatable`] lié à un [`AnimationController`]
+/// (résultat de [`Animatable::animate`]). `value()` échantillonne le contrôleur à
+/// l'instant présent — c'est ce que la vue lit au paint.
+pub struct Animation<'a, A: Animatable> {
+    animatable: &'a A,
+    controller: &'a AnimationController,
+}
+
+impl<A: Animatable> Animation<'_, A> {
+    /// Valeur typée courante : progression normalisée du contrôleur, évaluée.
+    pub fn value(&self) -> A::Output {
+        let (lower, upper) = self.controller.bounds();
+        let t = if upper > lower {
+            (self.controller.value() - lower) / (upper - lower)
+        } else {
+            0.0
+        };
+        self.animatable.evaluate(t.clamp(0.0, 1.0))
+    }
+
+    /// Statut du contrôleur sous-jacent.
+    pub fn status(&self) -> Status {
+        self.controller.status()
+    }
+
+    /// `true` si le contrôleur sous-jacent anime encore.
+    pub fn is_animating(&self) -> bool {
+        self.controller.is_animating()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +172,48 @@ mod tests {
     fn point_tween_interpolates() {
         let t = Tween::new(Point::new(0.0, 0.0), Point::new(10.0, 20.0));
         assert_eq!(t.eval(0.5), Point::new(5.0, 10.0));
+    }
+
+    /// `tween.animate(&controller)` : la valeur typée suit le contrôleur — au repos
+    /// bas → `begin`, puis vers `end` une fois l'animation terminée.
+    #[test]
+    fn animate_follows_controller() {
+        let mut ctrl = AnimationController::unit();
+        let tween = Tween::new(Size::new(100.0, 40.0), Size::new(200.0, 80.0));
+        assert_eq!(tween.animate(&ctrl).value(), Size::new(100.0, 40.0));
+        assert_eq!(tween.animate(&ctrl).status(), Status::Dismissed);
+
+        ctrl.forward(0.2, Curve::Linear);
+        while ctrl.tick(0.016) {}
+        assert_eq!(tween.animate(&ctrl).value(), Size::new(200.0, 80.0));
+        assert_eq!(tween.animate(&ctrl).status(), Status::Completed);
+    }
+
+    /// `.curved(...)` façonne la progression avant l'évaluation : à mi-course d'un
+    /// `ease_in`, la valeur est **en deçà** du milieu linéaire.
+    #[test]
+    fn curved_reshapes_progression() {
+        let mut ctrl = AnimationController::unit();
+        ctrl.set_value(0.5);
+        let linear = Tween::new(0.0f32, 100.0);
+        let eased = linear.curved(Curve::ease_in());
+        let mid = eased.animate(&ctrl).value();
+        assert!(mid < 50.0, "ease_in en deçà du milieu linéaire : {mid}");
+        assert!(mid > 0.0);
+        // Les bornes restent atteintes (à la tolérance du solveur de bézier près).
+        ctrl.set_value(0.0);
+        assert!(eased.animate(&ctrl).value().abs() < 0.5);
+        ctrl.set_value(1.0);
+        assert!((eased.animate(&ctrl).value() - 100.0).abs() < 0.5);
+    }
+
+    /// Un contrôleur non unitaire pilote quand même un `[0,1]` complet : la valeur
+    /// est normalisée par ses bornes.
+    #[test]
+    fn non_unit_bounds_are_normalized() {
+        let mut ctrl = AnimationController::new(0.0, 2.0);
+        ctrl.set_value(1.0); // milieu de [0,2] → t = 0.5
+        let tween = Tween::new(Color::BLACK, Color::WHITE);
+        assert_eq!(tween.animate(&ctrl).value(), Color::rgb(0.5, 0.5, 0.5));
     }
 }

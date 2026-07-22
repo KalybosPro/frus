@@ -18,8 +18,9 @@ mod semantics;
 mod text_style;
 
 pub use animation::{
-    AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
-    SpringDescription, SpringSimulation, Status, Tolerance, Tween,
+    Animatable, Animation, AnimationController, ClampedSimulation, Curve, Curved,
+    FrictionSimulation, Lerp, Simulation, SpringDescription, SpringSimulation, Status, Tolerance,
+    Tween,
 };
 pub use color::Color;
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
