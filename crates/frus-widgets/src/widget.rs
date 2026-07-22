@@ -209,6 +209,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Marge (padding) **cible** d'une marge animée (`Container::animated_padding`)
+    /// : le runtime la tween et la marge interpolée est injectée **au layout**
+    /// (voir `effective_style`). `None` = marge fixe.
+    fn anim_padding(&self) -> Option<frus_core::Insets> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -350,6 +357,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_radius(&self) -> Option<frus_core::BorderRadius> {
         (**self).anim_radius()
+    }
+    fn anim_padding(&self) -> Option<frus_core::Insets> {
+        (**self).anim_padding()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

@@ -350,6 +350,11 @@ pub(crate) fn effective_style<Msg>(
             style.height = frus_layout::Dimension::Length(size.height);
         }
     }
+    if widget.anim_padding().is_some() {
+        if let Some(padding) = runtime.anim_padding(id) {
+            style.padding = padding;
+        }
+    }
     style
 }
 

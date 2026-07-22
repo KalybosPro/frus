@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{BorderRadius, Color, Curve, Primitive, Size};
+use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Size};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
@@ -166,6 +166,34 @@ impl RadiusAnim {
     }
 }
 
+/// Timeline d'un **padding** animé (`Container::animated_padding`) : interpole
+/// `from → to` (les quatre côtés) selon la courbe et la durée du widget. La
+/// marge interpolée est injectée **au layout** (`effective_style`), comme la taille.
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct PaddingAnim {
+    current: Insets,
+    from: Insets,
+    to: Insets,
+    elapsed: f32,
+}
+
+impl PaddingAnim {
+    fn settled(p: Insets) -> Self {
+        Self { current: p, from: p, to: p, elapsed: 0.0 }
+    }
+}
+
+/// Interpolation linéaire de deux marges (par côté).
+fn lerp_insets(a: Insets, b: Insets, t: f32) -> Insets {
+    let mix = |x: f32, y: f32| x + (y - x) * t;
+    Insets::new(
+        mix(a.top, b.top),
+        mix(a.right, b.right),
+        mix(a.bottom, b.bottom),
+        mix(a.left, b.left),
+    )
+}
+
 /// Interpolation linéaire de deux rayons (par coin).
 fn lerp_radius(a: BorderRadius, b: BorderRadius, t: f32) -> BorderRadius {
     let mix = |x: f32, y: f32| x + (y - x) * t;
@@ -246,6 +274,8 @@ pub struct Runtime {
     sizes: HashMap<WidgetId, SizeAnim>,
     /// Rayons de coin animés (`Container::animated_radius`), par widget.
     radii: HashMap<WidgetId, RadiusAnim>,
+    /// Marges animées (`Container::animated_padding`), par widget — injectées au layout.
+    paddings: HashMap<WidgetId, PaddingAnim>,
     /// Widgets présents à la frame précédente (pour détecter les montages).
     pub mounted: std::collections::HashSet<WidgetId>,
     /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
@@ -542,6 +572,68 @@ impl Runtime {
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(RadiusAnim::settled(target));
+                }
+            }
+        }
+        animating
+    }
+
+    /// Marge (padding) animée d'un widget, si en transition (`None` sinon).
+    pub fn anim_padding(&self, id: WidgetId) -> Option<Insets> {
+        self.paddings.get(&id).map(|p| p.current)
+    }
+
+    /// Fait tendre chaque marge animée vers la cible déclarée par son widget
+    /// (`Widget::anim_padding`), suivant sa durée/courbe. Montage : adopte la
+    /// cible sans transition. Renvoie `true` s'il reste une marge en mouvement.
+    /// Comme la taille, la sortie est **consommée au layout** (`effective_style`).
+    pub fn advance_paddings<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+        fn collect<Msg>(
+            widget: &dyn crate::widget::Widget<Msg>,
+            id: WidgetId,
+            out: &mut Vec<(WidgetId, Insets, f32, Curve)>,
+        ) {
+            if let Some(target) = widget.anim_padding() {
+                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+            }
+            for (index, child) in widget.children().iter().enumerate() {
+                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+            }
+        }
+        let mut targets: Vec<(WidgetId, Insets, f32, Curve)> = Vec::new();
+        collect(root, WidgetId::ROOT, &mut targets);
+
+        let present: std::collections::HashSet<WidgetId> =
+            targets.iter().map(|(id, ..)| *id).collect();
+        self.paddings.retain(|id, _| present.contains(id));
+
+        let mut animating = false;
+        for (id, target, duration, curve) in targets {
+            match self.paddings.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let p = e.get_mut();
+                    if p.to != target {
+                        p.from = p.current;
+                        p.to = target;
+                        p.elapsed = 0.0;
+                    }
+                    if p.from == p.to {
+                        p.current = p.to;
+                    } else {
+                        p.elapsed += dt;
+                        let t = if duration > 0.0 {
+                            (p.elapsed / duration).clamp(0.0, 1.0)
+                        } else {
+                            1.0
+                        };
+                        p.current = lerp_insets(p.from, p.to, curve.transform(t));
+                        if t < 1.0 {
+                            animating = true;
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(PaddingAnim::settled(target));
                 }
             }
         }
@@ -870,6 +962,30 @@ mod tests {
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_radii(&empty, 1.0);
         assert_eq!(rt.anim_radius(id), None);
+    }
+
+    /// La marge animée **snap** au montage puis **tween** au changement de cible
+    /// (par côté) ; le widget disparu est oublié.
+    #[test]
+    fn animated_padding_tweens_between_frames() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+
+        let p0: crate::Container<()> = crate::Container::new().animated_padding(0.0, 0.10, Curve::Linear);
+        assert!(!rt.advance_paddings(&p0, 1.0));
+        assert_eq!(rt.anim_padding(id), Some(Insets::uniform(0.0)));
+
+        let p20: crate::Container<()> = crate::Container::new().animated_padding(20.0, 0.10, Curve::Linear);
+        assert!(rt.advance_paddings(&p20, 0.05)); // t = 0.5 → 10
+        let mid = rt.anim_padding(id).unwrap();
+        assert!((mid.left - 10.0).abs() < 0.5, "mi-parcours = {}", mid.left);
+
+        rt.advance_paddings(&p20, 1.0);
+        assert_eq!(rt.anim_padding(id), Some(Insets::uniform(20.0)));
+
+        let empty: crate::Container<()> = crate::Container::new();
+        rt.advance_paddings(&empty, 1.0);
+        assert_eq!(rt.anim_padding(id), None);
     }
 
     /// La **durée** règle la vitesse : à `dt` égal, une transition plus courte

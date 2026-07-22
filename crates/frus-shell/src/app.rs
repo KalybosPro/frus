@@ -1008,6 +1008,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_colors(tree, dt)
                     | self.runtime.advance_sizes(tree, dt)
                     | self.runtime.advance_radii(tree, dt)
+                    | self.runtime.advance_paddings(tree, dt)
                     | self.runtime.advance_scroll(&scroll_maxes, dt)
                     | app_animating;
                 // Inspecteur actif : la même construction collecte les nœuds

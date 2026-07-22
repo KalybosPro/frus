@@ -150,6 +150,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.anim_radius()
     }
 
+    fn anim_padding(&self) -> Option<frus_core::Insets> {
+        self.inner.anim_padding()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

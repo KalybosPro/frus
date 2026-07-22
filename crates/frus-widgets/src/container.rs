@@ -53,6 +53,9 @@ pub struct Container<Msg> {
     /// Si le **rayon de coin** est animé : `(cible, durée, courbe)` — interpolé au
     /// paint (façon `AnimatedContainer`). `None` = rayon fixe.
     radius_anim: Option<(BorderRadius, f32, Curve)>,
+    /// Si la **marge** est animée : `(durée, courbe)` — la cible est `self.padding`,
+    /// interpolée au layout (façon `AnimatedContainer`). `None` = marge fixe.
+    padding_anim: Option<(f32, Curve)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -80,8 +83,24 @@ impl<Msg> Container<Msg> {
             color_anim: None,
             size_anim: None,
             radius_anim: None,
+            padding_anim: None,
             children: Vec::new(),
         }
+    }
+
+    /// Marge **effective** de mise en page : la marge intérieure plus, si une
+    /// bordure est visible, la place qu'elle réserve (le contenu d'une boîte
+    /// bordée n'est pas mangé par le trait). Source unique pour `style()` et pour
+    /// la **cible** d'une marge animée (`anim_padding`).
+    fn effective_padding(&self) -> Insets {
+        let mut padding = self.padding;
+        if Border::new(self.border_width, self.border_color).is_visible() {
+            padding.top += self.border_width;
+            padding.right += self.border_width;
+            padding.bottom += self.border_width;
+            padding.left += self.border_width;
+        }
+        padding
     }
 
     /// Marque ce conteneur comme **frontière de repaint** : son sous-arbre est
@@ -242,6 +261,16 @@ impl<Msg> Container<Msg> {
         self.radius_anim = Some((radius, duration, curve));
         self
     }
+
+    /// Boîte dont la **marge intérieure** (uniforme) s'anime vers `padding` à
+    /// chaque changement (façon `AnimatedContainer`), avec `duration` et `curve`.
+    /// La marge interpolée est injectée **au layout** (le contenu se replace). Au
+    /// montage, adopte la cible sans transition.
+    pub fn animated_padding(mut self, padding: f32, duration: f32, curve: Curve) -> Self {
+        self.padding = Insets::uniform(padding);
+        self.padding_anim = Some((duration, curve));
+        self
+    }
 }
 
 impl<Msg> Default for Container<Msg> {
@@ -252,21 +281,11 @@ impl<Msg> Default for Container<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn style(&self) -> Style {
-        // La bordure **réserve sa place** dans la mise en page (comme le
-        // `content_padding` d'une décoration) : le contenu d'une boîte bordée
-        // n'est pas mangé par le trait.
-        let mut padding = self.padding;
-        if Border::new(self.border_width, self.border_color).is_visible() {
-            padding.top += self.border_width;
-            padding.right += self.border_width;
-            padding.bottom += self.border_width;
-            padding.left += self.border_width;
-        }
         Style {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
-            padding,
+            padding: self.effective_padding(),
             ..Default::default()
         }
     }
@@ -349,15 +368,21 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.radius_anim.as_ref().map(|(r, _, _)| *r)
     }
 
+    fn anim_padding(&self) -> Option<Insets> {
+        // Cible = la marge effective (contenu + bordure), cohérente avec `style()`.
+        self.padding_anim.as_ref().map(|_| self.effective_padding())
+    }
+
     fn anim_duration(&self) -> f32 {
-        // Les animations d'une même boîte (opacité/couleur/taille/rayon) partagent
-        // une durée (ordre de priorité : opacité, couleur, taille, rayon).
+        // Les animations d'une même boîte (opacité/couleur/taille/rayon/marge)
+        // partagent une durée (ordre : opacité, couleur, taille, rayon, marge).
         self.opacity_anim
             .as_ref()
             .map(|(d, _)| *d)
             .or(self.color_anim.as_ref().map(|(_, d, _)| *d))
             .or(self.size_anim.as_ref().map(|(_, d, _)| *d))
             .or(self.radius_anim.as_ref().map(|(_, d, _)| *d))
+            .or(self.padding_anim.as_ref().map(|(d, _)| *d))
             .unwrap_or(crate::runtime::ANIM_DURATION)
     }
 
@@ -368,6 +393,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             .or(self.color_anim.as_ref().map(|(_, _, c)| c.clone()))
             .or(self.size_anim.as_ref().map(|(_, _, c)| c.clone()))
             .or(self.radius_anim.as_ref().map(|(_, _, c)| c.clone()))
+            .or(self.padding_anim.as_ref().map(|(_, c)| c.clone()))
             .unwrap_or(Curve::Linear)
     }
 }
@@ -525,6 +551,41 @@ mod tests {
             })
             .expect("un rectangle de fond");
         assert!((radius.top_left - 10.0).abs() < 1.0, "rayon interpolé : {}", radius.top_left);
+    }
+
+    /// Un `animated_padding` **décale l'enfant au layout** : montée à 0, transition
+    /// vers 20 à mi-parcours → l'enfant est inséré de ~10 (la marge interpolée).
+    #[test]
+    fn animated_padding_insets_the_child_at_layout() {
+        use frus_core::{Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let build = |pad: f32| {
+            Container::<()>::new()
+                .width(60.0)
+                .height(60.0)
+                .animated_padding(pad, 0.10, Curve::Linear)
+                .child(Container::new().width(20.0).height(20.0).color(red))
+        };
+        let mut rt = crate::runtime::Runtime::default();
+        rt.advance_paddings(&build(0.0), 1.0); // montage → 0
+        let bigger = build(20.0);
+        rt.advance_paddings(&bigger, 0.05); // t = 0.5 → 10
+
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&bigger, Size::new(60.0, 60.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond rouge de l'enfant");
+        assert!(
+            (rect.x - 10.0).abs() < 1.0 && (rect.y - 10.0).abs() < 1.0,
+            "enfant décalé de ~10 par la marge interpolée : {rect:?}"
+        );
     }
 
     #[test]
