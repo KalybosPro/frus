@@ -66,11 +66,8 @@ macro_rules! forward_to_container {
             fn anim_curve(&self) -> Curve {
                 Widget::anim_curve(&self.inner)
             }
-            fn alignment(&self) -> Option<frus_core::Alignment> {
-                Widget::alignment(&self.inner)
-            }
-            fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
-                Widget::alignment_directional(&self.inner)
+            fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
+                Widget::alignment_geometry(&self.inner)
             }
         }
     };

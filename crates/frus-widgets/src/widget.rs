@@ -218,17 +218,11 @@ pub trait Widget<Msg> {
 
     /// **Ancrage** de l'unique enfant dans la boîte (façon `Container(alignment:)`
     /// de Flutter) : la marche décale l'enfant dans l'espace libre selon les
-    /// fractions de l'[`Alignment`]. Étant continu, il s'anime (un `Tween<Alignment>`
-    /// lu dans `view()` glisse l'enfant). `None` = placement flex par défaut.
-    fn alignment(&self) -> Option<frus_core::Alignment> {
-        None
-    }
-
-    /// Ancrage **directionnel** de l'unique enfant (façon `AlignmentDirectional`) :
-    /// résolu en [`frus_core::Alignment`] physique selon la direction de lecture au
-    /// rendu (début = gauche en LTR, droite en RTL). Prime sur `alignment()` s'il
-    /// est posé. `None` = pas d'ancrage directionnel.
-    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
+    /// fractions de l'ancrage, résolu selon la direction de lecture (physique ou
+    /// directionnel — voir [`frus_core::AlignmentGeometry`]). Étant continu, un
+    /// `Tween<Alignment>` lu dans `view()` glisse l'enfant. `None` = placement flex
+    /// par défaut.
+    fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         None
     }
 
@@ -377,11 +371,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn anim_padding(&self) -> Option<frus_core::Insets> {
         (**self).anim_padding()
     }
-    fn alignment(&self) -> Option<frus_core::Alignment> {
-        (**self).alignment()
-    }
-    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
-        (**self).alignment_directional()
+    fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
+        (**self).alignment_geometry()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

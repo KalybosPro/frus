@@ -154,12 +154,8 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.anim_padding()
     }
 
-    fn alignment(&self) -> Option<frus_core::Alignment> {
-        self.inner.alignment()
-    }
-
-    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
-        self.inner.alignment_directional()
+    fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
+        self.inner.alignment_geometry()
     }
 
     fn navigator(&self) -> Option<(f32, bool)> {

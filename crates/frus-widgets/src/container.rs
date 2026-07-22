@@ -2,8 +2,8 @@
 //! bordure, clic) avec un enfant optionnel.
 
 use frus_core::{
-    Alignment, AlignmentDirectional, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve,
-    Insets, LinearGradient, Rect, Scene, Size,
+    AlignmentGeometry, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
+    LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -56,12 +56,10 @@ pub struct Container<Msg> {
     /// Si la **marge** est animée : `(durée, courbe)` — la cible est `self.padding`,
     /// interpolée au layout (façon `AnimatedContainer`). `None` = marge fixe.
     padding_anim: Option<(f32, Curve)>,
-    /// Ancrage de l'enfant dans la boîte (façon `Container(alignment:)` de Flutter).
-    /// `None` = comportement flex par défaut (l'enfant s'étire pour remplir).
-    alignment: Option<Alignment>,
-    /// Ancrage **directionnel** de l'enfant (résolu en RTL au rendu). Prime sur
-    /// `alignment`. `None` = pas d'ancrage directionnel.
-    alignment_dir: Option<AlignmentDirectional>,
+    /// Ancrage de l'enfant dans la boîte (façon `Container(alignment:)` de Flutter),
+    /// physique ou directionnel (résolu en RTL au rendu). `None` = comportement flex
+    /// par défaut (l'enfant s'étire pour remplir).
+    alignment: Option<AlignmentGeometry>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -91,7 +89,6 @@ impl<Msg> Container<Msg> {
             radius_anim: None,
             padding_anim: None,
             alignment: None,
-            alignment_dir: None,
             children: Vec::new(),
         }
     }
@@ -281,19 +278,14 @@ impl<Msg> Container<Msg> {
     }
 
     /// **Ancre l'enfant** dans la boîte (façon `Container(alignment:)` de Flutter) :
-    /// centré, en coin, sur un bord… Par défaut, sans ancrage, l'enfant s'étire pour
-    /// remplir le conteneur (comportement flex). Poser un ancrage laisse l'enfant à
+    /// centré, en coin, sur un bord… Accepte un ancrage **physique**
+    /// ([`Alignment`](frus_core::Alignment)) ou **directionnel**
+    /// ([`AlignmentDirectional`](frus_core::AlignmentDirectional), résolu en RTL au
+    /// rendu) — les deux via `Into`. Par défaut, sans ancrage, l'enfant s'étire pour
+    /// remplir le conteneur (comportement flex) ; poser un ancrage laisse l'enfant à
     /// sa taille naturelle et le positionne.
-    pub fn alignment(mut self, alignment: Alignment) -> Self {
-        self.alignment = Some(alignment);
-        self
-    }
-
-    /// **Ancre l'enfant** de façon **directionnelle** (façon `AlignmentDirectional`
-    /// de Flutter) : l'axe horizontal suit le sens de lecture (début = gauche en
-    /// LTR, droite en RTL), résolu au rendu. Prime sur [`alignment`](Self::alignment).
-    pub fn alignment_directional(mut self, alignment: AlignmentDirectional) -> Self {
-        self.alignment_dir = Some(alignment);
+    pub fn alignment(mut self, alignment: impl Into<AlignmentGeometry>) -> Self {
+        self.alignment = Some(alignment.into());
         self
     }
 
@@ -341,7 +333,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         // boîte de contenu, à sa taille naturelle (Start / Start, pas d'étirement),
         // puis la marche le décale dans l'espace libre selon les fractions de
         // l'`Alignment` (placement manuel, fractionnel — hors du flex discret).
-        if self.alignment.is_some() || self.alignment_dir.is_some() {
+        if self.alignment.is_some() {
             style.justify = Justify::Start;
             style.align = Align::Start;
         }
@@ -431,12 +423,8 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.padding_anim.as_ref().map(|_| self.effective_padding())
     }
 
-    fn alignment(&self) -> Option<Alignment> {
+    fn alignment_geometry(&self) -> Option<AlignmentGeometry> {
         self.alignment
-    }
-
-    fn alignment_directional(&self) -> Option<AlignmentDirectional> {
-        self.alignment_dir
     }
 
     fn anim_duration(&self) -> f32 {
@@ -746,7 +734,7 @@ mod tests {
             let root: Container<()> = Container::new()
                 .width(100.0)
                 .height(100.0)
-                .alignment_directional(AlignmentDirectional::CENTER_START)
+                .alignment(AlignmentDirectional::CENTER_START)
                 .child(Container::new().width(20.0).height(20.0).color(red));
             let ui = crate::ui::build_ui(&root, Size::new(100.0, 100.0), &rt, theme);
             ui.scene()

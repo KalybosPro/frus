@@ -898,22 +898,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         child_index: usize,
         children: &[Box<dyn Widget<Msg>>],
     ) -> (f32, f32) {
-        if children.len() != 1 {
+        let (Some(geo), 1) = (widget.alignment_geometry(), children.len()) else {
             return (0.0, 0.0);
-        }
-        // Un ancrage directionnel prime, résolu selon le sens de lecture courant ;
-        // sinon l'ancrage physique. `resolve` produit un `Alignment` que la suite
-        // (avec sa correction RTL) traite comme n'importe quel ancrage physique.
+        };
+        // Résout l'ancrage (physique ou directionnel) selon le sens de lecture ;
+        // `resolve` produit un `Alignment` physique que la suite (avec sa correction
+        // RTL) traite uniformément.
         let direction = if self.rtl {
             frus_core::TextDirection::Rtl
         } else {
             frus_core::TextDirection::Ltr
         };
-        let align = match (widget.alignment_directional(), widget.alignment()) {
-            (Some(dir), _) => dir.resolve(direction),
-            (None, Some(align)) => align,
-            (None, None) => return (0.0, 0.0),
-        };
+        let align = geo.resolve(direction);
         let child = rects[child_index];
         let pad = effective_style(widget, id, self.runtime).padding;
         let free_w = (container.width - pad.left - pad.right - child.width).max(0.0);

@@ -192,6 +192,41 @@ impl AlignmentDirectional {
     }
 }
 
+/// Un ancrage **résoluble** — soit physique ([`Alignment`]), soit directionnel
+/// ([`AlignmentDirectional`]) : l'abstraction commune que Flutter nomme
+/// `AlignmentGeometry`. Un widget l'accepte indifféremment (via `Into`) et le
+/// résout selon la direction de lecture au rendu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AlignmentGeometry {
+    /// Ancrage physique (gauche/droite absolus).
+    Physical(Alignment),
+    /// Ancrage directionnel (début/fin, retourné en RTL).
+    Directional(AlignmentDirectional),
+}
+
+impl AlignmentGeometry {
+    /// Résout en ancrage physique selon la direction de lecture (un ancrage déjà
+    /// physique est renvoyé tel quel).
+    pub fn resolve(self, direction: TextDirection) -> Alignment {
+        match self {
+            AlignmentGeometry::Physical(a) => a,
+            AlignmentGeometry::Directional(d) => d.resolve(direction),
+        }
+    }
+}
+
+impl From<Alignment> for AlignmentGeometry {
+    fn from(a: Alignment) -> Self {
+        AlignmentGeometry::Physical(a)
+    }
+}
+
+impl From<AlignmentDirectional> for AlignmentGeometry {
+    fn from(d: AlignmentDirectional) -> Self {
+        AlignmentGeometry::Directional(d)
+    }
+}
+
 /// Les insets **fenêtre**, séparés par nature (façon `MediaQuery` de Flutter) :
 /// `padding` = zones occupées **en permanence** par le système (barres d'état/
 /// navigation, encoche — statiques) ; `view_insets` = zones couvertes par une UI
@@ -341,6 +376,17 @@ mod tests {
         // Le centre et le vertical ne dépendent pas de la direction.
         let top = AlignmentDirectional::TOP_CENTER;
         assert_eq!(top.resolve(TextDirection::Rtl), Alignment::TOP_CENTER);
+    }
+
+    #[test]
+    fn alignment_geometry_unifies_physical_and_directional() {
+        // Physique : résolu tel quel, quelle que soit la direction.
+        let phys: AlignmentGeometry = Alignment::CENTER_LEFT.into();
+        assert_eq!(phys.resolve(TextDirection::Rtl), Alignment::CENTER_LEFT);
+        // Directionnel : suit le sens de lecture.
+        let dir: AlignmentGeometry = AlignmentDirectional::CENTER_START.into();
+        assert_eq!(dir.resolve(TextDirection::Ltr), Alignment::CENTER_LEFT);
+        assert_eq!(dir.resolve(TextDirection::Rtl), Alignment::CENTER_RIGHT);
     }
 
     #[test]

@@ -221,12 +221,8 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.anim_padding())
     }
 
-    fn alignment(&self) -> Option<frus_core::Alignment> {
-        self.inner.as_ref().and_then(|w| w.alignment())
-    }
-
-    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
-        self.inner.as_ref().and_then(|w| w.alignment_directional())
+    fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
+        self.inner.as_ref().and_then(|w| w.alignment_geometry())
     }
 
     fn navigator(&self) -> Option<(f32, bool)> {
