@@ -104,6 +104,10 @@ pub struct Style {
     /// Marge **extérieure**, par côté, en pixels logiques : espace réservé
     /// **autour** de la boîte (hors décoration), qui repousse les frères.
     pub margin: Insets,
+    /// Si `Some(r)`, la boîte **conserve un rapport largeur/hauteur** de `r`
+    /// (`width / height`) : la dimension libre est dérivée de la dimension
+    /// contrainte. `None` = pas de contrainte de rapport.
+    pub aspect_ratio: Option<f32>,
     /// Espacement entre enfants, en pixels logiques.
     pub gap: f32,
     /// Si `true`, les enfants **passent à la ligne** (flex-wrap) quand ils
@@ -125,6 +129,7 @@ impl Default for Style {
             align: Align::Stretch,
             padding: Insets::ZERO,
             margin: Insets::ZERO,
+            aspect_ratio: None,
             gap: 0.0,
             flex_wrap: false,
             grid_columns: None,
@@ -168,6 +173,13 @@ impl Style {
         self.margin.right.to_bits().hash(hasher);
         self.margin.bottom.to_bits().hash(hasher);
         self.margin.left.to_bits().hash(hasher);
+        match self.aspect_ratio {
+            None => 0u8.hash(hasher),
+            Some(r) => {
+                1u8.hash(hasher);
+                r.to_bits().hash(hasher);
+            }
+        }
         self.gap.to_bits().hash(hasher);
         self.flex_wrap.hash(hasher);
         self.grid_columns.hash(hasher);
@@ -204,6 +216,7 @@ impl Style {
                 width: taffy::LengthPercentage::Length(self.gap),
                 height: taffy::LengthPercentage::Length(self.gap),
             },
+            aspect_ratio: self.aspect_ratio,
             ..Default::default()
         };
 

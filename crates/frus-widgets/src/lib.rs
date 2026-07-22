@@ -12,6 +12,7 @@
 mod alert;
 mod animated;
 mod appbar;
+mod aspectratio;
 mod autocomplete;
 mod avatar;
 mod badge;
@@ -81,6 +82,7 @@ mod widget;
 
 pub use alert::{Alert, AlertKind};
 pub use appbar::AppBar;
+pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
 pub use avatar::Avatar;
 pub use badge::Badge;
