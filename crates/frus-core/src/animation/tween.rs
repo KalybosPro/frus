@@ -3,7 +3,7 @@
 
 use super::controller::{AnimationController, Status};
 use super::curve::Curve;
-use crate::{BorderRadius, Color, Insets, Point, Size};
+use crate::{Alignment, BorderRadius, Color, Insets, Point, Size};
 
 /// Une valeur interpolable linéairement.
 pub trait Lerp: Copy {
@@ -54,6 +54,12 @@ impl Lerp for BorderRadius {
             bottom_right: self.bottom_right.lerp(other.bottom_right, t),
             bottom_left: self.bottom_left.lerp(other.bottom_left, t),
         }
+    }
+}
+
+impl Lerp for Alignment {
+    fn lerp(self, other: Self, t: f32) -> Self {
+        Alignment::new(self.x.lerp(other.x, t), self.y.lerp(other.y, t))
     }
 }
 
@@ -292,6 +298,14 @@ mod tests {
         ctrl.set_value(1.0); // milieu de [0,2] → t = 0.5
         let tween = Tween::new(Color::BLACK, Color::WHITE);
         assert_eq!(tween.animate(&ctrl).value(), Color::rgb(0.5, 0.5, 0.5));
+    }
+
+    #[test]
+    fn alignment_tween_slides_between_anchors() {
+        let slide = Tween::new(Alignment::TOP_LEFT, Alignment::BOTTOM_RIGHT);
+        assert_eq!(slide.eval(0.0), Alignment::TOP_LEFT);
+        assert_eq!(slide.eval(0.5), Alignment::CENTER);
+        assert_eq!(slide.eval(1.0), Alignment::BOTTOM_RIGHT);
     }
 
     #[test]

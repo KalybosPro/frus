@@ -2,7 +2,7 @@
 //! bordure, clic) avec un enfant optionnel.
 
 use frus_core::{
-    AlignEdge, Alignment, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
+    Alignment, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
     LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
@@ -325,20 +325,13 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             padding: self.effective_padding(),
             ..Default::default()
         };
-        // Ancrage de l'enfant : la boîte reste une ligne flex (axe principal =
-        // horizontal → `justify` ; axe croisé = vertical → `align`). Sans ancrage,
-        // les défauts (Start / Stretch) laissent l'enfant remplir.
-        if let Some(alignment) = self.alignment {
-            style.justify = match alignment.horizontal() {
-                AlignEdge::Start => Justify::Start,
-                AlignEdge::Center => Justify::Center,
-                AlignEdge::End => Justify::End,
-            };
-            style.align = match alignment.vertical() {
-                AlignEdge::Start => Align::Start,
-                AlignEdge::Center => Align::Center,
-                AlignEdge::End => Align::End,
-            };
+        // Ancrage de l'enfant : on laisse taffy le poser en **haut-gauche** de la
+        // boîte de contenu, à sa taille naturelle (Start / Start, pas d'étirement),
+        // puis la marche le décale dans l'espace libre selon les fractions de
+        // l'`Alignment` (placement manuel, fractionnel — hors du flex discret).
+        if self.alignment.is_some() {
+            style.justify = Justify::Start;
+            style.align = Align::Start;
         }
         style
     }
@@ -424,6 +417,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn anim_padding(&self) -> Option<Insets> {
         // Cible = la marge effective (contenu + bordure), cohérente avec `style()`.
         self.padding_anim.as_ref().map(|_| self.effective_padding())
+    }
+
+    fn alignment(&self) -> Option<Alignment> {
+        self.alignment
     }
 
     fn anim_duration(&self) -> f32 {
@@ -650,7 +647,7 @@ mod tests {
         let root: Container<()> = Container::new()
             .width(100.0)
             .height(100.0)
-            .alignment(Alignment::Center)
+            .alignment(Alignment::CENTER)
             .child(Container::new().width(20.0).height(20.0).color(red));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
@@ -676,7 +673,7 @@ mod tests {
         let root: Container<()> = Container::new()
             .width(100.0)
             .height(100.0)
-            .alignment(Alignment::BottomRight)
+            .alignment(Alignment::BOTTOM_RIGHT)
             .child(Container::new().width(20.0).height(20.0).color(red));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
@@ -691,6 +688,35 @@ mod tests {
             })
             .expect("le fond rouge de l'enfant");
         assert!((rect.x - 80.0).abs() < 1.0 && (rect.y - 80.0).abs() < 1.0, "coin bas-droit : {rect:?}");
+    }
+
+    /// Un ancrage **fractionnel** (hors des neuf positions discrètes) place l'enfant
+    /// proportionnellement : `x = 0.5, y = -0.5` → fractions (0.75, 0.25) → dans une
+    /// boîte 100×100 avec un enfant 20×20 (libre 80×80), fond à ~(60, 20). C'est ce
+    /// que le flex discret ne pouvait pas faire — et ce qui rend `Tween<Alignment>`
+    /// visuellement continu.
+    #[test]
+    fn fractional_alignment_places_child_proportionally() {
+        use frus_core::{Alignment, Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root: Container<()> = Container::new()
+            .width(100.0)
+            .height(100.0)
+            .alignment(Alignment::new(0.5, -0.5))
+            .child(Container::new().width(20.0).height(20.0).color(red));
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 100.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond rouge de l'enfant");
+        assert!((rect.x - 60.0).abs() < 1.0 && (rect.y - 20.0).abs() < 1.0, "fractionnel : {rect:?}");
     }
 
     /// `decoration(...)` applique fond, rayon et bordure d'un bloc : le fond peint la

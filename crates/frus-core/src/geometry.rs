@@ -113,50 +113,45 @@ impl Size {
     }
 }
 
-/// Où poser un enfant dans la boîte qui le contient — les neuf ancrages nommés de
-/// Flutter (`Alignment.center`, `Alignment.topLeft`…). Chaque ancrage se projette
-/// sur deux bords indépendants : un horizontal, un vertical.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Alignment {
-    TopLeft,
-    TopCenter,
-    TopRight,
-    CenterLeft,
-    #[default]
-    Center,
-    CenterRight,
-    BottomLeft,
-    BottomCenter,
-    BottomRight,
-}
-
-/// Un bord d'ancrage sur un axe : début, centre ou fin.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AlignEdge {
-    Start,
-    Center,
-    End,
+/// Où poser un enfant dans la boîte qui le contient, façon `Alignment` de Flutter :
+/// deux fractions **continues** `[-1, 1]`. `x = -1` colle à gauche, `0` centre,
+/// `+1` colle à droite ; `y = -1` en haut, `+1` en bas. Étant continu, il
+/// **s'interpole** ([`crate::Lerp`]) — un `Tween<Alignment>` glisse un enfant d'un
+/// ancrage à l'autre. Les neuf ancrages usuels sont fournis comme constantes
+/// (`Alignment::CENTER`, `Alignment::TOP_LEFT`…).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Alignment {
+    /// Fraction horizontale : `-1` (gauche) … `0` (centre) … `+1` (droite).
+    pub x: f32,
+    /// Fraction verticale : `-1` (haut) … `0` (centre) … `+1` (bas).
+    pub y: f32,
 }
 
 impl Alignment {
-    /// L'ancrage horizontal (gauche / centre / droite).
-    pub fn horizontal(self) -> AlignEdge {
-        use Alignment::*;
-        match self {
-            TopLeft | CenterLeft | BottomLeft => AlignEdge::Start,
-            TopCenter | Center | BottomCenter => AlignEdge::Center,
-            TopRight | CenterRight | BottomRight => AlignEdge::End,
-        }
+    pub const TOP_LEFT: Self = Self::new(-1.0, -1.0);
+    pub const TOP_CENTER: Self = Self::new(0.0, -1.0);
+    pub const TOP_RIGHT: Self = Self::new(1.0, -1.0);
+    pub const CENTER_LEFT: Self = Self::new(-1.0, 0.0);
+    pub const CENTER: Self = Self::new(0.0, 0.0);
+    pub const CENTER_RIGHT: Self = Self::new(1.0, 0.0);
+    pub const BOTTOM_LEFT: Self = Self::new(-1.0, 1.0);
+    pub const BOTTOM_CENTER: Self = Self::new(0.0, 1.0);
+    pub const BOTTOM_RIGHT: Self = Self::new(1.0, 1.0);
+
+    /// Un ancrage `(x, y)`, fractions dans `[-1, 1]`.
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
     }
 
-    /// L'ancrage vertical (haut / centre / bas).
-    pub fn vertical(self) -> AlignEdge {
-        use Alignment::*;
-        match self {
-            TopLeft | TopCenter | TopRight => AlignEdge::Start,
-            CenterLeft | Center | CenterRight => AlignEdge::Center,
-            BottomLeft | BottomCenter | BottomRight => AlignEdge::End,
-        }
+    /// Fraction horizontale ramenée dans `[0, 1]` (`0` = gauche, `1` = droite) —
+    /// la part de l'espace libre à laisser **avant** l'enfant sur l'axe x.
+    pub fn fraction_x(self) -> f32 {
+        ((self.x + 1.0) * 0.5).clamp(0.0, 1.0)
+    }
+
+    /// Fraction verticale ramenée dans `[0, 1]` (`0` = haut, `1` = bas).
+    pub fn fraction_y(self) -> f32 {
+        ((self.y + 1.0) * 0.5).clamp(0.0, 1.0)
     }
 }
 

@@ -216,6 +216,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Ancrage** de l'unique enfant dans la boîte (façon `Container(alignment:)`
+    /// de Flutter) : la marche décale l'enfant dans l'espace libre selon les
+    /// fractions de l'[`Alignment`]. Étant continu, il s'anime (un `Tween<Alignment>`
+    /// lu dans `view()` glisse l'enfant). `None` = placement flex par défaut.
+    fn alignment(&self) -> Option<frus_core::Alignment> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -360,6 +368,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn anim_padding(&self) -> Option<frus_core::Insets> {
         (**self).anim_padding()
+    }
+    fn alignment(&self) -> Option<frus_core::Alignment> {
+        (**self).alignment()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()
