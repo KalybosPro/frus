@@ -24,7 +24,10 @@ pub use animation::{
 };
 pub use color::Color;
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
-pub use geometry::{Insets, InsetsDirectional, Point, Rect, Size, TextDirection, WindowInsets};
+pub use geometry::{
+    AlignEdge, Alignment, Insets, InsetsDirectional, Point, Rect, Size, TextDirection,
+    WindowInsets,
+};
 pub use hct::{Hct, TonalPalette};
 pub use image::{BoxFit, ImageData, ImageHandle};
 pub use path::{Path, PathVerb, Stroke};

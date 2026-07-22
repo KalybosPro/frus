@@ -113,6 +113,53 @@ impl Size {
     }
 }
 
+/// Où poser un enfant dans la boîte qui le contient — les neuf ancrages nommés de
+/// Flutter (`Alignment.center`, `Alignment.topLeft`…). Chaque ancrage se projette
+/// sur deux bords indépendants : un horizontal, un vertical.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Alignment {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    CenterLeft,
+    #[default]
+    Center,
+    CenterRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+/// Un bord d'ancrage sur un axe : début, centre ou fin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlignEdge {
+    Start,
+    Center,
+    End,
+}
+
+impl Alignment {
+    /// L'ancrage horizontal (gauche / centre / droite).
+    pub fn horizontal(self) -> AlignEdge {
+        use Alignment::*;
+        match self {
+            TopLeft | CenterLeft | BottomLeft => AlignEdge::Start,
+            TopCenter | Center | BottomCenter => AlignEdge::Center,
+            TopRight | CenterRight | BottomRight => AlignEdge::End,
+        }
+    }
+
+    /// L'ancrage vertical (haut / centre / bas).
+    pub fn vertical(self) -> AlignEdge {
+        use Alignment::*;
+        match self {
+            TopLeft | TopCenter | TopRight => AlignEdge::Start,
+            CenterLeft | Center | CenterRight => AlignEdge::Center,
+            BottomLeft | BottomCenter | BottomRight => AlignEdge::End,
+        }
+    }
+}
+
 /// Les insets **fenêtre**, séparés par nature (façon `MediaQuery` de Flutter) :
 /// `padding` = zones occupées **en permanence** par le système (barres d'état/
 /// navigation, encoche — statiques) ; `view_insets` = zones couvertes par une UI

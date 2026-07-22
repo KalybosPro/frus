@@ -2,10 +2,10 @@
 //! bordure, clic) avec un enfant optionnel.
 
 use frus_core::{
-    Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets, LinearGradient, Rect,
-    Scene, Size,
+    AlignEdge, Alignment, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
+    LinearGradient, Rect, Scene, Size,
 };
-use frus_layout::{Dimension, Style};
+use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::interaction::{Interaction, Status};
 use crate::theme::Theme;
@@ -56,6 +56,9 @@ pub struct Container<Msg> {
     /// Si la **marge** est animée : `(durée, courbe)` — la cible est `self.padding`,
     /// interpolée au layout (façon `AnimatedContainer`). `None` = marge fixe.
     padding_anim: Option<(f32, Curve)>,
+    /// Ancrage de l'enfant dans la boîte (façon `Container(alignment:)` de Flutter).
+    /// `None` = comportement flex par défaut (l'enfant s'étire pour remplir).
+    alignment: Option<Alignment>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -84,6 +87,7 @@ impl<Msg> Container<Msg> {
             size_anim: None,
             radius_anim: None,
             padding_anim: None,
+            alignment: None,
             children: Vec::new(),
         }
     }
@@ -271,6 +275,39 @@ impl<Msg> Container<Msg> {
         self.padding_anim = Some((duration, curve));
         self
     }
+
+    /// **Ancre l'enfant** dans la boîte (façon `Container(alignment:)` de Flutter) :
+    /// centré, en coin, sur un bord… Par défaut, sans ancrage, l'enfant s'étire pour
+    /// remplir le conteneur (comportement flex). Poser un ancrage laisse l'enfant à
+    /// sa taille naturelle et le positionne.
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = Some(alignment);
+        self
+    }
+
+    /// Applique une **décoration composite** d'un bloc (façon
+    /// `Container(decoration:)` de Flutter) : fond, dégradé, bordure, rayon et ombre
+    /// réunis dans un [`BoxDecoration`] réutilisable. Chaque partie présente écrase
+    /// le réglage correspondant ; le rayon est toujours adopté. Les animations
+    /// (couleur/rayon…) restent applicables par-dessus. (Le `spread` d'ombre n'est
+    /// pas conservé — le modèle d'ombre du conteneur n'en a pas.)
+    pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
+        if let Some(color) = decoration.color {
+            self.color = Some(color);
+        }
+        if let Some(gradient) = decoration.gradient {
+            self.gradient = Some((gradient.end, gradient.direction));
+        }
+        if let Some(border) = decoration.border {
+            self.border_width = border.width;
+            self.border_color = border.color;
+        }
+        self.radius = decoration.radius;
+        if let Some(shadow) = decoration.shadow {
+            self.shadow = Some((shadow.offset.0, shadow.offset.1, shadow.blur, shadow.color));
+        }
+        self
+    }
 }
 
 impl<Msg> Default for Container<Msg> {
@@ -281,13 +318,29 @@ impl<Msg> Default for Container<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn style(&self) -> Style {
-        Style {
+        let mut style = Style {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
             padding: self.effective_padding(),
             ..Default::default()
+        };
+        // Ancrage de l'enfant : la boîte reste une ligne flex (axe principal =
+        // horizontal → `justify` ; axe croisé = vertical → `align`). Sans ancrage,
+        // les défauts (Start / Stretch) laissent l'enfant remplir.
+        if let Some(alignment) = self.alignment {
+            style.justify = match alignment.horizontal() {
+                AlignEdge::Start => Justify::Start,
+                AlignEdge::Center => Justify::Center,
+                AlignEdge::End => Justify::End,
+            };
+            style.align = match alignment.vertical() {
+                AlignEdge::Start => Align::Start,
+                AlignEdge::Center => Align::Center,
+                AlignEdge::End => Align::End,
+            };
         }
+        style
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -586,6 +639,90 @@ mod tests {
             (rect.x - 10.0).abs() < 1.0 && (rect.y - 10.0).abs() < 1.0,
             "enfant décalé de ~10 par la marge interpolée : {rect:?}"
         );
+    }
+
+    /// `alignment(Center)` positionne l'enfant (20×20) au centre d'une boîte
+    /// 100×100 → son fond est à ~(40, 40).
+    #[test]
+    fn alignment_centers_the_child() {
+        use frus_core::{Alignment, Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root: Container<()> = Container::new()
+            .width(100.0)
+            .height(100.0)
+            .alignment(Alignment::Center)
+            .child(Container::new().width(20.0).height(20.0).color(red));
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 100.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond rouge de l'enfant");
+        assert!((rect.x - 40.0).abs() < 1.0 && (rect.y - 40.0).abs() < 1.0, "centré : {rect:?}");
+    }
+
+    /// `alignment(BottomRight)` ancre l'enfant (20×20) au coin bas-droit d'une boîte
+    /// 100×100 → son fond est à ~(80, 80).
+    #[test]
+    fn alignment_anchors_child_to_a_corner() {
+        use frus_core::{Alignment, Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root: Container<()> = Container::new()
+            .width(100.0)
+            .height(100.0)
+            .alignment(Alignment::BottomRight)
+            .child(Container::new().width(20.0).height(20.0).color(red));
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 100.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond rouge de l'enfant");
+        assert!((rect.x - 80.0).abs() < 1.0 && (rect.y - 80.0).abs() < 1.0, "coin bas-droit : {rect:?}");
+    }
+
+    /// `decoration(...)` applique fond, rayon et bordure d'un bloc : le fond peint la
+    /// couleur et le rayon donnés, et la bordure réserve son épaisseur au layout.
+    #[test]
+    fn decoration_applies_composite_fields() {
+        use frus_core::{BorderRadius, BoxDecoration, Primitive, Size};
+        let green = Color::rgb(0.0, 1.0, 0.0);
+        let deco = BoxDecoration {
+            color: Some(green),
+            radius: BorderRadius::uniform(8.0),
+            border: Some(Border::new(2.0, Color::WHITE)),
+            ..Default::default()
+        };
+        let root: Container<()> = Container::new().width(40.0).height(40.0).decoration(deco);
+        // La bordure réserve son épaisseur dans le padding de mise en page.
+        assert_eq!(Widget::style(&root).padding, Insets::uniform(2.0));
+
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(40.0, 40.0), &rt, &theme);
+        let (color, radius) = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { color, radius, .. } if color.g > 0.5 => Some((*color, *radius)),
+                _ => None,
+            })
+            .expect("le fond vert décoré");
+        assert!(color.g > 0.9, "fond vert : {color:?}");
+        assert!((radius.top_left - 8.0).abs() < 1e-3, "rayon composite : {}", radius.top_left);
     }
 
     #[test]
