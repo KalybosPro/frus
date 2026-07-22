@@ -23,6 +23,8 @@ pub struct Container<Msg> {
     height: Dimension,
     flex_grow: f32,
     padding: Insets,
+    /// Marge **extérieure** (autour de la boîte, hors décoration).
+    margin: Insets,
     radius: BorderRadius,
     border_width: f32,
     border_color: Color,
@@ -71,6 +73,7 @@ impl<Msg> Container<Msg> {
             height: Dimension::Auto,
             flex_grow: 0.0,
             padding: Insets::ZERO,
+            margin: Insets::ZERO,
             radius: BorderRadius::ZERO,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
@@ -144,6 +147,20 @@ impl<Msg> Container<Msg> {
     /// Marge intérieure par côté (haut, droite, bas, gauche).
     pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
         self.padding = Insets::new(top, right, bottom, left);
+        self
+    }
+
+    /// Marge **extérieure** uniforme (façon `Container(margin:)` de Flutter) :
+    /// espace réservé **autour** de la boîte — hors décoration, il repousse les
+    /// frères sans agrandir le fond ni la bordure.
+    pub fn margin(mut self, margin: f32) -> Self {
+        self.margin = Insets::uniform(margin);
+        self
+    }
+
+    /// Marge extérieure par côté (haut, droite, bas, gauche).
+    pub fn margin_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        self.margin = Insets::new(top, right, bottom, left);
         self
     }
 
@@ -327,6 +344,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             height: self.height,
             flex_grow: self.flex_grow,
             padding: self.effective_padding(),
+            margin: self.margin,
             ..Default::default()
         };
         // Ancrage de l'enfant : on laisse taffy le poser en **haut-gauche** de la
@@ -783,6 +801,38 @@ mod tests {
             .expect("le fond vert décoré");
         assert!(color.g > 0.9, "fond vert : {color:?}");
         assert!((radius.top_left - 8.0).abs() < 1e-3, "rayon composite : {}", radius.top_left);
+    }
+
+    /// `margin(...)` réserve de l'espace **autour** de la boîte : il pousse les
+    /// frères et décale le fond, sans l'agrandir. Dans une colonne, un second enfant
+    /// (haut 20) de marge 10 démarre à `y = 20 (frère) + 10 (marge)` et est inséré de
+    /// 10 sur la gauche.
+    #[test]
+    fn margin_pushes_siblings_and_insets() {
+        use frus_core::{Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let green = Color::rgb(0.0, 1.0, 0.0);
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .child(Container::new().height(20.0).color(red))
+            .child(Container::new().height(20.0).margin(10.0).color(green));
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond vert du 2e enfant");
+        assert!(
+            (rect.y - 30.0).abs() < 0.5 && (rect.x - 10.0).abs() < 0.5,
+            "marge : poussé à y=30, inséré à x=10 : {rect:?}"
+        );
+        assert!((rect.height - 20.0).abs() < 0.5, "la marge n'agrandit pas la boîte : {rect:?}");
     }
 
     #[test]

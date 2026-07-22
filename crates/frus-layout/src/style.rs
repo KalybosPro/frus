@@ -101,6 +101,9 @@ pub struct Style {
     pub align: Align,
     /// Marge intérieure, par côté, en pixels logiques.
     pub padding: Insets,
+    /// Marge **extérieure**, par côté, en pixels logiques : espace réservé
+    /// **autour** de la boîte (hors décoration), qui repousse les frères.
+    pub margin: Insets,
     /// Espacement entre enfants, en pixels logiques.
     pub gap: f32,
     /// Si `true`, les enfants **passent à la ligne** (flex-wrap) quand ils
@@ -121,6 +124,7 @@ impl Default for Style {
             justify: Justify::Start,
             align: Align::Stretch,
             padding: Insets::ZERO,
+            margin: Insets::ZERO,
             gap: 0.0,
             flex_wrap: false,
             grid_columns: None,
@@ -160,6 +164,10 @@ impl Style {
         self.padding.right.to_bits().hash(hasher);
         self.padding.bottom.to_bits().hash(hasher);
         self.padding.left.to_bits().hash(hasher);
+        self.margin.top.to_bits().hash(hasher);
+        self.margin.right.to_bits().hash(hasher);
+        self.margin.bottom.to_bits().hash(hasher);
+        self.margin.left.to_bits().hash(hasher);
         self.gap.to_bits().hash(hasher);
         self.flex_wrap.hash(hasher);
         self.grid_columns.hash(hasher);
@@ -185,6 +193,12 @@ impl Style {
                 right: taffy::LengthPercentage::Length(self.padding.right),
                 top: taffy::LengthPercentage::Length(self.padding.top),
                 bottom: taffy::LengthPercentage::Length(self.padding.bottom),
+            },
+            margin: taffy::Rect {
+                left: taffy::LengthPercentageAuto::Length(self.margin.left),
+                right: taffy::LengthPercentageAuto::Length(self.margin.right),
+                top: taffy::LengthPercentageAuto::Length(self.margin.top),
+                bottom: taffy::LengthPercentageAuto::Length(self.margin.bottom),
             },
             gap: taffy::Size {
                 width: taffy::LengthPercentage::Length(self.gap),

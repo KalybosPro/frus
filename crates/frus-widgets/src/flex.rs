@@ -121,6 +121,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             justify: self.justify,
             align: self.align,
             padding: self.padding,
+            margin: Insets::ZERO,
             gap: self.gap,
             flex_wrap: self.wrap,
             grid_columns: None,
