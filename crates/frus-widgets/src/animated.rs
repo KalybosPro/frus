@@ -69,6 +69,9 @@ macro_rules! forward_to_container {
             fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
                 Widget::alignment_geometry(&self.inner)
             }
+            fn transform_translate(&self) -> Option<(f32, f32)> {
+                Widget::transform_translate(&self.inner)
+            }
         }
     };
 }

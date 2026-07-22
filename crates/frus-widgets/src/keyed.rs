@@ -158,6 +158,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.alignment_geometry()
     }
 
+    fn transform_translate(&self) -> Option<(f32, f32)> {
+        self.inner.transform_translate()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

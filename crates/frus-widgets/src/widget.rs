@@ -226,6 +226,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Décalage de peinture** `(dx, dy)` appliqué à tout le sous-arbre du widget
+    /// (façon `Transform.translate` de Flutter) : le rendu et le hit-test sont
+    /// décalés **sans toucher la mise en page** (les frères ne bougent pas, l'enfant
+    /// peut déborder sa boîte). Continu → un `Tween` lu dans `view()` glisse le
+    /// sous-arbre. `None` = aucun décalage. Voir [`crate::Transform`].
+    fn transform_translate(&self) -> Option<(f32, f32)> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -373,6 +382,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         (**self).alignment_geometry()
+    }
+    fn transform_translate(&self) -> Option<(f32, f32)> {
+        (**self).transform_translate()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

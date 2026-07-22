@@ -866,9 +866,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
         } else {
             let children = widget.children();
-            // Ancrage fractionnel (`Container::alignment`) : décale l'unique enfant
-            // dans l'espace libre. `(0, 0)` sinon → parcours flex normal.
-            let extra = self.align_offset(widget, id, rect, rects, *index, children);
+            // Ancrage fractionnel (`Container::alignment`) + décalage de peinture
+            // (`Transform::translate`) : décalent le sous-arbre. `(0, 0)` sinon →
+            // parcours flex normal.
+            let extra = self.child_offset(widget, id, rect, rects, *index, children);
             for (child_index, child) in children.iter().enumerate() {
                 self.walk(
                     child.as_ref(),
@@ -883,13 +884,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.depth -= 1;
     }
 
-    /// Décalage à appliquer à l'unique enfant d'un conteneur **ancré**
-    /// (`Widget::alignment`) : sa position dans l'espace libre de la boîte de
-    /// contenu, selon les fractions de l'[`frus_core::Alignment`]. `(0, 0)` sans
-    /// ancrage ou avec plusieurs enfants (l'ancrage vise un enfant unique, façon
-    /// Flutter). taffy a posé l'enfant en haut-gauche (Start/Start) à sa taille
-    /// naturelle ; on le glisse de `libre × fraction`.
-    fn align_offset(
+    /// Décalage à appliquer au sous-arbre d'un enfant : somme de l'**ancrage
+    /// fractionnel** (`Widget::alignment`, un enfant unique glissé dans l'espace
+    /// libre) et du **décalage de peinture** (`Transform::translate`, tout le
+    /// sous-arbre décalé sans toucher la mise en page). `(0, 0)` par défaut. Étant
+    /// ajouté à la translation du walk, ce décalage suit primitives **et** hit-test.
+    fn child_offset(
         &self,
         widget: &dyn Widget<Msg>,
         id: WidgetId,
@@ -898,27 +898,42 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         child_index: usize,
         children: &[Box<dyn Widget<Msg>>],
     ) -> (f32, f32) {
-        let (Some(geo), 1) = (widget.alignment_geometry(), children.len()) else {
-            return (0.0, 0.0);
-        };
-        // Résout l'ancrage (physique ou directionnel) selon le sens de lecture ;
-        // `resolve` produit un `Alignment` physique que la suite (avec sa correction
-        // RTL) traite uniformément.
-        let direction = if self.rtl {
-            frus_core::TextDirection::Rtl
-        } else {
-            frus_core::TextDirection::Ltr
-        };
-        let align = geo.resolve(direction);
-        let child = rects[child_index];
-        let pad = effective_style(widget, id, self.runtime).padding;
-        let free_w = (container.width - pad.left - pad.right - child.width).max(0.0);
-        let free_h = (container.height - pad.top - pad.bottom - child.height).max(0.0);
-        // En RTL, taffy pose l'enfant à gauche puis `mirror` l'a renvoyé à droite :
-        // la base est donc déjà l'ancrage droit. On retranche 1 pour que la fraction
-        // reste **physique** (x = +1 ⇒ droite dans les deux sens de lecture).
-        let fx = align.fraction_x() - if self.rtl { 1.0 } else { 0.0 };
-        (free_w * fx, free_h * align.fraction_y())
+        let mut off = (0.0, 0.0);
+
+        // Ancrage fractionnel : vise un enfant unique (façon Flutter). taffy a posé
+        // l'enfant en haut-gauche (Start/Start) à sa taille naturelle ; on le glisse
+        // de `libre × fraction`.
+        if let (Some(geo), 1) = (widget.alignment_geometry(), children.len()) {
+            // Résout l'ancrage (physique ou directionnel) selon le sens de lecture ;
+            // `resolve` produit un `Alignment` physique que la suite (avec sa
+            // correction RTL) traite uniformément.
+            let direction = if self.rtl {
+                frus_core::TextDirection::Rtl
+            } else {
+                frus_core::TextDirection::Ltr
+            };
+            let align = geo.resolve(direction);
+            let child = rects[child_index];
+            let pad = effective_style(widget, id, self.runtime).padding;
+            let free_w = (container.width - pad.left - pad.right - child.width).max(0.0);
+            let free_h = (container.height - pad.top - pad.bottom - child.height).max(0.0);
+            // En RTL, taffy pose l'enfant à gauche puis `mirror` l'a renvoyé à
+            // droite : la base est donc déjà l'ancrage droit. On retranche 1 pour que
+            // la fraction reste **physique** (x = +1 ⇒ droite dans les deux sens).
+            let fx = align.fraction_x() - if self.rtl { 1.0 } else { 0.0 };
+            off.0 += free_w * fx;
+            off.1 += free_h * align.fraction_y();
+        }
+
+        // Décalage de peinture (`Transform::translate`) : en RTL, l'axe x du monde
+        // est retourné, donc un décalage +x logique (« vers la fin ») pointe vers la
+        // gauche — on inverse le signe pour rester cohérent avec le sens de lecture.
+        if let Some((tx, ty)) = widget.transform_translate() {
+            off.0 += if self.rtl { -tx } else { tx };
+            off.1 += ty;
+        }
+
+        off
     }
 
     /// Enregistre le widget dans la collecte de l'inspecteur (si active) et
@@ -1035,9 +1050,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
 
         let children = widget.children();
-        // Ancrage fractionnel, comme dans le walk principal (un enfant de liste
-        // virtualisée / `layout_builder` peut être un conteneur ancré).
-        let extra = self.align_offset(widget, id, rect, rects, *index, children);
+        // Ancrage fractionnel + décalage de peinture, comme dans le walk principal
+        // (un enfant de liste virtualisée / `layout_builder` peut être un conteneur
+        // ancré ou transformé).
+        let extra = self.child_offset(widget, id, rect, rects, *index, children);
         for (child_index, child) in children.iter().enumerate() {
             self.render_item(
                 child.as_ref(),

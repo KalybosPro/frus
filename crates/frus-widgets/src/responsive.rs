@@ -225,6 +225,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.alignment_geometry())
     }
 
+    fn transform_translate(&self) -> Option<(f32, f32)> {
+        self.inner.as_ref().and_then(|w| w.transform_translate())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }
