@@ -225,6 +225,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.alignment())
     }
 
+    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
+        self.inner.as_ref().and_then(|w| w.alignment_directional())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

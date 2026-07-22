@@ -155,6 +155,43 @@ impl Alignment {
     }
 }
 
+/// Ancrage **directionnel** (façon `AlignmentDirectional` de Flutter) : l'axe
+/// horizontal est exprimé **début → fin** au lieu de gauche → droite. `x_start = -1`
+/// colle au bord de **début** (gauche en LTR, droite en RTL), `+1` au bord de
+/// **fin**. Résolu en [`Alignment`] physique au rendu selon la direction de lecture
+/// — l'ancrage suit le texte sans que l'appelant ne teste le sens.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct AlignmentDirectional {
+    /// Fraction début→fin : `-1` (début) … `0` (centre) … `+1` (fin).
+    pub x_start: f32,
+    /// Fraction verticale : `-1` (haut) … `+1` (bas).
+    pub y: f32,
+}
+
+impl AlignmentDirectional {
+    pub const TOP_START: Self = Self::new(-1.0, -1.0);
+    pub const TOP_CENTER: Self = Self::new(0.0, -1.0);
+    pub const TOP_END: Self = Self::new(1.0, -1.0);
+    pub const CENTER_START: Self = Self::new(-1.0, 0.0);
+    pub const CENTER: Self = Self::new(0.0, 0.0);
+    pub const CENTER_END: Self = Self::new(1.0, 0.0);
+    pub const BOTTOM_START: Self = Self::new(-1.0, 1.0);
+    pub const BOTTOM_CENTER: Self = Self::new(0.0, 1.0);
+    pub const BOTTOM_END: Self = Self::new(1.0, 1.0);
+
+    /// Un ancrage directionnel `(x_start, y)`, fractions dans `[-1, 1]`.
+    pub const fn new(x_start: f32, y: f32) -> Self {
+        Self { x_start, y }
+    }
+
+    /// Résout en ancrage **physique** : en RTL, début ↔ droite (x inversé) ; en
+    /// LTR, début = gauche (x inchangé). Le `y` ne dépend pas de la direction.
+    pub fn resolve(self, direction: TextDirection) -> Alignment {
+        let x = if direction.is_rtl() { -self.x_start } else { self.x_start };
+        Alignment::new(x, self.y)
+    }
+}
+
 /// Les insets **fenêtre**, séparés par nature (façon `MediaQuery` de Flutter) :
 /// `padding` = zones occupées **en permanence** par le système (barres d'état/
 /// navigation, encoche — statiques) ; `view_insets` = zones couvertes par une UI
@@ -294,6 +331,17 @@ impl Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directional_alignment_resolves_by_direction() {
+        // start = bord de lecture : gauche en LTR, droite en RTL.
+        let start = AlignmentDirectional::CENTER_START;
+        assert_eq!(start.resolve(TextDirection::Ltr), Alignment::CENTER_LEFT);
+        assert_eq!(start.resolve(TextDirection::Rtl), Alignment::CENTER_RIGHT);
+        // Le centre et le vertical ne dépendent pas de la direction.
+        let top = AlignmentDirectional::TOP_CENTER;
+        assert_eq!(top.resolve(TextDirection::Rtl), Alignment::TOP_CENTER);
+    }
 
     #[test]
     fn directional_insets_flip_start_end() {

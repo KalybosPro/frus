@@ -224,6 +224,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Ancrage **directionnel** de l'unique enfant (façon `AlignmentDirectional`) :
+    /// résolu en [`frus_core::Alignment`] physique selon la direction de lecture au
+    /// rendu (début = gauche en LTR, droite en RTL). Prime sur `alignment()` s'il
+    /// est posé. `None` = pas d'ancrage directionnel.
+    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -371,6 +379,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn alignment(&self) -> Option<frus_core::Alignment> {
         (**self).alignment()
+    }
+    fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
+        (**self).alignment_directional()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

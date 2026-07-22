@@ -69,6 +69,9 @@ macro_rules! forward_to_container {
             fn alignment(&self) -> Option<frus_core::Alignment> {
                 Widget::alignment(&self.inner)
             }
+            fn alignment_directional(&self) -> Option<frus_core::AlignmentDirectional> {
+                Widget::alignment_directional(&self.inner)
+            }
         }
     };
 }

@@ -2,8 +2,8 @@
 //! bordure, clic) avec un enfant optionnel.
 
 use frus_core::{
-    Alignment, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
-    LinearGradient, Rect, Scene, Size,
+    Alignment, AlignmentDirectional, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve,
+    Insets, LinearGradient, Rect, Scene, Size,
 };
 use frus_layout::{Align, Dimension, Justify, Style};
 
@@ -59,6 +59,9 @@ pub struct Container<Msg> {
     /// Ancrage de l'enfant dans la boîte (façon `Container(alignment:)` de Flutter).
     /// `None` = comportement flex par défaut (l'enfant s'étire pour remplir).
     alignment: Option<Alignment>,
+    /// Ancrage **directionnel** de l'enfant (résolu en RTL au rendu). Prime sur
+    /// `alignment`. `None` = pas d'ancrage directionnel.
+    alignment_dir: Option<AlignmentDirectional>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -88,6 +91,7 @@ impl<Msg> Container<Msg> {
             radius_anim: None,
             padding_anim: None,
             alignment: None,
+            alignment_dir: None,
             children: Vec::new(),
         }
     }
@@ -285,6 +289,14 @@ impl<Msg> Container<Msg> {
         self
     }
 
+    /// **Ancre l'enfant** de façon **directionnelle** (façon `AlignmentDirectional`
+    /// de Flutter) : l'axe horizontal suit le sens de lecture (début = gauche en
+    /// LTR, droite en RTL), résolu au rendu. Prime sur [`alignment`](Self::alignment).
+    pub fn alignment_directional(mut self, alignment: AlignmentDirectional) -> Self {
+        self.alignment_dir = Some(alignment);
+        self
+    }
+
     /// Applique une **décoration composite** d'un bloc (façon
     /// `Container(decoration:)` de Flutter) : fond, dégradé, bordure, rayon et ombre
     /// réunis dans un [`BoxDecoration`] réutilisable. Chaque partie présente écrase
@@ -329,7 +341,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         // boîte de contenu, à sa taille naturelle (Start / Start, pas d'étirement),
         // puis la marche le décale dans l'espace libre selon les fractions de
         // l'`Alignment` (placement manuel, fractionnel — hors du flex discret).
-        if self.alignment.is_some() {
+        if self.alignment.is_some() || self.alignment_dir.is_some() {
             style.justify = Justify::Start;
             style.align = Align::Start;
         }
@@ -421,6 +433,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 
     fn alignment(&self) -> Option<Alignment> {
         self.alignment
+    }
+
+    fn alignment_directional(&self) -> Option<AlignmentDirectional> {
+        self.alignment_dir
     }
 
     fn anim_duration(&self) -> f32 {
@@ -717,6 +733,36 @@ mod tests {
             })
             .expect("le fond rouge de l'enfant");
         assert!((rect.x - 60.0).abs() < 1.0 && (rect.y - 20.0).abs() < 1.0, "fractionnel : {rect:?}");
+    }
+
+    /// Un ancrage **directionnel** suit le sens de lecture : `CENTER_START` place
+    /// l'enfant à **gauche** en LTR, à **droite** en RTL (résolu au rendu).
+    #[test]
+    fn directional_alignment_flips_the_child_in_rtl() {
+        use frus_core::{AlignmentDirectional, Primitive, Size};
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let rt = crate::runtime::Runtime::default();
+        let child_x = |theme: &crate::Theme| {
+            let root: Container<()> = Container::new()
+                .width(100.0)
+                .height(100.0)
+                .alignment_directional(AlignmentDirectional::CENTER_START)
+                .child(Container::new().width(20.0).height(20.0).color(red));
+            let ui = crate::ui::build_ui(&root, Size::new(100.0, 100.0), &rt, theme);
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(rect.x),
+                    _ => None,
+                })
+                .expect("le fond rouge de l'enfant")
+        };
+        assert!(child_x(&crate::Theme::dark()).abs() < 1.0, "start à gauche en LTR");
+        assert!(
+            (child_x(&crate::Theme::dark().rtl()) - 80.0).abs() < 1.0,
+            "start à droite en RTL"
+        );
     }
 
     /// `decoration(...)` applique fond, rayon et bordure d'un bloc : le fond peint la

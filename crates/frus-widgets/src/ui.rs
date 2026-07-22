@@ -898,8 +898,21 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         child_index: usize,
         children: &[Box<dyn Widget<Msg>>],
     ) -> (f32, f32) {
-        let (Some(align), 1) = (widget.alignment(), children.len()) else {
+        if children.len() != 1 {
             return (0.0, 0.0);
+        }
+        // Un ancrage directionnel prime, résolu selon le sens de lecture courant ;
+        // sinon l'ancrage physique. `resolve` produit un `Alignment` que la suite
+        // (avec sa correction RTL) traite comme n'importe quel ancrage physique.
+        let direction = if self.rtl {
+            frus_core::TextDirection::Rtl
+        } else {
+            frus_core::TextDirection::Ltr
+        };
+        let align = match (widget.alignment_directional(), widget.alignment()) {
+            (Some(dir), _) => dir.resolve(direction),
+            (None, Some(align)) => align,
+            (None, None) => return (0.0, 0.0),
         };
         let child = rects[child_index];
         let pad = effective_style(widget, id, self.runtime).padding;
@@ -1025,11 +1038,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
         }
 
-        for (child_index, child) in widget.children().iter().enumerate() {
+        let children = widget.children();
+        // Ancrage fractionnel, comme dans le walk principal (un enfant de liste
+        // virtualisée / `layout_builder` peut être un conteneur ancré).
+        let extra = self.align_offset(widget, id, rect, rects, *index, children);
+        for (child_index, child) in children.iter().enumerate() {
             self.render_item(
                 child.as_ref(),
                 child_id(id, child_index, child.as_ref()),
-                translation,
+                (translation.0 + extra.0, translation.1 + extra.1),
                 clip,
                 rects,
                 index,
