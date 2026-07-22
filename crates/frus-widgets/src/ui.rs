@@ -597,6 +597,63 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // Totalement opaque : rendu normal (pas de calque inutile).
         }
 
+        // Mise à l'échelle de peinture (`Transform::scale`) : on peint le sous-arbre
+        // normalement, puis on met à l'échelle **autour d'un pivot** sa plage de
+        // primitives ET les rectangles d'interaction qu'il a émis (clic, appui long,
+        // focus, glisser, scroll, accessibilité) — rendu et hit-test restent donc
+        // cohérents. Reste aligné sur les axes (un rect mis à l'échelle reste un
+        // rect) : aucun besoin de matrice. `≈ 1.0` : rendu normal (coût nul).
+        if let Some((factor, pivot_align)) = widget.transform_scale() {
+            if (factor - 1.0).abs() > 1e-4 {
+                // Pivot pris sur la boîte de l'**enfant** (nœud suivant dans l'ordre
+                // préfixe) : c'est lui qu'on met à l'échelle, et sa boîte épouse le
+                // contenu même quand la boîte du Transform est étirée par le parent.
+                let basis = rects.get(*index + 1).copied().unwrap_or(rects[*index]);
+                let box_rect = basis.translate(translation.0, translation.1);
+                let pivot = frus_core::Point::new(
+                    box_rect.x + box_rect.width * pivot_align.fraction_x(),
+                    box_rect.y + box_rect.height * pivot_align.fraction_y(),
+                );
+                let (p0, h0, lp0, f0, s0, d0, sem0) = (
+                    self.scene.primitives().len(),
+                    self.hits.len(),
+                    self.long_presses.len(),
+                    self.focusables.len(),
+                    self.scrollables.len(),
+                    self.draggables.len(),
+                    self.semantics.len(),
+                );
+                self.walk_node(widget, id, translation, clip, rects, index);
+                // Primitives : mises à l'échelle autour du pivot (position, taille,
+                // police, rayons, traits) puis réinsérées dans l'ordre.
+                let tail = self.scene.split_off(p0);
+                for prim in &tail {
+                    self.scene.push_primitive(prim.scaled_about(pivot, factor));
+                }
+                // Surfaces d'interaction émises par le sous-arbre : même transformée.
+                for h in &mut self.hits[h0..] {
+                    h.rect = h.rect.scale_about(pivot, factor);
+                }
+                for h in &mut self.long_presses[lp0..] {
+                    h.rect = h.rect.scale_about(pivot, factor);
+                }
+                for (_, r) in &mut self.focusables[f0..] {
+                    *r = r.scale_about(pivot, factor);
+                }
+                for (_, r, _, _) in &mut self.scrollables[s0..] {
+                    *r = r.scale_about(pivot, factor);
+                }
+                for (_, r) in &mut self.draggables[d0..] {
+                    *r = r.scale_about(pivot, factor);
+                }
+                for (_, r, _) in &mut self.semantics[sem0..] {
+                    *r = r.scale_about(pivot, factor);
+                }
+                return;
+            }
+            // Facteur neutre : rendu normal.
+        }
+
         // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne
         // met en cache que hors inspection.
         if self.inspector.is_none() && widget.repaint_boundary() {

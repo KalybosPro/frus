@@ -241,6 +241,88 @@ impl Primitive {
             },
         }
     }
+
+    /// Décale la **géométrie** de `(dx, dy)` (position, découpe) — couleurs,
+    /// tailles et texte inchangés. Combiné à [`Primitive::scaled`], sert à mettre
+    /// un sous-arbre à l'échelle **autour d'un pivot** :
+    /// `p.scaled(f).translated(pivot.x * (1 - f), pivot.y * (1 - f))`.
+    pub fn translated(&self, dx: f32, dy: f32) -> Primitive {
+        match self.clone() {
+            Primitive::Rect { rect, color, color2, gradient_dir, radius, border_width, border_color, blur, clip, owner } => {
+                Primitive::Rect {
+                    rect: rect.translate(dx, dy),
+                    color,
+                    color2,
+                    gradient_dir,
+                    radius,
+                    border_width,
+                    border_color,
+                    blur,
+                    clip: clip.translate(dx, dy),
+                    owner,
+                }
+            }
+            Primitive::Text { position, text, size, color, weight, italic, max_width, decoration, decoration_color, clip, owner } => {
+                Primitive::Text {
+                    position: Point::new(position.x + dx, position.y + dy),
+                    text,
+                    size,
+                    color,
+                    weight,
+                    italic,
+                    max_width,
+                    decoration,
+                    decoration_color,
+                    clip: clip.translate(dx, dy),
+                    owner,
+                }
+            }
+            Primitive::RichText { position, runs, max_width, clip, owner } => {
+                Primitive::RichText {
+                    position: Point::new(position.x + dx, position.y + dy),
+                    runs,
+                    max_width,
+                    clip: clip.translate(dx, dy),
+                    owner,
+                }
+            }
+            Primitive::Path { path, fill, stroke, clip, owner } => {
+                Primitive::Path {
+                    path: path.translated(dx, dy),
+                    fill,
+                    stroke,
+                    clip: clip.translate(dx, dy),
+                    owner,
+                }
+            }
+            Primitive::Image { image, rect, uv, tint, clip, owner } => {
+                Primitive::Image {
+                    image,
+                    rect: rect.translate(dx, dy),
+                    uv,
+                    tint,
+                    clip: clip.translate(dx, dy),
+                    owner,
+                }
+            }
+            Primitive::Layer { primitives, opacity, clip, owner } => {
+                Primitive::Layer {
+                    primitives: primitives.iter().map(|p| p.translated(dx, dy)).collect(),
+                    opacity,
+                    clip: clip.translate(dx, dy),
+                    owner,
+                }
+            }
+        }
+    }
+
+    /// Met la géométrie à l'échelle par `factor` **autour de `pivot`** (le pivot
+    /// reste fixe) : `pos' = pivot + (pos - pivot) * factor`. Tailles, police,
+    /// rayons et traits suivent l'échelle.
+    pub fn scaled_about(&self, pivot: Point, factor: f32) -> Primitive {
+        self.scaled(factor)
+            .translated(pivot.x * (1.0 - factor), pivot.y * (1.0 - factor))
+    }
 }
 
 /// Une scène 2D : la description déclarative de ce qu'il faut dessiner.

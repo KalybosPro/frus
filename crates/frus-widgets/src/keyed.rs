@@ -162,6 +162,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.transform_translate()
     }
 
+    fn transform_scale(&self) -> Option<(f32, frus_core::Alignment)> {
+        self.inner.transform_scale()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

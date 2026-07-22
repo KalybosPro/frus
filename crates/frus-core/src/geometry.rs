@@ -325,6 +325,17 @@ impl Rect {
         )
     }
 
+    /// Met le rectangle à l'échelle par `factor` **autour de `pivot`** (le pivot
+    /// reste fixe) : `pos' = pivot + (pos - pivot) * factor`, taille × `factor`.
+    pub fn scale_about(self, pivot: Point, factor: f32) -> Self {
+        Self::new(
+            pivot.x + (self.x - pivot.x) * factor,
+            pivot.y + (self.y - pivot.y) * factor,
+            self.width * factor,
+            self.height * factor,
+        )
+    }
+
     /// Intersection de deux rectangles (taille nulle s'ils sont disjoints).
     pub fn intersect(self, other: Rect) -> Self {
         let x0 = self.x.max(other.x);
