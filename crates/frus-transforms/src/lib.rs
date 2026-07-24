@@ -1,6 +1,7 @@
 //! `frus-transforms` — une vitrine **animée** de l'arsenal de disposition/peinture :
-//! [`Transform`] composé (rotation + échelle), [`AspectRatio`] et
-//! [`FractionallySizedBox`], le tout piloté par un [`Tween`] au fil du temps.
+//! la palette [`Transform`] (translation, échelle non uniforme, rotation + échelle
+//! **composées**), [`AspectRatio`] et [`FractionallySizedBox`], le tout piloté par un
+//! [`Tween`] au fil du temps.
 //!
 //! C'est la première démo *tangible* de la couche de transformation : on y **voit**
 //! la rotation et l'échelle rendues par le GPU (au-delà des tests headless).
@@ -15,7 +16,7 @@ use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
-    AspectRatio, Container, Curve, Flex, FractionallySizedBox, Align, Justify, Text, Theme,
+    AspectRatio, Color, Container, Curve, Flex, FractionallySizedBox, Align, Justify, Text, Theme,
     Transform, Tween, Widget,
 };
 
@@ -63,27 +64,62 @@ impl Application for Showcase {
         let ping = 1.0 - (2.0 * phase - 1.0).abs();
         let eased = Curve::ease_in_out().transform(ping);
 
-        // Valeurs animées, chacune interpolée par un Tween.
+        // Valeurs animées, chacune interpolée par un Tween ou une sinusoïde.
         let angle = self.time * 0.9; // rotation continue (rad)
         let scale = Tween::new(1.0, 1.4).eval(eased); // pulsation
+        let bob = (self.time * 2.2).sin() * 22.0; // va-et-vient vertical (px)
+        let squash = (self.time * 2.6).sin() * 0.35; // écrasement/étirement
         let width_factor = Tween::new(0.25, 1.0).eval(eased); // barre fractionnaire
 
-        // Héros : un carré arrondi dégradé, en **rotation + échelle** composées
-        // (`Transform` composé), centré dans une scène fixe pour avoir de la marge.
-        let hero = Transform::rotate(angle).and_scale(scale).child(
-            Container::new()
-                .width(96.0)
-                .height(96.0)
-                .color(theme.primary)
-                .gradient(theme.scheme.secondary, [1.0, 1.0])
-                .radius(20.0),
-        );
-        let hero_stage = Flex::column()
-            .width(220.0)
-            .height(220.0)
-            .justify(Justify::Center)
+        // Une tuile : un carré transformé, centré dans une scène fixe (marge pour
+        // que la transformation déborde sans bousculer les voisines), sous-titré.
+        let tile = |inner: Box<dyn Widget<Msg>>, label: &str| {
+            Flex::column()
+                .gap(10.0)
+                .align(Align::Center)
+                .child(
+                    Flex::column()
+                        .width(128.0)
+                        .height(128.0)
+                        .justify(Justify::Center)
+                        .align(Align::Center)
+                        .child(inner),
+                )
+                .child(Text::new(label).size(12.0).color(theme.on_surface))
+        };
+        let square = |color: Color| Container::<Msg>::new().width(64.0).height(64.0).color(color).radius(14.0);
+
+        // Galerie : la palette complète de `Transform` côte à côte.
+        // - translate : va-et-vient vertical (décalage de peinture pur).
+        // - scale_xy : écrasement/étirement (échelle **non uniforme**, opposée en x/y).
+        // - rotate + scale : la **composition** en une seule matrice.
+        let gallery = Flex::row()
+            .gap(16.0)
             .align(Align::Center)
-            .child(hero);
+            .child(tile(
+                Box::new(Transform::translate(0.0, bob).child(square(theme.primary))),
+                "translate",
+            ))
+            .child(tile(
+                Box::new(
+                    Transform::scale_xy(1.0 + squash, 1.0 - squash)
+                        .child(square(theme.scheme.secondary)),
+                ),
+                "scale_xy",
+            ))
+            .child(tile(
+                Box::new(
+                    Transform::rotate(angle).and_scale(scale).child(
+                        Container::<Msg>::new()
+                            .width(64.0)
+                            .height(64.0)
+                            .color(theme.primary)
+                            .gradient(theme.scheme.secondary, [1.0, 1.0])
+                            .radius(14.0),
+                    ),
+                ),
+                "rotate + scale",
+            ));
 
         // AspectRatio 16:9 : la boîte prend la largeur (240) et en dérive la hauteur.
         let aspect = Container::new().width(240.0).child(
@@ -117,7 +153,7 @@ impl Application for Showcase {
                     .size(20.0)
                     .color(theme.on_surface),
             )
-            .child(hero_stage)
+            .child(gallery)
             .child(Text::new("AspectRatio 16:9").size(13.0).color(theme.on_surface))
             .child(aspect)
             .child(Text::new("FractionallySizedBox").size(13.0).color(theme.on_surface))

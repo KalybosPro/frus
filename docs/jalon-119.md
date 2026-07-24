@@ -22,9 +22,11 @@ headless.
   `0.25 → 1.0`, plus une rotation continue. Aucune valeur animée n'est retenue hors de
   l'état temps.
 
-- **Trois vitrines côte à côte.** Un « héros » (carré arrondi dégradé) en
-  `Transform::rotate(angle).and_scale(scale)` — la **composition** en action ; une
-  boîte `AspectRatio 16:9` ; une barre `FractionallySizedBox` dont la largeur respire.
+- **Galerie de la palette `Transform`.** Une rangée de trois tuiles couvre tout
+  l'éventail : `translate` (va-et-vient vertical), `scale_xy` (écrasement/étirement,
+  échelle **non uniforme** opposée en x/y) et `rotate + scale` (la **composition** en
+  une matrice). Puis une boîte `AspectRatio 16:9` et une barre `FractionallySizedBox`
+  dont la largeur respire.
 
 - **Conventions du projet.** Constructeurs de structs uniquement (`Text::new`,
   `Container::new`, `Flex::column`, `Transform::rotate`…), **aucun** helper libre ;
