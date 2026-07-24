@@ -623,40 +623,48 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // Totalement opaque : rendu normal (pas de calque inutile).
         }
 
-        // Mise à l'échelle de peinture (`Transform::scale`) : on peint le sous-arbre
-        // normalement, puis on met à l'échelle **autour d'un pivot** sa plage de
-        // primitives ET les rectangles d'interaction qu'il a émis (clic, appui long,
-        // focus, glisser, scroll, accessibilité) — rendu et hit-test restent donc
-        // cohérents. Reste aligné sur les axes (un rect mis à l'échelle reste un
-        // rect) : aucun besoin de matrice. `≈ 1.0` : rendu normal (coût nul).
-        if let Some((sx, sy, pivot_align)) = widget.transform_scale() {
-            if (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4 {
-                // Pivot pris sur la boîte de l'**enfant** (nœud suivant dans l'ordre
-                // préfixe) : c'est lui qu'on met à l'échelle, et sa boîte épouse le
-                // contenu même quand la boîte du Transform est étirée par le parent.
-                let basis = rects.get(*index + 1).copied().unwrap_or(rects[*index]);
-                let box_rect = basis.translate(translation.0, translation.1);
-                let pivot = frus_core::Point::new(
-                    box_rect.x + box_rect.width * pivot_align.fraction_x(),
-                    box_rect.y + box_rect.height * pivot_align.fraction_y(),
-                );
-                let (p0, h0, lp0, f0, s0, d0, sem0) = (
-                    self.scene.primitives().len(),
-                    self.hits.len(),
-                    self.long_presses.len(),
-                    self.focusables.len(),
-                    self.scrollables.len(),
-                    self.draggables.len(),
-                    self.semantics.len(),
-                );
-                self.walk_node(widget, id, translation, clip, rects, index);
-                // Primitives : mises à l'échelle (par axe) autour du pivot (position,
-                // taille, police, rayons, traits) puis réinsérées dans l'ordre.
+        // Transformations de peinture composables (`Transform` : échelle et/ou
+        // rotation ; la translation, elle, passe par le décalage d'enfant). On peint
+        // le sous-arbre **à plat**, puis on lui applique — dans l'ordre — l'échelle
+        // (post-traitement aligné sur les axes) *puis* la rotation (calque composité
+        // tourné). Rendu et hit-test restent cohérents. La translation, appliquée en
+        // amont via `child_offset`, est la plus intérieure (échelle puis rotation
+        // par-dessus).
+        let scale = widget
+            .transform_scale()
+            .filter(|(sx, sy, _)| (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4);
+        let rotate = widget.transform_rotate().filter(|(a, _)| a.abs() > 1e-4);
+        if scale.is_some() || rotate.is_some() {
+            // Pivots pris sur la boîte de l'**enfant** (nœud suivant dans l'ordre
+            // préfixe) : c'est lui qu'on transforme, et sa boîte épouse le contenu
+            // même quand la boîte du Transform est étirée par le parent.
+            let basis = rects.get(*index + 1).copied().unwrap_or(rects[*index]);
+            let box_rect = basis.translate(translation.0, translation.1);
+            let pivot_of = |align: frus_core::Alignment| {
+                Point::new(
+                    box_rect.x + box_rect.width * align.fraction_x(),
+                    box_rect.y + box_rect.height * align.fraction_y(),
+                )
+            };
+            let (p0, h0, lp0, f0, s0, d0, sem0) = (
+                self.scene.primitives().len(),
+                self.hits.len(),
+                self.long_presses.len(),
+                self.focusables.len(),
+                self.scrollables.len(),
+                self.draggables.len(),
+                self.semantics.len(),
+            );
+            self.walk_node(widget, id, translation, clip, rects, index);
+
+            // Échelle (par axe, autour du pivot) : primitives réinsérées + toutes les
+            // surfaces d'interaction émises.
+            if let Some((sx, sy, pivot_align)) = scale {
+                let pivot = pivot_of(pivot_align);
                 let tail = self.scene.split_off(p0);
                 for prim in &tail {
                     self.scene.push_primitive(prim.scaled_about_xy(pivot, sx, sy));
                 }
-                // Surfaces d'interaction émises par le sous-arbre : même transformée.
                 for h in &mut self.hits[h0..] {
                     h.rect = h.rect.scale_about_xy(pivot, sx, sy);
                 }
@@ -675,33 +683,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 for (_, r, _) in &mut self.semantics[sem0..] {
                     *r = r.scale_about_xy(pivot, sx, sy);
                 }
-                return;
             }
-            // Facteur neutre : rendu normal.
-        }
 
-        // Rotation de peinture (`Transform::rotate`) : on peint le sous-arbre à plat,
-        // puis on l'enveloppe dans un **calque tourné** (composité tourné par le GPU
-        // autour du pivot). Les cibles de clic émises sont marquées de la
-        // contre-rotation, pour que le hit-test reste juste. `angle ≈ 0` : rien.
-        if let Some((angle, pivot_align)) = widget.transform_rotate() {
-            if angle.abs() > 1e-4 {
-                // Pivot pris sur la boîte de l'enfant (cf. `transform_scale`) ; en
-                // RTL, le monde étant retourné, on inverse le sens de l'angle.
-                let basis = rects.get(*index + 1).copied().unwrap_or(rects[*index]);
-                let box_rect = basis.translate(translation.0, translation.1);
-                let pivot = Point::new(
-                    box_rect.x + box_rect.width * pivot_align.fraction_x(),
-                    box_rect.y + box_rect.height * pivot_align.fraction_y(),
-                );
+            // Rotation (par-dessus l'échelle) : enveloppe la plage — déjà mise à
+            // l'échelle — dans un calque tourné ; marque les cibles de clic de la
+            // contre-rotation. En RTL, le monde est retourné → angle inversé.
+            if let Some((angle, pivot_align)) = rotate {
+                let pivot = pivot_of(pivot_align);
                 let angle = if self.rtl { -angle } else { angle };
-                let (p0, h0, lp0) = (
-                    self.scene.primitives().len(),
-                    self.hits.len(),
-                    self.long_presses.len(),
-                );
-                self.walk_node(widget, id, translation, clip, rects, index);
-                // Enveloppe la plage de primitives dans un calque tourné.
                 let group = self.scene.split_off(p0);
                 self.scene.push_primitive(Primitive::Layer {
                     primitives: group,
@@ -710,17 +699,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     transform: Some(LayerTransform::rotation(angle, pivot)),
                     owner: id.as_u64(),
                 });
-                // Cibles de clic / appui long : contre-tournées au test (sans écraser
-                // une rotation intérieure déjà posée).
                 for h in &mut self.hits[h0..] {
                     h.xform.get_or_insert((angle, pivot));
                 }
                 for h in &mut self.long_presses[lp0..] {
                     h.xform.get_or_insert((angle, pivot));
                 }
-                return;
             }
-            // Angle neutre : rendu normal.
+            return;
         }
 
         // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne

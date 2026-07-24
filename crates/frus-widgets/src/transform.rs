@@ -23,6 +23,11 @@ use crate::widget::Widget;
 /// - **`rotate(radians)`** — tourne le sous-arbre autour d'un pivot (par défaut le
 ///   centre) : aiguille, chevron qui bascule, spinner. Le sous-arbre est peint dans
 ///   un calque **composité tourné** ; le hit-test contre-tourne le point.
+///
+/// Elles se **composent** dans un même widget via les enchaîneurs `and_translate`,
+/// `and_scale` / `and_scale_xy`, `and_rotate` — appliqués dans l'ordre translation →
+/// échelle → rotation (la translation la plus intérieure, la rotation par-dessus).
+/// Ex. `Transform::scale(1.5).and_rotate(0.2)` grossit **et** tourne.
 pub struct Transform<Msg> {
     dx: f32,
     dy: f32,
@@ -91,6 +96,33 @@ impl<Msg> Transform<Msg> {
             rotate: Some((radians, pivot)),
             children: Vec::new(),
         }
+    }
+
+    /// **Ajoute** une translation à la transformation courante (composition) :
+    /// `Transform::scale(1.2).and_translate(0, -4)` grossit *et* remonte.
+    pub fn and_translate(mut self, dx: f32, dy: f32) -> Self {
+        self.dx = dx;
+        self.dy = dy;
+        self
+    }
+
+    /// **Ajoute** une échelle uniforme (autour du centre) à la transformation
+    /// courante.
+    pub fn and_scale(self, factor: f32) -> Self {
+        self.and_scale_xy(factor, factor)
+    }
+
+    /// **Ajoute** une échelle par axe (autour du centre) à la transformation courante.
+    pub fn and_scale_xy(mut self, sx: f32, sy: f32) -> Self {
+        self.scale = Some((sx, sy, Alignment::CENTER));
+        self
+    }
+
+    /// **Ajoute** une rotation (autour du centre) à la transformation courante :
+    /// `Transform::scale(1.5).and_rotate(0.2)` grossit *et* tourne.
+    pub fn and_rotate(mut self, radians: f32) -> Self {
+        self.rotate = Some((radians, Alignment::CENTER));
+        self
     }
 
     /// Définit l'enfant transformé.
@@ -321,6 +353,48 @@ mod tests {
             (t.pivot.x - 20.0).abs() < 0.5 && (t.pivot.y - 10.0).abs() < 0.5,
             "pivot au centre de l'enfant : {:?}",
             t.pivot
+        );
+    }
+
+    /// **Composition** : `scale(2.0).and_rotate(π/2)` applique les deux — le
+    /// sous-arbre est d'abord mis à l'échelle (le fond passe à ~40×40), puis
+    /// enveloppé dans un calque tourné (angle ≈ π/2). On retrouve donc un calque
+    /// tourné *contenant* un rectangle agrandi.
+    #[test]
+    fn scale_and_rotate_compose() {
+        use frus_core::Primitive;
+        use std::f32::consts::FRAC_PI_2;
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root = crate::Flex::<()>::column().width(100.0).child(
+            Transform::scale(2.0)
+                .and_rotate(FRAC_PI_2)
+                .child(Container::new().width(20.0).height(20.0).color(red)),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let (angle, inner) = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Layer { transform: Some(t), primitives, .. } => {
+                    Some((t.angle, primitives.clone()))
+                }
+                _ => None,
+            })
+            .expect("un calque tourné");
+        assert!((angle - FRAC_PI_2).abs() < 1e-3, "tourné : {angle}");
+        let rect = inner
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond rouge, mis à l'échelle dans le calque");
+        assert!(
+            (rect.width - 40.0).abs() < 0.5 && (rect.height - 40.0).abs() < 0.5,
+            "agrandi avant rotation : {rect:?}"
         );
     }
 
