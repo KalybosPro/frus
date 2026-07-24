@@ -75,6 +75,23 @@ impl Affine {
         Point::new(a * p.x + c * p.y + e, b * p.x + d * p.y + f)
     }
 
+    /// `true` si la transformation **conserve l'alignement sur les axes** : sa partie
+    /// linéaire est diagonale (échelle et/ou translation, sans rotation ni
+    /// cisaillement), donc l'image d'un rectangle reste un rectangle.
+    pub fn is_axis_aligned(self) -> bool {
+        self.m[1].abs() < 1e-4 && self.m[2].abs() < 1e-4
+    }
+
+    /// Image d'un rectangle par la transformation. **Exacte** quand la matrice
+    /// conserve l'alignement sur les axes ([`Affine::is_axis_aligned`]) ; sinon,
+    /// renvoie la **boîte englobante** de l'image (les rectangles ne peuvent pas
+    /// représenter une forme tournée).
+    pub fn apply_rect(self, r: Rect) -> Rect {
+        let a = self.apply(Point::new(r.x, r.y));
+        let b = self.apply(Point::new(r.x + r.width, r.y + r.height));
+        Rect::new(a.x.min(b.x), a.y.min(b.y), (a.x - b.x).abs(), (a.y - b.y).abs())
+    }
+
     /// La transformation inverse (l'identité si la matrice est dégénérée).
     pub fn inverse(self) -> Affine {
         let [a, b, c, d, e, f] = self.m;

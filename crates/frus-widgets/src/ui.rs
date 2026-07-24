@@ -645,10 +645,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 matrix = matrix.then(Affine::rotation(angle).about(pivot_of(pivot_align)));
             }
 
-            let (p0, h0, lp0) = (
+            let (p0, h0, lp0, f0, s0, d0, sem0) = (
                 self.scene.primitives().len(),
                 self.hits.len(),
                 self.long_presses.len(),
+                self.focusables.len(),
+                self.scrollables.len(),
+                self.draggables.len(),
+                self.semantics.len(),
             );
             self.walk_node(widget, id, translation, clip, rects, index);
             // Enveloppe la plage de primitives — peinte à plat — dans un calque
@@ -669,6 +673,25 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             for h in &mut self.long_presses[lp0..] {
                 h.xform.get_or_insert(inverse);
+            }
+            // Focus / défilement / glisser / accessibilité stockent un **rectangle**
+            // (pas de point contre-transformé). Si `M` conserve l'alignement sur les
+            // axes (échelle/translation, sans rotation), l'image reste un rectangle :
+            // on la calcule exactement. Sinon (rotation), on laisse tel quel — bornes
+            // approchées (le clic, lui, reste juste via `M⁻¹`).
+            if matrix.is_axis_aligned() {
+                for (_, r) in &mut self.focusables[f0..] {
+                    *r = matrix.apply_rect(*r);
+                }
+                for (_, r, _, _) in &mut self.scrollables[s0..] {
+                    *r = matrix.apply_rect(*r);
+                }
+                for (_, r) in &mut self.draggables[d0..] {
+                    *r = matrix.apply_rect(*r);
+                }
+                for (_, r, _) in &mut self.semantics[sem0..] {
+                    *r = matrix.apply_rect(*r);
+                }
             }
             return;
         }

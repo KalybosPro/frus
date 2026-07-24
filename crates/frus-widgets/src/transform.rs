@@ -357,6 +357,47 @@ mod tests {
         );
     }
 
+    /// Sous une transformation **alignée sur les axes** (échelle pure), les cibles de
+    /// **focus** suivent aussi : un point hors du bouton à plat mais dans son image
+    /// agrandie est bien focalisable, et son rectangle de focus est ~2× plus large.
+    #[test]
+    fn axis_aligned_transform_scales_the_focus_rect() {
+        use frus_core::Point;
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let flat_ui = crate::ui::build_ui(
+            &crate::Flex::<i32>::column()
+                .width(200.0)
+                .child(crate::Button::new("Ok").on_press(1)),
+            Size::new(200.0, 200.0),
+            &rt,
+            &theme,
+        );
+        let flat = flat_ui.focus_hit(Point::new(2.0, 2.0)).expect("bouton focalisable").1;
+        let cy = flat.y + flat.height / 2.0;
+        // Point juste à droite du bouton à plat (largeur 200) : hors de sa cible.
+        let probe = Point::new(flat.x + flat.width + 2.0, cy);
+        assert!(flat_ui.focus_hit(probe).is_none(), "hors du bouton à plat");
+
+        let scaled_ui = crate::ui::build_ui(
+            &crate::Flex::<i32>::column().width(200.0).child(
+                Transform::scale(2.0).child(crate::Button::new("Ok").on_press(1)),
+            ),
+            Size::new(200.0, 200.0),
+            &rt,
+            &theme,
+        );
+        let (_, r) = scaled_ui
+            .focus_hit(probe)
+            .expect("l'image agrandie du bouton couvre le point");
+        assert!(
+            (r.width - flat.width * 2.0).abs() < 1.0,
+            "rectangle de focus ~2× : {} vs {}",
+            r.width,
+            flat.width * 2.0
+        );
+    }
+
     /// Le hit-test **contre-tourne** le point : un clic à la position *tournée* d'un
     /// enfant cliquable l'atteint, alors que sa position d'origine (non tournée) ne
     /// l'atteint plus. Enfant 40×20 tourné de +90° autour de (20, 10) : le point
