@@ -22,11 +22,21 @@ headless.
   `0.25 → 1.0`, plus une rotation continue. Aucune valeur animée n'est retenue hors de
   l'état temps.
 
-- **Galerie de la palette `Transform`.** Une rangée de trois tuiles couvre tout
-  l'éventail : `translate` (va-et-vient vertical), `scale_xy` (écrasement/étirement,
-  échelle **non uniforme** opposée en x/y) et `rotate + scale` (la **composition** en
-  une matrice). Puis une boîte `AspectRatio 16:9` et une barre `FractionallySizedBox`
-  dont la largeur respire.
+- **Galerie de la palette `Transform`.** Deux rangées de tuiles couvrent tout
+  l'éventail : `translate` (va-et-vient), `scale_xy` (écrasement/étirement, échelle
+  **non uniforme**), `rotate + scale` (**composition**), `rotate @ corner` (pivot
+  décalé, `rotate_from(TOP_LEFT)`) et `translate + rotate`. Puis une boîte
+  `AspectRatio 16:9` et une barre `FractionallySizedBox` qui respire.
+
+- **Interactif.** Un **bouton cliquable placé dans un `Transform` tourné** incrémente
+  un compteur — preuve *visible* que le hit-test traverse la transformation (matrice
+  inverse) ; un **curseur** pilote une échelle en direct ; un bouton **lecture/pause**
+  fige l'animation (et coupe la souscription). L'ensemble défile (`Scroll`) pour rester
+  utilisable sur une petite fenêtre.
+
+- **Ré-export.** `Alignment` (et `AlignmentGeometry`/`AlignmentDirectional`/`Affine`)
+  sont désormais ré-exportés par `frus-widgets` — les applications en ont besoin pour
+  `Transform::rotate_from` / `Container::alignment`.
 
 - **Conventions du projet.** Constructeurs de structs uniquement (`Text::new`,
   `Container::new`, `Flex::column`, `Transform::rotate`…), **aucun** helper libre ;
