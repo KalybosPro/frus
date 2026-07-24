@@ -35,9 +35,16 @@ impl LayerTransform {
     /// Met à l'échelle le pivot (l'angle est invariant par mise à l'échelle
     /// uniforme) — pour suivre `Primitive::scaled`.
     pub fn scaled(self, factor: f32) -> Self {
+        self.scaled_xy(factor, factor)
+    }
+
+    /// Met à l'échelle le pivot **par axe** — pour suivre `Primitive::scaled_xy`.
+    /// (L'angle reste tel quel : une rotation combinée à une échelle non uniforme
+    /// n'est qu'approximée, cas marginal d'un calque tourné dans un `scale_xy`.)
+    pub fn scaled_xy(self, sx: f32, sy: f32) -> Self {
         Self {
             angle: self.angle,
-            pivot: self.pivot.scale(factor),
+            pivot: self.pivot.scale_xy(sx, sy),
         }
     }
 
@@ -173,6 +180,17 @@ impl Primitive {
     /// bordure, flou, découpe, taille de police). Couleurs et texte inchangés.
     /// Sert à convertir une scène logique en scène physique (DPI).
     pub fn scaled(&self, factor: f32) -> Primitive {
+        self.scaled_xy(factor, factor)
+    }
+
+    /// Met la géométrie à l'échelle **par axe** (`sx` horizontal, `sy` vertical).
+    /// Les rectangles et images s'étirent exactement ; les grandeurs **scalaires**
+    /// (rayon d'arrondi, bordure, flou, chemin) suivent la moyenne des deux facteurs
+    /// (elles n'ont pas d'axe), la taille de police suit `sy` et la largeur de repli
+    /// suit `sx` — approximations sans conséquence quand `sx == sy` (échelle uniforme
+    /// ou DPI). Base de la mise à l'échelle **non uniforme** d'un sous-arbre.
+    pub fn scaled_xy(&self, sx: f32, sy: f32) -> Primitive {
+        let avg = (sx + sy) * 0.5;
         match self.clone() {
             Primitive::Rect {
                 rect,
@@ -186,15 +204,15 @@ impl Primitive {
                 clip,
                 owner,
             } => Primitive::Rect {
-                rect: rect.scale(factor),
+                rect: rect.scale_xy(sx, sy),
                 color,
                 color2,
                 gradient_dir,
-                radius: radius.scale(factor),
-                border_width: border_width * factor,
+                radius: radius.scale(avg),
+                border_width: border_width * avg,
                 border_color,
-                blur: blur * factor,
-                clip: clip.scale(factor),
+                blur: blur * avg,
+                clip: clip.scale_xy(sx, sy),
                 owner,
             },
             Primitive::Text {
@@ -210,16 +228,16 @@ impl Primitive {
                 clip,
                 owner,
             } => Primitive::Text {
-                position: position.scale(factor),
+                position: position.scale_xy(sx, sy),
                 text,
-                size: size * factor,
+                size: size * sy,
                 color,
                 weight,
                 italic,
-                max_width: max_width.map(|w| w * factor),
+                max_width: max_width.map(|w| w * sx),
                 decoration,
                 decoration_color,
-                clip: clip.scale(factor),
+                clip: clip.scale_xy(sx, sy),
                 owner,
             },
             Primitive::RichText {
@@ -230,13 +248,13 @@ impl Primitive {
                 owner,
             } => {
                 for run in &mut runs {
-                    run.size *= factor;
+                    run.size *= sy;
                 }
                 Primitive::RichText {
-                    position: position.scale(factor),
+                    position: position.scale_xy(sx, sy),
                     runs,
-                    max_width: max_width.map(|w| w * factor),
-                    clip: clip.scale(factor),
+                    max_width: max_width.map(|w| w * sx),
+                    clip: clip.scale_xy(sx, sy),
                     owner,
                 }
             }
@@ -247,10 +265,10 @@ impl Primitive {
                 clip,
                 owner,
             } => Primitive::Path {
-                path: path.scaled(factor),
+                path: path.scaled(avg),
                 fill,
-                stroke: stroke.map(|s| Stroke::new(s.color, s.width * factor)),
-                clip: clip.scale(factor),
+                stroke: stroke.map(|s| Stroke::new(s.color, s.width * avg)),
+                clip: clip.scale_xy(sx, sy),
                 owner,
             },
             Primitive::Image {
@@ -262,11 +280,11 @@ impl Primitive {
                 owner,
             } => Primitive::Image {
                 image,
-                rect: rect.scale(factor),
+                rect: rect.scale_xy(sx, sy),
                 // L'UV est en 0..1 : indépendant de l'échelle.
                 uv,
                 tint,
-                clip: clip.scale(factor),
+                clip: clip.scale_xy(sx, sy),
                 owner,
             },
             Primitive::Layer {
@@ -276,10 +294,10 @@ impl Primitive {
                 transform,
                 owner,
             } => Primitive::Layer {
-                primitives: primitives.iter().map(|p| p.scaled(factor)).collect(),
+                primitives: primitives.iter().map(|p| p.scaled_xy(sx, sy)).collect(),
                 opacity,
-                clip: clip.scale(factor),
-                transform: transform.map(|t| t.scaled(factor)),
+                clip: clip.scale_xy(sx, sy),
+                transform: transform.map(|t| t.scaled_xy(sx, sy)),
                 owner,
             },
         }
@@ -364,8 +382,14 @@ impl Primitive {
     /// reste fixe) : `pos' = pivot + (pos - pivot) * factor`. Tailles, police,
     /// rayons et traits suivent l'échelle.
     pub fn scaled_about(&self, pivot: Point, factor: f32) -> Primitive {
-        self.scaled(factor)
-            .translated(pivot.x * (1.0 - factor), pivot.y * (1.0 - factor))
+        self.scaled_about_xy(pivot, factor, factor)
+    }
+
+    /// Comme [`Primitive::scaled_about`], mais avec des facteurs **par axe**
+    /// (`sx`, `sy`) — mise à l'échelle non uniforme autour de `pivot`.
+    pub fn scaled_about_xy(&self, pivot: Point, sx: f32, sy: f32) -> Primitive {
+        self.scaled_xy(sx, sy)
+            .translated(pivot.x * (1.0 - sx), pivot.y * (1.0 - sy))
     }
 }
 

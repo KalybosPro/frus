@@ -162,7 +162,7 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.transform_translate()
     }
 
-    fn transform_scale(&self) -> Option<(f32, frus_core::Alignment)> {
+    fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
         self.inner.transform_scale()
     }
 

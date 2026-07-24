@@ -72,7 +72,7 @@ macro_rules! forward_to_container {
             fn transform_translate(&self) -> Option<(f32, f32)> {
                 Widget::transform_translate(&self.inner)
             }
-            fn transform_scale(&self) -> Option<(f32, frus_core::Alignment)> {
+            fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
                 Widget::transform_scale(&self.inner)
             }
             fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {

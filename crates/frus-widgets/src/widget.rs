@@ -235,12 +235,12 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// **Mise à l'échelle de peinture** `(facteur, pivot)` de tout le sous-arbre
+    /// **Mise à l'échelle de peinture** `(sx, sy, pivot)` de tout le sous-arbre
     /// (façon `Transform.scale` de Flutter) : le rendu et le hit-test sont mis à
-    /// l'échelle autour du `pivot` (un [`frus_core::Alignment`] dans la boîte),
-    /// **sans toucher la mise en page**. Reste aligné sur les axes (un rect mis à
-    /// l'échelle reste un rect). `None` = pas d'échelle. Voir [`crate::Transform`].
-    fn transform_scale(&self) -> Option<(f32, frus_core::Alignment)> {
+    /// l'échelle — par axe — autour du `pivot` (un [`frus_core::Alignment`] dans la
+    /// boîte), **sans toucher la mise en page**. Reste aligné sur les axes (un rect
+    /// mis à l'échelle reste un rect). `None` = pas d'échelle. Voir [`crate::Transform`].
+    fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
         None
     }
 
@@ -405,7 +405,7 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn transform_translate(&self) -> Option<(f32, f32)> {
         (**self).transform_translate()
     }
-    fn transform_scale(&self) -> Option<(f32, frus_core::Alignment)> {
+    fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
         (**self).transform_scale()
     }
     fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {

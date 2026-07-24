@@ -629,8 +629,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // focus, glisser, scroll, accessibilité) — rendu et hit-test restent donc
         // cohérents. Reste aligné sur les axes (un rect mis à l'échelle reste un
         // rect) : aucun besoin de matrice. `≈ 1.0` : rendu normal (coût nul).
-        if let Some((factor, pivot_align)) = widget.transform_scale() {
-            if (factor - 1.0).abs() > 1e-4 {
+        if let Some((sx, sy, pivot_align)) = widget.transform_scale() {
+            if (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4 {
                 // Pivot pris sur la boîte de l'**enfant** (nœud suivant dans l'ordre
                 // préfixe) : c'est lui qu'on met à l'échelle, et sa boîte épouse le
                 // contenu même quand la boîte du Transform est étirée par le parent.
@@ -650,30 +650,30 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     self.semantics.len(),
                 );
                 self.walk_node(widget, id, translation, clip, rects, index);
-                // Primitives : mises à l'échelle autour du pivot (position, taille,
-                // police, rayons, traits) puis réinsérées dans l'ordre.
+                // Primitives : mises à l'échelle (par axe) autour du pivot (position,
+                // taille, police, rayons, traits) puis réinsérées dans l'ordre.
                 let tail = self.scene.split_off(p0);
                 for prim in &tail {
-                    self.scene.push_primitive(prim.scaled_about(pivot, factor));
+                    self.scene.push_primitive(prim.scaled_about_xy(pivot, sx, sy));
                 }
                 // Surfaces d'interaction émises par le sous-arbre : même transformée.
                 for h in &mut self.hits[h0..] {
-                    h.rect = h.rect.scale_about(pivot, factor);
+                    h.rect = h.rect.scale_about_xy(pivot, sx, sy);
                 }
                 for h in &mut self.long_presses[lp0..] {
-                    h.rect = h.rect.scale_about(pivot, factor);
+                    h.rect = h.rect.scale_about_xy(pivot, sx, sy);
                 }
                 for (_, r) in &mut self.focusables[f0..] {
-                    *r = r.scale_about(pivot, factor);
+                    *r = r.scale_about_xy(pivot, sx, sy);
                 }
                 for (_, r, _, _) in &mut self.scrollables[s0..] {
-                    *r = r.scale_about(pivot, factor);
+                    *r = r.scale_about_xy(pivot, sx, sy);
                 }
                 for (_, r) in &mut self.draggables[d0..] {
-                    *r = r.scale_about(pivot, factor);
+                    *r = r.scale_about_xy(pivot, sx, sy);
                 }
                 for (_, r, _) in &mut self.semantics[sem0..] {
-                    *r = r.scale_about(pivot, factor);
+                    *r = r.scale_about_xy(pivot, sx, sy);
                 }
                 return;
             }

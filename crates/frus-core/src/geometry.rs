@@ -21,6 +21,11 @@ impl Point {
     pub fn scale(self, factor: f32) -> Self {
         Self::new(self.x * factor, self.y * factor)
     }
+
+    /// Multiplie les coordonnées **par axe** (`sx`, `sy`).
+    pub fn scale_xy(self, sx: f32, sy: f32) -> Self {
+        Self::new(self.x * sx, self.y * sy)
+    }
 }
 
 /// La **direction de lecture** du texte et de la mise en page. Contexte
@@ -328,12 +333,22 @@ impl Rect {
     /// Met le rectangle à l'échelle par `factor` **autour de `pivot`** (le pivot
     /// reste fixe) : `pos' = pivot + (pos - pivot) * factor`, taille × `factor`.
     pub fn scale_about(self, pivot: Point, factor: f32) -> Self {
+        self.scale_about_xy(pivot, factor, factor)
+    }
+
+    /// Met le rectangle à l'échelle **par axe** autour de `pivot`.
+    pub fn scale_about_xy(self, pivot: Point, sx: f32, sy: f32) -> Self {
         Self::new(
-            pivot.x + (self.x - pivot.x) * factor,
-            pivot.y + (self.y - pivot.y) * factor,
-            self.width * factor,
-            self.height * factor,
+            pivot.x + (self.x - pivot.x) * sx,
+            pivot.y + (self.y - pivot.y) * sy,
+            self.width * sx,
+            self.height * sy,
         )
+    }
+
+    /// Multiplie position et taille **par axe** (`sx`, `sy`).
+    pub fn scale_xy(self, sx: f32, sy: f32) -> Self {
+        Self::new(self.x * sx, self.y * sy, self.width * sx, self.height * sy)
     }
 
     /// Intersection de deux rectangles (taille nulle s'ils sont disjoints).

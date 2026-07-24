@@ -16,17 +16,18 @@ use crate::widget::Widget;
 /// **animer** :
 /// - **`translate(dx, dy)`** — décale le sous-arbre (pastille dans un coin, entrée
 ///   qui coulisse, secousse d'erreur…).
-/// - **`scale(factor)`** — met le sous-arbre à l'échelle autour d'un pivot (par
-///   défaut le centre) : effet « pop » d'un bouton, zoom d'une vignette. Reste
-///   aligné sur les axes (un rect mis à l'échelle reste un rect) — aucune matrice.
+/// - **`scale(factor)`** / **`scale_xy(sx, sy)`** — met le sous-arbre à l'échelle
+///   autour d'un pivot (par défaut le centre), uniforme ou **par axe** (étirer,
+///   aplatir) : effet « pop » d'un bouton, zoom d'une vignette. Reste aligné sur les
+///   axes (un rect mis à l'échelle reste un rect) — aucune matrice.
 /// - **`rotate(radians)`** — tourne le sous-arbre autour d'un pivot (par défaut le
 ///   centre) : aiguille, chevron qui bascule, spinner. Le sous-arbre est peint dans
 ///   un calque **composité tourné** ; le hit-test contre-tourne le point.
 pub struct Transform<Msg> {
     dx: f32,
     dy: f32,
-    /// `(facteur, pivot)` — `None` = pas d'échelle.
-    scale: Option<(f32, Alignment)>,
+    /// `(sx, sy, pivot)` — `None` = pas d'échelle.
+    scale: Option<(f32, f32, Alignment)>,
     /// `(angle_radians, pivot)` — `None` = pas de rotation.
     rotate: Option<(f32, Alignment)>,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -48,16 +49,28 @@ impl<Msg> Transform<Msg> {
     /// Met l'enfant à l'échelle par `factor` **autour de son centre**, sans toucher
     /// la mise en page (`1.0` = neutre, `2.0` = double, `0.5` = moitié).
     pub fn scale(factor: f32) -> Self {
-        Self::scale_from(factor, Alignment::CENTER)
+        Self::scale_xy_from(factor, factor, Alignment::CENTER)
+    }
+
+    /// Met l'enfant à l'échelle **par axe** (`sx` horizontal, `sy` vertical) autour
+    /// de son centre — étirer ou aplatir. `scale_xy(2.0, 1.0)` double la largeur en
+    /// gardant la hauteur.
+    pub fn scale_xy(sx: f32, sy: f32) -> Self {
+        Self::scale_xy_from(sx, sy, Alignment::CENTER)
     }
 
     /// Comme [`Transform::scale`], mais autour d'un `pivot` (ancrage dans la boîte :
     /// `Alignment::TOP_LEFT` fixe le coin haut-gauche, etc.).
     pub fn scale_from(factor: f32, pivot: Alignment) -> Self {
+        Self::scale_xy_from(factor, factor, pivot)
+    }
+
+    /// Échelle par axe autour d'un `pivot` (la forme la plus générale).
+    pub fn scale_xy_from(sx: f32, sy: f32, pivot: Alignment) -> Self {
         Self {
             dx: 0.0,
             dy: 0.0,
-            scale: Some((factor, pivot)),
+            scale: Some((sx, sy, pivot)),
             rotate: None,
             children: Vec::new(),
         }
@@ -111,7 +124,7 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
         ((self.dx != 0.0) || (self.dy != 0.0)).then_some((self.dx, self.dy))
     }
 
-    fn transform_scale(&self) -> Option<(f32, Alignment)> {
+    fn transform_scale(&self) -> Option<(f32, f32, Alignment)> {
         self.scale
     }
 
@@ -245,6 +258,38 @@ mod tests {
         assert!(
             (rect.width - 40.0).abs() < 0.5 && (rect.height - 40.0).abs() < 0.5,
             "doublé : {rect:?}"
+        );
+    }
+
+    /// `Transform::scale_xy(3.0, 1.0)` étire l'enfant (20×20) horizontalement :
+    /// fond ~60×20, toujours centré sur (10, 10) (la hauteur ne change pas).
+    #[test]
+    fn scale_xy_stretches_per_axis() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root = crate::Flex::<()>::column().width(200.0).child(
+            Transform::scale_xy(3.0, 1.0)
+                .child(Container::new().width(20.0).height(20.0).color(red)),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(200.0, 200.0), &rt, &theme);
+        let rect = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
+                _ => None,
+            })
+            .expect("le fond rouge de l'enfant");
+        assert!(
+            (rect.width - 60.0).abs() < 0.5 && (rect.height - 20.0).abs() < 0.5,
+            "étiré en x seulement : {rect:?}"
+        );
+        let (cx, cy) = (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        assert!(
+            (cx - 10.0).abs() < 0.5 && (cy - 10.0).abs() < 0.5,
+            "même centre : ({cx}, {cy})"
         );
     }
 
