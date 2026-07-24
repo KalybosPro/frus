@@ -79,11 +79,14 @@ pub(crate) fn preferred_sample_count(adapter: &wgpu::Adapter, format: wgpu::Text
     }
 }
 
-/// Un calque prêt à composer : sa texture, son opacité et sa découpe.
+/// Un calque prêt à composer : sa texture, son opacité, sa découpe et sa rotation
+/// éventuelle (angle radians + pivot px).
 struct LayerComposite {
     view: wgpu::TextureView,
     opacity: f32,
     clip: [f32; 4],
+    /// `(angle, pivot_x, pivot_y)` — angle nul = pas de rotation.
+    rotation: [f32; 3],
 }
 
 /// Texture d'un calque **conservée entre frames** (frontière de repaint côté
@@ -140,7 +143,8 @@ impl CompositePainter {
             label: Some("frus.composite.viewport.bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                // Le fragment lit aussi `viewport.size` (contre-rotation d'un calque).
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -263,7 +267,10 @@ impl CompositePainter {
         }
         let instances: Vec<CompInstance> = layers
             .iter()
-            .map(|l| CompInstance { clip: l.clip, params: [l.opacity, 0.0, 0.0, 0.0] })
+            .map(|l| CompInstance {
+                clip: l.clip,
+                params: [l.opacity, l.rotation[0], l.rotation[1], l.rotation[2]],
+            })
             .collect();
         if instances.len() > self.instance_capacity {
             let cap = instances.len().next_power_of_two();
@@ -434,9 +441,18 @@ impl Painters {
         let mut layers: Vec<LayerComposite> = Vec::new();
         let mut layer_index = 0usize;
         for primitive in scene.primitives() {
-            if let Primitive::Layer { primitives, opacity, clip, .. } = primitive {
+            if let Primitive::Layer { primitives, opacity, clip, transform, .. } = primitive {
                 let view = self.layer_texture(device, queue, format, layer_index, primitives, w, h);
-                layers.push(LayerComposite { view, opacity: *opacity, clip: clip.to_array() });
+                let rotation = match transform {
+                    Some(t) => [t.angle, t.pivot.x, t.pivot.y],
+                    None => [0.0, 0.0, 0.0],
+                };
+                layers.push(LayerComposite {
+                    view,
+                    opacity: *opacity,
+                    clip: clip.to_array(),
+                    rotation,
+                });
                 layer_index += 1;
             }
         }

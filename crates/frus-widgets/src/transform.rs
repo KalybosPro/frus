@@ -19,13 +19,16 @@ use crate::widget::Widget;
 /// - **`scale(factor)`** — met le sous-arbre à l'échelle autour d'un pivot (par
 ///   défaut le centre) : effet « pop » d'un bouton, zoom d'une vignette. Reste
 ///   aligné sur les axes (un rect mis à l'échelle reste un rect) — aucune matrice.
-///
-/// La **rotation** (matrice affine) viendra dans un jalon dédié.
+/// - **`rotate(radians)`** — tourne le sous-arbre autour d'un pivot (par défaut le
+///   centre) : aiguille, chevron qui bascule, spinner. Le sous-arbre est peint dans
+///   un calque **composité tourné** ; le hit-test contre-tourne le point.
 pub struct Transform<Msg> {
     dx: f32,
     dy: f32,
     /// `(facteur, pivot)` — `None` = pas d'échelle.
     scale: Option<(f32, Alignment)>,
+    /// `(angle_radians, pivot)` — `None` = pas de rotation.
+    rotate: Option<(f32, Alignment)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -37,6 +40,7 @@ impl<Msg> Transform<Msg> {
             dx,
             dy,
             scale: None,
+            rotate: None,
             children: Vec::new(),
         }
     }
@@ -54,6 +58,24 @@ impl<Msg> Transform<Msg> {
             dx: 0.0,
             dy: 0.0,
             scale: Some((factor, pivot)),
+            rotate: None,
+            children: Vec::new(),
+        }
+    }
+
+    /// Tourne l'enfant de `radians` (sens horaire) **autour de son centre**, sans
+    /// toucher la mise en page.
+    pub fn rotate(radians: f32) -> Self {
+        Self::rotate_from(radians, Alignment::CENTER)
+    }
+
+    /// Comme [`Transform::rotate`], mais autour d'un `pivot` (ancrage dans la boîte).
+    pub fn rotate_from(radians: f32, pivot: Alignment) -> Self {
+        Self {
+            dx: 0.0,
+            dy: 0.0,
+            scale: None,
+            rotate: Some((radians, pivot)),
             children: Vec::new(),
         }
     }
@@ -91,6 +113,10 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
 
     fn transform_scale(&self) -> Option<(f32, Alignment)> {
         self.scale
+    }
+
+    fn transform_rotate(&self) -> Option<(f32, Alignment)> {
+        self.rotate
     }
 }
 
@@ -220,5 +246,59 @@ mod tests {
             (rect.width - 40.0).abs() < 0.5 && (rect.height - 40.0).abs() < 0.5,
             "doublé : {rect:?}"
         );
+    }
+
+    /// `Transform::rotate` enveloppe le sous-arbre dans un **calque tourné** portant
+    /// l'angle et le pivot (centre de l'enfant 40×20 → (20, 10)).
+    #[test]
+    fn rotate_emits_a_rotated_layer() {
+        use frus_core::{LayerTransform, Primitive};
+        use std::f32::consts::FRAC_PI_2;
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root = crate::Flex::<()>::column().width(100.0).child(
+            Transform::rotate(FRAC_PI_2)
+                .child(Container::new().width(40.0).height(20.0).color(red)),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let t: LayerTransform = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Layer { transform: Some(t), .. } => Some(*t),
+                _ => None,
+            })
+            .expect("un calque tourné");
+        assert!((t.angle - FRAC_PI_2).abs() < 1e-3, "angle : {}", t.angle);
+        assert!(
+            (t.pivot.x - 20.0).abs() < 0.5 && (t.pivot.y - 10.0).abs() < 0.5,
+            "pivot au centre de l'enfant : {:?}",
+            t.pivot
+        );
+    }
+
+    /// Le hit-test **contre-tourne** le point : un clic à la position *tournée* d'un
+    /// enfant cliquable l'atteint, alors que sa position d'origine (non tournée) ne
+    /// l'atteint plus. Enfant 40×20 tourné de +90° autour de (20, 10) : le point
+    /// interne (35, 10) apparaît à l'écran en (20, 25).
+    #[test]
+    fn rotate_hit_test_counter_rotates_the_point() {
+        use frus_core::Point;
+        use std::f32::consts::FRAC_PI_2;
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let root = crate::Flex::<i32>::column().width(100.0).child(
+            Transform::rotate(FRAC_PI_2).child(
+                Container::new().width(40.0).height(20.0).color(red).on_click(7),
+            ),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        // À l'écran, le point interne (35, 10) est peint en (20, 25) après rotation.
+        assert!(ui.hit(Point::new(20.0, 25.0)).is_some(), "clic sur la position tournée");
+        // La position d'origine (non tournée) ne recouvre plus l'enfant.
+        assert!(ui.hit(Point::new(35.0, 10.0)).is_none(), "l'ancienne position rate");
     }
 }

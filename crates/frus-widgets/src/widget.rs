@@ -244,6 +244,16 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Rotation de peinture** `(angle, pivot)` de tout le sous-arbre (façon
+    /// `Transform.rotate` de Flutter) : le sous-arbre est peint tourné d'`angle`
+    /// radians (sens horaire) autour du `pivot` (un [`frus_core::Alignment`] dans la
+    /// boîte), **sans toucher la mise en page**. Le rendu passe par un calque
+    /// composité tourné ; le hit-test contre-tourne le point. `None` = pas de
+    /// rotation. Voir [`crate::Transform`].
+    fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -397,6 +407,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn transform_scale(&self) -> Option<(f32, frus_core::Alignment)> {
         (**self).transform_scale()
+    }
+    fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {
+        (**self).transform_rotate()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

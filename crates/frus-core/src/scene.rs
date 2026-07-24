@@ -12,6 +12,44 @@ use crate::{
     TextRun, TextStyle,
 };
 
+/// Transformation affine appliquée à un **calque** ([`Primitive::Layer`]) au
+/// moment du compositing : une **rotation** d'`angle` (radians, sens horaire)
+/// autour de `pivot` (px écran). Le calque est d'abord rendu **à plat** dans une
+/// texture (comme pour l'opacité de groupe), puis composité **tourné** — une seule
+/// passe gère ainsi la rotation de tout un sous-arbre (rects, texte, images…), sans
+/// toucher les shaders de chaque primitive.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayerTransform {
+    /// Angle de rotation, en radians (sens horaire, y vers le bas).
+    pub angle: f32,
+    /// Centre de rotation, en pixels écran.
+    pub pivot: Point,
+}
+
+impl LayerTransform {
+    /// Une rotation d'`angle` radians autour de `pivot`.
+    pub const fn rotation(angle: f32, pivot: Point) -> Self {
+        Self { angle, pivot }
+    }
+
+    /// Met à l'échelle le pivot (l'angle est invariant par mise à l'échelle
+    /// uniforme) — pour suivre `Primitive::scaled`.
+    pub fn scaled(self, factor: f32) -> Self {
+        Self {
+            angle: self.angle,
+            pivot: self.pivot.scale(factor),
+        }
+    }
+
+    /// Décale le pivot — pour suivre `Primitive::translated`.
+    pub fn translated(self, dx: f32, dy: f32) -> Self {
+        Self {
+            angle: self.angle,
+            pivot: Point::new(self.pivot.x + dx, self.pivot.y + dy),
+        }
+    }
+}
+
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Primitive {
@@ -110,6 +148,9 @@ pub enum Primitive {
         opacity: f32,
         /// Rectangle de découpe du calque.
         clip: Rect,
+        /// Transformation affine (rotation) appliquée au compositing. `None` =
+        /// calque simplement composité à sa position (opacité de groupe).
+        transform: Option<LayerTransform>,
         /// Identité du widget émetteur.
         owner: u64,
     },
@@ -232,11 +273,13 @@ impl Primitive {
                 primitives,
                 opacity,
                 clip,
+                transform,
                 owner,
             } => Primitive::Layer {
                 primitives: primitives.iter().map(|p| p.scaled(factor)).collect(),
                 opacity,
                 clip: clip.scale(factor),
+                transform: transform.map(|t| t.scaled(factor)),
                 owner,
             },
         }
@@ -305,11 +348,12 @@ impl Primitive {
                     owner,
                 }
             }
-            Primitive::Layer { primitives, opacity, clip, owner } => {
+            Primitive::Layer { primitives, opacity, clip, transform, owner } => {
                 Primitive::Layer {
                     primitives: primitives.iter().map(|p| p.translated(dx, dy)).collect(),
                     opacity,
                     clip: clip.translate(dx, dy),
+                    transform: transform.map(|t| t.translated(dx, dy)),
                     owner,
                 }
             }
@@ -488,12 +532,14 @@ impl Scene {
                 primitives,
                 opacity: group,
                 clip,
+                transform,
                 owner,
             } => Primitive::Layer {
                 primitives,
                 // Fondre un calque = atténuer son opacité de groupe.
                 opacity: group * opacity,
                 clip,
+                transform,
                 owner,
             },
         };
@@ -655,6 +701,7 @@ impl Scene {
             primitives: inner.primitives,
             opacity,
             clip: self.current_clip,
+            transform: None,
             owner: self.current_owner,
         });
     }
@@ -860,7 +907,7 @@ mod tests {
         });
         assert_eq!(scene.len(), 1);
         match &scene.primitives()[0] {
-            Primitive::Layer { primitives, opacity, clip, owner } => {
+            Primitive::Layer { primitives, opacity, clip, owner, .. } => {
                 assert_eq!(primitives.len(), 2);
                 assert_eq!(*opacity, 0.5);
                 assert_eq!(*clip, Rect::new(0.0, 0.0, 50.0, 50.0));

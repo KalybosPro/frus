@@ -33,5 +33,5 @@ pub use image::{BoxFit, ImageData, ImageHandle};
 pub use path::{Path, PathVerb, Stroke};
 pub use responsive::{Orientation, SizeClass};
 pub use semantics::{Role, Semantics, Toggled};
-pub use scene::{Primitive, Scene};
+pub use scene::{LayerTransform, Primitive, Scene};
 pub use text_style::{FontWeight, TextDecoration, TextRun, TextSpan, TextStyle};

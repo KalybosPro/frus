@@ -4,7 +4,7 @@
 
 use std::hash::{Hash, Hasher};
 
-use frus_core::{Color, Point, Primitive, Rect, Scene, Size};
+use frus_core::{Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::{Status, WidgetId};
@@ -51,6 +51,31 @@ struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
     msg: Msg,
+    /// Contre-transformation `(angle, pivot)` d'un sous-arbre **tourné**
+    /// (`Transform::rotate`) : le point est tourné de `-angle` autour du pivot
+    /// avant le test, pour retrouver le repère non tourné où vit `rect`. `None` =
+    /// rectangle aligné sur les axes (cas courant).
+    xform: Option<(f32, Point)>,
+}
+
+impl<Msg> Hit<Msg> {
+    /// `true` si `point` (en coordonnées écran) tombe dans la cible, en tenant
+    /// compte d'une éventuelle rotation du sous-arbre.
+    fn contains(&self, point: Point) -> bool {
+        let p = match self.xform {
+            Some((angle, pivot)) => rotate_point(point, pivot, -angle),
+            None => point,
+        };
+        self.rect.contains(p)
+    }
+}
+
+/// Tourne `point` de `angle` radians (sens horaire, y vers le bas) autour de `pivot`.
+fn rotate_point(point: Point, pivot: Point, angle: f32) -> Point {
+    let (s, c) = angle.sin_cos();
+    let dx = point.x - pivot.x;
+    let dy = point.y - pivot.y;
+    Point::new(pivot.x + dx * c - dy * s, pivot.y + dx * s + dy * c)
 }
 
 /// Sortie peinte d'un sous-arbre de frontière de repaint, mise en cache (voir
@@ -175,7 +200,7 @@ impl<Msg: Clone> Ui<Msg> {
         self.hits
             .iter()
             .rev()
-            .find(|hit| hit.rect.contains(point))
+            .find(|hit| hit.contains(point))
             .map(|hit| hit.id)
     }
 
@@ -197,7 +222,7 @@ impl<Msg: Clone> Ui<Msg> {
         self.long_presses
             .iter()
             .rev()
-            .find(|hit| hit.rect.contains(point))
+            .find(|hit| hit.contains(point))
             .map(|hit| hit.msg.clone())
     }
 
@@ -590,6 +615,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     primitives: group,
                     opacity,
                     clip,
+                    transform: None,
                     owner: id.as_u64(),
                 });
                 return;
@@ -652,6 +678,49 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 return;
             }
             // Facteur neutre : rendu normal.
+        }
+
+        // Rotation de peinture (`Transform::rotate`) : on peint le sous-arbre à plat,
+        // puis on l'enveloppe dans un **calque tourné** (composité tourné par le GPU
+        // autour du pivot). Les cibles de clic émises sont marquées de la
+        // contre-rotation, pour que le hit-test reste juste. `angle ≈ 0` : rien.
+        if let Some((angle, pivot_align)) = widget.transform_rotate() {
+            if angle.abs() > 1e-4 {
+                // Pivot pris sur la boîte de l'enfant (cf. `transform_scale`) ; en
+                // RTL, le monde étant retourné, on inverse le sens de l'angle.
+                let basis = rects.get(*index + 1).copied().unwrap_or(rects[*index]);
+                let box_rect = basis.translate(translation.0, translation.1);
+                let pivot = Point::new(
+                    box_rect.x + box_rect.width * pivot_align.fraction_x(),
+                    box_rect.y + box_rect.height * pivot_align.fraction_y(),
+                );
+                let angle = if self.rtl { -angle } else { angle };
+                let (p0, h0, lp0) = (
+                    self.scene.primitives().len(),
+                    self.hits.len(),
+                    self.long_presses.len(),
+                );
+                self.walk_node(widget, id, translation, clip, rects, index);
+                // Enveloppe la plage de primitives dans un calque tourné.
+                let group = self.scene.split_off(p0);
+                self.scene.push_primitive(Primitive::Layer {
+                    primitives: group,
+                    opacity: 1.0,
+                    clip,
+                    transform: Some(LayerTransform::rotation(angle, pivot)),
+                    owner: id.as_u64(),
+                });
+                // Cibles de clic / appui long : contre-tournées au test (sans écraser
+                // une rotation intérieure déjà posée).
+                for h in &mut self.hits[h0..] {
+                    h.xform.get_or_insert((angle, pivot));
+                }
+                for h in &mut self.long_presses[lp0..] {
+                    h.xform.get_or_insert((angle, pivot));
+                }
+                return;
+            }
+            // Angle neutre : rendu normal.
         }
 
         // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne
@@ -727,10 +796,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     id,
                     rect: visible,
                     msg,
+                    xform: None,
                 });
             }
             if let Some(msg) = widget.on_long_press() {
-                self.long_presses.push(Hit { id, rect: visible, msg });
+                self.long_presses.push(Hit { id, rect: visible, msg, xform: None });
             }
             if widget.focusable() {
                 self.focusables.push((id, visible));
@@ -1089,10 +1159,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let visible = draw_rect.intersect(clip);
         if visible.width > 0.0 && visible.height > 0.0 {
             if let Some(msg) = widget.on_click() {
-                self.hits.push(Hit { id, rect: visible, msg });
+                self.hits.push(Hit { id, rect: visible, msg, xform: None });
             }
             if let Some(msg) = widget.on_long_press() {
-                self.long_presses.push(Hit { id, rect: visible, msg });
+                self.long_presses.push(Hit { id, rect: visible, msg, xform: None });
             }
             if widget.focusable() {
                 self.focusables.push((id, visible));
@@ -1253,7 +1323,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // plus au-dessus).
             if let Some(msg) = dismiss {
                 self.dismisses.push(msg.clone());
-                self.hits.push(Hit { id: oid, rect: window, msg });
+                self.hits.push(Hit { id: oid, rect: window, msg, xform: None });
             }
 
             // Overlay **modal** (voilé) : ses focusables forment un **scope** qui
