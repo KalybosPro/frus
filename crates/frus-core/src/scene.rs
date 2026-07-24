@@ -8,52 +8,54 @@
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
 use crate::{
-    BorderRadius, Color, FontWeight, ImageHandle, Path, Point, Rect, Stroke, TextDecoration,
-    TextRun, TextStyle,
+    Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, Point, Rect, Stroke,
+    TextDecoration, TextRun, TextStyle,
 };
 
-/// Transformation affine appliquée à un **calque** ([`Primitive::Layer`]) au
-/// moment du compositing : une **rotation** d'`angle` (radians, sens horaire)
-/// autour de `pivot` (px écran). Le calque est d'abord rendu **à plat** dans une
-/// texture (comme pour l'opacité de groupe), puis composité **tourné** — une seule
-/// passe gère ainsi la rotation de tout un sous-arbre (rects, texte, images…), sans
-/// toucher les shaders de chaque primitive.
+/// Transformation appliquée à un **calque** ([`Primitive::Layer`]) au moment du
+/// compositing : une [`Affine`] arbitraire (translation, échelle par axe, rotation,
+/// ou leur composition) en pixels écran. Le calque est d'abord rendu **à plat** dans
+/// une texture (comme pour l'opacité de groupe), puis composité **transformé** — une
+/// seule passe gère ainsi la transformation de tout un sous-arbre (rects, texte,
+/// images…), sans toucher les shaders de chaque primitive.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerTransform {
-    /// Angle de rotation, en radians (sens horaire, y vers le bas).
-    pub angle: f32,
-    /// Centre de rotation, en pixels écran.
-    pub pivot: Point,
+    /// La transformation local(à plat) → écran.
+    pub affine: Affine,
 }
 
 impl LayerTransform {
-    /// Une rotation d'`angle` radians autour de `pivot`.
-    pub const fn rotation(angle: f32, pivot: Point) -> Self {
-        Self { angle, pivot }
+    /// Enveloppe une [`Affine`] quelconque.
+    pub const fn new(affine: Affine) -> Self {
+        Self { affine }
     }
 
-    /// Met à l'échelle le pivot (l'angle est invariant par mise à l'échelle
-    /// uniforme) — pour suivre `Primitive::scaled`.
+    /// Une rotation d'`angle` radians autour de `pivot` (px écran).
+    pub fn rotation(angle: f32, pivot: Point) -> Self {
+        Self { affine: Affine::rotation(angle).about(pivot) }
+    }
+
+    /// Conjugue la transformation par une mise à l'échelle (pour suivre
+    /// `Primitive::scaled`) : `S ∘ M ∘ S⁻¹`, afin qu'un DPI mette bien à l'échelle
+    /// tout le calque, transformation comprise.
     pub fn scaled(self, factor: f32) -> Self {
         self.scaled_xy(factor, factor)
     }
 
-    /// Met à l'échelle le pivot **par axe** — pour suivre `Primitive::scaled_xy`.
-    /// (L'angle reste tel quel : une rotation combinée à une échelle non uniforme
-    /// n'est qu'approximée, cas marginal d'un calque tourné dans un `scale_xy`.)
+    /// Comme [`LayerTransform::scaled`], mais par axe.
     pub fn scaled_xy(self, sx: f32, sy: f32) -> Self {
-        Self {
-            angle: self.angle,
-            pivot: self.pivot.scale_xy(sx, sy),
-        }
+        let conj = Affine::scale(1.0 / sx, 1.0 / sy)
+            .then(self.affine)
+            .then(Affine::scale(sx, sy));
+        Self { affine: conj }
     }
 
-    /// Décale le pivot — pour suivre `Primitive::translated`.
+    /// Conjugue par une translation (pour suivre `Primitive::translated`).
     pub fn translated(self, dx: f32, dy: f32) -> Self {
-        Self {
-            angle: self.angle,
-            pivot: Point::new(self.pivot.x + dx, self.pivot.y + dy),
-        }
+        let conj = Affine::translation(-dx, -dy)
+            .then(self.affine)
+            .then(Affine::translation(dx, dy));
+        Self { affine: conj }
     }
 }
 

@@ -3,6 +3,99 @@
 //! Convention de coordonnées de frus : origine en **haut à gauche**, axe X vers
 //! la droite, axe Y vers le **bas** (comme CSS / Flutter).
 
+/// Une **transformation affine 2D** (matrice 2×3). Un point `(x, y)` devient
+/// `(a·x + c·y + e, b·x + d·y + f)` — soit une partie linéaire 2×2 `[[a, c], [b, d]]`
+/// (échelle, rotation, cisaillement) plus une translation `(e, f)`.
+///
+/// Les composées se lisent « de droite à gauche » : `a.then(b)` applique `a` **puis**
+/// `b`. C'est la représentation unifiée des transformations de peinture d'un
+/// [`crate::LayerTransform`] : translation, échelle (uniforme ou par axe) et rotation
+/// se fondent en **une seule** matrice, sans approximation de composition.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Affine {
+    /// `[a, b, c, d, e, f]` : `x' = a·x + c·y + e`, `y' = b·x + d·y + f`.
+    pub m: [f32; 6],
+}
+
+impl Default for Affine {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+impl Affine {
+    /// L'identité (aucune transformation).
+    pub const IDENTITY: Affine = Affine { m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] };
+
+    /// Une translation pure de `(tx, ty)`.
+    pub const fn translation(tx: f32, ty: f32) -> Affine {
+        Affine { m: [1.0, 0.0, 0.0, 1.0, tx, ty] }
+    }
+
+    /// Une mise à l'échelle par axe (autour de l'origine).
+    pub const fn scale(sx: f32, sy: f32) -> Affine {
+        Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] }
+    }
+
+    /// Une rotation d'`angle` radians (sens horaire, y vers le bas), autour de
+    /// l'origine.
+    pub fn rotation(angle: f32) -> Affine {
+        let (s, c) = angle.sin_cos();
+        Affine { m: [c, s, -s, c, 0.0, 0.0] }
+    }
+
+    /// Composition : `self.then(next)` = appliquer `self` **puis** `next`.
+    pub fn then(self, next: Affine) -> Affine {
+        // next ∘ self : on développe next(self(p)).
+        let [a, b, c, d, e, f] = self.m;
+        let [a2, b2, c2, d2, e2, f2] = next.m;
+        Affine {
+            m: [
+                a2 * a + c2 * b,
+                b2 * a + d2 * b,
+                a2 * c + c2 * d,
+                b2 * c + d2 * d,
+                a2 * e + c2 * f + e2,
+                b2 * e + d2 * f + f2,
+            ],
+        }
+    }
+
+    /// La même transformation, mais **autour de `pivot`** (le pivot reste fixe) :
+    /// `T(pivot) ∘ self ∘ T(-pivot)`.
+    pub fn about(self, pivot: Point) -> Affine {
+        Affine::translation(-pivot.x, -pivot.y)
+            .then(self)
+            .then(Affine::translation(pivot.x, pivot.y))
+    }
+
+    /// Applique la transformation à un point.
+    pub fn apply(self, p: Point) -> Point {
+        let [a, b, c, d, e, f] = self.m;
+        Point::new(a * p.x + c * p.y + e, b * p.x + d * p.y + f)
+    }
+
+    /// La transformation inverse (l'identité si la matrice est dégénérée).
+    pub fn inverse(self) -> Affine {
+        let [a, b, c, d, e, f] = self.m;
+        let det = a * d - b * c;
+        if det.abs() < f32::EPSILON {
+            return Affine::IDENTITY;
+        }
+        let inv = 1.0 / det;
+        Affine {
+            m: [
+                d * inv,
+                -b * inv,
+                -c * inv,
+                a * inv,
+                (c * f - d * e) * inv,
+                (b * e - a * f) * inv,
+            ],
+        }
+    }
+}
+
 /// Un point 2D.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Point {
@@ -392,6 +485,36 @@ impl Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn affine_composes_scale_then_rotate_about_a_pivot() {
+        use std::f32::consts::FRAC_PI_2;
+        let pivot = Point::new(10.0, 10.0);
+        // Échelle ×2 puis rotation +90°, toutes deux autour du pivot.
+        let m = Affine::scale(2.0, 2.0)
+            .about(pivot)
+            .then(Affine::rotation(FRAC_PI_2).about(pivot));
+        // Le pivot est fixe.
+        let c = m.apply(pivot);
+        assert!((c.x - 10.0).abs() < 1e-3 && (c.y - 10.0).abs() < 1e-3, "pivot fixe : {c:?}");
+        // Partie linéaire = rotation(90°) ∘ échelle(2) = [0, 2, -2, 0].
+        assert!(m.m[0].abs() < 1e-3 && (m.m[1] - 2.0).abs() < 1e-3);
+        assert!((m.m[2] + 2.0).abs() < 1e-3 && m.m[3].abs() < 1e-3);
+    }
+
+    #[test]
+    fn affine_inverse_round_trips() {
+        use std::f32::consts::FRAC_PI_3;
+        let m = Affine::scale(1.5, 0.5)
+            .about(Point::new(4.0, 7.0))
+            .then(Affine::rotation(FRAC_PI_3).about(Point::new(2.0, 3.0)))
+            .then(Affine::translation(5.0, -2.0));
+        let inv = m.inverse();
+        for p in [Point::new(0.0, 0.0), Point::new(12.0, -3.0), Point::new(-5.0, 8.0)] {
+            let back = inv.apply(m.apply(p));
+            assert!((back.x - p.x).abs() < 1e-2 && (back.y - p.y).abs() < 1e-2, "{p:?} -> {back:?}");
+        }
+    }
 
     #[test]
     fn directional_alignment_resolves_by_direction() {

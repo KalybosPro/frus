@@ -48,12 +48,16 @@ const QUAD_VERTICES: &[QuadVertex] = &[
 ];
 const QUAD_VERTEX_COUNT: u32 = 6;
 
-/// Instance de composite : découpe + opacité de groupe.
+/// Instance de composite : découpe, transformation **inverse** (écran → texture) et
+/// opacité de groupe.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct CompInstance {
     clip: [f32; 4],
-    params: [f32; 4], // x = opacité
+    /// Partie linéaire de l'inverse affine : `ia, ib, ic, id`.
+    inv_lin: [f32; 4],
+    /// `ie, if, opacité, _` — translation de l'inverse + opacité de groupe.
+    inv_tr_opacity: [f32; 4],
 }
 
 #[repr(C)]
@@ -79,14 +83,14 @@ pub(crate) fn preferred_sample_count(adapter: &wgpu::Adapter, format: wgpu::Text
     }
 }
 
-/// Un calque prêt à composer : sa texture, son opacité, sa découpe et sa rotation
-/// éventuelle (angle radians + pivot px).
+/// Un calque prêt à composer : sa texture, son opacité, sa découpe et la
+/// transformation **inverse** (écran → texture) à appliquer à l'échantillonnage.
 struct LayerComposite {
     view: wgpu::TextureView,
     opacity: f32,
     clip: [f32; 4],
-    /// `(angle, pivot_x, pivot_y)` — angle nul = pas de rotation.
-    rotation: [f32; 3],
+    /// Inverse affine `[ia, ib, ic, id, ie, if]` (identité = pas de transformation).
+    inverse: [f32; 6],
 }
 
 /// Texture d'un calque **conservée entre frames** (frontière de repaint côté
@@ -267,9 +271,13 @@ impl CompositePainter {
         }
         let instances: Vec<CompInstance> = layers
             .iter()
-            .map(|l| CompInstance {
-                clip: l.clip,
-                params: [l.opacity, l.rotation[0], l.rotation[1], l.rotation[2]],
+            .map(|l| {
+                let i = l.inverse;
+                CompInstance {
+                    clip: l.clip,
+                    inv_lin: [i[0], i[1], i[2], i[3]],
+                    inv_tr_opacity: [i[4], i[5], l.opacity, 0.0],
+                }
             })
             .collect();
         if instances.len() > self.instance_capacity {
@@ -319,9 +327,10 @@ impl CompositePainter {
 }
 
 fn comp_instance_layout() -> wgpu::VertexBufferLayout<'static> {
-    const ATTRS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![
+    const ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
         1 => Float32x4,
         2 => Float32x4,
+        3 => Float32x4,
     ];
     wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<CompInstance>() as wgpu::BufferAddress,
@@ -443,15 +452,17 @@ impl Painters {
         for primitive in scene.primitives() {
             if let Primitive::Layer { primitives, opacity, clip, transform, .. } = primitive {
                 let view = self.layer_texture(device, queue, format, layer_index, primitives, w, h);
-                let rotation = match transform {
-                    Some(t) => [t.angle, t.pivot.x, t.pivot.y],
-                    None => [0.0, 0.0, 0.0],
+                // Le fragment échantillonne à la position **contre-transformée** :
+                // on passe l'inverse (écran → texture). Identité si pas de transform.
+                let inverse = match transform {
+                    Some(t) => t.affine.inverse().m,
+                    None => frus_core::Affine::IDENTITY.m,
                 };
                 layers.push(LayerComposite {
                     view,
                     opacity: *opacity,
                     clip: clip.to_array(),
-                    rotation,
+                    inverse,
                 });
                 layer_index += 1;
             }

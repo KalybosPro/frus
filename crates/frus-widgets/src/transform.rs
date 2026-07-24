@@ -18,16 +18,17 @@ use crate::widget::Widget;
 ///   qui coulisse, secousse d'erreur…).
 /// - **`scale(factor)`** / **`scale_xy(sx, sy)`** — met le sous-arbre à l'échelle
 ///   autour d'un pivot (par défaut le centre), uniforme ou **par axe** (étirer,
-///   aplatir) : effet « pop » d'un bouton, zoom d'une vignette. Reste aligné sur les
-///   axes (un rect mis à l'échelle reste un rect) — aucune matrice.
+///   aplatir) : effet « pop » d'un bouton, zoom d'une vignette.
 /// - **`rotate(radians)`** — tourne le sous-arbre autour d'un pivot (par défaut le
-///   centre) : aiguille, chevron qui bascule, spinner. Le sous-arbre est peint dans
-///   un calque **composité tourné** ; le hit-test contre-tourne le point.
+///   centre) : aiguille, chevron qui bascule, spinner.
 ///
-/// Elles se **composent** dans un même widget via les enchaîneurs `and_translate`,
-/// `and_scale` / `and_scale_xy`, `and_rotate` — appliqués dans l'ordre translation →
-/// échelle → rotation (la translation la plus intérieure, la rotation par-dessus).
-/// Ex. `Transform::scale(1.5).and_rotate(0.2)` grossit **et** tourne.
+/// Échelle et rotation (et leur composition) sont fondues en **une seule matrice
+/// affine** portée par un calque composité transformé ; le hit-test applique la
+/// matrice **inverse** au point. Elles se **composent** dans un même widget via les
+/// enchaîneurs `and_translate`, `and_scale` / `and_scale_xy`, `and_rotate` — appliqués
+/// dans l'ordre translation → échelle → rotation (la translation la plus intérieure,
+/// via le décalage d'enfant). Ex. `Transform::scale(1.5).and_rotate(0.2)` grossit
+/// **et** tourne, exactement, sans approximation de composition.
 pub struct Transform<Msg> {
     dx: f32,
     dy: f32,
@@ -230,10 +231,24 @@ mod tests {
         assert!((green_y - 20.0).abs() < 0.5, "frère à sa place layout : y = {green_y}");
     }
 
-    /// `Transform::scale(2.0)` double l'enfant (20×20) autour de **son centre** :
-    /// le fond mesure ~40×40 et reste centré sur le même point (10, 10).
+    /// Extrait l'[`Affine`] du calque transformé de la scène (le sous-arbre est peint
+    /// à plat *dans* ce calque ; la transformation est portée par sa matrice).
+    fn layer_affine<Msg: Clone>(ui: &crate::ui::Ui<Msg>) -> frus_core::Affine {
+        ui.scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Layer { transform: Some(t), .. } => Some(t.affine),
+                _ => None,
+            })
+            .expect("un calque transformé")
+    }
+
+    /// `Transform::scale(2.0)` porte une matrice qui double (partie linéaire = 2) et
+    /// laisse **le centre de l'enfant (10, 10) fixe**.
     #[test]
     fn scale_grows_the_child_about_its_center() {
+        use frus_core::Point;
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = crate::Flex::<()>::column().width(100.0).child(
             Transform::scale(2.0).child(Container::new().width(20.0).height(20.0).color(red)),
@@ -241,31 +256,17 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
-        let rect = ui
-            .scene()
-            .primitives()
-            .iter()
-            .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
-                _ => None,
-            })
-            .expect("le fond rouge de l'enfant");
-        assert!(
-            (rect.width - 40.0).abs() < 0.5 && (rect.height - 40.0).abs() < 0.5,
-            "doublé : {rect:?}"
-        );
-        let (cx, cy) = (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
-        assert!(
-            (cx - 10.0).abs() < 0.5 && (cy - 10.0).abs() < 0.5,
-            "même centre (10, 10) : ({cx}, {cy})"
-        );
+        let m = layer_affine(&ui);
+        assert!((m.m[0] - 2.0).abs() < 1e-3 && (m.m[3] - 2.0).abs() < 1e-3, "×2 : {:?}", m.m);
+        let c = m.apply(Point::new(10.0, 10.0));
+        assert!((c.x - 10.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5, "centre fixe : {c:?}");
     }
 
     /// `scale_from(2.0, TOP_LEFT)` met à l'échelle autour du coin haut-gauche de
-    /// l'enfant : ce coin reste fixe à (0, 0) et le fond grandit vers le bas-droite.
+    /// l'enfant : ce coin (0, 0) reste fixe.
     #[test]
     fn scale_from_pins_the_pivot_corner() {
-        use frus_core::Alignment;
+        use frus_core::{Alignment, Point};
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = crate::Flex::<()>::column().width(100.0).child(
             Transform::scale_from(2.0, Alignment::TOP_LEFT)
@@ -274,29 +275,17 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
-        let rect = ui
-            .scene()
-            .primitives()
-            .iter()
-            .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
-                _ => None,
-            })
-            .expect("le fond rouge de l'enfant");
-        assert!(
-            rect.x.abs() < 0.5 && rect.y.abs() < 0.5,
-            "coin haut-gauche fixe à (0, 0) : {rect:?}"
-        );
-        assert!(
-            (rect.width - 40.0).abs() < 0.5 && (rect.height - 40.0).abs() < 0.5,
-            "doublé : {rect:?}"
-        );
+        let m = layer_affine(&ui);
+        assert!((m.m[0] - 2.0).abs() < 1e-3 && (m.m[3] - 2.0).abs() < 1e-3, "×2 : {:?}", m.m);
+        let c = m.apply(Point::new(0.0, 0.0));
+        assert!(c.x.abs() < 0.5 && c.y.abs() < 0.5, "coin haut-gauche fixe : {c:?}");
     }
 
-    /// `Transform::scale_xy(3.0, 1.0)` étire l'enfant (20×20) horizontalement :
-    /// fond ~60×20, toujours centré sur (10, 10) (la hauteur ne change pas).
+    /// `Transform::scale_xy(3.0, 1.0)` porte une matrice d'échelle **par axe**
+    /// (×3 en x, ×1 en y), centre fixe.
     #[test]
     fn scale_xy_stretches_per_axis() {
+        use frus_core::Point;
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = crate::Flex::<()>::column().width(200.0).child(
             Transform::scale_xy(3.0, 1.0)
@@ -305,31 +294,21 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(200.0, 200.0), &rt, &theme);
-        let rect = ui
-            .scene()
-            .primitives()
-            .iter()
-            .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
-                _ => None,
-            })
-            .expect("le fond rouge de l'enfant");
+        let m = layer_affine(&ui);
         assert!(
-            (rect.width - 60.0).abs() < 0.5 && (rect.height - 20.0).abs() < 0.5,
-            "étiré en x seulement : {rect:?}"
+            (m.m[0] - 3.0).abs() < 1e-3 && (m.m[3] - 1.0).abs() < 1e-3,
+            "×3 en x, ×1 en y : {:?}",
+            m.m
         );
-        let (cx, cy) = (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
-        assert!(
-            (cx - 10.0).abs() < 0.5 && (cy - 10.0).abs() < 0.5,
-            "même centre : ({cx}, {cy})"
-        );
+        let c = m.apply(Point::new(10.0, 10.0));
+        assert!((c.x - 10.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5, "centre fixe : {c:?}");
     }
 
-    /// `Transform::rotate` enveloppe le sous-arbre dans un **calque tourné** portant
-    /// l'angle et le pivot (centre de l'enfant 40×20 → (20, 10)).
+    /// `Transform::rotate(π/2)` porte une matrice de rotation pure (partie linéaire
+    /// `[0, 1, -1, 0]`) qui laisse fixe le centre de l'enfant 40×20 → (20, 10).
     #[test]
     fn rotate_emits_a_rotated_layer() {
-        use frus_core::{LayerTransform, Primitive};
+        use frus_core::Point;
         use std::f32::consts::FRAC_PI_2;
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = crate::Flex::<()>::column().width(100.0).child(
@@ -339,30 +318,24 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
-        let t: LayerTransform = ui
-            .scene()
-            .primitives()
-            .iter()
-            .find_map(|p| match p {
-                Primitive::Layer { transform: Some(t), .. } => Some(*t),
-                _ => None,
-            })
-            .expect("un calque tourné");
-        assert!((t.angle - FRAC_PI_2).abs() < 1e-3, "angle : {}", t.angle);
+        let m = layer_affine(&ui);
         assert!(
-            (t.pivot.x - 20.0).abs() < 0.5 && (t.pivot.y - 10.0).abs() < 0.5,
-            "pivot au centre de l'enfant : {:?}",
-            t.pivot
+            m.m[0].abs() < 1e-3
+                && (m.m[1] - 1.0).abs() < 1e-3
+                && (m.m[2] + 1.0).abs() < 1e-3
+                && m.m[3].abs() < 1e-3,
+            "rotation +90° : {:?}",
+            m.m
         );
+        let c = m.apply(Point::new(20.0, 10.0));
+        assert!((c.x - 20.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5, "centre fixe : {c:?}");
     }
 
-    /// **Composition** : `scale(2.0).and_rotate(π/2)` applique les deux — le
-    /// sous-arbre est d'abord mis à l'échelle (le fond passe à ~40×40), puis
-    /// enveloppé dans un calque tourné (angle ≈ π/2). On retrouve donc un calque
-    /// tourné *contenant* un rectangle agrandi.
+    /// **Composition** : `scale(2.0).and_rotate(π/2)` fond les deux en **une seule**
+    /// matrice = rotation ∘ échelle : la partie linéaire vaut `[0, 2, -2, 0]`
+    /// (magnitude 2 = échelle, hors-diagonale = rotation).
     #[test]
     fn scale_and_rotate_compose() {
-        use frus_core::Primitive;
         use std::f32::consts::FRAC_PI_2;
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = crate::Flex::<()>::column().width(100.0).child(
@@ -373,28 +346,14 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
-        let (angle, inner) = ui
-            .scene()
-            .primitives()
-            .iter()
-            .find_map(|p| match p {
-                Primitive::Layer { transform: Some(t), primitives, .. } => {
-                    Some((t.angle, primitives.clone()))
-                }
-                _ => None,
-            })
-            .expect("un calque tourné");
-        assert!((angle - FRAC_PI_2).abs() < 1e-3, "tourné : {angle}");
-        let rect = inner
-            .iter()
-            .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
-                _ => None,
-            })
-            .expect("le fond rouge, mis à l'échelle dans le calque");
+        let m = layer_affine(&ui);
         assert!(
-            (rect.width - 40.0).abs() < 0.5 && (rect.height - 40.0).abs() < 0.5,
-            "agrandi avant rotation : {rect:?}"
+            m.m[0].abs() < 1e-3
+                && (m.m[1] - 2.0).abs() < 1e-3
+                && (m.m[2] + 2.0).abs() < 1e-3
+                && m.m[3].abs() < 1e-3,
+            "rotation ∘ échelle : {:?}",
+            m.m
         );
     }
 

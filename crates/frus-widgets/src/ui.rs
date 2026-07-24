@@ -4,7 +4,7 @@
 
 use std::hash::{Hash, Hasher};
 
-use frus_core::{Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
+use frus_core::{Affine, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::{Status, WidgetId};
@@ -51,31 +51,20 @@ struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
     msg: Msg,
-    /// Contre-transformation `(angle, pivot)` d'un sous-arbre **tourné**
-    /// (`Transform::rotate`) : le point est tourné de `-angle` autour du pivot
-    /// avant le test, pour retrouver le repère non tourné où vit `rect`. `None` =
-    /// rectangle aligné sur les axes (cas courant).
-    xform: Option<(f32, Point)>,
+    /// Transformation **inverse** (écran → repère à plat) d'un sous-arbre transformé
+    /// (`Transform::scale`/`rotate`/composition) : le point de test lui est appliqué
+    /// pour retrouver le repère non transformé où vit `rect`. `None` = rectangle
+    /// aligné sur les axes, non transformé (cas courant).
+    xform: Option<Affine>,
 }
 
 impl<Msg> Hit<Msg> {
     /// `true` si `point` (en coordonnées écran) tombe dans la cible, en tenant
-    /// compte d'une éventuelle rotation du sous-arbre.
+    /// compte d'une éventuelle transformation du sous-arbre.
     fn contains(&self, point: Point) -> bool {
-        let p = match self.xform {
-            Some((angle, pivot)) => rotate_point(point, pivot, -angle),
-            None => point,
-        };
+        let p = self.xform.map_or(point, |inv| inv.apply(point));
         self.rect.contains(p)
     }
-}
-
-/// Tourne `point` de `angle` radians (sens horaire, y vers le bas) autour de `pivot`.
-fn rotate_point(point: Point, pivot: Point, angle: f32) -> Point {
-    let (s, c) = angle.sin_cos();
-    let dx = point.x - pivot.x;
-    let dy = point.y - pivot.y;
-    Point::new(pivot.x + dx * c - dy * s, pivot.y + dx * s + dy * c)
 }
 
 /// Sortie peinte d'un sous-arbre de frontière de repaint, mise en cache (voir
@@ -624,12 +613,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
 
         // Transformations de peinture composables (`Transform` : échelle et/ou
-        // rotation ; la translation, elle, passe par le décalage d'enfant). On peint
-        // le sous-arbre **à plat**, puis on lui applique — dans l'ordre — l'échelle
-        // (post-traitement aligné sur les axes) *puis* la rotation (calque composité
-        // tourné). Rendu et hit-test restent cohérents. La translation, appliquée en
-        // amont via `child_offset`, est la plus intérieure (échelle puis rotation
-        // par-dessus).
+        // rotation ; la translation, elle, passe par le décalage d'enfant). On fond
+        // échelle et rotation en **une seule matrice affine** `M`, on peint le
+        // sous-arbre **à plat**, puis on l'enveloppe dans un calque composité
+        // transformé par `M`. Le hit-test applique `M⁻¹` au point. La translation,
+        // appliquée en amont via `child_offset`, est la plus intérieure.
         let scale = widget
             .transform_scale()
             .filter(|(sx, sy, _)| (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4);
@@ -646,65 +634,41 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     box_rect.y + box_rect.height * align.fraction_y(),
                 )
             };
-            let (p0, h0, lp0, f0, s0, d0, sem0) = (
+            // Composition : échelle (autour de son pivot) **puis** rotation (autour du
+            // sien). En RTL, le monde est retourné → sens de rotation inversé.
+            let mut matrix = Affine::IDENTITY;
+            if let Some((sx, sy, pivot_align)) = scale {
+                matrix = matrix.then(Affine::scale(sx, sy).about(pivot_of(pivot_align)));
+            }
+            if let Some((angle, pivot_align)) = rotate {
+                let angle = if self.rtl { -angle } else { angle };
+                matrix = matrix.then(Affine::rotation(angle).about(pivot_of(pivot_align)));
+            }
+
+            let (p0, h0, lp0) = (
                 self.scene.primitives().len(),
                 self.hits.len(),
                 self.long_presses.len(),
-                self.focusables.len(),
-                self.scrollables.len(),
-                self.draggables.len(),
-                self.semantics.len(),
             );
             self.walk_node(widget, id, translation, clip, rects, index);
-
-            // Échelle (par axe, autour du pivot) : primitives réinsérées + toutes les
-            // surfaces d'interaction émises.
-            if let Some((sx, sy, pivot_align)) = scale {
-                let pivot = pivot_of(pivot_align);
-                let tail = self.scene.split_off(p0);
-                for prim in &tail {
-                    self.scene.push_primitive(prim.scaled_about_xy(pivot, sx, sy));
-                }
-                for h in &mut self.hits[h0..] {
-                    h.rect = h.rect.scale_about_xy(pivot, sx, sy);
-                }
-                for h in &mut self.long_presses[lp0..] {
-                    h.rect = h.rect.scale_about_xy(pivot, sx, sy);
-                }
-                for (_, r) in &mut self.focusables[f0..] {
-                    *r = r.scale_about_xy(pivot, sx, sy);
-                }
-                for (_, r, _, _) in &mut self.scrollables[s0..] {
-                    *r = r.scale_about_xy(pivot, sx, sy);
-                }
-                for (_, r) in &mut self.draggables[d0..] {
-                    *r = r.scale_about_xy(pivot, sx, sy);
-                }
-                for (_, r, _) in &mut self.semantics[sem0..] {
-                    *r = r.scale_about_xy(pivot, sx, sy);
-                }
+            // Enveloppe la plage de primitives — peinte à plat — dans un calque
+            // transformé par `M` (échelle/rotation appliquées au compositing).
+            let group = self.scene.split_off(p0);
+            self.scene.push_primitive(Primitive::Layer {
+                primitives: group,
+                opacity: 1.0,
+                clip,
+                transform: Some(LayerTransform::new(matrix)),
+                owner: id.as_u64(),
+            });
+            // Cibles de clic / appui long : le point de test passe par `M⁻¹` (sans
+            // écraser une transformation intérieure déjà posée).
+            let inverse = matrix.inverse();
+            for h in &mut self.hits[h0..] {
+                h.xform.get_or_insert(inverse);
             }
-
-            // Rotation (par-dessus l'échelle) : enveloppe la plage — déjà mise à
-            // l'échelle — dans un calque tourné ; marque les cibles de clic de la
-            // contre-rotation. En RTL, le monde est retourné → angle inversé.
-            if let Some((angle, pivot_align)) = rotate {
-                let pivot = pivot_of(pivot_align);
-                let angle = if self.rtl { -angle } else { angle };
-                let group = self.scene.split_off(p0);
-                self.scene.push_primitive(Primitive::Layer {
-                    primitives: group,
-                    opacity: 1.0,
-                    clip,
-                    transform: Some(LayerTransform::rotation(angle, pivot)),
-                    owner: id.as_u64(),
-                });
-                for h in &mut self.hits[h0..] {
-                    h.xform.get_or_insert((angle, pivot));
-                }
-                for h in &mut self.long_presses[lp0..] {
-                    h.xform.get_or_insert((angle, pivot));
-                }
+            for h in &mut self.long_presses[lp0..] {
+                h.xform.get_or_insert(inverse);
             }
             return;
         }
