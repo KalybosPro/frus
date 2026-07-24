@@ -1308,6 +1308,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "frus-transforms"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "frus-core",
+ "frus-shell",
+ "frus-widgets",
+ "log",
+]
+
+[[package]]
 name = "frus-widgets"
 version = "0.0.0"
 dependencies = [

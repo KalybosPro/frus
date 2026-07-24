@@ -1,0 +1,31 @@
+[package]
+name = "frus-transforms"
+description = "frus — vitrine animée : Transform (composé), AspectRatio, FractionallySizedBox"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+frus-shell = { path = "../frus-shell" }
+frus-widgets = { path = "../frus-widgets" }
+anyhow.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+frus-core = { path = "../frus-core" }
+
+# --- Empaquetage Android (cargo-apk) ---
+[package.metadata.android]
+package = "com.frus.transforms"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.application]
+label = "frus transforms"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34
