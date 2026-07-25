@@ -17,10 +17,25 @@ use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
-    Align, Alignment, AspectRatio, Button, ClipOval, ClipRRect, Color, Container, Curve, Flex,
-    FractionallySizedBox, InteractiveViewer, Justify, Scroll, Slider, Text, Theme, Transform, Tween,
-    Variant, Widget,
+    Align, Alignment, AspectRatio, BoxFit, Button, ClipOval, ClipPath, ClipRRect, Color, Container,
+    Curve, FittedBox, Flex, FractionallySizedBox, InteractiveViewer, Justify, Path, Point, RotatedBox,
+    Scroll, Slider, Text, Theme, Transform, Tween, Variant, Widget,
 };
+
+/// Un chemin **en étoile** à 5 branches inscrit dans une boîte `size × size`
+/// (coordonnées locales) — pour la tuile `ClipPath`.
+fn star_path(size: f32) -> Path {
+    let c = size / 2.0;
+    let (outer, inner) = (c * 0.98, c * 0.42);
+    let mut p = Path::new();
+    for i in 0..10 {
+        let r = if i % 2 == 0 { outer } else { inner };
+        let a = -std::f32::consts::FRAC_PI_2 + (i as f32) * std::f32::consts::PI / 5.0;
+        let pt = Point::new(c + r * a.cos(), c + r * a.sin());
+        p = if i == 0 { p.move_to(pt) } else { p.line_to(pt) };
+    }
+    p.close()
+}
 
 /// Pas de temps fixe par image (~60 fps) : garde `update` **déterministe** et
 /// testable, tout en suivant le rythme de la souscription.
@@ -191,7 +206,24 @@ impl Application for Showcase {
             .gap(16.0)
             .align(Align::Center)
             .child(tile(Box::new(ClipRRect::new(24.0).child(sharp())), "ClipRRect(24)"))
-            .child(tile(Box::new(ClipOval::new().child(sharp())), "ClipOval"));
+            .child(tile(Box::new(ClipOval::new().child(sharp())), "ClipOval"))
+            .child(tile(Box::new(ClipPath::new(star_path(96.0)).child(sharp())), "ClipPath (star)"));
+
+        // Galerie 4 : transformations qui **affectent la mise en page**. `RotatedBox`
+        // tourne un texte d'un quart (sa boîte devient haute et étroite) ; `FittedBox`
+        // met un grand texte à l'échelle pour **tenir** (Contain) dans un cadre.
+        let rotated = RotatedBox::new(3).child(Text::new("ROTATED").size(16.0).color(theme.on_surface));
+        let fitted = Container::new().width(120.0).height(80.0).color(theme.surface).radius(8.0).child(
+            FittedBox::new(BoxFit::Contain)
+                .width(120.0)
+                .height(80.0)
+                .child(Text::new("Fit").size(48.0).color(theme.primary)),
+        );
+        let gallery4 = Flex::row()
+            .gap(16.0)
+            .align(Align::Center)
+            .child(tile(Box::new(rotated), "RotatedBox(3)"))
+            .child(tile(Box::new(fitted), "FittedBox·Contain"));
 
         // Fenêtre **interactive** : une grille de pastilles sur fond dégradé, que
         // l'utilisateur **déplace** (glisser) et **zoome** (molette, ancrée au curseur).
@@ -307,14 +339,16 @@ impl Application for Showcase {
             .padding(24.0)
             .align(Align::Center)
             .child(
-                Text::new("Transform · Clip · InteractiveViewer · AspectRatio")
+                Text::new("Transform · Clip · RotatedBox · FittedBox · InteractiveViewer")
                     .size(20.0)
                     .color(theme.on_surface),
             )
             .child(gallery1)
             .child(gallery2)
-            .child(Text::new("ClipRRect · ClipOval — sharp corners, clipped to shape").size(13.0).color(theme.on_surface))
+            .child(Text::new("ClipRRect · ClipOval · ClipPath — clipped to shape").size(13.0).color(theme.on_surface))
             .child(gallery3)
+            .child(Text::new("RotatedBox · FittedBox — transforms that change layout").size(13.0).color(theme.on_surface))
+            .child(gallery4)
             .child(Text::new("InteractiveViewer — drag to pan, wheel to zoom").size(13.0).color(theme.on_surface))
             .child(viewer)
             .child(Text::new("Interactive — the button below is inside a rotated Transform").size(13.0).color(theme.on_surface))
@@ -444,6 +478,10 @@ mod tests {
         shapes(ui.scene().primitives(), &mut found);
         assert!(found.contains(&ClipShape::RRect(BorderRadius::uniform(24.0))), "ClipRRect(24) rendu : {found:?}");
         assert!(found.contains(&ClipShape::Oval), "ClipOval rendu : {found:?}");
+        assert!(
+            found.iter().any(|s| matches!(s, ClipShape::Path(_))),
+            "ClipPath (étoile) rendu : {found:?}"
+        );
     }
 
     /// Garde-fou anti-page-blanche : le contenu doit être **réellement dimensionné**
