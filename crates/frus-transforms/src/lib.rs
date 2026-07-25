@@ -265,13 +265,15 @@ impl Application for Showcase {
             .child(Text::new("FractionallySizedBox").size(13.0).color(theme.on_surface))
             .child(bar);
 
-        // Défilable : la vitrine reste utilisable même sur une petite fenêtre.
+        // Défilable : le viewport remplit la fenêtre (largeur/hauteur explicites — un
+        // `Scroll` par défaut ne fait que 200 px et une largeur automatique) ; le
+        // contenu, plus grand, défile.
         Box::new(
             Container::new()
                 .width(width)
                 .height(height)
                 .color(theme.background)
-                .child(Scroll::new().child(content)),
+                .child(Scroll::new().width(width).height(height).child(content)),
         )
     }
 
@@ -356,5 +358,26 @@ mod tests {
             .iter()
             .any(|p| matches!(p, Primitive::Layer { transform: Some(_), .. }));
         assert!(transformed, "un Transform de la scène émet un calque transformé");
+    }
+
+    /// Garde-fou anti-page-blanche : le contenu doit être **réellement dimensionné**
+    /// et posé **dans** la fenêtre — au moins un rectangle large, à une position
+    /// visible (le viewport `Scroll` remplit bien la fenêtre, il ne s'effondre pas).
+    #[test]
+    fn content_is_laid_out_within_the_window() {
+        use frus_core::Primitive;
+        use frus_widgets::{build_ui, Runtime, Size};
+        let (w, h) = (1000.0_f32, 800.0_f32);
+        let app = Showcase::default();
+        let view = app.view(&Theme::dark(), w, h);
+        let rt = Runtime::default();
+        let ui = build_ui(view.as_ref(), Size::new(w, h), &rt, &Theme::dark());
+        let wide_on_screen = ui.scene().primitives().iter().any(|p| match p {
+            Primitive::Rect { rect, .. } => {
+                rect.width > 100.0 && rect.x >= -1.0 && rect.x < w && rect.y >= -1.0 && rect.y < h
+            }
+            _ => false,
+        });
+        assert!(wide_on_screen, "aucun contenu large visible : viewport effondré ?");
     }
 }
