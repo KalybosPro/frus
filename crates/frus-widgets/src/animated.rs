@@ -81,6 +81,9 @@ macro_rules! forward_to_container {
             fn clip_shape(&self) -> Option<frus_core::ClipShape> {
                 Widget::clip_shape(&self.inner)
             }
+            fn interactive(&self) -> Option<(f32, f32)> {
+                Widget::interactive(&self.inner)
+            }
         }
     };
 }

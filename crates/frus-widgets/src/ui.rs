@@ -108,6 +108,7 @@ struct Snapshot {
 fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
     if widget.continuous()
         || widget.scroll_content().is_some()
+        || widget.interactive().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.layout_builder().is_some()
@@ -160,6 +161,9 @@ pub struct Ui<Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    /// Fenêtres interactives (`InteractiveViewer`) : (id, fenêtre écran). Le shell y
+    /// route le pan (glisser) et le zoom (molette / pincement).
+    interactives: Vec<(WidgetId, Rect)>,
     wants_animation: bool,
     /// Arbre d'accessibilité : nœuds sémantiques (id, bornes, annotation),
     /// dans l'ordre de peinture. Le shell le mappe vers AccessKit.
@@ -333,6 +337,16 @@ impl<Msg: Clone> Ui<Msg> {
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, rect)| (*id, *rect))
     }
+
+    /// Fenêtre **interactive** (`InteractiveViewer`) la plus au-dessus sous `point` :
+    /// (id, sa fenêtre écran). Le shell y route le pan et le zoom.
+    pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
+        self.interactives
+            .iter()
+            .rev()
+            .find(|(_, rect)| rect.contains(point))
+            .map(|(id, rect)| (*id, *rect))
+    }
 }
 
 /// Identité du `index`-ième enfant : **par clé** si l'enfant en déclare une
@@ -428,6 +442,7 @@ struct Builder<'a, Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    interactives: Vec<(WidgetId, Rect)>,
     /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
     /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
     /// voile qui se fond) ; elle vaut `1.0` pour les overlays non animés.
@@ -839,6 +854,54 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.render_screen(children[front].as_ref(), child_id(id, front, children[front].as_ref()), bounds, off[front], clip);
             } else if let Some(screen) = children.first() {
                 self.render_screen(screen.as_ref(), child_id(id, 0, screen.as_ref()), bounds, 0.0, clip);
+            }
+        } else if widget.interactive().is_some() {
+            // Fenêtre **interactive** (`InteractiveViewer`) : l'enfant remplit la
+            // fenêtre à l'échelle 1, puis on lui applique la transformation retenue
+            // (échelle + translation, gestes du shell) via **un seul calque** portant
+            // à la fois la matrice `M` et la découpe à la fenêtre. Le hit-test applique
+            // `M⁻¹` au point.
+            let viewport = draw_rect;
+            let content_clip = clip.intersect(viewport);
+            self.interactives.push((id, viewport));
+            if let Some(content) = widget.children().first() {
+                let content = content.as_ref();
+                let cid = child_id(id, 0, content);
+                let content_rects = self.cached_rects(
+                    cid,
+                    content,
+                    Constraints::definite(Size::new(viewport.width, viewport.height)),
+                );
+                let view = self.runtime.interactive.get(&id).copied().unwrap_or_default();
+                let matrix = view.matrix();
+                let (p0, h0, lp0) =
+                    (self.scene.primitives().len(), self.hits.len(), self.long_presses.len());
+                let mut content_index = 0;
+                self.walk(
+                    content,
+                    cid,
+                    (viewport.x, viewport.y),
+                    content_clip,
+                    &content_rects,
+                    &mut content_index,
+                );
+                let group = self.scene.split_off(p0);
+                self.scene.push_primitive(Primitive::Layer {
+                    primitives: group,
+                    opacity: 1.0,
+                    clip: content_clip,
+                    clip_shape: ClipShape::Rect,
+                    transform: Some(LayerTransform::new(matrix)),
+                    owner: id.as_u64(),
+                });
+                // Clic / appui long : le point de test passe par `M⁻¹`.
+                let inverse = matrix.inverse();
+                for h in &mut self.hits[h0..] {
+                    h.xform.get_or_insert(inverse);
+                }
+                for h in &mut self.long_presses[lp0..] {
+                    h.xform.get_or_insert(inverse);
+                }
             }
         } else if let Some(content) = widget.scroll_content() {
             let axis = widget.scroll_axis();
@@ -1432,6 +1495,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
         draggables: Vec::new(),
+        interactives: Vec::new(),
         overlays: Vec::new(),
         wants_animation: false,
         available,
@@ -1474,6 +1538,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
+        interactives: builder.interactives,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
     };

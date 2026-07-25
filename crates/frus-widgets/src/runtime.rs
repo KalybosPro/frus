@@ -261,6 +261,10 @@ pub struct Runtime {
     pub scroll_target: ScrollState,
     /// Vitesse de défilement (pour le ressort), par zone.
     pub scroll_velocity: ScrollState,
+    /// Transformation retenue (échelle + translation) de chaque
+    /// [`InteractiveViewer`](crate::InteractiveViewer), par fenêtre. Absent =
+    /// identité (échelle 1, pas de translation).
+    pub interactive: HashMap<WidgetId, crate::interactive::InteractiveView>,
     /// État d'édition, par champ de saisie.
     pub edits: HashMap<WidgetId, Edit>,
     /// Progressions d'animation (survol/focus/opacité), par widget.

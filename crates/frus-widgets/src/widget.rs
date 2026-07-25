@@ -263,6 +263,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si le widget est une **fenêtre interactive** (`InteractiveViewer`), renvoie
+    /// ses bornes d'échelle `(min, max)`. La marche de peinture rend son enfant dans
+    /// un calque transformé (échelle + translation retenues, découpé à la fenêtre) ;
+    /// le shell route glisser → pan et molette/pincement → zoom. `None` = pas une
+    /// fenêtre interactive. Voir [`crate::InteractiveViewer`].
+    fn interactive(&self) -> Option<(f32, f32)> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -422,6 +431,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn clip_shape(&self) -> Option<frus_core::ClipShape> {
         (**self).clip_shape()
+    }
+    fn interactive(&self) -> Option<(f32, f32)> {
+        (**self).interactive()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

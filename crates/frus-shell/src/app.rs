@@ -91,6 +91,11 @@ enum Drag {
     TextSelect { id: WidgetId, rect: frus_widgets::Rect },
     /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
     Widget { id: WidgetId, rect: frus_widgets::Rect },
+    /// Déplacement (pan) d'une fenêtre interactive (`InteractiveViewer`) : le
+    /// curseur pousse le contenu. `last` = dernière position (pour le delta) ;
+    /// `moved` distingue un vrai pan d'un simple tap (sous le seuil `TOUCH_SLOP`),
+    /// afin de laisser un clic sur un enfant passer.
+    Pan { id: WidgetId, last: Point, moved: bool },
     /// Défilement d'une zone scrollable au doigt (tactile). `moved` distingue un
     /// vrai défilement d'un simple tap (mouvement sous le seuil `TOUCH_SLOP`).
     /// La vitesse (en espace **défilement**, px/s, lissée) alimente le fling.
@@ -847,6 +852,22 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     dx = dy;
                     dy = 0.0;
                 }
+                // Fenêtre interactive sous le curseur : la molette **zoome** (ancré au
+                // curseur), bornée par les échelles min/max du widget.
+                if let Some((id, _)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
+                    let (min, max) = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                        .and_then(|w| w.interactive())
+                        .unwrap_or((0.5, 4.0));
+                    // Molette vers le haut (`dy > 0`) = zoom avant. Pas doux (~1.1×/cran).
+                    let factor = (1.0 + dy * 0.1 / SCROLL_SPEED).clamp(0.2, 5.0);
+                    let view = self.runtime.interactive.entry(id).or_default();
+                    *view = view.zoom_at(factor, self.cursor, min, max);
+                    self.request_redraw();
+                    return;
+                }
                 if let Some((id, max_x, max_y)) =
                     self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
                 {
@@ -1312,6 +1333,15 @@ impl<A: Application> App<A> {
                 });
             }
         }
+
+        // 4) Fenêtre interactive (`InteractiveViewer`) sous le pointeur : préparer un
+        // **pan** (souris ou doigt). Comme le défilement tactile, il ne s'engage
+        // qu'au-delà du seuil — un tap passe alors à l'enfant (bouton, etc.).
+        if self.drag.is_none() {
+            if let Some((id, _)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
+                self.drag = Some(Drag::Pan { id, last: self.cursor, moved: false });
+            }
+        }
         self.request_redraw();
     }
 
@@ -1326,9 +1356,12 @@ impl<A: Application> App<A> {
             self.request_redraw();
             return;
         }
-        // Un défilement tactile qui n'a pas bougé = un simple tap : on le laisse
-        // suivre le chemin normal du clic ci-dessous.
-        let was_tap = matches!(ended, Some(Drag::Scroll { moved: false, .. }));
+        // Un défilement tactile ou un pan qui n'a pas bougé = un simple tap : on le
+        // laisse suivre le chemin normal du clic ci-dessous.
+        let was_tap = matches!(
+            ended,
+            Some(Drag::Scroll { moved: false, .. }) | Some(Drag::Pan { moved: false, .. })
+        );
         // Fling : l'élan du doigt projette une destination balistique (friction),
         // le ressort de défilement existant y glisse (rebond aux bornes compris).
         if let Some(Drag::Scroll { id, moved: true, velocity, .. }) = &ended {
@@ -1467,6 +1500,18 @@ impl<A: Application> App<A> {
                 }
             }
             Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
+            Drag::Pan { id, last, moved } => {
+                let dx = self.cursor.x - last.x;
+                let dy = self.cursor.y - last.y;
+                if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
+                    *moved = true;
+                }
+                if *moved {
+                    let view = self.runtime.interactive.entry(*id).or_default();
+                    *view = view.pan(dx, dy);
+                    *last = self.cursor;
+                }
+            }
             Drag::Scroll { id, last, moved, velocity, last_t } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;

@@ -174,6 +174,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.clip_shape()
     }
 
+    fn interactive(&self) -> Option<(f32, f32)> {
+        self.inner.interactive()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

@@ -241,6 +241,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.clip_shape())
     }
 
+    fn interactive(&self) -> Option<(f32, f32)> {
+        self.inner.as_ref().and_then(|w| w.interactive())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }
