@@ -9,7 +9,8 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::Arc;
-use std::time::Instant;
+
+use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
@@ -25,14 +26,14 @@ use winit::window::{Window, WindowId};
 use crate::application::Application;
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
-/// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android
+/// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android et Web
 /// (pas de dépendance `arboard`, qui ne s'y compile pas). Une API uniforme pour
 /// que le corps du pilote reste sans `cfg`.
 mod clip {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub struct Clipboard(Option<arboard::Clipboard>);
 
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     impl Clipboard {
         pub fn new() -> Self {
             Self(arboard::Clipboard::new().ok())
@@ -47,10 +48,10 @@ mod clip {
         }
     }
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     pub struct Clipboard;
 
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     impl Clipboard {
         pub fn new() -> Self {
             Self
@@ -135,8 +136,13 @@ pub struct App<A: Application> {
     proxy: EventLoopProxy<A::Message>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    /// Renderer en cours d'initialisation **asynchrone** (Web uniquement) : rempli par
+    /// la future `spawn_local`, récupéré à la première frame (le Web ne peut pas
+    /// bloquer sur l'init GPU).
+    #[cfg(target_arch = "wasm32")]
+    pending_renderer: std::rc::Rc<std::cell::RefCell<Option<Renderer>>>,
     /// Pont accessibilité (AccessKit) de la fenêtre — bureau uniquement.
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     a11y: Option<crate::a11y::A11y>,
     /// Dernière interface construite (hit-test, focus, scroll).
     ui: Option<Ui<A::Message>>,
@@ -214,7 +220,9 @@ impl<A: Application> App<A> {
             proxy,
             window: None,
             renderer: None,
-            #[cfg(not(target_os = "android"))]
+            #[cfg(target_arch = "wasm32")]
+            pending_renderer: std::rc::Rc::new(std::cell::RefCell::new(None)),
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             a11y: None,
             ui: None,
             tree: None,
@@ -252,7 +260,7 @@ impl<A: Application> App<A> {
 
     /// Rejoue les actions demandées par une technologie d'assistance : un clic
     /// AT active le widget (comme un clic pointeur), un focus AT le focalise.
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     fn drain_a11y_actions(&mut self) {
         use crate::a11y::A11yAction;
         let actions = match self.a11y.as_ref() {
@@ -459,12 +467,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             .with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
         // L'adaptateur AccessKit doit être créé **avant** que la fenêtre soit
         // montrée : on la crée cachée puis on la révèle après (bureau).
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             attributes = attributes.with_visible(false);
         }
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
+        }
+        // Web : winit crée et **ajoute un `<canvas>`** au corps du document.
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowAttributesExtWebSys;
+            attributes = attributes.with_append(true);
         }
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
@@ -475,40 +489,72 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
         };
 
-        let size = window.inner_size();
-        let renderer = pollster::block_on(Renderer::new(
-            window.clone(),
-            size.width.max(1),
-            size.height.max(1),
-        ));
-
-        match renderer {
-            Ok(renderer) => {
-                self.scale = window.scale_factor() as f32;
-                // Pont accessibilité (AccessKit) — créé pendant que la fenêtre
-                // est encore cachée, puis on la révèle. Inerte sans lecteur d'écran.
-                #[cfg(not(target_os = "android"))]
-                {
-                    self.a11y = Some(crate::a11y::A11y::new(event_loop, &window));
-                    window.set_visible(true);
-                }
-                self.window = Some(window.clone());
-                self.renderer = Some(renderer);
-                // Surface (re)créée : forcer une reconstruction complète à la 1re frame.
-                self.build_dirty = true;
-                // Effet de démarrage (chargement initial, etc.) : une seule fois,
-                // pas à chaque recréation de surface (retour d'arrière-plan).
-                if !self.started {
-                    self.started = true;
-                    let command = self.app.init();
-                    self.run_command(command);
-                    self.sync_subscriptions();
-                }
-                window.request_redraw();
+        // Web : l'init GPU est **asynchrone** (impossible de bloquer). On lance la
+        // future ; le renderer prêt est récupéré à la première frame (voir
+        // `RedrawRequested`). `init` s'exécute tout de suite (il ne touche pas le GPU).
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.scale = window.scale_factor() as f32;
+            self.window = Some(window.clone());
+            self.build_dirty = true;
+            if !self.started {
+                self.started = true;
+                let command = self.app.init();
+                self.run_command(command);
+                self.sync_subscriptions();
             }
-            Err(err) => {
-                log::error!("Échec d'initialisation du renderer : {err:#}");
-                event_loop.exit();
+            let slot = self.pending_renderer.clone();
+            let win = window.clone();
+            let size = window.inner_size();
+            wasm_bindgen_futures::spawn_local(async move {
+                match Renderer::new(win.clone(), size.width.max(1), size.height.max(1)).await {
+                    Ok(r) => {
+                        *slot.borrow_mut() = Some(r);
+                        win.request_redraw();
+                    }
+                    Err(err) => log::error!("Échec d'initialisation du renderer (Web) : {err:#}"),
+                }
+            });
+            return;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let size = window.inner_size();
+            let renderer = pollster::block_on(Renderer::new(
+                window.clone(),
+                size.width.max(1),
+                size.height.max(1),
+            ));
+
+            match renderer {
+                Ok(renderer) => {
+                    self.scale = window.scale_factor() as f32;
+                    // Pont accessibilité (AccessKit) — créé pendant que la fenêtre
+                    // est encore cachée, puis on la révèle. Inerte sans lecteur d'écran.
+                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                    {
+                        self.a11y = Some(crate::a11y::A11y::new(event_loop, &window));
+                        window.set_visible(true);
+                    }
+                    self.window = Some(window.clone());
+                    self.renderer = Some(renderer);
+                    // Surface (re)créée : forcer une reconstruction complète à la 1re frame.
+                    self.build_dirty = true;
+                    // Effet de démarrage (chargement initial, etc.) : une seule fois,
+                    // pas à chaque recréation de surface (retour d'arrière-plan).
+                    if !self.started {
+                        self.started = true;
+                        let command = self.app.init();
+                        self.run_command(command);
+                        self.sync_subscriptions();
+                    }
+                    window.request_redraw();
+                }
+                Err(err) => {
+                    log::error!("Échec d'initialisation du renderer : {err:#}");
+                    event_loop.exit();
+                }
             }
         }
     }
@@ -549,7 +595,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         self.drain_ime();
 
         // Actions demandées par une technologie d'assistance (AccessKit).
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         self.drain_a11y_actions();
 
         // Live-reload (dev) : binaire remplacé par une recompilation →
@@ -569,7 +615,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         event: WindowEvent,
     ) {
         // L'adaptateur AccessKit observe les événements fenêtre (focus, taille…).
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         if let (Some(a11y), Some(window)) = (self.a11y.as_mut(), self.window.as_ref()) {
             a11y.process_event(window, &event);
         }
@@ -897,6 +943,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::RedrawRequested => {
+                // Web : récupère le renderer initialisé de façon asynchrone dès qu'il
+                // est prêt ; tant qu'il ne l'est pas, on ne peint pas.
+                #[cfg(target_arch = "wasm32")]
+                if self.renderer.is_none() {
+                    match self.pending_renderer.borrow_mut().take() {
+                        Some(renderer) => self.renderer = Some(renderer),
+                        None => return,
+                    }
+                }
                 // Fenêtre masquée : rendu suspendu (reprise sur Occluded(false)).
                 if self.occluded {
                     return;
@@ -1103,7 +1158,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.ui = Some(ui);
 
                 // Publie l'arbre sémantique de la frame à AccessKit.
-                #[cfg(not(target_os = "android"))]
+                #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                 if let Some(a11y) = self.a11y.as_mut() {
                     let focus = self.runtime.input.focused;
                     let title = self.app.title();

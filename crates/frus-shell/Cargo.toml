@@ -9,18 +9,33 @@ license.workspace = true
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
 winit.workspace = true
-pollster.workspace = true
 anyhow.workspace = true
 log.workspace = true
+# Horloge monotone portable : `std::time` en natif, `performance.now()` sur le Web
+# (où `std::time::Instant` panique). Une seule API pour les trois plateformes.
+web-time = "1"
 
-# Presse-papier + logger console + accessibilité : bureau uniquement.
-# (AccessKit expose l'arbre sémantique aux lecteurs d'écran natifs — UIA
-# Windows, AT-SPI Linux, macOS ; le provider Android est un chantier distinct.)
-[target.'cfg(not(target_os = "android"))'.dependencies]
+# Natif (bureau + Android) : attente bloquante de l'init GPU. Le Web, lui, est
+# asynchrone (voir `run_web`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster.workspace = true
+
+# Bureau uniquement (ni Android ni Web) : presse-papier, logger console et
+# accessibilité. (AccessKit expose l'arbre sémantique aux lecteurs d'écran natifs —
+# UIA Windows, AT-SPI Linux, macOS ; les providers Android et Web sont distincts.)
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 arboard.workspace = true
 env_logger.workspace = true
 accesskit = "0.24"
 accesskit_winit = "0.33"
+
+# Web (wasm32 + WebGPU) : point d'entrée navigateur, futures JS, logs console.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+console_log = "1"
+web-sys = { version = "0.3", features = ["Document", "Window", "Element"] }
 
 # Sur Android, winit passe par l'activité native (android-activity) et les logs
 # vont dans logcat.

@@ -2,11 +2,12 @@
 //!
 //! `cargo run -p frus-hello` (ajouter `RUST_LOG=info` pour les logs).
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 fn main() -> anyhow::Result<()> {
     frus_hello::run_desktop()
 }
 
-// Sur Android il n'y a pas de binaire : l'entrée est `android_main` dans la lib.
-#[cfg(target_os = "android")]
+// Ni sur Android ni sur le Web il n'y a de binaire : l'entrée est `android_main` /
+// `start` dans la lib.
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
 fn main() {}

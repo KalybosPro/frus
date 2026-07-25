@@ -12,7 +12,9 @@
 //! La machine est **pure** (aucun accès horloge : les instants sont passés en
 //! paramètres) — donc testable au tick près.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use frus_widgets::{FrictionSimulation, Point, Tolerance};
 

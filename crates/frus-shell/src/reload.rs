@@ -16,7 +16,9 @@
 //! [`Application::restore_state`]: crate::Application::restore_state
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+
+use web_time::Instant;
 
 /// Variable d'environnement qui **active** la surveillance (dev).
 const WATCH_ENV: &str = "FRUS_WATCH";

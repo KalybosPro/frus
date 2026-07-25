@@ -4,7 +4,8 @@
 //! `frus-gpu` et pilote la boucle `événement → frame` pour n'importe quelle
 //! [`Application`]. C'est la seule couche dépendante de la plateforme.
 
-#[cfg(not(target_os = "android"))]
+// Accessibilité (AccessKit) : bureau uniquement (ni Android ni Web).
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod a11y;
 #[cfg(target_os = "android")]
 mod android_ime;
@@ -41,7 +42,7 @@ pub use winit::platform::android::activity::AndroidApp;
 /// # }
 /// frus_shell::run(MyApp).unwrap();
 /// ```
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     // `RUST_LOG=info` pour voir les logs (adaptateur GPU, etc.).
     env_logger::init();
@@ -59,6 +60,30 @@ pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     let proxy = event_loop.create_proxy();
     let mut app = App::new(app, proxy);
     event_loop.run_app(&mut app)?;
+    Ok(())
+}
+
+/// Lance une application dans le **navigateur** (wasm + WebGPU) : winit crée et
+/// **ajoute un `<canvas>`** au document, le renderer s'initialise de façon asynchrone
+/// (pas de blocage possible sur le Web), et la boucle est confiée au navigateur via
+/// `spawn_app` (qui ne rend jamais la main). Appelé depuis le point d'entrée
+/// `#[wasm_bindgen(start)]` de l'application.
+#[cfg(target_arch = "wasm32")]
+pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
+    use winit::platform::web::EventLoopExtWebSys;
+
+    // Panics → console du navigateur (au lieu d'un « unreachable » opaque).
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Info);
+
+    let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+
+    let proxy = event_loop.create_proxy();
+    let app = App::new(app, proxy);
+    // Sur le Web, la boucle est pilotée par le navigateur (requestAnimationFrame) et
+    // `spawn_app` ne revient pas — d'où le retour immédiat `Ok`.
+    event_loop.spawn_app(app);
     Ok(())
 }
 

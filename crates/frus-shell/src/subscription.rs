@@ -5,7 +5,9 @@
 //! **diffe** à chaque cycle (démarre les nouvelles, arrête celles retirées),
 //! grâce à un **id** stable par souscription (hash de sa « recette »).
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 /// Fabrique de message d'un timer (appelée à chaque intervalle).
 type TimerFn<Msg> = Box<dyn Fn(Instant) -> Msg + Send>;

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>frus — hello (Web / WebGPU)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0d0d14; overflow: hidden; }
+      /* winit appends its canvas to <body> ; on la fait remplir la fenêtre. */
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #unsupported {
+        color: #e6e6ef; font: 15px/1.5 system-ui, sans-serif; padding: 24px; max-width: 40rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="unsupported" hidden>
+      <h2>WebGPU non disponible</h2>
+      <p>frus rend via <strong>WebGPU</strong>. Ouvrez cette page dans un navigateur
+      récent (Chrome / Edge 113+, ou Firefox avec WebGPU activé), en <code>https</code>
+      ou <code>localhost</code>.</p>
+    </div>
+    <script type="module">
+      if (!('gpu' in navigator)) {
+        document.getElementById('unsupported').hidden = false;
+      } else {
+        // Le module wasm-bindgen ; `start()` (#[wasm_bindgen(start)]) s'exécute à l'init.
+        import('./pkg/frus_hello.js').then((m) => m.default());
+      }
+    </script>
+  </body>
+</html>
