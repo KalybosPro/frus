@@ -245,6 +245,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.interactive())
     }
 
+    fn fitted(&self) -> Option<frus_core::BoxFit> {
+        self.inner.as_ref().and_then(|w| w.fitted())
+    }
+
+    fn rotated_quarter_turns(&self) -> Option<i32> {
+        self.inner.as_ref().and_then(|w| w.rotated_quarter_turns())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

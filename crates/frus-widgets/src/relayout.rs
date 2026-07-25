@@ -163,7 +163,21 @@ fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &R
     // l'arbre taffy (donc le nombre et l'ordre des rectangles) en dépend.
     // On hache le style **effectif** (taille animée injectée) — même source que
     // `build_layout`, donc l'empreinte change tant que la taille bouge.
+    // `RotatedBox` : sa boîte dépend de la taille **naturelle** de l'enfant (échangée
+    // pour un quart impair) — l'empreinte doit donc inclure l'enfant, sinon un enfant
+    // modifié laisserait une boîte périmée en cache.
+    if let Some(q) = widget.rotated_quarter_turns() {
+        4u8.hash(hasher);
+        q.hash(hasher);
+        effective_style(widget, id, runtime).layout_hash(hasher);
+        if let Some(child) = widget.children().first() {
+            hash_node(child.as_ref(), child_id(id, 0, child.as_ref()), runtime, hasher);
+        }
+        return;
+    }
     if widget.scroll_content().is_some()
+        || widget.interactive().is_some()
+        || widget.fitted().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.layout_builder().is_some()

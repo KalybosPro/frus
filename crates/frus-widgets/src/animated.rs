@@ -84,6 +84,12 @@ macro_rules! forward_to_container {
             fn interactive(&self) -> Option<(f32, f32)> {
                 Widget::interactive(&self.inner)
             }
+            fn fitted(&self) -> Option<frus_core::BoxFit> {
+                Widget::fitted(&self.inner)
+            }
+            fn rotated_quarter_turns(&self) -> Option<i32> {
+                Widget::rotated_quarter_turns(&self.inner)
+            }
         }
     };
 }

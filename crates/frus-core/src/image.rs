@@ -150,6 +150,37 @@ impl BoxFit {
             }
         }
     }
+
+    /// Facteurs d'échelle `(sx, sy)` pour ajuster un contenu de taille `src` dans une
+    /// boîte `dst` selon ce mode — la brique de `FittedBox` (le contenu, contrairement
+    /// à une image échantillonnée, est **mis à l'échelle** puis centré). `Fill` étire
+    /// par axe ; tous les autres modes sont **uniformes** (aspect conservé). `src`
+    /// dégénéré → `(1, 1)`.
+    pub fn scale(self, src: Size, dst: Size) -> (f32, f32) {
+        if src.width <= 0.0 || src.height <= 0.0 {
+            return (1.0, 1.0);
+        }
+        let sx = dst.width / src.width;
+        let sy = dst.height / src.height;
+        match self {
+            BoxFit::Fill => (sx, sy),
+            BoxFit::Contain => {
+                let s = sx.min(sy);
+                (s, s)
+            }
+            BoxFit::Cover => {
+                let s = sx.max(sy);
+                (s, s)
+            }
+            BoxFit::FitWidth => (sx, sx),
+            BoxFit::FitHeight => (sy, sy),
+            BoxFit::None => (1.0, 1.0),
+            BoxFit::ScaleDown => {
+                let s = sx.min(sy).min(1.0);
+                (s, s)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -182,6 +213,28 @@ mod tests {
         let (dst, uv) = BoxFit::Contain.apply(Size::new(10.0, 10.0), Rect::new(0.0, 0.0, 100.0, 40.0));
         assert_eq!(dst, Rect::new(30.0, 0.0, 40.0, 40.0));
         assert_eq!(uv, Rect::new(0.0, 0.0, 1.0, 1.0));
+    }
+
+    #[test]
+    fn scale_fits_content_per_mode() {
+        let src = Size::new(40.0, 20.0); // large
+        let dst = Size::new(200.0, 200.0);
+        // Fill : par axe.
+        assert_eq!(BoxFit::Fill.scale(src, dst), (5.0, 10.0));
+        // Contain : le plus petit facteur (tient) → uniforme.
+        assert_eq!(BoxFit::Contain.scale(src, dst), (5.0, 5.0));
+        // Cover : le plus grand facteur (couvre) → uniforme.
+        assert_eq!(BoxFit::Cover.scale(src, dst), (10.0, 10.0));
+        // FitWidth / FitHeight suivent un seul axe (uniforme).
+        assert_eq!(BoxFit::FitWidth.scale(src, dst), (5.0, 5.0));
+        assert_eq!(BoxFit::FitHeight.scale(src, dst), (10.0, 10.0));
+        // None n'échelonne pas ; ScaleDown ne fait que réduire.
+        assert_eq!(BoxFit::None.scale(src, dst), (1.0, 1.0));
+        assert_eq!(BoxFit::ScaleDown.scale(src, dst), (1.0, 1.0));
+        // ScaleDown réduit bien quand la boîte est plus petite.
+        assert_eq!(BoxFit::ScaleDown.scale(src, Size::new(20.0, 20.0)), (0.5, 0.5));
+        // Source dégénérée → neutre.
+        assert_eq!(BoxFit::Cover.scale(Size::new(0.0, 10.0), dst), (1.0, 1.0));
     }
 
     #[test]

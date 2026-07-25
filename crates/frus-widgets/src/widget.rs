@@ -272,6 +272,22 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si le widget **ajuste** son enfant à sa boîte (`FittedBox`), renvoie le
+    /// [`frus_core::BoxFit`] : la marche mesure l'enfant à sa taille naturelle, le met
+    /// à l'échelle selon le fit puis le centre (calque composité, hit-test par `M⁻¹`).
+    /// `None` = pas un ajusteur. Voir [`crate::FittedBox`].
+    fn fitted(&self) -> Option<frus_core::BoxFit> {
+        None
+    }
+
+    /// Si le widget **tourne** son enfant d'un quart de tour (`RotatedBox`), renvoie
+    /// le nombre de quarts. Contrairement à `Transform`, cela **affecte la mise en
+    /// page** : la boîte échange ses dimensions pour un nombre impair. `None` = pas un
+    /// `RotatedBox`. Voir [`crate::RotatedBox`].
+    fn rotated_quarter_turns(&self) -> Option<i32> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -434,6 +450,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn interactive(&self) -> Option<(f32, f32)> {
         (**self).interactive()
+    }
+    fn fitted(&self) -> Option<frus_core::BoxFit> {
+        (**self).fitted()
+    }
+    fn rotated_quarter_turns(&self) -> Option<i32> {
+        (**self).rotated_quarter_turns()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

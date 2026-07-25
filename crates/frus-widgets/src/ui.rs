@@ -109,6 +109,8 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
     if widget.continuous()
         || widget.scroll_content().is_some()
         || widget.interactive().is_some()
+        || widget.fitted().is_some()
+        || widget.rotated_quarter_turns().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.layout_builder().is_some()
@@ -395,10 +397,29 @@ pub(crate) fn build_layout<Msg>(
     runtime: &Runtime,
     layout: &mut Layout<()>,
 ) -> NodeId {
-    // Défilables, navigateurs, listes virtualisées et piles : contenu mis en page
-    // à part (couches / écrans / éléments indépendants).
+    // `RotatedBox` : feuille dont la boîte est la taille **naturelle** de l'enfant,
+    // dimensions **échangées** pour un quart de tour impair (la rotation affecte la
+    // mise en page). L'enfant lui-même est posé à part (au rendu).
+    if let Some(q) = widget.rotated_quarter_turns() {
+        let mut style = effective_style(widget, id, runtime);
+        if let Some(child) = widget.children().first() {
+            let nat = natural_size(child.as_ref(), child_id(id, 0, child.as_ref()), runtime);
+            let (w, h) = if q.rem_euclid(4) % 2 != 0 {
+                (nat.height, nat.width)
+            } else {
+                (nat.width, nat.height)
+            };
+            style.width = frus_layout::Dimension::Length(w);
+            style.height = frus_layout::Dimension::Length(h);
+        }
+        return layout.leaf(style, ());
+    }
+    // Défilables, fenêtres interactives, ajusteurs (`FittedBox`), navigateurs, listes
+    // virtualisées et piles : contenu mis en page à part (couches / écrans / éléments
+    // indépendants, ou enfant posé à sa taille naturelle).
     if widget.scroll_content().is_some()
         || widget.interactive().is_some()
+        || widget.fitted().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.layout_builder().is_some()
@@ -430,6 +451,20 @@ pub(crate) fn build_layout<Msg>(
             .collect();
         layout.container(effective_style(widget, id, runtime), &child_ids)
     }
+}
+
+/// Taille **naturelle** (intrinsèque) d'un sous-arbre : mise en page sous des axes
+/// libres (`MaxContent`), sans contrainte imposée. Sert à `RotatedBox` (dimensions à
+/// échanger) et — au rendu — à `FittedBox` (facteur d'ajustement).
+pub(crate) fn natural_size<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime) -> Size {
+    let mut layout = Layout::new();
+    let node = build_layout(widget, id, runtime, &mut layout);
+    layout.compute_scroll(node, 0.0, 0.0, true, true);
+    layout
+        .absolute_rects(node)
+        .first()
+        .map(|(r, _)| Size::new(r.width, r.height))
+        .unwrap_or(Size::new(0.0, 0.0))
 }
 
 struct Builder<'a, Msg> {
@@ -776,6 +811,65 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.walk_node(widget, id, translation, clip, rects, index);
     }
 
+    /// Peint un enfant **à plat** (posé à part, à `translation`, avec ses propres
+    /// rectangles) puis l'enveloppe dans un calque composité transformé par `matrix`,
+    /// découpé à `clip`. Le hit-test contre-transforme le point (`M⁻¹`) ; si `matrix`
+    /// reste alignée sur les axes (échelle/translation), les bornes de focus /
+    /// défilement / glisser / accessibilité sont aussi transformées. Facteur commun de
+    /// `InteractiveViewer`, `RotatedBox` et `FittedBox`.
+    fn emit_transformed_child(
+        &mut self,
+        child: &'a dyn Widget<Msg>,
+        cid: WidgetId,
+        translation: (f32, f32),
+        clip: Rect,
+        child_rects: &[Rect],
+        matrix: Affine,
+        owner: WidgetId,
+    ) {
+        let (p0, h0, lp0, f0, s0, d0, sem0) = (
+            self.scene.primitives().len(),
+            self.hits.len(),
+            self.long_presses.len(),
+            self.focusables.len(),
+            self.scrollables.len(),
+            self.draggables.len(),
+            self.semantics.len(),
+        );
+        let mut child_index = 0;
+        self.walk(child, cid, translation, clip, child_rects, &mut child_index);
+        let group = self.scene.split_off(p0);
+        self.scene.push_primitive(Primitive::Layer {
+            primitives: group,
+            opacity: 1.0,
+            clip,
+            clip_shape: ClipShape::Rect,
+            transform: Some(LayerTransform::new(matrix)),
+            owner: owner.as_u64(),
+        });
+        let inverse = matrix.inverse();
+        for h in &mut self.hits[h0..] {
+            h.xform.get_or_insert(inverse);
+        }
+        for h in &mut self.long_presses[lp0..] {
+            h.xform.get_or_insert(inverse);
+        }
+        if matrix.is_axis_aligned() {
+            for (_, r) in &mut self.focusables[f0..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r, _, _) in &mut self.scrollables[s0..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r) in &mut self.draggables[d0..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r, _) in &mut self.semantics[sem0..] {
+                *r = matrix.apply_rect(*r);
+            }
+        }
+    }
+
     fn walk_node(
         &mut self,
         widget: &'a dyn Widget<Msg>,
@@ -860,8 +954,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // Fenêtre **interactive** (`InteractiveViewer`) : l'enfant remplit la
             // fenêtre à l'échelle 1, puis on lui applique la transformation retenue
             // (échelle + translation, gestes du shell) via **un seul calque** portant
-            // à la fois la matrice `M` et la découpe à la fenêtre. Le hit-test applique
-            // `M⁻¹` au point.
+            // à la fois la matrice `M` et la découpe à la fenêtre.
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
             self.interactives.push((id, viewport));
@@ -873,36 +966,51 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     content,
                     Constraints::definite(Size::new(viewport.width, viewport.height)),
                 );
-                let view = self.runtime.interactive.get(&id).copied().unwrap_or_default();
-                let matrix = view.matrix();
-                let (p0, h0, lp0) =
-                    (self.scene.primitives().len(), self.hits.len(), self.long_presses.len());
-                let mut content_index = 0;
-                self.walk(
-                    content,
-                    cid,
-                    (viewport.x, viewport.y),
-                    content_clip,
-                    &content_rects,
-                    &mut content_index,
+                let matrix = self.runtime.interactive.get(&id).copied().unwrap_or_default().matrix();
+                self.emit_transformed_child(content, cid, (viewport.x, viewport.y), content_clip, &content_rects, matrix, id);
+            }
+        } else if let Some(q) = widget.rotated_quarter_turns() {
+            // `RotatedBox` : l'enfant, mesuré à sa taille **naturelle**, est centré dans
+            // la boîte (dimensions échangées pour un quart impair, cf. `build_layout`)
+            // puis tourné autour du centre. La rotation, appliquée au compositing, ne
+            // reste pas alignée sur les axes pour un quart impair (bornes de focus
+            // laissées telles quelles — le clic, lui, reste juste via `M⁻¹`).
+            let box_rect = draw_rect;
+            if let Some(child) = widget.children().first() {
+                let child = child.as_ref();
+                let cid = child_id(id, 0, child);
+                let child_rects =
+                    self.cached_rects(cid, child, Constraints::scroll(0.0, 0.0, true, true));
+                let nat = child_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                let center =
+                    Point::new(box_rect.x + box_rect.width / 2.0, box_rect.y + box_rect.height / 2.0);
+                let translation = (center.x - nat.width / 2.0, center.y - nat.height / 2.0);
+                let angle = q.rem_euclid(4) as f32 * std::f32::consts::FRAC_PI_2;
+                let angle = if self.rtl { -angle } else { angle };
+                let matrix = Affine::rotation(angle).about(center);
+                self.emit_transformed_child(child, cid, translation, clip, &child_rects, matrix, id);
+            }
+        } else if let Some(fit) = widget.fitted() {
+            // `FittedBox` : l'enfant, mesuré à sa taille **naturelle**, est mis à
+            // l'échelle selon le `BoxFit` (uniforme, sauf `Fill`), centré, découpé à la
+            // boîte. L'échelle reste alignée sur les axes → les bornes de focus suivent.
+            let box_rect = draw_rect;
+            let content_clip = clip.intersect(box_rect);
+            if let Some(child) = widget.children().first() {
+                let child = child.as_ref();
+                let cid = child_id(id, 0, child);
+                let child_rects =
+                    self.cached_rects(cid, child, Constraints::scroll(0.0, 0.0, true, true));
+                let nat = child_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                let (sx, sy) = fit.scale(
+                    Size::new(nat.width, nat.height),
+                    Size::new(box_rect.width, box_rect.height),
                 );
-                let group = self.scene.split_off(p0);
-                self.scene.push_primitive(Primitive::Layer {
-                    primitives: group,
-                    opacity: 1.0,
-                    clip: content_clip,
-                    clip_shape: ClipShape::Rect,
-                    transform: Some(LayerTransform::new(matrix)),
-                    owner: id.as_u64(),
-                });
-                // Clic / appui long : le point de test passe par `M⁻¹`.
-                let inverse = matrix.inverse();
-                for h in &mut self.hits[h0..] {
-                    h.xform.get_or_insert(inverse);
-                }
-                for h in &mut self.long_presses[lp0..] {
-                    h.xform.get_or_insert(inverse);
-                }
+                let center =
+                    Point::new(box_rect.x + box_rect.width / 2.0, box_rect.y + box_rect.height / 2.0);
+                let translation = (center.x - nat.width / 2.0, center.y - nat.height / 2.0);
+                let matrix = Affine::scale(sx, sy).about(center);
+                self.emit_transformed_child(child, cid, translation, content_clip, &child_rects, matrix, id);
             }
         } else if let Some(content) = widget.scroll_content() {
             let axis = widget.scroll_axis();

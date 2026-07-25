@@ -178,6 +178,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.interactive()
     }
 
+    fn fitted(&self) -> Option<frus_core::BoxFit> {
+        self.inner.fitted()
+    }
+
+    fn rotated_quarter_turns(&self) -> Option<i32> {
+        self.inner.rotated_quarter_turns()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }
