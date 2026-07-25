@@ -42,8 +42,10 @@ cd crates/frus-hello/web && python3 -m http.server 8080
 - **Rendu / entrée / animation** partagent le même code que bureau/Android ; winit
   ajoute un `<canvas>` au `<body>`, l'horloge passe par `web-time` (`performance.now()`),
   et l'init GPU est **asynchrone** (voir `run_web` / `resumed`).
-- **Effets & souscriptions** (threads natifs) ne sont pas encore portés au Web : une app
-  purement pilotée par l'entrée (comme ce compteur) fonctionne ; l'animation par
-  souscription viendra avec un `spawn_local` + timers navigateur.
+- **Effets & souscriptions** sont portés au Web (jalon 130) : les `Command` passent par
+  `spawn_local`, les souscriptions `every` par un `setInterval` navigateur (annulé au
+  drop). Le bouton **Start auto** du compteur déclenche une souscription `every(1s)` qui
+  l'incrémente — l'exemple à observer en navigateur. Un effet réellement **asynchrone**
+  (fetch réseau) reste à venir (le `Task` actuel est synchrone).
 - **Presse-papier / accessibilité / live-reload** sont désactivés sur le Web (chantiers
   distincts).

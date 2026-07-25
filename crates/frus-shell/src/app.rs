@@ -7,6 +7,7 @@
 //! et l'horloge d'animation. L'application ne fournit que `update`/`view`/… .
 
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::Arc;
 
@@ -62,6 +63,56 @@ mod clip {
         pub fn set_text(&mut self, _text: String) {}
     }
 }
+
+/// Timers navigateur (Web) : le pendant du thread `recv_timeout` des souscriptions
+/// natives. Un `setInterval` **retenu** ; son **drop** appelle `clearInterval` (et
+/// libère la closure). C'est ainsi qu'une souscription `every` ticke sur le Web, où
+/// il n'y a pas de thread de fond.
+#[cfg(target_arch = "wasm32")]
+mod web_timer {
+    use wasm_bindgen::prelude::Closure;
+    use wasm_bindgen::JsCast;
+
+    /// Un `setInterval` actif : tant que cette poignée vit, la callback est rappelée
+    /// toutes les `ms` ; son drop l'annule.
+    pub(crate) struct Interval {
+        id: i32,
+        // La closure JS doit vivre aussi longtemps que l'intervalle.
+        _closure: Closure<dyn FnMut()>,
+    }
+
+    impl Interval {
+        /// Programme `f` toutes les `ms` millisecondes (minimum 1 ms). `None` s'il
+        /// n'y a pas de fenêtre (contexte sans DOM).
+        pub(crate) fn new(ms: i32, f: impl FnMut() + 'static) -> Option<Self> {
+            let window = web_sys::window()?;
+            let closure = Closure::wrap(Box::new(f) as Box<dyn FnMut()>);
+            let id = window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    ms.max(1),
+                )
+                .ok()?;
+            Some(Self { id, _closure: closure })
+        }
+    }
+
+    impl Drop for Interval {
+        fn drop(&mut self) {
+            if let Some(window) = web_sys::window() {
+                window.clear_interval_with_handle(self.id);
+            }
+        }
+    }
+}
+
+/// Poignée d'annulation d'une souscription active : son **drop** l'arrête.
+/// - Natif : un `Sender<()>` — le thread de la souscription sort à son prochain réveil.
+/// - Web : un `setInterval` retenu (`None` si l'installation a échoué).
+#[cfg(not(target_arch = "wasm32"))]
+type SubHandle = Sender<()>;
+#[cfg(target_arch = "wasm32")]
+type SubHandle = Option<web_timer::Interval>;
 
 /// Vitesse de défilement (pixels par cran de molette).
 const SCROLL_SPEED: f32 = 40.0;
@@ -189,7 +240,7 @@ pub struct App<A: Application> {
     /// Compteur pour clés d'événements de sortie (fondu de disparition).
     leaving_counter: u64,
     /// Souscriptions actives : id → poignée d'annulation (drop = arrêt).
-    running_subs: HashMap<u64, Sender<()>>,
+    running_subs: HashMap<u64, SubHandle>,
     /// Fenêtre masquée (occultée) : on suspend le rendu.
     occluded: bool,
     /// Temps écoulé cumulé (secondes), pour les animations continues.
@@ -1490,10 +1541,28 @@ impl<A: Application> App<A> {
 
     /// Exécute une commande : chaque tâche tourne sur un thread de fond ; son
     /// message éventuel est renvoyé dans la boucle via le proxy.
+    #[cfg(not(target_arch = "wasm32"))]
     fn run_command(&self, command: crate::command::Command<A::Message>) {
         for task in command.into_tasks() {
             let proxy = self.proxy.clone();
             std::thread::spawn(move || {
+                if let Some(message) = task() {
+                    let _ = proxy.send_event(message);
+                }
+            });
+        }
+    }
+
+    /// Exécute une commande sur le **Web** : pas de threads. Chaque tâche est planifiée
+    /// sur la boucle via `spawn_local` (microtask) ; son message revient par le proxy.
+    /// Le travail reste **synchrone** — le type `Task` ne peut pas `await` —, ce qui
+    /// convient aux effets de calcul ; un effet réellement asynchrone (fetch réseau)
+    /// demandera une variante `Command` dédiée.
+    #[cfg(target_arch = "wasm32")]
+    fn run_command(&self, command: crate::command::Command<A::Message>) {
+        for task in command.into_tasks() {
+            let proxy = self.proxy.clone();
+            wasm_bindgen_futures::spawn_local(async move {
                 if let Some(message) = task() {
                     let _ = proxy.send_event(message);
                 }
@@ -1515,14 +1584,15 @@ impl<A: Application> App<A> {
             if self.running_subs.contains_key(&entry.id) {
                 continue;
             }
-            let sender = self.start_subscription(entry.kind);
-            self.running_subs.insert(entry.id, sender);
+            let handle = self.start_subscription(entry.kind);
+            self.running_subs.insert(entry.id, handle);
         }
     }
 
     /// Démarre une souscription sur un thread de fond ; renvoie sa poignée
     /// d'annulation (drop du `Sender` → le thread sort au prochain réveil).
-    fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> Sender<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
         let proxy = self.proxy.clone();
         match kind {
@@ -1542,6 +1612,22 @@ impl<A: Application> App<A> {
             }
         }
         tx
+    }
+
+    /// Démarre une souscription sur le **Web** : un `setInterval` navigateur (pas de
+    /// thread). Renvoie sa poignée d'annulation (`clearInterval` au drop). Le proxy
+    /// réinjecte le message dans la boucle à chaque tick.
+    #[cfg(target_arch = "wasm32")]
+    fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
+        let proxy = self.proxy.clone();
+        match kind {
+            crate::subscription::Kind::Every { interval, make } => {
+                let ms = interval.as_millis() as i32;
+                web_timer::Interval::new(ms, move || {
+                    let _ = proxy.send_event(make(Instant::now()));
+                })
+            }
+        }
     }
 
     /// Applique le glissement souris en cours.

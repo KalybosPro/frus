@@ -15,7 +15,11 @@
 //! [`Application::save_state`]: crate::Application::save_state
 //! [`Application::restore_state`]: crate::Application::restore_state
 
-use std::path::{Path, PathBuf};
+// `Path` ne sert qu'à `restore_from_env` (bureau) ; `PathBuf` sert partout où le
+// module compile (via `state_file_path`).
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use web_time::Instant;
@@ -100,6 +104,9 @@ fn state_file_path() -> PathBuf {
 
 /// À l'amorçage : réhydrate l'état depuis l'instantané laissé par le binaire
 /// précédent, s'il existe (le fichier est consommé). À appeler avant `init`.
+/// Bureau uniquement — le live-reload n'a pas de sens sur Android ni sur le Web,
+/// où `run` (son unique appelant) n'existe pas.
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub(crate) fn restore_from_env<A: crate::Application>(app: &mut A) {
     let Some(path) = std::env::var_os(STATE_ENV) else {
         return;

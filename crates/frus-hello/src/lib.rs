@@ -6,13 +6,19 @@
 //!
 //! Lancer sur bureau : `cargo run -p frus-hello`.
 
-use frus_shell::{Application, Command};
+use std::time::Duration;
+
+use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{button, column, text, Align, Container, Justify, Theme, Variant, Widget};
 
 /// L'état de l'application : un simple compteur.
 #[derive(Default)]
 struct Counter {
     count: i32,
+    /// Comptage automatique : quand actif, une **souscription** `every(1s)` incrémente
+    /// le compteur. La même source continue tourne sur bureau (thread), Android et Web
+    /// (`setInterval`) — l'app ne connaît que `Subscription::every`.
+    auto: bool,
 }
 
 /// Les messages émis par l'interface.
@@ -20,6 +26,10 @@ struct Counter {
 enum Msg {
     Increment,
     Decrement,
+    /// (Dé)active le comptage automatique.
+    ToggleAuto,
+    /// Un tick de la souscription : incrémente.
+    Tick,
 }
 
 impl Application for Counter {
@@ -29,10 +39,21 @@ impl Application for Counter {
     /// éventuels (ici aucun). Testable sans GPU ni fenêtre.
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
-            Msg::Increment => self.count += 1,
+            Msg::Increment | Msg::Tick => self.count += 1,
             Msg::Decrement => self.count -= 1,
+            Msg::ToggleAuto => self.auto = !self.auto,
         }
         Command::none()
+    }
+
+    /// Souscriptions **selon l'état** : en mode auto, émet un `Tick` par seconde ;
+    /// sinon aucune. Le framework démarre/arrête la source par diff.
+    fn subscription(&self) -> Subscription<Msg> {
+        if self.auto {
+            Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
+        } else {
+            Subscription::none()
+        }
     }
 
     /// `view` décrit l'interface pour l'état courant — une fonction pure de
@@ -43,6 +64,11 @@ impl Application for Counter {
             column![
                 button("+", Msg::Increment).variant(Variant::Primary),
                 button("−", Msg::Decrement).variant(Variant::Secondary),
+                button(
+                    if self.auto { "Stop auto" } else { "Start auto" },
+                    Msg::ToggleAuto,
+                )
+                .variant(Variant::Secondary),
             ]
             .gap(8.0)
             .align(Align::Center),
@@ -109,5 +135,19 @@ mod tests {
         app.update(Msg::Increment);
         app.update(Msg::Decrement);
         assert_eq!(app.count, 1);
+    }
+
+    /// Le mode auto pilote la souscription : absente au repos, présente une fois
+    /// activée (le framework la démarre/arrête par ce diff), et un `Tick` compte.
+    #[test]
+    fn auto_mode_drives_the_subscription() {
+        let mut app = Counter::default();
+        assert!(app.subscription().is_empty(), "au repos : aucune souscription");
+        app.update(Msg::ToggleAuto);
+        assert!(!app.subscription().is_empty(), "auto : une source every(1s)");
+        app.update(Msg::Tick);
+        assert_eq!(app.count, 1, "un tick incrémente");
+        app.update(Msg::ToggleAuto);
+        assert!(app.subscription().is_empty(), "auto coupé : plus de souscription");
     }
 }
