@@ -78,6 +78,9 @@ macro_rules! forward_to_container {
             fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {
                 Widget::transform_rotate(&self.inner)
             }
+            fn clip_shape(&self) -> Option<frus_core::ClipShape> {
+                Widget::clip_shape(&self.inner)
+            }
         }
     };
 }

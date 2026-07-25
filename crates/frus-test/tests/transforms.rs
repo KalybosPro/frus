@@ -25,6 +25,7 @@ fn transformed_layer(inner: Rect, color: Color, m: LayerTransform) -> Scene {
         primitives,
         opacity: 1.0,
         clip: Rect::UNBOUNDED,
+        clip_shape: frus_core::ClipShape::Rect,
         transform: Some(m),
         owner: 0,
     });

@@ -170,6 +170,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.transform_rotate()
     }
 
+    fn clip_shape(&self) -> Option<frus_core::ClipShape> {
+        self.inner.clip_shape()
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.navigator()
     }

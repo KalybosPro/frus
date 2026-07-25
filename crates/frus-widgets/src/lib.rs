@@ -23,6 +23,7 @@ mod card;
 mod carousel;
 mod checkbox;
 mod chip;
+mod clip;
 mod collapsible;
 mod colorpicker;
 mod container;
@@ -95,6 +96,7 @@ pub use card::Card;
 pub use carousel::Carousel;
 pub use checkbox::Checkbox;
 pub use chip::Chip;
+pub use clip::{ClipOval, ClipRRect};
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
@@ -161,7 +163,7 @@ pub use widget::Widget;
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius, BoxDecoration,
-    BoxFit, BoxShadow, Color, FontWeight, ImageData, ImageHandle, Insets, InsetsDirectional,
+    BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets, InsetsDirectional,
     LinearGradient, Orientation, Point, Rect, Role, Scene, Semantics, SizeClass, Size,
     TextDecoration, TextDirection, TextSpan, TextStyle, Toggled, WindowInsets,
 };

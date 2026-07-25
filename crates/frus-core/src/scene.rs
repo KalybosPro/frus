@@ -59,6 +59,38 @@ impl LayerTransform {
     }
 }
 
+/// Forme de découpe d'un [`Primitive::Layer`], **inscrite** dans son rectangle
+/// `clip`. Le compositing multiplie l'alpha du calque par la couverture de la
+/// forme (bords anticrénelés) — la brique de `ClipRRect` / `ClipOval` de Flutter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClipShape {
+    /// Découpe rectangulaire nette (le `clip` du calque tel quel).
+    Rect,
+    /// Rectangle à **coins arrondis** : rayon uniforme (px logiques), borné à la
+    /// demi-plus-petite dimension du `clip`.
+    RRect(f32),
+    /// **Ellipse** inscrite dans le `clip` (un cercle si le `clip` est carré).
+    Oval,
+}
+
+impl Default for ClipShape {
+    fn default() -> Self {
+        ClipShape::Rect
+    }
+}
+
+impl ClipShape {
+    /// Suit une mise à l'échelle **par axe** du calque (DPI, échelle de peinture) :
+    /// seul le rayon d'un arrondi change, selon la moyenne des facteurs (il n'a pas
+    /// d'axe). L'ellipse suit son `clip` et le rectangle n'a rien à mettre à l'échelle.
+    pub fn scaled_xy(self, sx: f32, sy: f32) -> ClipShape {
+        match self {
+            ClipShape::RRect(r) => ClipShape::RRect(r * (sx + sy) * 0.5),
+            other => other,
+        }
+    }
+}
+
 /// Une primitive de dessin.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Primitive {
@@ -157,6 +189,10 @@ pub enum Primitive {
         opacity: f32,
         /// Rectangle de découpe du calque.
         clip: Rect,
+        /// **Forme** de découpe inscrite dans `clip` (arrondi / ellipse) — la
+        /// couverture module l'alpha au compositing. [`ClipShape::Rect`] = découpe
+        /// rectangulaire simple (comportement par défaut).
+        clip_shape: ClipShape,
         /// Transformation affine (rotation) appliquée au compositing. `None` =
         /// calque simplement composité à sa position (opacité de groupe).
         transform: Option<LayerTransform>,
@@ -293,12 +329,14 @@ impl Primitive {
                 primitives,
                 opacity,
                 clip,
+                clip_shape,
                 transform,
                 owner,
             } => Primitive::Layer {
                 primitives: primitives.iter().map(|p| p.scaled_xy(sx, sy)).collect(),
                 opacity,
                 clip: clip.scale_xy(sx, sy),
+                clip_shape: clip_shape.scaled_xy(sx, sy),
                 transform: transform.map(|t| t.scaled_xy(sx, sy)),
                 owner,
             },
@@ -368,11 +406,14 @@ impl Primitive {
                     owner,
                 }
             }
-            Primitive::Layer { primitives, opacity, clip, transform, owner } => {
+            Primitive::Layer { primitives, opacity, clip, clip_shape, transform, owner } => {
                 Primitive::Layer {
                     primitives: primitives.iter().map(|p| p.translated(dx, dy)).collect(),
                     opacity,
                     clip: clip.translate(dx, dy),
+                    // Le rayon/l'ellipse est invariant par translation ; seul le
+                    // rectangle `clip` bouge (ci-dessus).
+                    clip_shape,
                     transform: transform.map(|t| t.translated(dx, dy)),
                     owner,
                 }
@@ -558,6 +599,7 @@ impl Scene {
                 primitives,
                 opacity: group,
                 clip,
+                clip_shape,
                 transform,
                 owner,
             } => Primitive::Layer {
@@ -565,6 +607,7 @@ impl Scene {
                 // Fondre un calque = atténuer son opacité de groupe.
                 opacity: group * opacity,
                 clip,
+                clip_shape,
                 transform,
                 owner,
             },
@@ -727,6 +770,7 @@ impl Scene {
             primitives: inner.primitives,
             opacity,
             clip: self.current_clip,
+            clip_shape: ClipShape::Rect,
             transform: None,
             owner: self.current_owner,
         });

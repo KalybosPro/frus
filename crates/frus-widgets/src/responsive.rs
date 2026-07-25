@@ -237,6 +237,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.transform_rotate())
     }
 
+    fn clip_shape(&self) -> Option<frus_core::ClipShape> {
+        self.inner.as_ref().and_then(|w| w.clip_shape())
+    }
+
     fn navigator(&self) -> Option<(f32, bool)> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }

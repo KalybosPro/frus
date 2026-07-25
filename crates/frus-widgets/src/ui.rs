@@ -4,7 +4,7 @@
 
 use std::hash::{Hash, Hasher};
 
-use frus_core::{Affine, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
+use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::{Status, WidgetId};
@@ -604,12 +604,35 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     primitives: group,
                     opacity,
                     clip,
+                    clip_shape: ClipShape::Rect,
                     transform: None,
                     owner: id.as_u64(),
                 });
                 return;
             }
             // Totalement opaque : rendu normal (pas de calque inutile).
+        }
+
+        // Découpe **en forme** (`ClipRRect` / `ClipOval`) : on peint le sous-arbre
+        // normalement, borné à la boîte du widget, puis on **draine** ses primitives
+        // dans un calque composité dont la forme (arrondi / ellipse) module l'alpha —
+        // les coins débordants sont gommés au compositing (façon `ClipRRect` de
+        // Flutter). La boîte de la forme est le rectangle de découpe du calque.
+        if let Some(shape) = widget.clip_shape() {
+            let box_rect = rects[*index].translate(translation.0, translation.1);
+            let clip_box = clip.intersect(box_rect);
+            let start = self.scene.primitives().len();
+            self.walk_node(widget, id, translation, clip_box, rects, index);
+            let group = self.scene.split_off(start);
+            self.scene.push_primitive(Primitive::Layer {
+                primitives: group,
+                opacity: 1.0,
+                clip: clip_box,
+                clip_shape: shape,
+                transform: None,
+                owner: id.as_u64(),
+            });
+            return;
         }
 
         // Transformations de peinture composables (`Transform` : échelle et/ou
@@ -662,6 +685,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 primitives: group,
                 opacity: 1.0,
                 clip,
+                clip_shape: ClipShape::Rect,
                 transform: Some(LayerTransform::new(matrix)),
                 owner: id.as_u64(),
             });

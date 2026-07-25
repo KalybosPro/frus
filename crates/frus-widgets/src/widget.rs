@@ -254,6 +254,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// **Découpe en forme** de tout le sous-arbre (façon `ClipRRect` / `ClipOval`
+    /// de Flutter) : la marche de peinture enveloppe ses primitives dans un calque
+    /// composité dont la [`frus_core::ClipShape`] (coins arrondis, ellipse) module
+    /// l'alpha — ce qui déborde la forme est gommé, bords anticrénelés. `None` =
+    /// pas de découpe en forme. Voir [`crate::ClipRRect`], [`crate::ClipOval`].
+    fn clip_shape(&self) -> Option<frus_core::ClipShape> {
+        None
+    }
+
     /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
     /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
     /// avec une transition glissée.
@@ -410,6 +419,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {
         (**self).transform_rotate()
+    }
+    fn clip_shape(&self) -> Option<frus_core::ClipShape> {
+        (**self).clip_shape()
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()

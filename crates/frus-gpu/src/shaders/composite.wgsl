@@ -22,6 +22,7 @@ struct InstanceInput {
     @location(1) clip: vec4<f32>,    // x, y, width, height (px)
     @location(2) inv_lin: vec4<f32>, // inverse affine, partie lineaire : ia, ib, ic, id
     @location(3) inv_tr_op: vec4<f32>, // ie, if, opacite, _
+    @location(4) shape: vec4<f32>,   // kind (0=rect,1=rrect,2=oval), radius, _, _
 };
 
 struct VertexOutput {
@@ -32,6 +33,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) opacity: f32,
     @location(4) @interpolate(flat) inv_lin: vec4<f32>,
     @location(5) @interpolate(flat) inv_tr: vec2<f32>,
+    @location(6) @interpolate(flat) shape: vec4<f32>,
 };
 
 @vertex
@@ -47,7 +49,15 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.opacity = inst.inv_tr_op.z;
     out.inv_lin = inst.inv_lin;
     out.inv_tr = inst.inv_tr_op.xy;
+    out.shape = inst.shape;
     return out;
+}
+
+// Distance signee a un rectangle a coins arrondis centre a l'origine, demi-taille
+// `half`, rayon `r` : negative dedans, positive dehors. Base des coins arrondis.
+fn sd_rounded_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
+    let q = abs(p) - half + vec2<f32>(r, r);
+    return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 @fragment
@@ -68,13 +78,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let in_bounds = f32(
         src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0
     );
-    // Découpe testée sur le pixel écran (rectangle aligné sur les axes).
-    let inside_clip = f32(
-        in.frag_px.x >= in.clip.x
-        && in.frag_px.x <= in.clip.x + in.clip.z
-        && in.frag_px.y >= in.clip.y
-        && in.frag_px.y <= in.clip.y + in.clip.w
-    );
+    // Couverture de découpe, testée sur le pixel écran, **inscrite** dans `clip` :
+    // rectangle net (kind 0), coins arrondis (kind 1) ou ellipse (kind 2). Les
+    // formes courbes sont anticrénelées sur ~1 px via la distance signee.
+    let center = in.clip.xy + in.clip.zw * 0.5;
+    let half = in.clip.zw * 0.5;
+    let q = in.frag_px - center;
+    let kind = in.shape.x;
+    var clip_cov: f32;
+    if (kind < 0.5) {
+        // Rectangle : test net (identique au comportement d'origine).
+        clip_cov = f32(
+            in.frag_px.x >= in.clip.x
+            && in.frag_px.x <= in.clip.x + in.clip.z
+            && in.frag_px.y >= in.clip.y
+            && in.frag_px.y <= in.clip.y + in.clip.w
+        );
+    } else if (kind < 1.5) {
+        // Coins arrondis : rayon borne a la demi-plus-petite dimension.
+        let r = clamp(in.shape.y, 0.0, min(half.x, half.y));
+        let d = sd_rounded_box(q, half, r);
+        clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
+    } else {
+        // Ellipse inscrite : distance approchee (gradient-normalise) au bord.
+        let e = q / max(half, vec2<f32>(1.0, 1.0));
+        let g = length(e);
+        let d = (g - 1.0) * min(half.x, half.y);
+        clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
+    }
+    let inside_clip = clip_cov;
     let sample = textureSample(tex, samp, src_uv);
     // Alpha droit ×  opacité de groupe : le blend (SrcAlpha, 1-SrcAlpha) réalise
     // le « over » correct — pas de double-superposition interne au calque.
