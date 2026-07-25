@@ -435,7 +435,7 @@ mod tests {
         fn shapes(prims: &[Primitive], out: &mut Vec<ClipShape>) {
             for p in prims {
                 if let Primitive::Layer { clip_shape, primitives, .. } = p {
-                    out.push(*clip_shape);
+                    out.push(clip_shape.clone());
                     shapes(primitives, out);
                 }
             }

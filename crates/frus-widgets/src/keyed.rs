@@ -174,6 +174,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.clip_shape()
     }
 
+    fn clip_path(&self) -> Option<&frus_core::Path> {
+        self.inner.clip_path()
+    }
+
     fn interactive(&self) -> Option<(f32, f32)> {
         self.inner.interactive()
     }

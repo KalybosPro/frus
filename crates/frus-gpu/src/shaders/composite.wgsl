@@ -13,6 +13,9 @@ var<uniform> viewport: Viewport;
 var tex: texture_2d<f32>;
 @group(1) @binding(1)
 var samp: sampler;
+// Masque de découpe (ClipPath) : chemin rendu en blanc ; blanc plein sinon.
+@group(1) @binding(2)
+var mask: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) unit_pos: vec2<f32>,
@@ -97,29 +100,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let half = in.clip.zw * 0.5;
     let q = in.frag_px - center;
     let kind = in.shape.x;
+    // Test rectangulaire (borne commune : rect nu et **borne** d'un chemin).
+    let in_rect = f32(
+        in.frag_px.x >= in.clip.x
+        && in.frag_px.x <= in.clip.x + in.clip.z
+        && in.frag_px.y >= in.clip.y
+        && in.frag_px.y <= in.clip.y + in.clip.w
+    );
     var clip_cov: f32;
     if (kind < 0.5) {
-        // Rectangle : test net (identique au comportement d'origine).
-        clip_cov = f32(
-            in.frag_px.x >= in.clip.x
-            && in.frag_px.x <= in.clip.x + in.clip.z
-            && in.frag_px.y >= in.clip.y
-            && in.frag_px.y <= in.clip.y + in.clip.w
-        );
+        clip_cov = in_rect; // rectangle net (comportement d'origine)
     } else if (kind < 1.5) {
         // Coins arrondis **par coin** : rayon du quadrant, borne a la demi-plus-petite
         // dimension.
         let r = min(corner_radius(q, in.radii), min(half.x, half.y));
         let d = sd_rounded_box(q, half, r);
         clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
-    } else {
+    } else if (kind < 2.5) {
         // Ellipse inscrite : distance approchee (gradient-normalise) au bord.
         let e = q / max(half, vec2<f32>(1.0, 1.0));
         let g = length(e);
         let d = (g - 1.0) * min(half.x, half.y);
         clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
+    } else {
+        clip_cov = in_rect; // chemin : borne rectangulaire ; la forme vient du masque
     }
-    let inside_clip = clip_cov;
+    // Masque de couverture (blanc plein hors ClipPath → multiplication neutre).
+    let mask_a = textureSample(mask, samp, in.uv).a;
+    let inside_clip = clip_cov * mask_a;
     let sample = textureSample(tex, samp, src_uv);
     // Alpha droit ×  opacité de groupe : le blend (SrcAlpha, 1-SrcAlpha) réalise
     // le « over » correct — pas de double-superposition interne au calque.

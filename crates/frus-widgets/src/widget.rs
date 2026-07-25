@@ -263,6 +263,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si le widget découpe son enfant à un **chemin arbitraire** (`ClipPath`),
+    /// renvoie le chemin en **coordonnées locales** (origine au coin haut-gauche de la
+    /// boîte). La marche le décale à l'écran, l'enveloppe dans un calque dont un masque
+    /// (le chemin) gomme l'extérieur. Prioritaire sur [`Widget::clip_shape`]. `None` =
+    /// pas de découpe par chemin. Voir [`crate::ClipPath`].
+    fn clip_path(&self) -> Option<&frus_core::Path> {
+        None
+    }
+
     /// Si le widget est une **fenêtre interactive** (`InteractiveViewer`), renvoie
     /// ses bornes d'échelle `(min, max)`. La marche de peinture rend son enfant dans
     /// un calque transformé (échelle + translation retenues, découpé à la fenêtre) ;
@@ -447,6 +456,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn clip_shape(&self) -> Option<frus_core::ClipShape> {
         (**self).clip_shape()
+    }
+    fn clip_path(&self) -> Option<&frus_core::Path> {
+        (**self).clip_path()
     }
     fn interactive(&self) -> Option<(f32, f32)> {
         (**self).interactive()

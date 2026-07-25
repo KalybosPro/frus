@@ -10,7 +10,7 @@
 //!
 //! Convention : origine haut-gauche, y vers le bas.
 
-use frus_core::{BorderRadius, ClipShape, Color, Primitive, Rect, Scene};
+use frus_core::{BorderRadius, ClipShape, Color, Path, Point, Primitive, Rect, Scene};
 use frus_test::{render_scene, Snapshot};
 
 /// Une scène : un rectangle plein `inner` (rouge) enveloppé dans un calque découpé
@@ -93,6 +93,28 @@ fn oval_clip_keeps_the_inscribed_disc() {
     // Coins du carré : hors du disque inscrit → gommés.
     assert!(is_clear(frame.pixel(15, 15)), "coin haut-gauche → hors du disque");
     assert!(is_clear(frame.pixel(49, 49)), "coin bas-droit → hors du disque");
+}
+
+/// **Chemin arbitraire.** Un losange (rendu en masque par le GPU) découpe le carré :
+/// le centre reste peint, mais les **coins** du carré (hors du losange) sont gommés.
+#[test]
+fn path_clip_masks_to_the_shape() {
+    // Losange inscrit dans le carré [12, 52] : sommets aux milieux des bords.
+    let diamond = Path::new()
+        .move_to(Point::new(32.0, 12.0))
+        .line_to(Point::new(52.0, 32.0))
+        .line_to(Point::new(32.0, 52.0))
+        .line_to(Point::new(12.0, 32.0))
+        .close();
+    let sq = Rect::new(12.0, 12.0, 40.0, 40.0);
+    let Some(frame) = render(&clipped_layer(sq, ClipShape::Path(diamond))) else { return };
+
+    assert!(is_red(frame.pixel(32, 32)), "centre du losange → rouge");
+    assert!(is_red(frame.pixel(32, 16)), "sommet haut → rouge");
+    assert!(is_red(frame.pixel(32, 48)), "sommet bas → rouge");
+    // Coins du carré : hors du losange → gommés par le masque.
+    assert!(is_clear(frame.pixel(15, 15)), "coin haut-gauche → hors du losange");
+    assert!(is_clear(frame.pixel(49, 49)), "coin bas-droit → hors du losange");
 }
 
 /// **Rayon nul = rectangle.** `RRect(0)` ne gomme aucun coin : le carré reste plein

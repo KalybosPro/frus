@@ -675,8 +675,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // dans un calque composité dont la forme (arrondi / ellipse) module l'alpha —
         // les coins débordants sont gommés au compositing (façon `ClipRRect` de
         // Flutter). La boîte de la forme est le rectangle de découpe du calque.
-        if let Some(shape) = widget.clip_shape() {
+        // Découpe en forme : `ClipPath` (chemin arbitraire, prioritaire) ou
+        // `ClipRRect`/`ClipOval` (forme analytique). Le chemin local est **décalé à la
+        // position écran** de la boîte.
+        if widget.clip_path().is_some() || widget.clip_shape().is_some() {
             let box_rect = rects[*index].translate(translation.0, translation.1);
+            let shape = widget
+                .clip_path()
+                .map(|p| ClipShape::Path(p.translated(box_rect.x, box_rect.y)))
+                .or_else(|| widget.clip_shape())
+                .expect("clip_path ou clip_shape est Some");
             let clip_box = clip.intersect(box_rect);
             let start = self.scene.primitives().len();
             self.walk_node(widget, id, translation, clip_box, rects, index);

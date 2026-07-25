@@ -99,7 +99,7 @@ pub use card::Card;
 pub use carousel::Carousel;
 pub use checkbox::Checkbox;
 pub use chip::Chip;
-pub use clip::{ClipOval, ClipRRect};
+pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
@@ -170,7 +170,7 @@ pub use widget::Widget;
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius, BoxDecoration,
     BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets, InsetsDirectional,
-    LinearGradient, Orientation, Point, Rect, Role, Scene, Semantics, SizeClass, Size,
+    LinearGradient, Orientation, Path, PathVerb, Point, Rect, Role, Scene, Semantics, SizeClass, Size,
     TextDecoration, TextDirection, TextSpan, TextStyle, Toggled, WindowInsets,
 };
 /// Couche d'animation partagée (physique, courbes, pilote) — voir

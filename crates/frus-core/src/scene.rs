@@ -61,8 +61,9 @@ impl LayerTransform {
 
 /// Forme de découpe d'un [`Primitive::Layer`], **inscrite** dans son rectangle
 /// `clip`. Le compositing multiplie l'alpha du calque par la couverture de la
-/// forme (bords anticrénelés) — la brique de `ClipRRect` / `ClipOval` de Flutter.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// forme (bords anticrénelés) — la brique de `ClipRRect` / `ClipOval` / `ClipPath`
+/// de Flutter.
+#[derive(Clone, Debug, PartialEq)]
 pub enum ClipShape {
     /// Découpe rectangulaire nette (le `clip` du calque tel quel).
     Rect,
@@ -72,6 +73,10 @@ pub enum ClipShape {
     RRect(BorderRadius),
     /// **Ellipse** inscrite dans le `clip` (un cercle si le `clip` est carré).
     Oval,
+    /// **Chemin arbitraire** (coordonnées écran absolues) : le compositing rend le
+    /// chemin dans un **masque** de couverture qu'il multiplie à l'alpha du calque.
+    /// La brique de `ClipPath` — étoiles, découpes en pointe, formes libres.
+    Path(Path),
 }
 
 impl Default for ClipShape {
@@ -87,6 +92,9 @@ impl ClipShape {
     pub fn scaled_xy(self, sx: f32, sy: f32) -> ClipShape {
         match self {
             ClipShape::RRect(br) => ClipShape::RRect(br.scale((sx + sy) * 0.5)),
+            // Le chemin est en coordonnées absolues : la mise à l'échelle DPI le suit
+            // (uniforme — `sx == sy` au DPI).
+            ClipShape::Path(p) => ClipShape::Path(p.scaled((sx + sy) * 0.5)),
             other => other,
         }
     }

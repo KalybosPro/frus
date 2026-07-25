@@ -91,9 +91,13 @@ pub(crate) fn preferred_sample_count(adapter: &wgpu::Adapter, format: wgpu::Text
 /// transformation **inverse** (écran → texture) à appliquer à l'échantillonnage.
 struct LayerComposite {
     view: wgpu::TextureView,
+    /// Masque de couverture (`ClipShape::Path`) — le chemin rendu en blanc ; blanc
+    /// plein (1×1) pour les autres formes (multiplication neutre).
+    mask: wgpu::TextureView,
     opacity: f32,
     clip: [f32; 4],
-    /// Forme de découpe : `[kind, _, _, _]` — `kind` 0 = rect, 1 = rrect, 2 = oval.
+    /// Forme de découpe : `[kind, _, _, _]` — `kind` 0 = rect, 1 = rrect, 2 = oval,
+    /// 3 = chemin (masque).
     shape: [f32; 4],
     /// Rayons de coin (rrect) : `[tl, tr, br, bl]`.
     radii: [f32; 4],
@@ -135,10 +139,25 @@ struct CompositePainter {
     instance_capacity: usize,
     /// Groupes de liaison des textures de calques de la frame courante.
     bind_groups: Vec<wgpu::BindGroup>,
+    /// Masque **neutre** (1×1 blanc opaque) : lié quand un calque n'a pas de découpe
+    /// par chemin (multiplication d'alpha par 1 → sans effet).
+    white_mask: wgpu::Texture,
 }
 
 impl CompositePainter {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
+    /// Une vue du masque neutre (blanc opaque) — liée aux calques sans chemin.
+    fn white_mask_view(&self) -> wgpu::TextureView {
+        self.white_mask.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+}
+
+impl CompositePainter {
+    fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.composite.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/composite.wgsl").into()),
@@ -192,6 +211,17 @@ impl CompositePainter {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // Masque de découpe (chemin), échantillonné au fragment.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
             ],
@@ -255,6 +285,23 @@ impl CompositePainter {
             mapped_at_creation: false,
         });
 
+        // Masque neutre : 1×1 blanc opaque (alpha = 1 partout).
+        let white = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("frus.composite.white_mask"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &[255, 255, 255, 255],
+        );
+
         Self {
             pipeline,
             viewport_buffer,
@@ -265,6 +312,7 @@ impl CompositePainter {
             instance_buffer,
             instance_capacity: 8,
             bind_groups: Vec::new(),
+            white_mask: white,
         }
     }
 
@@ -314,6 +362,10 @@ impl CompositePainter {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&layer.mask),
                     },
                 ],
             }));
@@ -381,7 +433,7 @@ impl Painters {
             image: ImagePainter::new(device, format, sample_count),
             path: PathPainter::new(device, format, sample_count),
             text: TextPainter::new(device, queue, format, sample_count),
-            composite: CompositePainter::new(device, format, sample_count),
+            composite: CompositePainter::new(device, queue, format, sample_count),
             sample_count,
             msaa: None,
             layer_cache: Vec::new(),
@@ -470,14 +522,23 @@ impl Painters {
                     Some(t) => t.affine.inverse().m,
                     None => frus_core::Affine::IDENTITY.m,
                 };
-                // Forme de découpe : (kind, rayons par coin) — testée par SDF au fragment.
+                // Forme de découpe : (kind, rayons par coin) — SDF au fragment pour
+                // rect/rrect/oval ; un **masque** rendu pour un chemin arbitraire.
                 let (shape, radii) = match clip_shape {
                     frus_core::ClipShape::Rect => ([0.0, 0.0, 0.0, 0.0], [0.0; 4]),
                     frus_core::ClipShape::RRect(br) => ([1.0, 0.0, 0.0, 0.0], br.to_array()),
                     frus_core::ClipShape::Oval => ([2.0, 0.0, 0.0, 0.0], [0.0; 4]),
+                    frus_core::ClipShape::Path(_) => ([3.0, 0.0, 0.0, 0.0], [0.0; 4]),
+                };
+                let mask = match clip_shape {
+                    frus_core::ClipShape::Path(path) => {
+                        self.render_mask(device, queue, format, path, w, h)
+                    }
+                    _ => self.composite.white_mask_view(),
                 };
                 layers.push(LayerComposite {
                     view,
+                    mask,
                     opacity: *opacity,
                     clip: clip.to_array(),
                     shape,
@@ -562,6 +623,29 @@ impl Painters {
         self.layer_cache[index]
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    /// Rend un **masque de découpe** : le `path` (coordonnées écran absolues) rempli
+    /// en blanc opaque sur fond transparent, à la taille de la surface. La vue renvoyée
+    /// maintient la texture en vie (wgpu compte les références).
+    fn render_mask(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        path: &frus_core::Path,
+        w: u32,
+        h: u32,
+    ) -> wgpu::TextureView {
+        let prim = Primitive::Path {
+            path: path.clone(),
+            fill: Some(frus_core::Color::WHITE),
+            stroke: None,
+            clip: frus_core::Rect::UNBOUNDED,
+            owner: 0,
+        };
+        let tex = self.render_group(device, queue, format, &[prim], w, h);
+        tex.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     /// Rend un groupe de primitives sur une texture pleine surface (fond

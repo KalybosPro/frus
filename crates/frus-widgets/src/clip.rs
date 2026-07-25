@@ -1,7 +1,7 @@
 //! [`ClipRRect`] et [`ClipOval`] : découpent leur enfant à une **forme** (coins
 //! arrondis, ellipse) à la peinture, façon `ClipRRect` / `ClipOval` de Flutter.
 
-use frus_core::{BorderRadius, ClipShape, Rect, Scene};
+use frus_core::{BorderRadius, ClipShape, Path, Rect, Scene};
 use frus_layout::Style;
 
 use crate::interaction::Status;
@@ -123,11 +123,69 @@ impl<Msg: Clone> Widget<Msg> for ClipOval<Msg> {
     }
 }
 
+/// Découpe son enfant à un **chemin arbitraire** (`ClipPath` de Flutter) : le
+/// sous-arbre est peint dans un calque dont un **masque** (le chemin, rendu par le
+/// GPU) gomme tout ce qui est en dehors — étoiles, découpes en pointe, bulles, formes
+/// libres, avec bords anticrénelés.
+///
+/// Le chemin est donné en **coordonnées locales** (origine au coin haut-gauche de la
+/// boîte du widget) ; la marche le décale à la position écran. Passe-plat en mise en
+/// page, comme [`ClipRRect`].
+///
+/// ```ignore
+/// // Un losange inscrit dans une boîte 100×100.
+/// let diamond = Path::new()
+///     .move_to(Point::new(50.0, 0.0))
+///     .line_to(Point::new(100.0, 50.0))
+///     .line_to(Point::new(50.0, 100.0))
+///     .line_to(Point::new(0.0, 50.0))
+///     .close();
+/// ClipPath::new(diamond).child(Image::asset("photo.png"))
+/// ```
+pub struct ClipPath<Msg> {
+    path: Path,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg> ClipPath<Msg> {
+    /// Découpe l'enfant au `path` (coordonnées locales à la boîte).
+    pub fn new(path: Path) -> Self {
+        Self { path, children: Vec::new() }
+    }
+
+    /// Définit l'enfant découpé.
+    pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
+        self.children.clear();
+        self.children.push(Box::new(child));
+        self
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for ClipPath<Msg> {
+    fn style(&self) -> Style {
+        Style::default()
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn clip_path(&self) -> Option<&Path> {
+        Some(&self.path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Container;
-    use frus_core::{Color, Primitive, Size};
+    use frus_core::{Color, Point, Primitive, Size};
 
     /// Enveloppe la scène d'un `ClipRRect` : un calque à forme `RRect` est émis, et
     /// le fond de l'enfant est peint **dedans** (dans les primitives du calque).
@@ -145,7 +203,7 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { clip_shape, primitives, .. } => Some((*clip_shape, primitives.clone())),
+                Primitive::Layer { clip_shape, primitives, .. } => Some((clip_shape.clone(), primitives.clone())),
                 _ => None,
             })
             .expect("un calque de découpe");
@@ -167,10 +225,44 @@ mod tests {
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
         let shape = ui.scene().primitives().iter().find_map(|p| match p {
-            Primitive::Layer { clip_shape, .. } => Some(*clip_shape),
+            Primitive::Layer { clip_shape, .. } => Some(clip_shape.clone()),
             _ => None,
         });
         assert_eq!(shape, Some(ClipShape::Oval), "forme ellipse");
+    }
+
+    /// `ClipPath` émet un calque à forme `Path`, **décalée à la position écran** de la
+    /// boîte (le chemin local est translaté par l'origine de la boîte).
+    #[test]
+    fn clip_path_emits_a_translated_path_layer() {
+        // Losange 40×40 en coordonnées locales.
+        let diamond = Path::new()
+            .move_to(Point::new(20.0, 0.0))
+            .line_to(Point::new(40.0, 20.0))
+            .line_to(Point::new(20.0, 40.0))
+            .line_to(Point::new(0.0, 20.0))
+            .close();
+        let root = crate::Flex::<()>::column().width(100.0).padding(10.0).child(
+            ClipPath::new(diamond).child(Container::new().width(40.0).height(40.0).color(Color::rgb(1.0, 0.0, 0.0))),
+        );
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
+        let shape = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Layer { clip_shape: ClipShape::Path(path), .. } => Some(path.clone()),
+            _ => None,
+        });
+        let path = shape.expect("un calque de découpe par chemin");
+        // Le sommet local (20, 0) est translaté de l'origine de la boîte (padding 10)
+        // → (30, 10) à l'écran.
+        let first = path.verbs().first().copied().expect("au moins un verbe");
+        match first {
+            frus_core::PathVerb::MoveTo(p) => assert!(
+                (p.x - 30.0).abs() < 0.6 && (p.y - 10.0).abs() < 0.6,
+                "sommet décalé à l'écran (30, 10) : {p:?}"
+            ),
+            other => panic!("premier verbe attendu MoveTo, obtenu {other:?}"),
+        }
     }
 
     /// La découpe est **passe-plat** en mise en page : un frère placé après un enfant
