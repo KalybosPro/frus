@@ -22,7 +22,8 @@ struct InstanceInput {
     @location(1) clip: vec4<f32>,    // x, y, width, height (px)
     @location(2) inv_lin: vec4<f32>, // inverse affine, partie lineaire : ia, ib, ic, id
     @location(3) inv_tr_op: vec4<f32>, // ie, if, opacite, _
-    @location(4) shape: vec4<f32>,   // kind (0=rect,1=rrect,2=oval), radius, _, _
+    @location(4) shape: vec4<f32>,   // kind (0=rect,1=rrect,2=oval), _, _, _
+    @location(5) radii: vec4<f32>,   // rayons rrect : tl, tr, br, bl
 };
 
 struct VertexOutput {
@@ -34,6 +35,7 @@ struct VertexOutput {
     @location(4) @interpolate(flat) inv_lin: vec4<f32>,
     @location(5) @interpolate(flat) inv_tr: vec2<f32>,
     @location(6) @interpolate(flat) shape: vec4<f32>,
+    @location(7) @interpolate(flat) radii: vec4<f32>,
 };
 
 @vertex
@@ -50,6 +52,7 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.inv_lin = inst.inv_lin;
     out.inv_tr = inst.inv_tr_op.xy;
     out.shape = inst.shape;
+    out.radii = inst.radii;
     return out;
 }
 
@@ -58,6 +61,15 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
 fn sd_rounded_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
     let q = abs(p) - half + vec2<f32>(r, r);
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+// Rayon du coin correspondant au quadrant de `p` (centre, y vers le bas).
+// radii = (tl, tr, br, bl).
+fn corner_radius(p: vec2<f32>, radii: vec4<f32>) -> f32 {
+    if (p.x < 0.0) {
+        return select(radii.w, radii.x, p.y < 0.0); // gauche : haut → tl, bas → bl
+    }
+    return select(radii.z, radii.y, p.y < 0.0);     // droite : haut → tr, bas → br
 }
 
 @fragment
@@ -95,8 +107,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             && in.frag_px.y <= in.clip.y + in.clip.w
         );
     } else if (kind < 1.5) {
-        // Coins arrondis : rayon borne a la demi-plus-petite dimension.
-        let r = clamp(in.shape.y, 0.0, min(half.x, half.y));
+        // Coins arrondis **par coin** : rayon du quadrant, borne a la demi-plus-petite
+        // dimension.
+        let r = min(corner_radius(q, in.radii), min(half.x, half.y));
         let d = sd_rounded_box(q, half, r);
         clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
     } else {

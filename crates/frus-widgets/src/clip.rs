@@ -1,34 +1,41 @@
 //! [`ClipRRect`] et [`ClipOval`] : découpent leur enfant à une **forme** (coins
 //! arrondis, ellipse) à la peinture, façon `ClipRRect` / `ClipOval` de Flutter.
 
-use frus_core::{ClipShape, Rect, Scene};
+use frus_core::{BorderRadius, ClipShape, Rect, Scene};
 use frus_layout::Style;
 
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Découpe son enfant à un **rectangle à coins arrondis**. Le sous-arbre est peint
-/// dans un calque dont la forme gomme ce qui déborde des coins (bords anticrénelés) —
-/// la brique d'une vignette, d'un avatar carré-arrondi, d'une carte à coins doux dont
-/// le contenu (image, dégradé…) épouse exactement l'arrondi.
+/// Découpe son enfant à un **rectangle à coins arrondis** — rayon **par coin**. Le
+/// sous-arbre est peint dans un calque dont la forme gomme ce qui déborde des coins
+/// (bords anticrénelés) — la brique d'une vignette, d'un avatar carré-arrondi, d'une
+/// carte à coins doux (ou seulement le haut arrondi, façon feuille montante) dont le
+/// contenu (image, dégradé…) épouse exactement l'arrondi.
 ///
 /// Passe-plat en mise en page : la boîte prend la taille que le parent lui donne (comme
-/// son enfant), et l'arrondi est **inscrit** dans cette boîte. Le rayon est borné à la
-/// demi-plus-petite dimension (au-delà, les coins se rejoignent — un stade).
+/// son enfant), et l'arrondi est **inscrit** dans cette boîte. Chaque rayon est borné à
+/// la demi-plus-petite dimension (au-delà, les coins se rejoignent — un stade).
 ///
 /// ```ignore
-/// ClipRRect::new(12.0).child(Image::asset("photo.png"))
+/// ClipRRect::new(12.0).child(Image::asset("photo.png"))              // uniforme
+/// ClipRRect::rounded(BorderRadius::top(16.0)).child(header)          // haut arrondi
 /// ```
 pub struct ClipRRect<Msg> {
-    radius: f32,
+    radius: BorderRadius,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> ClipRRect<Msg> {
-    /// Découpe l'enfant à un rectangle arrondi de `radius` px logiques (uniforme sur
-    /// les quatre coins).
+    /// Découpe l'enfant à un rectangle arrondi de `radius` px logiques, **uniforme**
+    /// sur les quatre coins.
     pub fn new(radius: f32) -> Self {
+        Self::rounded(BorderRadius::uniform(radius))
+    }
+
+    /// Découpe l'enfant à un rectangle arrondi **par coin** (rayons distincts).
+    pub fn rounded(radius: BorderRadius) -> Self {
         Self { radius, children: Vec::new() }
     }
 
@@ -60,7 +67,7 @@ impl<Msg: Clone> Widget<Msg> for ClipRRect<Msg> {
     }
 
     fn clip_shape(&self) -> Option<ClipShape> {
-        Some(ClipShape::RRect(self.radius))
+        Some(ClipShape::RRect(self.radius.clamped()))
     }
 }
 
@@ -142,7 +149,7 @@ mod tests {
                 _ => None,
             })
             .expect("un calque de découpe");
-        assert_eq!(layer.0, ClipShape::RRect(8.0), "forme arrondie de rayon 8");
+        assert_eq!(layer.0, ClipShape::RRect(BorderRadius::uniform(8.0)), "forme arrondie de rayon 8");
         assert!(
             layer.1.iter().any(|p| matches!(p, Primitive::Rect { color, .. } if color.r > 0.5)),
             "le fond rouge de l'enfant est peint dans le calque"

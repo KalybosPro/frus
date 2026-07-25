@@ -293,7 +293,10 @@ impl Application for Showcase {
             .radius(9.0)
             .child(
                 FractionallySizedBox::new().width_factor(width_factor).child(
-                    Container::new().flex(1.0).color(theme.primary).radius(9.0),
+                    Container::new()
+                    .flex(1.0)
+                    .color(theme.primary)
+                    .radius(9.0),
                 ),
             );
 
@@ -421,7 +424,7 @@ mod tests {
     /// découpe de bout en bout.
     #[test]
     fn renders_clip_shapes() {
-        use frus_core::{ClipShape, Primitive};
+        use frus_core::{BorderRadius, ClipShape, Primitive};
         use frus_widgets::{build_ui, Runtime, Size};
         let app = Showcase::default();
         let theme = Theme::dark();
@@ -439,7 +442,7 @@ mod tests {
         }
         let mut found = Vec::new();
         shapes(ui.scene().primitives(), &mut found);
-        assert!(found.contains(&ClipShape::RRect(24.0)), "ClipRRect(24) rendu : {found:?}");
+        assert!(found.contains(&ClipShape::RRect(BorderRadius::uniform(24.0))), "ClipRRect(24) rendu : {found:?}");
         assert!(found.contains(&ClipShape::Oval), "ClipOval rendu : {found:?}");
     }
 

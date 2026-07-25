@@ -10,7 +10,7 @@
 //!
 //! Convention : origine haut-gauche, y vers le bas.
 
-use frus_core::{ClipShape, Color, Primitive, Rect, Scene};
+use frus_core::{BorderRadius, ClipShape, Color, Primitive, Rect, Scene};
 use frus_test::{render_scene, Snapshot};
 
 /// Une scène : un rectangle plein `inner` (rouge) enveloppé dans un calque découpé
@@ -54,7 +54,7 @@ fn render(scene: &Scene) -> Option<Snapshot> {
 fn rrect_clip_rounds_off_the_corners() {
     // Carré centré 40×40 : x, y ∈ [12, 52].
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0);
-    let m = ClipShape::RRect(16.0);
+    let m = ClipShape::RRect(BorderRadius::uniform(16.0));
     let Some(frame) = render(&clipped_layer(sq, m)) else { return };
 
     // Le cœur et les milieux de bord restent peints.
@@ -64,6 +64,20 @@ fn rrect_clip_rounds_off_the_corners() {
     // Les coins (dans le carré, hors du rayon) sont gommés.
     assert!(is_clear(frame.pixel(14, 14)), "coin haut-gauche → gommé par l'arrondi");
     assert!(is_clear(frame.pixel(50, 50)), "coin bas-droit → gommé par l'arrondi");
+}
+
+/// **Rayon par coin.** Seul le coin **haut-gauche** est arrondi (rayon 16) ; les trois
+/// autres restent **nets**. Le coin haut-gauche est gommé, les autres conservés.
+#[test]
+fn rrect_clip_rounds_only_the_specified_corner() {
+    let sq = Rect::new(12.0, 12.0, 40.0, 40.0); // x, y ∈ [12, 52]
+    let br = BorderRadius { top_left: 16.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 0.0 };
+    let Some(frame) = render(&clipped_layer(sq, ClipShape::RRect(br))) else { return };
+
+    assert!(is_clear(frame.pixel(15, 15)), "coin haut-gauche → arrondi (gommé)");
+    assert!(is_red(frame.pixel(49, 15)), "coin haut-droit → net (conservé)");
+    assert!(is_red(frame.pixel(15, 49)), "coin bas-gauche → net (conservé)");
+    assert!(is_red(frame.pixel(49, 49)), "coin bas-droit → net (conservé)");
 }
 
 /// **Ellipse.** Un carré plein découpé en ovale garde son centre mais perd ses
@@ -86,7 +100,7 @@ fn oval_clip_keeps_the_inscribed_disc() {
 #[test]
 fn rrect_zero_radius_is_a_plain_rect() {
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0);
-    let Some(frame) = render(&clipped_layer(sq, ClipShape::RRect(0.0))) else { return };
+    let Some(frame) = render(&clipped_layer(sq, ClipShape::RRect(BorderRadius::uniform(0.0)))) else { return };
 
     assert!(is_red(frame.pixel(14, 14)), "coin conservé (rayon nul)");
     assert!(is_red(frame.pixel(50, 50)), "coin conservé (rayon nul)");

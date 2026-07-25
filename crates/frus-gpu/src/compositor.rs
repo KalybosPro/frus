@@ -58,8 +58,10 @@ struct CompInstance {
     inv_lin: [f32; 4],
     /// `ie, if, opacité, _` — translation de l'inverse + opacité de groupe.
     inv_tr_opacity: [f32; 4],
-    /// Forme de découpe : `[kind, radius, _, _]` (0 = rect, 1 = rrect, 2 = oval).
+    /// Forme de découpe : `[kind, _, _, _]` (0 = rect, 1 = rrect, 2 = oval).
     shape: [f32; 4],
+    /// Rayons de coin (rrect) : `[tl, tr, br, bl]`.
+    radii: [f32; 4],
 }
 
 #[repr(C)]
@@ -91,8 +93,10 @@ struct LayerComposite {
     view: wgpu::TextureView,
     opacity: f32,
     clip: [f32; 4],
-    /// Forme de découpe : `[kind, radius, _, _]` — `kind` 0 = rect, 1 = rrect, 2 = oval.
+    /// Forme de découpe : `[kind, _, _, _]` — `kind` 0 = rect, 1 = rrect, 2 = oval.
     shape: [f32; 4],
+    /// Rayons de coin (rrect) : `[tl, tr, br, bl]`.
+    radii: [f32; 4],
     /// Inverse affine `[ia, ib, ic, id, ie, if]` (identité = pas de transformation).
     inverse: [f32; 6],
 }
@@ -282,6 +286,7 @@ impl CompositePainter {
                     inv_lin: [i[0], i[1], i[2], i[3]],
                     inv_tr_opacity: [i[4], i[5], l.opacity, 0.0],
                     shape: l.shape,
+                    radii: l.radii,
                 }
             })
             .collect();
@@ -332,11 +337,12 @@ impl CompositePainter {
 }
 
 fn comp_instance_layout() -> wgpu::VertexBufferLayout<'static> {
-    const ATTRS: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
         1 => Float32x4,
         2 => Float32x4,
         3 => Float32x4,
         4 => Float32x4,
+        5 => Float32x4,
     ];
     wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<CompInstance>() as wgpu::BufferAddress,
@@ -464,17 +470,18 @@ impl Painters {
                     Some(t) => t.affine.inverse().m,
                     None => frus_core::Affine::IDENTITY.m,
                 };
-                // Forme de découpe : (kind, rayon) — testée par SDF dans le fragment.
-                let shape = match clip_shape {
-                    frus_core::ClipShape::Rect => [0.0, 0.0, 0.0, 0.0],
-                    frus_core::ClipShape::RRect(r) => [1.0, *r, 0.0, 0.0],
-                    frus_core::ClipShape::Oval => [2.0, 0.0, 0.0, 0.0],
+                // Forme de découpe : (kind, rayons par coin) — testée par SDF au fragment.
+                let (shape, radii) = match clip_shape {
+                    frus_core::ClipShape::Rect => ([0.0, 0.0, 0.0, 0.0], [0.0; 4]),
+                    frus_core::ClipShape::RRect(br) => ([1.0, 0.0, 0.0, 0.0], br.to_array()),
+                    frus_core::ClipShape::Oval => ([2.0, 0.0, 0.0, 0.0], [0.0; 4]),
                 };
                 layers.push(LayerComposite {
                     view,
                     opacity: *opacity,
                     clip: clip.to_array(),
                     shape,
+                    radii,
                     inverse,
                 });
                 layer_index += 1;

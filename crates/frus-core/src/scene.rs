@@ -66,9 +66,10 @@ impl LayerTransform {
 pub enum ClipShape {
     /// Découpe rectangulaire nette (le `clip` du calque tel quel).
     Rect,
-    /// Rectangle à **coins arrondis** : rayon uniforme (px logiques), borné à la
-    /// demi-plus-petite dimension du `clip`.
-    RRect(f32),
+    /// Rectangle à **coins arrondis**, rayon **par coin** ([`BorderRadius`], px
+    /// logiques) borné à la demi-plus-petite dimension du `clip`. Un rayon uniforme
+    /// reste `BorderRadius::uniform(r)`.
+    RRect(BorderRadius),
     /// **Ellipse** inscrite dans le `clip` (un cercle si le `clip` est carré).
     Oval,
 }
@@ -85,7 +86,7 @@ impl ClipShape {
     /// d'axe). L'ellipse suit son `clip` et le rectangle n'a rien à mettre à l'échelle.
     pub fn scaled_xy(self, sx: f32, sy: f32) -> ClipShape {
         match self {
-            ClipShape::RRect(r) => ClipShape::RRect(r * (sx + sy) * 0.5),
+            ClipShape::RRect(br) => ClipShape::RRect(br.scale((sx + sy) * 0.5)),
             other => other,
         }
     }
