@@ -398,6 +398,7 @@ pub(crate) fn build_layout<Msg>(
     // Défilables, navigateurs, listes virtualisées et piles : contenu mis en page
     // à part (couches / écrans / éléments indépendants).
     if widget.scroll_content().is_some()
+        || widget.interactive().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.layout_builder().is_some()

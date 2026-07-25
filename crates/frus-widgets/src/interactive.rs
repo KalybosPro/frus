@@ -244,6 +244,42 @@ mod tests {
         );
     }
 
+    /// Régression : un frère placé **après** une fenêtre interactive garde sa place
+    /// de mise en page. La fenêtre est une **feuille** de layout (son sous-arbre est
+    /// posé à part) ; sans cela, l'index des rectangles se désynchronise et tout ce
+    /// qui suit se superpose. Ici la fenêtre fait 150 de haut → le frère suit à y=150.
+    #[test]
+    fn sibling_after_viewer_keeps_its_layout_position() {
+        use crate::{Container, Flex};
+        use frus_core::{Color, Primitive, Size};
+        let green = Color::rgb(0.0, 1.0, 0.0);
+        let root = Flex::<()>::column()
+            .width(300.0)
+            .child(
+                InteractiveViewer::new()
+                    .width(300.0)
+                    .height(150.0)
+                    .child(Container::new().color(Color::rgb(0.2, 0.2, 0.2))),
+            )
+            .child(Container::new().width(300.0).height(20.0).color(green));
+        let rt = crate::runtime::Runtime::default();
+        let theme = crate::Theme::dark();
+        let ui = crate::ui::build_ui(&root, Size::new(300.0, 600.0), &rt, &theme);
+        let marker_y = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(rect.y),
+                _ => None,
+            })
+            .expect("le marqueur vert");
+        assert!(
+            (marker_y - 150.0).abs() < 0.5,
+            "le frère suit la fenêtre (150 de haut), pas superposé : y = {marker_y}"
+        );
+    }
+
     /// Le hit-test **traverse la transformation** : après un pan de +50 en x, un clic
     /// à la position déplacée atteint l'enfant, et son ancienne position le rate.
     #[test]

@@ -17,8 +17,9 @@ use std::time::Duration;
 
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
-    Align, Alignment, AspectRatio, Button, Color, Container, Curve, Flex, FractionallySizedBox,
-    Justify, Scroll, Slider, Text, Theme, Transform, Tween, Variant, Widget,
+    Align, Alignment, AspectRatio, Button, ClipOval, ClipRRect, Color, Container, Curve, Flex,
+    FractionallySizedBox, InteractiveViewer, Justify, Scroll, Slider, Text, Theme, Transform, Tween,
+    Variant, Widget,
 };
 
 /// Pas de temps fixe par image (~60 fps) : garde `update` **déterministe** et
@@ -176,6 +177,57 @@ impl Application for Showcase {
                 "translate + rotate",
             ));
 
+        // Galerie 3 : découpe **en forme** — un carré dégradé à coins **nets** rogné
+        // en rectangle arrondi (`ClipRRect`) puis en cercle (`ClipOval`). Le contraste
+        // avec les coins nets d'origine rend la découpe visible.
+        let sharp = || {
+            Container::<Msg>::new()
+                .width(96.0)
+                .height(96.0)
+                .color(theme.primary)
+                .gradient(theme.scheme.secondary, [1.0, 1.0])
+        };
+        let gallery3 = Flex::row()
+            .gap(16.0)
+            .align(Align::Center)
+            .child(tile(Box::new(ClipRRect::new(24.0).child(sharp())), "ClipRRect(24)"))
+            .child(tile(Box::new(ClipOval::new().child(sharp())), "ClipOval"));
+
+        // Fenêtre **interactive** : une grille de pastilles sur fond dégradé, que
+        // l'utilisateur **déplace** (glisser) et **zoome** (molette, ancrée au curseur).
+        // Le contenu déborde la fenêtre à fort zoom — il est découpé au cadre.
+        let viewer_content = Container::new()
+            .color(theme.surface)
+            .gradient(theme.primary_container, [1.0, 1.0])
+            .child(
+                Flex::column()
+                    .justify(Justify::Center)
+                    .align(Align::Center)
+                    .gap(12.0)
+                    .child(
+                        Flex::row()
+                            .gap(12.0)
+                            .child(square(theme.primary))
+                            .child(square(theme.scheme.secondary))
+                            .child(square(theme.primary)),
+                    )
+                    .child(
+                        Flex::row()
+                            .gap(12.0)
+                            .child(square(theme.scheme.secondary))
+                            .child(square(theme.primary))
+                            .child(square(theme.scheme.secondary)),
+                    ),
+            );
+        let viewer = Container::new().radius(12.0).color(theme.surface).child(
+            InteractiveViewer::new()
+                .width(260.0)
+                .height(180.0)
+                .min_scale(0.5)
+                .max_scale(4.0)
+                .child(viewer_content),
+        );
+
         // Interactif : un bouton **cliquable dans un Transform tourné** (le hit-test
         // traverse la transformation), un curseur qui pilote une échelle en direct, et
         // un bouton lecture/pause.
@@ -252,12 +304,16 @@ impl Application for Showcase {
             .padding(24.0)
             .align(Align::Center)
             .child(
-                Text::new("Transform · AspectRatio · FractionallySizedBox")
+                Text::new("Transform · Clip · InteractiveViewer · AspectRatio")
                     .size(20.0)
                     .color(theme.on_surface),
             )
             .child(gallery1)
             .child(gallery2)
+            .child(Text::new("ClipRRect · ClipOval — sharp corners, clipped to shape").size(13.0).color(theme.on_surface))
+            .child(gallery3)
+            .child(Text::new("InteractiveViewer — drag to pan, wheel to zoom").size(13.0).color(theme.on_surface))
+            .child(viewer)
             .child(Text::new("Interactive — the button below is inside a rotated Transform").size(13.0).color(theme.on_surface))
             .child(interactive)
             .child(Text::new("AspectRatio 16:9").size(13.0).color(theme.on_surface))
@@ -358,6 +414,33 @@ mod tests {
             .iter()
             .any(|p| matches!(p, Primitive::Layer { transform: Some(_), .. }));
         assert!(transformed, "un Transform de la scène émet un calque transformé");
+    }
+
+    /// La `view` émet des calques **découpés en forme** : la galerie clip produit un
+    /// `ClipShape::RRect` **et** un `ClipShape::Oval` — preuve que la vitrine câble la
+    /// découpe de bout en bout.
+    #[test]
+    fn renders_clip_shapes() {
+        use frus_core::{ClipShape, Primitive};
+        use frus_widgets::{build_ui, Runtime, Size};
+        let app = Showcase::default();
+        let theme = Theme::dark();
+        let view = app.view(&theme, 500.0, 900.0);
+        let rt = Runtime::default();
+        let ui = build_ui(view.as_ref(), Size::new(500.0, 900.0), &rt, &theme);
+        // Collecte récursive des formes de découpe (les calques peuvent être imbriqués).
+        fn shapes(prims: &[Primitive], out: &mut Vec<ClipShape>) {
+            for p in prims {
+                if let Primitive::Layer { clip_shape, primitives, .. } = p {
+                    out.push(*clip_shape);
+                    shapes(primitives, out);
+                }
+            }
+        }
+        let mut found = Vec::new();
+        shapes(ui.scene().primitives(), &mut found);
+        assert!(found.contains(&ClipShape::RRect(24.0)), "ClipRRect(24) rendu : {found:?}");
+        assert!(found.contains(&ClipShape::Oval), "ClipOval rendu : {found:?}");
     }
 
     /// Garde-fou anti-page-blanche : le contenu doit être **réellement dimensionné**
