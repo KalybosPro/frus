@@ -17,15 +17,34 @@ exige un **contexte sécurisé** (`https` ou `localhost`).
 ## Construire
 
 ```bash
-# 1) Compiler la lib en wasm (release conseillé pour la taille/perf).
-cargo build -p frus-hello --target wasm32-unknown-unknown --release
+# 1) Compiler la lib en wasm avec le profil Web (optimisé TAILLE — jalon 131 :
+#    opt-level=z, lto, codegen-units=1, panic=abort, strip).
+cargo build -p frus-hello --target wasm32-unknown-unknown --profile web-release
 
 # 2) Générer la glu JS + le .wasm bindé dans web/pkg/.
 wasm-bindgen \
   --target web --no-typescript \
   --out-dir crates/frus-hello/web/pkg \
-  target/wasm32-unknown-unknown/release/frus_hello.wasm
+  target/wasm32-unknown-unknown/web-release/frus_hello.wasm
 ```
+
+### Taille (jalon 131)
+
+Le profil `web-release` réduit le `.wasm` **téléchargé** (gzip) d'environ **11 %**
+par rapport au `--release` par défaut :
+
+| build                     | après `wasm-bindgen` | gzip (transfert) |
+| ------------------------- | -------------------: | ---------------: |
+| `--release` (défaut)      |            ~6,65 Mio |        ~2,86 Mio |
+| `--profile web-release`   |            ~5,64 Mio |    **~2,56 Mio** |
+
+L'essentiel du poids restant est `wgpu` + `naga` (le pilote WebGPU), incompressible
+sans perdre le rendu. Servez toujours le `.wasm` **compressé** (`Content-Encoding:
+gzip`/`br`) — c'est la taille gzip qui est téléchargée.
+
+> Passe optionnelle `wasm-opt -Oz` (binaryen) : elle rétrécit le `.wasm` brut, mais
+> **n'aide le gzip qu'avec un binaryen récent** — une version ancienne peut réordonner
+> le code d'une façon qui compresse *moins* bien. Mesurez le gzip avant de l'adopter.
 
 ## Servir
 

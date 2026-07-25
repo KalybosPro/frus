@@ -33,3 +33,14 @@ opt-level = 1
 # Les dépendances lourdes (wgpu, naga...) restent optimisées même en dev.
 [profile.dev.package."*"]
 opt-level = 3
+
+# Profil **Web** : optimise pour la TAILLE du `.wasm` téléchargé (jalon 131).
+# Isolé du release natif (qui reste réglé pour la vitesse) — on l'active via
+# `cargo build --profile web-release --target wasm32-unknown-unknown`.
+[profile.web-release]
+inherits = "release"
+opt-level = "z"      # priorité à la taille du code (vs "3" = vitesse)
+lto = true           # inlining inter-crates + élagage agressif du code mort
+codegen-units = 1    # une seule unité : meilleure optimisation (build plus lent)
+panic = "abort"      # supprime les tables de déroulement des panics (unwinding)
+strip = true         # retire symboles et debuginfo du binaire
