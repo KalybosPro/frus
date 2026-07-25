@@ -4,6 +4,11 @@
 //! shell (glisser pour déplacer, molette / pincement pour zoomer).
 
 use frus_core::{Affine, Point, Rect, Scene};
+
+/// Friction du *fling* d'un pan relâché (décroissance exponentielle, par seconde).
+pub(crate) const PAN_FRICTION: f32 = 6.0;
+/// En deçà de cette vitesse (px/s), le fling s'arrête (au repos).
+pub(crate) const PAN_MIN_VELOCITY: f32 = 24.0;
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -43,6 +48,32 @@ impl InteractiveView {
     /// le contenu du même delta.
     pub fn pan(self, dx: f32, dy: f32) -> Self {
         Self { tx: self.tx + dx, ty: self.ty + dy, ..self }
+    }
+
+    /// **Borne** la translation pour que le contenu (à l'échelle courante) **couvre**
+    /// toujours la fenêtre `viewport` : on ne peut pas tirer un bord du contenu à
+    /// l'intérieur de la fenêtre. Quand le contenu est **plus petit** que la fenêtre
+    /// (dézoom sous 1), il est **centré**. À l'échelle 1, le pan est nul (le contenu
+    /// remplit exactement).
+    pub fn clamped(self, viewport: Rect) -> Self {
+        // Contenu écran `q = s·p + t`, `p` couvrant la fenêtre à l'échelle 1. Bord
+        // gauche du contenu ≤ bord gauche fenêtre → `t ≤ (1−s)·o` ; bord droit ≥ bord
+        // droit fenêtre → `t ≥ (1−s)·(o+len)`. Pour `s < 1`, l'intervalle s'inverse →
+        // on centre.
+        let clamp_axis = |t: f32, s: f32, o: f32, len: f32| -> f32 {
+            let hi = (1.0 - s) * o;
+            let lo = (1.0 - s) * (o + len);
+            if lo <= hi {
+                t.clamp(lo, hi)
+            } else {
+                (lo + hi) * 0.5
+            }
+        };
+        Self {
+            scale: self.scale,
+            tx: clamp_axis(self.tx, self.scale, viewport.x, viewport.width),
+            ty: clamp_axis(self.ty, self.scale, viewport.y, viewport.height),
+        }
     }
 
     /// **Zoome** d'un facteur `factor` en gardant fixe le point écran `cursor`
@@ -213,6 +244,41 @@ mod tests {
         let z = v.zoom_at(2.0, cursor, 0.5, 4.0);
         assert!((z.scale - 4.0).abs() < 1e-4, "saturé à max : {}", z.scale);
         assert!((z.tx - 10.0).abs() < 1e-4 && (z.ty - 20.0).abs() < 1e-4, "inchangé au bord");
+    }
+
+    /// À l'échelle 1, le pan est **annulé** par le bornage (le contenu remplit
+    /// exactement la fenêtre).
+    #[test]
+    fn clamp_pins_pan_at_scale_one() {
+        let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
+        let c = InteractiveView::default().pan(50.0, -30.0).clamped(vp);
+        assert!(c.tx.abs() < 1e-4 && c.ty.abs() < 1e-4, "pan annulé à l'échelle 1 : {c:?}");
+    }
+
+    /// Zoomé ×2, le pan est borné pour que le contenu **couvre** la fenêtre : un pan
+    /// excessif est ramené au bord (le contenu ×2 s'étend sur `[t, t+400]`, il doit
+    /// couvrir `[0, 200]` → `t ∈ [-200, 0]`).
+    #[test]
+    fn clamp_keeps_zoomed_content_covering() {
+        let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
+        // Pan trop à droite (t positif) → ramené à 0 (bord gauche du contenu = 0).
+        let a = InteractiveView { scale: 2.0, tx: 500.0, ty: 0.0 }.clamped(vp);
+        assert!((a.tx - 0.0).abs() < 1e-4, "borné au bord gauche : {}", a.tx);
+        // Pan trop à gauche → ramené à -200 (bord droit du contenu = 200).
+        let b = InteractiveView { scale: 2.0, tx: -900.0, ty: 0.0 }.clamped(vp);
+        assert!((b.tx + 200.0).abs() < 1e-4, "borné au bord droit : {}", b.tx);
+        // Un pan modéré passe inchangé.
+        let c = InteractiveView { scale: 2.0, tx: -100.0, ty: -50.0 }.clamped(vp);
+        assert!((c.tx + 100.0).abs() < 1e-4 && (c.ty + 50.0).abs() < 1e-4, "pan valide conservé");
+    }
+
+    /// Dézoomé (< 1), le contenu plus petit que la fenêtre est **centré**.
+    #[test]
+    fn clamp_centers_shrunken_content() {
+        let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
+        let c = InteractiveView { scale: 0.5, tx: 999.0, ty: -999.0 }.clamped(vp);
+        // Centre : t = (1 − 0.5)·(o + len/2) = 0.5·100 = 50 sur chaque axe.
+        assert!((c.tx - 50.0).abs() < 1e-4 && (c.ty - 50.0).abs() < 1e-4, "centré : {c:?}");
     }
 
     /// La marche enveloppe l'enfant dans **un calque transformé et découpé à la

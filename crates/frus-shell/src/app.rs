@@ -72,6 +72,9 @@ const TOUCH_SLOP: f32 = 8.0;
 /// Dépassement élastique autorisé au-delà des bornes de défilement (px) — rebond.
 const SCROLL_OVER: f32 = 48.0;
 
+/// Vitesse minimale (px/s) au relâchement d'un pan pour amorcer un fling.
+const PAN_FLING_MIN: f32 = 80.0;
+
 /// Largeur (px physiques) de la zone de bord activant le geste retour.
 const BACK_EDGE: f32 = 24.0;
 
@@ -94,8 +97,16 @@ enum Drag {
     /// Déplacement (pan) d'une fenêtre interactive (`InteractiveViewer`) : le
     /// curseur pousse le contenu. `last` = dernière position (pour le delta) ;
     /// `moved` distingue un vrai pan d'un simple tap (sous le seuil `TOUCH_SLOP`),
-    /// afin de laisser un clic sur un enfant passer.
-    Pan { id: WidgetId, last: Point, moved: bool },
+    /// afin de laisser un clic sur un enfant passer. `velocity` (px/s, lissée) alimente
+    /// le fling au relâchement ; `viewport` borne le pan au cadre.
+    Pan {
+        id: WidgetId,
+        last: Point,
+        moved: bool,
+        velocity: (f32, f32),
+        last_t: Instant,
+        viewport: frus_widgets::Rect,
+    },
     /// Défilement d'une zone scrollable au doigt (tactile). `moved` distingue un
     /// vrai défilement d'un simple tap (mouvement sous le seuil `TOUCH_SLOP`).
     /// La vitesse (en espace **défilement**, px/s, lissée) alimente le fling.
@@ -854,7 +865,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
                 // Fenêtre interactive sous le curseur : la molette **zoome** (ancré au
                 // curseur), bornée par les échelles min/max du widget.
-                if let Some((id, _)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
+                if let Some((id, viewport)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
                     let (min, max) = self
                         .tree
                         .as_ref()
@@ -863,8 +874,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .unwrap_or((0.5, 4.0));
                     // Molette vers le haut (`dy > 0`) = zoom avant. Pas doux (~1.1×/cran).
                     let factor = (1.0 + dy * 0.1 / SCROLL_SPEED).clamp(0.2, 5.0);
+                    // Le zoom coupe un fling en cours.
+                    self.runtime.interactive_velocity.remove(&id);
                     let view = self.runtime.interactive.entry(id).or_default();
-                    *view = view.zoom_at(factor, self.cursor, min, max);
+                    // Zoom ancré au curseur, puis bornage au cadre.
+                    *view = view.zoom_at(factor, self.cursor, min, max).clamped(viewport);
                     self.request_redraw();
                     return;
                 }
@@ -1016,11 +1030,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // tant que sa géométrie et l'état d'interaction sont stables).
                 let tree = self.tree.as_deref().expect("view construite au moins une fois");
 
-                // Inertie de défilement (bornes issues de la frame précédente).
+                // Inertie de défilement et de pan (bornes/fenêtres issues de la frame
+                // précédente).
                 let scroll_maxes = self
                     .ui
                     .as_ref()
                     .map(|ui| ui.scrollable_maxes())
+                    .unwrap_or_default();
+                let interactive_bounds = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
 
                 let animating = self.runtime.advance(dt)
@@ -1031,6 +1051,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_radii(tree, dt)
                     | self.runtime.advance_paddings(tree, dt)
                     | self.runtime.advance_scroll(&scroll_maxes, dt)
+                    | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | app_animating;
                 // Inspecteur actif : la même construction collecte les nœuds
                 // observés, et le calque (contours + fiche du widget survolé)
@@ -1338,8 +1359,17 @@ impl<A: Application> App<A> {
         // **pan** (souris ou doigt). Comme le défilement tactile, il ne s'engage
         // qu'au-delà du seuil — un tap passe alors à l'enfant (bouton, etc.).
         if self.drag.is_none() {
-            if let Some((id, _)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
-                self.drag = Some(Drag::Pan { id, last: self.cursor, moved: false });
+            if let Some((id, viewport)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
+                // L'appui stoppe un fling en cours (on reprend la main sur le contenu).
+                self.runtime.interactive_velocity.remove(&id);
+                self.drag = Some(Drag::Pan {
+                    id,
+                    last: self.cursor,
+                    moved: false,
+                    velocity: (0.0, 0.0),
+                    last_t: Instant::now(),
+                    viewport,
+                });
             }
         }
         self.request_redraw();
@@ -1366,6 +1396,13 @@ impl<A: Application> App<A> {
         // le ressort de défilement existant y glisse (rebond aux bornes compris).
         if let Some(Drag::Scroll { id, moved: true, velocity, .. }) = &ended {
             self.fling(*id, *velocity);
+        }
+        // Fling de pan : l'élan lance le contenu, décéléré et borné par
+        // `advance_interactive` (frame par frame).
+        if let Some(Drag::Pan { id, moved: true, velocity, .. }) = &ended {
+            if velocity.0.hypot(velocity.1) > PAN_FLING_MIN {
+                self.runtime.interactive_velocity.insert(*id, *velocity);
+            }
         }
         if ended.is_some() && !was_tap {
             self.request_redraw();
@@ -1500,7 +1537,7 @@ impl<A: Application> App<A> {
                 }
             }
             Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
-            Drag::Pan { id, last, moved } => {
+            Drag::Pan { id, last, moved, velocity, last_t, viewport } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
                 if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
@@ -1508,7 +1545,16 @@ impl<A: Application> App<A> {
                 }
                 if *moved {
                     let view = self.runtime.interactive.entry(*id).or_default();
-                    *view = view.pan(dx, dy);
+                    // Le doigt pousse le contenu, borné au cadre.
+                    *view = view.pan(dx, dy).clamped(*viewport);
+                    // Vitesse lissée (moyenne exponentielle) → l'élan du fling.
+                    let now = Instant::now();
+                    let dt = (now - *last_t).as_secs_f32();
+                    if dt > 1e-4 {
+                        velocity.0 = velocity.0 * 0.5 + (dx / dt) * 0.5;
+                        velocity.1 = velocity.1 * 0.5 + (dy / dt) * 0.5;
+                    }
+                    *last_t = now;
                     *last = self.cursor;
                 }
             }

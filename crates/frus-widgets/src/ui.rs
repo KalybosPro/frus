@@ -349,6 +349,12 @@ impl<Msg: Clone> Ui<Msg> {
             .find(|(_, rect)| rect.contains(point))
             .map(|(id, rect)| (*id, *rect))
     }
+
+    /// Fenêtres interactives `(id, fenêtre écran)`, pour piloter l'inertie (fling) et
+    /// le bornage du pan côté framework.
+    pub fn interactive_bounds(&self) -> Vec<(WidgetId, Rect)> {
+        self.interactives.clone()
+    }
 }
 
 /// Identité du `index`-ième enfant : **par clé** si l'enfant en déclare une

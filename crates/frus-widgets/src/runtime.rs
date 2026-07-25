@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Size};
+use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Rect, Size};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
@@ -265,6 +265,9 @@ pub struct Runtime {
     /// [`InteractiveViewer`](crate::InteractiveViewer), par fenêtre. Absent =
     /// identité (échelle 1, pas de translation).
     pub interactive: HashMap<WidgetId, crate::interactive::InteractiveView>,
+    /// Vitesse de pan (px/s) d'un *fling* en cours après relâchement, par fenêtre —
+    /// décélérée chaque frame par [`Runtime::advance_interactive`]. Absent = au repos.
+    pub interactive_velocity: HashMap<WidgetId, (f32, f32)>,
     /// État d'édition, par champ de saisie.
     pub edits: HashMap<WidgetId, Edit>,
     /// Progressions d'animation (survol/focus/opacité), par widget.
@@ -715,6 +718,49 @@ impl Runtime {
         animating
     }
 
+    /// Fait avancer le *fling* de pan des fenêtres interactives : chaque vitesse
+    /// déplace la translation (décélérée par friction exponentielle) puis est **bornée**
+    /// à sa fenêtre — toucher un bord annule la vitesse sur cet axe. `viewports` fournit
+    /// la fenêtre de chaque fenêtre interactive (issue de la frame courante). Renvoie
+    /// `true` s'il reste un fling en cours.
+    pub fn advance_interactive(&mut self, viewports: &[(WidgetId, Rect)], dt: f32) -> bool {
+        use crate::interactive::{PAN_FRICTION, PAN_MIN_VELOCITY};
+        if self.interactive_velocity.is_empty() {
+            return false;
+        }
+        let ids: Vec<WidgetId> = self.interactive_velocity.keys().copied().collect();
+        let decay = (-PAN_FRICTION * dt).exp();
+        let mut animating = false;
+        for id in ids {
+            let mut v = self.interactive_velocity.get(&id).copied().unwrap_or((0.0, 0.0));
+            let mut view = self.interactive.get(&id).copied().unwrap_or_default();
+            let moved = view.pan(v.0 * dt, v.1 * dt);
+            // Bornage : un axe qui bute annule sa vitesse (pas de rebond).
+            if let Some((_, vp)) = viewports.iter().find(|(i, _)| *i == id) {
+                let clamped = moved.clamped(*vp);
+                if (clamped.tx - moved.tx).abs() > 1e-3 {
+                    v.0 = 0.0;
+                }
+                if (clamped.ty - moved.ty).abs() > 1e-3 {
+                    v.1 = 0.0;
+                }
+                view = clamped;
+            } else {
+                view = moved;
+            }
+            self.interactive.insert(id, view);
+            v.0 *= decay;
+            v.1 *= decay;
+            if v.0.hypot(v.1) < PAN_MIN_VELOCITY {
+                self.interactive_velocity.remove(&id);
+            } else {
+                self.interactive_velocity.insert(id, v);
+                animating = true;
+            }
+        }
+        animating
+    }
+
     /// Fait décroître l'opacité des sous-arbres sortants ; oublie ceux arrivés à
     /// 0. Renvoie `true` s'il reste une sortie en cours.
     pub fn advance_leaving(&mut self, dt: f32) -> bool {
@@ -1044,6 +1090,27 @@ mod tests {
         let (_, y) = rt.scroll.get(&id).copied().unwrap();
         assert!((y - 100.0).abs() < 1.0, "arrivé à la cible : {y}");
         assert!(!rt.scroll_target.contains_key(&id), "état d'animation nettoyé au repos");
+    }
+
+    #[test]
+    fn interactive_fling_decelerates_settles_and_stays_bounded() {
+        use crate::interactive::InteractiveView;
+        let id = WidgetId::ROOT;
+        let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
+        let mut rt = Runtime::default();
+        // Contenu zoomé ×2, lancé vers la gauche à grande vitesse.
+        rt.interactive.insert(id, InteractiveView { scale: 2.0, tx: 0.0, ty: 0.0 });
+        rt.interactive_velocity.insert(id, (-2000.0, 0.0));
+        let viewports = [(id, vp)];
+        let mut frames = 0;
+        while rt.advance_interactive(&viewports, 0.016) {
+            frames += 1;
+            assert!(frames < 1000, "le fling doit finir par s'arrêter");
+        }
+        let view = rt.interactive.get(&id).copied().unwrap();
+        // Reste borné (contenu ×2 couvre la fenêtre → tx ∈ [-200, 0]).
+        assert!(view.tx >= -200.0 - 1e-3 && view.tx <= 0.0 + 1e-3, "borné : {}", view.tx);
+        assert!(!rt.interactive_velocity.contains_key(&id), "vitesse nettoyée au repos");
     }
 
     #[test]
