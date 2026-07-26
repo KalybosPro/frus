@@ -247,20 +247,24 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             self.field_height(),
         );
 
-        // Label : couleur d'erreur si en erreur, sinon accent de focus (interpolé)
-        // au repos → focus, en couleur discrète.
+        // Label **flottant** (façon Material) : au repos (champ vide et non focalisé)
+        // il occupe la boîte, à la place de l'indice ; focalisé OU rempli, il flotte
+        // au-dessus, réduit. La progression de position/taille suit ce « flottement »
+        // (`t`) ; la **couleur** suit la focalisation (`fp`) — un champ rempli mais non
+        // focalisé garde un label discret, pas encore accentué.
+        let float_t = if self.value.is_empty() { fp } else { 1.0 };
+        let content_left = field.x + PAD_X + self.prefix_w();
         if let Some(label) = &self.label {
+            let rest = Point::new(content_left, field.y + PAD_Y);
+            let x = rest.x + (bounds.x - rest.x) * float_t;
+            let y = rest.y + (bounds.y - rest.y) * float_t;
+            let size = self.size + (LABEL_SIZE - self.size) * float_t;
             let color = if has_error {
                 theme.error
             } else {
                 theme.muted.lerp(theme.focus, fp)
             };
-            scene.text(
-                Point::new(bounds.x, bounds.y),
-                label.clone(),
-                LABEL_SIZE,
-                color.fade(o),
-            );
+            scene.text(Point::new(x, y), label.clone(), size, color.fade(o));
         }
 
         // Ligne d'aide/erreur sous la boîte (l'erreur prend le pas sur l'aide).
@@ -307,15 +311,20 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let content_w = (field.width - left - PAD_X - self.suffix_w()).max(0.0);
         let text_y = field.y + PAD_Y;
 
-        // Indice (placeholder) : affiché tant que le champ est vide, en discret.
+        // Indice (placeholder) : affiché quand le champ est vide. S'il y a aussi un
+        // label, l'indice ne se révèle (en fondu) que lorsque le label a flotté —
+        // sinon les deux se chevaucheraient dans la boîte.
         if self.value.is_empty() {
             if let Some(placeholder) = &self.placeholder {
-                scene.text(
-                    Point::new(content_x, text_y),
-                    placeholder.clone(),
-                    self.size,
-                    theme.muted.fade(o),
-                );
+                let ph_alpha = if self.label.is_some() { o * fp } else { o };
+                if ph_alpha > 0.01 {
+                    scene.text(
+                        Point::new(content_x, text_y),
+                        placeholder.clone(),
+                        self.size,
+                        theme.muted.fade(ph_alpha),
+                    );
+                }
             }
         }
 
@@ -726,6 +735,32 @@ mod tests {
         let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, 220.0, 0).unwrap();
         let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, 220.0, 0).unwrap();
         assert!(at_icon < at_plain, "le préfixe décale le contenu ({at_plain} → {at_icon})");
+    }
+
+    #[test]
+    fn floating_label_rests_in_box_then_floats_up() {
+        // Le label repose dans la boîte (grand, bas) quand le champ est vide et non
+        // focalisé, et flotte au-dessus (petit, haut) une fois focalisé.
+        let theme = Theme::default();
+        let field = TextInput::<Msg>::new("").label("Name");
+        let label_geo = |status: Status| -> (f32, f32) {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(&field, Rect::new(0.0, 30.0, 220.0, 60.0), status, &theme, &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, size, position, .. } if text == "Name" => {
+                        Some((*size, position.y))
+                    }
+                    _ => None,
+                })
+                .expect("label dessiné")
+        };
+        let (rest_size, rest_y) = label_geo(Status::default());
+        let (float_size, float_y) = label_geo(Status { focused: true, focus_progress: 1.0, ..Default::default() });
+        assert!(rest_size > float_size, "au repos le label est plus grand ({rest_size} → {float_size})");
+        assert!(float_y < rest_y, "focalisé le label monte ({rest_y} → {float_y})");
     }
 
     #[test]
