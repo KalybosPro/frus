@@ -16,13 +16,34 @@ use crate::widget::Widget;
 const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 6.0;
 
-/// Un champ de saisie de texte sur une ligne.
+/// Taille de police du label (au-dessus du champ) et du texte d'aide/erreur (en
+/// dessous) — la typographie « annexe » de la décoration.
+const LABEL_SIZE: f32 = 13.0;
+const SUB_SIZE: f32 = 12.0;
+/// Espace vertical entre le label, la boîte de saisie et la ligne d'aide/erreur.
+const DECO_GAP: f32 = 4.0;
+
+/// Un champ de saisie de texte sur une ligne, avec **décoration de formulaire**
+/// optionnelle (label, indice, texte d'aide, erreur) — le pendant frus de
+/// l'`InputDecoration` de Flutter. La **validité** reste décidée par l'application
+/// (fonction pure de l'état) ; le champ n'en affiche que le résultat via [`error`].
+///
+/// [`error`]: TextInput::error
 pub struct TextInput<Msg> {
     value: String,
     size: f32,
     width: Dimension,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
     on_submit: Option<Msg>,
+    /// Étiquette affichée au-dessus du champ.
+    label: Option<String>,
+    /// Indice affiché **dans** le champ quand la valeur est vide (façon *hint*).
+    placeholder: Option<String>,
+    /// Texte d'aide sous le champ (masqué quand une erreur est présente).
+    helper: Option<String>,
+    /// Message d'erreur : quand présent, la bordure et le label passent en couleur
+    /// d'erreur et ce texte remplace l'aide sous le champ.
+    error: Option<String>,
 }
 
 /// Déplace le curseur vers `target`, en gérant l'ancre de sélection selon Shift.
@@ -46,7 +67,36 @@ impl<Msg> TextInput<Msg> {
             width: Dimension::Length(220.0),
             on_input: None,
             on_submit: None,
+            label: None,
+            placeholder: None,
+            helper: None,
+            error: None,
         }
+    }
+
+    /// Étiquette affichée au-dessus du champ.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Indice affiché dans le champ tant qu'il est vide.
+    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    /// Texte d'aide sous le champ (remplacé par l'erreur, si présente).
+    pub fn helper(mut self, helper: impl Into<String>) -> Self {
+        self.helper = Some(helper.into());
+        self
+    }
+
+    /// Marque le champ **en erreur** : bordure et label rouges, `message` affiché
+    /// sous le champ. À ne chaîner que lorsque la validation applicative échoue.
+    pub fn error(mut self, message: impl Into<String>) -> Self {
+        self.error = Some(message.into());
+        self
     }
 
     /// Fixe la largeur, en pixels logiques.
@@ -79,14 +129,37 @@ impl<Msg> TextInput<Msg> {
     fn layout(&self) -> TextLayout {
         TextLayout::new(&self.value, self.size, FontWeight::Regular, false)
     }
+
+    /// Hauteur réservée au label au-dessus de la boîte (0 si aucun label).
+    fn label_block(&self) -> f32 {
+        if self.label.is_some() {
+            frus_text::line_height(LABEL_SIZE) + DECO_GAP
+        } else {
+            0.0
+        }
+    }
+
+    /// Hauteur réservée à la ligne d'aide/erreur sous la boîte (0 si aucune).
+    fn sub_block(&self) -> f32 {
+        if self.error.is_some() || self.helper.is_some() {
+            frus_text::line_height(SUB_SIZE) + DECO_GAP
+        } else {
+            0.0
+        }
+    }
+
+    /// Hauteur de la boîte de saisie elle-même (hors décoration).
+    fn field_height(&self) -> f32 {
+        (frus_text::line_height(self.size) + PAD_Y * 2.0).ceil()
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     fn style(&self) -> Style {
-        let height = frus_text::line_height(self.size) + PAD_Y * 2.0;
+        let height = self.label_block() + self.field_height() + self.sub_block();
         Style {
             width: self.width,
-            height: Dimension::Length(height.ceil()),
+            height: Dimension::Length(height),
             ..Default::default()
         }
     }
@@ -97,17 +170,74 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Bordure animée selon la progression de focus (repos → focus).
+        let has_error = self.error.is_some();
         let fp = status.focus_progress.clamp(0.0, 1.0);
-        let border_color = theme.border.lerp(theme.focus, fp).fade(o);
+
+        // Décoration : label au-dessus, boîte de saisie au milieu, aide/erreur
+        // en dessous. La boîte est le sous-rectangle où vit toute l'édition.
+        let label_block = self.label_block();
+        let field = Rect::new(
+            bounds.x,
+            bounds.y + label_block,
+            bounds.width,
+            self.field_height(),
+        );
+
+        // Label : couleur d'erreur si en erreur, sinon accent de focus (interpolé)
+        // au repos → focus, en couleur discrète.
+        if let Some(label) = &self.label {
+            let color = if has_error {
+                theme.error
+            } else {
+                theme.muted.lerp(theme.focus, fp)
+            };
+            scene.text(
+                Point::new(bounds.x, bounds.y),
+                label.clone(),
+                LABEL_SIZE,
+                color.fade(o),
+            );
+        }
+
+        // Ligne d'aide/erreur sous la boîte (l'erreur prend le pas sur l'aide).
+        let sub = self.error.as_ref().or(self.helper.as_ref());
+        if let Some(sub) = sub {
+            let color = if has_error { theme.error } else { theme.muted };
+            scene.text(
+                Point::new(bounds.x, field.y + field.height + DECO_GAP),
+                sub.clone(),
+                SUB_SIZE,
+                color.fade(o),
+            );
+        }
+
+        // Bordure animée selon la progression de focus (repos → focus), rouge en erreur.
+        let border_color = if has_error {
+            theme.error
+        } else {
+            theme.border.lerp(theme.focus, fp)
+        }
+        .fade(o);
         let border_width = 1.0 + fp;
-        scene.draw_rect(bounds, theme.surface.fade(o), theme.radius, border_width, border_color);
+        scene.draw_rect(field, theme.surface.fade(o), theme.radius, border_width, border_color);
 
         let len = self.value.chars().count();
         let layout = self.layout();
-        let content_x = bounds.x + PAD_X;
-        let content_w = (bounds.width - PAD_X * 2.0).max(0.0);
-        let text_y = bounds.y + PAD_Y;
+        let content_x = field.x + PAD_X;
+        let content_w = (field.width - PAD_X * 2.0).max(0.0);
+        let text_y = field.y + PAD_Y;
+
+        // Indice (placeholder) : affiché tant que le champ est vide, en discret.
+        if self.value.is_empty() {
+            if let Some(placeholder) = &self.placeholder {
+                scene.text(
+                    Point::new(content_x, text_y),
+                    placeholder.clone(),
+                    self.size,
+                    theme.muted.fade(o),
+                );
+            }
+        }
 
         // Défilement horizontal : garde le curseur visible quand le texte dépasse.
         let scroll = if status.focused {
@@ -121,7 +251,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // Découpe au cadre de contenu (sinon le texte déborde sur les voisins).
         let content_clip = scene
             .current_clip()
-            .intersect(Rect::new(content_x, bounds.y, content_w, bounds.height));
+            .intersect(Rect::new(content_x, field.y, content_w, field.height));
         scene.set_clip(content_clip);
 
         // Surbrillance de sélection (sous le texte).
@@ -271,7 +401,18 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        Some(frus_core::Semantics::new(frus_core::Role::TextInput).value(self.value.clone()))
+        let mut s = frus_core::Semantics::new(frus_core::Role::TextInput).value(self.value.clone());
+        // Le label annonce le champ ; une erreur s'y ajoute pour être lue.
+        let label = match (&self.label, &self.error) {
+            (Some(l), Some(e)) => Some(format!("{l}, {e}")),
+            (Some(l), None) => Some(l.clone()),
+            (None, Some(e)) => Some(e.clone()),
+            (None, None) => None,
+        };
+        if let Some(label) = label {
+            s = s.label(label);
+        }
+        Some(s)
     }
 
     fn selected_text(&self, edit: &Edit) -> Option<String> {
@@ -462,6 +603,55 @@ mod tests {
         let inp = input("x");
         let mut edit = Edit { cursor: 1, anchor: None, composing: None };
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
+    }
+
+    #[test]
+    fn decoration_grows_height_for_label_and_error() {
+        // Un champ nu ne réserve que la boîte ; un label + une erreur ajoutent une
+        // ligne au-dessus et une en dessous → le style est plus haut.
+        let bare_h = match Widget::<Msg>::style(&input("x")).height {
+            Dimension::Length(h) => h,
+            _ => panic!("hauteur fixe attendue"),
+        };
+        let decorated = input("x").label("Email").error("Required");
+        let deco_h = match Widget::<Msg>::style(&decorated).height {
+            Dimension::Length(h) => h,
+            _ => panic!("hauteur fixe attendue"),
+        };
+        assert!(deco_h > bare_h, "label + erreur agrandissent le champ ({bare_h} → {deco_h})");
+    }
+
+    #[test]
+    fn error_paints_the_border_in_the_error_color() {
+        // En erreur, la bordure de la boîte passe en couleur d'erreur du thème.
+        let theme = Theme::default();
+        let field = input("x").error("bad");
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(&field, Rect::new(0.0, 0.0, 220.0, 60.0), Status::default(), &theme, &mut scene);
+        let has_error_border = scene.primitives().iter().any(|p| matches!(
+            p,
+            frus_core::Primitive::Rect { border_color, border_width, .. }
+                if *border_width > 0.0 && *border_color == theme.error
+        ));
+        assert!(has_error_border, "la bordure doit être en couleur d'erreur");
+    }
+
+    #[test]
+    fn placeholder_shows_only_when_empty() {
+        // L'indice n'apparaît que si la valeur est vide.
+        let theme = Theme::default();
+        let count_texts = |value: &str| {
+            let field = TextInput::<Msg>::new(value).placeholder("Type here");
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(&field, Rect::new(0.0, 0.0, 220.0, 30.0), Status::default(), &theme, &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "Type here"))
+                .count()
+        };
+        assert_eq!(count_texts(""), 1, "vide : l'indice s'affiche");
+        assert_eq!(count_texts("hi"), 0, "rempli : pas d'indice");
     }
 
     #[test]

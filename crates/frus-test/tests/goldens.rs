@@ -4,7 +4,7 @@
 
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
-use frus_widgets::{Container, Flex, Text, Theme};
+use frus_widgets::{Container, Flex, Text, TextInput, Theme};
 
 fn golden(name: &str) -> String {
     format!("{}/tests/goldens/{name}.png", env!("CARGO_MANIFEST_DIR"))
@@ -55,6 +55,38 @@ fn widget_tree_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 50, "du texte est dessiné");
     snapshot.assert_golden(golden("widget_column_text"));
+}
+
+/// Un **formulaire décoré** (jalon 132) : un champ en erreur (label + bordure +
+/// message rouges) au-dessus d'un champ au repos (indice + texte d'aide discrets).
+/// Reproduit son golden — les deux états de la décoration sont figés.
+#[test]
+fn decorated_form_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(16.0)
+            .child(
+                TextInput::<()>::new("ada@")
+                    .width(280.0)
+                    .label("Email")
+                    .placeholder("you@example.com")
+                    .error("Enter a valid email address"),
+            )
+            .child(
+                TextInput::<()>::new("")
+                    .width(280.0)
+                    .label("Password")
+                    .placeholder("At least 8 characters")
+                    .helper("Use letters, numbers and symbols"),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "labels, champs et textes dessinés");
+    snapshot.assert_golden(golden("decorated_form"));
 }
 
 /// Le calque **inspecteur** (contours + surlignage + fiche du widget désigné)
