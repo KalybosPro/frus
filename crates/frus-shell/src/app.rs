@@ -354,7 +354,7 @@ impl<A: Application> App<A> {
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
                 })
-                .and_then(|widget| widget.cursor_at(0.0, 1.0, 0))
+                .and_then(|widget| widget.cursor_at(0.0, 0.0, 1.0, 0))
                 .is_some();
             if editing != self.soft_input_shown {
                 self.soft_input_shown = editing;
@@ -832,7 +832,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .and_then(|widget| widget.cursor_at(0.0, 1.0, 0))
+                        .and_then(|widget| widget.cursor_at(0.0, 0.0, 1.0, 0))
                         .is_some();
                     let navigates = !is_text
                         || matches!(direction, FocusDirection::Up | FocusDirection::Down);
@@ -1419,6 +1419,7 @@ impl<A: Application> App<A> {
         self.runtime.input.focused = focus.map(|(id, _)| id);
         if let Some((id, rect)) = focus {
             let local_x = self.cursor.x - rect.x;
+            let local_y = self.cursor.y - rect.y;
             // Défilement affiché juste avant ce clic : calculé depuis le
             // curseur courant si le champ était déjà focalisé, sinon 0.
             let scroll_cursor = if previously_focused == Some(id) {
@@ -1434,7 +1435,7 @@ impl<A: Application> App<A> {
                 .tree
                 .as_ref()
                 .and_then(|tree| find_widget(tree.as_ref(), id))
-                .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
+                .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
             if let Some(cursor) = cursor {
                 self.runtime.edits.insert(id, Edit { cursor, anchor: None, composing: None });
                 self.drag = Some(Drag::TextSelect { id, rect });
@@ -1680,13 +1681,14 @@ impl<A: Application> App<A> {
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;
+                let local_y = self.cursor.y - rect.y;
                 // Le champ est focalisé pendant le drag : défilement depuis le curseur courant.
                 let scroll_cursor = self.runtime.edits.get(id).map(|e| e.cursor).unwrap_or(0);
                 let cursor = self
                     .tree
                     .as_ref()
                     .and_then(|tree| find_widget(tree.as_ref(), *id))
-                    .and_then(|widget| widget.cursor_at(local_x, rect.width, scroll_cursor));
+                    .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
                 if let Some(cursor) = cursor {
                     let edit = self.runtime.edits.entry(*id).or_default();
                     if edit.anchor.is_none() {

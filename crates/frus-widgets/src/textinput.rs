@@ -58,6 +58,11 @@ pub struct TextInput<Msg> {
     prefix: Option<IconName>,
     /// Icône décorative à droite dans la boîte (façon `suffixIcon`).
     suffix: Option<IconName>,
+    /// Champ **multi-lignes** : Entrée insère un saut de ligne (au lieu de soumettre),
+    /// la boîte fait `rows` lignes de haut et défile verticalement pour suivre le caret.
+    multiline: bool,
+    /// Nombre de lignes visibles en mode multi-lignes.
+    rows: u16,
 }
 
 /// Déplace le curseur vers `target`, en gérant l'ancre de sélection selon Shift.
@@ -88,7 +93,24 @@ impl<Msg> TextInput<Msg> {
             obscure: false,
             prefix: None,
             suffix: None,
+            multiline: false,
+            rows: 3,
         }
+    }
+
+    /// Passe le champ en **multi-lignes** : Entrée insère un saut de ligne (au lieu de
+    /// soumettre), et la boîte affiche `rows` lignes (voir [`rows`](Self::rows)).
+    pub fn multiline(mut self) -> Self {
+        self.multiline = true;
+        self
+    }
+
+    /// Nombre de lignes visibles en mode multi-lignes (au moins 1). Implique
+    /// [`multiline`](Self::multiline).
+    pub fn rows(mut self, rows: u16) -> Self {
+        self.multiline = true;
+        self.rows = rows.max(1);
+        self
     }
 
     /// Masque la valeur (champ mot de passe) : chaque caractère devient un point.
@@ -212,9 +234,11 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// Hauteur de la boîte de saisie elle-même (hors décoration).
+    /// Hauteur de la boîte de saisie elle-même (hors décoration) : une ligne en
+    /// simple, `rows` lignes en multi-lignes.
     fn field_height(&self) -> f32 {
-        (frus_text::line_height(self.size) + PAD_Y * 2.0).ceil()
+        let lines = if self.multiline { self.rows.max(1) as f32 } else { 1.0 };
+        (frus_text::line_height(self.size) * lines + PAD_Y * 2.0).ceil()
     }
 }
 
@@ -328,14 +352,20 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             }
         }
 
-        // Défilement horizontal : garde le curseur visible quand le texte dépasse.
-        let scroll = if status.focused {
-            let cursor = status.cursor.unwrap_or(len).min(len);
-            (layout.caret_rect(cursor).x - content_w).max(0.0)
+        // Défilement pour garder le caret visible : horizontal (toujours) et vertical
+        // (multi-lignes). Recalculé depuis le curseur, comme au clic (`cursor_at`).
+        let cursor = status.cursor.unwrap_or(len).min(len);
+        let caret = layout.caret_rect(cursor);
+        let scroll = if status.focused { (caret.x - content_w).max(0.0) } else { 0.0 };
+        let text_x = content_x - scroll;
+        let vscroll = if status.focused && self.multiline {
+            let content_h = field.height - PAD_Y * 2.0;
+            (caret.y + caret.height - content_h).max(0.0)
         } else {
             0.0
         };
-        let text_x = content_x - scroll;
+        // Origine verticale du contenu (décalée par le défilement multi-lignes).
+        let text_top = text_y - vscroll;
 
         // Découpe au cadre de contenu (sinon le texte déborde sur les voisins).
         let content_clip = scene
@@ -348,7 +378,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             if let Some((start, end)) = status.selection {
                 for r in layout.selection_rects(start.min(len), end.min(len)) {
                     scene.fill_rect(
-                        Rect::new(text_x + r.x, text_y + r.y, r.width, r.height),
+                        Rect::new(text_x + r.x, text_top + r.y, r.width, r.height),
                         theme.selection.fade(o),
                     );
                 }
@@ -357,7 +387,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
         if !self.value.is_empty() {
             scene.text(
-                Point::new(text_x, text_y),
+                Point::new(text_x, text_top),
                 self.display(),
                 self.size,
                 theme.on_surface.fade(o),
@@ -373,7 +403,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                     scene.fill_rect(
                         Rect::new(
                             text_x + r.x,
-                            text_y + r.y + r.height - 1.5,
+                            text_top + r.y + r.height - 1.5,
                             r.width,
                             1.5,
                         ),
@@ -385,10 +415,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
         // Curseur.
         if status.focused {
-            let cursor = status.cursor.unwrap_or(len).min(len);
-            let caret = layout.caret_rect(cursor);
             scene.fill_rect(
-                Rect::new(text_x + caret.x, text_y + caret.y, 2.0, caret.height),
+                Rect::new(text_x + caret.x, text_top + caret.y, 2.0, caret.height),
                 theme.on_surface.fade(o),
             );
         }
@@ -457,8 +485,19 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             Key::End { shift } => move_cursor(&mut cursor, &mut anchor, len, *shift),
             // Échap ne concerne pas l'édition (routé feuille→racine par le shell).
             Key::Escape => {}
+            Key::Enter if self.multiline => {
+                // Multi-lignes : Entrée **insère un saut de ligne** (pas de soumission).
+                if let Some((s, e)) = selection {
+                    chars.drain(s..e);
+                    cursor = s;
+                }
+                chars.insert(cursor, '\n');
+                cursor += 1;
+                anchor = None;
+                changed = true;
+            }
             Key::Enter => {
-                // Validation : n'altère pas la valeur, émet le message de soumission.
+                // Simple : Entrée valide — n'altère pas la valeur, émet la soumission.
                 edit.cursor = cursor;
                 edit.anchor = anchor;
                 return self.on_submit.clone();
@@ -476,15 +515,31 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
     }
 
-    fn cursor_at(&self, local_x: f32, width: f32, scroll_cursor: usize) -> Option<usize> {
+    fn cursor_at(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        scroll_cursor: usize,
+    ) -> Option<usize> {
         let layout = self.layout();
-        // Recompose la même géométrie de contenu que le rendu (insets d'icônes
-        // compris), pour un clic exact.
+        // Recompose la même géométrie de contenu que le rendu (insets d'icônes et de
+        // décoration, défilements horizontal et vertical), pour un clic exact.
         let left = PAD_X + self.prefix_w();
         let content_w = (width - left - PAD_X - self.suffix_w()).max(0.0);
-        let scroll = (layout.caret_rect(scroll_cursor).x - content_w).max(0.0);
-        let target = local_x - left + scroll;
-        Some(layout.hit_test(Point::new(target, 0.0)))
+        let caret = layout.caret_rect(scroll_cursor);
+        let scroll = (caret.x - content_w).max(0.0);
+        let vscroll = if self.multiline {
+            let content_h = self.field_height() - PAD_Y * 2.0;
+            (caret.y + caret.height - content_h).max(0.0)
+        } else {
+            0.0
+        };
+        // `local_*` sont relatifs au coin haut-gauche du **widget** (label compris) :
+        // on retire la bande du label et le padding pour tomber dans le texte.
+        let target_x = local_x - left + scroll;
+        let target_y = local_y - self.label_block() - PAD_Y + vscroll;
+        Some(layout.hit_test(Point::new(target_x, target_y)))
     }
 
     fn text_value(&self) -> Option<&str> {
@@ -623,14 +678,14 @@ mod tests {
         let inp = input("0123456789 abcdefghij");
         // Sans défilement (curseur 0) : clic au bord gauche → index 0.
         assert_eq!(
-            Widget::<Msg>::cursor_at(&inp, PAD_X, 80.0, 0),
+            Widget::<Msg>::cursor_at(&inp, PAD_X, PAD_Y, 80.0, 0),
             Some(0)
         );
         // Défilé (curseur en fin) : clic à droite tombe sur un index plus grand
         // qu'un clic à gauche (le décalage est bien pris en compte).
         let end = inp.value.chars().count();
-        let at_left = Widget::<Msg>::cursor_at(&inp, PAD_X, 80.0, end).unwrap();
-        let at_right = Widget::<Msg>::cursor_at(&inp, 76.0, 80.0, end).unwrap();
+        let at_left = Widget::<Msg>::cursor_at(&inp, PAD_X, PAD_Y, 80.0, end).unwrap();
+        let at_right = Widget::<Msg>::cursor_at(&inp, 76.0, PAD_Y, 80.0, end).unwrap();
         assert!(at_left > 0, "défilé : le bord gauche n'est plus l'index 0");
         assert!(at_right > at_left, "clic à droite → index plus grand");
     }
@@ -732,9 +787,54 @@ mod tests {
             "l'icône de préfixe dessine un chemin"
         );
         let plain = input("hello world");
-        let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, 220.0, 0).unwrap();
-        let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, 220.0, 0).unwrap();
+        let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, PAD_Y, 220.0, 0).unwrap();
+        let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, PAD_Y, 220.0, 0).unwrap();
         assert!(at_icon < at_plain, "le préfixe décale le contenu ({at_plain} → {at_icon})");
+    }
+
+    #[test]
+    fn multiline_enter_inserts_a_newline_instead_of_submitting() {
+        // En multi-lignes, Entrée insère « \n » (et n'émet pas la soumission).
+        let inp = TextInput::<Msg>::new("ab").on_input(Msg::Changed).multiline();
+        let mut edit = Edit { cursor: 2, anchor: None, composing: None };
+        assert_eq!(
+            inp.on_edit(&mut edit, &Key::Enter),
+            Some(Msg::Changed("ab\n".to_string()))
+        );
+        assert_eq!(edit.cursor, 3);
+        // Simple ligne : Entrée soumet (comportement inchangé).
+        let single = input("ab").on_submit(Msg::Submitted);
+        let mut edit = Edit { cursor: 2, anchor: None, composing: None };
+        assert_eq!(single.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
+    }
+
+    #[test]
+    fn multiline_reserves_rows_of_height() {
+        // `rows(n)` réserve n lignes ; c'est plus haut qu'un champ d'une ligne.
+        let one = match Widget::<Msg>::style(&input("x")).height {
+            Dimension::Length(h) => h,
+            _ => panic!("hauteur fixe"),
+        };
+        let four = match Widget::<Msg>::style(&TextInput::<Msg>::new("x").rows(4)).height {
+            Dimension::Length(h) => h,
+            _ => panic!("hauteur fixe"),
+        };
+        assert!(four > one * 2.0, "4 lignes bien plus hautes qu'une ({one} → {four})");
+    }
+
+    #[test]
+    fn multiline_hit_test_uses_the_click_line() {
+        // Un clic sur la 2e ligne place le curseur dans « cd » (indices ≥ 3), pas
+        // dans « ab » de la 1re ligne.
+        let inp = TextInput::<Msg>::new("ab\ncd").on_input(Msg::Changed).rows(3);
+        let line_h = frus_text::line_height(inp.size);
+        // Clic haut-gauche → 1re ligne (indice ≤ 2).
+        let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + 1.0, 220.0, 0).unwrap();
+        // Clic une ligne plus bas → 2e ligne (indice ≥ 3).
+        let below =
+            Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + line_h + 1.0, 220.0, 0).unwrap();
+        assert!(top <= 2, "1re ligne : {top}");
+        assert!(below >= 3, "2e ligne : {below}");
     }
 
     #[test]

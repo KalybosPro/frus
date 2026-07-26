@@ -2040,9 +2040,9 @@ mod tests {
         // de curseur (`cursor_at` = None), donc le shell ne démarre pas de sélection
         // texte dessus et ne capture pas le clic. Seuls les champs texte en posent un.
         let button = Button::<Msg>::new("x").on_press(Msg::A);
-        assert_eq!(Widget::<Msg>::cursor_at(&button, 10.0, 200.0, 0), None);
+        assert_eq!(Widget::<Msg>::cursor_at(&button, 10.0, 5.0, 200.0, 0), None);
         let input = TextInput::<Msg>::new("hi").on_input(Msg::Edited);
-        assert!(Widget::<Msg>::cursor_at(&input, 10.0, 200.0, 0).is_some());
+        assert!(Widget::<Msg>::cursor_at(&input, 10.0, 5.0, 200.0, 0).is_some());
     }
 
     #[test]

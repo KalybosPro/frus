@@ -70,8 +70,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.on_edit(edit, key)
     }
 
-    fn cursor_at(&self, local_x: f32, width: f32, scroll_cursor: usize) -> Option<usize> {
-        self.inner.cursor_at(local_x, width, scroll_cursor)
+    fn cursor_at(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        scroll_cursor: usize,
+    ) -> Option<usize> {
+        self.inner.cursor_at(local_x, local_y, width, scroll_cursor)
     }
 
     fn selected_text(&self, edit: &Edit) -> Option<String> {

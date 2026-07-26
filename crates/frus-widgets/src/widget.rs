@@ -56,13 +56,20 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Index de curseur correspondant à une position horizontale locale (px
-    /// depuis le bord gauche du widget) — pour placer le curseur au clic.
+    /// Index de curseur correspondant à une position locale (px depuis le coin
+    /// haut-gauche du widget) — pour placer le curseur au clic. `local_y` choisit la
+    /// **ligne** dans un champ multi-lignes (ignoré sur une seule ligne).
     ///
     /// `width` = largeur du champ, `scroll_cursor` = curseur d'où recalculer le
-    /// **défilement horizontal** courant (le même que le rendu), pour que le clic
-    /// tombe juste même quand le texte est défilé. `None` = pas un champ texte.
-    fn cursor_at(&self, _local_x: f32, _width: f32, _scroll_cursor: usize) -> Option<usize> {
+    /// **défilement** courant (le même que le rendu), pour que le clic tombe juste
+    /// même quand le texte est défilé. `None` = pas un champ texte.
+    fn cursor_at(
+        &self,
+        _local_x: f32,
+        _local_y: f32,
+        _width: f32,
+        _scroll_cursor: usize,
+    ) -> Option<usize> {
         None
     }
 
@@ -370,8 +377,14 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
         (**self).on_edit(edit, key)
     }
-    fn cursor_at(&self, local_x: f32, width: f32, scroll_cursor: usize) -> Option<usize> {
-        (**self).cursor_at(local_x, width, scroll_cursor)
+    fn cursor_at(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        scroll_cursor: usize,
+    ) -> Option<usize> {
+        (**self).cursor_at(local_x, local_y, width, scroll_cursor)
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         (**self).selected_text(edit)

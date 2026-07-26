@@ -154,6 +154,25 @@ fn validated_signup_form_matches_golden() {
     snapshot.assert_golden(golden("validated_signup_form"));
 }
 
+/// Un **champ multi-lignes** (jalon 137) : label flottant, plusieurs lignes de
+/// contenu (retours explicites) dans une boîte de `rows` lignes. Reproduit son golden.
+#[test]
+fn multiline_field_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        TextInput::<()>::new("Roses are red\nViolets are blue\nfrus renders text too")
+            .width(300.0)
+            .label("Message")
+            .rows(4),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 170, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 120, "label et trois lignes de texte dessinés");
+    snapshot.assert_golden(golden("multiline_field"));
+}
+
 /// Le calque **inspecteur** (contours + surlignage + fiche du widget désigné)
 /// par-dessus un arbre rendu — reproduit son golden.
 #[test]

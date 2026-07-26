@@ -114,10 +114,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_edit(edit, key))
     }
 
-    fn cursor_at(&self, local_x: f32, width: f32, scroll_cursor: usize) -> Option<usize> {
+    fn cursor_at(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        scroll_cursor: usize,
+    ) -> Option<usize> {
         self.inner
             .as_ref()
-            .and_then(|w| w.cursor_at(local_x, width, scroll_cursor))
+            .and_then(|w| w.cursor_at(local_x, local_y, width, scroll_cursor))
     }
 
     fn selected_text(&self, edit: &Edit) -> Option<String> {
