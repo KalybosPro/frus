@@ -89,6 +89,30 @@ fn decorated_form_matches_golden() {
     snapshot.assert_golden(golden("decorated_form"));
 }
 
+/// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
+/// de préfixe à gauche et de suffixe à droite. Reproduit son golden.
+#[test]
+fn password_field_matches_golden() {
+    use frus_widgets::IconName;
+
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        TextInput::<()>::new("hunter2")
+            .width(280.0)
+            .label("Password")
+            .obscure(true)
+            .prefix_icon(IconName::Circle)
+            .suffix_icon(IconName::Check)
+            .helper("Tap the eye to reveal"),
+    );
+    let Some(snapshot) = render_widget(&root, 340, 130, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 80, "points, icônes et textes dessinés");
+    snapshot.assert_golden(golden("password_field"));
+}
+
 /// Le calque **inspecteur** (contours + surlignage + fiche du widget désigné)
 /// par-dessus un arbre rendu — reproduit son golden.
 #[test]

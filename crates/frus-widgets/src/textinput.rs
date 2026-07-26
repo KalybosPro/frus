@@ -8,6 +8,7 @@ use frus_core::{FontWeight, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
+use crate::icons::IconName;
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::theme::Theme;
@@ -22,6 +23,12 @@ const LABEL_SIZE: f32 = 13.0;
 const SUB_SIZE: f32 = 12.0;
 /// Espace vertical entre le label, la boîte de saisie et la ligne d'aide/erreur.
 const DECO_GAP: f32 = 4.0;
+
+/// Côté d'une icône préfixe/suffixe (px logiques) et marge autour d'elle.
+const ICON_SIZE: f32 = 20.0;
+const ICON_PAD: f32 = 6.0;
+/// Caractère de masquage par défaut d'un champ mot de passe.
+const OBSCURE_CHAR: char = '•';
 
 /// Un champ de saisie de texte sur une ligne, avec **décoration de formulaire**
 /// optionnelle (label, indice, texte d'aide, erreur) — le pendant frus de
@@ -44,6 +51,13 @@ pub struct TextInput<Msg> {
     /// Message d'erreur : quand présent, la bordure et le label passent en couleur
     /// d'erreur et ce texte remplace l'aide sous le champ.
     error: Option<String>,
+    /// Masque la valeur (champ mot de passe) : chaque caractère est rendu par
+    /// [`OBSCURE_CHAR`]. L'édition porte sur la vraie valeur ; seul l'affichage change.
+    obscure: bool,
+    /// Icône décorative à gauche dans la boîte (façon `prefixIcon`).
+    prefix: Option<IconName>,
+    /// Icône décorative à droite dans la boîte (façon `suffixIcon`).
+    suffix: Option<IconName>,
 }
 
 /// Déplace le curseur vers `target`, en gérant l'ancre de sélection selon Shift.
@@ -71,7 +85,29 @@ impl<Msg> TextInput<Msg> {
             placeholder: None,
             helper: None,
             error: None,
+            obscure: false,
+            prefix: None,
+            suffix: None,
         }
+    }
+
+    /// Masque la valeur (champ mot de passe) : chaque caractère devient un point.
+    /// L'édition reste normale ; seul l'affichage est masqué.
+    pub fn obscure(mut self, obscure: bool) -> Self {
+        self.obscure = obscure;
+        self
+    }
+
+    /// Icône décorative à gauche dans le champ (`prefixIcon`).
+    pub fn prefix_icon(mut self, icon: IconName) -> Self {
+        self.prefix = Some(icon);
+        self
+    }
+
+    /// Icône décorative à droite dans le champ (`suffixIcon`).
+    pub fn suffix_icon(mut self, icon: IconName) -> Self {
+        self.suffix = Some(icon);
+        self
     }
 
     /// Étiquette affichée au-dessus du champ.
@@ -123,11 +159,39 @@ impl<Msg> TextInput<Msg> {
         self
     }
 
-    /// La valeur shapée **une fois** : caret par index, hit-test, sélection —
-    /// géométrie cohérente (kerning) là où des mesures de préfixes re-shapaient
-    /// une sous-chaîne par frontière.
+    /// La chaîne **affichée** : masquée (un point par caractère) pour un champ mot
+    /// de passe, la valeur telle quelle sinon. Même nombre de caractères que la
+    /// valeur → le caret et le hit-test restent alignés index pour index.
+    fn display(&self) -> String {
+        if self.obscure {
+            OBSCURE_CHAR.to_string().repeat(self.value.chars().count())
+        } else {
+            self.value.clone()
+        }
+    }
+
+    /// La chaîne **affichée** shapée une fois : caret par index, hit-test, sélection
+    /// — géométrie cohérente (kerning).
     fn layout(&self) -> TextLayout {
-        TextLayout::new(&self.value, self.size, FontWeight::Regular, false)
+        TextLayout::new(&self.display(), self.size, FontWeight::Regular, false)
+    }
+
+    /// Largeur réservée à l'icône de préfixe (0 si aucune).
+    fn prefix_w(&self) -> f32 {
+        if self.prefix.is_some() {
+            ICON_SIZE + ICON_PAD
+        } else {
+            0.0
+        }
+    }
+
+    /// Largeur réservée à l'icône de suffixe (0 si aucune).
+    fn suffix_w(&self) -> f32 {
+        if self.suffix.is_some() {
+            ICON_SIZE + ICON_PAD
+        } else {
+            0.0
+        }
     }
 
     /// Hauteur réservée au label au-dessus de la boîte (0 si aucun label).
@@ -221,10 +285,26 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let border_width = 1.0 + fp;
         scene.draw_rect(field, theme.surface.fade(o), theme.radius, border_width, border_color);
 
+        // Icônes décoratives, centrées verticalement dans la boîte (couleur discrète).
+        let icon_color = theme.muted.fade(o);
+        let icon_y = field.y + (field.height - ICON_SIZE) * 0.5;
+        let icon_scale = ICON_SIZE / 24.0;
+        if let Some(prefix) = self.prefix {
+            let path = prefix.path().scaled(icon_scale).translated(field.x + ICON_PAD, icon_y);
+            scene.fill_path(&path, icon_color);
+        }
+        if let Some(suffix) = self.suffix {
+            let x = field.x + field.width - ICON_SIZE - ICON_PAD;
+            let path = suffix.path().scaled(icon_scale).translated(x, icon_y);
+            scene.fill_path(&path, icon_color);
+        }
+
         let len = self.value.chars().count();
         let layout = self.layout();
-        let content_x = field.x + PAD_X;
-        let content_w = (field.width - PAD_X * 2.0).max(0.0);
+        // Le contenu est inséré entre les icônes de préfixe/suffixe (le cas échéant).
+        let left = PAD_X + self.prefix_w();
+        let content_x = field.x + left;
+        let content_w = (field.width - left - PAD_X - self.suffix_w()).max(0.0);
         let text_y = field.y + PAD_Y;
 
         // Indice (placeholder) : affiché tant que le champ est vide, en discret.
@@ -269,7 +349,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         if !self.value.is_empty() {
             scene.text(
                 Point::new(text_x, text_y),
-                self.value.clone(),
+                self.display(),
                 self.size,
                 theme.on_surface.fade(o),
             );
@@ -389,10 +469,12 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
     fn cursor_at(&self, local_x: f32, width: f32, scroll_cursor: usize) -> Option<usize> {
         let layout = self.layout();
-        // Recompose le même défilement que le rendu, pour un clic exact.
-        let content_w = (width - PAD_X * 2.0).max(0.0);
+        // Recompose la même géométrie de contenu que le rendu (insets d'icônes
+        // compris), pour un clic exact.
+        let left = PAD_X + self.prefix_w();
+        let content_w = (width - left - PAD_X - self.suffix_w()).max(0.0);
         let scroll = (layout.caret_rect(scroll_cursor).x - content_w).max(0.0);
-        let target = local_x - PAD_X + scroll;
+        let target = local_x - left + scroll;
         Some(layout.hit_test(Point::new(target, 0.0)))
     }
 
@@ -603,6 +685,47 @@ mod tests {
         let inp = input("x");
         let mut edit = Edit { cursor: 1, anchor: None, composing: None };
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
+    }
+
+    #[test]
+    fn obscure_masks_the_displayed_text_but_not_the_value() {
+        // Champ mot de passe : le rendu ne contient jamais la valeur en clair, mais
+        // des points ; la valeur réelle reste accessible (édition, IME).
+        let theme = Theme::default();
+        let field = TextInput::<Msg>::new("secret").obscure(true);
+        let mut scene = Scene::new();
+        let status = Status { focused: true, cursor: Some(6), ..Default::default() };
+        Widget::<Msg>::paint(&field, Rect::new(0.0, 0.0, 220.0, 30.0), status, &theme, &mut scene);
+        let drawn: Vec<&str> = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(drawn.iter().all(|t| !t.contains("secret")), "la valeur ne doit pas fuiter");
+        assert!(drawn.iter().any(|t| t.chars().all(|c| c == '•')), "des points sont dessinés");
+        // La vraie valeur reste exposée au contexte de saisie.
+        assert_eq!(Widget::<Msg>::text_value(&field), Some("secret"));
+    }
+
+    #[test]
+    fn prefix_icon_draws_a_path_and_shifts_the_hit_test() {
+        // Une icône de préfixe dessine un chemin et décale le contenu vers la droite :
+        // un même clic tombe sur un index plus petit qu'en son absence.
+        let theme = Theme::default();
+        let with_icon = input("hello world").prefix_icon(IconName::Star);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(&with_icon, Rect::new(0.0, 0.0, 220.0, 30.0), Status::default(), &theme, &mut scene);
+        assert!(
+            scene.primitives().iter().any(|p| matches!(p, frus_core::Primitive::Path { .. })),
+            "l'icône de préfixe dessine un chemin"
+        );
+        let plain = input("hello world");
+        let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, 220.0, 0).unwrap();
+        let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, 220.0, 0).unwrap();
+        assert!(at_icon < at_plain, "le préfixe décale le contenu ({at_plain} → {at_icon})");
     }
 
     #[test]
