@@ -15,8 +15,8 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_path, find_widget, Edit, FocusDirection, Insets, Key, KeyResponse,
-    Point, Runtime, Size, Ui, Widget, WidgetId, WindowInsets,
+    build_ui, collect_ids, find_by_key, find_path, find_widget, Edit, FocusDirection, Insets, Key,
+    KeyResponse, Point, Runtime, Size, Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -241,6 +241,9 @@ pub struct App<A: Application> {
     leaving_counter: u64,
     /// Souscriptions actives : id → poignée d'annulation (drop = arrêt).
     running_subs: HashMap<u64, SubHandle>,
+    /// Demandes de focus en attente (clés issues de `Command::focus`), résolues
+    /// contre l'arbre **fraîchement construit** à la prochaine frame.
+    pending_focus: Vec<u64>,
     /// Fenêtre masquée (occultée) : on suspend le rendu.
     occluded: bool,
     /// Temps écoulé cumulé (secondes), pour les animations continues.
@@ -296,6 +299,7 @@ impl<A: Application> App<A> {
             last_click_time: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
+            pending_focus: Vec::new(),
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
@@ -1128,6 +1132,23 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
                 self.build_dirty = false;
 
+                // Demandes de focus (`Command::focus`) : résolues contre l'arbre qui
+                // vient d'être (re)construit — la clé désigne le champ enveloppé par
+                // `keyed(k, …)`. La plus récente qui se résout l'emporte ; l'anneau de
+                // focus (re)devient visible (on saute au champ, comme au clavier).
+                if !self.pending_focus.is_empty() {
+                    let keys = std::mem::take(&mut self.pending_focus);
+                    let ids: Vec<WidgetId> = self
+                        .tree
+                        .as_deref()
+                        .map(|tree| keys.iter().filter_map(|&k| find_by_key(tree, k)).collect())
+                        .unwrap_or_default();
+                    if let Some(&id) = ids.last() {
+                        self.runtime.input.focused = Some(id);
+                        self.runtime.focus_visible = true;
+                    }
+                }
+
                 // === Phase PAINT ===
                 // L'arbre retenu est (re)peint. La mise en page passe par le cache
                 // de relayout (jalon 55 : taffy rappelé seulement si structure
@@ -1539,29 +1560,26 @@ impl<A: Application> App<A> {
         self.sync_subscriptions();
     }
 
-    /// Exécute une commande : chaque tâche tourne sur un thread de fond ; son
-    /// message éventuel est renvoyé dans la boucle via le proxy.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn run_command(&self, command: crate::command::Command<A::Message>) {
-        for task in command.into_tasks() {
+    /// Exécute une commande : chaque tâche part en arrière-plan (thread natif, ou
+    /// `spawn_local` microtask sur le Web) et son message éventuel revient dans la
+    /// boucle via le proxy ; les demandes de focus sont **mises en attente** puis
+    /// résolues contre l'arbre fraîchement construit à la prochaine frame.
+    ///
+    /// Sur le Web, le travail des tâches reste **synchrone** (le type `Task` ne peut
+    /// pas `await`) — un effet réellement asynchrone (fetch réseau) demandera une
+    /// variante `Command` dédiée.
+    fn run_command(&mut self, command: crate::command::Command<A::Message>) {
+        let (tasks, focus) = command.into_parts();
+        self.pending_focus.extend(focus);
+        for task in tasks {
             let proxy = self.proxy.clone();
+            #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 if let Some(message) = task() {
                     let _ = proxy.send_event(message);
                 }
             });
-        }
-    }
-
-    /// Exécute une commande sur le **Web** : pas de threads. Chaque tâche est planifiée
-    /// sur la boucle via `spawn_local` (microtask) ; son message revient par le proxy.
-    /// Le travail reste **synchrone** — le type `Task` ne peut pas `await` —, ce qui
-    /// convient aux effets de calcul ; un effet réellement asynchrone (fetch réseau)
-    /// demandera une variante `Command` dédiée.
-    #[cfg(target_arch = "wasm32")]
-    fn run_command(&self, command: crate::command::Command<A::Message>) {
-        for task in command.into_tasks() {
-            let proxy = self.proxy.clone();
+            #[cfg(target_arch = "wasm32")]
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(message) = task() {
                     let _ = proxy.send_event(message);

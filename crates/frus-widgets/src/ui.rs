@@ -1683,6 +1683,24 @@ pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
     out
 }
 
+/// Identité du **premier** widget déclarant la clé `key` (hash), ou `None`. Sert au
+/// shell à résoudre une demande de focus par clé (`Command::focus`) : l'application
+/// enveloppe un champ dans `keyed(k, …)`, puis focalise par `k`.
+pub fn find_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<WidgetId> {
+    fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, key: u64) -> Option<WidgetId> {
+        if widget.key() == Some(key) {
+            return Some(id);
+        }
+        for (index, child) in widget.children().iter().enumerate() {
+            if let Some(found) = walk(child.as_ref(), child_id(id, index, child.as_ref()), key) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(root, WidgetId::ROOT, key)
+}
+
 /// Retrouve le widget d'identité `target` dans l'arbre (identités positionnelles).
 /// Chemin de la **racine jusqu'au widget** d'identité `target` (`[racine, …,
 /// cible]`), pour la montée feuille→racine des touches. Vide si introuvable.
@@ -2184,6 +2202,36 @@ mod tests {
             widget.on_edit(&mut edit, &Key::Text("!".to_string())),
             Some(Msg::Edited("hi!".to_string()))
         );
+    }
+
+    #[test]
+    fn find_by_key_resolves_a_keyed_field_to_its_focus_id() {
+        // Deux champs nommés : `find_by_key` retrouve l'identité de focus de chacun
+        // (celle que le hit-test attribuerait), et distingue les clés.
+        fn hash(k: &str) -> u64 {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            k.hash(&mut h);
+            h.finish()
+        }
+        let tree: Flex<Msg> = Flex::column()
+            .child(Keyed::new("email", TextInput::new("").on_input(Msg::Edited)))
+            .child(Keyed::new("password", TextInput::new("").on_input(Msg::Edited)));
+
+        let email = find_by_key(&tree, hash("email")).expect("email trouvé");
+        let password = find_by_key(&tree, hash("password")).expect("password trouvé");
+        assert_ne!(email, password, "clés distinctes → identités distinctes");
+        // L'identité résolue est bien l'identité par clé (stable, indépendante de la
+        // position).
+        assert_eq!(email, WidgetId::ROOT.keyed(hash("email")));
+        assert!(find_by_key(&tree, hash("absent")).is_none(), "clé inconnue → None");
+
+        // Et surtout : c'est **exactement** l'identité que le hit-test de focus
+        // attribuerait à ce champ — donc poser ce focus route bien vers lui.
+        let rt = Runtime::default();
+        let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
+        let (hit_id, _) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ email sous le curseur");
+        assert_eq!(email, hit_id, "find_by_key == identité de focus du champ");
     }
 
     #[test]

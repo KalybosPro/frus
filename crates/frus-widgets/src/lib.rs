@@ -163,8 +163,8 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
 pub use ui::{
-    build_ui, build_ui_inspected, collect_ids, find_path, find_widget, FocusDirection, Scrollbar,
-    Ui,
+    build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, FocusDirection,
+    Scrollbar, Ui,
 };
 pub use widget::Widget;
 
