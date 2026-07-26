@@ -35,6 +35,8 @@ mod dropdown;
 mod dsl;
 mod fittedbox;
 mod flex;
+/// Validation de formulaire (pure, côté application) : [`form::Rule`] et [`form::Form`].
+pub mod form;
 mod fractional;
 mod grid;
 mod icon;

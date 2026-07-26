@@ -113,6 +113,47 @@ fn password_field_matches_golden() {
     snapshot.assert_golden(golden("password_field"));
 }
 
+/// **Bout-en-bout (jalon 135)** : un `Form` valide des valeurs saisies et pilote
+/// le `error(...)` de chaque champ — le rendu montre le formulaire d'inscription
+/// *après une soumission invalide*. Reproduit son golden.
+#[test]
+fn validated_signup_form_matches_golden() {
+    use frus_widgets::form::{Form, Rule};
+
+    // Ce que l'utilisateur aurait saisi avant de soumettre.
+    let (email, password) = ("ada", "short");
+    let report = Form::new()
+        .field(
+            "email",
+            email,
+            Rule::all([Rule::required("Required"), Rule::email("Enter a valid email address")]),
+        )
+        .field("password", password, Rule::min_len(8, "At least 8 characters"));
+
+    // Les erreurs du rapport alimentent directement les champs.
+    let mut email_field = TextInput::<()>::new(email).width(280.0).label("Email");
+    if let Some(e) = report.error("email") {
+        email_field = email_field.error(e);
+    }
+    let mut password_field =
+        TextInput::<()>::new(password).width(280.0).label("Password").obscure(true);
+    if let Some(e) = report.error("password") {
+        password_field = password_field.error(e);
+    }
+
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Flex::column().gap(14.0).child(email_field).child(password_field),
+    );
+    let Some(snapshot) = render_widget(&root, 340, 210, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(!report.is_valid(), "les deux champs sont invalides");
+    assert_eq!(report.first_invalid(), Some("email"), "le premier à focaliser");
+    snapshot.assert_golden(golden("validated_signup_form"));
+}
+
 /// Le calque **inspecteur** (contours + surlignage + fiche du widget désigné)
 /// par-dessus un arbre rendu — reproduit son golden.
 #[test]
