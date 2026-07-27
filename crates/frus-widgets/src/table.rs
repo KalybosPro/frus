@@ -108,11 +108,20 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     fn on_click(&self) -> Option<Msg> {
         self.message.clone()
     }
+
+    fn focusable(&self) -> bool {
+        // Seuls les en-têtes triables prennent le focus clavier (Entrée/Espace = trier) ;
+        // les cellules de données restent cliquables à la souris sans encombrer le Tab.
+        self.header && self.message.is_some()
+    }
 }
 
 /// Une cellule case à cocher (colonne de sélection multiple).
 struct CheckCell<Msg> {
     checked: bool,
+    /// État **indéterminé** (certaines lignes cochées, pas toutes) — case du « tout
+    /// cocher ». Prime l'affichage décoché ; ignoré si `checked`.
+    indeterminate: bool,
     header: bool,
     selected: bool,
     message: Option<Msg>,
@@ -145,6 +154,11 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
             let inset = (BOX - 24.0 * scale) * 0.5;
             let path = IconName::Check.path().scaled(scale).translated(bx + inset, by + inset);
             scene.fill_path(&path, theme.on_primary.fade(o));
+        } else if self.indeterminate {
+            // Indéterminé : case pleine barrée d'un tiret (façon Material).
+            scene.draw_rect(box_rect, theme.primary.fade(o), 4.0, 0.0, Color::TRANSPARENT);
+            let dash = Rect::new(bx + 4.0, by + BOX * 0.5 - 1.0, BOX - 8.0, 2.0);
+            scene.draw_rect(dash, theme.on_primary.fade(o), 1.0, 0.0, Color::TRANSPARENT);
         } else {
             scene.draw_rect(box_rect, Color::TRANSPARENT, 4.0, 1.5, theme.muted.fade(o));
         }
@@ -152,6 +166,10 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         self.message.clone()
+    }
+
+    fn focusable(&self) -> bool {
+        self.message.is_some()
     }
 }
 
@@ -284,6 +302,12 @@ impl<Msg: Clone + 'static> Table<Msg> {
         !self.rows.is_empty() && (0..self.rows.len()).all(|r| self.selected.contains(&r))
     }
 
+    /// True si **certaines** lignes (pas toutes) sont sélectionnées → « tout cocher »
+    /// indéterminé.
+    fn some_selected(&self) -> bool {
+        (0..self.rows.len()).any(|r| self.selected.contains(&r)) && !self.all_selected()
+    }
+
     /// Régénère l'arbre (rangées + cellules) depuis les données et l'état courants.
     /// L'ordre des appels du builder n'importe pas : l'état final est cohérent.
     fn rebuild(&mut self) {
@@ -296,6 +320,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             if checks {
                 hrow = hrow.child(CheckCell {
                     checked: self.all_selected(),
+                    indeterminate: self.some_selected(),
                     header: true,
                     selected: false,
                     message: self.on_check_all.clone(),
@@ -323,6 +348,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             if checks {
                 drow = drow.child(CheckCell {
                     checked: selected,
+                    indeterminate: false,
                     header: false,
                     selected,
                     message: self.on_check.as_ref().map(|f| f(r)),
@@ -430,6 +456,52 @@ mod tests {
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 0.5), Some(Msg::CheckAll));
         // Case de la 2e ligne de données (r=1).
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 2.5), Some(Msg::Check(1)));
+    }
+
+    #[test]
+    fn select_all_is_indeterminate_on_partial_selection() {
+        // Case « tout cocher » de l'en-tête = 1re cellule de la 1re rangée.
+        let header_check = |sel: &[usize]| {
+            let table = Table::<Msg>::new(2)
+                .header(&["A", "B"])
+                .checkboxes(Msg::Check, Msg::CheckAll)
+                .selected(sel)
+                .row(&["x", "1"])
+                .row(&["y", "2"]);
+            let row0 = &Widget::<Msg>::children(&table)[0];
+            // Peindre la cellule pour lire son état via les primitives serait lourd ; on
+            // teste plutôt les helpers directement.
+            let _ = row0;
+            (table.all_selected(), table.some_selected())
+        };
+        assert_eq!(header_check(&[]), (false, false), "rien coché");
+        assert_eq!(header_check(&[0]), (false, true), "partiel → indéterminé");
+        assert_eq!(header_check(&[0, 1]), (true, false), "tout coché");
+    }
+
+    #[test]
+    fn only_headers_take_keyboard_focus() {
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .header(&["Name", "Score"])
+            .on_sort(Msg::Sort)
+            .on_select_row(Msg::Select)
+            .row(&["Ada", "5"]);
+        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        // Deux en-têtes triables sont focusables ; les cellules de données ne le sont pas.
+        // On compte les focusables en parcourant le cycle Tab.
+        let first = ui.focus_next(None, true);
+        let mut count = 0;
+        let mut cur = first;
+        while let Some(id) = cur {
+            count += 1;
+            let next = ui.focus_next(Some(id), true);
+            if next == first || count > 10 {
+                break;
+            }
+            cur = next;
+        }
+        assert_eq!(count, 2, "seuls les 2 en-têtes prennent le focus (got {count})");
     }
 
     #[test]
