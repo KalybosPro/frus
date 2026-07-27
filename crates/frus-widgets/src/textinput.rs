@@ -23,6 +23,8 @@ const LABEL_SIZE: f32 = 13.0;
 const SUB_SIZE: f32 = 12.0;
 /// Espace vertical entre le label, la boîte de saisie et la ligne d'aide/erreur.
 const DECO_GAP: f32 = 4.0;
+/// Marge autour du label flottant dans l'**encoche** de la bordure (mode `outlined`).
+const NOTCH_GAP: f32 = 4.0;
 
 /// Côté d'une icône préfixe/suffixe (px logiques) et marge autour d'elle.
 const ICON_SIZE: f32 = 20.0;
@@ -63,6 +65,10 @@ pub struct TextInput<Msg> {
     multiline: bool,
     /// Nombre de lignes visibles en mode multi-lignes.
     rows: u16,
+    /// Style **contour** (façon `OutlineInputBorder`) : le label flottant se pose **sur**
+    /// la bordure du haut, qui s'ouvre d'une **encoche** derrière lui. Sinon (défaut), le
+    /// label flotte dans un bandeau réservé au-dessus de la boîte.
+    outlined: bool,
 }
 
 /// Un caractère « de mot » (lettre/chiffre/`_`) pour le saut de mot (Ctrl+Flèche).
@@ -146,7 +152,15 @@ impl<Msg> TextInput<Msg> {
             suffix: None,
             multiline: false,
             rows: 3,
+            outlined: false,
         }
+    }
+
+    /// Style **contour** : le label flottant se pose sur la bordure du haut, ouverte
+    /// d'une encoche derrière lui (façon `OutlineInputBorder` de Material).
+    pub fn outlined(mut self) -> Self {
+        self.outlined = true;
+        self
     }
 
     /// Passe le champ en **multi-lignes** : Entrée insère un saut de ligne (au lieu de
@@ -273,10 +287,16 @@ impl<Msg> TextInput<Msg> {
         (width - (PAD_X + self.prefix_w()) - PAD_X - self.suffix_w()).max(0.0)
     }
 
-    /// Hauteur réservée au label au-dessus de la boîte (0 si aucun label).
+    /// Hauteur réservée au label au-dessus de la boîte (0 si aucun label). En mode
+    /// `outlined`, le label flottant chevauche la bordure du haut : il ne faut réserver
+    /// que sa **moitié haute** (le reste mord sur la boîte), au lieu d'un bandeau plein.
     fn label_block(&self) -> f32 {
         if self.label.is_some() {
-            frus_text::line_height(LABEL_SIZE) + DECO_GAP
+            if self.outlined {
+                (frus_text::line_height(LABEL_SIZE) * 0.5).ceil()
+            } else {
+                frus_text::line_height(LABEL_SIZE) + DECO_GAP
+            }
         } else {
             0.0
         }
@@ -335,17 +355,32 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // focalisé garde un label discret, pas encore accentué.
         let float_t = if self.value.is_empty() { fp } else { 1.0 };
         let content_left = field.x + PAD_X + self.prefix_w();
-        if let Some(label) = &self.label {
+        // Géométrie du label flottant, interpolée entre le **repos** (dans la boîte, à la
+        // place de l'indice) et la **cible flottée**. Cette cible diffère selon le style :
+        // `outlined` → sur la bordure du haut (avec encoche) ; sinon → bandeau réservé.
+        let label_geom = self.label.as_ref().map(|label| {
             let rest = Point::new(content_left, field.y + PAD_Y);
-            let x = rest.x + (bounds.x - rest.x) * float_t;
-            let y = rest.y + (bounds.y - rest.y) * float_t;
+            let (fx, fy) = if self.outlined {
+                (field.x + PAD_X, field.y - frus_text::line_height(LABEL_SIZE) * 0.5)
+            } else {
+                (bounds.x, bounds.y)
+            };
+            let x = rest.x + (fx - rest.x) * float_t;
+            let y = rest.y + (fy - rest.y) * float_t;
             let size = self.size + (LABEL_SIZE - self.size) * float_t;
             let color = if has_error {
                 theme.error
             } else {
                 theme.muted.lerp(theme.focus, fp)
             };
-            scene.text(Point::new(x, y), label.clone(), size, color.fade(o));
+            (label.clone(), x, y, size, color)
+        });
+        // Bandeau : le label est peint **avant** la bordure (il vit au-dessus d'elle).
+        // Contour : il est peint **après** la bordure (il se pose dessus, dans l'encoche).
+        if !self.outlined {
+            if let Some((label, x, y, size, color)) = &label_geom {
+                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+            }
         }
 
         // Ligne d'aide/erreur sous la boîte (l'erreur prend le pas sur l'aide).
@@ -369,6 +404,25 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         .fade(o);
         let border_width = 1.0 + fp;
         scene.draw_rect(field, theme.surface.fade(o), theme.radius, border_width, border_color);
+
+        // Contour : **encoche** du label. On masque le segment de bordure derrière le
+        // label flottant par un aplat couleur surface, puis on peint le label par-dessus.
+        // L'encoche ne s'ouvre qu'à mesure que le label monte (`float_t`).
+        if self.outlined {
+            if let Some((label, x, y, size, color)) = &label_geom {
+                if float_t > 0.01 {
+                    let label_w = frus_text::measure(label, LABEL_SIZE).width;
+                    let notch = Rect::new(
+                        *x - NOTCH_GAP,
+                        field.y - (border_width + NOTCH_GAP) * 0.5,
+                        label_w + NOTCH_GAP * 2.0,
+                        border_width + NOTCH_GAP,
+                    );
+                    scene.fill_rect(notch, theme.surface.fade(o * float_t));
+                }
+                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+            }
+        }
 
         // Icônes décoratives, centrées verticalement dans la boîte (couleur discrète).
         let icon_color = theme.muted.fade(o);

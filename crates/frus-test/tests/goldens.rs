@@ -89,6 +89,37 @@ fn decorated_form_matches_golden() {
     snapshot.assert_golden(golden("decorated_form"));
 }
 
+/// **Champ à contour (jalon 144)** : style `outlined`, le label flottant se pose sur la
+/// bordure du haut, ouverte d'une **encoche** derrière lui. Le premier champ est rempli
+/// (label monté, encoche ouverte) ; le second est vide (label au repos, pas d'encoche).
+#[test]
+fn outlined_field_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(20.0)
+            .child(
+                TextInput::<()>::new("Ada Lovelace")
+                    .width(280.0)
+                    .outlined()
+                    .label("Full name"),
+            )
+            .child(
+                TextInput::<()>::new("")
+                    .width(280.0)
+                    .outlined()
+                    .label("Email")
+                    .placeholder("you@example.com"),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "bordures, labels et texte dessinés");
+    snapshot.assert_golden(golden("outlined_field"));
+}
+
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
 /// de préfixe à gauche et de suffixe à droite. Reproduit son golden.
 #[test]
