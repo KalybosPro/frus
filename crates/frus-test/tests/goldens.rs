@@ -5,7 +5,7 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Container, DateTimePicker, Flex, Table, Text, TextInput, Theme, TimePicker,
+    Container, DateTimePicker, Dropdown, Flex, Table, Text, TextInput, Theme, TimePicker,
 };
 
 fn golden(name: &str) -> String {
@@ -222,6 +222,25 @@ fn date_time_picker_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 200, "récap, calendrier et heure dessinés");
     snapshot.assert_golden(golden("date_time_picker"));
+}
+
+/// **Liste déroulante ouverte (jalon 150)** : en-tête + menu flottant, l'option
+/// sélectionnée surlignée et cochée. Reproduit son golden.
+#[test]
+fn dropdown_menu_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(16.0).child(
+        Dropdown::<()>::new("Medium", ())
+            .width(200.0)
+            .selected(1)
+            .options(true, &["Small", "Medium", "Large"], |_| ()),
+    );
+    let Some(snapshot) = render_widget(&root, 240, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 80, "en-tête, options, surlignage et coche dessinés");
+    snapshot.assert_golden(golden("dropdown_menu"));
 }
 
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône

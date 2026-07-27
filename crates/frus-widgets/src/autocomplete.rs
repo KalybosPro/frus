@@ -1,6 +1,9 @@
 //! [`Autocomplete`] : un champ de saisie avec une **liste de suggestions**
 //! flottante. Contrôlé : l'application fournit la valeur **et** les suggestions
-//! (déjà filtrées) ; la liste ne flotte que si elle est non vide.
+//! (déjà filtrées) ; la liste ne flotte que si elle est non vide. Largeur réglable
+//! ([`width`](Autocomplete::width)) ; les suggestions prennent le focus clavier.
+
+use std::rc::Rc;
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -12,7 +15,7 @@ use crate::textinput::TextInput;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-const WIDTH: f32 = 260.0;
+const DEFAULT_WIDTH: f32 = 260.0;
 const ROW_H: f32 = 32.0;
 const PAD_X: f32 = 10.0;
 const SIZE: f32 = 16.0;
@@ -20,13 +23,14 @@ const SIZE: f32 = 16.0;
 /// Une suggestion cliquable.
 struct Suggestion<Msg> {
     label: String,
+    width: f32,
     message: Msg,
 }
 
 impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Length(WIDTH),
+            width: Dimension::Length(self.width),
             height: Dimension::Length(ROW_H),
             ..Default::default()
         }
@@ -60,7 +64,10 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
 
 /// Un champ de saisie avec suggestions.
 pub struct Autocomplete<Msg> {
-    on_pick: Box<dyn Fn(String) -> Msg>,
+    value: String,
+    width: f32,
+    on_input: Rc<dyn Fn(String) -> Msg>,
+    on_pick: Rc<dyn Fn(String) -> Msg>,
     labels: Vec<String>,
     /// `[champ]` ou `[champ, liste]`.
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -74,12 +81,23 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         on_input: impl Fn(String) -> Msg + 'static,
         on_pick: impl Fn(String) -> Msg + 'static,
     ) -> Self {
-        let input = TextInput::new(value).width(WIDTH).on_input(on_input);
-        Self {
-            on_pick: Box::new(on_pick),
+        let mut ac = Self {
+            value: value.into(),
+            width: DEFAULT_WIDTH,
+            on_input: Rc::new(on_input),
+            on_pick: Rc::new(on_pick),
             labels: Vec::new(),
-            children: vec![Box::new(input)],
-        }
+            children: Vec::new(),
+        };
+        ac.rebuild();
+        ac
+    }
+
+    /// Largeur du champ et des suggestions, en pixels logiques (défaut 260).
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self.rebuild();
+        self
     }
 
     /// Ajoute une suggestion à la liste flottante.
@@ -90,22 +108,24 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
     }
 
     fn rebuild(&mut self) {
-        if self.labels.is_empty() {
-            self.children.truncate(1);
-            return;
-        }
-        let mut list = Flex::column().gap(2.0);
-        for label in &self.labels {
-            list = list.child(Suggestion {
-                label: label.clone(),
-                message: (self.on_pick)(label.clone()),
-            });
-        }
-        let list: Box<dyn Widget<Msg>> = Box::new(list);
-        if self.children.len() > 1 {
-            self.children[1] = list;
-        } else {
-            self.children.push(list);
+        // Champ : reconstruit à chaque réglage (largeur, valeur). Le rappel `on_input`
+        // partagé (Rc) est capturé par le champ.
+        let on_input = self.on_input.clone();
+        let input = TextInput::new(self.value.clone())
+            .width(self.width)
+            .on_input(move |text| on_input(text));
+        self.children = vec![Box::new(input)];
+
+        if !self.labels.is_empty() {
+            let mut list = Flex::column().gap(2.0);
+            for label in &self.labels {
+                list = list.child(Suggestion {
+                    label: label.clone(),
+                    width: self.width,
+                    message: (self.on_pick)(label.clone()),
+                });
+            }
+            self.children.push(Box::new(list));
         }
     }
 }
