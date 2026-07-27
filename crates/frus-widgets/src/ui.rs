@@ -313,6 +313,15 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
     }
 
+    /// Cadre (viewport) de la zone défilable `id`, s'il existe — pour que le shell
+    /// retrouve la largeur/hauteur d'un champ multi-lignes (suivi du caret).
+    pub fn scrollable_viewport(&self, id: WidgetId) -> Option<Rect> {
+        self.scrollables
+            .iter()
+            .find(|(sid, _, _, _)| *sid == id)
+            .map(|(_, rect, _, _)| *rect)
+    }
+
     /// Bornes de défilement `(id, max_x, max_y)` de chaque zone défilable, pour
     /// piloter l'inertie côté framework.
     pub fn scrollable_maxes(&self) -> Vec<(WidgetId, f32, f32)> {
@@ -933,6 +942,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
                 self.semantics.push((id, visible, sem));
             }
+            // Champ **multi-lignes** dont le contenu déborde : région scrollable
+            // (molette/inertie via la machinerie générique ; le shell suit le caret).
+            if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0) {
+                let max_y = (content_h - visible_h).max(0.0);
+                if max_y > 0.0 {
+                    self.scrollables.push((id, draw_rect, 0.0, max_y));
+                }
+            }
         }
 
         if let Some((progress, forward)) = widget.navigator() {
@@ -1272,6 +1289,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         status.anim_color = self.runtime.anim_color(id);
         status.anim_radius = self.runtime.anim_radius(id);
         status.time = self.runtime.time;
+        status.scroll_y = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
@@ -2032,6 +2050,25 @@ mod tests {
         } else {
             panic!("attendu un rectangle");
         }
+    }
+
+    #[test]
+    fn multiline_field_registers_as_scrollable_when_overflowing() {
+        // Un champ multi-lignes dont le contenu dépasse `rows` s'enregistre comme
+        // zone défilable (avec `max_y > 0`) — c'est ce que la molette et la barre
+        // ciblent. Un champ court, lui, ne s'enregistre pas.
+        let tall = TextInput::<Msg>::new("a\nb\nc\nd\ne\nf").on_input(Msg::Edited).rows(2).width(200.0);
+        let tree: Flex<Msg> = Flex::column().child(tall);
+        let rt = Runtime::default();
+        let ui = build_ui(&tree, Size::new(220.0, 240.0), &rt, &Theme::default());
+        let maxes = ui.scrollable_maxes();
+        assert_eq!(maxes.len(), 1, "le champ débordant s'enregistre");
+        assert!(maxes[0].2 > 0.0, "max_y > 0 (contenu débordant)");
+
+        let short = TextInput::<Msg>::new("a\nb").on_input(Msg::Edited).rows(4).width(200.0);
+        let tree: Flex<Msg> = Flex::column().child(short);
+        let ui = build_ui(&tree, Size::new(220.0, 240.0), &rt, &Theme::default());
+        assert!(ui.scrollable_maxes().is_empty(), "un champ court ne défile pas");
     }
 
     #[test]

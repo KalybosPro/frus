@@ -80,6 +80,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.cursor_at(local_x, local_y, width, scroll_cursor)
     }
 
+    fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+        self.inner.text_metrics(width, cursor)
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         self.inner.selected_text(edit)
     }

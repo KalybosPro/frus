@@ -217,6 +217,11 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
+    /// Largeur du texte (entre padding et icônes) pour une largeur de widget donnée.
+    fn content_width(&self, width: f32) -> f32 {
+        (width - (PAD_X + self.prefix_w()) - PAD_X - self.suffix_w()).max(0.0)
+    }
+
     /// Hauteur réservée au label au-dessus de la boîte (0 si aucun label).
     fn label_block(&self) -> f32 {
         if self.label.is_some() {
@@ -332,7 +337,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // Le contenu est inséré entre les icônes de préfixe/suffixe (le cas échéant).
         let left = PAD_X + self.prefix_w();
         let content_x = field.x + left;
-        let content_w = (field.width - left - PAD_X - self.suffix_w()).max(0.0);
+        let content_w = self.content_width(field.width);
         let text_y = field.y + PAD_Y;
         // Multi-lignes : le texte se **replie** à la largeur de contenu — même
         // `max_width` pour la mesure (caret/hit) et pour le rendu → replis identiques.
@@ -362,9 +367,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let caret = layout.caret_rect(cursor);
         let scroll = if status.focused { (caret.x - content_w).max(0.0) } else { 0.0 };
         let text_x = content_x - scroll;
-        let vscroll = if status.focused && self.multiline {
-            let content_h = field.height - PAD_Y * 2.0;
-            (caret.y + caret.height - content_h).max(0.0)
+        // Défilement vertical **retenu** (molette/barre, suivi du caret par le shell) ;
+        // borné au dépassement du contenu sur la boîte.
+        let vscroll = if self.multiline {
+            let overflow = (layout.size().height - (field.height - PAD_Y * 2.0)).max(0.0);
+            status.scroll_y.clamp(0.0, overflow)
         } else {
             0.0
         };
@@ -530,23 +537,27 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         scroll_cursor: usize,
     ) -> Option<usize> {
         // Recompose la même géométrie de contenu que le rendu (insets d'icônes et de
-        // décoration, repli et défilements), pour un clic exact.
+        // décoration, repli, défilement horizontal), pour un clic exact. Le
+        // **défilement vertical retenu** est déjà intégré à `local_y` par le shell.
         let left = PAD_X + self.prefix_w();
-        let content_w = (width - left - PAD_X - self.suffix_w()).max(0.0);
+        let content_w = self.content_width(width);
         let layout = self.layout(if self.multiline { Some(content_w) } else { None });
-        let caret = layout.caret_rect(scroll_cursor);
-        let scroll = (caret.x - content_w).max(0.0);
-        let vscroll = if self.multiline {
-            let content_h = self.field_height() - PAD_Y * 2.0;
-            (caret.y + caret.height - content_h).max(0.0)
-        } else {
-            0.0
-        };
+        let scroll = (layout.caret_rect(scroll_cursor).x - content_w).max(0.0);
         // `local_*` sont relatifs au coin haut-gauche du **widget** (label compris) :
         // on retire la bande du label et le padding pour tomber dans le texte.
         let target_x = local_x - left + scroll;
-        let target_y = local_y - self.label_block() - PAD_Y + vscroll;
+        let target_y = local_y - self.label_block() - PAD_Y;
         Some(layout.hit_test(Point::new(target_x, target_y)))
+    }
+
+    fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+        if !self.multiline {
+            return None;
+        }
+        let layout = self.layout(Some(self.content_width(width)));
+        let caret = layout.caret_rect(cursor);
+        let visible = self.field_height() - PAD_Y * 2.0;
+        Some((layout.size().height, visible, caret.y, caret.height))
     }
 
     fn text_value(&self) -> Option<&str> {
@@ -828,6 +839,33 @@ mod tests {
             Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + line_h * 2.0 + 1.0, 160.0, 0).unwrap();
         assert!(top < 10, "1re ligne : {top}");
         assert!(wrapped > top, "une ligne repliée plus bas → index plus loin ({top} → {wrapped})");
+    }
+
+    #[test]
+    fn multiline_reports_overflow_and_scrolls_content() {
+        // Cinq lignes dans une boîte de deux : le contenu déborde…
+        let inp = TextInput::<Msg>::new("l1\nl2\nl3\nl4\nl5").on_input(Msg::Changed).rows(2).width(200.0);
+        let (content_h, visible_h, _, _) =
+            Widget::<Msg>::text_metrics(&inp, 200.0, 0).expect("champ multi-lignes");
+        assert!(content_h > visible_h + 1.0, "5 lignes > boîte de 2 ({content_h} vs {visible_h})");
+
+        // …et un défilement retenu décale le texte vers le haut (position.y plus petite).
+        let text_top = |scroll: f32| {
+            let mut scene = Scene::new();
+            let status = Status { focused: true, cursor: Some(0), scroll_y: scroll, ..Default::default() };
+            Widget::<Msg>::paint(&inp, Rect::new(0.0, 0.0, 200.0, 80.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, position, .. } if text.contains("l1") => {
+                        Some(position.y)
+                    }
+                    _ => None,
+                })
+                .expect("texte du champ")
+        };
+        assert!(text_top(20.0) < text_top(0.0), "défiler remonte le contenu");
     }
 
     #[test]

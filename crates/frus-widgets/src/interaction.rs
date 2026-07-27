@@ -122,6 +122,9 @@ pub struct Status {
     /// Rayon de coin **interpolé** (`Container::animated_radius`), si en
     /// transition ; `None` = rayon fixe (le widget utilise le sien).
     pub anim_radius: Option<frus_core::BorderRadius>,
+    /// Défilement vertical **retenu** de ce widget (px), pour les widgets qui
+    /// défilent leur propre contenu (champ multi-lignes) ; `0` sinon.
+    pub scroll_y: f32,
 }
 
 impl Default for Status {
@@ -139,6 +142,7 @@ impl Default for Status {
             time: 0.0,
             anim_color: None,
             anim_radius: None,
+            scroll_y: 0.0,
         }
     }
 }
@@ -177,6 +181,7 @@ impl InputState {
             time: 0.0,
             anim_color: None,
             anim_radius: None,
+            scroll_y: 0.0,
         }
     }
 }

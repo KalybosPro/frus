@@ -1419,7 +1419,10 @@ impl<A: Application> App<A> {
         self.runtime.input.focused = focus.map(|(id, _)| id);
         if let Some((id, rect)) = focus {
             let local_x = self.cursor.x - rect.x;
-            let local_y = self.cursor.y - rect.y;
+            // Le défilement vertical retenu (champ multi-lignes) fait partie de la
+            // coordonnée contenu : on l'ajoute pour que le clic tombe sur la bonne ligne.
+            let local_y =
+                self.cursor.y - rect.y + self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
             // Défilement affiché juste avant ce clic : calculé depuis le
             // curseur courant si le champ était déjà focalisé, sinon 0.
             let scroll_cursor = if previously_focused == Some(id) {
@@ -1681,7 +1684,8 @@ impl<A: Application> App<A> {
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;
-                let local_y = self.cursor.y - rect.y;
+                let local_y =
+                    self.cursor.y - rect.y + self.runtime.scroll.get(id).map(|s| s.1).unwrap_or(0.0);
                 // Le champ est focalisé pendant le drag : défilement depuis le curseur courant.
                 let scroll_cursor = self.runtime.edits.get(id).map(|e| e.cursor).unwrap_or(0);
                 let cursor = self
@@ -1909,6 +1913,8 @@ impl<A: Application> App<A> {
             .and_then(|tree| find_widget(tree.as_ref(), id))
             .and_then(|widget| widget.on_edit(&mut edit, &key));
         self.runtime.edits.insert(id, edit);
+        // Champ multi-lignes : fait suivre le défilement retenu au caret (le révèle).
+        self.reveal_caret(id, edit.cursor);
         if let Some(message) = message {
             self.dispatch(message);
             // Les touches peuvent arriver en **rafale** (plus vite qu'une
@@ -1922,6 +1928,33 @@ impl<A: Application> App<A> {
                 self.tree = Some(self.app.view(&theme, width, height));
             }
         }
+    }
+
+    /// Fait **suivre le caret** au défilement retenu d'un champ multi-lignes : ajuste
+    /// `runtime.scroll[id]` juste assez pour que le caret reste visible (comme un
+    /// éditeur qui recentre à la frappe). No-op pour un champ non défilable.
+    fn reveal_caret(&mut self, id: WidgetId, cursor: usize) {
+        let Some(vp) = self.ui.as_ref().and_then(|ui| ui.scrollable_viewport(id)) else {
+            return;
+        };
+        let metrics = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.text_metrics(vp.width, cursor));
+        let Some((content_h, visible_h, caret_top, caret_h)) = metrics else {
+            return;
+        };
+        let max_y = (content_h - visible_h).max(0.0);
+        let cur = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
+        // Fenêtre de défilement où le caret reste visible : du « bas du caret visible »
+        // au « haut du caret visible ». On y ramène le défilement courant.
+        let lo = (caret_top + caret_h - visible_h).max(0.0);
+        let hi = caret_top;
+        let target = cur.clamp(lo.min(hi), lo.max(hi)).clamp(0.0, max_y);
+        self.runtime.scroll.insert(id, (0.0, target));
+        self.runtime.scroll_target.insert(id, (0.0, target));
+        self.runtime.scroll_velocity.remove(&id);
     }
 
     /// Copie le texte sélectionné du champ `id` dans le presse-papier.

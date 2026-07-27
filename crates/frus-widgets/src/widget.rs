@@ -73,6 +73,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Métriques de défilement d'un champ **multi-lignes**, pour une largeur de
+    /// widget et un curseur : `(hauteur du contenu, hauteur visible de la boîte,
+    /// sommet du caret, hauteur du caret)`, en espace contenu (px). Sert au shell à
+    /// enregistrer la région scrollable et à faire suivre le caret. `None` sinon.
+    fn text_metrics(&self, _width: f32, _cursor: usize) -> Option<(f32, f32, f32, f32)> {
+        None
+    }
+
     /// Texte actuellement sélectionné (pour le copier/couper).
     fn selected_text(&self, _edit: &Edit) -> Option<String> {
         None
@@ -385,6 +393,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
         scroll_cursor: usize,
     ) -> Option<usize> {
         (**self).cursor_at(local_x, local_y, width, scroll_cursor)
+    }
+    fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+        (**self).text_metrics(width, cursor)
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         (**self).selected_text(edit)
