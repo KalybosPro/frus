@@ -81,6 +81,13 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Cadre (boîte de saisie) d'un champ **multi-lignes** dans son rectangle `rect`
+    /// — la zone où le texte défile, sous le label. Sert à poser la barre de
+    /// défilement et la région scrollable pile sur la boîte. `None` sinon.
+    fn text_viewport(&self, _rect: crate::Rect) -> Option<crate::Rect> {
+        None
+    }
+
     /// Texte actuellement sélectionné (pour le copier/couper).
     fn selected_text(&self, _edit: &Edit) -> Option<String> {
         None
@@ -396,6 +403,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
         (**self).text_metrics(width, cursor)
+    }
+    fn text_viewport(&self, rect: crate::Rect) -> Option<crate::Rect> {
+        (**self).text_viewport(rect)
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         (**self).selected_text(edit)

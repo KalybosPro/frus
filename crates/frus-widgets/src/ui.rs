@@ -943,11 +943,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.semantics.push((id, visible, sem));
             }
             // Champ **multi-lignes** dont le contenu déborde : région scrollable
-            // (molette/inertie via la machinerie générique ; le shell suit le caret).
-            if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0) {
-                let max_y = (content_h - visible_h).max(0.0);
-                if max_y > 0.0 {
-                    self.scrollables.push((id, draw_rect, 0.0, max_y));
+            // (molette/inertie via la machinerie générique ; le shell suit le caret)
+            // + une barre de défilement glissable (souris et tactile).
+            if let Some(vp) = widget.text_viewport(draw_rect) {
+                if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0) {
+                    let max_y = (content_h - visible_h).max(0.0);
+                    if max_y > 0.0 {
+                        self.scrollables.push((id, vp, 0.0, max_y));
+                        let offset_y =
+                            self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0).clamp(0.0, max_y);
+                        self.add_scrollbar(id, vp, true, offset_y, max_y);
+                    }
                 }
             }
         }

@@ -560,6 +560,14 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         Some((layout.size().height, visible, caret.y, caret.height))
     }
 
+    fn text_viewport(&self, rect: Rect) -> Option<Rect> {
+        if !self.multiline {
+            return None;
+        }
+        // La boîte de saisie : sous le label, de la hauteur des `rows`.
+        Some(Rect::new(rect.x, rect.y + self.label_block(), rect.width, self.field_height()))
+    }
+
     fn text_value(&self) -> Option<&str> {
         Some(&self.value)
     }

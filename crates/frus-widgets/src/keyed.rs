@@ -84,6 +84,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.text_metrics(width, cursor)
     }
 
+    fn text_viewport(&self, rect: frus_core::Rect) -> Option<frus_core::Rect> {
+        self.inner.text_viewport(rect)
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         self.inner.selected_text(edit)
     }

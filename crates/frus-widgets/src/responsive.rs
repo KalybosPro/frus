@@ -130,6 +130,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.text_metrics(width, cursor))
     }
 
+    fn text_viewport(&self, rect: frus_core::Rect) -> Option<frus_core::Rect> {
+        self.inner.as_ref().and_then(|w| w.text_viewport(rect))
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         self.inner.as_ref().and_then(|w| w.selected_text(edit))
     }
