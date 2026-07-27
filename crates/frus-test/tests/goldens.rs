@@ -5,7 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Container, DateTimePicker, Dropdown, Flex, Table, Text, TextInput, Theme, TimePicker,
+    Autocomplete, Container, DateTimePicker, Dropdown, Flex, Table, Text, TextInput, Theme,
+    TimePicker,
 };
 
 fn golden(name: &str) -> String {
@@ -265,6 +266,28 @@ fn dropdown_menu_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 80, "en-tête, options, surlignage et coche dessinés");
     snapshot.assert_golden(golden("dropdown_menu"));
+}
+
+/// **Autocomplétion (jalon 152)** : champ « ap » et liste flottante ; la portion
+/// correspondante (« ap ») est mise en avant dans chaque suggestion et la 2ᵉ (active)
+/// est surlignée. Reproduit son golden.
+#[test]
+fn autocomplete_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(16.0).child(
+        Autocomplete::<()>::new("ap", |_| (), |_| ())
+            .width(220.0)
+            .active(1)
+            .suggestion("apple")
+            .suggestion("apricot")
+            .suggestion("grape"),
+    );
+    let Some(snapshot) = render_widget(&root, 260, 240, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 80, "champ, suggestions, surlignage et mise en avant dessinés");
+    snapshot.assert_golden(golden("autocomplete"));
 }
 
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
