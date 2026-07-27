@@ -88,6 +88,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.text_viewport(rect)
     }
 
+    fn caret_vertical(&self, width: f32, cursor: usize, down: bool) -> Option<usize> {
+        self.inner.caret_vertical(width, cursor, down)
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         self.inner.selected_text(edit)
     }

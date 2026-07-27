@@ -313,6 +313,15 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
     }
 
+    /// Cadre d'un widget **focusable** `id`, s'il est présent cette frame — pour que
+    /// le shell retrouve la géométrie du champ focalisé (déplacement vertical du caret).
+    pub fn widget_rect(&self, id: WidgetId) -> Option<Rect> {
+        self.focusables
+            .iter()
+            .find(|(fid, _)| *fid == id)
+            .map(|(_, rect)| *rect)
+    }
+
     /// Cadre (viewport) de la zone défilable `id`, s'il existe — pour que le shell
     /// retrouve la largeur/hauteur d'un champ multi-lignes (suivi du caret).
     pub fn scrollable_viewport(&self, id: WidgetId) -> Option<Rect> {

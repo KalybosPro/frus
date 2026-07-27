@@ -88,6 +88,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Nouvel index de curseur si le caret peut monter/descendre d'une **ligne**
+    /// dans un champ multi-lignes (même colonne visuelle). `None` s'il est déjà à la
+    /// première (`down=false`) ou dernière (`down=true`) ligne, ou hors multi-lignes
+    /// — le shell fait alors naviguer le focus. `width` = largeur du widget.
+    fn caret_vertical(&self, _width: f32, _cursor: usize, _down: bool) -> Option<usize> {
+        None
+    }
+
     /// Texte actuellement sélectionné (pour le copier/couper).
     fn selected_text(&self, _edit: &Edit) -> Option<String> {
         None
@@ -406,6 +414,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn text_viewport(&self, rect: crate::Rect) -> Option<crate::Rect> {
         (**self).text_viewport(rect)
+    }
+    fn caret_vertical(&self, width: f32, cursor: usize, down: bool) -> Option<usize> {
+        (**self).caret_vertical(width, cursor, down)
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         (**self).selected_text(edit)

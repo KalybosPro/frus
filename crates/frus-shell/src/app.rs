@@ -828,6 +828,41 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     _ => None,
                 };
                 if let Some(direction) = arrow {
+                    // Champ **multi-lignes** : Haut/Bas déplacent le caret entre lignes
+                    // tant qu'il reste dans le champ ; à la première/dernière ligne, on
+                    // retombe sur la navigation du focus (on quitte le champ).
+                    if matches!(direction, FocusDirection::Up | FocusDirection::Down) {
+                        let down = matches!(direction, FocusDirection::Down);
+                        let width = self
+                            .ui
+                            .as_ref()
+                            .and_then(|ui| ui.widget_rect(focused))
+                            .map(|r| r.width)
+                            .unwrap_or(0.0);
+                        let cursor =
+                            self.runtime.edits.get(&focused).map(|e| e.cursor).unwrap_or(0);
+                        let moved = self
+                            .tree
+                            .as_ref()
+                            .and_then(|tree| find_widget(tree.as_ref(), focused))
+                            .and_then(|widget| widget.caret_vertical(width, cursor, down));
+                        if let Some(new_cursor) = moved {
+                            let shift = self.shift;
+                            let edit = self.runtime.edits.entry(focused).or_default();
+                            if shift {
+                                if edit.anchor.is_none() {
+                                    edit.anchor = Some(edit.cursor);
+                                }
+                            } else {
+                                edit.anchor = None;
+                            }
+                            edit.cursor = new_cursor;
+                            self.reveal_caret(focused, new_cursor);
+                            self.request_redraw();
+                            return;
+                        }
+                    }
+
                     let is_text = self
                         .tree
                         .as_ref()

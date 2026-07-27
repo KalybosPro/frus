@@ -134,6 +134,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.text_viewport(rect))
     }
 
+    fn caret_vertical(&self, width: f32, cursor: usize, down: bool) -> Option<usize> {
+        self.inner.as_ref().and_then(|w| w.caret_vertical(width, cursor, down))
+    }
+
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         self.inner.as_ref().and_then(|w| w.selected_text(edit))
     }

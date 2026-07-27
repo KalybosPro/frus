@@ -568,6 +568,25 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         Some(Rect::new(rect.x, rect.y + self.label_block(), rect.width, self.field_height()))
     }
 
+    fn caret_vertical(&self, width: f32, cursor: usize, down: bool) -> Option<usize> {
+        if !self.multiline {
+            return None;
+        }
+        let layout = self.layout(Some(self.content_width(width)));
+        let caret = layout.caret_rect(cursor);
+        // Vise le milieu de la ligne au-dessus / en dessous, même colonne (`caret.x`).
+        let target_y = if down {
+            caret.y + caret.height + caret.height * 0.5
+        } else {
+            caret.y - caret.height * 0.5
+        };
+        // Déjà à la première/dernière ligne : le shell navigue le focus.
+        if target_y < 0.0 || target_y >= layout.size().height {
+            return None;
+        }
+        Some(layout.hit_test(Point::new(caret.x, target_y)))
+    }
+
     fn text_value(&self) -> Option<&str> {
         Some(&self.value)
     }
@@ -874,6 +893,24 @@ mod tests {
                 .expect("texte du champ")
         };
         assert!(text_top(20.0) < text_top(0.0), "défiler remonte le contenu");
+    }
+
+    #[test]
+    fn multiline_arrows_move_the_caret_between_lines() {
+        // "abc\ndefg\nhi" : ligne 0 = indices 0..3, ligne 1 = 4..8, ligne 2 = 9..11.
+        let inp = TextInput::<Msg>::new("abc\ndefg\nhi").on_input(Msg::Changed).rows(3).width(200.0);
+        // Depuis la 1re ligne (index 1), descendre tombe sur la 2e ligne.
+        let down = Widget::<Msg>::caret_vertical(&inp, 200.0, 1, true).unwrap();
+        assert!((4..=8).contains(&down), "descend sur la 2e ligne : {down}");
+        // 1re ligne, monter → impossible (le shell navigue le focus).
+        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false), None);
+        // Dernière ligne (index 10), descendre → impossible.
+        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true), None);
+        // 2e ligne (index 5), monter tombe sur la 1re.
+        let up = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, false).unwrap();
+        assert!(up <= 3, "monte sur la 1re ligne : {up}");
+        // Champ mono-ligne : jamais de mouvement vertical.
+        assert_eq!(Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true), None);
     }
 
     #[test]
