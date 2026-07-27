@@ -4,7 +4,7 @@
 
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
-use frus_widgets::{Container, Flex, Table, Text, TextInput, Theme};
+use frus_widgets::{Container, Flex, Table, Text, TextInput, Theme, TimePicker};
 
 fn golden(name: &str) -> String {
     format!("{}/tests/goldens/{name}.png", env!("CARGO_MANIFEST_DIR"))
@@ -141,6 +141,22 @@ fn data_table_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "en-tête, lignes et textes dessinés");
     snapshot.assert_golden(golden("data_table"));
+}
+
+/// **Sélecteur d'heure (jalon 146)** : aperçu `HH:MM`, grille des heures (0–23) et des
+/// minutes (pas de 5), case sélectionnée surlignée. Reproduit son golden.
+#[test]
+fn time_picker_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new()
+        .padding(20.0)
+        .child(TimePicker::<()>::new(9, 30, |_| (), |_| ()));
+    let Some(snapshot) = render_widget(&root, 280, 400, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "aperçu, grilles et cases dessinés");
+    snapshot.assert_golden(golden("time_picker"));
 }
 
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
