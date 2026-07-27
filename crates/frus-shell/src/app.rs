@@ -953,10 +953,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // l'effacement, eux, répètent normalement).
                     WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
                     WinitKey::Named(NamedKey::Enter) => None,
-                    WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left { shift }),
-                    WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right { shift }),
-                    WinitKey::Named(NamedKey::Home) => Some(Key::Home { shift }),
-                    WinitKey::Named(NamedKey::End) => Some(Key::End { shift }),
+                    // Ctrl : Gauche/Droite sautent un mot, Début/Fin bornent le champ.
+                    WinitKey::Named(NamedKey::ArrowLeft) => {
+                        Some(Key::Left { shift, word: self.ctrl })
+                    }
+                    WinitKey::Named(NamedKey::ArrowRight) => {
+                        Some(Key::Right { shift, word: self.ctrl })
+                    }
+                    WinitKey::Named(NamedKey::Home) => Some(Key::Home { shift, doc: self.ctrl }),
+                    WinitKey::Named(NamedKey::End) => Some(Key::End { shift, doc: self.ctrl }),
                     WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
                     // Android livre Entrée en `Character("\n")` (KeyCharacterMap),
                     // pas en `Named(Enter)` : même soumission, sans insérer de

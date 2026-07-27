@@ -65,6 +65,57 @@ pub struct TextInput<Msg> {
     rows: u16,
 }
 
+/// Un caractère « de mot » (lettre/chiffre/`_`) pour le saut de mot (Ctrl+Flèche).
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Prochaine frontière de mot **à gauche** de `cursor` : saute les séparateurs, puis
+/// le mot (comportement d'éditeur — on s'arrête au **début** du mot précédent).
+fn word_boundary_left(chars: &[char], cursor: usize) -> usize {
+    let mut i = cursor;
+    while i > 0 && !is_word(chars[i - 1]) {
+        i -= 1;
+    }
+    while i > 0 && is_word(chars[i - 1]) {
+        i -= 1;
+    }
+    i
+}
+
+/// Prochaine frontière de mot **à droite** : saute les séparateurs, puis le mot — on
+/// s'arrête **après** le mot suivant.
+fn word_boundary_right(chars: &[char], cursor: usize) -> usize {
+    let len = chars.len();
+    let mut i = cursor;
+    while i < len && !is_word(chars[i]) {
+        i += 1;
+    }
+    while i < len && is_word(chars[i]) {
+        i += 1;
+    }
+    i
+}
+
+/// Début de la **ligne logique** (après le `\n` précédent, ou 0) contenant `cursor`.
+fn line_start(chars: &[char], cursor: usize) -> usize {
+    let mut i = cursor;
+    while i > 0 && chars[i - 1] != '\n' {
+        i -= 1;
+    }
+    i
+}
+
+/// Fin de la **ligne logique** (avant le `\n` suivant, ou fin) contenant `cursor`.
+fn line_end(chars: &[char], cursor: usize) -> usize {
+    let len = chars.len();
+    let mut i = cursor;
+    while i < len && chars[i] != '\n' {
+        i += 1;
+    }
+    i
+}
+
 /// Déplace le curseur vers `target`, en gérant l'ancre de sélection selon Shift.
 fn move_cursor(cursor: &mut usize, anchor: &mut Option<usize>, target: usize, shift: bool) {
     if shift {
@@ -487,16 +538,32 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 }
                 anchor = None;
             }
-            Key::Left { shift } => {
-                let target = cursor.saturating_sub(1);
+            Key::Left { shift, word } => {
+                let target = if *word {
+                    word_boundary_left(&chars, cursor)
+                } else {
+                    cursor.saturating_sub(1)
+                };
                 move_cursor(&mut cursor, &mut anchor, target, *shift);
             }
-            Key::Right { shift } => {
-                let target = (cursor + 1).min(len);
+            Key::Right { shift, word } => {
+                let target = if *word {
+                    word_boundary_right(&chars, cursor)
+                } else {
+                    (cursor + 1).min(len)
+                };
                 move_cursor(&mut cursor, &mut anchor, target, *shift);
             }
-            Key::Home { shift } => move_cursor(&mut cursor, &mut anchor, 0, *shift),
-            Key::End { shift } => move_cursor(&mut cursor, &mut anchor, len, *shift),
+            // Ctrl (`doc`) : bornes du champ entier ; sinon bornes de la ligne logique
+            // (identiques en champ mono-ligne).
+            Key::Home { shift, doc } => {
+                let target = if *doc { 0 } else { line_start(&chars, cursor) };
+                move_cursor(&mut cursor, &mut anchor, target, *shift);
+            }
+            Key::End { shift, doc } => {
+                let target = if *doc { len } else { line_end(&chars, cursor) };
+                move_cursor(&mut cursor, &mut anchor, target, *shift);
+            }
             // Échap ne concerne pas l'édition (routé feuille→racine par le shell).
             Key::Escape => {}
             Key::Enter if self.multiline => {
@@ -770,8 +837,8 @@ mod tests {
         let inp = input("hello");
         // Curseur en fin, Shift+Left deux fois -> sélectionne "lo".
         let mut edit = Edit { cursor: 5, anchor: None, composing: None };
-        inp.on_edit(&mut edit, &Key::Left { shift: true });
-        inp.on_edit(&mut edit, &Key::Left { shift: true });
+        inp.on_edit(&mut edit, &Key::Left { shift: true, word: false });
+        inp.on_edit(&mut edit, &Key::Left { shift: true, word: false });
         assert_eq!(edit.selection_range(), Some((3, 5)));
         // Backspace supprime la sélection.
         assert_eq!(
@@ -786,10 +853,44 @@ mod tests {
     fn home_end_bounds() {
         let inp = input("abc");
         let mut edit = Edit { cursor: 1, anchor: None, composing: None };
-        inp.on_edit(&mut edit, &Key::End { shift: false });
+        inp.on_edit(&mut edit, &Key::End { shift: false, doc: false });
         assert_eq!(edit.cursor, 3);
-        inp.on_edit(&mut edit, &Key::Home { shift: false });
+        inp.on_edit(&mut edit, &Key::Home { shift: false, doc: false });
         assert_eq!(edit.cursor, 0);
+    }
+
+    #[test]
+    fn ctrl_arrow_jumps_by_word() {
+        let inp = input("foo bar baz");
+        // Depuis la fin, Ctrl+Left saute au début de "baz", puis "bar", puis "foo".
+        let mut edit = Edit { cursor: 11, anchor: None, composing: None };
+        inp.on_edit(&mut edit, &Key::Left { shift: false, word: true });
+        assert_eq!(edit.cursor, 8, "début de \"baz\"");
+        inp.on_edit(&mut edit, &Key::Left { shift: false, word: true });
+        assert_eq!(edit.cursor, 4, "début de \"bar\"");
+        // Ctrl+Right saute à la fin de "bar", puis "baz".
+        inp.on_edit(&mut edit, &Key::Right { shift: false, word: true });
+        assert_eq!(edit.cursor, 7, "fin de \"bar\"");
+        inp.on_edit(&mut edit, &Key::Right { shift: false, word: true });
+        assert_eq!(edit.cursor, 11, "fin de \"baz\"");
+    }
+
+    #[test]
+    fn home_end_are_line_relative_but_ctrl_spans_the_field() {
+        // "ab\ncd\nef" : curseur au milieu de la 2e ligne (index 4, entre c et d).
+        let inp = TextInput::<Msg>::new("ab\ncd\nef").on_input(Msg::Changed).rows(3);
+        let mut edit = Edit { cursor: 4, anchor: None, composing: None };
+        // Home simple → début de la ligne courante (index 3), pas du champ.
+        inp.on_edit(&mut edit, &Key::Home { shift: false, doc: false });
+        assert_eq!(edit.cursor, 3, "début de la 2e ligne");
+        // End simple → fin de la ligne courante (index 5).
+        inp.on_edit(&mut edit, &Key::End { shift: false, doc: false });
+        assert_eq!(edit.cursor, 5, "fin de la 2e ligne");
+        // Ctrl+Home / Ctrl+End → bornes du champ entier.
+        inp.on_edit(&mut edit, &Key::Home { shift: false, doc: true });
+        assert_eq!(edit.cursor, 0, "début du champ");
+        inp.on_edit(&mut edit, &Key::End { shift: false, doc: true });
+        assert_eq!(edit.cursor, 8, "fin du champ");
     }
 
     #[test]

@@ -67,16 +67,16 @@ pub enum Key {
     Delete,
     /// Entrée.
     Enter,
-    /// Flèche gauche (Shift : étend la sélection).
-    Left { shift: bool },
-    /// Flèche droite.
-    Right { shift: bool },
+    /// Flèche gauche (`shift` : étend la sélection ; `word` : saute un mot, Ctrl).
+    Left { shift: bool, word: bool },
+    /// Flèche droite (`shift` : étend ; `word` : saute un mot, Ctrl).
+    Right { shift: bool, word: bool },
     /// Échappement (fermer/annuler) — routé feuille→racine, jamais à l'édition.
     Escape,
-    /// Début de ligne.
-    Home { shift: bool },
-    /// Fin de ligne.
-    End { shift: bool },
+    /// Début de ligne (`doc` : début du **champ** entier, Ctrl).
+    Home { shift: bool, doc: bool },
+    /// Fin de ligne (`doc` : fin du **champ** entier, Ctrl).
+    End { shift: bool, doc: bool },
 }
 
 /// État visuel d'interaction pointeur d'un widget.
