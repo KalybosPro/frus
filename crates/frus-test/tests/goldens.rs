@@ -145,6 +145,30 @@ fn data_table_matches_golden() {
     snapshot.assert_golden(golden("data_table"));
 }
 
+/// **Tableau à sélection multiple (jalon 148)** : colonne de cases à cocher (avec « tout
+/// cocher » en en-tête), première colonne à largeur fixe. Deux lignes cochées.
+#[test]
+fn data_table_multiselect_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Table::<()>::new(3)
+            .width(320.0)
+            .column_widths(&[90.0])
+            .header(&["Name", "Role", "Score"])
+            .checkboxes(|_| (), ())
+            .selected(&[0, 2])
+            .row(&["Ada", "Engineer", "5"])
+            .row(&["Bob", "Designer", "3"])
+            .row(&["Cara", "Manager", "4"]),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "cases, en-tête et lignes dessinés");
+    snapshot.assert_golden(golden("data_table_multiselect"));
+}
+
 /// **Sélecteur d'heure (jalon 146)** : aperçu `HH:MM`, grille des heures (0–23) et des
 /// minutes (pas de 5), case sélectionnée surlignée. Reproduit son golden.
 #[test]
