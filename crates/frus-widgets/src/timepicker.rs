@@ -1,6 +1,8 @@
-//! [`TimePicker`] : un sélecteur d'heure **contrôlé** (heures 0–23, minutes par pas de
-//! 5), pendant de [`crate::DatePicker`]. Deux grilles de cases cliquables et un aperçu
-//! `HH:MM` ; l'heure choisie vient de l'état applicatif, le widget émet au clic.
+//! [`TimePicker`] : un sélecteur d'heure **contrôlé**, pendant de [`crate::DatePicker`].
+//! Deux grilles de cases cliquables (heures, minutes) et un aperçu ; en 24 h par défaut,
+//! ou 12 h avec bascule AM/PM ([`hour12`](TimePicker::hour12)). Le pas des minutes est
+//! réglable ([`minute_step`](TimePicker::minute_step)). L'heure vient de l'état
+//! applicatif ; le widget émet au clic, toujours en **heure 24 h**.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -14,10 +16,8 @@ use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
-/// Pas des minutes proposées (0, 5, 10 … 55).
-const MINUTE_STEP: u32 = 5;
 
-/// Une case-nombre cliquable (heure ou minute), surlignée si sélectionnée.
+/// Une case-nombre cliquable (heure, minute ou AM/PM), surlignée si sélectionnée.
 struct TimeCell<Msg> {
     label: String,
     selected: bool,
@@ -68,60 +68,137 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
 
 /// Un sélecteur d'heure.
 pub struct TimePicker<Msg> {
+    hour: u32,
+    minute: u32,
+    on_hour: Box<dyn Fn(u32) -> Msg>,
+    on_minute: Box<dyn Fn(u32) -> Msg>,
+    hour12: bool,
+    minute_step: u32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
+/// Chiffre d'horloge 12 h (1–12) d'une heure 24 h.
+fn digit12(hour24: u32) -> u32 {
+    if hour24 % 12 == 0 {
+        12
+    } else {
+        hour24 % 12
+    }
+}
+
 impl<Msg: Clone + 'static> TimePicker<Msg> {
-    /// Crée un sélecteur pour `hour` (0–23) / `minute` (0–59). `on_hour(h)` au clic sur une
-    /// heure, `on_minute(m)` sur une minute (multiples de 5). L'aperçu `HH:MM` reflète
-    /// exactement `hour`/`minute` (même si la minute n'est pas un multiple de 5).
+    /// Crée un sélecteur pour `hour` (0–23) / `minute` (0–59). `on_hour(h)` est émis au
+    /// clic sur une heure (toujours en **24 h**), `on_minute(m)` sur une minute. Par
+    /// défaut : 24 h, minutes par pas de 5.
     pub fn new(
         hour: u32,
         minute: u32,
         on_hour: impl Fn(u32) -> Msg + 'static,
         on_minute: impl Fn(u32) -> Msg + 'static,
     ) -> Self {
-        let hour = hour.min(23);
-        let minute = minute.min(59);
+        let mut picker = Self {
+            hour: hour.min(23),
+            minute: minute.min(59),
+            on_hour: Box::new(on_hour),
+            on_minute: Box::new(on_minute),
+            hour12: false,
+            minute_step: 5,
+            children: Vec::new(),
+        };
+        picker.rebuild();
+        picker
+    }
 
-        // Aperçu HH:MM.
-        let header = Text::new(format!("{hour:02}:{minute:02}")).size(28.0);
+    /// Bascule en **12 h** : grille de 1 à 12 + bascule AM/PM ; l'aperçu s'affiche en 12 h.
+    /// Les messages émis restent en heure 24 h.
+    pub fn hour12(mut self) -> Self {
+        self.hour12 = true;
+        self.rebuild();
+        self
+    }
 
-        // Grille des heures (0–23, 6 colonnes).
-        let mut hours = Grid::new(6).gap(4.0);
-        for h in 0..24u32 {
-            hours = hours.cell(TimeCell {
-                label: format!("{h:02}"),
-                selected: h == hour,
-                message: Some(on_hour(h)),
-            });
-        }
+    /// Règle le **pas des minutes** proposées (1–60, borné). Par défaut 5.
+    pub fn minute_step(mut self, step: u32) -> Self {
+        self.minute_step = step.clamp(1, 60);
+        self.rebuild();
+        self
+    }
 
-        // Grille des minutes (pas de 5, 6 colonnes → 12 cases). La sélection ne
-        // s'allume que si la minute courante tombe sur un pas.
+    /// Assemble l'aperçu et les grilles à partir de l'état courant.
+    fn rebuild(&mut self) {
+        let (hour, minute) = (self.hour, self.minute);
+        let pm = hour >= 12;
+
+        // Aperçu HH:MM (+ AM/PM en 12 h).
+        let preview = if self.hour12 {
+            let suffix = if pm { "PM" } else { "AM" };
+            Text::new(format!("{}:{minute:02} {suffix}", digit12(hour))).size(28.0)
+        } else {
+            Text::new(format!("{hour:02}:{minute:02}")).size(28.0)
+        };
+
+        // Section des heures.
+        let hours_section = if self.hour12 {
+            // Bascule AM/PM : cliquer une moitié y bascule l'heure courante.
+            let am_target = if pm { hour - 12 } else { hour };
+            let pm_target = if pm { hour } else { hour + 12 };
+            let ampm = Flex::row()
+                .gap(4.0)
+                .child(TimeCell {
+                    label: "AM".into(),
+                    selected: !pm,
+                    message: Some((self.on_hour)(am_target)),
+                })
+                .child(TimeCell {
+                    label: "PM".into(),
+                    selected: pm,
+                    message: Some((self.on_hour)(pm_target)),
+                });
+            // Grille 1–12 ; chaque case vise l'heure 24 h de la moitié courante.
+            let current12 = digit12(hour);
+            let mut grid = Grid::new(6).gap(4.0);
+            for d in 1..=12u32 {
+                let target24 = (d % 12) + if pm { 12 } else { 0 };
+                grid = grid.cell(TimeCell {
+                    label: format!("{d}"),
+                    selected: d == current12,
+                    message: Some((self.on_hour)(target24)),
+                });
+            }
+            Flex::column()
+                .gap(6.0)
+                .child(Text::new("Hour").size(13.0))
+                .child(ampm)
+                .child(grid)
+        } else {
+            let mut grid = Grid::new(6).gap(4.0);
+            for h in 0..24u32 {
+                grid = grid.cell(TimeCell {
+                    label: format!("{h:02}"),
+                    selected: h == hour,
+                    message: Some((self.on_hour)(h)),
+                });
+            }
+            Flex::column().gap(6.0).child(Text::new("Hour").size(13.0)).child(grid)
+        };
+
+        // Section des minutes (pas réglable). La sélection ne s'allume que si la minute
+        // courante tombe sur un pas.
         let mut minutes = Grid::new(6).gap(4.0);
         let mut m = 0;
         while m < 60 {
             minutes = minutes.cell(TimeCell {
                 label: format!("{m:02}"),
                 selected: m == minute,
-                message: Some(on_minute(m)),
+                message: Some((self.on_minute)(m)),
             });
-            m += MINUTE_STEP;
+            m += self.minute_step;
         }
+        let minutes_section =
+            Flex::column().gap(6.0).child(Text::new("Minute").size(13.0)).child(minutes);
 
-        let hours_section = Flex::column()
-            .gap(6.0)
-            .child(Text::new("Hour").size(13.0))
-            .child(hours);
-        let minutes_section = Flex::column()
-            .gap(6.0)
-            .child(Text::new("Minute").size(13.0))
-            .child(minutes);
-
-        Self {
-            children: vec![Box::new(header), Box::new(hours_section), Box::new(minutes_section)],
-        }
+        self.children =
+            vec![Box::new(preview), Box::new(hours_section), Box::new(minutes_section)];
     }
 }
 
@@ -158,48 +235,60 @@ mod tests {
         Minute(u32),
     }
 
+    fn preview_text(ui: &crate::Ui<Msg>) -> Option<String> {
+        ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Text { text, position, .. } if position.y < 40.0 && text.contains(':') => {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+    }
+
     #[test]
     fn builds_header_hours_and_minutes() {
         let tp = TimePicker::new(9, 30, Msg::Hour, Msg::Minute);
-        // [aperçu, section heures, section minutes].
         assert_eq!(Widget::<Msg>::children(&tp).len(), 3);
-        // Section heures = [label, grille] ; la grille a 24 cases.
+        // Section heures 24 h = [label, grille(24)].
         let hours_grid = &Widget::<Msg>::children(&tp)[1].children()[1];
         assert_eq!(hours_grid.children().len(), 24);
-        // Section minutes = [label, grille] ; 60/5 = 12 cases.
+        // Minutes pas de 5 → 12 cases.
         let minutes_grid = &Widget::<Msg>::children(&tp)[2].children()[1];
         assert_eq!(minutes_grid.children().len(), 12);
     }
 
     #[test]
-    fn preview_and_selection_are_rendered() {
-        let tp = TimePicker::new(9, 30, Msg::Hour, Msg::Minute);
-        let ui = build_ui(&tp, Size::new(240.0, 320.0), &Runtime::default(), &Theme::default());
-        // L'aperçu HH:MM est peint.
-        let has_preview = ui
-            .scene()
-            .primitives()
-            .iter()
-            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "09:30"));
-        assert!(has_preview, "l'aperçu 09:30 est affiché");
-        // Case sélectionnée surlignée en primary.
-        let theme = Theme::default();
-        let has_sel = ui.scene().primitives().iter().any(|p| matches!(
-            p,
-            Primitive::Rect { color, .. } if color.fade(1.0) == theme.primary.fade(1.0)
-        ));
-        assert!(has_sel, "l'heure/minute sélectionnée est surlignée");
+    fn minute_step_changes_the_minute_count() {
+        let tp = TimePicker::new(0, 0, Msg::Hour, Msg::Minute).minute_step(15);
+        let minutes_grid = &Widget::<Msg>::children(&tp)[2].children()[1];
+        assert_eq!(minutes_grid.children().len(), 4, "60/15 = 4 minutes");
     }
 
     #[test]
-    fn clicking_a_cell_emits_the_hour_or_minute() {
+    fn hour12_shows_am_pm_and_twelve_hours() {
+        // 15 h 05 → 12 h : 3 PM.
+        let tp = TimePicker::new(15, 5, Msg::Hour, Msg::Minute).hour12();
+        // Section heures = [label, AM/PM, grille(12)].
+        let hours_section = &Widget::<Msg>::children(&tp)[1];
+        assert_eq!(hours_section.children().len(), 3);
+        let hours_grid = &hours_section.children()[2];
+        assert_eq!(hours_grid.children().len(), 12);
+
+        let ui = build_ui(&tp, Size::new(240.0, 360.0), &Runtime::default(), &Theme::default());
+        assert_eq!(preview_text(&ui).as_deref(), Some("3:05 PM"));
+    }
+
+    #[test]
+    fn twentyfour_hour_preview() {
+        let tp = TimePicker::new(9, 30, Msg::Hour, Msg::Minute);
+        let ui = build_ui(&tp, Size::new(240.0, 320.0), &Runtime::default(), &Theme::default());
+        assert_eq!(preview_text(&ui).as_deref(), Some("09:30"));
+    }
+
+    #[test]
+    fn clicking_a_cell_emits_a_message() {
         let tp = TimePicker::new(0, 0, Msg::Hour, Msg::Minute);
         let ui = build_ui(&tp, Size::new(240.0, 320.0), &Runtime::default(), &Theme::default());
-        // La première case d'heures ("00") est en haut-gauche de sa grille : un clic y
-        // émet Hour(0). On la localise par son identité via `hit`.
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
-        // La grille des heures suit l'aperçu ; la 1re case est vers le haut à gauche.
-        // On balaie une bande pour trouver une cible d'heure.
         let msg = (0..320)
             .step_by(4)
             .find_map(|y| click(CELL * 0.5, y as f32))

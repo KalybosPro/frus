@@ -4,7 +4,9 @@
 
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
-use frus_widgets::{Container, Flex, Table, Text, TextInput, Theme, TimePicker};
+use frus_widgets::{
+    Container, DateTimePicker, Flex, Table, Text, TextInput, Theme, TimePicker,
+};
 
 fn golden(name: &str) -> String {
     format!("{}/tests/goldens/{name}.png", env!("CARGO_MANIFEST_DIR"))
@@ -157,6 +159,45 @@ fn time_picker_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "aperçu, grilles et cases dessinés");
     snapshot.assert_golden(golden("time_picker"));
+}
+
+/// **Sélecteur d'heure 12 h (jalon 147)** : bascule AM/PM + grille 1–12, aperçu `3:05 PM`.
+#[test]
+fn time_picker_12h_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new()
+        .padding(20.0)
+        .child(TimePicker::<()>::new(15, 5, |_| (), |_| ()).hour12());
+    let Some(snapshot) = render_widget(&root, 280, 420, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "aperçu, AM/PM et grilles dessinés");
+    snapshot.assert_golden(golden("time_picker_12h"));
+}
+
+/// **Flux date + heure (jalon 147)** : calendrier + sélecteur d'heure, coiffés d'un
+/// récapitulatif de la sélection. Reproduit son golden.
+#[test]
+fn date_time_picker_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(DateTimePicker::<()>::new(
+        2026,
+        7,
+        Some(11),
+        9,
+        30,
+        |_| (),
+        |_| (),
+        |_| (),
+        |_| (),
+    ));
+    let Some(snapshot) = render_widget(&root, 320, 640, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 200, "récap, calendrier et heure dessinés");
+    snapshot.assert_golden(golden("date_time_picker"));
 }
 
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
