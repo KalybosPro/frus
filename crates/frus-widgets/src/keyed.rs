@@ -123,6 +123,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.on_drag(fraction)
     }
 
+    fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
+        self.inner.on_drag_delta(dx)
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.scroll_content()
     }

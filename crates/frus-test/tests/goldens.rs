@@ -169,6 +169,30 @@ fn data_table_multiselect_matches_golden() {
     snapshot.assert_golden(golden("data_table_multiselect"));
 }
 
+/// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
+/// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
+/// golden.
+#[test]
+fn data_table_resizable_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Table::<()>::new(3)
+            .column_widths(&[110.0, 110.0, 70.0])
+            .header(&["Name", "Role", "Score"])
+            .sorted(0, true)
+            .on_resize(|_, _| ())
+            .row(&["Ada", "Engineer", "5"])
+            .row(&["Bob", "Designer", "3"])
+            .row(&["Cara", "Manager", "4"]),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête, lignes et poignées dessinés");
+    snapshot.assert_golden(golden("data_table_resizable"));
+}
+
 /// **Sélecteur d'heure (jalon 146)** : aperçu `HH:MM`, grille des heures (0–23) et des
 /// minutes (pas de 5), case sélectionnée surlignée. Reproduit son golden.
 #[test]

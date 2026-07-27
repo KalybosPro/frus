@@ -7,22 +7,29 @@
 //! tableau émet un message au clic (`on_sort`, `on_select_row`, `on_check`,
 //! `on_check_all`) et n'affiche que l'état qu'on lui passe (`sorted`, `selected`).
 
+use std::rc::Rc;
+
 use frus_core::{Color, Path, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::flex::Flex;
 use crate::icons::IconName;
 use crate::interaction::Status;
+use crate::stack::Stack;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
 const ROW_H: f32 = 34.0;
 const PAD_X: f32 = 10.0;
 const SIZE: f32 = 15.0;
+/// Écart entre rangées et entre cellules (doit coïncider avec la géométrie des poignées).
+const ROW_GAP: f32 = 2.0;
 /// Largeur de la colonne des cases à cocher (sélection multiple).
 const CHECK_W: f32 = 40.0;
 /// Côté de la case à cocher dessinée.
 const BOX: f32 = 18.0;
+/// Largeur de la **zone de préhension** d'une poignée de redimensionnement.
+const HANDLE_W: f32 = 8.0;
 
 /// Fond commun d'une cellule selon son rôle et l'interaction (facteur partagé).
 fn cell_background(header: bool, selected: bool, clickable: bool, theme: &Theme, status: &Status) -> Color {
@@ -173,6 +180,92 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
     }
 }
 
+/// Un espace transparent et **inerte** (ni cliquable, ni glissable) : cale les
+/// poignées de redimensionnement sur les bords de colonnes sans bloquer les clics
+/// (le calque de poignées flotte au-dessus de la grille).
+struct Spacer {
+    width: f32,
+    height: f32,
+}
+
+impl<Msg: Clone> Widget<Msg> for Spacer {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(self.height),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+}
+
+/// Une **poignée de redimensionnement** de colonne : fine barre verticale au bord
+/// droit d'une colonne. Glissée horizontalement, elle émet `on_resize(col, dx)` où
+/// `dx` est le déplacement (px) depuis le dernier événement — l'application
+/// **accumule** la largeur. Le calque de poignées flotte au-dessus de la grille.
+struct ResizeHandle<Msg> {
+    col: usize,
+    height: f32,
+    on_resize: Rc<dyn Fn(usize, f32) -> Msg>,
+}
+
+impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(HANDLE_W),
+            height: Dimension::Length(self.height),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        // Ligne de préhension centrée : discrète au repos, teintée `primary` et
+        // épaissie au survol / pendant le glissement.
+        let t = status.hover_progress;
+        let color = theme.border.lerp(theme.primary, t);
+        let lw = 1.0 + t; // 1 px → 2 px
+        let x = bounds.x + (HANDLE_W - lw) * 0.5;
+        scene.draw_rect(
+            Rect::new(x, bounds.y, lw, bounds.height),
+            color.fade(o),
+            0.0,
+            0.0,
+            Color::TRANSPARENT,
+        );
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+
+    fn draggable(&self) -> bool {
+        true
+    }
+
+    fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
+        // Un delta nul (appui, mouvement vertical pur) ne change rien.
+        if dx == 0.0 {
+            None
+        } else {
+            Some((self.on_resize)(self.col, dx))
+        }
+    }
+}
+
 /// Un tableau de données à colonnes fixes ou flexibles (voir le module).
 pub struct Table<Msg> {
     columns: usize,
@@ -187,7 +280,10 @@ pub struct Table<Msg> {
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     on_check: Option<Box<dyn Fn(usize) -> Msg>>,
     on_check_all: Option<Msg>,
-    root: Flex<Msg>,
+    /// Rappel de redimensionnement (colonne, delta px). Actif seulement si toutes
+    /// les colonnes sont de largeur **fixe** (géométrie des bords connue).
+    on_resize: Option<Rc<dyn Fn(usize, f32) -> Msg>>,
+    root: Box<dyn Widget<Msg>>,
 }
 
 impl<Msg: Clone + 'static> Table<Msg> {
@@ -206,7 +302,8 @@ impl<Msg: Clone + 'static> Table<Msg> {
             on_select: None,
             on_check: None,
             on_check_all: None,
-            root: Flex::column().gap(2.0),
+            on_resize: None,
+            root: Box::new(Flex::<Msg>::column().gap(ROW_GAP)),
         }
     }
 
@@ -273,6 +370,18 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
+    /// Rend les colonnes **redimensionnables** à la souris : une fine poignée au
+    /// bord droit de chaque colonne (sauf la dernière) émet `on_resize(colonne,
+    /// delta_px)` quand on la glisse. L'application **accumule** la largeur, p.ex.
+    /// `widths[col] = (widths[col] + delta).max(MIN)`, et la repasse via
+    /// [`column_widths`](Self::column_widths). N'a d'effet que si **toutes** les
+    /// colonnes ont une largeur fixe (bords connus).
+    pub fn on_resize(mut self, on_resize: impl Fn(usize, f32) -> Msg + 'static) -> Self {
+        self.on_resize = Some(Rc::new(on_resize));
+        self.rebuild();
+        self
+    }
+
     /// Indique les lignes sélectionnées (surlignées, cases cochées).
     pub fn selected(mut self, rows: &[usize]) -> Self {
         self.selected = rows.to_vec();
@@ -290,7 +399,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Une rangée `Flex`, à la largeur totale du tableau si fixée.
     fn new_row(&self) -> Flex<Msg> {
-        let row = Flex::row().gap(2.0);
+        let row = Flex::row().gap(ROW_GAP);
         match self.total_width {
             Some(w) => row.width(w),
             None => row,
@@ -310,9 +419,43 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Régénère l'arbre (rangées + cellules) depuis les données et l'état courants.
     /// L'ordre des appels du builder n'importe pas : l'état final est cohérent.
+    /// Calque de poignées (une par bord de colonne, sauf la dernière) à superposer
+    /// à la grille. `None` si non redimensionnable ou colonnes non toutes fixes.
+    fn resize_overlay(&self, total_h: f32) -> Option<Flex<Msg>> {
+        let on_resize = self.on_resize.as_ref()?;
+        // Géométrie des bords connue seulement si toutes les colonnes sont fixes.
+        if !(0..self.columns).all(|c| self.widths.get(c).copied().unwrap_or(0.0) > 0.0) {
+            return None;
+        }
+        let base = if self.on_check.is_some() { CHECK_W + ROW_GAP } else { 0.0 };
+        // Rangée à gap nul : les écarts sont matérialisés par des cales.
+        let mut row = Flex::row();
+        let mut consumed = 0.0f32;
+        let mut edge = base;
+        for c in 0..self.columns {
+            edge += self.widths[c]; // bord droit de la colonne c
+            if c + 1 < self.columns {
+                let handle_left = edge - HANDLE_W * 0.5;
+                row = row
+                    .child(Spacer {
+                        width: (handle_left - consumed).max(0.0),
+                        height: total_h,
+                    })
+                    .child(ResizeHandle {
+                        col: c,
+                        height: total_h,
+                        on_resize: on_resize.clone(),
+                    });
+                consumed = handle_left + HANDLE_W;
+            }
+            edge += ROW_GAP; // écart inter-colonnes
+        }
+        Some(row)
+    }
+
     fn rebuild(&mut self) {
         let checks = self.on_check.is_some();
-        let mut col = Flex::column().gap(2.0);
+        let mut col = Flex::column().gap(ROW_GAP);
 
         // Rangée d'en-tête (si étiquettes ou cases à cocher).
         if !self.headers.is_empty() || checks {
@@ -368,7 +511,32 @@ impl<Msg: Clone + 'static> Table<Msg> {
             col = col.child(drow);
         }
 
-        self.root = col;
+        // Hauteur totale de la grille (rangées + écarts) : pour caler le calque de
+        // poignées, qui court sur toute la hauteur.
+        let header_present = !self.headers.is_empty() || checks;
+        let n = header_present as usize + self.rows.len();
+        let total_h = if n > 0 {
+            n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP
+        } else {
+            0.0
+        };
+
+        self.root = match self.resize_overlay(total_h) {
+            Some(handles) => {
+                let base = if checks { CHECK_W + ROW_GAP } else { 0.0 };
+                let cols_w: f32 = (0..self.columns).map(|c| self.widths[c]).sum();
+                let computed = base + cols_w + ROW_GAP * self.columns.saturating_sub(1) as f32;
+                let total_w = self.total_width.unwrap_or(computed);
+                Box::new(
+                    Stack::new()
+                        .width(total_w)
+                        .height(total_h)
+                        .layer(col)
+                        .layer(handles),
+                )
+            }
+            None => Box::new(col),
+        };
     }
 }
 
@@ -385,6 +553,13 @@ impl<Msg: Clone> Widget<Msg> for Table<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    fn stack(&self) -> bool {
+        // Quand le tableau est redimensionnable, la racine est une pile (grille +
+        // calque de poignées) : on relaie le drapeau pour que les couches se
+        // superposent au lieu de s'aligner.
+        Widget::<Msg>::stack(&self.root)
     }
 }
 
@@ -421,6 +596,7 @@ mod tests {
         Select(usize),
         Check(usize),
         CheckAll,
+        Resize(usize, f32),
     }
 
     #[test]
@@ -502,6 +678,39 @@ mod tests {
             cur = next;
         }
         assert_eq!(count, 2, "seuls les 2 en-têtes prennent le focus (got {count})");
+    }
+
+    #[test]
+    fn resize_handle_emits_accumulating_delta() {
+        let table = Table::<Msg>::new(2)
+            .column_widths(&[100.0, 100.0])
+            .header(&["A", "B"])
+            .on_resize(Msg::Resize)
+            .row(&["x", "y"]);
+        // Racine = pile ; le calque 1 est la rangée de poignées.
+        assert_eq!(Widget::<Msg>::children(&table).len(), 2);
+        let overlay = &Widget::<Msg>::children(&table)[1];
+        // Une seule poignée (bord entre les 2 colonnes) parmi les cales.
+        let handle = overlay
+            .children()
+            .iter()
+            .find(|c| c.draggable())
+            .expect("une poignée de redimensionnement");
+        // Le glissement émet un delta accumulable ; un delta nul ne fait rien.
+        assert_eq!(handle.on_drag_delta(12.0), Some(Msg::Resize(0, 12.0)));
+        assert_eq!(handle.on_drag_delta(0.0), None);
+
+        // La poignée est atteignable comme draggable au bord de la 1re colonne (x≈100).
+        let ui = build_ui(&table, Size::new(220.0, 120.0), &Runtime::default(), &Theme::default());
+        assert!(ui.draggable_at(Point::new(100.0, 20.0)).is_some(), "poignée saisissable au bord");
+        // Hors des colonnes fixes, pas d'overlay : une largeur flexible le désactive.
+        let flex = Table::<Msg>::new(2).header(&["A", "B"]).on_resize(Msg::Resize).row(&["x", "y"]);
+        // Grille nue (en-tête + 1 rangée), aucun calque de poignées superposé.
+        assert_eq!(Widget::<Msg>::children(&flex).len(), 2, "colonnes flexibles : pas de calque de poignées");
+        assert!(
+            Widget::<Msg>::children(&flex).iter().all(|r| r.children().iter().all(|c| !c.draggable())),
+            "aucune poignée sans largeurs fixes",
+        );
     }
 
     #[test]

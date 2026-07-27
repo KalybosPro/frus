@@ -145,7 +145,9 @@ enum Drag {
     /// Sélection de texte dans un champ (avec ses bornes, pour le placement).
     TextSelect { id: WidgetId, rect: frus_widgets::Rect },
     /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
-    Widget { id: WidgetId, rect: frus_widgets::Rect },
+    /// `last_x` = dernière abscisse du curseur, pour livrer le **delta** aux
+    /// poignées qui accumulent (redimensionnement de colonne).
+    Widget { id: WidgetId, rect: frus_widgets::Rect, last_x: f32 },
     /// Déplacement (pan) d'une fenêtre interactive (`InteractiveViewer`) : le
     /// curseur pousse le contenu. `last` = dernière position (pour le delta) ;
     /// `moved` distingue un vrai pan d'un simple tap (sous le seuil `TOUCH_SLOP`),
@@ -1438,8 +1440,9 @@ impl<A: Application> App<A> {
 
         // 1 bis) Glissement d'un widget draggable (ex. Slider) ?
         if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
-            self.drag = Some(Drag::Widget { id, rect });
-            self.apply_widget_drag(id, rect);
+            self.drag = Some(Drag::Widget { id, rect, last_x: self.cursor.x });
+            // Delta nul à l'appui : seul un curseur (fraction) saute au clic.
+            self.apply_widget_drag(id, rect, 0.0);
             self.request_redraw();
             return;
         }
@@ -1735,7 +1738,11 @@ impl<A: Application> App<A> {
                     edit.cursor = cursor;
                 }
             }
-            Drag::Widget { id, rect } => self.apply_widget_drag(*id, *rect),
+            Drag::Widget { id, rect, last_x } => {
+                let dx = self.cursor.x - *last_x;
+                *last_x = self.cursor.x;
+                self.apply_widget_drag(*id, *rect, dx);
+            }
             Drag::Pan { id, last, moved, velocity, last_t, viewport } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
@@ -1860,17 +1867,18 @@ impl<A: Application> App<A> {
 
     /// Applique un glissement de widget : calcule la fraction horizontale et
     /// route le message produit par `on_drag`.
-    fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect) {
+    fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
         let fraction = if rect.width > 0.0 {
             ((self.cursor.x - rect.x) / rect.width).clamp(0.0, 1.0)
         } else {
             0.0
         };
+        // Poignée à accumulation (delta) d'abord, sinon curseur (fraction absolue).
         let message = self
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| widget.on_drag(fraction));
+            .and_then(|widget| widget.on_drag_delta(dx).or_else(|| widget.on_drag(fraction)));
         if let Some(message) = message {
             self.dispatch(message);
         }

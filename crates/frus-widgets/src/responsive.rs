@@ -189,6 +189,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_drag(fraction))
     }
 
+    fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_drag_delta(dx))
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.as_ref().and_then(|w| w.scroll_content())
     }

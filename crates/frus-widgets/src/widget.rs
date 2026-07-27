@@ -149,6 +149,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Message produit lors d'un glissement horizontal en **delta** : `dx` est
+    /// le déplacement (px logiques) depuis le dernier événement. Pour les
+    /// poignées qui **accumulent** (redimensionnement de colonne), contrairement
+    /// à [`on_drag`](Self::on_drag) (fraction absolue, ex. curseur). Le shell
+    /// l'essaie **avant** `on_drag` ; un widget n'implémente que l'un des deux.
+    fn on_drag_delta(&self, _dx: f32) -> Option<Msg> {
+        None
+    }
+
     /// Si `true`, le widget est une **pile** : ses enfants sont des couches
     /// superposées (même boîte), rendues dans l'ordre (dernière au-dessus).
     fn stack(&self) -> bool {
@@ -460,6 +469,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         (**self).on_drag(fraction)
+    }
+    fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
+        (**self).on_drag_delta(dx)
     }
     fn stack(&self) -> bool {
         (**self).stack()
