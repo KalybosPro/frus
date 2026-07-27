@@ -4,7 +4,7 @@
 
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
-use frus_widgets::{Container, Flex, Text, TextInput, Theme};
+use frus_widgets::{Container, Flex, Table, Text, TextInput, Theme};
 
 fn golden(name: &str) -> String {
     format!("{}/tests/goldens/{name}.png", env!("CARGO_MANIFEST_DIR"))
@@ -118,6 +118,29 @@ fn outlined_field_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "bordures, labels et texte dessinés");
     snapshot.assert_golden(golden("outlined_field"));
+}
+
+/// **Tableau de données (jalon 145)** : en-tête triable (indicateur ▲ sur la colonne
+/// triée) et ligne sélectionnée surlignée. Reproduit son golden.
+#[test]
+fn data_table_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Table::<()>::new(3)
+            .width(300.0)
+            .header(&["Name", "Role", "Score"])
+            .sorted(0, true)
+            .selected(&[1])
+            .row(&["Ada", "Engineer", "5"])
+            .row(&["Bob", "Designer", "3"])
+            .row(&["Cara", "Manager", "4"]),
+    );
+    let Some(snapshot) = render_widget(&root, 340, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête, lignes et textes dessinés");
+    snapshot.assert_golden(golden("data_table"));
 }
 
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
