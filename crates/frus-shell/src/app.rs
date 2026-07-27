@@ -216,6 +216,10 @@ pub struct App<A: Application> {
     /// Modificateurs clavier courants.
     shift: bool,
     ctrl: bool,
+    /// Colonne visuelle « cible » mémorisée pour Haut/Bas/PgUp/PgDn : traverser
+    /// des lignes plus courtes garde la colonne d'origine (comportement d'éditeur).
+    /// Effacée dès qu'un autre déplacement du curseur survient.
+    goal_x: Option<f32>,
     /// Accès presse-papier (no-op sur Android).
     clipboard: clip::Clipboard,
     /// Effet de démarrage (`init`) déjà exécuté ? Évite de le rejouer quand la
@@ -289,6 +293,7 @@ impl<A: Application> App<A> {
             inspector_dump: false,
             shift: false,
             ctrl: false,
+            goal_x: None,
             clipboard: clip::Clipboard::new(),
             started: false,
             last_frame: None,
@@ -827,38 +832,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     WinitKey::Named(NamedKey::ArrowRight) => Some(FocusDirection::Right),
                     _ => None,
                 };
+                // PgUp / PgDn : saut d'une **page** dans un champ multi-lignes (borné
+                // au champ, on n'en sort pas). Sans effet ailleurs.
+                if matches!(
+                    event.logical_key,
+                    WinitKey::Named(NamedKey::PageUp) | WinitKey::Named(NamedKey::PageDown)
+                ) {
+                    let down = matches!(event.logical_key, WinitKey::Named(NamedKey::PageDown));
+                    if self.move_caret_vertical(focused, down, true) {
+                        return;
+                    }
+                }
+
                 if let Some(direction) = arrow {
                     // Champ **multi-lignes** : Haut/Bas déplacent le caret entre lignes
                     // tant qu'il reste dans le champ ; à la première/dernière ligne, on
                     // retombe sur la navigation du focus (on quitte le champ).
                     if matches!(direction, FocusDirection::Up | FocusDirection::Down) {
                         let down = matches!(direction, FocusDirection::Down);
-                        let width = self
-                            .ui
-                            .as_ref()
-                            .and_then(|ui| ui.widget_rect(focused))
-                            .map(|r| r.width)
-                            .unwrap_or(0.0);
-                        let cursor =
-                            self.runtime.edits.get(&focused).map(|e| e.cursor).unwrap_or(0);
-                        let moved = self
-                            .tree
-                            .as_ref()
-                            .and_then(|tree| find_widget(tree.as_ref(), focused))
-                            .and_then(|widget| widget.caret_vertical(width, cursor, down));
-                        if let Some(new_cursor) = moved {
-                            let shift = self.shift;
-                            let edit = self.runtime.edits.entry(focused).or_default();
-                            if shift {
-                                if edit.anchor.is_none() {
-                                    edit.anchor = Some(edit.cursor);
-                                }
-                            } else {
-                                edit.anchor = None;
-                            }
-                            edit.cursor = new_cursor;
-                            self.reveal_caret(focused, new_cursor);
-                            self.request_redraw();
+                        if self.move_caret_vertical(focused, down, false) {
                             return;
                         }
                     }
@@ -1475,6 +1467,8 @@ impl<A: Application> App<A> {
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
             if let Some(cursor) = cursor {
+                // Placer le caret à la souris oublie la colonne cible verticale.
+                self.goal_x = None;
                 self.runtime.edits.insert(id, Edit { cursor, anchor: None, composing: None });
                 self.drag = Some(Drag::TextSelect { id, rect });
 
@@ -1938,9 +1932,48 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Déplace le caret verticalement dans le champ multi-lignes focalisé (Haut/Bas
+    /// si `page=false`, PgUp/PgDn sinon), en préservant la **colonne cible mémorisée**.
+    /// Applique la sélection au Shift et révèle le caret. Rend `true` si le caret a
+    /// bougé dans le champ, `false` sinon (le shell navigue alors le focus).
+    fn move_caret_vertical(&mut self, id: WidgetId, down: bool, page: bool) -> bool {
+        let width = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.widget_rect(id))
+            .map(|r| r.width)
+            .unwrap_or(0.0);
+        let cursor = self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0);
+        let moved = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.caret_vertical(width, cursor, down, page, self.goal_x));
+        let Some((new_cursor, goal)) = moved else {
+            return false;
+        };
+        let shift = self.shift;
+        let edit = self.runtime.edits.entry(id).or_default();
+        if shift {
+            if edit.anchor.is_none() {
+                edit.anchor = Some(edit.cursor);
+            }
+        } else {
+            edit.anchor = None;
+        }
+        edit.cursor = new_cursor;
+        // Mémorise la colonne visée pour le prochain saut vertical.
+        self.goal_x = Some(goal);
+        self.reveal_caret(id, new_cursor);
+        self.request_redraw();
+        true
+    }
+
     /// Route une touche vers le champ focalisé : met à jour l'état d'édition et
     /// applique le message éventuel (changement de valeur ou soumission).
     fn apply_key(&mut self, id: WidgetId, key: Key) {
+        // Tout déplacement horizontal / frappe oublie la colonne cible verticale.
+        self.goal_x = None;
         let mut edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
         let message = self
             .tree

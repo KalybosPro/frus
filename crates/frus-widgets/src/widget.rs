@@ -88,11 +88,26 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Nouvel index de curseur si le caret peut monter/descendre d'une **ligne**
-    /// dans un champ multi-lignes (même colonne visuelle). `None` s'il est déjà à la
-    /// première (`down=false`) ou dernière (`down=true`) ligne, ou hors multi-lignes
-    /// — le shell fait alors naviguer le focus. `width` = largeur du widget.
-    fn caret_vertical(&self, _width: f32, _cursor: usize, _down: bool) -> Option<usize> {
+    /// Déplace le caret verticalement dans un champ multi-lignes et rend
+    /// `(nouvel index, colonne visuelle utilisée)`.
+    ///
+    /// - `down` : bas (`true`) ou haut. `page` : saut d'une **page** (hauteur
+    ///   visible) plutôt que d'une **ligne**.
+    /// - `goal_x` : colonne visuelle cible mémorisée (px) à préserver en traversant
+    ///   des lignes plus courtes ; `None` = repartir de la colonne courante. La
+    ///   valeur rendue est la colonne à re-mémoriser pour le prochain saut.
+    /// - **Ligne** : `None` si déjà à la première/dernière ligne (ou hors
+    ///   multi-lignes) — le shell fait alors naviguer le focus.
+    /// - **Page** : bornée au champ (on ne le quitte pas) ; `None` seulement hors
+    ///   multi-lignes.
+    fn caret_vertical(
+        &self,
+        _width: f32,
+        _cursor: usize,
+        _down: bool,
+        _page: bool,
+        _goal_x: Option<f32>,
+    ) -> Option<(usize, f32)> {
         None
     }
 
@@ -415,8 +430,15 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn text_viewport(&self, rect: crate::Rect) -> Option<crate::Rect> {
         (**self).text_viewport(rect)
     }
-    fn caret_vertical(&self, width: f32, cursor: usize, down: bool) -> Option<usize> {
-        (**self).caret_vertical(width, cursor, down)
+    fn caret_vertical(
+        &self,
+        width: f32,
+        cursor: usize,
+        down: bool,
+        page: bool,
+        goal_x: Option<f32>,
+    ) -> Option<(usize, f32)> {
+        (**self).caret_vertical(width, cursor, down, page, goal_x)
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {
         (**self).selected_text(edit)

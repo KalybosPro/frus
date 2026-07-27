@@ -568,23 +568,42 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         Some(Rect::new(rect.x, rect.y + self.label_block(), rect.width, self.field_height()))
     }
 
-    fn caret_vertical(&self, width: f32, cursor: usize, down: bool) -> Option<usize> {
+    fn caret_vertical(
+        &self,
+        width: f32,
+        cursor: usize,
+        down: bool,
+        page: bool,
+        goal_x: Option<f32>,
+    ) -> Option<(usize, f32)> {
         if !self.multiline {
             return None;
         }
         let layout = self.layout(Some(self.content_width(width)));
         let caret = layout.caret_rect(cursor);
-        // Vise le milieu de la ligne au-dessus / en dessous, même colonne (`caret.x`).
-        let target_y = if down {
-            caret.y + caret.height + caret.height * 0.5
+        let line_h = caret.height;
+        // Colonne visée : la cible mémorisée, sinon la colonne courante.
+        let x = goal_x.unwrap_or(caret.x);
+        // Pas d'une ligne, ou d'une page (hauteur visible du champ, au moins 1 ligne).
+        let step = if page {
+            (self.field_height() - PAD_Y * 2.0).max(line_h)
         } else {
-            caret.y - caret.height * 0.5
+            line_h
         };
-        // Déjà à la première/dernière ligne : le shell navigue le focus.
-        if target_y < 0.0 || target_y >= layout.size().height {
-            return None;
+        let center = caret.y + line_h * 0.5;
+        let target_y = if down { center + step } else { center - step };
+        let full = layout.size().height;
+        if page {
+            // Page : on borne au champ (on n'en sort pas).
+            let clamped = target_y.clamp(0.0, (full - line_h * 0.5).max(0.0));
+            Some((layout.hit_test(Point::new(x, clamped)), x))
+        } else {
+            // Ligne : déjà à la première/dernière → le shell navigue le focus.
+            if target_y < 0.0 || target_y >= full {
+                return None;
+            }
+            Some((layout.hit_test(Point::new(x, target_y)), x))
         }
-        Some(layout.hit_test(Point::new(caret.x, target_y)))
     }
 
     fn text_value(&self) -> Option<&str> {
@@ -900,17 +919,49 @@ mod tests {
         // "abc\ndefg\nhi" : ligne 0 = indices 0..3, ligne 1 = 4..8, ligne 2 = 9..11.
         let inp = TextInput::<Msg>::new("abc\ndefg\nhi").on_input(Msg::Changed).rows(3).width(200.0);
         // Depuis la 1re ligne (index 1), descendre tombe sur la 2e ligne.
-        let down = Widget::<Msg>::caret_vertical(&inp, 200.0, 1, true).unwrap();
+        let (down, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 1, true, false, None).unwrap();
         assert!((4..=8).contains(&down), "descend sur la 2e ligne : {down}");
         // 1re ligne, monter → impossible (le shell navigue le focus).
-        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false), None);
+        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false, false, None), None);
         // Dernière ligne (index 10), descendre → impossible.
-        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true), None);
+        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true, false, None), None);
         // 2e ligne (index 5), monter tombe sur la 1re.
-        let up = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, false).unwrap();
+        let (up, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, false, false, None).unwrap();
         assert!(up <= 3, "monte sur la 1re ligne : {up}");
         // Champ mono-ligne : jamais de mouvement vertical.
-        assert_eq!(Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true), None);
+        assert_eq!(Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true, false, None), None);
+    }
+
+    #[test]
+    fn multiline_goal_column_survives_a_short_line() {
+        // "hello\nhi\nworld" : ligne 0 = 0..5, ligne 1 = 6..8 (courte), ligne 2 = 9..14.
+        // Partant de la colonne 5 (fin de "hello"), on descend : la 2e ligne "hi" est
+        // trop courte (bornée à sa fin), mais la colonne cible rendue reste ~celle de
+        // départ, si bien qu'on retombe sur la colonne 5 en descendant encore.
+        let inp =
+            TextInput::<Msg>::new("hello\nhi\nworld").on_input(Msg::Changed).rows(3).width(200.0);
+        let (mid, goal) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, true, false, None).unwrap();
+        assert!((6..=8).contains(&mid), "ligne courte, bornée à sa fin : {mid}");
+        // Deuxième saut en réutilisant la colonne cible : sans mémoire on serait resté
+        // borné à la fin de "hi" (col. ~2) ; ici on retombe loin dans "world" (col. ~5),
+        // preuve que la colonne d'origine est préservée par-dessus la ligne courte.
+        let (low, _) =
+            Widget::<Msg>::caret_vertical(&inp, 200.0, mid, true, false, Some(goal)).unwrap();
+        assert!((12..=14).contains(&low), "colonne cible préservée dans \"world\" : {low}");
+    }
+
+    #[test]
+    fn multiline_page_jump_is_clamped_to_the_field() {
+        // Page haut/bas ne quittent jamais le champ multi-lignes : aux bornes, le
+        // curseur se cale au début / à la fin et rend `Some` (pas `None` → on reste).
+        let inp =
+            TextInput::<Msg>::new("a\nb\nc\nd\ne").on_input(Msg::Changed).rows(2).width(200.0);
+        // Depuis la dernière ligne, PgDn se cale en bas (on ne quitte pas le champ).
+        let (bottom, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 8, true, true, None).unwrap();
+        assert!(bottom >= 7, "PgDn borné au bas du champ : {bottom}");
+        // Depuis la 1re ligne, PgUp se cale en haut.
+        let (top, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 0, false, true, None).unwrap();
+        assert!(top <= 1, "PgUp borné au haut du champ : {top}");
     }
 
     #[test]
