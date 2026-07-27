@@ -4,7 +4,7 @@
 //! La valeur est contrôlée ; le **curseur / la sélection** sont un état d'édition
 //! retenu au runtime ([`Edit`]), clé par identité de widget.
 
-use frus_core::{FontWeight, Point, Rect, Scene};
+use frus_core::{FontWeight, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
@@ -193,9 +193,10 @@ impl<Msg> TextInput<Msg> {
     }
 
     /// La chaîne **affichée** shapée une fois : caret par index, hit-test, sélection
-    /// — géométrie cohérente (kerning).
-    fn layout(&self) -> TextLayout {
-        TextLayout::new(&self.display(), self.size, FontWeight::Regular, false)
+    /// — géométrie cohérente (kerning). `wrap_width` = largeur de repli doux
+    /// (multi-lignes) ou `None` (mono-ligne : seuls les `\n` explicites coupent).
+    fn layout(&self, wrap_width: Option<f32>) -> TextLayout {
+        TextLayout::wrapped(&self.display(), self.size, FontWeight::Regular, false, wrap_width)
     }
 
     /// Largeur réservée à l'icône de préfixe (0 si aucune).
@@ -328,12 +329,15 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
 
         let len = self.value.chars().count();
-        let layout = self.layout();
         // Le contenu est inséré entre les icônes de préfixe/suffixe (le cas échéant).
         let left = PAD_X + self.prefix_w();
         let content_x = field.x + left;
         let content_w = (field.width - left - PAD_X - self.suffix_w()).max(0.0);
         let text_y = field.y + PAD_Y;
+        // Multi-lignes : le texte se **replie** à la largeur de contenu — même
+        // `max_width` pour la mesure (caret/hit) et pour le rendu → replis identiques.
+        let wrap = if self.multiline { Some(content_w) } else { None };
+        let layout = self.layout(wrap);
 
         // Indice (placeholder) : affiché quand le champ est vide. S'il y a aussi un
         // label, l'indice ne se révèle (en fondu) que lorsque le label a flotté —
@@ -386,12 +390,15 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
 
         if !self.value.is_empty() {
-            scene.text(
-                Point::new(text_x, text_top),
-                self.display(),
-                self.size,
-                theme.on_surface.fade(o),
-            );
+            let pos = Point::new(text_x, text_top);
+            let color = theme.on_surface.fade(o);
+            match wrap {
+                // Multi-lignes : le rendu se replie comme la mesure.
+                Some(max_w) => {
+                    scene.text_wrapped(pos, self.display(), &TextStyle::new(self.size), color, max_w)
+                }
+                None => scene.text(pos, self.display(), self.size, color),
+            }
         }
 
         // Région de **composition** IME : soulignée (texte provisoire, façon
@@ -522,11 +529,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         width: f32,
         scroll_cursor: usize,
     ) -> Option<usize> {
-        let layout = self.layout();
         // Recompose la même géométrie de contenu que le rendu (insets d'icônes et de
-        // décoration, défilements horizontal et vertical), pour un clic exact.
+        // décoration, repli et défilements), pour un clic exact.
         let left = PAD_X + self.prefix_w();
         let content_w = (width - left - PAD_X - self.suffix_w()).max(0.0);
+        let layout = self.layout(if self.multiline { Some(content_w) } else { None });
         let caret = layout.caret_rect(scroll_cursor);
         let scroll = (caret.x - content_w).max(0.0);
         let vscroll = if self.multiline {
@@ -806,6 +813,21 @@ mod tests {
         let single = input("ab").on_submit(Msg::Submitted);
         let mut edit = Edit { cursor: 2, anchor: None, composing: None };
         assert_eq!(single.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
+    }
+
+    #[test]
+    fn multiline_wraps_long_lines_to_the_width() {
+        // Une longue ligne **sans** `\n` se replie sur plusieurs lignes visuelles :
+        // un clic bien plus bas que la 1re ligne place le curseur plus loin dans le
+        // texte (une ligne repliée sous la première), pas à l'index 0.
+        let long = "word ".repeat(30); // 150 caractères, aucune coupure explicite
+        let inp = TextInput::<Msg>::new(long.trim_end()).on_input(Msg::Changed).rows(4).width(160.0);
+        let line_h = frus_text::line_height(inp.size);
+        let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + 1.0, 160.0, 0).unwrap();
+        let wrapped =
+            Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + line_h * 2.0 + 1.0, 160.0, 0).unwrap();
+        assert!(top < 10, "1re ligne : {top}");
+        assert!(wrapped > top, "une ligne repliée plus bas → index plus loin ({top} → {wrapped})");
     }
 
     #[test]

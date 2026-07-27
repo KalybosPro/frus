@@ -160,10 +160,12 @@ fn validated_signup_form_matches_golden() {
 fn multiline_field_matches_golden() {
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(20.0).child(
-        TextInput::<()>::new("Roses are red\nViolets are blue\nfrus renders text too")
-            .width(300.0)
-            .label("Message")
-            .rows(4),
+        TextInput::<()>::new(
+            "Roses are red, violets are blue, and this long line wraps softly to the field width.",
+        )
+        .width(300.0)
+        .label("Message")
+        .rows(4),
     );
     let Some(snapshot) = render_widget(&root, 360, 170, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");

@@ -240,17 +240,45 @@ impl TextLayout {
     /// Shape `text` (multi-lignes autorisé, non contraint en largeur) au style
     /// donné et en extrait la géométrie.
     pub fn new(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Self {
+        Self::wrapped(text, size_px, weight, italic, None)
+    }
+
+    /// Comme [`TextLayout::new`], mais **replie** le texte à `max_width` (repli doux,
+    /// façon champ multi-lignes). `None` = non contraint (seuls les `\n` coupent).
+    ///
+    /// Chaque **ligne visuelle** (un `LayoutRun` cosmic-text) est délimitée par les
+    /// **octets de ses glyphes**, pas par `run.text` (qui est la ligne *dure*
+    /// entière, répétée pour chaque repli) : un repli doux ne fabrique donc aucun
+    /// caractère fantôme, et le `start_char` de chaque ligne vient du décalage
+    /// d'octet de sa ligne dure — indexage exact à travers les replis.
+    pub fn wrapped(
+        text: &str,
+        size_px: f32,
+        weight: FontWeight,
+        italic: bool,
+        max_width: Option<f32>,
+    ) -> Self {
         let fallback_h = line_height(size_px);
         let mut lines: Vec<LayoutLine> = Vec::new();
         let mut width = 0.0_f32;
         let mut height = 0.0_f32;
-        let mut start_char = 0usize;
 
         if !text.is_empty() {
+            // Décalage d'octet du début de chaque ligne **dure** (séparée par `\n`).
+            let hard: Vec<&str> = text.split('\n').collect();
+            let mut line_byte_start = Vec::with_capacity(hard.len());
+            {
+                let mut b = 0usize;
+                for l in &hard {
+                    line_byte_start.push(b);
+                    b += l.len() + 1; // +1 : le `\n`
+                }
+            }
+
             let mut font_system = font_system().lock().expect("FontSystem lock");
             let metrics = Metrics::new(size_px, fallback_h);
             let mut buffer = Buffer::new(&mut font_system, metrics);
-            buffer.set_size(&mut font_system, None, None);
+            buffer.set_size(&mut font_system, max_width, None);
             let attrs = Attrs::new()
                 .family(family_for(text))
                 .weight(Weight(available_weight(weight)))
@@ -258,16 +286,35 @@ impl TextLayout {
             buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(&mut font_system, false);
 
-            for run in buffer.layout_runs() {
-                // Frontières de caractères de la ligne, en offsets d'octets.
-                let char_bytes: Vec<usize> = run.text.char_indices().map(|(b, _)| b).collect();
+            // On collecte les runs pour regarder le suivant (fin du segment courant).
+            let runs: Vec<_> = buffer.layout_runs().collect();
+            for (idx, run) in runs.iter().enumerate() {
+                let line_text = hard[run.line_i];
+                let first_of_line = idx == 0 || runs[idx - 1].line_i != run.line_i;
+                // Segment [lo, hi) de la ligne dure (octets) que cette ligne visuelle
+                // porte : de son premier glyphe (0 si première visuelle) au premier
+                // glyphe de la visuelle suivante de la même ligne dure — sinon la fin
+                // (englobe ainsi l'espace de coupure, retiré des glyphes).
+                let lo = if first_of_line {
+                    0
+                } else {
+                    run.glyphs.iter().map(|g| g.start).min().unwrap_or(0)
+                };
+                let hi = runs
+                    .get(idx + 1)
+                    .filter(|r| r.line_i == run.line_i)
+                    .and_then(|r| r.glyphs.iter().map(|g| g.start).min())
+                    .unwrap_or(line_text.len());
+
+                // Frontières de caractères du segment (octets relatifs à la ligne dure).
+                let span = &line_text[lo..hi];
+                let char_bytes: Vec<usize> = span.char_indices().map(|(b, _)| lo + b).collect();
                 let n = char_bytes.len();
                 let mut offsets = vec![f32::NAN; n + 1];
                 offsets[0] = 0.0;
 
-                // Chaque glyphe couvre un cluster d'octets [start, end) sur
-                // [x, x+w) ; les frontières internes d'un cluster (ligature)
-                // sont interpolées linéairement.
+                // Chaque glyphe couvre un cluster d'octets [start, end) sur [x, x+w)
+                // (x **local à la ligne visuelle**) ; frontières internes interpolées.
                 for glyph in run.glyphs.iter() {
                     let covered: Vec<usize> = (0..n)
                         .filter(|&i| char_bytes[i] >= glyph.start && char_bytes[i] < glyph.end)
@@ -276,21 +323,21 @@ impl TextLayout {
                     for (j, &i) in covered.iter().enumerate() {
                         offsets[i] = glyph.x + glyph.w * (j as f32 / k);
                     }
-                    // La frontière qui SUIT le cluster (si c'est un début de char).
                     if let Some(next) = (0..=n).find(|&i| {
-                        let b = if i == n { run.text.len() } else { char_bytes[i] };
+                        let b = if i == n { lo + span.len() } else { char_bytes[i] };
                         b == glyph.end
                     }) {
                         offsets[next] = glyph.x + glyph.w;
                     }
                 }
-                // Frontières restées sans glyphe (espaces réduits…) : continuité.
+                // Frontières restées sans glyphe (espace de coupure…) : continuité.
                 for i in 1..=n {
                     if offsets[i].is_nan() {
                         offsets[i] = offsets[i - 1];
                     }
                 }
 
+                let start_char = text[..line_byte_start[run.line_i] + lo].chars().count();
                 width = width.max(run.line_w);
                 height = height.max(run.line_top + run.line_height);
                 lines.push(LayoutLine {
@@ -299,8 +346,6 @@ impl TextLayout {
                     top: run.line_top,
                     height: run.line_height,
                 });
-                // +1 : le séparateur de ligne (`\n`) compte un caractère.
-                start_char += n + 1;
             }
         }
 
@@ -501,6 +546,33 @@ mod tests {
         // Hit dans la 2e ligne → indices de la 2e ligne.
         let hit = layout.hit_test(Point::new(0.0, second.y + 1.0));
         assert_eq!(hit, 3);
+    }
+
+    #[test]
+    fn soft_wrap_indexes_chars_correctly_across_lines() {
+        // Repli doux sans `\n` : chaque mot sur sa ligne visuelle. L'indexage doit
+        // rester exact — le caret d'un index tombe sur la bonne ligne, et les débuts
+        // de lignes sont contigus (aucun caractère fantôme au point de coupure).
+        let text = "aaaa bbbb cccc dddd"; // 19 caractères, un mot par ligne à 60 px
+        let layout = TextLayout::wrapped(text, 18.0, FontWeight::Regular, false, Some(60.0));
+        assert!(layout.size().height > line_height(18.0) * 2.0, "plusieurs lignes visuelles");
+
+        // Début de chaque mot : "aaaa"@0, "bbbb"@5, "cccc"@10, "dddd"@15 — chacun à
+        // x ≈ 0 (début de sa ligne), sur des lignes de y croissant.
+        let mut prev_y = -1.0;
+        for &start in &[0usize, 5, 10, 15] {
+            let c = layout.caret_rect(start);
+            assert!(c.x < 1.0, "début de mot {start} à x≈0 (x={})", c.x);
+            assert!(c.y > prev_y, "lignes de y croissant à {start}");
+            prev_y = c.y;
+        }
+        // Un point au **milieu** d'une ligne repliée fait l'aller-retour (index 11 =
+        // 2e 'c' de "cccc", clairement pas une frontière de coupure).
+        let c = layout.caret_rect(11);
+        assert_eq!(layout.hit_test(Point::new(c.x, c.y + 1.0)), 11);
+        // La dernière frontière = 19 (aucun +1 parasite injecté par les 3 replis).
+        assert_eq!(layout.caret_rect(19).x, layout.caret_rect(99).x);
+        assert_eq!(layout.caret_rect(19).y, layout.caret_rect(99).y);
     }
 
     #[test]
