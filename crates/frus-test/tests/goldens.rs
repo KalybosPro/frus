@@ -403,6 +403,30 @@ fn table_virtualized_matches_golden() {
     snapshot.assert_golden(golden("table_virtualized"));
 }
 
+/// **Tableau virtualisé à cellules-widgets (jalon 176)** : 500 lignes d'avatars + puces,
+/// dont seules les visibles sont construites, sous un en-tête épinglé. Reproduit son golden.
+#[test]
+fn table_virtual_widgets_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(260.0)
+        .column_widths(&[70.0])
+        .header(&["User", "Tag"])
+        .virtual_widget_rows(500, 130.0, |i| {
+            vec![
+                Box::new(Avatar::new(format!("U{i}")).size(26.0)) as Box<dyn frus_widgets::Widget<()>>,
+                Box::new(Chip::<()>::new(format!("tag {}", i + 1))),
+            ]
+        });
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 300, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête, avatars et puces virtualisés dessinés");
+    snapshot.assert_golden(golden("table_virtual_widgets"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.

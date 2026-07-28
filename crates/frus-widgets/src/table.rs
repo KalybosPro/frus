@@ -301,6 +301,15 @@ enum RowKind<Msg> {
     Widgets(Vec<CellFactory<Msg>>),
 }
 
+/// Fabrique de contenu d'une ligne **virtualisée**, par index : textes (une valeur par
+/// colonne) ou widgets (un par colonne). Partagée (`Rc`) pour être capturée dans la
+/// fabrique `'static` de la liste virtualisée.
+#[derive(Clone)]
+enum VirtualBuild<Msg> {
+    Text(std::rc::Rc<dyn Fn(usize) -> Vec<String>>),
+    Widgets(std::rc::Rc<dyn Fn(usize) -> Vec<Box<dyn Widget<Msg>>>>),
+}
+
 /// Une cellule **widget** : un contenu arbitraire (centré, avec le fond de cellule et,
 /// si la ligne est sélectionnable, le clic de sélection). Le contenu se peint par-dessus.
 struct WidgetCell<Msg> {
@@ -464,9 +473,9 @@ pub struct Table<Msg> {
     /// un autre déplace la colonne. Nécessite aussi `on_sort` (en-têtes cliquables).
     on_reorder: Option<Rc<dyn Fn(usize, usize) -> Msg>>,
     /// Mode **virtualisé** : `(nombre de lignes, hauteur du viewport, fabrique de la ligne
-    /// `index -> textes de cellules`)`. Seules les lignes **visibles** sont construites
+    /// par index — textes ou widgets)`. Seules les lignes **visibles** sont construites
     /// (défilement interne), pour des grilles de milliers de lignes. Exclut `rows`.
-    virtual_data: Option<(usize, f32, Rc<dyn Fn(usize) -> Vec<String>>)>,
+    virtual_data: Option<(usize, f32, VirtualBuild<Msg>)>,
     root: Box<dyn Widget<Msg>>,
 }
 
@@ -641,7 +650,23 @@ impl<Msg: Clone + 'static> Table<Msg> {
         viewport_height: f32,
         build: impl Fn(usize) -> Vec<String> + 'static,
     ) -> Self {
-        self.virtual_data = Some((count, viewport_height, Rc::new(build)));
+        self.virtual_data = Some((count, viewport_height, VirtualBuild::Text(Rc::new(build))));
+        self.rows.clear();
+        self.rebuild();
+        self
+    }
+
+    /// Comme [`virtual_rows`](Self::virtual_rows), mais chaque ligne est faite de **widgets**
+    /// (avatars, puces, boutons…) : `build(index)` renvoie un widget par colonne. Seules les
+    /// lignes visibles sont construites. Sélection au clic sur les lignes visibles ; l'en-tête
+    /// reste épinglé. Mêmes exclusions (cases à cocher / redimensionnement / réordonnancement).
+    pub fn virtual_widget_rows(
+        mut self,
+        count: usize,
+        viewport_height: f32,
+        build: impl Fn(usize) -> Vec<Box<dyn Widget<Msg>>> + 'static,
+    ) -> Self {
+        self.virtual_data = Some((count, viewport_height, VirtualBuild::Widgets(Rc::new(build))));
         self.rows.clear();
         self.rebuild();
         self
@@ -806,26 +831,42 @@ impl<Msg: Clone + 'static> Table<Msg> {
             let selected = self.selected.clone();
             let on_select = self.on_select.clone();
             let list = List::new(count, ROW_H, move |i| {
-                let cells = build(i);
                 let is_selected = selected.contains(&i);
+                let message = on_select.as_ref().map(|f| f(i));
                 let mut row = Flex::row().gap(ROW_GAP);
                 if let Some(w) = total_width {
                     row = row.width(w);
                 }
-                for c in 0..columns {
-                    let label = cells.get(c).cloned().unwrap_or_default();
-                    row = row.child(Cell {
-                        label,
-                        width: col_dimension(&widths, c),
-                        header: false,
-                        selected: is_selected,
-                        row: Some(i),
-                        icon: None,
-                        sort: None,
-                        message: on_select.as_ref().map(|f| f(i)),
-                        reorder: None,
-                        action: Vec::new(),
-                    });
+                match &build {
+                    VirtualBuild::Text(f) => {
+                        let cells = f(i);
+                        for c in 0..columns {
+                            row = row.child(Cell {
+                                label: cells.get(c).cloned().unwrap_or_default(),
+                                width: col_dimension(&widths, c),
+                                header: false,
+                                selected: is_selected,
+                                row: Some(i),
+                                icon: None,
+                                sort: None,
+                                message: message.clone(),
+                                reorder: None,
+                                action: Vec::new(),
+                            });
+                        }
+                    }
+                    VirtualBuild::Widgets(f) => {
+                        for (c, widget) in f(i).into_iter().enumerate().take(columns) {
+                            row = row.child(WidgetCell {
+                                width: col_dimension(&widths, c),
+                                selected: is_selected,
+                                header: false,
+                                row: i,
+                                message: message.clone(),
+                                content: vec![widget],
+                            });
+                        }
+                    }
                 }
                 row
             });
@@ -1423,6 +1464,36 @@ mod tests {
         // Une ligne visible reste cliquable (sélection).
         let click = ui.hit(Point::new(20.0, ROW_H + 15.0)).and_then(|id| ui.msg_for(id));
         assert!(matches!(click, Some(Msg::Select(_))), "ligne virtualisée cliquable : {click:?}");
+    }
+
+    #[test]
+    fn virtual_widget_rows_builds_only_visible() {
+        use crate::Text;
+        use std::cell::Cell as StdCell;
+        use std::rc::Rc as StdRc;
+        let built = StdRc::new(StdCell::new(0usize));
+        let counter = built.clone();
+        let table = Table::<Msg>::new(1)
+            .width(200.0)
+            .header(&["Item"])
+            .on_select_row(Msg::Select)
+            .virtual_widget_rows(3000, 200.0, move |i| {
+                counter.set(counter.get() + 1);
+                vec![Box::new(Text::new(format!("W{i}"))) as Box<dyn Widget<Msg>>]
+            });
+        let ui = build_ui(&table, Size::new(200.0, 260.0), &Runtime::default(), &Theme::default());
+        assert!(built.get() < 20 && built.get() >= 5, "seules les visibles : {}", built.get());
+        let has = |t: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
+        };
+        assert!(has("Item"), "en-tête épinglé");
+        assert!(has("W0"), "widget de la première ligne construit");
+        // La ligne-widget virtualisée reste sélectionnable (la cellule capte le clic).
+        let click = ui.hit(Point::new(20.0, ROW_H + 15.0)).and_then(|id| ui.msg_for(id));
+        assert!(matches!(click, Some(Msg::Select(_))), "ligne-widget cliquable : {click:?}");
     }
 
     #[test]
