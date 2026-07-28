@@ -5,8 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Container, DateTimePicker, Dropdown, Flex, Table, Text, TextInput, Theme,
-    TimePicker,
+    Autocomplete, Container, DateTimePicker, Dropdown, Flex, RangeSlider, Table, Text, TextInput,
+    Theme, TimePicker,
 };
 
 fn golden(name: &str) -> String {
@@ -288,6 +288,22 @@ fn autocomplete_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 80, "champ, suggestions, surlignage et mise en avant dessinés");
     snapshot.assert_golden(golden("autocomplete"));
+}
+
+/// **Curseur de plage (jalon 156)** : deux poignées délimitant un intervalle, segment
+/// actif teinté `primary` entre elles. Reproduit son golden.
+#[test]
+fn range_slider_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new()
+        .padding(24.0)
+        .child(RangeSlider::<()>::new(0.3, 0.7).width(240.0));
+    let Some(snapshot) = render_widget(&root, 300, 80, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 40, "piste, segment actif et deux poignées dessinés");
+    snapshot.assert_golden(golden("range_slider"));
 }
 
 /// **Autocomplétion défilante (jalon 154)** : liste plus longue que le seuil

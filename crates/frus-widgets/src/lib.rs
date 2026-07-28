@@ -149,7 +149,7 @@ pub use scaffold::{fab_button, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
 pub use skeleton::Skeleton;
-pub use slider::Slider;
+pub use slider::{RangeSlider, Slider};
 pub use spinner::Spinner;
 pub use stack::Stack;
 pub use stepper::Stepper;
