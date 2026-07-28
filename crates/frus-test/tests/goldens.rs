@@ -5,8 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, Chip, Container, DateTimePicker, Dropdown, Flex, IconName, RangeSlider,
-    Table, Text, TextInput, Theme, TimePicker,
+    Autocomplete, Avatar, Button, Chip, Container, DateTimePicker, Dropdown, Flex, IconName,
+    RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -302,6 +302,31 @@ fn table_header_icons_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "en-têtes à icônes et données dessinés");
     snapshot.assert_golden(golden("table_header_icons"));
+}
+
+/// **En-tête à widget d'action (jalon 170)** : un bouton (« Filter ») posé à droite d'un
+/// en-tête, cliquable indépendamment — le reste de l'en-tête triant toujours (indicateur ▲
+/// sur « Name »). Reproduit son golden.
+#[test]
+fn table_header_action_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(300.0)
+        .header(&["Name", "Status"])
+        .on_sort(|_| ())
+        .sorted(0, true)
+        .header_action(1, || {
+            Box::new(Button::new("Filter").size(12.0).variant(Variant::Secondary).on_press(()))
+        })
+        .row(&["Ada", "Active"])
+        .row(&["Bob", "Away"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 340, 160, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête, bouton d'action et données dessinés");
+    snapshot.assert_golden(golden("table_header_action"));
 }
 
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine

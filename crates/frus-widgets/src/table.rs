@@ -10,7 +10,7 @@
 use std::rc::Rc;
 
 use frus_core::{Color, Insets, Path, Point, Rect, Scene};
-use frus_layout::{Align, Dimension, Style};
+use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
 use crate::icons::IconName;
@@ -83,15 +83,32 @@ struct Cell<Msg> {
     /// En-tête **réordonnable** : `(index de colonne, nombre de colonnes, rappel
     /// on_reorder(from, to))`. Le nombre de colonnes borne le réordonnancement clavier.
     reorder: Option<(usize, usize, Rc<dyn Fn(usize, usize) -> Msg>)>,
+    /// **Widget d'action** d'en-tête (0 ou 1) : un bouton (filtre, menu…) posé à droite,
+    /// **enfant** de la cellule. Il capte son propre clic (hit-test du plus profond),
+    /// le reste de l'en-tête continuant de trier — d'où un `Vec` pour l'exposer via
+    /// [`children`](Widget::children).
+    action: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     fn style(&self) -> Style {
-        cell_style(self.width)
+        let base = cell_style(self.width);
+        // Avec un widget d'action, il se pose à **droite** (le libellé restant peint à
+        // gauche) et centré verticalement.
+        if self.action.is_empty() {
+            base
+        } else {
+            Style {
+                justify: Justify::End,
+                align: Align::Center,
+                padding: Insets::new(0.0, PAD_X, 0.0, 0.0),
+                ..base
+            }
+        }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
+        &self.action
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -420,6 +437,9 @@ pub struct Table<Msg> {
     headers: Vec<String>,
     /// Icône de tête par colonne d'en-tête (icône + libellé). Manquante = aucune.
     header_icons: Vec<Option<IconName>>,
+    /// Widget d'action par colonne d'en-tête (bouton de filtre/menu), fabriqué à chaque
+    /// reconstruction. `None` = aucun. Posé à droite de l'en-tête, il capte son clic.
+    header_actions: Vec<Option<CellFactory<Msg>>>,
     rows: Vec<RowKind<Msg>>,
     /// Largeur par colonne : `> 0` = fixe (px), `<= 0` = flexible (part égale).
     widths: Vec<f32>,
@@ -447,6 +467,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             columns,
             headers: Vec::new(),
             header_icons: Vec::new(),
+            header_actions: Vec::new(),
             rows: Vec::new(),
             widths: vec![0.0; columns],
             total_width: None,
@@ -474,6 +495,21 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// **réordonnable** comme un en-tête texte (l'icône est purement décorative).
     pub fn header_icons(mut self, icons: &[Option<IconName>]) -> Self {
         self.header_icons = icons.iter().copied().collect();
+        self.rebuild();
+        self
+    }
+
+    /// Pose un **widget d'action** (bouton de filtre, menu…) à droite de l'en-tête de la
+    /// colonne `col`. C'est un **enfant** de la cellule : il capte son propre clic (hit-test
+    /// du plus profond), tandis que le reste de l'en-tête **trie** et se **réordonne**
+    /// comme d'habitude. La fabrique est rappelée à chaque reconstruction (widget frais).
+    pub fn header_action(mut self, col: usize, make: impl Fn() -> Box<dyn Widget<Msg>> + 'static) -> Self {
+        if col < self.columns {
+            if self.header_actions.len() <= col {
+                self.header_actions.resize_with(col + 1, || None);
+            }
+            self.header_actions[col] = Some(std::rc::Rc::new(make));
+        }
         self.rebuild();
         self
     }
@@ -661,6 +697,12 @@ impl<Msg: Clone + 'static> Table<Msg> {
                 let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
                 let message = self.on_sort.as_ref().map(|f| f(c));
                 let reorder = self.on_reorder.as_ref().map(|cb| (c, self.columns, cb.clone()));
+                let action = self
+                    .header_actions
+                    .get(c)
+                    .and_then(|a| a.as_ref())
+                    .map(|make| vec![make()])
+                    .unwrap_or_default();
                 hrow = hrow.child(Cell {
                     label: label.clone(),
                     width: self.col_width(c),
@@ -671,6 +713,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     sort,
                     message,
                     reorder,
+                    action,
                 });
             }
             col = col.child(hrow);
@@ -703,6 +746,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                             sort: None,
                             message,
                             reorder: None,
+                            action: Vec::new(),
                         });
                     }
                 }
@@ -810,6 +854,7 @@ mod tests {
         CheckAll,
         Resize(usize, f32),
         Reorder(usize, usize),
+        Filter,
     }
 
     #[test]
@@ -1064,6 +1109,47 @@ mod tests {
         let row1 = Widget::<Msg>::children(&table)[2].children()[0].announce();
         assert_eq!(row0.as_deref(), Some("Row deselected"));
         assert_eq!(row1.as_deref(), Some("Row selected"));
+    }
+
+    #[test]
+    fn header_action_widget_captures_its_click() {
+        use frus_core::Color;
+        // Un bouton d'action posé dans l'en-tête, cliquable indépendamment du tri.
+        struct Btn;
+        impl Widget<Msg> for Btn {
+            fn style(&self) -> Style {
+                Style {
+                    width: Dimension::Length(24.0),
+                    height: Dimension::Length(24.0),
+                    ..Default::default()
+                }
+            }
+            fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+                &[]
+            }
+            fn paint(&self, bounds: Rect, _s: Status, t: &Theme, scene: &mut Scene) {
+                scene.draw_rect(bounds, t.primary, 4.0, 0.0, Color::TRANSPARENT);
+            }
+            fn on_click(&self) -> Option<Msg> {
+                Some(Msg::Filter)
+            }
+        }
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .header(&["Name", "Score"])
+            .on_sort(Msg::Sort)
+            .header_action(1, || Box::new(Btn));
+        // La cellule d'en-tête de la colonne 1 porte le widget d'action.
+        assert_eq!(
+            Widget::<Msg>::children(&table)[0].children()[1].children().len(),
+            1,
+            "l'en-tête colonne 1 porte l'action",
+        );
+        let ui = build_ui(&table, Size::new(240.0, 100.0), &Runtime::default(), &Theme::default());
+        let click = |x: f32| ui.hit(Point::new(x, ROW_H * 0.5)).and_then(|id| ui.msg_for(id));
+        // Clic à droite (sur le bouton, centré ~218) → action ; ailleurs → tri.
+        assert_eq!(click(218.0), Some(Msg::Filter), "le bouton capte son clic");
+        assert_eq!(click(130.0), Some(Msg::Sort(1)), "le reste de l'en-tête trie");
     }
 
     #[test]
