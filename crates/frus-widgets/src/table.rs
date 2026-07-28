@@ -72,6 +72,9 @@ struct Cell<Msg> {
     width: Dimension,
     header: bool,
     selected: bool,
+    /// Index de ligne (cellule de donnée) : sert à énoncer « Row N selected » au lecteur
+    /// d'écran. `None` pour un en-tête.
+    row: Option<usize>,
     /// Icône **de tête** (en-tête uniquement) : peinte avant le libellé (icône + texte).
     icon: Option<IconName>,
     /// Indicateur de tri de l'en-tête : `Some(true)` = ▲, `Some(false)` = ▼.
@@ -159,6 +162,11 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
             let ascending = !matches!(self.sort, Some(true));
             let dir = if ascending { "ascending" } else { "descending" };
             return Some(format!("Sorted by {} {}", self.label, dir));
+        }
+        // Cellule de donnée sélectionnable : énonce l'état **résultant** de la ligne.
+        if let (false, Some(row), true) = (self.header, self.row, self.message.is_some()) {
+            let verb = if self.selected { "deselected" } else { "selected" };
+            return Some(format!("Row {} {}", row + 1, verb));
         }
         None
     }
@@ -280,6 +288,8 @@ enum RowKind<Msg> {
 struct WidgetCell<Msg> {
     width: Dimension,
     selected: bool,
+    /// Index de ligne : pour énoncer « Row N selected » au lecteur d'écran.
+    row: usize,
     message: Option<Msg>,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -308,6 +318,13 @@ impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
 
     fn on_click(&self) -> Option<Msg> {
         self.message.clone()
+    }
+
+    fn announce(&self) -> Option<String> {
+        // Ligne-widget sélectionnable : énonce l'état **résultant** de la sélection.
+        self.message.as_ref()?;
+        let verb = if self.selected { "deselected" } else { "selected" };
+        Some(format!("Row {} {}", self.row + 1, verb))
     }
 }
 
@@ -649,6 +666,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     width: self.col_width(c),
                     header: true,
                     selected: false,
+                    row: None,
                     icon: self.header_icons.get(c).copied().flatten(),
                     sort,
                     message,
@@ -680,6 +698,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                             width: self.col_width(c),
                             header: false,
                             selected,
+                            row: Some(r),
                             icon: None,
                             sort: None,
                             message,
@@ -692,6 +711,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                         drow = drow.child(WidgetCell {
                             width: self.col_width(c),
                             selected,
+                            row: r,
                             message: self.on_select.as_ref().map(|f| f(r)),
                             content: vec![make()],
                         });
@@ -1044,6 +1064,28 @@ mod tests {
         let row1 = Widget::<Msg>::children(&table)[2].children()[0].announce();
         assert_eq!(row0.as_deref(), Some("Row deselected"));
         assert_eq!(row1.as_deref(), Some("Row selected"));
+    }
+
+    #[test]
+    fn row_click_selection_is_announced() {
+        // Cliquer une ligne (texte ou widget) énonce l'état résultant, avec le numéro.
+        let table = Table::<Msg>::new(2)
+            .header(&["Name", "Tag"])
+            .on_select_row(Msg::Select)
+            .selected(&[1])
+            .row(&["Ada", "admin"])
+            .widget_row(vec![
+                Box::new(|| Box::new(crate::Text::new("Bob"))),
+                Box::new(|| Box::new(crate::Text::new("editor"))),
+            ]);
+        let rows = Widget::<Msg>::children(&table);
+        // Ligne texte 0 (non sélectionnée) → « selected » ; cellule quelconque de la ligne.
+        assert_eq!(rows[1].children()[0].announce().as_deref(), Some("Row 1 selected"));
+        // Ligne widget 1 (sélectionnée) → « deselected ».
+        assert_eq!(rows[2].children()[0].announce().as_deref(), Some("Row 2 deselected"));
+        // Sans sélection possible, aucune annonce.
+        let plain = Table::<Msg>::new(1).header(&["N"]).row(&["x"]);
+        assert_eq!(Widget::<Msg>::children(&plain)[1].children()[0].announce(), None);
     }
 
     #[test]
