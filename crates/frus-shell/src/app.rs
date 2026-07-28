@@ -862,6 +862,29 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         }
                     }
 
+                    // Flèches gauche/droite : proposées d'abord au widget focalisé
+                    // (curseur de plage…) via `on_key`. S'il les consomme, on n'en
+                    // navigue pas le focus.
+                    if matches!(direction, FocusDirection::Left | FocusDirection::Right) {
+                        let key = if matches!(direction, FocusDirection::Left) {
+                            Key::Left { shift: self.shift, word: self.ctrl }
+                        } else {
+                            Key::Right { shift: self.shift, word: self.ctrl }
+                        };
+                        let handled = self
+                            .tree
+                            .as_ref()
+                            .and_then(|tree| find_widget(tree.as_ref(), focused))
+                            .map(|widget| widget.on_key(&key));
+                        if let Some(KeyResponse::Handled(message)) = handled {
+                            if let Some(message) = message {
+                                self.dispatch(message);
+                            }
+                            self.request_redraw();
+                            return;
+                        }
+                    }
+
                     let is_text = self
                         .tree
                         .as_ref()

@@ -2,13 +2,20 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Rect, Scene};
+use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::flex::Flex;
-use crate::interaction::Status;
+use crate::interaction::{Key, KeyResponse, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
+
+/// Hauteur de l'infobulle de valeur (au-dessus des poignées) et son écart à la piste.
+const TIP_H: f32 = 20.0;
+const TIP_GAP: f32 = 6.0;
+const TIP_SIZE: f32 = 12.0;
+/// Pas clavier par défaut (sans `divisions`) : une flèche déplace de 5 %.
+const KEY_STEP: f32 = 0.05;
 
 const H: f32 = 24.0;
 const TRACK_H: f32 = 6.0;
@@ -115,13 +122,14 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
 /// Une cale transparente et inerte (positionne les poignées le long de la piste).
 struct Spacer {
     width: f32,
+    height: f32,
 }
 
 impl<Msg: Clone> Widget<Msg> for Spacer {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(H),
+            height: Dimension::Length(self.height),
             ..Default::default()
         }
     }
@@ -152,15 +160,45 @@ struct RangeThumb<Msg> {
     high: f32,
     /// Largeur de la piste, pour convertir un delta px en fraction.
     track: f32,
+    /// Hauteur totale (piste + éventuelle zone d'infobulle) : la poignée est dessinée
+    /// dans la bande **basse** de `H`.
+    height: f32,
     divisions: Option<usize>,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
+}
+
+impl<Msg> RangeThumb<Msg> {
+    /// Accroche `v` au palier le plus proche si `divisions` est défini.
+    fn snap(&self, v: f32) -> f32 {
+        match self.divisions {
+            Some(n) if n > 0 => (v * n as f32).round() / n as f32,
+            _ => v,
+        }
+    }
+
+    /// Nouvel intervalle après un déplacement de `delta` du côté de cette poignée,
+    /// borné par l'autre (pas de croisement) et accroché.
+    fn moved(&self, delta: f32) -> (f32, f32) {
+        match self.side {
+            Side::Low => (self.snap((self.low + delta).clamp(0.0, self.high)), self.high),
+            Side::High => (self.low, self.snap((self.high + delta).clamp(self.low, 1.0))),
+        }
+    }
+
+    /// Pas d'une flèche : un palier si `divisions`, sinon [`KEY_STEP`].
+    fn key_step(&self) -> f32 {
+        match self.divisions {
+            Some(n) if n > 0 => 1.0 / n as f32,
+            _ => KEY_STEP,
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(THUMB),
-            height: Dimension::Length(H),
+            height: Dimension::Length(self.height),
             ..Default::default()
         }
     }
@@ -171,17 +209,24 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
+        // Poignée dans la bande basse `H` ; anneau accentué au focus clavier.
+        let y = bounds.y + bounds.height - H + (H - THUMB) * 0.5;
+        let border = if status.focused { 3.0 } else { 2.0 };
         scene.draw_rect(
-            Rect::new(bounds.x, bounds.y + (H - THUMB) * 0.5, THUMB, THUMB),
+            Rect::new(bounds.x, y, THUMB, THUMB),
             Color::WHITE.fade(o),
             THUMB * 0.5,
-            2.0,
+            border,
             theme.primary.fade(o),
         );
     }
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    fn focusable(&self) -> bool {
+        self.on_change.is_some()
     }
 
     fn draggable(&self) -> bool {
@@ -192,17 +237,20 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
         if dx == 0.0 || self.track <= 0.0 {
             return None;
         }
-        let df = dx / self.track;
-        let snap = |v: f32| match self.divisions {
-            Some(n) if n > 0 => (v * n as f32).round() / n as f32,
-            _ => v,
-        };
-        // Chaque poignée reste bornée par l'autre : pas de croisement.
-        let (low, high) = match self.side {
-            Side::Low => (snap((self.low + df).clamp(0.0, self.high)), self.high),
-            Side::High => (self.low, snap((self.high + df).clamp(self.low, 1.0))),
-        };
+        let (low, high) = self.moved(dx / self.track);
         self.on_change.as_ref().map(|make| make(low, high))
+    }
+
+    fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
+        // Flèches : déplacent cette poignée d'un pas (le shell les propose avant de
+        // naviguer le focus).
+        let delta = match key {
+            Key::Left { .. } => -self.key_step(),
+            Key::Right { .. } => self.key_step(),
+            _ => return KeyResponse::Ignored,
+        };
+        let (low, high) = self.moved(delta);
+        KeyResponse::Handled(self.on_change.as_ref().map(|make| make(low, high)))
     }
 }
 
@@ -215,6 +263,9 @@ pub struct RangeSlider<Msg> {
     high: f32,
     width: f32,
     divisions: Option<usize>,
+    /// Formateur d'**infobulle de valeur** : si défini, une bulle au-dessus de chaque
+    /// poignée affiche `label(valeur)` (et la hauteur réserve la place).
+    label: Option<Rc<dyn Fn(f32) -> String>>,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -229,6 +280,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             high: low.max(high),
             width: 220.0,
             divisions: None,
+            label: None,
             on_change: None,
             children: Vec::new(),
         };
@@ -258,24 +310,62 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
         self
     }
 
+    /// Affiche une **infobulle de valeur** au-dessus de chaque poignée, formatée par
+    /// `label(valeur)` (ex. pourcentage, prix). Réserve la place au-dessus de la piste.
+    pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
+        self.label = Some(Rc::new(label));
+        self.rebuild();
+        self
+    }
+
     /// (Re)construit la rangée de poignées calées sur les positions `low`/`high`.
     fn rebuild(&mut self) {
+        let height = self.content_h();
         let thumb = |side: Side| RangeThumb {
             side,
             low: self.low,
             high: self.high,
             track: self.width,
+            height,
             divisions: self.divisions,
             on_change: self.on_change.clone(),
         };
         let lo_gap = (self.low * self.width - THUMB * 0.5).max(0.0);
         let mid_gap = ((self.high - self.low) * self.width - THUMB).max(0.0);
         let row = Flex::row()
-            .child(Spacer { width: lo_gap })
+            .child(Spacer { width: lo_gap, height })
             .child(thumb(Side::Low))
-            .child(Spacer { width: mid_gap })
+            .child(Spacer { width: mid_gap, height })
             .child(thumb(Side::High));
         self.children = vec![Box::new(row)];
+    }
+
+}
+
+/// Peint une infobulle de valeur centrée en `cx` (bord haut `top`) affichant `text`.
+fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut Scene) {
+    let tw = frus_text::measure(&text, TIP_SIZE).width;
+    let bw = tw + 12.0;
+    let bx = cx - bw * 0.5;
+    scene.draw_rect(
+        Rect::new(bx, top, bw, TIP_H),
+        theme.primary.fade(o),
+        TIP_H * 0.5,
+        0.0,
+        Color::TRANSPARENT,
+    );
+    let ty = top + (TIP_H - frus_text::line_height(TIP_SIZE)) * 0.5;
+    scene.text(Point::new(bx + 6.0, ty), text, TIP_SIZE, theme.on_primary.fade(o));
+}
+
+impl<Msg> RangeSlider<Msg> {
+    /// Hauteur totale : piste seule, ou piste + zone d'infobulle si un `label` est posé.
+    fn content_h(&self) -> f32 {
+        if self.label.is_some() {
+            TIP_H + TIP_GAP + H
+        } else {
+            H
+        }
     }
 }
 
@@ -283,7 +373,7 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(H),
+            height: Dimension::Length(self.content_h()),
             ..Default::default()
         }
     }
@@ -294,9 +384,9 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let track_y = bounds.y + (H - TRACK_H) * 0.5;
-        // Piste, puis segment actif entre les deux poignées (les poignées, enfants,
-        // se peignent par-dessus).
+        // Piste + segment dans la bande **basse** `H` (la zone haute accueille les bulles).
+        let base_y = bounds.y + bounds.height - H;
+        let track_y = base_y + (H - TRACK_H) * 0.5;
         scene.draw_rect(
             Rect::new(bounds.x, track_y, bounds.width, TRACK_H),
             theme.border.fade(o),
@@ -313,6 +403,11 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
             0.0,
             Color::TRANSPARENT,
         );
+        // Infobulles de valeur au-dessus de chaque poignée.
+        if let Some(label) = &self.label {
+            paint_tip(lo, bounds.y, label(self.low), theme, o, scene);
+            paint_tip(hi, bounds.y, label(self.high), theme, o, scene);
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -359,6 +454,13 @@ mod tests {
         }
     }
 
+    fn range_of_key(resp: KeyResponse<Msg>) -> (f32, f32) {
+        match resp {
+            KeyResponse::Handled(msg) => range_of(msg),
+            other => panic!("attendu Handled, obtenu {other:?}"),
+        }
+    }
+
     #[test]
     fn each_thumb_moves_its_own_side_and_sticks() {
         let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range); // piste 220 px
@@ -375,6 +477,30 @@ mod tests {
         assert!((lo - 0.8).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4, "collant au haut ({lo}, {hi})");
         // Delta nul : aucun message.
         assert_eq!(t[0].on_drag_delta(0.0), None);
+    }
+
+    #[test]
+    fn arrow_keys_move_focused_thumb_by_a_step() {
+        let rs = RangeSlider::new(0.4, 0.6).divisions(10).on_change(Msg::Range); // pas 0.1
+        let t = thumbs(&rs);
+        // Poignée basse focalisée : flèche droite +0.1 → 0.5 ; flèche gauche −0.1 → 0.3.
+        let (lo, hi) = range_of_key(t[0].on_key(&Key::Right { shift: false, word: false }));
+        assert!((lo - 0.5).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4, "→ ({lo}, {hi})");
+        let (lo, hi) = range_of_key(t[0].on_key(&Key::Left { shift: false, word: false }));
+        assert!((lo - 0.3).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4, "← ({lo}, {hi})");
+        // Les poignées sont focusables (atteignables au clavier).
+        assert!(t[0].focusable() && t[1].focusable());
+    }
+
+    #[test]
+    fn value_label_reserves_height() {
+        let plain = RangeSlider::new(0.2, 0.8).on_change(Msg::Range);
+        let tipped = RangeSlider::new(0.2, 0.8).on_change(Msg::Range).value_label(|v| format!("{}", v));
+        let h = |rs: &RangeSlider<Msg>| match Widget::<Msg>::style(rs).height {
+            Dimension::Length(v) => v,
+            _ => 0.0,
+        };
+        assert!(h(&tipped) > h(&plain), "l'infobulle réserve de la hauteur");
     }
 
     #[test]

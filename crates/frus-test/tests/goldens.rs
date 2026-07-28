@@ -368,6 +368,24 @@ fn range_slider_matches_golden() {
     snapshot.assert_golden(golden("range_slider"));
 }
 
+/// **Curseur de plage étiqueté (jalon 160)** : infobulles de valeur (pourcentage)
+/// au-dessus des deux poignées. Reproduit son golden.
+#[test]
+fn range_slider_labels_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        RangeSlider::<()>::new(0.3, 0.7)
+            .width(240.0)
+            .value_label(|v| format!("{}%", (v * 100.0).round() as i32)),
+    );
+    let Some(snapshot) = render_widget(&root, 300, 110, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 60, "piste, poignées et infobulles dessinées");
+    snapshot.assert_golden(golden("range_slider_labels"));
+}
+
 /// **Autocomplétion défilante (jalon 154)** : liste plus longue que le seuil
 /// (`max_visible(3)`) → viewport borné à 3 lignes, contenu défilable (6 suggestions).
 /// Reproduit son golden.
