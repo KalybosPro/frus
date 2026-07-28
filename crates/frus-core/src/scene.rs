@@ -440,24 +440,36 @@ impl Primitive {
                 Rect::new(position.x, position.y, 0.0, 0.0)
             }
             Primitive::Path { path, .. } => {
-                let mut pts = path.verbs().iter().flat_map(|v| match *v {
-                    PathVerb::MoveTo(p) | PathVerb::LineTo(p) => vec![p],
-                    PathVerb::QuadTo { ctrl, to } => vec![ctrl, to],
-                    PathVerb::CubicTo { c1, c2, to } => vec![c1, c2, to],
-                    PathVerb::Close => vec![],
-                });
-                match pts.next() {
-                    None => Rect::new(0.0, 0.0, 0.0, 0.0),
-                    Some(first) => {
-                        let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x, first.y);
-                        for p in pts {
-                            x0 = x0.min(p.x);
-                            y0 = y0.min(p.y);
-                            x1 = x1.max(p.x);
-                            y1 = y1.max(p.y);
+                // Boîte englobante des points de contrôle (bornes conservatrices : elle
+                // englobe les contrôles de Bézier, donc jamais plus petite que la courbe).
+                // Accumulée sans allocation : min/max mis à jour point par point.
+                let mut bbox: Option<(f32, f32, f32, f32)> = None;
+                let mut include = |p: Point| {
+                    bbox = Some(match bbox {
+                        None => (p.x, p.y, p.x, p.y),
+                        Some((x0, y0, x1, y1)) => {
+                            (x0.min(p.x), y0.min(p.y), x1.max(p.x), y1.max(p.y))
                         }
-                        Rect::new(x0, y0, x1 - x0, y1 - y0)
+                    });
+                };
+                for v in path.verbs() {
+                    match *v {
+                        PathVerb::MoveTo(p) | PathVerb::LineTo(p) => include(p),
+                        PathVerb::QuadTo { ctrl, to } => {
+                            include(ctrl);
+                            include(to);
+                        }
+                        PathVerb::CubicTo { c1, c2, to } => {
+                            include(c1);
+                            include(c2);
+                            include(to);
+                        }
+                        PathVerb::Close => {}
                     }
+                }
+                match bbox {
+                    None => Rect::new(0.0, 0.0, 0.0, 0.0),
+                    Some((x0, y0, x1, y1)) => Rect::new(x0, y0, x1 - x0, y1 - y0),
                 }
             }
             Primitive::Layer { primitives, .. } => primitives
