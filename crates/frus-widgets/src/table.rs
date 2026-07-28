@@ -47,12 +47,15 @@ fn cell_background(header: bool, selected: bool, clickable: bool, theme: &Theme,
     }
 }
 
-/// Style d'une cellule : largeur de colonne (fixe ou flexible) et hauteur de rangée.
+/// Style d'une cellule : largeur de colonne (fixe ou flexible), et hauteur **adaptative**
+/// — un plancher `ROW_H` (confort minimal) qui grandit avec le contenu. Comme la rangée
+/// aligne ses cellules en `Stretch`, toutes suivent la plus haute (aucun rognage).
 fn cell_style(width: Dimension) -> Style {
     let flex_grow = if matches!(width, Dimension::Length(_)) { 0.0 } else { 1.0 };
     Style {
         width,
-        height: Dimension::Length(ROW_H),
+        height: Dimension::Auto,
+        min_height: Dimension::Length(ROW_H),
         flex_grow,
         ..Default::default()
     }
@@ -90,13 +93,13 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         }
 
         let color = if self.header { theme.muted } else { theme.on_surface };
-        let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
+        let ty = bounds.y + (bounds.height - frus_text::line_height(SIZE)) * 0.5;
         scene.text(Point::new(bounds.x + PAD_X, ty), self.label.clone(), SIZE, color.fade(o));
 
         if let (true, Some(ascending)) = (self.header, self.sort) {
             let lw = frus_text::measure(&self.label, SIZE).width;
             let cx = bounds.x + PAD_X + lw + 8.0;
-            let cy = bounds.y + ROW_H * 0.5;
+            let cy = bounds.y + bounds.height * 0.5;
             let (w, h) = (4.0, 4.0);
             let tri = if ascending {
                 Path::new()
@@ -193,7 +196,7 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
         }
 
         let bx = bounds.x + (bounds.width - BOX) * 0.5;
-        let by = bounds.y + (ROW_H - BOX) * 0.5;
+        let by = bounds.y + (bounds.height - BOX) * 0.5;
         let box_rect = Rect::new(bx, by, BOX, BOX);
         if self.checked {
             scene.draw_rect(box_rect, theme.primary.fade(o), 4.0, 0.0, Color::TRANSPARENT);
@@ -640,7 +643,9 @@ impl<Msg: Clone + 'static> Table<Msg> {
         }
 
         // Hauteur totale de la grille (rangées + écarts) : pour caler le calque de
-        // poignées, qui court sur toute la hauteur.
+        // poignées, qui court sur toute la hauteur. Basée sur `ROW_H` (le plancher
+        // adaptatif) : exacte pour un tableau texte — le cas du redimensionnement, où
+        // les colonnes sont toutes fixes ; une rangée-widget plus haute la sous-estime.
         let header_present = !self.headers.is_empty() || checks;
         let n = header_present as usize + self.rows.len();
         let total_h = if n > 0 {
@@ -930,6 +935,45 @@ mod tests {
         assert!(has_admin, "le widget de cellule est peint");
         let click = ui.hit(Point::new(30.0, ROW_H * 1.5)).and_then(|id| ui.msg_for(id));
         assert_eq!(click, Some(Msg::Select(0)), "la ligne-widget est sélectionnable");
+    }
+
+    #[test]
+    fn widget_row_grows_to_tall_content() {
+        use frus_core::Color;
+        // Un widget plus haut que ROW_H : la rangée s'adapte au lieu de le rogner.
+        struct Tall(f32);
+        impl Widget<Msg> for Tall {
+            fn style(&self) -> Style {
+                Style {
+                    width: Dimension::Length(40.0),
+                    height: Dimension::Length(self.0),
+                    ..Default::default()
+                }
+            }
+            fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+                &[]
+            }
+            fn paint(&self, bounds: Rect, _s: Status, _t: &Theme, scene: &mut Scene) {
+                scene.fill_rect(bounds, Color::rgb(1.0, 0.0, 0.0));
+            }
+            fn on_click(&self) -> Option<Msg> {
+                None
+            }
+        }
+        let tall = 60.0;
+        let table = Table::<Msg>::new(2).width(240.0).header(&["A", "B"]).widget_row(vec![
+            Box::new(move || Box::new(Tall(tall))),
+            Box::new(|| Box::new(crate::Text::new("x"))),
+        ]);
+        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        // La barre rouge (le widget haut) est peinte à sa pleine hauteur : la cellule,
+        // et donc la rangée, l'ont suivie (pas de rognage à ROW_H).
+        let bar_h = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => Some(rect.height),
+            _ => None,
+        });
+        assert!(bar_h.unwrap_or(0.0) >= tall - 1.0, "la rangée suit le contenu haut: {bar_h:?}");
+        assert!(tall - 1.0 > ROW_H, "le contenu dépasse bien la hauteur nominale");
     }
 
     #[test]

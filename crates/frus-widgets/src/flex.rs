@@ -126,6 +126,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             gap: self.gap,
             flex_wrap: self.wrap,
             grid_columns: None,
+            ..Default::default()
         }
     }
 

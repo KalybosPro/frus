@@ -91,6 +91,12 @@ pub struct Style {
     pub width: Dimension,
     /// Hauteur.
     pub height: Dimension,
+    /// Largeur **minimale** : plancher que la mise en page ne descend pas sous. Utile
+    /// pour une boîte qui grandit avec son contenu sans jamais se tasser (`Auto` = aucun).
+    pub min_width: Dimension,
+    /// Hauteur **minimale** : plancher que la mise en page ne descend pas sous — p.ex.
+    /// une rangée qui grandit avec un contenu haut sans jamais rétrécir (`Auto` = aucun).
+    pub min_height: Dimension,
     /// Facteur d'expansion sur l'axe principal (flexbox).
     pub flex_grow: f32,
     /// Direction de l'axe principal (pour un conteneur).
@@ -123,6 +129,8 @@ impl Default for Style {
         Self {
             width: Dimension::Auto,
             height: Dimension::Auto,
+            min_width: Dimension::Auto,
+            min_height: Dimension::Auto,
             flex_grow: 0.0,
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
@@ -161,6 +169,8 @@ impl Style {
         }
         dim(self.width, hasher);
         dim(self.height, hasher);
+        dim(self.min_width, hasher);
+        dim(self.min_height, hasher);
         self.flex_grow.to_bits().hash(hasher);
         (self.flex_direction as u8).hash(hasher);
         (self.justify as u8).hash(hasher);
@@ -190,6 +200,10 @@ impl Style {
             size: taffy::Size {
                 width: self.width.to_taffy(),
                 height: self.height.to_taffy(),
+            },
+            min_size: taffy::Size {
+                width: self.min_width.to_taffy(),
+                height: self.min_height.to_taffy(),
             },
             flex_grow: self.flex_grow,
             flex_direction: self.flex_direction.to_taffy(),

@@ -259,6 +259,30 @@ fn table_widget_cells_matches_golden() {
     snapshot.assert_golden(golden("table_widget_cells"));
 }
 
+/// **Tableau à hauteur de rangée adaptative (jalon 166)** : une rangée dont la cellule
+/// contient un grand avatar (48 px) grandit au-delà de la hauteur nominale, tandis
+/// qu'une rangée texte garde sa hauteur de confort — aucun rognage. Reproduit son golden.
+#[test]
+fn table_adaptive_rows_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(260.0)
+        .column_widths(&[70.0])
+        .header(&["User", "Role"])
+        .widget_row(vec![
+            Box::new(|| Box::new(Avatar::new("Ada").size(48.0))),
+            Box::new(|| Box::new(Chip::<()>::new("admin"))),
+        ])
+        .row(&["Bo", "editor"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 300, 180, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "grande rangée et rangée texte dessinées");
+    snapshot.assert_golden(golden("table_adaptive_rows"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.
