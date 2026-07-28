@@ -14,6 +14,7 @@ use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
 use crate::icons::IconName;
+use crate::list::List;
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::stack::Stack;
 use crate::theme::Theme;
@@ -453,7 +454,7 @@ pub struct Table<Msg> {
     sort: Option<(usize, bool)>,
     selected: Vec<usize>,
     on_sort: Option<Box<dyn Fn(usize) -> Msg>>,
-    on_select: Option<Box<dyn Fn(usize) -> Msg>>,
+    on_select: Option<Rc<dyn Fn(usize) -> Msg>>,
     on_check: Option<Box<dyn Fn(usize) -> Msg>>,
     on_check_all: Option<Msg>,
     /// Rappel de redimensionnement (colonne, delta px). Actif seulement si toutes
@@ -462,7 +463,20 @@ pub struct Table<Msg> {
     /// Rappel de réordonnancement (`on_reorder(from, to)`) : glisser un en-tête sur
     /// un autre déplace la colonne. Nécessite aussi `on_sort` (en-têtes cliquables).
     on_reorder: Option<Rc<dyn Fn(usize, usize) -> Msg>>,
+    /// Mode **virtualisé** : `(nombre de lignes, hauteur du viewport, fabrique de la ligne
+    /// `index -> textes de cellules`)`. Seules les lignes **visibles** sont construites
+    /// (défilement interne), pour des grilles de milliers de lignes. Exclut `rows`.
+    virtual_data: Option<(usize, f32, Rc<dyn Fn(usize) -> Vec<String>>)>,
     root: Box<dyn Widget<Msg>>,
+}
+
+/// Dimension d'une colonne depuis les largeurs : fixe si `> 0`, flexible sinon
+/// (facteur partagé entre la construction directe et la construction virtualisée).
+fn col_dimension(widths: &[f32], c: usize) -> Dimension {
+    match widths.get(c).copied().unwrap_or(0.0) {
+        w if w > 0.0 => Dimension::Length(w),
+        _ => Dimension::Auto,
+    }
 }
 
 impl<Msg: Clone + 'static> Table<Msg> {
@@ -486,6 +500,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             on_check_all: None,
             on_resize: None,
             on_reorder: None,
+            virtual_data: None,
             root: Box::new(Flex::<Msg>::column().gap(ROW_GAP)),
         }
     }
@@ -595,7 +610,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Rend les lignes **cliquables** : `on_select_row(ligne)` au clic sur une ligne.
     pub fn on_select_row(mut self, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
-        self.on_select = Some(Box::new(on_select));
+        self.on_select = Some(Rc::new(on_select));
         self.rebuild();
         self
     }
@@ -606,6 +621,28 @@ impl<Msg: Clone + 'static> Table<Msg> {
     pub fn checkboxes(mut self, on_check: impl Fn(usize) -> Msg + 'static, on_check_all: Msg) -> Self {
         self.on_check = Some(Box::new(on_check));
         self.on_check_all = Some(on_check_all);
+        self.rebuild();
+        self
+    }
+
+    /// Passe le tableau en mode **virtualisé** : `count` lignes de données, dont seules les
+    /// **visibles** sont construites/mises en page/peintes (défilement vertical interne dans
+    /// un viewport de `viewport_height` px). `build(index)` fournit les **textes** de la
+    /// ligne (une valeur par colonne). Indispensable pour les grandes grilles (milliers de
+    /// lignes) : coût par frame ∝ lignes visibles, pas au total. L'en-tête reste **épinglé**.
+    ///
+    /// Sélection : [`on_select_row`](Self::on_select_row) et [`selected`](Self::selected)
+    /// fonctionnent sur les lignes visibles. Non combiné avec cases à cocher /
+    /// redimensionnement / réordonnancement / cellules-widgets (le contenu hors écran n'a pas
+    /// d'état retenu) — ceux-ci sont ignorés en mode virtualisé. Exclut [`row`](Self::row).
+    pub fn virtual_rows(
+        mut self,
+        count: usize,
+        viewport_height: f32,
+        build: impl Fn(usize) -> Vec<String> + 'static,
+    ) -> Self {
+        self.virtual_data = Some((count, viewport_height, Rc::new(build)));
+        self.rows.clear();
         self.rebuild();
         self
     }
@@ -641,10 +678,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Dimension de la colonne `c` : fixe si `widths[c] > 0`, flexible sinon.
     fn col_width(&self, c: usize) -> Dimension {
-        match self.widths.get(c).copied().unwrap_or(0.0) {
-            w if w > 0.0 => Dimension::Length(w),
-            _ => Dimension::Auto,
-        }
+        col_dimension(&self.widths, c)
     }
 
     /// Une rangée `Flex`, à la largeur totale du tableau si fixée.
@@ -759,6 +793,49 @@ impl<Msg: Clone + 'static> Table<Msg> {
                 }
             }
             col = col.child(hrow);
+        }
+
+        // Mode virtualisé : l'en-tête épinglé au-dessus d'une **liste virtualisée** de
+        // rangées de données (seules les visibles sont construites). Les paramètres
+        // nécessaires à chaque rangée sont **capturés** (clones) dans la fabrique de la
+        // liste, qui reste `'static` — donc pas d'accès à `self` dans la closure.
+        if let Some((count, viewport_height, build)) = self.virtual_data.clone() {
+            let columns = self.columns;
+            let widths = self.widths.clone();
+            let total_width = self.total_width;
+            let selected = self.selected.clone();
+            let on_select = self.on_select.clone();
+            let list = List::new(count, ROW_H, move |i| {
+                let cells = build(i);
+                let is_selected = selected.contains(&i);
+                let mut row = Flex::row().gap(ROW_GAP);
+                if let Some(w) = total_width {
+                    row = row.width(w);
+                }
+                for c in 0..columns {
+                    let label = cells.get(c).cloned().unwrap_or_default();
+                    row = row.child(Cell {
+                        label,
+                        width: col_dimension(&widths, c),
+                        header: false,
+                        selected: is_selected,
+                        row: Some(i),
+                        icon: None,
+                        sort: None,
+                        message: on_select.as_ref().map(|f| f(i)),
+                        reorder: None,
+                        action: Vec::new(),
+                    });
+                }
+                row
+            });
+            let list = match total_width {
+                Some(w) => list.width(w).height(viewport_height),
+                None => list.height(viewport_height),
+            };
+            col = col.child(list);
+            self.root = Box::new(col);
+            return;
         }
 
         // Rangées de données.
@@ -1310,6 +1387,42 @@ mod tests {
         // Le bouton d'en-tête maison émet **son** message (pas de tri automatique).
         let click = ui.hit(Point::new(180.0, ROW_H * 0.5)).and_then(|id| ui.msg_for(id));
         assert_eq!(click, Some(Msg::Sort(1)), "l'app câble le tri dans son widget d'en-tête");
+    }
+
+    #[test]
+    fn virtual_table_builds_only_visible_rows() {
+        use std::cell::Cell as StdCell;
+        use std::rc::Rc as StdRc;
+        let built = StdRc::new(StdCell::new(0usize));
+        let counter = built.clone();
+        let table = Table::<Msg>::new(2)
+            .width(200.0)
+            .header(&["Name", "Score"])
+            .on_select_row(Msg::Select)
+            .virtual_rows(5000, 200.0, move |i| {
+                counter.set(counter.get() + 1);
+                vec![format!("R{i}"), format!("{i}")]
+            });
+        let ui = build_ui(&table, Size::new(200.0, 260.0), &Runtime::default(), &Theme::default());
+        // Viewport 200 / ROW_H ≈ 6 lignes visibles (+ marge) — jamais 5000.
+        assert!(built.get() < 20, "seules les lignes visibles sont construites : {}", built.get());
+        assert!(built.get() >= 5, "au moins la fenêtre visible : {}", built.get());
+        // En-tête **épinglé** + première ligne visible peints.
+        let has = |t: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
+        };
+        assert!(has("Name"), "en-tête épinglé au-dessus de la liste");
+        assert!(has("R0"), "première ligne virtualisée construite");
+        // Le défilement couvre tout le contenu (5000 × ROW_H − viewport).
+        let maxes = ui.scrollable_maxes();
+        assert_eq!(maxes.len(), 1, "un viewport défilable");
+        assert_eq!(maxes[0].2, 5000.0 * ROW_H - 200.0, "borne de défilement = contenu total");
+        // Une ligne visible reste cliquable (sélection).
+        let click = ui.hit(Point::new(20.0, ROW_H + 15.0)).and_then(|id| ui.msg_for(id));
+        assert!(matches!(click, Some(Msg::Select(_))), "ligne virtualisée cliquable : {click:?}");
     }
 
     #[test]

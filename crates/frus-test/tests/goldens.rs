@@ -383,6 +383,26 @@ fn table_column_menu_matches_golden() {
     snapshot.assert_golden(golden("table_column_menu"));
 }
 
+/// **Tableau virtualisé (jalon 173)** : 1000 lignes, dont seules les visibles sont
+/// construites ; l'en-tête reste épinglé au-dessus d'un viewport défilant. Reproduit son
+/// golden (la fenêtre visible du haut).
+#[test]
+fn table_virtualized_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(260.0)
+        .column_widths(&[60.0])
+        .header(&["#", "Item"])
+        .virtual_rows(1000, 120.0, |i| vec![format!("{}", i + 1), format!("Item {}", i + 1)]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 300, 190, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête épinglé et lignes visibles dessinés");
+    snapshot.assert_golden(golden("table_virtualized"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.
