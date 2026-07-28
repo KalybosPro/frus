@@ -264,6 +264,12 @@ pub struct App<A: Application> {
     /// Demandes de focus en attente (clés issues de `Command::focus`), résolues
     /// contre l'arbre **fraîchement construit** à la prochaine frame.
     pending_focus: Vec<u64>,
+    /// **Historique de focus** (déclencheurs) pour le retour du focus à la fermeture d'un
+    /// overlay : à chaque changement de focus, l'ancien (encore présent) est empilé ; si le
+    /// focus **disparaît** (menu/modale fermé), on revient au plus récent encore présent.
+    focus_history: Vec<WidgetId>,
+    /// Focus de la frame précédente (pour détecter les transitions à empiler).
+    prev_focus: Option<WidgetId>,
     /// Fenêtre masquée (occultée) : on suspend le rendu.
     occluded: bool,
     /// Temps écoulé cumulé (secondes), pour les animations continues.
@@ -324,6 +330,8 @@ impl<A: Application> App<A> {
             leaving_counter: 0,
             running_subs: HashMap::new(),
             pending_focus: Vec::new(),
+            focus_history: Vec::new(),
+            prev_focus: None,
             occluded: false,
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
@@ -1364,6 +1372,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Conserve l'interface (hit-test). L'arbre est déjà retenu.
                 self.ui = Some(ui);
 
+                // Retour du focus : si le widget focalisé a **disparu** (overlay fermé),
+                // revenir au déclencheur. Fait avant l'annonce AccessKit (focus à jour).
+                self.reconcile_focus();
+
                 // Publie l'arbre sémantique de la frame à AccessKit.
                 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                 if let Some(a11y) = self.a11y.as_mut() {
@@ -1744,6 +1756,24 @@ impl<A: Application> App<A> {
     }
     #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     fn set_announcement(&mut self, _message: String) {}
+
+    /// Retour du focus à la fermeture d'un overlay : si le widget focalisé a **disparu**
+    /// de la frame (menu/modale refermé), revient au **déclencheur** — le focusable présent
+    /// le plus récent de l'historique. Enregistre au passage chaque transition (l'ancien
+    /// focus, encore présent, devient un déclencheur candidat). Anneau de focus rendu à la
+    /// frame suivante (`request_redraw` si le focus a bougé).
+    fn reconcile_focus(&mut self) {
+        let present: std::collections::HashSet<WidgetId> = match self.ui.as_ref() {
+            Some(ui) => ui.focusable_ids().collect(),
+            None => return,
+        };
+        let before = self.runtime.input.focused;
+        let after = resolve_focus(before, &present, &mut self.focus_history, &mut self.prev_focus);
+        if after != before {
+            self.runtime.input.focused = after;
+            self.request_redraw();
+        }
+    }
 
     /// Applique un message à l'application, exécute ses effets, puis réévalue les
     /// souscriptions (l'état a pu changer celles qui doivent tourner).
@@ -2271,6 +2301,47 @@ fn spring_toward(current: f32, target: f32, dt: f32, tau: f32) -> f32 {
     current + (target - current) * k
 }
 
+/// Profondeur max de l'historique de focus (déclencheurs d'overlays imbriqués).
+const FOCUS_HISTORY_MAX: usize = 8;
+
+/// Résout le focus après (re)construction, à partir des focusables **présents** cette
+/// frame. Si `current` a **disparu** (overlay fermé), revient au **déclencheur** présent le
+/// plus récent de `history` (dépilé jusqu'à en trouver un). Enregistre la transition :
+/// l'ancien focus (`prev`), s'il est encore présent et différent du nouveau, devient un
+/// déclencheur candidat empilé (borné à [`FOCUS_HISTORY_MAX`]). Renvoie le focus résolu.
+/// Fonction **pure** (hors `history`/`prev` mutés) — testable sans fenêtre.
+fn resolve_focus(
+    current: Option<WidgetId>,
+    present: &std::collections::HashSet<WidgetId>,
+    history: &mut Vec<WidgetId>,
+    prev: &mut Option<WidgetId>,
+) -> Option<WidgetId> {
+    let mut cur = current;
+    if let Some(c) = cur {
+        if !present.contains(&c) {
+            cur = None;
+            while let Some(cand) = history.pop() {
+                if present.contains(&cand) {
+                    cur = Some(cand);
+                    break;
+                }
+            }
+        }
+    }
+    if *prev != cur {
+        if let Some(old) = *prev {
+            if present.contains(&old) && Some(old) != cur {
+                history.push(old);
+                if history.len() > FOCUS_HISTORY_MAX {
+                    history.remove(0);
+                }
+            }
+        }
+        *prev = cur;
+    }
+    cur
+}
+
 /// Peint la **carte soulevée** (fantôme) de l'en-tête glissé dans `scene` (non découpé)
 /// à `card` : ombre portée, **face fidèle** (primitives de l'en-tête déjà translatées)
 /// ou pleine en repli si `ghost` est vide, puis bord `primary`. Fonction pure — testable
@@ -2291,7 +2362,42 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_ghost_card, spring_toward, Rect, Scene, Theme};
+    use super::{draw_ghost_card, resolve_focus, spring_toward, Rect, Scene, Theme};
+    use frus_widgets::WidgetId;
+    use std::collections::HashSet;
+
+    #[test]
+    fn focus_returns_to_trigger_when_overlay_closes() {
+        let anchor = WidgetId::from_u64(1);
+        let item = WidgetId::from_u64(2);
+        let (mut history, mut prev) = (Vec::new(), None);
+
+        // Frame 1 : focus sur l'ancre (présente).
+        let f = resolve_focus(Some(anchor), &HashSet::from([anchor]), &mut history, &mut prev);
+        assert_eq!(f, Some(anchor));
+        assert!(history.is_empty());
+
+        // Frame 2 : menu ouvert, focus sur l'item ; l'ancre est empilée (déclencheur).
+        let present = HashSet::from([anchor, item]);
+        let f = resolve_focus(Some(item), &present, &mut history, &mut prev);
+        assert_eq!(f, Some(item));
+        assert_eq!(history, vec![anchor]);
+
+        // Frame 3 : menu fermé, l'item a disparu → retour au déclencheur, historique consommé.
+        let f = resolve_focus(Some(item), &HashSet::from([anchor]), &mut history, &mut prev);
+        assert_eq!(f, Some(anchor), "le focus revient au déclencheur");
+        assert!(history.is_empty());
+    }
+
+    #[test]
+    fn focus_falls_to_none_when_no_trigger_remains() {
+        let a = WidgetId::from_u64(1);
+        let (mut history, mut prev) = (Vec::new(), Some(a));
+        // `a` disparaît et l'historique est vide → aucun focus.
+        let f = resolve_focus(Some(a), &HashSet::new(), &mut history, &mut prev);
+        assert_eq!(f, None);
+        assert_eq!(prev, None);
+    }
 
     #[test]
     fn spring_approaches_target_monotonically_and_settles() {

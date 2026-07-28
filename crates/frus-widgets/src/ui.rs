@@ -322,6 +322,12 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(_, rect)| *rect)
     }
 
+    /// Les identités de **tous** les widgets focusables de la frame (scope compris) —
+    /// pour que le shell détecte la **disparition** du focus (overlay fermé) et le restaure.
+    pub fn focusable_ids(&self) -> impl Iterator<Item = WidgetId> + '_ {
+        self.focusables.iter().map(|(id, _)| *id)
+    }
+
     /// Cadre (viewport) de la zone défilable `id`, s'il existe — pour que le shell
     /// retrouve la largeur/hauteur d'un champ multi-lignes (suivi du caret).
     pub fn scrollable_viewport(&self, id: WidgetId) -> Option<Rect> {
