@@ -506,7 +506,7 @@ struct Builder<'a, Msg> {
     /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
     /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
     /// voile qui se fond) ; elle vaut `1.0` pour les overlays non animés.
-    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>, f32)>,
+    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>, f32, bool)>,
     /// Un widget demande une animation continue (pilotée par le temps).
     wants_animation: bool,
     available: Size,
@@ -1204,6 +1204,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     placement,
                     widget.overlay_dismiss(),
                     progress,
+                    widget.overlay_traps_focus(),
                 ));
             }
         } else {
@@ -1441,7 +1442,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// d'autres overlays (portails imbriqués).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement, dismiss, progress)) = self.overlays.pop() {
+        while let Some((content, oid, anchor, placement, dismiss, progress, traps)) = self.overlays.pop() {
             // Les tiroirs glissent selon une **courbe en ressort** (arrivée douce),
             // pas linéairement ; les autres overlays gardent leur progression brute.
             let progress = if matches!(
@@ -1542,13 +1543,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.hits.push(Hit { id: oid, rect: window, msg, xform: None });
             }
 
-            // Overlay **modal** (voilé) : ses focusables forment un **scope** qui
-            // piège Tab/flèches/focus au clic. Le dernier rendu (le plus au-dessus)
-            // l'emporte ; les overlays ancrés (menu, tooltip) ne piègent pas.
-            if matches!(
+            // Overlay **modal** (voilé) ou **ancré piégeant** (menu) : ses focusables forment
+            // un **scope** qui piège Tab/flèches/focus au clic. Le dernier rendu (le plus
+            // au-dessus) l'emporte ; les overlays ancrés non piégeants (tooltip, liste
+            // d'autocomplétion) ne piègent pas.
+            let modal = matches!(
                 placement,
                 Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
-            ) {
+            );
+            if modal || traps {
                 self.focus_scope_start = Some(self.focusables.len());
             }
 
@@ -1976,6 +1979,38 @@ mod tests {
             build_ui(&open_less, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
         let f = ui2.focus_next(None, true).expect("premier");
         assert_eq!(ui2.msg_for(f), Some(Msg::A));
+    }
+
+    #[test]
+    fn open_menu_traps_focus_in_its_items() {
+        use crate::Menu;
+        // Fond focusable + un menu **ouvert** (ancre + deux items).
+        let menu = Menu::new(Button::new("open").on_press(Msg::A), true, Msg::D)
+            .item("one", Msg::B)
+            .item("two", Msg::C);
+        let tree: Flex<Msg> = Flex::column().child(Button::new("bg").on_press(Msg::A)).child(menu);
+        let ui = build_ui(&tree, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+
+        // Tab entre dans les items du menu et y **boucle** (fond et ancre hors scope).
+        let first = ui.focus_next(None, true).expect("premier du scope");
+        assert_eq!(ui.msg_for(first), Some(Msg::B));
+        let second = ui.focus_next(Some(first), true).expect("suivant");
+        assert_eq!(ui.msg_for(second), Some(Msg::C));
+        let wrapped = ui.focus_next(Some(second), true).expect("boucle");
+        assert_eq!(ui.msg_for(wrapped), Some(Msg::B), "Tab boucle dans le menu ouvert");
+        // Le fond (haut-gauche) est hors du scope pendant que le menu est ouvert.
+        assert_eq!(ui.focus_hit(Point::new(10.0, 10.0)), None, "fond hors scope");
+
+        // Menu **fermé** : aucun piège, Tab commence au fond.
+        let closed: Flex<Msg> =
+            Flex::column().child(Button::new("bg").on_press(Msg::A)).child(Menu::new(
+                Button::new("open").on_press(Msg::B),
+                false,
+                Msg::D,
+            ));
+        let ui2 = build_ui(&closed, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let f = ui2.focus_next(None, true).expect("premier");
+        assert_eq!(ui2.msg_for(f), Some(Msg::A), "sans menu ouvert, pas de piège");
     }
 
     #[test]

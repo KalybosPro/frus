@@ -163,6 +163,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.overlay_dismiss()
     }
 
+    fn overlay_traps_focus(&self) -> bool {
+        self.inner.overlay_traps_focus()
+    }
+
     fn anim_target(&self) -> Option<f32> {
         self.inner.anim_target()
     }

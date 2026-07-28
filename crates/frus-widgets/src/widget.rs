@@ -235,6 +235,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si `true`, l'overlay **ancré** de ce widget (menu…) **piège le focus** : Tab et les
+    /// flèches bouclent dans ses focusables tant qu'il est ouvert (motif clavier des menus).
+    /// Les overlays modaux (voilés) piègent déjà d'office ; un tooltip ou la liste d'une
+    /// autocomplétion (focus gardé sur le champ) **ne** piègent pas. Défaut : `false`.
+    fn overlay_traps_focus(&self) -> bool {
+        false
+    }
+
     /// Cible de la valeur animée propre au widget (p. ex. `1.0` interrupteur on,
     /// `0.0` off). Le runtime fait tendre la valeur retenue vers cette cible et la
     /// restitue via `Status::value`. `None` = pas de valeur animée.
@@ -527,6 +535,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn overlay_dismiss(&self) -> Option<Msg> {
         (**self).overlay_dismiss()
+    }
+    fn overlay_traps_focus(&self) -> bool {
+        (**self).overlay_traps_focus()
     }
     fn anim_target(&self) -> Option<f32> {
         (**self).anim_target()

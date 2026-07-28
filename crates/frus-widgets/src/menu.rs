@@ -132,6 +132,12 @@ impl<Msg: Clone> Widget<Msg> for Menu<Msg> {
     fn overlay_dismiss(&self) -> Option<Msg> {
         self.on_dismiss.clone()
     }
+
+    fn overlay_traps_focus(&self) -> bool {
+        // Un menu ouvert **piège** le focus clavier dans ses items (Échap / clic extérieur
+        // ferme via `on_dismiss`) — motif clavier attendu des menus.
+        self.open
+    }
 }
 
 #[cfg(test)]

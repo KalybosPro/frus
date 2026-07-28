@@ -205,6 +205,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.announce())
     }
 
+    fn overlay_traps_focus(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.overlay_traps_focus())
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.as_ref().and_then(|w| w.scroll_content())
     }
