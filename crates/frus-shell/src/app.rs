@@ -906,6 +906,32 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
+                // Début/Fin proposées au widget focalisé (curseur de plage → min/max)
+                // avant l'action par défaut. Un champ texte les ignore ici (`on_key`
+                // Ignored) et retombe sur l'édition normale plus bas.
+                if matches!(
+                    event.logical_key,
+                    WinitKey::Named(NamedKey::Home) | WinitKey::Named(NamedKey::End)
+                ) {
+                    let key = if matches!(event.logical_key, WinitKey::Named(NamedKey::Home)) {
+                        Key::Home { shift: self.shift, doc: self.ctrl }
+                    } else {
+                        Key::End { shift: self.shift, doc: self.ctrl }
+                    };
+                    let handled = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), focused))
+                        .map(|widget| widget.on_key(&key));
+                    if let Some(KeyResponse::Handled(message)) = handled {
+                        if let Some(message) = message {
+                            self.dispatch(message);
+                        }
+                        self.request_redraw();
+                        return;
+                    }
+                }
+
                 // Activation clavier (Entrée/Espace) d'un focusable cliquable
                 // (bouton, case, interrupteur). Les champs texte (sans `on_click`)
                 // retombent sur l'édition normale (Entrée = soumettre, Espace = espace).

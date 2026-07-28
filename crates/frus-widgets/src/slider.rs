@@ -164,6 +164,8 @@ struct RangeThumb<Msg> {
     /// dans la bande **basse** de `H`.
     height: f32,
     divisions: Option<usize>,
+    /// Formateur d'infobulle : la bulle n'apparaît qu'au **survol / focus** de la poignée.
+    label: Option<Rc<dyn Fn(f32) -> String>>,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
 }
 
@@ -173,6 +175,14 @@ impl<Msg> RangeThumb<Msg> {
         match self.divisions {
             Some(n) if n > 0 => (v * n as f32).round() / n as f32,
             _ => v,
+        }
+    }
+
+    /// Valeur portée par cette poignée (selon son côté).
+    fn value(&self) -> f32 {
+        match self.side {
+            Side::Low => self.low,
+            Side::High => self.high,
         }
     }
 
@@ -219,6 +229,14 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
             border,
             theme.primary.fade(o),
         );
+        // Infobulle révélée au survol ou au focus (zone haute réservée par le slider).
+        if let Some(label) = &self.label {
+            let active = status.focused || status.hover_progress > 0.01;
+            if active {
+                let reveal = if status.focused { o } else { status.hover_progress * o };
+                paint_tip(bounds.x + THUMB * 0.5, bounds.y, label(self.value()), theme, reveal, scene);
+            }
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -242,11 +260,13 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     }
 
     fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
-        // Flèches : déplacent cette poignée d'un pas (le shell les propose avant de
-        // naviguer le focus).
+        // Flèches : un pas ; Début/Fin : borne min/max de ce côté (le shell propose ces
+        // touches au widget focalisé avant l'action par défaut).
         let delta = match key {
             Key::Left { .. } => -self.key_step(),
             Key::Right { .. } => self.key_step(),
+            Key::Home { .. } => -2.0, // borné en 0 / voisin bas
+            Key::End { .. } => 2.0,   // borné en voisin haut / 1
             _ => return KeyResponse::Ignored,
         };
         let (low, high) = self.moved(delta);
@@ -328,6 +348,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             track: self.width,
             height,
             divisions: self.divisions,
+            label: self.label.clone(),
             on_change: self.on_change.clone(),
         };
         let lo_gap = (self.low * self.width - THUMB * 0.5).max(0.0);
@@ -367,6 +388,14 @@ impl<Msg> RangeSlider<Msg> {
             H
         }
     }
+
+    /// Accroche `v` au palier le plus proche si `divisions` est défini.
+    fn snap(&self, v: f32) -> f32 {
+        match self.divisions {
+            Some(n) if n > 0 => (v * n as f32).round() / n as f32,
+            _ => v,
+        }
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
@@ -403,11 +432,7 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
             0.0,
             Color::TRANSPARENT,
         );
-        // Infobulles de valeur au-dessus de chaque poignée.
-        if let Some(label) = &self.label {
-            paint_tip(lo, bounds.y, label(self.low), theme, o, scene);
-            paint_tip(hi, bounds.y, label(self.high), theme, o, scene);
-        }
+        // Les infobulles sont peintes par les poignées (révélées au survol / focus).
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -420,6 +445,27 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
             frus_core::Semantics::new(frus_core::Role::Slider)
                 .value(format!("{}%–{}%", pct(self.low), pct(self.high))),
         )
+    }
+
+    fn draggable(&self) -> bool {
+        // La **piste** (hors poignées, qui sont au-dessus) répond au clic/glissement :
+        // la poignée la plus proche rejoint la position.
+        self.on_change.is_some()
+    }
+
+    fn on_drag(&self, fraction: f32) -> Option<Msg> {
+        let f = self.snap(fraction.clamp(0.0, 1.0));
+        // Poignée la plus proche (bornée par l'autre, sans croisement).
+        let (low, high) = if f <= self.low {
+            (f, self.high)
+        } else if f >= self.high {
+            (self.low, f)
+        } else if f - self.low <= self.high - f {
+            (f, self.high)
+        } else {
+            (self.low, f)
+        };
+        self.on_change.as_ref().map(|make| make(low, high))
     }
 }
 
@@ -490,6 +536,33 @@ mod tests {
         assert!((lo - 0.3).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4, "← ({lo}, {hi})");
         // Les poignées sont focusables (atteignables au clavier).
         assert!(t[0].focusable() && t[1].focusable());
+    }
+
+    #[test]
+    fn track_click_moves_nearest_thumb() {
+        let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range);
+        // La piste (le slider) est glissable et vise la poignée la plus proche.
+        assert!(Widget::<Msg>::draggable(&rs), "la piste répond au clic");
+        let (lo, hi) = range_of(Widget::on_drag(&rs, 0.25));
+        assert!((lo - 0.25).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4, "près du bas ({lo}, {hi})");
+        let (lo, hi) = range_of(Widget::on_drag(&rs, 0.9));
+        assert!((lo - 0.2).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4, "près du haut ({lo}, {hi})");
+    }
+
+    #[test]
+    fn home_end_snap_thumb_to_bounds() {
+        let rs = RangeSlider::new(0.3, 0.7).on_change(Msg::Range);
+        let t = thumbs(&rs);
+        let home = Key::Home { shift: false, doc: false };
+        let end = Key::End { shift: false, doc: false };
+        // Poignée basse : Début → 0 ; Fin → butée haute (0.7).
+        let (lo, hi) = range_of_key(t[0].on_key(&home));
+        assert!((lo - 0.0).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4, "bas Début ({lo}, {hi})");
+        let (lo, hi) = range_of_key(t[0].on_key(&end));
+        assert!((lo - 0.7).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4, "bas Fin ({lo}, {hi})");
+        // Poignée haute : Fin → 1.
+        let (lo, hi) = range_of_key(t[1].on_key(&end));
+        assert!((lo - 0.3).abs() < 1e-4 && (hi - 1.0).abs() < 1e-4, "haut Fin ({lo}, {hi})");
     }
 
     #[test]

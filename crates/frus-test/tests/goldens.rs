@@ -369,21 +369,34 @@ fn range_slider_matches_golden() {
     snapshot.assert_golden(golden("range_slider"));
 }
 
-/// **Curseur de plage étiqueté (jalon 160)** : infobulles de valeur (pourcentage)
-/// au-dessus des deux poignées. Reproduit son golden.
+/// **Curseur de plage étiqueté (jalons 160/162)** : l'infobulle de valeur n'apparaît
+/// qu'au **survol / focus** d'une poignée. Ici la poignée basse est focalisée : sa bulle
+/// « 30% » et son anneau de focus s'affichent. Reproduit son golden.
 #[test]
 fn range_slider_labels_matches_golden() {
+    use frus_widgets::{build_ui, Runtime, Size};
+
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(24.0).child(
         RangeSlider::<()>::new(0.3, 0.7)
             .width(240.0)
             .value_label(|v| format!("{}%", (v * 100.0).round() as i32)),
     );
-    let Some(snapshot) = render_widget(&root, 300, 110, &theme) else {
+    let (w, h) = (300u32, 110u32);
+    // Poignée basse : centre x = 24 + 0.3·240 = 96, dans la bande piste basse.
+    let probe = Point::new(96.0, 62.0);
+    let base = build_ui(&root, Size::new(w as f32, h as f32), &Runtime::default(), &theme);
+    let id = base.draggable_at(probe).map(|(id, _)| id).expect("poignée basse saisissable");
+    // Reconstruit avec la poignée basse **focalisée** (révèle la bulle + l'anneau).
+    let mut runtime = Runtime::default();
+    runtime.input.focused = Some(id);
+    let ui = build_ui(&root, Size::new(w as f32, h as f32), &runtime, &theme);
+
+    let Some(snapshot) = render_scene(ui.scene(), w, h, theme.background) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 60, "piste, poignées et infobulles dessinées");
+    assert!(snapshot.lit_pixels(40) > 60, "piste, poignées et infobulle focalisée dessinées");
     snapshot.assert_golden(golden("range_slider_labels"));
 }
 
