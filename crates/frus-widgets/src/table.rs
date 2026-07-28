@@ -523,6 +523,12 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// colonne `col`. C'est un **enfant** de la cellule : il capte son propre clic (hit-test
     /// du plus profond), tandis que le reste de l'en-tête **trie** et se **réordonne**
     /// comme d'habitude. La fabrique est rappelée à chaque reconstruction (widget frais).
+    ///
+    /// **Menu de colonne** : passez ici un [`Menu`](crate::Menu) ou un
+    /// [`Dropdown`](crate::Dropdown). Son menu **flottant** est rendu même **imbriqué** dans
+    /// l'en-tête (l'overlay est collecté à n'importe quelle profondeur), atteignable au
+    /// **Tab** et piloté flèches/Entrée, et fermé par Échap / clic extérieur — sans code
+    /// spécifique côté tableau (l'application pilote l'état ouvert/fermé du menu).
     pub fn header_action(mut self, col: usize, make: impl Fn() -> Box<dyn Widget<Msg>> + 'static) -> Self {
         if col < self.columns {
             if self.header_actions.len() <= col {
@@ -1248,6 +1254,36 @@ mod tests {
         });
         assert!(bar_h.unwrap_or(0.0) >= tall - 1.0, "la rangée suit le contenu haut: {bar_h:?}");
         assert!(tall - 1.0 > ROW_H, "le contenu dépasse bien la hauteur nominale");
+    }
+
+    #[test]
+    fn header_action_menu_opens_as_column_menu() {
+        use crate::{Button, Menu};
+        // Un Menu déposé en widget d'action d'en-tête = un menu de colonne : son overlay
+        // flottant est collecté **même imbriqué** dans l'en-tête, et se ferme (Échap / clic
+        // extérieur). Les items sont focusables → navigables au clavier.
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .header(&["Name", "Score"])
+            .on_sort(Msg::Sort)
+            .header_action(1, || {
+                Box::new(
+                    Menu::new(Button::new("...").on_press(Msg::Filter), true, Msg::CheckAll)
+                        .item("Sort ascending", Msg::Sort(1))
+                        .item("Sort descending", Msg::Sort(1)),
+                )
+            });
+        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        // L'overlay du menu (imbriqué) est bien collecté → fermable.
+        assert_eq!(ui.top_dismiss(), Some(Msg::CheckAll), "l'overlay du menu de colonne est collecté");
+        // Le menu flotte et se peint (ses items sont rendus par-dessus la grille).
+        let painted = |t: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
+        };
+        assert!(painted("Sort ascending"), "le menu de colonne flotte et se peint");
     }
 
     #[test]

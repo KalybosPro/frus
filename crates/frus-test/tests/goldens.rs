@@ -5,7 +5,7 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, Button, Chip, Container, DateTimePicker, Dropdown, Flex, IconName,
+    Autocomplete, Avatar, Button, Chip, Container, DateTimePicker, Dropdown, Flex, IconName, Menu,
     RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
 };
 
@@ -351,6 +351,36 @@ fn table_widget_header_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "en-têtes widget et données dessinés");
     snapshot.assert_golden(golden("table_widget_header"));
+}
+
+/// **Menu de colonne (jalon 172)** : un `Menu` déposé en widget d'action d'en-tête ouvre un
+/// menu **flottant** d'actions de colonne, rendu par-dessus la grille même imbriqué dans
+/// l'en-tête — sans code spécifique côté tableau. Reproduit son golden.
+#[test]
+fn table_column_menu_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(300.0)
+        .column_widths(&[150.0])
+        .header(&["Name", "Score"])
+        .on_sort(|_| ())
+        .header_action(0, || {
+            Box::new(
+                Menu::new(Button::new("...").size(12.0).variant(Variant::Secondary).on_press(()), true, ())
+                    .item("Sort ascending", ())
+                    .item("Sort descending", ())
+                    .item("Hide column", ()),
+            )
+        })
+        .row(&["Ada", "5"])
+        .row(&["Bob", "3"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 340, 230, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête et menu de colonne flottant dessinés");
+    snapshot.assert_golden(golden("table_column_menu"));
 }
 
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
