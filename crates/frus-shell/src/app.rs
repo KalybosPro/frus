@@ -1959,26 +1959,20 @@ impl<A: Application> App<A> {
     /// colonne cible, et **carte soulevée** (ombre + bord `primary`) suivant le
     /// curseur. Sans effet hors d'un glissement d'en-tête engagé.
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
-        let Some(Drag::Reorder { id, from, start, moved: true }) = self.drag else {
+        let Some(Drag::Reorder { id, from: _, start, moved: true }) = self.drag else {
             return;
         };
         let Some(src) = ui.widget_rect(id) else {
             return;
         };
         let dx = self.cursor.x - start.x;
-        // Colonne cible sous le curseur (différente de la source).
-        let target = self
-            .reorderable_at(self.cursor)
-            .filter(|(_, to)| *to != from)
-            .and_then(|(tid, to)| ui.widget_rect(tid).map(|r| (to, r)));
-        // Réagence les colonnes voisines : le trou de la source se referme, la place de
-        // dépôt s'ouvre à la cible (coulissement géométrique du fond de scène).
-        if let Some((to, trect)) = target {
-            let reflowed = reflow_reorder_columns(scene.primitives(), src, trect, to > from, id.as_u64());
-            scene.clear();
-            for primitive in reflowed {
-                scene.push_primitive(primitive);
-            }
+        // Réagence les colonnes voisines : le trou de la source se referme et la place de
+        // dépôt s'ouvre, **progressivement** selon l'abscisse du curseur (coulissement doux
+        // du fond de scène).
+        let reflowed = reflow_reorder_columns(scene.primitives(), src, self.cursor.x, id.as_u64());
+        scene.clear();
+        for primitive in reflowed {
+            scene.push_primitive(primitive);
         }
         // Fantôme fidèle : les primitives de l'en-tête saisi (fond, texte, tri) — depuis
         // la scène d'origine —, translatées et **dé-découpées** (sinon rognées à la source).

@@ -14,7 +14,7 @@ use frus_layout::{Dimension, Style};
 
 use crate::flex::Flex;
 use crate::icons::IconName;
-use crate::interaction::Status;
+use crate::interaction::{Key, KeyResponse, Status};
 use crate::stack::Stack;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -67,8 +67,9 @@ struct Cell<Msg> {
     /// Indicateur de tri de l'en-tête : `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
-    /// En-tête **réordonnable** : `(index de colonne, rappel on_reorder(from, to))`.
-    reorder: Option<(usize, Rc<dyn Fn(usize, usize) -> Msg>)>,
+    /// En-tête **réordonnable** : `(index de colonne, nombre de colonnes, rappel
+    /// on_reorder(from, to))`. Le nombre de colonnes borne le réordonnancement clavier.
+    reorder: Option<(usize, usize, Rc<dyn Fn(usize, usize) -> Msg>)>,
 }
 
 impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
@@ -125,11 +126,28 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     }
 
     fn reorder_index(&self) -> Option<usize> {
-        self.reorder.as_ref().map(|(col, _)| *col)
+        self.reorder.as_ref().map(|(col, _, _)| *col)
     }
 
     fn on_reorder(&self, to: usize) -> Option<Msg> {
-        self.reorder.as_ref().map(|(col, cb)| cb(*col, to))
+        self.reorder.as_ref().map(|(col, _, cb)| cb(*col, to))
+    }
+
+    fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
+        // Ctrl+Flèches (Left/Right avec `word`) sur un en-tête focalisé : déplace la
+        // colonne d'un cran (borné). Les flèches nues laissent naviguer le focus.
+        let Some((col, columns, cb)) = self.reorder.as_ref() else {
+            return KeyResponse::Ignored;
+        };
+        let to = match key {
+            Key::Left { word: true, .. } => col.checked_sub(1),
+            Key::Right { word: true, .. } if col + 1 < *columns => Some(col + 1),
+            _ => return KeyResponse::Ignored,
+        };
+        match to {
+            Some(to) => KeyResponse::Handled(Some(cb(*col, to))),
+            None => KeyResponse::Ignored, // au bord : laisse le focus naviguer
+        }
     }
 }
 
@@ -496,7 +514,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             for (c, label) in self.headers.iter().enumerate() {
                 let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
                 let message = self.on_sort.as_ref().map(|f| f(c));
-                let reorder = self.on_reorder.as_ref().map(|cb| (c, cb.clone()));
+                let reorder = self.on_reorder.as_ref().map(|cb| (c, self.columns, cb.clone()));
                 hrow = hrow.child(Cell {
                     label: label.clone(),
                     width: self.col_width(c),
@@ -760,6 +778,28 @@ mod tests {
         // Les cellules de données ne sont pas réordonnables.
         let drow = &Widget::<Msg>::children(&table)[1];
         assert_eq!(drow.children()[0].reorder_index(), None);
+    }
+
+    #[test]
+    fn ctrl_arrows_reorder_focused_header() {
+        use crate::interaction::{Key, KeyResponse};
+        let table = Table::<Msg>::new(3)
+            .width(300.0)
+            .header(&["A", "B", "C"])
+            .on_sort(Msg::Sort)
+            .on_reorder(Msg::Reorder)
+            .row(&["x", "y", "z"]);
+        let cells = Widget::<Msg>::children(&table)[0].children();
+        let ctrl_left = Key::Left { shift: false, word: true };
+        let ctrl_right = Key::Right { shift: false, word: true };
+        // Colonne du milieu (1) : Ctrl+Gauche → 0, Ctrl+Droite → 2.
+        assert_eq!(cells[1].on_key(&ctrl_left), KeyResponse::Handled(Some(Msg::Reorder(1, 0))));
+        assert_eq!(cells[1].on_key(&ctrl_right), KeyResponse::Handled(Some(Msg::Reorder(1, 2))));
+        // Aux bords : ignoré (le focus navigue). Col 0 à gauche, col 2 à droite.
+        assert_eq!(cells[0].on_key(&ctrl_left), KeyResponse::Ignored);
+        assert_eq!(cells[2].on_key(&ctrl_right), KeyResponse::Ignored);
+        // Flèche nue (sans Ctrl) : ignorée → navigation de focus.
+        assert_eq!(cells[1].on_key(&Key::Left { shift: false, word: false }), KeyResponse::Ignored);
     }
 
     #[test]

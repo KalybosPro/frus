@@ -188,19 +188,20 @@ fn table_reorder_preview_matches_golden() {
         .row(&["Ada", "Engineer", "5"])
         .row(&["Bob", "Designer", "3"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
-    let (w, h) = (360u32, 150u32);
+    let (w, h) = (420u32, 150u32);
     let ui = build_ui(&root, Size::new(w as f32, h as f32), &Runtime::default(), &theme);
 
-    // En-tête « Role » (colonne 1) glissé de +64 px, curseur au-dessus de « Score ».
+    // En-tête « Role » (colonne 1) glissé vers la droite, curseur au-delà de « Score »
+    // (qui a donc pleinement coulissé pour combler la place de « Role »).
     let role = Point::new(16.0 + 110.0 + 2.0 + 55.0, 16.0 + 17.0);
     let id = ui.hit(role).expect("en-tête Role cliquable");
     let src = ui.widget_rect(id).expect("bornes de l'en-tête Role");
-    let dx = 64.0;
-    let target = ui.hit(Point::new(role.x + dx, role.y)).and_then(|t| ui.widget_rect(t)).expect("cible Score");
+    let dx = 150.0;
 
-    // Coulissement des colonnes voisines (source retirée, « Score » comblé vers la gauche).
+    // Coulissement des colonnes voisines suivant le curseur (source retirée, « Score »
+    // comblé vers la gauche à mesure que le curseur le dépasse).
     let mut scene = ui.scene().clone();
-    let reflowed = reflow_reorder_columns(scene.primitives(), src, target, true, id.as_u64());
+    let reflowed = reflow_reorder_columns(scene.primitives(), src, role.x + dx, id.as_u64());
     scene.clear();
     for primitive in reflowed {
         scene.push_primitive(primitive);
