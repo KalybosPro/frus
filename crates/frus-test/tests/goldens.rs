@@ -290,6 +290,31 @@ fn autocomplete_matches_golden() {
     snapshot.assert_golden(golden("autocomplete"));
 }
 
+/// **Autocomplétion défilante (jalon 154)** : liste plus longue que le seuil
+/// (`max_visible(3)`) → viewport borné à 3 lignes, contenu défilable (6 suggestions).
+/// Reproduit son golden.
+#[test]
+fn autocomplete_scroll_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(16.0).child(
+        Autocomplete::<()>::new("a", |_| (), |_| ())
+            .width(220.0)
+            .max_visible(3)
+            .suggestion("Alabama")
+            .suggestion("Alaska")
+            .suggestion("Arizona")
+            .suggestion("Arkansas")
+            .suggestion("California")
+            .suggestion("Colorado"),
+    );
+    let Some(snapshot) = render_widget(&root, 260, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 80, "champ et liste bornée dessinés");
+    snapshot.assert_golden(golden("autocomplete_scroll"));
+}
+
 /// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
 /// de préfixe à gauche et de suffixe à droite. Reproduit son golden.
 #[test]

@@ -15,6 +15,7 @@ use frus_layout::{Dimension, FlexDirection, Style};
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::portal::Placement;
+use crate::scroll::Scroll;
 use crate::textinput::TextInput;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -23,6 +24,8 @@ const DEFAULT_WIDTH: f32 = 260.0;
 const ROW_H: f32 = 32.0;
 const PAD_X: f32 = 10.0;
 const SIZE: f32 = 16.0;
+/// Écart vertical entre suggestions.
+const ROW_GAP: f32 = 2.0;
 
 /// Portion (indices de **caractères**) du libellé qui correspond à la requête
 /// (recherche insensible à la casse). `None` si la requête est vide ou absente.
@@ -113,6 +116,8 @@ pub struct Autocomplete<Msg> {
     width: f32,
     /// Suggestion **active** (parcourue au clavier / surlignée), le cas échéant.
     active: Option<usize>,
+    /// Nombre max de suggestions visibles : au-delà, la liste **défile**.
+    max_visible: Option<usize>,
     on_input: Rc<dyn Fn(String) -> Msg>,
     on_pick: Rc<dyn Fn(String) -> Msg>,
     labels: Vec<String>,
@@ -132,6 +137,7 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
             value: value.into(),
             width: DEFAULT_WIDTH,
             active: None,
+            max_visible: None,
             on_input: Rc::new(on_input),
             on_pick: Rc::new(on_pick),
             labels: Vec::new(),
@@ -156,6 +162,14 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         self
     }
 
+    /// Limite le nombre de suggestions **visibles** : au-delà, la liste flottante
+    /// **défile** (viewport borné à `n` lignes) au lieu de s'étirer sans fin.
+    pub fn max_visible(mut self, rows: usize) -> Self {
+        self.max_visible = Some(rows.max(1));
+        self.rebuild();
+        self
+    }
+
     /// Ajoute une suggestion à la liste flottante.
     pub fn suggestion(mut self, label: impl Into<String>) -> Self {
         self.labels.push(label.into());
@@ -173,7 +187,7 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         self.children = vec![Box::new(input)];
 
         if !self.labels.is_empty() {
-            let mut list = Flex::column().gap(2.0);
+            let mut list = Flex::column().gap(ROW_GAP);
             for (index, label) in self.labels.iter().enumerate() {
                 list = list.child(Suggestion {
                     label: label.clone(),
@@ -183,7 +197,15 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
                     message: (self.on_pick)(label.clone()),
                 });
             }
-            self.children.push(Box::new(list));
+            // Au-delà du seuil, la liste défile dans un viewport borné à `n` lignes.
+            match self.max_visible {
+                Some(n) if self.labels.len() > n => {
+                    let viewport = n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP;
+                    self.children
+                        .push(Box::new(Scroll::new().width(self.width).height(viewport).child(list)));
+                }
+                _ => self.children.push(Box::new(list)),
+            }
         }
     }
 }
@@ -285,6 +307,38 @@ mod tests {
             Primitive::Rect { color, .. } if color.fade(1.0) == tint.fade(1.0)
         ));
         assert!(has_tint, "la suggestion active est surlignée");
+    }
+
+    #[test]
+    fn long_list_scrolls_when_capped() {
+        let ac = Autocomplete::new("a", Msg::Input, Msg::Pick)
+            .max_visible(2)
+            .suggestion("a1")
+            .suggestion("a2")
+            .suggestion("a3")
+            .suggestion("a4");
+        let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
+        // L'overlay est un Scroll borné à 2 lignes (viewport = 2*ROW_H + 1 écart).
+        let expected = 2.0 * ROW_H + ROW_GAP;
+        assert!(
+            matches!(Widget::<Msg>::style(overlay).height, Dimension::Length(v) if (v - expected).abs() < 0.5),
+            "viewport borné à 2 lignes",
+        );
+        // Il défile bien sur les 4 suggestions.
+        assert_eq!(overlay.children()[0].children().len(), 4);
+    }
+
+    #[test]
+    fn short_list_is_not_wrapped_in_scroll() {
+        // Sous le seuil : liste nue (pas de viewport borné).
+        let ac = Autocomplete::new("a", Msg::Input, Msg::Pick)
+            .max_visible(5)
+            .suggestion("a1")
+            .suggestion("a2");
+        let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
+        // Liste directe : ses enfants sont les 2 suggestions (pas un Scroll d'un cran).
+        assert_eq!(overlay.children().len(), 2);
+        assert_eq!(overlay.children()[0].on_click(), Some(Msg::Pick("a1".to_string())));
     }
 
     #[test]
