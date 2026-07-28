@@ -246,6 +246,11 @@ pub struct App<A: Application> {
     /// position réelle par ressort, donnant au coulissement des colonnes une inertie
     /// douce (le fond « rattrape » le fantôme qui, lui, colle au curseur).
     reorder_x: f32,
+    /// Dernier message d'**annonce** poussé à la région live AccessKit (lecteur
+    /// d'écran). Persiste tel quel : il n'est re-énoncé qu'au changement, si bien
+    /// qu'un même texte reconduit chaque frame ne se répète pas. Bureau uniquement.
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    announce: String,
     /// Reconnaisseur tap-ou-appui-long (palier 1 des gestes).
     press: PressRecognizer,
     /// Message d'appui long de la cible pressée, capturé à l'appui.
@@ -311,6 +316,8 @@ impl<A: Application> App<A> {
             build_dirty: true,
             drag: None,
             reorder_x: 0.0,
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
             last_click_time: None,
@@ -876,14 +883,26 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         } else {
                             Key::Right { shift: self.shift, word: self.ctrl }
                         };
-                        let handled = self
+                        let widget = self
                             .tree
                             .as_ref()
-                            .and_then(|tree| find_widget(tree.as_ref(), focused))
-                            .map(|widget| widget.on_key(&key));
+                            .and_then(|tree| find_widget(tree.as_ref(), focused));
+                        // Un en-tête réordonnable déplace sa colonne d'un cran ; on
+                        // capte sa position pour l'annoncer (le clavier est le chemin
+                        // de réordonnancement des utilisateurs de lecteur d'écran).
+                        let reorder_from = widget.and_then(|w| w.reorder_index());
+                        let handled = widget.map(|w| w.on_key(&key));
                         if let Some(KeyResponse::Handled(message)) = handled {
                             if let Some(message) = message {
                                 self.dispatch(message);
+                            }
+                            if let Some(from) = reorder_from {
+                                let to = if matches!(direction, FocusDirection::Left) {
+                                    from.wrapping_sub(1)
+                                } else {
+                                    from + 1
+                                };
+                                self.set_announcement(format!("Column moved to position {}", to + 1));
                             }
                             self.request_redraw();
                             return;
@@ -1345,7 +1364,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     let focus = self.runtime.input.focused;
                     let title = self.app.title();
                     if let Some(ui) = self.ui.as_ref() {
-                        a11y.update(ui.semantics(), focus, &title);
+                        a11y.update(ui.semantics(), focus, &title, &self.announce);
                     }
                 }
 
@@ -1661,7 +1680,11 @@ impl<A: Application> App<A> {
                 _ => None,
             };
             if let Some(message) = message {
+                let to = to.unwrap_or(*from);
                 self.dispatch(message);
+                // Le déplacement effectif est énoncé au lecteur d'écran (pendant du
+                // repère visuel qu'est le fantôme, pour l'utilisateur non-voyant).
+                self.set_announcement(format!("Column moved to position {}", to + 1));
             }
         }
         // Fling : l'élan du doigt projette une destination balistique (friction),
@@ -1694,6 +1717,16 @@ impl<A: Application> App<A> {
         }
         self.request_redraw();
     }
+
+    /// Énonce un message à voix haute via la **région live** du lecteur d'écran
+    /// (réordonnancement de colonne…). Sans lecteur d'écran actif, sans coût. Le
+    /// texte n'est re-énoncé qu'au changement. Bureau uniquement (no-op ailleurs).
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn set_announcement(&mut self, message: String) {
+        self.announce = message;
+    }
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    fn set_announcement(&mut self, _message: String) {}
 
     /// Applique un message à l'application, exécute ses effets, puis réévalue les
     /// souscriptions (l'état a pu changer celles qui doivent tourner).

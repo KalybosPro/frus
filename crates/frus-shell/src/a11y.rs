@@ -10,8 +10,8 @@
 use std::sync::{Arc, Mutex};
 
 use accesskit::{
-    Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node, NodeId,
-    Rect as AkRect, Role as AkRole, Toggled as AkToggled, Tree, TreeId, TreeUpdate,
+    Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Live, Node,
+    NodeId, Rect as AkRect, Role as AkRole, Toggled as AkToggled, Tree, TreeId, TreeUpdate,
 };
 use accesskit_winit::Adapter;
 use winit::event::WindowEvent;
@@ -22,6 +22,10 @@ use frus_widgets::{Rect, Role, Semantics, Toggled, WidgetId};
 
 /// Identité du nœud **racine** (la fenêtre) dans l'arbre AccessKit.
 const ROOT_ID: NodeId = NodeId(0);
+
+/// Identité du nœud de **région live** (annonces vocales). Id réservé, hors de
+/// portée des [`WidgetId`] (décalés de `+1`, donc bornés par `u64::MAX - 1`).
+const LIVE_ID: NodeId = NodeId(u64::MAX);
 
 /// Convertit un rôle frus en rôle AccessKit.
 fn to_ak_role(role: Role) -> AkRole {
@@ -82,23 +86,44 @@ fn to_ak_node(rect: Rect, sem: &Semantics) -> Node {
     node
 }
 
+/// Construit le nœud de **région live** : un statut invisible, poli (n'interrompt
+/// pas la lecture en cours), dont le texte est énoncé par la technologie
+/// d'assistance **quand il change** (façon `SemanticsService.announce` de Flutter,
+/// ou `aria-live="polite"`).
+fn live_node(message: &str) -> Node {
+    let mut node = Node::new(AkRole::Label);
+    node.set_live(Live::Polite);
+    node.set_label(message.to_string());
+    node
+}
+
 /// Construit une mise à jour d'arbre AccessKit complète : une racine `Window`
 /// dont les enfants sont les nœuds sémantiques de la frame (ordre de peinture =
 /// ordre de lecture). `focus` = le widget focalisé, s'il est dans l'arbre.
+/// `announce`, s'il est non vide, ajoute une **région live** énoncée à voix haute.
 pub(crate) fn build_tree_update(
     nodes: &[(WidgetId, Rect, Semantics)],
     focus: Option<WidgetId>,
     title: &str,
+    announce: &str,
 ) -> TreeUpdate {
-    let mut updates: Vec<(NodeId, Node)> = Vec::with_capacity(nodes.len() + 1);
+    let mut updates: Vec<(NodeId, Node)> = Vec::with_capacity(nodes.len() + 2);
+
+    let mut children: Vec<NodeId> = nodes.iter().map(|(id, _, _)| node_id(*id)).collect();
+    if !announce.is_empty() {
+        children.push(LIVE_ID);
+    }
 
     let mut root = Node::new(AkRole::Window);
     root.set_label(title.to_string());
-    root.set_children(nodes.iter().map(|(id, _, _)| node_id(*id)).collect::<Vec<_>>());
+    root.set_children(children);
     updates.push((ROOT_ID, root));
 
     for (id, rect, sem) in nodes {
         updates.push((node_id(*id), to_ak_node(*rect, sem)));
+    }
+    if !announce.is_empty() {
+        updates.push((LIVE_ID, live_node(announce)));
     }
 
     // Le focus AccessKit doit désigner un nœud **présent** dans l'arbre ; sinon
@@ -129,11 +154,14 @@ struct Snapshot {
     nodes: Vec<(WidgetId, Rect, Semantics)>,
     focus: Option<WidgetId>,
     title: String,
+    /// Dernier message d'annonce (région live). Persiste tel quel : AccessKit ne le
+    /// re-énonce qu'au **changement**, donc un texte inchangé ne se répète pas.
+    announce: String,
 }
 
 impl Snapshot {
     fn to_update(&self) -> TreeUpdate {
-        build_tree_update(&self.nodes, self.focus, &self.title)
+        build_tree_update(&self.nodes, self.focus, &self.title, &self.announce)
     }
 }
 
@@ -220,12 +248,14 @@ impl A11y {
         nodes: &[(WidgetId, Rect, Semantics)],
         focus: Option<WidgetId>,
         title: &str,
+        announce: &str,
     ) {
         {
             let mut s = self.snapshot.lock().unwrap();
             s.nodes = nodes.to_vec();
             s.focus = focus;
             s.title = title.to_string();
+            s.announce = announce.to_string();
         }
         let snapshot = self.snapshot.clone();
         self.adapter
@@ -268,7 +298,7 @@ mod tests {
                 sem(Role::CheckBox).toggled(true),
             ),
         ];
-        let update = build_tree_update(&nodes, None, "frus");
+        let update = build_tree_update(&nodes, None, "frus", "");
         // Racine + deux nœuds.
         assert_eq!(update.nodes.len(), 3);
         assert_eq!(update.nodes[0].0, ROOT_ID);
@@ -278,14 +308,33 @@ mod tests {
     }
 
     #[test]
+    fn announcement_adds_a_polite_live_region() {
+        let nodes = vec![(wid(10), Rect::new(0.0, 0.0, 40.0, 20.0), sem(Role::Button))];
+        // Sans annonce : pas de nœud live.
+        let quiet = build_tree_update(&nodes, None, "frus", "");
+        assert!(quiet.nodes.iter().all(|(id, _)| *id != LIVE_ID), "aucune région live");
+        // Avec annonce : un nœud live poli portant le message, enfant de la racine.
+        let loud = build_tree_update(&nodes, None, "frus", "Column moved to position 2");
+        let live = loud
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == LIVE_ID)
+            .expect("région live présente");
+        assert_eq!(live.1.label().as_deref(), Some("Column moved to position 2"));
+        assert_eq!(live.1.live(), Some(Live::Polite));
+        let (_, root) = &loud.nodes[0];
+        assert!(root.children().contains(&LIVE_ID), "la racine référence la région live");
+    }
+
+    #[test]
     fn focus_points_at_a_present_node() {
         let focused = wid(10);
         let nodes = vec![(focused, Rect::new(0.0, 0.0, 40.0, 20.0), sem(Role::Button))];
-        let update = build_tree_update(&nodes, Some(focused), "frus");
+        let update = build_tree_update(&nodes, Some(focused), "frus", "");
         assert_eq!(update.focus, node_id(focused));
         // Un focus hors arbre retombe sur la racine.
         let absent = wid(999);
-        let update2 = build_tree_update(&nodes, Some(absent), "frus");
+        let update2 = build_tree_update(&nodes, Some(absent), "frus", "");
         assert_eq!(update2.focus, ROOT_ID);
     }
 
