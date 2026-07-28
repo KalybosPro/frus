@@ -133,6 +133,19 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         self.reorder.as_ref().map(|(col, _, cb)| cb(*col, to))
     }
 
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        // En-tête : annoncé aux lecteurs d'écran (libellé + position s'il est réordonnable,
+        // pour que l'utilisateur perçoive un déplacement de colonne en re-parcourant).
+        if !self.header {
+            return None;
+        }
+        let mut sem = frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+        if let Some((col, columns, _)) = &self.reorder {
+            sem = sem.value(format!("column {} of {}", col + 1, columns));
+        }
+        Some(sem)
+    }
+
     fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
         // Ctrl+Flèches (Left/Right avec `word`) sur un en-tête focalisé : déplace la
         // colonne d'un cran (borné). Les flèches nues laissent naviguer le focus.
@@ -800,6 +813,23 @@ mod tests {
         assert_eq!(cells[2].on_key(&ctrl_right), KeyResponse::Ignored);
         // Flèche nue (sans Ctrl) : ignorée → navigation de focus.
         assert_eq!(cells[1].on_key(&Key::Left { shift: false, word: false }), KeyResponse::Ignored);
+    }
+
+    #[test]
+    fn reorderable_header_is_announced_with_position() {
+        let table = Table::<Msg>::new(3)
+            .width(300.0)
+            .header(&["A", "B", "C"])
+            .on_sort(Msg::Sort)
+            .on_reorder(Msg::Reorder)
+            .row(&["x", "y", "z"]);
+        let sem = Widget::<Msg>::children(&table)[0].children()[1]
+            .semantics()
+            .expect("en-tête annoncé");
+        assert_eq!(sem.label.as_deref(), Some("B"));
+        assert_eq!(sem.value.as_deref(), Some("column 2 of 3"));
+        // Les cellules de données ne portent pas de sémantique d'en-tête.
+        assert!(Widget::<Msg>::children(&table)[1].children()[0].semantics().is_none());
     }
 
     #[test]

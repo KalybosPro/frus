@@ -242,6 +242,10 @@ pub struct App<A: Application> {
     build_dirty: bool,
     /// Glissement souris en cours.
     drag: Option<Drag>,
+    /// Abscisse **lissée** du curseur pendant un réordonnancement : elle rejoint la
+    /// position réelle par ressort, donnant au coulissement des colonnes une inertie
+    /// douce (le fond « rattrape » le fantôme qui, lui, colle au curseur).
+    reorder_x: f32,
     /// Reconnaisseur tap-ou-appui-long (palier 1 des gestes).
     press: PressRecognizer,
     /// Message d'appui long de la cible pressée, capturé à l'appui.
@@ -306,6 +310,7 @@ impl<A: Application> App<A> {
             last_frame: None,
             build_dirty: true,
             drag: None,
+            reorder_x: 0.0,
             press: PressRecognizer::new(),
             long_press_msg: None,
             last_click_time: None,
@@ -1258,6 +1263,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
 
+                // Ressort du réordonnancement : l'abscisse lissée rejoint le curseur
+                // (constante de temps ~70 ms) — les colonnes coulissent avec inertie.
+                let reorder_animating = if matches!(self.drag, Some(Drag::Reorder { moved: true, .. })) {
+                    self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
+                    (self.cursor.x - self.reorder_x).abs() > 0.5
+                } else {
+                    false
+                };
+
                 let animating = self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
                     | self.runtime.advance_values(tree, dt)
@@ -1267,6 +1281,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_paddings(tree, dt)
                     | self.runtime.advance_scroll(&scroll_maxes, dt)
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
+                    | reorder_animating
                     | app_animating;
                 // Inspecteur actif : la même construction collecte les nœuds
                 // observés, et le calque (contours + fiche du widget survolé)
@@ -1513,6 +1528,7 @@ impl<A: Application> App<A> {
         // le glissement ne s'engage qu'au-delà du seuil (sinon le relâchement trie).
         if let Some((id, from)) = self.reorderable_at(self.cursor) {
             self.drag = Some(Drag::Reorder { id, from, start: self.cursor, moved: false });
+            self.reorder_x = self.cursor.x; // départ collé au curseur (pas de ressaut)
         }
 
         self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
@@ -1993,9 +2009,9 @@ impl<A: Application> App<A> {
         };
         let dx = self.cursor.x - start.x;
         // Réagence les colonnes voisines : le trou de la source se referme et la place de
-        // dépôt s'ouvre, **progressivement** selon l'abscisse du curseur (coulissement doux
-        // du fond de scène).
-        let reflowed = reflow_reorder_columns(scene.primitives(), src, self.cursor.x, id.as_u64());
+        // dépôt s'ouvre, selon l'abscisse **lissée** (ressort) du curseur — coulissement à
+        // inertie douce, tandis que le fantôme colle au curseur réel.
+        let reflowed = reflow_reorder_columns(scene.primitives(), src, self.reorder_x, id.as_u64());
         scene.clear();
         for primitive in reflowed {
             scene.push_primitive(primitive);
@@ -2197,6 +2213,14 @@ impl<A: Application> App<A> {
     }
 }
 
+/// Rapproche `current` de `target` d'un pas de ressort **exponentiel** (constante de
+/// temps `tau`, en secondes) sur un intervalle `dt` : cadence-indépendant et sans
+/// dépassement. Sert au lissage de l'abscisse pendant un réordonnancement.
+fn spring_toward(current: f32, target: f32, dt: f32, tau: f32) -> f32 {
+    let k = 1.0 - (-dt / tau.max(1e-4)).exp();
+    current + (target - current) * k
+}
+
 /// Peint la **carte soulevée** (fantôme) de l'en-tête glissé dans `scene` (non découpé)
 /// à `card` : ombre portée, **face fidèle** (primitives de l'en-tête déjà translatées)
 /// ou pleine en repli si `ghost` est vide, puis bord `primary`. Fonction pure — testable
@@ -2217,7 +2241,21 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_ghost_card, Rect, Scene, Theme};
+    use super::{draw_ghost_card, spring_toward, Rect, Scene, Theme};
+
+    #[test]
+    fn spring_approaches_target_monotonically_and_settles() {
+        // Part de 0, cible 100 : approche monotone sans dépassement, quasi atteinte
+        // après plusieurs pas de 16 ms.
+        let mut x = 0.0;
+        let mut prev = -1.0;
+        for _ in 0..30 {
+            x = spring_toward(x, 100.0, 0.016, 0.07);
+            assert!(x > prev && x <= 100.0, "monotone borné : {x}");
+            prev = x;
+        }
+        assert!(x > 99.0, "quasi atteint après ~0.5 s : {x}");
+    }
 
     #[test]
     fn ghost_card_shape() {
