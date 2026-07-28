@@ -9,8 +9,8 @@
 
 use std::rc::Rc;
 
-use frus_core::{Color, Path, Point, Rect, Scene};
-use frus_layout::{Dimension, Style};
+use frus_core::{Color, Insets, Path, Point, Rect, Scene};
+use frus_layout::{Align, Dimension, Style};
 
 use crate::flex::Flex;
 use crate::icons::IconName;
@@ -221,6 +221,53 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
     }
 }
 
+/// Fabrique d'un widget de cellule : **rappelée à chaque reconstruction** (le tableau
+/// se rebâtit après chaque réglage), donc elle produit un widget **frais** à chaque fois.
+/// Permet des cellules riches (avatars, puces, boutons d'action) au-delà du texte.
+pub type CellFactory<Msg> = std::rc::Rc<dyn Fn() -> Box<dyn Widget<Msg>>>;
+
+/// Contenu d'une ligne de données : texte simple, ou widgets (par colonne).
+enum RowKind<Msg> {
+    Text(Vec<String>),
+    Widgets(Vec<CellFactory<Msg>>),
+}
+
+/// Une cellule **widget** : un contenu arbitraire (centré, avec le fond de cellule et,
+/// si la ligne est sélectionnable, le clic de sélection). Le contenu se peint par-dessus.
+struct WidgetCell<Msg> {
+    width: Dimension,
+    selected: bool,
+    message: Option<Msg>,
+    content: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            align: Align::Center,
+            padding: Insets::new(0.0, PAD_X, 0.0, PAD_X),
+            ..cell_style(self.width)
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.content
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        let clickable = self.message.is_some();
+        let bg = cell_background(false, self.selected, clickable, theme, &status);
+        if self.selected || bg != theme.surface {
+            scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
+        }
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        self.message.clone()
+    }
+}
+
 /// Un espace transparent et **inerte** (ni cliquable, ni glissable) : cale les
 /// poignées de redimensionnement sur les bords de colonnes sans bloquer les clics
 /// (le calque de poignées flotte au-dessus de la grille).
@@ -311,7 +358,7 @@ impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
 pub struct Table<Msg> {
     columns: usize,
     headers: Vec<String>,
-    rows: Vec<Vec<String>>,
+    rows: Vec<RowKind<Msg>>,
     /// Largeur par colonne : `> 0` = fixe (px), `<= 0` = flexible (part égale).
     widths: Vec<f32>,
     total_width: Option<f32>,
@@ -359,9 +406,18 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Ajoute une ligne de données (une valeur par colonne).
+    /// Ajoute une ligne de données (une valeur **texte** par colonne).
     pub fn row(mut self, cells: &[&str]) -> Self {
-        self.rows.push(cells.iter().map(|s| s.to_string()).collect());
+        self.rows.push(RowKind::Text(cells.iter().map(|s| s.to_string()).collect()));
+        self.rebuild();
+        self
+    }
+
+    /// Ajoute une ligne dont chaque cellule est un **widget** (avatar, puce, bouton
+    /// d'action…), fourni par une **fabrique** rappelée à chaque reconstruction. La
+    /// ligne reste sélectionnable (fond au clic hors des zones cliquables internes).
+    pub fn widget_row(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
+        self.rows.push(RowKind::Widgets(cells.into_iter().map(std::rc::Rc::from).collect()));
         self.rebuild();
         self
     }
@@ -554,17 +610,31 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     message: self.on_check.as_ref().map(|f| f(r)),
                 });
             }
-            for (c, label) in row.iter().enumerate() {
-                let message = self.on_select.as_ref().map(|f| f(r));
-                drow = drow.child(Cell {
-                    label: label.clone(),
-                    width: self.col_width(c),
-                    header: false,
-                    selected,
-                    sort: None,
-                    message,
-                    reorder: None,
-                });
+            match row {
+                RowKind::Text(cells) => {
+                    for (c, label) in cells.iter().enumerate() {
+                        let message = self.on_select.as_ref().map(|f| f(r));
+                        drow = drow.child(Cell {
+                            label: label.clone(),
+                            width: self.col_width(c),
+                            header: false,
+                            selected,
+                            sort: None,
+                            message,
+                            reorder: None,
+                        });
+                    }
+                }
+                RowKind::Widgets(factories) => {
+                    for (c, make) in factories.iter().enumerate() {
+                        drow = drow.child(WidgetCell {
+                            width: self.col_width(c),
+                            selected,
+                            message: self.on_select.as_ref().map(|f| f(r)),
+                            content: vec![make()],
+                        });
+                    }
+                }
             }
             col = col.child(drow);
         }
@@ -830,6 +900,36 @@ mod tests {
         assert_eq!(sem.value.as_deref(), Some("column 2 of 3"));
         // Les cellules de données ne portent pas de sémantique d'en-tête.
         assert!(Widget::<Msg>::children(&table)[1].children()[0].semantics().is_none());
+    }
+
+    #[test]
+    fn widget_rows_embed_arbitrary_widgets() {
+        use crate::Text;
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .header(&["Name", "Tag"])
+            .on_select_row(Msg::Select)
+            .widget_row(vec![
+                Box::new(|| Box::new(Text::new("Ada"))),
+                Box::new(|| Box::new(Text::new("admin"))),
+            ]);
+        // En-tête + 1 rangée de 2 cellules-widgets, chacune contenant son widget.
+        let rows = Widget::<Msg>::children(&table);
+        assert_eq!(rows.len(), 2);
+        let drow = &rows[1];
+        assert_eq!(drow.children().len(), 2);
+        assert_eq!(drow.children()[0].children().len(), 1, "la cellule contient un widget");
+
+        // Le contenu (« admin ») est bien rendu, et la ligne reste sélectionnable.
+        let ui = build_ui(&table, Size::new(240.0, 120.0), &Runtime::default(), &Theme::default());
+        let has_admin = ui
+            .scene()
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "admin"));
+        assert!(has_admin, "le widget de cellule est peint");
+        let click = ui.hit(Point::new(30.0, ROW_H * 1.5)).and_then(|id| ui.msg_for(id));
+        assert_eq!(click, Some(Msg::Select(0)), "la ligne-widget est sélectionnable");
     }
 
     #[test]

@@ -5,8 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Container, DateTimePicker, Dropdown, Flex, RangeSlider, Table, Text, TextInput,
-    Theme, TimePicker,
+    Autocomplete, Avatar, Chip, Container, DateTimePicker, Dropdown, Flex, RangeSlider, Table, Text,
+    TextInput, Theme, TimePicker,
 };
 
 fn golden(name: &str) -> String {
@@ -231,6 +231,32 @@ fn table_reorder_preview_matches_golden() {
     assert!(!ghost.is_empty(), "la face fidèle capture les primitives de l'en-tête");
     assert!(snapshot.lit_pixels(40) > 100, "tableau réagencé + carte fantôme dessinés");
     snapshot.assert_golden(golden("table_reorder_preview"));
+}
+
+/// **Tableau à cellules-widgets (jalon 164)** : une colonne d'**avatars** et une colonne
+/// de **puces** (`Chip`), au-delà du texte. Reproduit son golden.
+#[test]
+fn table_widget_cells_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(260.0)
+        .column_widths(&[70.0])
+        .header(&["User", "Role"])
+        .widget_row(vec![
+            Box::new(|| Box::new(Avatar::new("Ada").size(26.0))),
+            Box::new(|| Box::new(Chip::<()>::new("admin"))),
+        ])
+        .widget_row(vec![
+            Box::new(|| Box::new(Avatar::new("Bo").size(26.0))),
+            Box::new(|| Box::new(Chip::<()>::new("editor"))),
+        ]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 300, 180, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-tête, avatars et puces dessinés");
+    snapshot.assert_golden(golden("table_widget_cells"));
 }
 
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
