@@ -158,6 +158,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Si ce widget est un **en-tête réordonnable**, son index de colonne. Le
+    /// shell l'utilise pour repérer la colonne **source** (à l'appui) et la colonne
+    /// **cible** (sous le curseur au relâchement) d'un glissement de réordonnancement.
+    fn reorder_index(&self) -> Option<usize> {
+        None
+    }
+
+    /// Message émis quand on **dépose** cet en-tête (source) sur la colonne `to`.
+    /// Le widget connaît son propre index et le rappel `on_reorder(from, to)`.
+    fn on_reorder(&self, _to: usize) -> Option<Msg> {
+        None
+    }
+
     /// Si `true`, le widget est une **pile** : ses enfants sont des couches
     /// superposées (même boîte), rendues dans l'ordre (dernière au-dessus).
     fn stack(&self) -> bool {
@@ -472,6 +485,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
         (**self).on_drag_delta(dx)
+    }
+    fn reorder_index(&self) -> Option<usize> {
+        (**self).reorder_index()
+    }
+    fn on_reorder(&self, to: usize) -> Option<Msg> {
+        (**self).on_reorder(to)
     }
     fn stack(&self) -> bool {
         (**self).stack()

@@ -127,6 +127,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.on_drag_delta(dx)
     }
 
+    fn reorder_index(&self) -> Option<usize> {
+        self.inner.reorder_index()
+    }
+
+    fn on_reorder(&self, to: usize) -> Option<Msg> {
+        self.inner.on_reorder(to)
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.scroll_content()
     }

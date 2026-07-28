@@ -193,6 +193,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_drag_delta(dx))
     }
 
+    fn reorder_index(&self) -> Option<usize> {
+        self.inner.as_ref().and_then(|w| w.reorder_index())
+    }
+
+    fn on_reorder(&self, to: usize) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_reorder(to))
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.as_ref().and_then(|w| w.scroll_content())
     }

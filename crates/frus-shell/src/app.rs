@@ -148,6 +148,10 @@ enum Drag {
     /// `last_x` = dernière abscisse du curseur, pour livrer le **delta** aux
     /// poignées qui accumulent (redimensionnement de colonne).
     Widget { id: WidgetId, rect: frus_widgets::Rect, last_x: f32 },
+    /// Réordonnancement d'une **colonne** : on saisit un en-tête (`id`, colonne
+    /// `from`) et on le dépose sur une autre. `moved` distingue le glissement d'un
+    /// simple tap (qui reste un tri) — sous le seuil `TOUCH_SLOP` depuis `start`.
+    Reorder { id: WidgetId, from: usize, start: Point, moved: bool },
     /// Déplacement (pan) d'une fenêtre interactive (`InteractiveViewer`) : le
     /// curseur pousse le contenu. `last` = dernière position (pour le delta) ;
     /// `moved` distingue un vrai pan d'un simple tap (sous le seuil `TOUCH_SLOP`),
@@ -1447,6 +1451,13 @@ impl<A: Application> App<A> {
             return;
         }
 
+        // 1 ter) Réordonnancement de colonne : appui sur un en-tête réordonnable.
+        // On ne `return` pas — le focus et `pressed` (tap = tri) se règlent ci-dessous ;
+        // le glissement ne s'engage qu'au-delà du seuil (sinon le relâchement trie).
+        if let Some((id, from)) = self.reorderable_at(self.cursor) {
+            self.drag = Some(Drag::Reorder { id, from, start: self.cursor, moved: false });
+        }
+
         self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
         // 2) Focus + placement du curseur, et début d'une sélection texte.
         let previously_focused = self.runtime.input.focused;
@@ -1558,8 +1569,28 @@ impl<A: Application> App<A> {
         // laisse suivre le chemin normal du clic ci-dessous.
         let was_tap = matches!(
             ended,
-            Some(Drag::Scroll { moved: false, .. }) | Some(Drag::Pan { moved: false, .. })
+            Some(Drag::Scroll { moved: false, .. })
+                | Some(Drag::Pan { moved: false, .. })
+                | Some(Drag::Reorder { moved: false, .. })
         );
+        // Réordonnancement : au dépôt, la colonne cible est l'en-tête réordonnable
+        // sous le curseur ; on route `on_reorder(from, to)` de l'en-tête saisi.
+        if let Some(Drag::Reorder { id, from, moved: true, .. }) = &ended {
+            let target = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+            let tree = self.tree.as_ref();
+            let to = target
+                .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
+                .and_then(|widget| widget.reorder_index());
+            let message = match to {
+                Some(to) if to != *from => tree
+                    .and_then(|t| find_widget(t.as_ref(), *id))
+                    .and_then(|widget| widget.on_reorder(to)),
+                _ => None,
+            };
+            if let Some(message) = message {
+                self.dispatch(message);
+            }
+        }
         // Fling : l'élan du doigt projette une destination balistique (friction),
         // le ressort de défilement existant y glisse (rebond aux bornes compris).
         if let Some(Drag::Scroll { id, moved: true, velocity, .. }) = &ended {
@@ -1743,6 +1774,15 @@ impl<A: Application> App<A> {
                 *last_x = self.cursor.x;
                 self.apply_widget_drag(*id, *rect, dx);
             }
+            Drag::Reorder { start, moved, .. } => {
+                // Au-delà du seuil, c'est un vrai glissement (plus un tri) ; la colonne
+                // cible est résolue au dépôt (pas de rendu fantôme dans ce MVP).
+                let dx = self.cursor.x - start.x;
+                let dy = self.cursor.y - start.y;
+                if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
+                    *moved = true;
+                }
+            }
             Drag::Pan { id, last, moved, velocity, last_t, viewport } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
@@ -1867,6 +1907,19 @@ impl<A: Application> App<A> {
 
     /// Applique un glissement de widget : calcule la fraction horizontale et
     /// route le message produit par `on_drag`.
+    /// En-tête **réordonnable** le plus au-dessus sous `point` : `(id, colonne)`.
+    /// Réutilise la table de hit-test (les en-têtes triables sont cliquables) et lit
+    /// leur index de colonne dans l'arbre.
+    fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize)> {
+        let id = self.ui.as_ref()?.hit(point)?;
+        let from = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| widget.reorder_index())?;
+        Some((id, from))
+    }
+
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
         let fraction = if rect.width > 0.0 {
             ((self.cursor.x - rect.x) / rect.width).clamp(0.0, 1.0)

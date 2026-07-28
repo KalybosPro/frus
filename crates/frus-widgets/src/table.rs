@@ -67,6 +67,8 @@ struct Cell<Msg> {
     /// Indicateur de tri de l'en-tête : `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
+    /// En-tête **réordonnable** : `(index de colonne, rappel on_reorder(from, to))`.
+    reorder: Option<(usize, Rc<dyn Fn(usize, usize) -> Msg>)>,
 }
 
 impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
@@ -120,6 +122,14 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         // Seuls les en-têtes triables prennent le focus clavier (Entrée/Espace = trier) ;
         // les cellules de données restent cliquables à la souris sans encombrer le Tab.
         self.header && self.message.is_some()
+    }
+
+    fn reorder_index(&self) -> Option<usize> {
+        self.reorder.as_ref().map(|(col, _)| *col)
+    }
+
+    fn on_reorder(&self, to: usize) -> Option<Msg> {
+        self.reorder.as_ref().map(|(col, cb)| cb(*col, to))
     }
 }
 
@@ -283,6 +293,9 @@ pub struct Table<Msg> {
     /// Rappel de redimensionnement (colonne, delta px). Actif seulement si toutes
     /// les colonnes sont de largeur **fixe** (géométrie des bords connue).
     on_resize: Option<Rc<dyn Fn(usize, f32) -> Msg>>,
+    /// Rappel de réordonnancement (`on_reorder(from, to)`) : glisser un en-tête sur
+    /// un autre déplace la colonne. Nécessite aussi `on_sort` (en-têtes cliquables).
+    on_reorder: Option<Rc<dyn Fn(usize, usize) -> Msg>>,
     root: Box<dyn Widget<Msg>>,
 }
 
@@ -303,6 +316,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             on_check: None,
             on_check_all: None,
             on_resize: None,
+            on_reorder: None,
             root: Box::new(Flex::<Msg>::column().gap(ROW_GAP)),
         }
     }
@@ -378,6 +392,16 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// colonnes ont une largeur fixe (bords connus).
     pub fn on_resize(mut self, on_resize: impl Fn(usize, f32) -> Msg + 'static) -> Self {
         self.on_resize = Some(Rc::new(on_resize));
+        self.rebuild();
+        self
+    }
+
+    /// Rend les colonnes **réordonnables** : glisser un en-tête (au-delà du seuil) et
+    /// le déposer sur un autre émet `on_reorder(from, to)` ; l'application permute
+    /// l'ordre de ses colonnes. Un simple **clic** trie toujours (`on_sort`). Sans
+    /// effet si les en-têtes ne sont pas cliquables.
+    pub fn on_reorder(mut self, on_reorder: impl Fn(usize, usize) -> Msg + 'static) -> Self {
+        self.on_reorder = Some(Rc::new(on_reorder));
         self.rebuild();
         self
     }
@@ -472,6 +496,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             for (c, label) in self.headers.iter().enumerate() {
                 let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
                 let message = self.on_sort.as_ref().map(|f| f(c));
+                let reorder = self.on_reorder.as_ref().map(|cb| (c, cb.clone()));
                 hrow = hrow.child(Cell {
                     label: label.clone(),
                     width: self.col_width(c),
@@ -479,6 +504,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     selected: false,
                     sort,
                     message,
+                    reorder,
                 });
             }
             col = col.child(hrow);
@@ -506,6 +532,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     selected,
                     sort: None,
                     message,
+                    reorder: None,
                 });
             }
             col = col.child(drow);
@@ -597,6 +624,7 @@ mod tests {
         Check(usize),
         CheckAll,
         Resize(usize, f32),
+        Reorder(usize, usize),
     }
 
     #[test]
@@ -711,6 +739,27 @@ mod tests {
             Widget::<Msg>::children(&flex).iter().all(|r| r.children().iter().all(|c| !c.draggable())),
             "aucune poignée sans largeurs fixes",
         );
+    }
+
+    #[test]
+    fn reorderable_headers_expose_index_and_message() {
+        let table = Table::<Msg>::new(3)
+            .width(300.0)
+            .header(&["A", "B", "C"])
+            .on_sort(Msg::Sort)
+            .on_reorder(Msg::Reorder)
+            .row(&["x", "y", "z"]);
+        let hrow = &Widget::<Msg>::children(&table)[0];
+        let cells = hrow.children();
+        // Chaque en-tête connaît sa colonne (source/cible) et produit Reorder(from, to).
+        assert_eq!(cells[0].reorder_index(), Some(0));
+        assert_eq!(cells[2].reorder_index(), Some(2));
+        assert_eq!(cells[0].on_reorder(2), Some(Msg::Reorder(0, 2)));
+        // Le clic trie toujours (tap = tri, glissé = réordonner).
+        assert_eq!(cells[1].on_click(), Some(Msg::Sort(1)));
+        // Les cellules de données ne sont pas réordonnables.
+        let drow = &Widget::<Msg>::children(&table)[1];
+        assert_eq!(drow.children()[0].reorder_index(), None);
     }
 
     #[test]
