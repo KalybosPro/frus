@@ -430,6 +430,36 @@ impl Primitive {
         }
     }
 
+    /// Copie de cette primitive avec sa **découpe** remplacée par `clip` — pour
+    /// « dé-découper » une primitive capturée qu'on rejoue ailleurs (ex. le fantôme
+    /// d'un en-tête glissé, qui déborde de la colonne source).
+    pub fn with_clip(&self, clip: Rect) -> Primitive {
+        match self.clone() {
+            Primitive::Rect {
+                rect, color, color2, gradient_dir, radius, border_width, border_color, blur, owner, ..
+            } => Primitive::Rect {
+                rect, color, color2, gradient_dir, radius, border_width, border_color, blur, clip, owner,
+            },
+            Primitive::Text {
+                position, text, size, color, weight, italic, max_width, decoration, decoration_color, owner, ..
+            } => Primitive::Text {
+                position, text, size, color, weight, italic, max_width, decoration, decoration_color, clip, owner,
+            },
+            Primitive::RichText { position, runs, max_width, owner, .. } => {
+                Primitive::RichText { position, runs, max_width, clip, owner }
+            }
+            Primitive::Path { path, fill, stroke, owner, .. } => {
+                Primitive::Path { path, fill, stroke, clip, owner }
+            }
+            Primitive::Image { image, rect, uv, tint, owner, .. } => {
+                Primitive::Image { image, rect, uv, tint, clip, owner }
+            }
+            Primitive::Layer { primitives, opacity, clip_shape, transform, owner, .. } => {
+                Primitive::Layer { primitives, opacity, clip, clip_shape, transform, owner }
+            }
+        }
+    }
+
     /// Met la géométrie à l'échelle par `factor` **autour de `pivot`** (le pivot
     /// reste fixe) : `pos' = pivot + (pos - pivot) * factor`. Tailles, police,
     /// rayons et traits suivent l'échelle.

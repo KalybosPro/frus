@@ -170,6 +170,66 @@ fn data_table_multiselect_matches_golden() {
     snapshot.assert_golden(golden("data_table_multiselect"));
 }
 
+/// **Aperçu de réordonnancement (jalons 155/158)** : en glissant l'en-tête « Role »
+/// vers la droite, la colonne source est estompée, un indicateur de dépôt marque la
+/// cible, et une **carte fidèle** (fond + texte « Role », soulevée) suit le curseur.
+/// Reconstruit la même superposition que le shell. Reproduit son golden.
+#[test]
+fn table_reorder_preview_matches_golden() {
+    use frus_widgets::{build_ui, Primitive, Runtime, Size};
+
+    let theme = Theme::dark();
+    let table = Table::<()>::new(3)
+        .column_widths(&[110.0, 110.0, 90.0])
+        .header(&["Name", "Role", "Score"])
+        .on_sort(|_| ())
+        .on_reorder(|_, _| ())
+        .row(&["Ada", "Engineer", "5"])
+        .row(&["Bob", "Designer", "3"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let (w, h) = (360u32, 150u32);
+    let ui = build_ui(&root, Size::new(w as f32, h as f32), &Runtime::default(), &theme);
+
+    // En-tête « Role » (colonne 1) : x = 16 + 110 + gap(2) + 55 ; y au milieu de l'en-tête.
+    let role = Point::new(16.0 + 110.0 + 2.0 + 55.0, 16.0 + 17.0);
+    let id = ui.hit(role).expect("en-tête Role cliquable");
+    let src = ui.widget_rect(id).expect("bornes de l'en-tête Role");
+    let dx = 64.0;
+
+    let mut scene = ui.scene().clone();
+    scene.set_clip(Rect::UNBOUNDED);
+    // Source estompée.
+    scene.fill_rect(src, theme.surface.lerp(theme.on_surface, 0.10).fade(0.6));
+    // Indicateur de dépôt : bord droit de la colonne cible sous le curseur.
+    if let Some(target) = ui.hit(Point::new(role.x + dx, role.y)).and_then(|t| ui.widget_rect(t)) {
+        scene.fill_rect(Rect::new(target.x + target.width - 1.5, target.y, 3.0, target.height), theme.primary);
+    }
+    // Carte soulevée : ombre + face fidèle (primitives de l'en-tête translatées et
+    // dé-découpées) + bord accentué.
+    let card = src.translate(dx, -2.0);
+    scene.shadow(card.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
+    scene.draw_rect(card, theme.surface, theme.radius, 0.0, Color::TRANSPARENT);
+    let ghost: Vec<Primitive> = ui
+        .scene()
+        .primitives()
+        .iter()
+        .filter(|p| p.owner() == id.as_u64())
+        .map(|p| p.translated(dx, -2.0).with_clip(Rect::UNBOUNDED))
+        .collect();
+    for primitive in &ghost {
+        scene.push_primitive(primitive.clone());
+    }
+    scene.draw_rect(card, Color::TRANSPARENT, theme.radius, 1.5, theme.primary.fade(0.9));
+
+    let Some(snapshot) = render_scene(&scene, w, h, theme.background) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(!ghost.is_empty(), "la face fidèle capture les primitives de l'en-tête");
+    assert!(snapshot.lit_pixels(40) > 100, "tableau + carte fantôme dessinés");
+    snapshot.assert_golden(golden("table_reorder_preview"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.

@@ -16,7 +16,8 @@ use web_time::Instant;
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_by_key, find_path, find_widget, Color, Edit, FocusDirection, Insets,
-    Key, KeyResponse, Point, Rect, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
+    Key, KeyResponse, Point, Primitive, Rect, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId,
+    WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -1947,7 +1948,16 @@ impl<A: Application> App<A> {
             .reorderable_at(self.cursor)
             .filter(|(_, to)| *to != from)
             .and_then(|(tid, to)| ui.widget_rect(tid).map(|r| (to < from, r)));
-        draw_reorder_overlay(scene, theme, src, dx, drop);
+        // Fantôme fidèle : les primitives de l'en-tête saisi (fond, texte, tri),
+        // translatées et **dé-découpées** pour ne pas être rognées à la colonne source.
+        let ghost: Vec<Primitive> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter(|p| p.owner() == id.as_u64())
+            .map(|p| p.translated(dx, -2.0).with_clip(Rect::UNBOUNDED))
+            .collect();
+        draw_reorder_overlay(scene, theme, src, dx, drop, &ghost);
     }
 
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
@@ -2137,8 +2147,17 @@ impl<A: Application> App<A> {
 
 /// Peint l'aperçu de réordonnancement dans `scene` (non découpé) : colonne source
 /// estompée, indicateur de dépôt optionnel (`(to_gauche, cible)`), et carte soulevée
-/// (décalée de `dx`, ombre portée, bord `primary`). Fonction pure — testable sans GPU.
-fn draw_reorder_overlay(scene: &mut Scene, theme: &Theme, src: Rect, dx: f32, drop: Option<(bool, Rect)>) {
+/// (décalée de `dx`, ombre portée, bord `primary`). `ghost` = primitives fidèles de
+/// l'en-tête (déjà translatées) à rejouer comme **face** de la carte ; si vide, une
+/// face pleine sert de repli. Fonction pure — testable sans GPU.
+fn draw_reorder_overlay(
+    scene: &mut Scene,
+    theme: &Theme,
+    src: Rect,
+    dx: f32,
+    drop: Option<(bool, Rect)>,
+    ghost: &[Primitive],
+) {
     scene.set_clip(Rect::UNBOUNDED);
     // 1) Colonne source estompée (elle « quitte » sa place).
     scene.fill_rect(src, theme.surface.lerp(theme.on_surface, 0.10).fade(0.6));
@@ -2147,10 +2166,19 @@ fn draw_reorder_overlay(scene: &mut Scene, theme: &Theme, src: Rect, dx: f32, dr
         let x = if to_left { target.x - 1.5 } else { target.x + target.width - 1.5 };
         scene.fill_rect(Rect::new(x, target.y, 3.0, target.height), theme.primary);
     }
-    // 3) Carte soulevée suivant le curseur (ombre portée + bord accentué).
-    let ghost = src.translate(dx, -2.0);
-    scene.shadow(ghost.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
-    scene.draw_rect(ghost, theme.surface, theme.radius, 1.5, theme.primary.fade(0.9));
+    // 3) Carte soulevée suivant le curseur : ombre portée, face fidèle (primitives de
+    // l'en-tête) ou pleine par défaut, puis bord accentué.
+    let card = src.translate(dx, -2.0);
+    scene.shadow(card.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
+    if ghost.is_empty() {
+        scene.draw_rect(card, theme.surface, theme.radius, 1.5, theme.primary.fade(0.9));
+    } else {
+        scene.draw_rect(card, theme.surface, theme.radius, 0.0, Color::TRANSPARENT);
+        for primitive in ghost {
+            scene.push_primitive(primitive.clone());
+        }
+        scene.draw_rect(card, Color::TRANSPARENT, theme.radius, 1.5, theme.primary.fade(0.9));
+    }
 }
 
 #[cfg(test)]
@@ -2162,14 +2190,15 @@ mod tests {
         let theme = Theme::default();
         let src = Rect::new(100.0, 0.0, 80.0, 34.0);
 
-        // Avec cible : source estompée + indicateur de dépôt + ombre + carte = 4 primitives.
+        // Fantôme vide → face pleine de repli. Avec cible : estompe + indicateur + ombre
+        // + carte = 4 primitives.
         let mut scene = Scene::new();
-        draw_reorder_overlay(&mut scene, &theme, src, 40.0, Some((false, Rect::new(200.0, 0.0, 80.0, 34.0))));
+        draw_reorder_overlay(&mut scene, &theme, src, 40.0, Some((false, Rect::new(200.0, 0.0, 80.0, 34.0))), &[]);
         assert_eq!(scene.primitives().len(), 4, "estompe + indicateur + ombre + carte");
 
         // Sans cible (dépôt sur la même colonne) : pas d'indicateur → 3 primitives.
         let mut plain = Scene::new();
-        draw_reorder_overlay(&mut plain, &theme, src, 0.0, None);
+        draw_reorder_overlay(&mut plain, &theme, src, 0.0, None, &[]);
         assert_eq!(plain.primitives().len(), 3, "estompe + ombre + carte, sans indicateur");
     }
 }

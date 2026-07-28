@@ -176,8 +176,8 @@ pub use widget::Widget;
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius, BoxDecoration,
     BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets, InsetsDirectional,
-    LinearGradient, Orientation, Path, PathVerb, Point, Rect, Role, Scene, Semantics, SizeClass, Size,
-    TextDecoration, TextDirection, TextSpan, TextStyle, Toggled, WindowInsets,
+    LinearGradient, Orientation, Path, PathVerb, Point, Primitive, Rect, Role, Scene, Semantics,
+    SizeClass, Size, TextDecoration, TextDirection, TextSpan, TextStyle, Toggled, WindowInsets,
 };
 /// Couche d'animation partagée (physique, courbes, pilote) — voir
 /// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent
