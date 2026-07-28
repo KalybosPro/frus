@@ -171,6 +171,15 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Texte à **énoncer** au lecteur d'écran quand ce widget est **activé** (clic
+    /// souris ou Entrée/Espace) — une région live le lit à voix haute. Décrit l'effet
+    /// **résultant** de l'activation (« Sorted by Name ascending », « All rows
+    /// selected »), pour l'utilisateur non-voyant qui ne perçoit pas le changement
+    /// visuel. `None` = rien à annoncer (défaut).
+    fn announce(&self) -> Option<String> {
+        None
+    }
+
     /// Si `true`, le widget est une **pile** : ses enfants sont des couches
     /// superposées (même boîte), rendues dans l'ordre (dernière au-dessus).
     fn stack(&self) -> bool {
@@ -491,6 +500,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_reorder(&self, to: usize) -> Option<Msg> {
         (**self).on_reorder(to)
+    }
+    fn announce(&self) -> Option<String> {
+        (**self).announce()
     }
     fn stack(&self) -> bool {
         (**self).stack()

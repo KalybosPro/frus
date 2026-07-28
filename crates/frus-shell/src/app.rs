@@ -963,17 +963,23 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     event.logical_key,
                     WinitKey::Named(NamedKey::Enter) | WinitKey::Named(NamedKey::Space)
                 ) {
-                    let message = self
+                    let widget = self
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), focused))
-                        .filter(|widget| widget.focusable())
-                        .and_then(|widget| widget.on_click());
+                        .filter(|widget| widget.focusable());
+                    let message = widget.and_then(|widget| widget.on_click());
                     if let Some(message) = message {
                         // La répétition automatique ne mitraille pas l'activation
                         // (maintenir Espace sur un bouton = un seul clic).
                         if !event.repeat {
+                            // Annonce vocale de l'effet (tri, sélection…), capturée
+                            // avant la reconstruction que déclenche `dispatch`.
+                            let announce = widget.and_then(|widget| widget.announce());
                             self.dispatch(message);
+                            if let Some(announce) = announce {
+                                self.set_announcement(announce);
+                            }
                             self.request_redraw();
                         }
                         return;
@@ -1705,15 +1711,26 @@ impl<A: Application> App<A> {
         }
         // Le clic n'est validé que si press et release sont sur le même widget.
         let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-        let message = match (self.runtime.input.pressed, released) {
+        let (message, announce) = match (self.runtime.input.pressed, released) {
             (Some(pressed), Some(released)) if pressed == released => {
-                self.ui.as_ref().and_then(|ui| ui.msg_for(pressed))
+                let message = self.ui.as_ref().and_then(|ui| ui.msg_for(pressed));
+                // Annonce vocale de l'effet (tri, sélection…), lue sur le widget cliqué
+                // avant que `dispatch` ne reconstruise l'arbre.
+                let announce = self
+                    .tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), pressed))
+                    .and_then(|widget| widget.announce());
+                (message, announce)
             }
-            _ => None,
+            _ => (None, None),
         };
         self.runtime.input.pressed = None;
         if let Some(message) = message {
             self.dispatch(message);
+            if let Some(announce) = announce {
+                self.set_announcement(announce);
+            }
         }
         self.request_redraw();
     }

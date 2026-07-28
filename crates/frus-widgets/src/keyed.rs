@@ -135,6 +135,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.on_reorder(to)
     }
 
+    fn announce(&self) -> Option<String> {
+        self.inner.announce()
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.scroll_content()
     }

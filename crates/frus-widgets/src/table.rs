@@ -136,6 +136,17 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         self.reorder.as_ref().map(|(col, _, cb)| cb(*col, to))
     }
 
+    fn announce(&self) -> Option<String> {
+        // En-tête triable : énonce le tri **résultant** au lecteur d'écran (bascule du
+        // sens courant : croissant par défaut, sinon on l'inverse — schéma Material usuel).
+        if self.header && self.message.is_some() {
+            let ascending = !matches!(self.sort, Some(true));
+            let dir = if ascending { "ascending" } else { "descending" };
+            return Some(format!("Sorted by {} {}", self.label, dir));
+        }
+        None
+    }
+
     fn semantics(&self) -> Option<frus_core::Semantics> {
         // En-tête : annoncé aux lecteurs d'écran (libellé + position s'il est réordonnable,
         // pour que l'utilisateur perçoive un déplacement de colonne en re-parcourant).
@@ -221,6 +232,19 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
 
     fn focusable(&self) -> bool {
         self.message.is_some()
+    }
+
+    fn announce(&self) -> Option<String> {
+        // Case à cocher : énonce l'état **résultant** de la bascule (cochée → on
+        // décoche). La case d'en-tête agit sur **toutes** les lignes.
+        self.message.as_ref()?;
+        let selecting = !self.checked;
+        Some(match (self.header, selecting) {
+            (true, true) => "All rows selected".into(),
+            (true, false) => "All rows deselected".into(),
+            (false, true) => "Row selected".into(),
+            (false, false) => "Row deselected".into(),
+        })
     }
 }
 
@@ -935,6 +959,33 @@ mod tests {
         assert!(has_admin, "le widget de cellule est peint");
         let click = ui.hit(Point::new(30.0, ROW_H * 1.5)).and_then(|id| ui.msg_for(id));
         assert_eq!(click, Some(Msg::Select(0)), "la ligne-widget est sélectionnable");
+    }
+
+    #[test]
+    fn sort_and_selection_are_announced() {
+        // En-tête triable : le tri résultant énonce le sens basculé.
+        let unsorted = Table::<Msg>::new(2).header(&["Name", "Score"]).on_sort(Msg::Sort);
+        let head = |t: &Table<Msg>, c: usize| Widget::<Msg>::children(t)[0].children()[c].announce();
+        assert_eq!(head(&unsorted, 0).as_deref(), Some("Sorted by Name ascending"));
+        // Déjà croissant → un clic passe en décroissant.
+        let asc = Table::<Msg>::new(2).header(&["Name", "Score"]).on_sort(Msg::Sort).sorted(0, true);
+        assert_eq!(head(&asc, 0).as_deref(), Some("Sorted by Name descending"));
+
+        // Cases à cocher : l'état résultant de la bascule.
+        let table = Table::<Msg>::new(2)
+            .header(&["Name", "Score"])
+            .checkboxes(Msg::Check, Msg::CheckAll)
+            .selected(&[0])
+            .row(&["Ada", "5"])
+            .row(&["Bob", "3"]);
+        // Case « tout cocher » (en-tête, partiel) → cocher toutes.
+        let all = Widget::<Msg>::children(&table)[0].children()[0].announce();
+        assert_eq!(all.as_deref(), Some("All rows selected"));
+        // Ligne 0 (cochée) → décocher ; ligne 1 (décochée) → cocher.
+        let row0 = Widget::<Msg>::children(&table)[1].children()[0].announce();
+        let row1 = Widget::<Msg>::children(&table)[2].children()[0].announce();
+        assert_eq!(row0.as_deref(), Some("Row deselected"));
+        assert_eq!(row1.as_deref(), Some("Row selected"));
     }
 
     #[test]

@@ -201,6 +201,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_reorder(to))
     }
 
+    fn announce(&self) -> Option<String> {
+        self.inner.as_ref().and_then(|w| w.announce())
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.as_ref().and_then(|w| w.scroll_content())
     }
