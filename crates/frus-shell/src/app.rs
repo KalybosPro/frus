@@ -15,8 +15,8 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, Edit, FocusDirection, Insets, Key,
-    KeyResponse, Point, Runtime, Size, Ui, Widget, WidgetId, WindowInsets,
+    build_ui, collect_ids, find_by_key, find_path, find_widget, Color, Edit, FocusDirection, Insets,
+    Key, KeyResponse, Point, Rect, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -1243,8 +1243,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     (ui, scene.scaled(scale))
                 } else {
                     let ui = build_ui(tree, Size::new(width, height), &self.runtime, &theme);
-                    // Scène logique → physique (DPI × densité) pour un rendu net.
-                    let scene = ui.scene().scaled(scale);
+                    // Aperçu d'un réordonnancement de colonne en cours, par-dessus la scène.
+                    let scene = if matches!(self.drag, Some(Drag::Reorder { moved: true, .. })) {
+                        let mut scene = ui.scene().clone();
+                        self.paint_reorder_preview(&ui, &theme, &mut scene);
+                        scene.scaled(scale)
+                    } else {
+                        // Scène logique → physique (DPI × densité) pour un rendu net.
+                        ui.scene().scaled(scale)
+                    };
                     (ui, scene)
                 };
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -1775,12 +1782,15 @@ impl<A: Application> App<A> {
                 self.apply_widget_drag(*id, *rect, dx);
             }
             Drag::Reorder { start, moved, .. } => {
-                // Au-delà du seuil, c'est un vrai glissement (plus un tri) ; la colonne
-                // cible est résolue au dépôt (pas de rendu fantôme dans ce MVP).
+                // Au-delà du seuil, c'est un vrai glissement (plus un tri).
                 let dx = self.cursor.x - start.x;
                 let dy = self.cursor.y - start.y;
                 if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
                     *moved = true;
+                }
+                // La carte fantôme suit le curseur : redessiner à chaque déplacement.
+                if *moved {
+                    self.request_redraw();
                 }
             }
             Drag::Pan { id, last, moved, velocity, last_t, viewport } => {
@@ -1918,6 +1928,26 @@ impl<A: Application> App<A> {
             .and_then(|tree| find_widget(tree.as_ref(), id))
             .and_then(|widget| widget.reorder_index())?;
         Some((id, from))
+    }
+
+    /// Peint l'**aperçu de réordonnancement** par-dessus la scène (non découpée) :
+    /// colonne source estompée, **indicateur de dépôt** au bord d'insertion de la
+    /// colonne cible, et **carte soulevée** (ombre + bord `primary`) suivant le
+    /// curseur. Sans effet hors d'un glissement d'en-tête engagé.
+    fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
+        let Some(Drag::Reorder { id, from, start, moved: true }) = self.drag else {
+            return;
+        };
+        let Some(src) = ui.widget_rect(id) else {
+            return;
+        };
+        let dx = self.cursor.x - start.x;
+        // Zone de dépôt : cible sous le curseur (bord gauche si elle précède la source).
+        let drop = self
+            .reorderable_at(self.cursor)
+            .filter(|(_, to)| *to != from)
+            .and_then(|(tid, to)| ui.widget_rect(tid).map(|r| (to < from, r)));
+        draw_reorder_overlay(scene, theme, src, dx, drop);
     }
 
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
@@ -2102,5 +2132,44 @@ impl<A: Application> App<A> {
         if let Some(text) = text {
             self.clipboard.set_text(text);
         }
+    }
+}
+
+/// Peint l'aperçu de réordonnancement dans `scene` (non découpé) : colonne source
+/// estompée, indicateur de dépôt optionnel (`(to_gauche, cible)`), et carte soulevée
+/// (décalée de `dx`, ombre portée, bord `primary`). Fonction pure — testable sans GPU.
+fn draw_reorder_overlay(scene: &mut Scene, theme: &Theme, src: Rect, dx: f32, drop: Option<(bool, Rect)>) {
+    scene.set_clip(Rect::UNBOUNDED);
+    // 1) Colonne source estompée (elle « quitte » sa place).
+    scene.fill_rect(src, theme.surface.lerp(theme.on_surface, 0.10).fade(0.6));
+    // 2) Indicateur de dépôt : barre verticale au bord d'insertion de la cible.
+    if let Some((to_left, target)) = drop {
+        let x = if to_left { target.x - 1.5 } else { target.x + target.width - 1.5 };
+        scene.fill_rect(Rect::new(x, target.y, 3.0, target.height), theme.primary);
+    }
+    // 3) Carte soulevée suivant le curseur (ombre portée + bord accentué).
+    let ghost = src.translate(dx, -2.0);
+    scene.shadow(ghost.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
+    scene.draw_rect(ghost, theme.surface, theme.radius, 1.5, theme.primary.fade(0.9));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{draw_reorder_overlay, Rect, Scene, Theme};
+
+    #[test]
+    fn reorder_overlay_shape() {
+        let theme = Theme::default();
+        let src = Rect::new(100.0, 0.0, 80.0, 34.0);
+
+        // Avec cible : source estompée + indicateur de dépôt + ombre + carte = 4 primitives.
+        let mut scene = Scene::new();
+        draw_reorder_overlay(&mut scene, &theme, src, 40.0, Some((false, Rect::new(200.0, 0.0, 80.0, 34.0))));
+        assert_eq!(scene.primitives().len(), 4, "estompe + indicateur + ombre + carte");
+
+        // Sans cible (dépôt sur la même colonne) : pas d'indicateur → 3 primitives.
+        let mut plain = Scene::new();
+        draw_reorder_overlay(&mut plain, &theme, src, 0.0, None);
+        assert_eq!(plain.primitives().len(), 3, "estompe + ombre + carte, sans indicateur");
     }
 }
