@@ -170,13 +170,14 @@ fn data_table_multiselect_matches_golden() {
     snapshot.assert_golden(golden("data_table_multiselect"));
 }
 
-/// **Aperçu de réordonnancement (jalons 155/158)** : en glissant l'en-tête « Role »
-/// vers la droite, la colonne source est estompée, un indicateur de dépôt marque la
-/// cible, et une **carte fidèle** (fond + texte « Role », soulevée) suit le curseur.
-/// Reconstruit la même superposition que le shell. Reproduit son golden.
+/// **Aperçu de réordonnancement (jalons 155/158/159)** : en glissant l'en-tête « Role »
+/// vers la droite (sur « Score »), la colonne source est **retirée**, « Score » **coulisse**
+/// pour combler le trou (place de dépôt ouverte à droite), et une **carte fidèle**
+/// (fond + texte « Role », soulevée) suit le curseur. Reconstruit la superposition du
+/// shell (`reflow_reorder_columns` + carte fantôme). Reproduit son golden.
 #[test]
 fn table_reorder_preview_matches_golden() {
-    use frus_widgets::{build_ui, Primitive, Runtime, Size};
+    use frus_widgets::{build_ui, reflow_reorder_columns, Primitive, Runtime, Size};
 
     let theme = Theme::dark();
     let table = Table::<()>::new(3)
@@ -190,22 +191,23 @@ fn table_reorder_preview_matches_golden() {
     let (w, h) = (360u32, 150u32);
     let ui = build_ui(&root, Size::new(w as f32, h as f32), &Runtime::default(), &theme);
 
-    // En-tête « Role » (colonne 1) : x = 16 + 110 + gap(2) + 55 ; y au milieu de l'en-tête.
+    // En-tête « Role » (colonne 1) glissé de +64 px, curseur au-dessus de « Score ».
     let role = Point::new(16.0 + 110.0 + 2.0 + 55.0, 16.0 + 17.0);
     let id = ui.hit(role).expect("en-tête Role cliquable");
     let src = ui.widget_rect(id).expect("bornes de l'en-tête Role");
     let dx = 64.0;
+    let target = ui.hit(Point::new(role.x + dx, role.y)).and_then(|t| ui.widget_rect(t)).expect("cible Score");
 
+    // Coulissement des colonnes voisines (source retirée, « Score » comblé vers la gauche).
     let mut scene = ui.scene().clone();
-    scene.set_clip(Rect::UNBOUNDED);
-    // Source estompée.
-    scene.fill_rect(src, theme.surface.lerp(theme.on_surface, 0.10).fade(0.6));
-    // Indicateur de dépôt : bord droit de la colonne cible sous le curseur.
-    if let Some(target) = ui.hit(Point::new(role.x + dx, role.y)).and_then(|t| ui.widget_rect(t)) {
-        scene.fill_rect(Rect::new(target.x + target.width - 1.5, target.y, 3.0, target.height), theme.primary);
+    let reflowed = reflow_reorder_columns(scene.primitives(), src, target, true, id.as_u64());
+    scene.clear();
+    for primitive in reflowed {
+        scene.push_primitive(primitive);
     }
     // Carte soulevée : ombre + face fidèle (primitives de l'en-tête translatées et
     // dé-découpées) + bord accentué.
+    scene.set_clip(Rect::UNBOUNDED);
     let card = src.translate(dx, -2.0);
     scene.shadow(card.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
     scene.draw_rect(card, theme.surface, theme.radius, 0.0, Color::TRANSPARENT);
@@ -226,7 +228,7 @@ fn table_reorder_preview_matches_golden() {
         return;
     };
     assert!(!ghost.is_empty(), "la face fidèle capture les primitives de l'en-tête");
-    assert!(snapshot.lit_pixels(40) > 100, "tableau + carte fantôme dessinés");
+    assert!(snapshot.lit_pixels(40) > 100, "tableau réagencé + carte fantôme dessinés");
     snapshot.assert_golden(golden("table_reorder_preview"));
 }
 

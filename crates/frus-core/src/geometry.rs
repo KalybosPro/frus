@@ -470,6 +470,15 @@ impl Rect {
         Self::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
     }
 
+    /// Plus petit rectangle englobant `self` **et** `other`.
+    pub fn union(self, other: Rect) -> Self {
+        let x0 = self.x.min(other.x);
+        let y0 = self.y.min(other.y);
+        let x1 = (self.x + self.width).max(other.x + other.width);
+        let y1 = (self.y + self.height).max(other.y + other.height);
+        Self::new(x0, y0, x1 - x0, y1 - y0)
+    }
+
     /// `true` si `point` est dans le rectangle (bord gauche/haut inclus).
     pub fn contains(self, point: Point) -> bool {
         point.x >= self.x

@@ -15,9 +15,9 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, Color, Edit, FocusDirection, Insets,
-    Key, KeyResponse, Point, Primitive, Rect, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId,
-    WindowInsets,
+    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, Color, Edit,
+    FocusDirection, Insets, Key, KeyResponse, Point, Primitive, Rect, Runtime, Scene, Size, Theme,
+    Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -1943,13 +1943,22 @@ impl<A: Application> App<A> {
             return;
         };
         let dx = self.cursor.x - start.x;
-        // Zone de dépôt : cible sous le curseur (bord gauche si elle précède la source).
-        let drop = self
+        // Colonne cible sous le curseur (différente de la source).
+        let target = self
             .reorderable_at(self.cursor)
             .filter(|(_, to)| *to != from)
-            .and_then(|(tid, to)| ui.widget_rect(tid).map(|r| (to < from, r)));
-        // Fantôme fidèle : les primitives de l'en-tête saisi (fond, texte, tri),
-        // translatées et **dé-découpées** pour ne pas être rognées à la colonne source.
+            .and_then(|(tid, to)| ui.widget_rect(tid).map(|r| (to, r)));
+        // Réagence les colonnes voisines : le trou de la source se referme, la place de
+        // dépôt s'ouvre à la cible (coulissement géométrique du fond de scène).
+        if let Some((to, trect)) = target {
+            let reflowed = reflow_reorder_columns(scene.primitives(), src, trect, to > from, id.as_u64());
+            scene.clear();
+            for primitive in reflowed {
+                scene.push_primitive(primitive);
+            }
+        }
+        // Fantôme fidèle : les primitives de l'en-tête saisi (fond, texte, tri) — depuis
+        // la scène d'origine —, translatées et **dé-découpées** (sinon rognées à la source).
         let ghost: Vec<Primitive> = ui
             .scene()
             .primitives()
@@ -1957,7 +1966,7 @@ impl<A: Application> App<A> {
             .filter(|p| p.owner() == id.as_u64())
             .map(|p| p.translated(dx, -2.0).with_clip(Rect::UNBOUNDED))
             .collect();
-        draw_reorder_overlay(scene, theme, src, dx, drop, &ghost);
+        draw_ghost_card(scene, theme, src.translate(dx, -2.0), &ghost);
     }
 
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
@@ -2145,30 +2154,12 @@ impl<A: Application> App<A> {
     }
 }
 
-/// Peint l'aperçu de réordonnancement dans `scene` (non découpé) : colonne source
-/// estompée, indicateur de dépôt optionnel (`(to_gauche, cible)`), et carte soulevée
-/// (décalée de `dx`, ombre portée, bord `primary`). `ghost` = primitives fidèles de
-/// l'en-tête (déjà translatées) à rejouer comme **face** de la carte ; si vide, une
-/// face pleine sert de repli. Fonction pure — testable sans GPU.
-fn draw_reorder_overlay(
-    scene: &mut Scene,
-    theme: &Theme,
-    src: Rect,
-    dx: f32,
-    drop: Option<(bool, Rect)>,
-    ghost: &[Primitive],
-) {
+/// Peint la **carte soulevée** (fantôme) de l'en-tête glissé dans `scene` (non découpé)
+/// à `card` : ombre portée, **face fidèle** (primitives de l'en-tête déjà translatées)
+/// ou pleine en repli si `ghost` est vide, puis bord `primary`. Fonction pure — testable
+/// sans GPU. Le coulissement des voisines est fait en amont (`reflow_reorder_columns`).
+fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primitive]) {
     scene.set_clip(Rect::UNBOUNDED);
-    // 1) Colonne source estompée (elle « quitte » sa place).
-    scene.fill_rect(src, theme.surface.lerp(theme.on_surface, 0.10).fade(0.6));
-    // 2) Indicateur de dépôt : barre verticale au bord d'insertion de la cible.
-    if let Some((to_left, target)) = drop {
-        let x = if to_left { target.x - 1.5 } else { target.x + target.width - 1.5 };
-        scene.fill_rect(Rect::new(x, target.y, 3.0, target.height), theme.primary);
-    }
-    // 3) Carte soulevée suivant le curseur : ombre portée, face fidèle (primitives de
-    // l'en-tête) ou pleine par défaut, puis bord accentué.
-    let card = src.translate(dx, -2.0);
     scene.shadow(card.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
     if ghost.is_empty() {
         scene.draw_rect(card, theme.surface, theme.radius, 1.5, theme.primary.fade(0.9));
@@ -2183,22 +2174,15 @@ fn draw_reorder_overlay(
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_reorder_overlay, Rect, Scene, Theme};
+    use super::{draw_ghost_card, Rect, Scene, Theme};
 
     #[test]
-    fn reorder_overlay_shape() {
+    fn ghost_card_shape() {
         let theme = Theme::default();
-        let src = Rect::new(100.0, 0.0, 80.0, 34.0);
-
-        // Fantôme vide → face pleine de repli. Avec cible : estompe + indicateur + ombre
-        // + carte = 4 primitives.
+        let card = Rect::new(140.0, 0.0, 80.0, 34.0);
+        // Fantôme vide → repli : ombre + carte pleine bordée = 2 primitives.
         let mut scene = Scene::new();
-        draw_reorder_overlay(&mut scene, &theme, src, 40.0, Some((false, Rect::new(200.0, 0.0, 80.0, 34.0))), &[]);
-        assert_eq!(scene.primitives().len(), 4, "estompe + indicateur + ombre + carte");
-
-        // Sans cible (dépôt sur la même colonne) : pas d'indicateur → 3 primitives.
-        let mut plain = Scene::new();
-        draw_reorder_overlay(&mut plain, &theme, src, 0.0, None, &[]);
-        assert_eq!(plain.primitives().len(), 3, "estompe + ombre + carte, sans indicateur");
+        draw_ghost_card(&mut scene, &theme, card, &[]);
+        assert_eq!(scene.primitives().len(), 2, "ombre + carte pleine");
     }
 }

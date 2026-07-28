@@ -8,7 +8,7 @@
 //! [`Scene::set_clip`] avant d'ajouter des primitives.
 
 use crate::{
-    Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, Point, Rect, Stroke,
+    Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, PathVerb, Point, Rect, Stroke,
     TextDecoration, TextRun, TextStyle,
 };
 
@@ -427,6 +427,44 @@ impl Primitive {
                     owner,
                 }
             }
+        }
+    }
+
+    /// Boîte englobante (approximative) de cette primitive, en coordonnées de scène.
+    /// Le texte n'étant pas mesuré dans ce module, une primitive `Text`/`RichText`
+    /// renvoie un rectangle **ponctuel** à sa position (suffisant comme repère en x).
+    pub fn bounds(&self) -> Rect {
+        match self {
+            Primitive::Rect { rect, .. } | Primitive::Image { rect, .. } => *rect,
+            Primitive::Text { position, .. } | Primitive::RichText { position, .. } => {
+                Rect::new(position.x, position.y, 0.0, 0.0)
+            }
+            Primitive::Path { path, .. } => {
+                let mut pts = path.verbs().iter().flat_map(|v| match *v {
+                    PathVerb::MoveTo(p) | PathVerb::LineTo(p) => vec![p],
+                    PathVerb::QuadTo { ctrl, to } => vec![ctrl, to],
+                    PathVerb::CubicTo { c1, c2, to } => vec![c1, c2, to],
+                    PathVerb::Close => vec![],
+                });
+                match pts.next() {
+                    None => Rect::new(0.0, 0.0, 0.0, 0.0),
+                    Some(first) => {
+                        let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x, first.y);
+                        for p in pts {
+                            x0 = x0.min(p.x);
+                            y0 = y0.min(p.y);
+                            x1 = x1.max(p.x);
+                            y1 = y1.max(p.y);
+                        }
+                        Rect::new(x0, y0, x1 - x0, y1 - y0)
+                    }
+                }
+            }
+            Primitive::Layer { primitives, .. } => primitives
+                .iter()
+                .map(|p| p.bounds())
+                .reduce(|a, b| a.union(b))
+                .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0)),
         }
     }
 
