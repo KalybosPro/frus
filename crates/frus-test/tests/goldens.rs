@@ -5,8 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, Chip, Container, DateTimePicker, Dropdown, Flex, RangeSlider, Table, Text,
-    TextInput, Theme, TimePicker,
+    Autocomplete, Avatar, Chip, Container, DateTimePicker, Dropdown, Flex, IconName, RangeSlider,
+    Table, Text, TextInput, Theme, TimePicker,
 };
 
 fn golden(name: &str) -> String {
@@ -281,6 +281,27 @@ fn table_adaptive_rows_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "grande rangée et rangée texte dessinées");
     snapshot.assert_golden(golden("table_adaptive_rows"));
+}
+
+/// **En-têtes avec icône (jalon 168)** : une icône de tête précède le libellé de la
+/// colonne (icône + texte), l'en-tête restant triable. Reproduit son golden.
+#[test]
+fn table_header_icons_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(260.0)
+        .header(&["Name", "Rating"])
+        .header_icons(&[Some(IconName::Menu), Some(IconName::Star)])
+        .sorted(1, false)
+        .row(&["Ada", "5"])
+        .row(&["Bob", "3"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 300, 160, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-têtes à icônes et données dessinés");
+    snapshot.assert_golden(golden("table_header_icons"));
 }
 
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine

@@ -61,12 +61,19 @@ fn cell_style(width: Dimension) -> Style {
     }
 }
 
+/// Côté d'une icône d'en-tête (grille `24×24` mise à l'échelle).
+const ICON: f32 = 16.0;
+/// Écart entre l'icône d'en-tête et son libellé.
+const ICON_GAP: f32 = 6.0;
+
 /// Une cellule texte (en-tête ou donnée), thémée au rendu.
 struct Cell<Msg> {
     label: String,
     width: Dimension,
     header: bool,
     selected: bool,
+    /// Icône **de tête** (en-tête uniquement) : peinte avant le libellé (icône + texte).
+    icon: Option<IconName>,
     /// Indicateur de tri de l'en-tête : `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
@@ -94,11 +101,20 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
 
         let color = if self.header { theme.muted } else { theme.on_surface };
         let ty = bounds.y + (bounds.height - frus_text::line_height(SIZE)) * 0.5;
-        scene.text(Point::new(bounds.x + PAD_X, ty), self.label.clone(), SIZE, color.fade(o));
+
+        // Icône de tête (en-tête) : peinte à gauche, le libellé décalé à sa suite.
+        let mut text_x = bounds.x + PAD_X;
+        if let Some(icon) = self.icon {
+            let iy = bounds.y + (bounds.height - ICON) * 0.5;
+            let path = icon.path().scaled(ICON / 24.0).translated(text_x, iy);
+            scene.fill_path(&path, color.fade(o));
+            text_x += ICON + ICON_GAP;
+        }
+        scene.text(Point::new(text_x, ty), self.label.clone(), SIZE, color.fade(o));
 
         if let (true, Some(ascending)) = (self.header, self.sort) {
             let lw = frus_text::measure(&self.label, SIZE).width;
-            let cx = bounds.x + PAD_X + lw + 8.0;
+            let cx = text_x + lw + 8.0;
             let cy = bounds.y + bounds.height * 0.5;
             let (w, h) = (4.0, 4.0);
             let tri = if ascending {
@@ -385,6 +401,8 @@ impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
 pub struct Table<Msg> {
     columns: usize,
     headers: Vec<String>,
+    /// Icône de tête par colonne d'en-tête (icône + libellé). Manquante = aucune.
+    header_icons: Vec<Option<IconName>>,
     rows: Vec<RowKind<Msg>>,
     /// Largeur par colonne : `> 0` = fixe (px), `<= 0` = flexible (part égale).
     widths: Vec<f32>,
@@ -411,6 +429,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
         Self {
             columns,
             headers: Vec::new(),
+            header_icons: Vec::new(),
             rows: Vec::new(),
             widths: vec![0.0; columns],
             total_width: None,
@@ -433,6 +452,15 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
+    /// Donne une **icône de tête** à des colonnes d'en-tête (icône + libellé) :
+    /// `None` laisse la colonne sans icône. L'en-tête reste **triable** et
+    /// **réordonnable** comme un en-tête texte (l'icône est purement décorative).
+    pub fn header_icons(mut self, icons: &[Option<IconName>]) -> Self {
+        self.header_icons = icons.iter().copied().collect();
+        self.rebuild();
+        self
+    }
+
     /// Ajoute une ligne de données (une valeur **texte** par colonne).
     pub fn row(mut self, cells: &[&str]) -> Self {
         self.rows.push(RowKind::Text(cells.iter().map(|s| s.to_string()).collect()));
@@ -443,6 +471,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Ajoute une ligne dont chaque cellule est un **widget** (avatar, puce, bouton
     /// d'action…), fourni par une **fabrique** rappelée à chaque reconstruction. La
     /// ligne reste sélectionnable (fond au clic hors des zones cliquables internes).
+    ///
+    /// **Tri d'une colonne-widget** : le tableau ne sait pas comparer des widgets — il
+    /// n'émet que la colonne cliquée (`on_sort`). C'est l'**application** qui fournit la
+    /// clé : au message de tri, elle ordonne ses données par le champ correspondant à la
+    /// colonne (p.ex. le nom derrière un avatar), puis repasse les lignes déjà triées.
     pub fn widget_row(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
         self.rows.push(RowKind::Widgets(cells.into_iter().map(std::rc::Rc::from).collect()));
         self.rebuild();
@@ -616,6 +649,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     width: self.col_width(c),
                     header: true,
                     selected: false,
+                    icon: self.header_icons.get(c).copied().flatten(),
                     sort,
                     message,
                     reorder,
@@ -646,6 +680,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                             width: self.col_width(c),
                             header: false,
                             selected,
+                            icon: None,
                             sort: None,
                             message,
                             reorder: None,
@@ -959,6 +994,29 @@ mod tests {
         assert!(has_admin, "le widget de cellule est peint");
         let click = ui.hit(Point::new(30.0, ROW_H * 1.5)).and_then(|id| ui.msg_for(id));
         assert_eq!(click, Some(Msg::Select(0)), "la ligne-widget est sélectionnable");
+    }
+
+    #[test]
+    fn header_icon_shifts_label_and_paints() {
+        // Une icône de tête recule le libellé de l'en-tête (icône + texte).
+        let name_x = |icons: bool| {
+            let mut t = Table::<Msg>::new(2).width(240.0).header(&["Name", "Score"]);
+            if icons {
+                t = t.header_icons(&[Some(IconName::Star), None]);
+            }
+            let ui = build_ui(&t, Size::new(240.0, 100.0), &Runtime::default(), &Theme::default());
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Text { text, position, .. } if text == "Name" => Some(position.x),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let (plain, iconed) = (name_x(false), name_x(true));
+        assert!(iconed >= plain + ICON, "libellé décalé derrière l'icône : {iconed} vs {plain}");
+        // La colonne sans icône (« Score ») n'est pas décalée.
     }
 
     #[test]
