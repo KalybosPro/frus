@@ -329,6 +329,30 @@ fn table_header_action_matches_golden() {
     snapshot.assert_golden(golden("table_header_action"));
 }
 
+/// **En-tête entièrement widget (jalon 171)** : la ligne d'en-tête est faite de widgets
+/// arbitraires — ici une puce « User » et un bouton de tri maison « Sort » — au lieu de
+/// libellés texte. Le comportement (tri) est câblé par l'application. Reproduit son golden.
+#[test]
+fn table_widget_header_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(300.0)
+        .column_widths(&[110.0])
+        .widget_header(vec![
+            Box::new(|| Box::new(Chip::<()>::new("User"))),
+            Box::new(|| Box::new(Button::new("Sort").size(12.0).variant(Variant::Secondary).on_press(()))),
+        ])
+        .row(&["Ada", "Active"])
+        .row(&["Bob", "Away"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 340, 160, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "en-têtes widget et données dessinés");
+    snapshot.assert_golden(golden("table_widget_header"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.

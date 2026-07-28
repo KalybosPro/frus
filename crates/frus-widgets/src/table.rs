@@ -305,6 +305,8 @@ enum RowKind<Msg> {
 struct WidgetCell<Msg> {
     width: Dimension,
     selected: bool,
+    /// Cellule d'**en-tête** (fond d'en-tête) plutôt qu'une cellule de donnée.
+    header: bool,
     /// Index de ligne : pour énoncer « Row N selected » au lecteur d'écran.
     row: usize,
     message: Option<Msg>,
@@ -327,8 +329,8 @@ impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let clickable = self.message.is_some();
-        let bg = cell_background(false, self.selected, clickable, theme, &status);
-        if self.selected || bg != theme.surface {
+        let bg = cell_background(self.header, self.selected, clickable, theme, &status);
+        if self.header || self.selected || bg != theme.surface {
             scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
         }
     }
@@ -437,6 +439,10 @@ pub struct Table<Msg> {
     headers: Vec<String>,
     /// Icône de tête par colonne d'en-tête (icône + libellé). Manquante = aucune.
     header_icons: Vec<Option<IconName>>,
+    /// En-tête **entièrement widget** (par colonne) : remplace la ligne d'en-tête texte.
+    /// Vide = en-tête texte classique. Le tri/réordonnancement automatique ne s'applique
+    /// pas à ces en-têtes — l'application câble le comportement dans ses widgets.
+    header_widgets: Vec<CellFactory<Msg>>,
     /// Widget d'action par colonne d'en-tête (bouton de filtre/menu), fabriqué à chaque
     /// reconstruction. `None` = aucun. Posé à droite de l'en-tête, il capte son clic.
     header_actions: Vec<Option<CellFactory<Msg>>>,
@@ -467,6 +473,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             columns,
             headers: Vec::new(),
             header_icons: Vec::new(),
+            header_widgets: Vec::new(),
             header_actions: Vec::new(),
             rows: Vec::new(),
             widths: vec![0.0; columns],
@@ -486,6 +493,19 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Définit la ligne d'en-tête (une étiquette par colonne).
     pub fn header(mut self, labels: &[&str]) -> Self {
         self.headers = labels.iter().map(|s| s.to_string()).collect();
+        self.rebuild();
+        self
+    }
+
+    /// Remplace la ligne d'en-tête par des **en-têtes entièrement widget** (un par
+    /// colonne) — pour des grilles très personnalisées (bouton de tri maison, filtre
+    /// intégré, deux lignes de titre…). Le tri et le réordonnancement **automatiques** ne
+    /// s'appliquent pas ici : l'application câble le comportement dans les widgets fournis
+    /// (p.ex. un bouton émettant son propre message de tri). Chaque fabrique est rappelée à
+    /// la reconstruction (widget frais). Exclut [`header`](Self::header) (dernier appelé gagne).
+    pub fn widget_header(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
+        self.header_widgets = cells.into_iter().map(std::rc::Rc::from).collect();
+        self.headers.clear();
         self.rebuild();
         self
     }
@@ -681,8 +701,9 @@ impl<Msg: Clone + 'static> Table<Msg> {
         let checks = self.on_check.is_some();
         let mut col = Flex::column().gap(ROW_GAP);
 
-        // Rangée d'en-tête (si étiquettes ou cases à cocher).
-        if !self.headers.is_empty() || checks {
+        // Rangée d'en-tête (si étiquettes texte, en-têtes widget, ou cases à cocher).
+        let widget_headers = !self.header_widgets.is_empty();
+        if !self.headers.is_empty() || widget_headers || checks {
             let mut hrow = self.new_row();
             if checks {
                 hrow = hrow.child(CheckCell {
@@ -693,28 +714,43 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     message: self.on_check_all.clone(),
                 });
             }
-            for (c, label) in self.headers.iter().enumerate() {
-                let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
-                let message = self.on_sort.as_ref().map(|f| f(c));
-                let reorder = self.on_reorder.as_ref().map(|cb| (c, self.columns, cb.clone()));
-                let action = self
-                    .header_actions
-                    .get(c)
-                    .and_then(|a| a.as_ref())
-                    .map(|make| vec![make()])
-                    .unwrap_or_default();
-                hrow = hrow.child(Cell {
-                    label: label.clone(),
-                    width: self.col_width(c),
-                    header: true,
-                    selected: false,
-                    row: None,
-                    icon: self.header_icons.get(c).copied().flatten(),
-                    sort,
-                    message,
-                    reorder,
-                    action,
-                });
+            if widget_headers {
+                // En-têtes entièrement widget : chaque cellule héberge le widget fourni
+                // (fond d'en-tête, contenu centré). Tri/réordonnancement câblés par l'app.
+                for (c, make) in self.header_widgets.iter().enumerate() {
+                    hrow = hrow.child(WidgetCell {
+                        width: self.col_width(c),
+                        selected: false,
+                        header: true,
+                        row: 0,
+                        message: None,
+                        content: vec![make()],
+                    });
+                }
+            } else {
+                for (c, label) in self.headers.iter().enumerate() {
+                    let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
+                    let message = self.on_sort.as_ref().map(|f| f(c));
+                    let reorder = self.on_reorder.as_ref().map(|cb| (c, self.columns, cb.clone()));
+                    let action = self
+                        .header_actions
+                        .get(c)
+                        .and_then(|a| a.as_ref())
+                        .map(|make| vec![make()])
+                        .unwrap_or_default();
+                    hrow = hrow.child(Cell {
+                        label: label.clone(),
+                        width: self.col_width(c),
+                        header: true,
+                        selected: false,
+                        row: None,
+                        icon: self.header_icons.get(c).copied().flatten(),
+                        sort,
+                        message,
+                        reorder,
+                        action,
+                    });
+                }
             }
             col = col.child(hrow);
         }
@@ -755,6 +791,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                         drow = drow.child(WidgetCell {
                             width: self.col_width(c),
                             selected,
+                            header: false,
                             row: r,
                             message: self.on_select.as_ref().map(|f| f(r)),
                             content: vec![make()],
@@ -769,7 +806,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
         // poignées, qui court sur toute la hauteur. Basée sur `ROW_H` (le plancher
         // adaptatif) : exacte pour un tableau texte — le cas du redimensionnement, où
         // les colonnes sont toutes fixes ; une rangée-widget plus haute la sous-estime.
-        let header_present = !self.headers.is_empty() || checks;
+        let header_present = !self.headers.is_empty() || widget_headers || checks;
         let n = header_present as usize + self.rows.len();
         let total_h = if n > 0 {
             n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP
@@ -1211,6 +1248,32 @@ mod tests {
         });
         assert!(bar_h.unwrap_or(0.0) >= tall - 1.0, "la rangée suit le contenu haut: {bar_h:?}");
         assert!(tall - 1.0 > ROW_H, "le contenu dépasse bien la hauteur nominale");
+    }
+
+    #[test]
+    fn widget_header_hosts_arbitrary_header_widgets() {
+        use crate::{Button, Text};
+        let table = Table::<Msg>::new(2).width(240.0).widget_header(vec![
+            Box::new(|| Box::new(Text::new("Name"))),
+            Box::new(|| Box::new(Button::new("Sort").on_press(Msg::Sort(1)))),
+        ]).row(&["Ada", "5"]);
+        // En-tête = 1re rangée : 2 cellules-widgets, chacune hébergeant son widget.
+        let rows = Widget::<Msg>::children(&table);
+        assert_eq!(rows[0].children().len(), 2);
+        assert_eq!(rows[0].children()[0].children().len(), 1, "l'en-tête widget contient son widget");
+
+        let ui = build_ui(&table, Size::new(240.0, 120.0), &Runtime::default(), &Theme::default());
+        // Le libellé « Name » (widget d'en-tête) est peint.
+        let painted = |t: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
+        };
+        assert!(painted("Name") && painted("Sort"), "les widgets d'en-tête sont peints");
+        // Le bouton d'en-tête maison émet **son** message (pas de tri automatique).
+        let click = ui.hit(Point::new(180.0, ROW_H * 0.5)).and_then(|id| ui.msg_for(id));
+        assert_eq!(click, Some(Msg::Sort(1)), "l'app câble le tri dans son widget d'en-tête");
     }
 
     #[test]
