@@ -35,6 +35,10 @@ pub enum IconName {
     ChevronLeft,
     /// Chevron pointant à droite.
     ChevronRight,
+    /// Œil (visible) : contour d'œil en anneau + pupille — révéler un mot de passe.
+    Eye,
+    /// Œil barré (masqué) : l'œil traversé d'une diagonale — masquer.
+    EyeOff,
 }
 
 impl IconName {
@@ -73,7 +77,68 @@ impl IconName {
                 (12.4, 12.0),
                 (6.2, 5.8),
             ]),
+            IconName::Eye => eye(false),
+            IconName::EyeOff => eye(true),
         }
+    }
+}
+
+/// L'icône « œil » : un **anneau** en forme d'amande (contour externe + contour interne de sens
+/// **opposé**, qui creuse l'ouverture par la règle non-zero) plus une **pupille** pleine au centre.
+/// Si `off`, une diagonale barre l'œil (masqué).
+///
+/// L'ouverture est garantie *quel que soit* le sens absolu de tracé : le contour interne est
+/// l'amande externe **parcourue à l'envers**, donc de winding opposé — leurs contributions
+/// s'annulent (0 = transparent) dans l'ouverture, tandis que la pupille y rajoute un winding non
+/// nul (pleine).
+fn eye(off: bool) -> Path {
+    // Amande = deux courbes quadratiques (bombées haut puis bas) entre deux extrémités.
+    // `rev` inverse le sens de parcours (bas puis haut) pour obtenir le winding opposé.
+    let almond = |hw: f32, top_ctrl: f32, bot_ctrl: f32, rev: bool| {
+        let (l, r) = (Point::new(12.0 - hw, 12.0), Point::new(12.0 + hw, 12.0));
+        let (top, bot) = (Point::new(12.0, top_ctrl), Point::new(12.0, bot_ctrl));
+        if rev {
+            (l, bot, r, top)
+        } else {
+            (l, top, r, bot)
+        }
+    };
+    // Contour externe (amande large) : gauche → (haut) → droite → (bas) → gauche.
+    let (l1, c1a, r1, c1b) = almond(10.0, -2.0, 26.0, false);
+    let mut path = Path::new()
+        .move_to(l1)
+        .quad_to(c1a, r1)
+        .quad_to(c1b, l1)
+        .close();
+    // Contour interne (amande étroite), parcouru à l'envers → creuse l'ouverture.
+    let (l2, c2a, r2, c2b) = almond(7.5, 2.0, 22.0, true);
+    path = path.move_to(l2).quad_to(c2a, r2).quad_to(c2b, l2).close();
+    // Pupille pleine.
+    let pupil = Path::circle(Point::new(12.0, 12.0), 3.0);
+    for v in pupil.verbs() {
+        path = push_verb(path, *v);
+    }
+    if off {
+        // Barre diagonale (rectangle fin) de bas-gauche à haut-droite.
+        path = path
+            .move_to(Point::new(5.2, 19.3))
+            .line_to(Point::new(20.2, 6.3))
+            .line_to(Point::new(18.8, 4.7))
+            .line_to(Point::new(3.8, 17.7))
+            .close();
+    }
+    path
+}
+
+/// Réémet un [`PathVerb`] dans le *builder* [`Path`] (pour recopier un sous-chemin existant).
+fn push_verb(path: Path, verb: frus_core::PathVerb) -> Path {
+    use frus_core::PathVerb::*;
+    match verb {
+        MoveTo(p) => path.move_to(p),
+        LineTo(p) => path.line_to(p),
+        QuadTo { ctrl, to } => path.quad_to(ctrl, to),
+        CubicTo { c1, c2, to } => path.cubic_to(c1, c2, to),
+        Close => path.close(),
     }
 }
 
@@ -181,6 +246,8 @@ mod tests {
             IconName::Play,
             IconName::ChevronLeft,
             IconName::ChevronRight,
+            IconName::Eye,
+            IconName::EyeOff,
         ] {
             let path = name.path();
             assert!(!path.is_empty(), "{name:?} devrait produire un chemin");
@@ -189,6 +256,17 @@ mod tests {
                 "{name:?} devrait commencer par un MoveTo"
             );
         }
+    }
+
+    #[test]
+    fn eye_is_a_ring_with_a_pupil_and_off_adds_a_slash() {
+        // Œil = contour externe + contour interne (opposé) + pupille = 3 sous-chemins fermés.
+        let subpaths = |name: IconName| {
+            name.path().verbs().iter().filter(|v| matches!(v, PathVerb::Close)).count()
+        };
+        assert_eq!(subpaths(IconName::Eye), 3, "anneau (2 amandes) + pupille");
+        // L'œil barré ajoute la diagonale.
+        assert_eq!(subpaths(IconName::EyeOff), 4, "œil + barre diagonale");
     }
 
     #[test]

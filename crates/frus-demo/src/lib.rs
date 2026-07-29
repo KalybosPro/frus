@@ -1257,6 +1257,7 @@ fn wizard_input(
     key: &str,
     field: u8,
     obscure: bool,
+    eye: Option<bool>,
 ) -> impl Widget<Msg> + 'static {
     let mut input = TextInput::new(value)
         .width(360.0)
@@ -1264,6 +1265,11 @@ fn wizard_input(
         .label(label)
         .obscure(obscure)
         .on_input(move |s| Msg::WizardInput(field, s));
+    // `eye = Some(revealed)` : une icône œil **dans le champ** bascule le masquage (jalon 198).
+    if let Some(revealed) = eye {
+        let icon = if revealed { IconName::EyeOff } else { IconName::Eye };
+        input = input.suffix_icon(icon).on_suffix(Msg::WizardToggleReveal);
+    }
     if submitted {
         if let Some(err) = form.error(key) {
             input = input.error(err);
@@ -1295,13 +1301,13 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         0 => Box::new(
             Flex::column()
                 .gap(14.0)
-                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false))
-                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false)),
+                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false, None))
+                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false, None)),
         ),
         1 => {
-            // Les mots de passe sont masqués sauf si l'utilisateur les révèle (bascule).
+            // Mots de passe masqués sauf révélation : l'icône œil **dans le champ** bascule (198).
             let obscure = !app.wizard_reveal;
-            let toggle = if app.wizard_reveal { "Hide password" } else { "Show password" };
+            let eye = Some(app.wizard_reveal);
             Box::new(
                 Flex::column()
                     .gap(14.0)
@@ -1313,6 +1319,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                         "password",
                         2,
                         obscure,
+                        eye,
                     ))
                     .child(wizard_input(
                         &form,
@@ -1322,12 +1329,8 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                         "confirm",
                         3,
                         obscure,
-                    ))
-                    .child(
-                        button(toggle, Msg::WizardToggleReveal)
-                            .variant(Variant::Secondary)
-                            .size(14.0),
-                    ),
+                        eye,
+                    )),
             )
         }
         _ => {

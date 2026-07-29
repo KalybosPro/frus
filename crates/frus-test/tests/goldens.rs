@@ -872,6 +872,26 @@ fn line_chart_matches_golden() {
     snapshot.assert_golden(golden("line_chart"));
 }
 
+/// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant
+/// l'icône « œil » suffixe (`on_suffix`) qui révèle le texte. Reproduit son golden.
+#[test]
+fn password_eye_matches_golden() {
+    let theme = Theme::dark();
+    let field = TextInput::<()>::new("hunter2")
+        .width(280.0)
+        .label("Password")
+        .obscure(true)
+        .suffix_icon(IconName::Eye)
+        .on_suffix(());
+    let root: Container<()> = Container::new().padding(20.0).child(field);
+    let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 60, "champ masqué et œil dessinés");
+    snapshot.assert_golden(golden("password_eye"));
+}
+
 /// **Champ avec suffixe cliquable (jalon 198)** : un `TextInput` rempli portant une icône
 /// suffixe « ✕ » cliquable (`on_suffix`) qui l'efface. Reproduit son golden.
 #[test]
