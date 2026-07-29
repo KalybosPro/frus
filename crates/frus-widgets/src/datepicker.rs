@@ -14,6 +14,8 @@ use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
+/// Écart entre les deux mois d'un calendrier double.
+const DUAL_GAP: f32 = 24.0;
 
 /// Vrai si `year` est bissextile.
 fn is_leap(year: i32) -> bool {
@@ -144,9 +146,11 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
     }
 }
 
-/// Un calendrier mensuel.
+/// Un calendrier mensuel (ou une paire de mois en mode [`range_dual`](DatePicker::range_dual)).
 pub struct DatePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
+    /// Deux mois côte à côte (double sa largeur).
+    dual: bool,
 }
 
 const WEEKDAYS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
@@ -190,6 +194,36 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         Self::assemble(year, month, on_select, on_nav, move |day| {
             range_mark((year, month, day), start, end)
         })
+    }
+
+    /// Calendrier **double** : le mois `year`/`month` et le **suivant**, côte à côte, partageant
+    /// la même plage `[start, end]` — pour saisir de longues plages sans changer de mois.
+    /// `on_select((année, mois, jour))` rapporte la date **complète** du jour cliqué (le mois est
+    /// désambiguïsé), `on_nav(±1)` décale la **paire**. La bande de plage se poursuit d'un mois
+    /// à l'autre (les dates se comparent en entier — cf. [`range_mark`]).
+    pub fn range_dual(
+        year: i32,
+        month: u32,
+        start: Option<(i32, u32, u32)>,
+        end: Option<(i32, u32, u32)>,
+        on_select: impl Fn((i32, u32, u32)) -> Msg + 'static,
+        on_nav: impl Fn(i32) -> Msg + 'static,
+    ) -> Self {
+        let month = month.clamp(1, 12);
+        let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+        // Partagés entre les deux mois.
+        let on_select = std::rc::Rc::new(on_select);
+        let on_nav = std::rc::Rc::new(on_nav);
+        let (os1, os2) = (on_select.clone(), on_select);
+        let (nv1, nv2) = (on_nav.clone(), on_nav);
+        let left =
+            DatePicker::range(year, month, start, end, move |d| os1((year, month, d)), move |n| {
+                nv1(n)
+            });
+        let right =
+            DatePicker::range(ny, nm, start, end, move |d| os2((ny, nm, d)), move |n| nv2(n));
+        let row = Flex::row().gap(DUAL_GAP).child(left).child(right);
+        Self { children: vec![Box::new(row)], dual: true }
     }
 
     /// Assemble l'en-tête, la ligne des jours de semaine et la grille ; `mark_of(jour)` décide de
@@ -242,6 +276,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
 
         Self {
             children: vec![Box::new(header), Box::new(weekdays), Box::new(grid)],
+            dual: false,
         }
     }
 }
@@ -280,8 +315,10 @@ impl<Msg> Widget<Msg> for WeekdayCell {
 
 impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
     fn style(&self) -> Style {
+        let month_w = 7.0 * (CELL + 2.0);
+        let width = if self.dual { 2.0 * month_w + DUAL_GAP } else { month_w };
         Style {
-            width: Dimension::Length(7.0 * (CELL + 2.0)),
+            width: Dimension::Length(width),
             flex_direction: FlexDirection::Column,
             gap: 8.0,
             ..Default::default()
@@ -365,5 +402,33 @@ mod tests {
         assert_eq!(grid.children().len(), 34);
         // Le 10 juillet (3 vides + jours 1..10 → index 12) reste cliquable.
         assert_eq!(grid.children()[12].on_click(), Some(Msg::Pick(10)));
+    }
+
+    #[test]
+    fn range_dual_shows_two_consecutive_months() {
+        #[derive(Clone, Debug, PartialEq)]
+        enum M {
+            Pick(i32, u32, u32),
+            Nav(i32),
+        }
+        // Décembre → janvier de l'année suivante (bascule d'année).
+        let dp = DatePicker::range_dual(
+            2026,
+            12,
+            Some((2026, 12, 28)),
+            Some((2027, 1, 3)),
+            |(y, m, d)| M::Pick(y, m, d),
+            M::Nav,
+        );
+        // Un seul enfant : la rangée des deux mois.
+        let row = &Widget::<M>::children(&dp);
+        assert_eq!(row.len(), 1);
+        let months = row[0].children();
+        assert_eq!(months.len(), 2, "deux calendriers côte à côte");
+        // Le mois de droite est janvier 2027 : cliquer son 3 rapporte la date complète.
+        let jan_grid = &months[1].children()[2];
+        // Janvier 2027 commence un vendredi (5 cases vides) → le 3 est à l'index 5 + 2 = 7.
+        assert_eq!(first_weekday(2027, 1), 5);
+        assert_eq!(jan_grid.children()[7].on_click(), Some(M::Pick(2027, 1, 3)));
     }
 }

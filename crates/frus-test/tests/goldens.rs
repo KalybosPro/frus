@@ -574,6 +574,29 @@ fn date_range_matches_golden() {
     snapshot.assert_golden(golden("date_range"));
 }
 
+/// **Calendrier double (jalon 186)** : juillet + août 2026 côte à côte, plage du 28 juillet au
+/// 3 août — la bande de plage se poursuit d'un mois à l'autre. Reproduit son golden.
+#[test]
+fn date_range_dual_matches_golden() {
+    use frus_widgets::DatePicker;
+    let theme = Theme::dark();
+    let picker = DatePicker::range_dual(
+        2026,
+        7,
+        Some((2026, 7, 28)),
+        Some((2026, 8, 3)),
+        |_| (),
+        |_| (),
+    );
+    let root: Container<()> = Container::new().padding(16.0).child(picker);
+    let Some(snapshot) = render_widget(&root, 580, 320, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 200, "deux mois et plage dessinés");
+    snapshot.assert_golden(golden("date_range_dual"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]
