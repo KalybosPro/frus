@@ -2,8 +2,10 @@
 //! (empilement, minuterie d'auto-fermeture) est du ressort de l'application
 //! (typiquement via un `Command` minuté).
 
-use frus_core::{Color, Point, Rect, Scene};
-use frus_layout::{Dimension, Style};
+use std::collections::VecDeque;
+
+use frus_core::{Color, Insets, Point, Rect, Role, Scene, Semantics};
+use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -13,6 +15,11 @@ const PAD_X: f32 = 16.0;
 const PAD_Y: f32 = 12.0;
 const SIZE: f32 = 16.0;
 const ACCENT: f32 = 4.0;
+/// Bouton d'action (Material « UNDO ») : police, marge et hauteur.
+const ACTION_SIZE: f32 = 14.0;
+const ACTION_PAD_X: f32 = 12.0;
+const ACTION_GAP: f32 = 8.0;
+const ACTION_H: f32 = 32.0;
 
 /// Nature d'une notification (couleur d'accent).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -22,18 +29,25 @@ pub enum ToastKind {
     Error,
 }
 
-/// Une notification transitoire.
-pub struct Toast {
+/// Une notification transitoire, avec une **action** optionnelle (façon Snackbar Material :
+/// « UNDO »). L'action est un bouton texte à droite qui émet un message au clic.
+pub struct Toast<Msg> {
     text: String,
     kind: ToastKind,
+    /// Largeur additionnelle réservée à l'action (0 si aucune).
+    action_w: f32,
+    /// Vide, ou `[bouton d'action]`.
+    children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl Toast {
+impl<Msg: Clone + 'static> Toast<Msg> {
     /// Crée une notification d'information.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             kind: ToastKind::Info,
+            action_w: 0.0,
+            children: Vec::new(),
         }
     }
 
@@ -49,6 +63,18 @@ impl Toast {
         self
     }
 
+    /// Ajoute un **bouton d'action** (libellé en capitales, façon Material) émettant `message`
+    /// au clic — typiquement « UNDO » pour annuler l'action qui a déclenché la notification.
+    pub fn action(mut self, label: impl Into<String>, message: Msg) -> Self {
+        let label = label.into().to_uppercase();
+        let width = (frus_text::measure(&label, ACTION_SIZE).width + ACTION_PAD_X * 2.0).ceil();
+        self.action_w = width + ACTION_GAP;
+        self.children = vec![Box::new(ActionButton { label, width, message })];
+        self
+    }
+}
+
+impl<Msg> Toast<Msg> {
     fn accent(&self, theme: &Theme) -> Color {
         match self.kind {
             ToastKind::Info => theme.primary,
@@ -58,18 +84,25 @@ impl Toast {
     }
 }
 
-impl<Msg> Widget<Msg> for Toast {
+impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
     fn style(&self) -> Style {
         let measured = frus_text::measure(&self.text, SIZE);
-        Style {
-            width: Dimension::Length((measured.width + PAD_X * 2.0 + ACCENT).ceil()),
-            height: Dimension::Length((measured.height + PAD_Y * 2.0).ceil()),
+        let mut style = Style {
+            width: Dimension::Length((measured.width + PAD_X * 2.0 + ACCENT + self.action_w).ceil()),
+            height: Dimension::Length((measured.height + PAD_Y * 2.0).max(ACTION_H).ceil()),
             ..Default::default()
+        };
+        // Avec une action : la placer à droite, centrée verticalement.
+        if !self.children.is_empty() {
+            style.justify = Justify::End;
+            style.align = Align::Center;
+            style.padding = Insets::new(0.0, PAD_X, 0.0, 0.0);
         }
+        style
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
+        &self.children
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -103,14 +136,136 @@ impl<Msg> Widget<Msg> for Toast {
     }
 }
 
+/// Bouton d'action d'une notification (texte en capitales, couleur d'accent), cliquable.
+struct ActionButton<Msg> {
+    label: String,
+    width: f32,
+    message: Msg,
+}
+
+impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(ACTION_H),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        // Fond de survol/focus (state-layer bakée : invisible au repos, teintée à l'interaction).
+        let bg = theme.state_layer(theme.surface, theme.primary, &status);
+        scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
+        let w = frus_text::measure(&self.label, ACTION_SIZE).width;
+        scene.text(
+            Point::new(
+                bounds.x + (bounds.width - w) * 0.5,
+                bounds.y + (bounds.height - frus_text::line_height(ACTION_SIZE)) * 0.5,
+            ),
+            self.label.clone(),
+            ACTION_SIZE,
+            theme.primary.fade(o),
+        );
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        Some(self.message.clone())
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn semantics(&self) -> Option<Semantics> {
+        Some(Semantics::new(Role::Button).label(self.label.clone()).clickable())
+    }
+}
+
+/// **File d'attente de notifications** — pure, côté application (esprit [`crate::form::Form`]).
+///
+/// Une seule notification est visible à la fois ; les suivantes patientent. L'application
+/// appelle [`tick`](Self::tick) à chaque frame (avec le temps écoulé) pour faire **expirer**
+/// la notification courante et présenter la suivante — l'auto-fermeture façon Material sans
+/// minuterie côté widget. [`dismiss`](Self::dismiss) ferme la courante immédiatement (clic sur
+/// l'action ou la croix). Générique sur la charge `T` (au minimum le texte ; souvent aussi le
+/// type et le message d'action).
+pub struct SnackbarQueue<T> {
+    /// `(charge, secondes restantes)` ; l'avant est la notification affichée.
+    items: VecDeque<(T, f32)>,
+}
+
+impl<T> Default for SnackbarQueue<T> {
+    fn default() -> Self {
+        Self { items: VecDeque::new() }
+    }
+}
+
+impl<T> SnackbarQueue<T> {
+    /// Une file vide.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ajoute une notification qui restera visible `seconds` secondes une fois **en tête**.
+    pub fn push(&mut self, item: T, seconds: f32) {
+        self.items.push_back((item, seconds.max(0.0)));
+    }
+
+    /// La notification actuellement visible (l'avant de la file), s'il y en a une.
+    pub fn current(&self) -> Option<&T> {
+        self.items.front().map(|(item, _)| item)
+    }
+
+    /// Fait s'écouler `dt` secondes sur la notification en tête ; si son temps est épuisé, elle
+    /// est retirée (la suivante démarre son propre décompte). Rend `true` si la notification
+    /// visible **a changé** (expiration) — utile pour redemander un rendu.
+    pub fn tick(&mut self, dt: f32) -> bool {
+        let Some(front) = self.items.front_mut() else {
+            return false;
+        };
+        front.1 -= dt;
+        if front.1 <= 0.0 {
+            self.items.pop_front();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Ferme la notification courante immédiatement (action/croix) ; rend sa charge.
+    pub fn dismiss(&mut self) -> Option<T> {
+        self.items.pop_front().map(|(item, _)| item)
+    }
+
+    /// `true` si aucune notification n'est en attente.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// Nombre de notifications en file (visible + en attente).
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use frus_core::Primitive;
 
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Undo,
+    }
+
     #[test]
     fn paints_card_accent_and_text() {
-        let toast = Toast::new("Enregistré").success();
+        let toast = Toast::<()>::new("Enregistré").success();
         let mut scene = Scene::new();
         Widget::<()>::paint(&toast, Rect::new(0.0, 0.0, 160.0, 44.0), Status::default(), &Theme::default(), &mut scene);
         // Accent succès présent + texte.
@@ -123,5 +278,38 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Enregistré")));
+    }
+
+    #[test]
+    fn action_is_clickable_and_uppercased() {
+        // Sans action : aucun enfant.
+        let plain = Toast::<Msg>::new("Item deleted");
+        assert!(Widget::<Msg>::children(&plain).is_empty());
+        // Avec action : un bouton en capitales qui émet le message.
+        let toast = Toast::new("Item deleted").action("Undo", Msg::Undo);
+        let kids = Widget::<Msg>::children(&toast);
+        assert_eq!(kids.len(), 1);
+        assert_eq!(kids[0].on_click(), Some(Msg::Undo));
+        assert!(kids[0].focusable());
+    }
+
+    #[test]
+    fn queue_shows_one_at_a_time_and_expires() {
+        let mut q: SnackbarQueue<&str> = SnackbarQueue::new();
+        assert!(q.is_empty());
+        q.push("first", 3.0);
+        q.push("second", 3.0);
+        assert_eq!(q.len(), 2);
+        assert_eq!(q.current(), Some(&"first"), "l'avant est visible");
+        // Le décompte ne touche que la tête.
+        assert!(!q.tick(1.0));
+        assert_eq!(q.current(), Some(&"first"));
+        // Expiration → la suivante prend le relais.
+        assert!(q.tick(2.5), "changement à l'expiration");
+        assert_eq!(q.current(), Some(&"second"));
+        // Fermeture manuelle (action/croix).
+        assert_eq!(q.dismiss(), Some("second"));
+        assert!(q.is_empty());
+        assert!(!q.tick(1.0), "file vide : rien ne change");
     }
 }

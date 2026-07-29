@@ -574,6 +574,22 @@ fn date_range_matches_golden() {
     snapshot.assert_golden(golden("date_range"));
 }
 
+/// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
+/// « UNDO » à droite (façon Material). Reproduit son golden.
+#[test]
+fn snackbar_action_matches_golden() {
+    use frus_widgets::Toast;
+    let theme = Theme::dark();
+    let toast = Toast::new("Message archived").action("Undo", ());
+    let root: Container<()> = Container::new().padding(20.0).child(toast);
+    let Some(snapshot) = render_widget(&root, 340, 90, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 60, "carte, texte et action dessinés");
+    snapshot.assert_golden(golden("snackbar_action"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.
