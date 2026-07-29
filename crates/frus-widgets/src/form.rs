@@ -29,6 +29,14 @@
 //! assert_eq!(report.first_invalid(), Some("email"));
 //! ```
 
+use frus_core::{Insets, Rect, Scene};
+use frus_layout::{Dimension, FlexDirection, Style};
+
+use crate::interaction::Status;
+use crate::text::Text;
+use crate::theme::Theme;
+use crate::widget::Widget;
+
 /// Une règle de validation d'un champ : rend `Some(message)` si la valeur est
 /// invalide, `None` si elle passe.
 pub struct Rule(Box<dyn Fn(&str) -> Option<String>>);
@@ -91,10 +99,11 @@ fn is_email(v: &str) -> bool {
 }
 
 /// Rapport de validation d'un ensemble de champs, dans l'ordre de déclaration.
-/// Construit par chaînage de [`Form::field`] ; se consulte ensuite.
+/// Construit par chaînage de [`Form::field`] ; se consulte ensuite. Les **valeurs** sont
+/// mémorisées pour permettre la **validation croisée** (un champ comparé à un autre).
 #[derive(Default)]
 pub struct Form {
-    fields: Vec<(&'static str, Option<String>)>,
+    fields: Vec<(&'static str, String, Option<String>)>,
 }
 
 impl Form {
@@ -105,30 +114,136 @@ impl Form {
 
     /// Valide `value` avec `rule` et enregistre le résultat sous `key`.
     pub fn field(mut self, key: &'static str, value: &str, rule: Rule) -> Self {
-        self.fields.push((key, rule.check(value)));
+        let error = rule.check(value);
+        self.fields.push((key, value.to_string(), error));
         self
+    }
+
+    /// Valide un champ par une **fonction croisée** qui reçoit sa valeur **et** le formulaire
+    /// partiel (champs **déjà déclarés**) : `check(value, form)` peut consulter
+    /// [`form.value(other)`](Self::value) — mot de passe confirmé, dates cohérentes, etc.
+    /// Déclarez donc le champ référencé **avant**.
+    pub fn field_with(
+        mut self,
+        key: &'static str,
+        value: &str,
+        check: impl Fn(&str, &Form) -> Option<String>,
+    ) -> Self {
+        let error = check(value, &self);
+        self.fields.push((key, value.to_string(), error));
+        self
+    }
+
+    /// Convenance de validation croisée : `value` doit **égaler** la valeur du champ `other`
+    /// (déjà déclaré) — le cas « confirmer le mot de passe ». Sinon `message`.
+    pub fn matches(
+        self,
+        key: &'static str,
+        value: &str,
+        other: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        let message = message.into();
+        self.field_with(key, value, move |v, form| {
+            (form.value(other) != Some(v)).then(|| message.clone())
+        })
+    }
+
+    /// La valeur enregistrée du champ `key` (pour la validation croisée).
+    pub fn value(&self, key: &str) -> Option<&str> {
+        self.fields.iter().find(|(k, _, _)| *k == key).map(|(_, v, _)| v.as_str())
     }
 
     /// `true` si aucun champ n'est en erreur.
     pub fn is_valid(&self) -> bool {
-        self.fields.iter().all(|(_, e)| e.is_none())
+        self.fields.iter().all(|(_, _, e)| e.is_none())
     }
 
     /// Le message d'erreur du champ `key`, s'il en a un.
     pub fn error(&self, key: &str) -> Option<&str> {
         self.fields
             .iter()
-            .find(|(k, _)| *k == key)
-            .and_then(|(_, e)| e.as_deref())
+            .find(|(k, _, _)| *k == key)
+            .and_then(|(_, _, e)| e.as_deref())
+    }
+
+    /// Tous les messages d'erreur `(clé, message)`, dans l'ordre de déclaration — pour un
+    /// **récapitulatif** en tête de formulaire (voir [`ErrorSummary`]).
+    pub fn errors(&self) -> Vec<(&'static str, &str)> {
+        self.fields
+            .iter()
+            .filter_map(|(k, _, e)| e.as_deref().map(|m| (*k, m)))
+            .collect()
     }
 
     /// La clé du **premier** champ en erreur (ordre de déclaration) — typiquement
-    /// celui à focaliser / mettre en avant.
+    /// celui à focaliser / mettre en avant à la soumission.
     pub fn first_invalid(&self) -> Option<&'static str> {
         self.fields
             .iter()
-            .find(|(_, e)| e.is_some())
-            .map(|(k, _)| *k)
+            .find(|(_, _, e)| e.is_some())
+            .map(|(k, _, _)| *k)
+    }
+}
+
+/// Marge intérieure du récapitulatif d'erreurs.
+const SUMMARY_PAD: f32 = 12.0;
+
+/// **Récapitulatif d'erreurs** : une carte teintée « erreur » listant les messages (un titre
+/// « Please fix N error(s) » puis une puce par message), à poser en tête de formulaire après
+/// une soumission invalide. Se construit depuis [`Form::errors`]. Vide si aucun message
+/// (à ne pas afficher — voir [`is_empty`](Self::is_empty)).
+pub struct ErrorSummary<Msg> {
+    empty: bool,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg: Clone + 'static> ErrorSummary<Msg> {
+    /// Construit le récapitulatif à partir des messages (l'ordre est conservé).
+    pub fn new(messages: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let messages: Vec<String> = messages.into_iter().map(Into::into).collect();
+        let title = match messages.len() {
+            1 => "Please fix 1 error".to_string(),
+            n => format!("Please fix {n} errors"),
+        };
+        let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(messages.len() + 1);
+        children.push(Box::new(Text::new(title).size(14.0)));
+        for m in &messages {
+            children.push(Box::new(Text::new(format!("• {m}")).size(13.0)));
+        }
+        Self { empty: messages.is_empty(), children }
+    }
+
+    /// `true` si aucun message — l'appelant peut alors ne rien afficher.
+    pub fn is_empty(&self) -> bool {
+        self.empty
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for ErrorSummary<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            flex_direction: FlexDirection::Column,
+            width: Dimension::Percent(1.0),
+            padding: Insets::new(SUMMARY_PAD, SUMMARY_PAD, SUMMARY_PAD, SUMMARY_PAD),
+            gap: 4.0,
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // Carte teintée « erreur » (fond doux + bord), sous les lignes de texte.
+        let o = status.opacity;
+        let bg = theme.surface.lerp(theme.error, 0.12);
+        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.error.fade(o));
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
     }
 }
 
@@ -193,5 +308,61 @@ mod tests {
         let report = Form::new();
         assert!(report.is_valid());
         assert_eq!(report.first_invalid(), None);
+    }
+
+    #[test]
+    fn cross_field_confirm_password() {
+        // `confirm` doit égaler `password` (déclaré avant).
+        let report = |pw: &str, cf: &str| {
+            Form::new()
+                .field("password", pw, Rule::min_len(8, "Too short"))
+                .matches("confirm", cf, "password", "Passwords do not match")
+        };
+        assert_eq!(report("secret12", "secret12").error("confirm"), None, "identiques → OK");
+        let bad = report("secret12", "secretXX");
+        assert_eq!(bad.error("confirm"), Some("Passwords do not match"));
+        assert_eq!(bad.first_invalid(), Some("confirm"));
+        // `field_with` généralise : accès à une autre valeur via `form.value`.
+        let dates = Form::new().field("start", "10", Rule::new(|_| None)).field_with(
+            "end",
+            "5",
+            |v, form| {
+                let start: i32 = form.value("start").unwrap_or("0").parse().unwrap_or(0);
+                (v.parse::<i32>().unwrap_or(0) < start).then(|| "End before start".to_string())
+            },
+        );
+        assert_eq!(dates.error("end"), Some("End before start"));
+    }
+
+    #[test]
+    fn errors_lists_all_messages_in_order() {
+        let report = Form::new()
+            .field("email", "nope", Rule::email("Invalid email"))
+            .field("name", "Ada", Rule::required("Required"))
+            .field("password", "x", Rule::min_len(8, "Too short"));
+        assert_eq!(
+            report.errors(),
+            vec![("email", "Invalid email"), ("password", "Too short")],
+            "les valides sont omis, l'ordre conservé",
+        );
+    }
+
+    #[test]
+    fn error_summary_lists_messages() {
+        use crate::{build_ui, Runtime, Size, Theme};
+        use frus_core::Primitive;
+        let summary = ErrorSummary::<()>::new(["Invalid email", "Too short"]);
+        assert!(!summary.is_empty());
+        let ui = build_ui(&summary, Size::new(300.0, 120.0), &Runtime::default(), &Theme::default());
+        let painted = |t: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
+        };
+        assert!(painted("Please fix 2 errors"), "titre du récapitulatif");
+        assert!(painted("• Invalid email") && painted("• Too short"), "une puce par message");
+        // Vide → à ne pas afficher.
+        assert!(ErrorSummary::<()>::new(Vec::<String>::new()).is_empty());
     }
 }

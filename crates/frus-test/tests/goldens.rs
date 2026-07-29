@@ -495,6 +495,34 @@ fn table_frozen_both_edges_matches_golden() {
     snapshot.assert_golden(golden("table_frozen_both_edges"));
 }
 
+/// **Récapitulatif d'erreurs de formulaire (jalon 180)** : après une soumission invalide, une
+/// carte teintée « erreur » liste tous les messages (`Form::errors` → `ErrorSummary`), au-dessus
+/// du champ fautif. Reproduit son golden.
+#[test]
+fn form_error_summary_matches_golden() {
+    use frus_widgets::form::{Form, Rule};
+    let theme = Theme::dark();
+    let report = Form::new()
+        .field("email", "nope", Rule::email("Enter a valid email address"))
+        .field("password", "x", Rule::min_len(8, "At least 8 characters"));
+    let summary =
+        frus_widgets::ErrorSummary::<()>::new(report.errors().into_iter().map(|(_, m)| m.to_string()));
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Flex::column().gap(16.0).child(summary).child(
+            TextInput::<()>::new("nope")
+                .width(300.0)
+                .label("Email")
+                .error("Enter a valid email address"),
+        ),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 230, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "récapitulatif d'erreurs et champ dessinés");
+    snapshot.assert_golden(golden("form_error_summary"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.

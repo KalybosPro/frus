@@ -38,6 +38,7 @@ mod fittedbox;
 mod flex;
 /// Validation de formulaire (pure, côté application) : [`form::Rule`] et [`form::Form`].
 pub mod form;
+pub use form::ErrorSummary;
 mod fractional;
 mod grid;
 mod icon;
