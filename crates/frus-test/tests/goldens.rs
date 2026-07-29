@@ -597,6 +597,22 @@ fn date_range_dual_matches_golden() {
     snapshot.assert_golden(golden("date_range_dual"));
 }
 
+/// **Plage horaire (jalon 187)** : deux sélecteurs d'heure étiquetés « Start » (09:00) et
+/// « End » (17:30), minutes par pas de 15. Reproduit son golden.
+#[test]
+fn time_range_matches_golden() {
+    use frus_widgets::TimeRange;
+    let theme = Theme::dark();
+    let range = TimeRange::new((9, 0), (17, 30), |_, _, _| ()).minute_step(15);
+    let root: Container<()> = Container::new().padding(16.0).child(range);
+    let Some(snapshot) = render_widget(&root, 540, 420, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 200, "deux sélecteurs d'heure dessinés");
+    snapshot.assert_golden(golden("time_range"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]

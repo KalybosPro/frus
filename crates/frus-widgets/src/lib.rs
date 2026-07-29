@@ -165,7 +165,7 @@ pub use text::Text;
 pub use textinput::TextInput;
 pub use theme::{ColorScheme, TextTheme, Theme};
 pub use timeline::Timeline;
-pub use timepicker::TimePicker;
+pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
 pub use toast::{SnackbarQueue, Toast, ToastKind};
 pub use transform::Transform;
 pub use tree::Tree;

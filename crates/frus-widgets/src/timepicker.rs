@@ -4,6 +4,8 @@
 //! réglable ([`minute_step`](TimePicker::minute_step)). L'heure vient de l'état
 //! applicatif ; le widget émet au clic, toujours en **heure 24 h**.
 
+use std::rc::Rc;
+
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
@@ -223,6 +225,119 @@ impl<Msg: Clone> Widget<Msg> for TimePicker<Msg> {
     }
 }
 
+/// Quelle borne d'une plage horaire ([`TimeRange`]) est visée.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Endpoint {
+    /// Heure de début.
+    Start,
+    /// Heure de fin.
+    End,
+}
+
+/// Quel champ d'une heure ([`TimeRange`]) change.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TimeField {
+    Hour,
+    Minute,
+}
+
+/// **Plage horaire** (créneau début → fin), pendant temporel du calendrier double
+/// ([`crate::DatePicker::range_dual`]) : deux [`TimePicker`] étiquetés « Start » et « End », côte
+/// à côte. Un **seul** rappel `on_change(borne, champ, valeur)` reçoit tous les changements
+/// (valeurs toujours en **24 h**) ; l'application décide comment mettre à jour son état.
+pub struct TimeRange<Msg> {
+    start: (u32, u32),
+    end: (u32, u32),
+    on_change: Rc<dyn Fn(Endpoint, TimeField, u32) -> Msg>,
+    hour12: bool,
+    minute_step: u32,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg: Clone + 'static> TimeRange<Msg> {
+    /// Crée une plage `start`/`end` (chacune `(heure 0–23, minute 0–59)`). `on_change` est
+    /// appelé à chaque clic avec la **borne**, le **champ** et la nouvelle valeur (24 h).
+    pub fn new(
+        start: (u32, u32),
+        end: (u32, u32),
+        on_change: impl Fn(Endpoint, TimeField, u32) -> Msg + 'static,
+    ) -> Self {
+        let mut range = Self {
+            start: (start.0.min(23), start.1.min(59)),
+            end: (end.0.min(23), end.1.min(59)),
+            on_change: Rc::new(on_change),
+            hour12: false,
+            minute_step: 5,
+            children: Vec::new(),
+        };
+        range.rebuild();
+        range
+    }
+
+    /// Bascule les deux sélecteurs en **12 h** (AM/PM).
+    pub fn hour12(mut self) -> Self {
+        self.hour12 = true;
+        self.rebuild();
+        self
+    }
+
+    /// Règle le **pas des minutes** des deux sélecteurs (1–60).
+    pub fn minute_step(mut self, step: u32) -> Self {
+        self.minute_step = step.clamp(1, 60);
+        self.rebuild();
+        self
+    }
+
+    /// (Re)construit les deux colonnes étiquetées à partir de l'état courant.
+    fn rebuild(&mut self) {
+        let (hour12, step) = (self.hour12, self.minute_step);
+        let oc = self.on_change.clone();
+        // Un TimePicker dont les messages sont taggés par la borne visée.
+        let make = |ep: Endpoint, h: u32, m: u32| -> TimePicker<Msg> {
+            let (oc_h, oc_m) = (oc.clone(), oc.clone());
+            let mut tp = TimePicker::new(
+                h,
+                m,
+                move |hh| oc_h(ep, TimeField::Hour, hh),
+                move |mm| oc_m(ep, TimeField::Minute, mm),
+            );
+            if hour12 {
+                tp = tp.hour12();
+            }
+            tp.minute_step(step)
+        };
+        let start_col = Flex::column()
+            .gap(8.0)
+            .child(Text::new("Start").size(14.0))
+            .child(make(Endpoint::Start, self.start.0, self.start.1));
+        let end_col = Flex::column()
+            .gap(8.0)
+            .child(Text::new("End").size(14.0))
+            .child(make(Endpoint::End, self.end.0, self.end.1));
+        self.children = vec![Box::new(start_col), Box::new(end_col)];
+    }
+}
+
+impl<Msg: Clone> Widget<Msg> for TimeRange<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            flex_direction: FlexDirection::Row,
+            gap: 24.0,
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +409,41 @@ mod tests {
             .find_map(|y| click(CELL * 0.5, y as f32))
             .expect("une case cliquable existe");
         assert!(matches!(msg, Msg::Hour(_) | Msg::Minute(_)));
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum RangeMsg {
+        Set(Endpoint, TimeField, u32),
+    }
+
+    #[test]
+    fn range_builds_start_and_end_pickers() {
+        let tr = TimeRange::new((9, 0), (17, 30), RangeMsg::Set).minute_step(15);
+        // Deux colonnes étiquetées [label, TimePicker].
+        let cols = Widget::<RangeMsg>::children(&tr);
+        assert_eq!(cols.len(), 2);
+        let start_tp = &cols[0].children()[1];
+        assert_eq!(start_tp.children().len(), 3, "aperçu + heures + minutes");
+        // Minutes par pas de 15 → 4 cases.
+        let start_minutes = &start_tp.children()[2].children()[1];
+        assert_eq!(start_minutes.children().len(), 4);
+        // Cliquer 09 h dans la borne End émet Set(End, Hour, 9).
+        let end_tp = &cols[1].children()[1];
+        let end_hours = &end_tp.children()[1].children()[1];
+        assert_eq!(
+            end_hours.children()[9].on_click(),
+            Some(RangeMsg::Set(Endpoint::End, TimeField::Hour, 9)),
+        );
+    }
+
+    #[test]
+    fn hour12_applies_to_both_pickers() {
+        let tr = TimeRange::new((15, 0), (20, 0), RangeMsg::Set).hour12();
+        let cols = Widget::<RangeMsg>::children(&tr);
+        // Section heures en 12 h = [label, AM/PM, grille(12)] → 3 enfants, pour les deux bornes.
+        for col in cols {
+            let tp = &col.children()[1];
+            assert_eq!(tp.children()[1].children().len(), 3);
+        }
     }
 }
