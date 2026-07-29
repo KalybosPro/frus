@@ -159,6 +159,8 @@ enum Route {
     Journal,
     /// Assistant d'inscription multi-étapes (démo d'intégration : Steps + Form + Snackbar).
     Wizard,
+    /// Grille de données **éditable en ligne** (démo d'intégration : Table + TextInput par cellule).
+    Grid,
 }
 
 /// Geste retour : progression suivie au doigt, puis détente à ressort
@@ -266,6 +268,13 @@ enum Msg {
     WizardNext,
     /// Révèle / masque les mots de passe de l'assistant.
     WizardToggleReveal,
+    // --- Grille éditable (démo d'intégration) ---
+    /// Passe la cellule `(ligne, colonne)` en édition.
+    GridEdit(usize, usize),
+    /// Nouvelle valeur de la cellule en cours d'édition.
+    GridInput(String),
+    /// Valide l'édition de la cellule courante.
+    GridCommit,
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -407,6 +416,10 @@ struct TodoApp {
     wizard_submitted: bool,
     /// Les mots de passe de l'assistant sont-ils **révélés** (démasqués) ?
     wizard_reveal: bool,
+    /// Données de la grille éditable (lignes × colonnes de texte).
+    grid: Vec<Vec<String>>,
+    /// Cellule `(ligne, colonne)` en cours d'édition, s'il y en a une.
+    grid_edit: Option<(usize, usize)>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -702,6 +715,23 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.wizard_reveal = !app.wizard_reveal;
             Command::none()
         }
+        Msg::GridEdit(r, c) => {
+            app.grid_edit = Some((r, c));
+            // Focalise le champ de la cellule (résolu après le prochain build).
+            Command::focus(("grid", r, c))
+        }
+        Msg::GridInput(value) => {
+            if let Some((r, c)) = app.grid_edit {
+                if let Some(cell) = app.grid.get_mut(r).and_then(|row| row.get_mut(c)) {
+                    *cell = value;
+                }
+            }
+            Command::none()
+        }
+        Msg::GridCommit => {
+            app.grid_edit = None;
+            Command::none()
+        }
         Msg::WizardSubmit => {
             if wizard_form(app).is_valid() {
                 // Succès : réinitialise l'assistant et notifie (Snackbar, sortie animée).
@@ -823,6 +853,12 @@ impl Application for TodoApp {
         self.year = 2026;
         self.month = 7;
         self.density = 1.0;
+        // Données de démonstration de la grille éditable.
+        self.grid = vec![
+            vec!["Ada Lovelace".into(), "Engineer".into(), "ada@example.com".into()],
+            vec!["Alan Turing".into(), "Cryptographer".into(), "alan@example.com".into()],
+            vec!["Grace Hopper".into(), "Admiral".into(), "grace@example.com".into()],
+        ];
         if self.restored {
             // Live-reload : l'instantané fait foi, ne pas l'écraser du disque.
             return Command::none();
@@ -843,6 +879,7 @@ impl Application for TodoApp {
             Route::Settings => 1,
             Route::Journal => 2,
             Route::Wizard => 3,
+            Route::Grid => 4,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -875,6 +912,7 @@ impl Application for TodoApp {
                         "1" => self.routes.push(Route::Settings),
                         "2" => self.routes.push(Route::Journal),
                         "3" => self.routes.push(Route::Wizard),
+                        "4" => self.routes.push(Route::Grid),
                         _ => {}
                     }
                 }
@@ -1096,7 +1134,54 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
         Route::Settings => Box::new(settings_screen(app, theme, width, height)),
         Route::Journal => Box::new(journal_screen(theme, width, height)),
         Route::Wizard => wizard_screen(app, theme, width, height),
+        Route::Grid => grid_screen(app, theme, width, height),
     }
+}
+
+/// Écran **grille éditable** : une `Table` dont chaque cellule est un widget — au repos, un
+/// `Container` cliquable (clic → éditer cette cellule) ; en édition, un `TextInput` lié à la
+/// valeur (jalon 196 rendu interactif, jalon 197). Cliquer une cellule la focalise (jalon 198).
+fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    let mut table = Table::new(3)
+        .header(&["Name", "Role", "Email"])
+        .column_widths(&[190.0, 170.0, 240.0]);
+    for (r, row) in app.grid.iter().enumerate() {
+        let cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..3)
+            .map(|c| {
+                let value = row[c].clone();
+                let editing = app.grid_edit == Some((r, c));
+                let factory: Box<dyn Fn() -> Box<dyn Widget<Msg>>> = if editing {
+                    Box::new(move || {
+                        Box::new(keyed(
+                            ("grid", r, c),
+                            TextInput::new(value.clone())
+                                .width(210.0)
+                                .size(15.0)
+                                .on_input(Msg::GridInput)
+                                .on_submit(Msg::GridCommit),
+                        )) as Box<dyn Widget<Msg>>
+                    })
+                } else {
+                    Box::new(move || {
+                        Box::new(
+                            Container::<Msg>::new()
+                                .padding_each(8.0, 10.0, 8.0, 10.0)
+                                .child(text(value.clone()).size(15.0))
+                                .on_click(Msg::GridEdit(r, c)),
+                        ) as Box<dyn Widget<Msg>>
+                    })
+                };
+                factory
+            })
+            .collect();
+        table = table.widget_row(cells);
+    }
+    let hint = text("Click a cell to edit it, Enter to commit.").size(13.0).color(theme.muted);
+    let body = column![table, hint].gap(16.0).padding(24.0);
+    let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
+        .width(width)
+        .height(height);
+    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
 }
 
 /// Le formulaire de l'assistant : validation **pure** de l'état courant (jalons 180–181).
@@ -1828,6 +1913,9 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
             button("Sign-up wizard →", Msg::Push(Route::Wizard))
                 .variant(Variant::Secondary)
                 .size(15.0),
+            button("Editable grid →", Msg::Push(Route::Grid))
+                .variant(Variant::Secondary)
+                .size(15.0),
         ]
         .gap(12.0),
     )
@@ -2117,6 +2205,31 @@ mod tests {
         assert_eq!(app.wizard_step, 2, "borné à la dernière étape");
         reduce(&mut app, Msg::WizardBack);
         assert_eq!(app.wizard_step, 1);
+    }
+
+    #[test]
+    fn grid_click_edit_commit() {
+        let mut app = TodoApp::default();
+        app.grid = vec![
+            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec!["Alan".to_string(), "Crypto".to_string(), "b@x.com".to_string()],
+        ];
+        reduce(&mut app, Msg::Push(Route::Grid));
+        assert_eq!(current_route(&app), Route::Grid);
+        assert!(primitive_count(&app) > 0, "la grille se rend");
+        // Cliquer une cellule l'ouvre en édition (et demande son focus).
+        let cmd = reduce(&mut app, Msg::GridEdit(0, 1));
+        assert_eq!(app.grid_edit, Some((0, 1)));
+        assert!(!cmd.is_empty(), "GridEdit demande le focus de la cellule");
+        assert!(primitive_count(&app) > 0, "la cellule en edition se rend");
+        // Saisir une nouvelle valeur puis valider.
+        reduce(&mut app, Msg::GridInput("Mathematician".to_string()));
+        assert_eq!(app.grid[0][1], "Mathematician");
+        reduce(&mut app, Msg::GridCommit);
+        assert!(app.grid_edit.is_none(), "commit ferme l'edition");
+        // Les autres cellules sont intactes.
+        assert_eq!(app.grid[0][0], "Ada");
+        assert_eq!(app.grid[1][1], "Crypto");
     }
 
     #[test]
