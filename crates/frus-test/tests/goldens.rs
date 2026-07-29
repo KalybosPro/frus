@@ -613,6 +613,23 @@ fn time_range_matches_golden() {
     snapshot.assert_golden(golden("time_range"));
 }
 
+/// **Couche de notifications (jalon 188)** : deux toasts empilés dans le coin bas-droit
+/// (`ToastHost`), le second portant une action « UNDO ». Reproduit son golden.
+#[test]
+fn toast_host_matches_golden() {
+    use frus_widgets::{Toast, ToastHost, ToastPosition};
+    let theme = Theme::dark();
+    let host: ToastHost<()> = ToastHost::new(ToastPosition::BottomEnd)
+        .toast(Toast::new("File uploaded").success())
+        .toast(Toast::new("Message archived").action("Undo", ()));
+    let Some(snapshot) = render_widget(&host, 420, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 60, "toasts empilés dessinés");
+    snapshot.assert_golden(golden("toast_host"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]
