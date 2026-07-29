@@ -56,7 +56,7 @@ use frus_widgets::{
     Slider, Stack,
     TextSpan, WindowInsets,
     Stepper, Steps, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, ToastHost,
-    ToastPosition, Tree, TwoPane, Variant, Widget, ErrorSummary,
+    ToastPosition, Tree, TwoPane, Variant, Widget, ErrorSummary, SnackbarQueue,
 };
 use frus_widgets::form::{Form, Rule};
 
@@ -212,7 +212,9 @@ enum Msg {
     SetRating(u32),
     /// Nouvelle valeur du sélecteur numérique.
     SetCount(i32),
-    /// Ferme la notification transitoire.
+    /// Déclenche la **sortie** (fondu) de la notification en tête, avant son retrait.
+    ToastExpire,
+    /// Retire la notification courante (fin de sortie / clic) et enchaîne sur la suivante.
     DismissToast,
     /// Change la page (démo pagination).
     SetPage(usize),
@@ -345,8 +347,8 @@ struct TodoApp {
     rating: u32,
     /// Compteur du sélecteur numérique (Réglages).
     count: i32,
-    /// Notification transitoire courante (auto-fermée).
-    toast: Option<String>,
+    /// File de notifications (Snackbar) : une à la fois, avec sortie animée (jalon 193).
+    snackbars: SnackbarQueue<String>,
     /// Page courante du sélecteur de pagination (démo).
     page: usize,
     /// Nœuds d'arbre dépliés (démo Tree).
@@ -471,6 +473,25 @@ fn theme_of(app: &TodoApp) -> Theme {
 }
 
 /// Applique un message à l'état et renvoie l'effet éventuel à exécuter.
+/// Effet minuté : déclenche la **sortie** de la notification en tête après ~2 s de présence.
+fn toast_expire_after() -> Command<Msg> {
+    Command::perform(|| {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        Msg::ToastExpire
+    })
+}
+
+/// Empile une notification (Snackbar) ; si elle devient la **tête** de file, programme sa sortie.
+fn show_toast(app: &mut TodoApp, text: &str) -> Command<Msg> {
+    let was_empty = app.snackbars.is_empty();
+    app.snackbars.push(text.to_string(), 0.0);
+    if was_empty {
+        toast_expire_after()
+    } else {
+        Command::none()
+    }
+}
+
 fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
     match message {
         Msg::DraftChanged(text) => {
@@ -614,22 +635,32 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             // Capture un instantané sérialisable ; l'écriture se fait hors update.
             let items: Vec<(bool, String)> =
                 app.todos.iter().map(|t| (t.done, t.text.clone())).collect();
-            // Affiche une notification, auto-fermée après 2 s (effet minuté).
-            app.toast = Some("Saved".to_string());
+            // Affiche une notification (Snackbar) et écrit sur disque (effet).
+            let show = show_toast(app, "Saved");
             Command::batch([
                 Command::run(move || {
                     let _ = save_todos(&todos_path(), &items);
                     None
                 }),
-                Command::perform(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    Msg::DismissToast
-                }),
+                show,
             ])
         }
+        Msg::ToastExpire => {
+            // Passe la notification en **sortie** (l'hôte joue le fondu), puis la retire.
+            app.snackbars.start_leaving();
+            Command::perform(|| {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                Msg::DismissToast
+            })
+        }
         Msg::DismissToast => {
-            app.toast = None;
-            Command::none()
+            app.snackbars.dismiss();
+            // Enchaîne sur la notification suivante en file, s'il y en a une.
+            if app.snackbars.is_empty() {
+                Command::none()
+            } else {
+                toast_expire_after()
+            }
         }
         Msg::WizardStep(i) => {
             app.wizard_step = i.min(2);
@@ -659,18 +690,14 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::WizardSubmit => {
             if wizard_form(app).is_valid() {
-                // Succès : notifie (auto-fermée) et réinitialise l'assistant.
-                app.toast = Some("Account created".to_string());
+                // Succès : réinitialise l'assistant et notifie (Snackbar, sortie animée).
                 app.wizard_step = 0;
                 app.wizard_name.clear();
                 app.wizard_email.clear();
                 app.wizard_pass.clear();
                 app.wizard_confirm.clear();
                 app.wizard_submitted = false;
-                Command::perform(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    Msg::DismissToast
-                })
+                show_toast(app, "Account created")
             } else {
                 // Erreurs : les révèle et montre le récapitulatif sur l'étape Review.
                 app.wizard_submitted = true;
@@ -1714,16 +1741,20 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 
-    // La notification transitoire (toast) flotte au-dessus de tout, ancrée en bas-centre
-    // par la couche `ToastHost` (jalon 188), avec une apparition en fondu.
-    match &app.toast {
-        Some(message) => Box::new(
-            Stack::new().width(width).height(height).layer(scaffold).layer(
-                ToastHost::new(ToastPosition::BottomCenter)
-                    .toast(Toast::new(message.clone()).success())
-                    .fade_in(0.25),
-            ),
-        ),
+    // La notification en tête de file flotte au-dessus de tout, ancrée en bas-centre par la
+    // couche `ToastHost` (jalon 188) : fondu d'**entrée**, puis fondu de **sortie** quand elle
+    // passe « en sortie » avant son retrait (jalon 193).
+    match app.snackbars.current() {
+        Some(message) => {
+            let host = ToastHost::new(ToastPosition::BottomCenter)
+                .toast(Toast::new(message.clone()).success());
+            let host = if app.snackbars.is_leaving() {
+                host.fade_out(0.3)
+            } else {
+                host.fade_in(0.25)
+            };
+            Box::new(Stack::new().width(width).height(height).layer(scaffold).layer(host))
+        }
         None => scaffold,
     }
 }
@@ -2013,7 +2044,7 @@ mod tests {
         reduce(&mut app, Msg::WizardSubmit);
         assert!(app.wizard_submitted);
         assert_eq!(app.wizard_step, 2);
-        assert!(app.toast.is_none());
+        assert!(app.snackbars.is_empty());
         assert!(primitive_count(&app) > 0, "le récapitulatif d'erreurs se rend");
 
         // Une puce du récapitulatif saute à l'étape du champ **et** demande son focus.
@@ -2031,7 +2062,7 @@ mod tests {
         assert!(wizard_step_valid(&wizard_form(&app), 1), "Security valide");
         reduce(&mut app, Msg::WizardSubmit);
         // Succès : notification + assistant réinitialisé.
-        assert_eq!(app.toast.as_deref(), Some("Account created"));
+        assert_eq!(app.snackbars.current().map(String::as_str), Some("Account created"));
         assert_eq!(app.wizard_step, 0);
         assert!(!app.wizard_submitted);
         assert!(app.wizard_name.is_empty() && app.wizard_email.is_empty());
@@ -2045,6 +2076,28 @@ mod tests {
         assert_eq!(app.wizard_step, 2, "borné à la dernière étape");
         reduce(&mut app, Msg::WizardBack);
         assert_eq!(app.wizard_step, 1);
+    }
+
+    #[test]
+    fn snackbar_queue_orders_and_exits() {
+        let mut app = TodoApp::default();
+        // Deux notifications empilées : la 1re est visible, la 2e attend.
+        show_toast(&mut app, "A");
+        show_toast(&mut app, "B");
+        assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
+        assert!(!app.snackbars.is_leaving(), "affichée, pas encore en sortie");
+        // Expiration → la tête passe **en sortie** (fondu) sans disparaître.
+        reduce(&mut app, Msg::ToastExpire);
+        assert!(app.snackbars.is_leaving());
+        assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
+        // Retrait → la suivante prend le relais (fondu d'entrée).
+        reduce(&mut app, Msg::DismissToast);
+        assert_eq!(app.snackbars.current().map(String::as_str), Some("B"));
+        assert!(!app.snackbars.is_leaving());
+        // Dernière : sortie puis retrait → file vide.
+        reduce(&mut app, Msg::ToastExpire);
+        reduce(&mut app, Msg::DismissToast);
+        assert!(app.snackbars.is_empty());
     }
 
     #[test]

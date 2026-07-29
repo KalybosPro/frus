@@ -195,8 +195,10 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
 /// l'action ou la croix). Générique sur la charge `T` (au minimum le texte ; souvent aussi le
 /// type et le message d'action).
 pub struct SnackbarQueue<T> {
-    /// `(charge, secondes restantes)` ; l'avant est la notification affichée.
-    items: VecDeque<(T, f32)>,
+    /// `(charge, secondes restantes, en cours de sortie)` ; l'avant est la notification affichée.
+    /// Le drapeau « en sortie » permet à l'hôte de jouer une **transition de sortie** (fondu)
+    /// avant le retrait (voir [`start_leaving`](Self::start_leaving) / [`is_leaving`](Self::is_leaving)).
+    items: VecDeque<(T, f32, bool)>,
 }
 
 impl<T> Default for SnackbarQueue<T> {
@@ -213,12 +215,12 @@ impl<T> SnackbarQueue<T> {
 
     /// Ajoute une notification qui restera visible `seconds` secondes une fois **en tête**.
     pub fn push(&mut self, item: T, seconds: f32) {
-        self.items.push_back((item, seconds.max(0.0)));
+        self.items.push_back((item, seconds.max(0.0), false));
     }
 
     /// La notification actuellement visible (l'avant de la file), s'il y en a une.
     pub fn current(&self) -> Option<&T> {
-        self.items.front().map(|(item, _)| item)
+        self.items.front().map(|(item, _, _)| item)
     }
 
     /// Fait s'écouler `dt` secondes sur la notification en tête ; si son temps est épuisé, elle
@@ -237,9 +239,22 @@ impl<T> SnackbarQueue<T> {
         }
     }
 
-    /// Ferme la notification courante immédiatement (action/croix) ; rend sa charge.
+    /// Marque la notification courante **en sortie** : l'hôte peut alors jouer sa transition de
+    /// sortie (fondu) avant que l'application ne la retire (via [`dismiss`](Self::dismiss)).
+    pub fn start_leaving(&mut self) {
+        if let Some(front) = self.items.front_mut() {
+            front.2 = true;
+        }
+    }
+
+    /// La notification courante est-elle **en sortie** ? (fondu de disparition en cours.)
+    pub fn is_leaving(&self) -> bool {
+        self.items.front().is_some_and(|(_, _, leaving)| *leaving)
+    }
+
+    /// Ferme la notification courante immédiatement (action/croix/fin de sortie) ; rend sa charge.
     pub fn dismiss(&mut self) -> Option<T> {
-        self.items.pop_front().map(|(item, _)| item)
+        self.items.pop_front().map(|(item, _, _)| item)
     }
 
     /// `true` si aucune notification n'est en attente.
@@ -311,5 +326,21 @@ mod tests {
         assert_eq!(q.dismiss(), Some("second"));
         assert!(q.is_empty());
         assert!(!q.tick(1.0), "file vide : rien ne change");
+    }
+
+    #[test]
+    fn leaving_phase_precedes_dismissal() {
+        let mut q: SnackbarQueue<&str> = SnackbarQueue::new();
+        assert!(!q.is_leaving(), "file vide : pas de sortie");
+        q.push("hello", 3.0);
+        assert!(!q.is_leaving(), "affichée : pas encore en sortie");
+        // On déclenche la sortie (fondu) sans retirer tout de suite.
+        q.start_leaving();
+        assert!(q.is_leaving(), "en sortie");
+        assert_eq!(q.current(), Some(&"hello"), "toujours visible pendant la sortie");
+        // Puis retrait effectif.
+        assert_eq!(q.dismiss(), Some("hello"));
+        assert!(!q.is_leaving());
+        assert!(q.is_empty());
     }
 }

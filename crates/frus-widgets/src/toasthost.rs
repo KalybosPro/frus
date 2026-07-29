@@ -81,12 +81,24 @@ impl<Msg: Clone + 'static> ToastHost<Msg> {
 
     /// Enveloppe **chaque** toast d'une opacité animée (`duration` secondes) : apparition en
     /// fondu à l'aide de la couche d'animation existante. À appeler après les `toast`.
-    pub fn fade_in(mut self, duration: f32) -> Self {
+    pub fn fade_in(self, duration: f32) -> Self {
+        self.wrap_opacity(1.0, duration)
+    }
+
+    /// Symétrique de [`fade_in`](Self::fade_in) : anime l'opacité vers **0** — la transition de
+    /// **sortie** (le toast s'efface avant son retrait, façon Material). L'application la joue
+    /// quand la notification passe « en sortie » (voir [`crate::SnackbarQueue::is_leaving`]).
+    pub fn fade_out(self, duration: f32) -> Self {
+        self.wrap_opacity(0.0, duration)
+    }
+
+    /// Enveloppe chaque toast d'une opacité animée vers `target`.
+    fn wrap_opacity(mut self, target: f32, duration: f32) -> Self {
         self.children = self
             .children
             .into_iter()
             .map(|child| {
-                Box::new(AnimatedOpacity::new(1.0, duration, Curve::ease_in_out(), child))
+                Box::new(AnimatedOpacity::new(target, duration, Curve::ease_in_out(), child))
                     as Box<dyn Widget<Msg>>
             })
             .collect();
@@ -150,5 +162,13 @@ mod tests {
             .toast(Text::new("b"))
             .fade_in(0.2);
         assert_eq!(Widget::<()>::children(&host).len(), 2, "deux toasts, enveloppés en fondu");
+    }
+
+    #[test]
+    fn fade_out_wraps_children() {
+        let host = ToastHost::<()>::new(ToastPosition::BottomCenter)
+            .toast(Text::new("bye"))
+            .fade_out(0.3);
+        assert_eq!(Widget::<()>::children(&host).len(), 1, "toast enveloppé en fondu de sortie");
     }
 }
