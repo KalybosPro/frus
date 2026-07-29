@@ -523,6 +523,34 @@ fn form_error_summary_matches_golden() {
     snapshot.assert_golden(golden("form_error_summary"));
 }
 
+/// **Formulaire multi-étapes (jalon 182)** : l'indicateur `Steps` (étape 2/3 en cours, la
+/// première terminée avec une coche) coiffe le contenu de l'étape et une barre Précédent/Suivant.
+/// Reproduit son golden.
+#[test]
+fn form_wizard_matches_golden() {
+    use frus_widgets::Steps;
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Flex::column()
+            .gap(18.0)
+            .child(Steps::new(["Account", "Profile", "Review"]).current(1))
+            .child(Text::styled("Profile", theme.text.title_medium))
+            .child(TextInput::<()>::new("Ada Lovelace").width(340.0).label("Full name"))
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Next")),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 420, 280, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "indicateur d'étapes, champ et boutons dessinés");
+    snapshot.assert_golden(golden("form_wizard"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.
