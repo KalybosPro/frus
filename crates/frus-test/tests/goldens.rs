@@ -656,6 +656,38 @@ fn datetime_range_matches_golden() {
     snapshot.assert_golden(golden("datetime_range"));
 }
 
+/// **Assistant intégré, étape Review avec erreurs (jalon 190)** : l'indicateur `Steps`
+/// (Review courant), un récapitulatif d'erreurs **cliquable** (`ErrorSummary::links`) et la
+/// barre Back / Create — l'assemblage réel de l'écran assistant du démo. Reproduit son golden.
+#[test]
+fn wizard_review_errors_matches_golden() {
+    use frus_widgets::{ErrorSummary, Steps};
+    let theme = Theme::dark();
+    let summary = ErrorSummary::links([
+        ("Email is required".to_string(), ()),
+        ("Passwords do not match".to_string(), ()),
+    ]);
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(24.0)
+            .child(Steps::new(["Account", "Security", "Review"]).current(2).on_tap(|_| ()))
+            .child(summary)
+            .child(Text::new("Creating account for Ada <not-an-email>").size(16.0))
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Create account")),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 480, 380, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "assistant (étape Review, erreurs) dessiné");
+    snapshot.assert_golden(golden("wizard_review_errors"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]

@@ -55,8 +55,10 @@ use frus_widgets::{
     RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
     TextSpan, WindowInsets,
-    Stepper, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, Tree, TwoPane, Variant, Widget,
+    Stepper, Steps, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, ToastHost,
+    ToastPosition, Tree, TwoPane, Variant, Widget, ErrorSummary,
 };
+use frus_widgets::form::{Form, Rule};
 
 /// Logo de démo **décodé** depuis un PNG embarqué (jalon 91), partagé pour tout
 /// le process via `OnceLock` — décodé une fois, mis en cache par identité côté
@@ -155,6 +157,8 @@ enum Route {
     Home,
     Settings,
     Journal,
+    /// Assistant d'inscription multi-étapes (démo d'intégration : Steps + Form + Snackbar).
+    Wizard,
 }
 
 /// Geste retour : progression suivie au doigt, puis détente à ressort
@@ -246,6 +250,16 @@ enum Msg {
     ToggleDrawer,
     /// Ouvre/ferme la feuille modale d'actions rapides.
     ToggleSheet,
+    // --- Assistant d'inscription (démo d'intégration) ---
+    /// Saute à l'étape `i` de l'assistant (marqueur Steps cliqué / puce du récapitulatif).
+    WizardStep(usize),
+    /// Saisie d'un champ de l'assistant : `(0=nom, 1=email, 2=mot de passe, 3=confirmation)`.
+    WizardInput(u8, String),
+    /// Étape précédente / suivante de l'assistant.
+    WizardBack,
+    WizardNext,
+    /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
+    WizardSubmit,
 }
 
 /// Chemin du fichier de persistance des tâches.
@@ -374,6 +388,15 @@ struct TodoApp {
     /// L'état vient d'un instantané live-reload : `init` ne recharge pas les
     /// tâches depuis le disque (l'instantané fait foi).
     restored: bool,
+    // --- Assistant d'inscription (démo d'intégration) ---
+    /// Étape courante de l'assistant (0 = Account, 1 = Security, 2 = Review).
+    wizard_step: usize,
+    wizard_name: String,
+    wizard_email: String,
+    wizard_pass: String,
+    wizard_confirm: String,
+    /// L'assistant a-t-il été soumis au moins une fois ? (n'affiche les erreurs qu'après.)
+    wizard_submitted: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -606,6 +629,48 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.toast = None;
             Command::none()
         }
+        Msg::WizardStep(i) => {
+            app.wizard_step = i.min(2);
+            Command::none()
+        }
+        Msg::WizardInput(field, value) => {
+            match field {
+                0 => app.wizard_name = value,
+                1 => app.wizard_email = value,
+                2 => app.wizard_pass = value,
+                _ => app.wizard_confirm = value,
+            }
+            Command::none()
+        }
+        Msg::WizardBack => {
+            app.wizard_step = app.wizard_step.saturating_sub(1);
+            Command::none()
+        }
+        Msg::WizardNext => {
+            app.wizard_step = (app.wizard_step + 1).min(2);
+            Command::none()
+        }
+        Msg::WizardSubmit => {
+            if wizard_form(app).is_valid() {
+                // Succès : notifie (auto-fermée) et réinitialise l'assistant.
+                app.toast = Some("Account created".to_string());
+                app.wizard_step = 0;
+                app.wizard_name.clear();
+                app.wizard_email.clear();
+                app.wizard_pass.clear();
+                app.wizard_confirm.clear();
+                app.wizard_submitted = false;
+                Command::perform(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    Msg::DismissToast
+                })
+            } else {
+                // Erreurs : les révèle et montre le récapitulatif sur l'étape Review.
+                app.wizard_submitted = true;
+                app.wizard_step = 2;
+                Command::none()
+            }
+        }
         Msg::SetPage(p) => {
             app.page = p;
             Command::none()
@@ -729,6 +794,7 @@ impl Application for TodoApp {
             Route::Home => 0,
             Route::Settings => 1,
             Route::Journal => 2,
+            Route::Wizard => 3,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -760,6 +826,7 @@ impl Application for TodoApp {
                     match value {
                         "1" => self.routes.push(Route::Settings),
                         "2" => self.routes.push(Route::Journal),
+                        "3" => self.routes.push(Route::Wizard),
                         _ => {}
                     }
                 }
@@ -980,7 +1047,141 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
         Route::Home => todo_screen(app, theme, width, height),
         Route::Settings => Box::new(settings_screen(app, theme, width, height)),
         Route::Journal => Box::new(journal_screen(theme, width, height)),
+        Route::Wizard => wizard_screen(app, theme, width, height),
     }
+}
+
+/// Le formulaire de l'assistant : validation **pure** de l'état courant (jalons 180–181).
+/// L'ordre déclare `password` avant `confirm` (validation croisée `matches`).
+fn wizard_form(app: &TodoApp) -> Form {
+    Form::new()
+        .field("name", app.wizard_name.as_str(), Rule::required("Name is required"))
+        .field(
+            "email",
+            app.wizard_email.as_str(),
+            Rule::all([
+                Rule::required("Email is required"),
+                Rule::email("Enter a valid email address"),
+            ]),
+        )
+        .field(
+            "password",
+            app.wizard_pass.as_str(),
+            Rule::min_len(8, "Password must be at least 8 characters"),
+        )
+        .matches("confirm", app.wizard_confirm.as_str(), "password", "Passwords do not match")
+}
+
+/// À quelle étape (0 = Account, 1 = Security) vit le champ `key` — pour que cliquer une puce du
+/// récapitulatif d'erreurs saute à la bonne étape (jalons 181 + 183).
+fn wizard_step_of(key: &str) -> usize {
+    match key {
+        "name" | "email" => 0,
+        _ => 1,
+    }
+}
+
+/// Un champ de l'assistant, dont l'erreur ne s'affiche **qu'après** une soumission.
+fn wizard_input(
+    form: &Form,
+    submitted: bool,
+    label: &str,
+    value: &str,
+    key: &str,
+    field: u8,
+) -> TextInput<Msg> {
+    let mut input = TextInput::new(value)
+        .width(360.0)
+        .size(16.0)
+        .label(label)
+        .on_input(move |s| Msg::WizardInput(field, s));
+    if submitted {
+        if let Some(err) = form.error(key) {
+            input = input.error(err);
+        }
+    }
+    input
+}
+
+/// Écran **assistant d'inscription** : preuve d'intégration des briques récentes —
+/// indicateur [`Steps`] cliquable (jalon 183), formulaire validé [`Form`] (180) avec
+/// récapitulatif d'erreurs **cliquable** (181), et notification de succès (185/188).
+fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    let form = wizard_form(app);
+    let submitted = app.wizard_submitted;
+
+    let steps = Steps::new(["Account", "Security", "Review"])
+        .current(app.wizard_step)
+        .on_tap(Msg::WizardStep);
+
+    // Contenu de l'étape courante.
+    let content: Box<dyn Widget<Msg>> = match app.wizard_step {
+        0 => Box::new(
+            Flex::column()
+                .gap(14.0)
+                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0))
+                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1)),
+        ),
+        1 => Box::new(
+            Flex::column()
+                .gap(14.0)
+                .child(wizard_input(
+                    &form,
+                    submitted,
+                    "Password",
+                    &app.wizard_pass,
+                    "password",
+                    2,
+                ))
+                .child(wizard_input(
+                    &form,
+                    submitted,
+                    "Confirm password",
+                    &app.wizard_confirm,
+                    "confirm",
+                    3,
+                )),
+        ),
+        _ => {
+            let mut review = Flex::column().gap(14.0);
+            // Récapitulatif cliquable : chaque puce saute à l'étape du champ fautif.
+            if submitted && !form.is_valid() {
+                let links = form
+                    .errors()
+                    .into_iter()
+                    .map(|(key, message)| (message.to_string(), Msg::WizardStep(wizard_step_of(key))));
+                review = review.child(ErrorSummary::links(links));
+            }
+            review = review.child(
+                text(format!(
+                    "Creating account for {} <{}>",
+                    if app.wizard_name.is_empty() { "—" } else { app.wizard_name.as_str() },
+                    if app.wizard_email.is_empty() { "—" } else { app.wizard_email.as_str() },
+                ))
+                .size(16.0),
+            );
+            Box::new(review)
+        }
+    };
+
+    // Barre de navigation : Précédent / Suivant, ou Créer sur la dernière étape.
+    let mut nav = Flex::row().gap(12.0);
+    if app.wizard_step > 0 {
+        nav = nav.child(button("Back", Msg::WizardBack).variant(Variant::Secondary).size(16.0));
+    }
+    if app.wizard_step < 2 {
+        nav = nav.child(button("Next", Msg::WizardNext).variant(Variant::Primary).size(16.0));
+    } else {
+        nav = nav.child(
+            button("Create account", Msg::WizardSubmit).variant(Variant::Primary).size(16.0),
+        );
+    }
+
+    let body = column![steps, content, nav].gap(24.0).padding(24.0);
+    let screen = column![NavBar::new("Sign-up wizard").on_back(Msg::Pop), body]
+        .width(width)
+        .height(height);
+    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
 }
 
 /// Écran « Journal » : une **liste virtualisée** de 5000 lignes.
@@ -1476,14 +1677,14 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 
-    // La notification transitoire (toast) flotte au-dessus de tout.
+    // La notification transitoire (toast) flotte au-dessus de tout, ancrée en bas-centre
+    // par la couche `ToastHost` (jalon 188), avec une apparition en fondu.
     match &app.toast {
         Some(message) => Box::new(
             Stack::new().width(width).height(height).layer(scaffold).layer(
-                column![Toast::new(message.clone()).success()]
-                    .justify(Justify::End)
-                    .align(Align::Center)
-                    .padding(20.0),
+                ToastHost::new(ToastPosition::BottomCenter)
+                    .toast(Toast::new(message.clone()).success())
+                    .fade_in(0.25),
             ),
         ),
         None => scaffold,
@@ -1525,6 +1726,9 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
             Divider::new(),
             text(format!("{active} task(s) pending")).size(14.0).color(theme.muted),
             button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
+            button("Sign-up wizard →", Msg::Push(Route::Wizard))
+                .variant(Variant::Secondary)
+                .size(15.0),
         ]
         .gap(12.0),
     )
@@ -1756,6 +1960,43 @@ mod tests {
         let mut app = TodoApp::default();
         add(&mut app, "tâche");
         assert!(primitive_count(&app) > 0);
+    }
+
+    #[test]
+    fn wizard_flow_validates_navigates_and_notifies() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Wizard));
+        assert_eq!(current_route(&app), Route::Wizard);
+        assert!(primitive_count(&app) > 0, "l'écran assistant se rend");
+
+        // Soumission vide → erreurs révélées, saut à l'étape Review (récapitulatif).
+        reduce(&mut app, Msg::WizardSubmit);
+        assert!(app.wizard_submitted);
+        assert_eq!(app.wizard_step, 2);
+        assert!(app.toast.is_none());
+        assert!(primitive_count(&app) > 0, "le récapitulatif d'erreurs se rend");
+
+        // Remplir valablement (email valide, mots de passe concordants).
+        reduce(&mut app, Msg::WizardInput(0, "Ada".to_string()));
+        reduce(&mut app, Msg::WizardInput(1, "ada@example.com".to_string()));
+        reduce(&mut app, Msg::WizardInput(2, "secret12".to_string()));
+        reduce(&mut app, Msg::WizardInput(3, "secret12".to_string()));
+        reduce(&mut app, Msg::WizardSubmit);
+        // Succès : notification + assistant réinitialisé.
+        assert_eq!(app.toast.as_deref(), Some("Account created"));
+        assert_eq!(app.wizard_step, 0);
+        assert!(!app.wizard_submitted);
+        assert!(app.wizard_name.is_empty() && app.wizard_email.is_empty());
+
+        // Navigation par étapes (Suivant / saut direct / Précédent, bornés).
+        reduce(&mut app, Msg::WizardNext);
+        assert_eq!(app.wizard_step, 1);
+        reduce(&mut app, Msg::WizardStep(2));
+        assert_eq!(app.wizard_step, 2);
+        reduce(&mut app, Msg::WizardNext);
+        assert_eq!(app.wizard_step, 2, "borné à la dernière étape");
+        reduce(&mut app, Msg::WizardBack);
+        assert_eq!(app.wizard_step, 1);
     }
 
     #[test]
