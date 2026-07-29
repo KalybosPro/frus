@@ -824,6 +824,30 @@ fn table_editable_matches_golden() {
     snapshot.assert_golden(golden("table_editable"));
 }
 
+/// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
+/// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
+#[test]
+fn bar_chart_matches_golden() {
+    use frus_widgets::BarChart;
+    let theme = Theme::dark();
+    let chart = BarChart::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0);
+    // `BarChart` remplit la largeur (Percent) : le parent doit avoir une largeur **définie**.
+    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "graphique à barres dessiné");
+    snapshot.assert_golden(golden("bar_chart"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]
