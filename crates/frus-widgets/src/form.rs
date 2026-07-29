@@ -29,7 +29,7 @@
 //! assert_eq!(report.first_invalid(), Some("email"));
 //! ```
 
-use frus_core::{Insets, Rect, Scene};
+use frus_core::{Color, Insets, Point, Rect, Role, Scene, Semantics};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -193,30 +193,101 @@ const SUMMARY_PAD: f32 = 12.0;
 /// « Please fix N error(s) » puis une puce par message), à poser en tête de formulaire après
 /// une soumission invalide. Se construit depuis [`Form::errors`]. Vide si aucun message
 /// (à ne pas afficher — voir [`is_empty`](Self::is_empty)).
+///
+/// Les puces sont **inertes** avec [`new`](Self::new) ; avec [`links`](Self::links) chacune
+/// porte un message applicatif émis au clic — typiquement pour **focaliser** le champ fautif
+/// (via `Command::focus`), le récapitulatif servant alors de table des matières des erreurs.
 pub struct ErrorSummary<Msg> {
     empty: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> ErrorSummary<Msg> {
-    /// Construit le récapitulatif à partir des messages (l'ordre est conservé).
+    /// Construit le récapitulatif à partir des messages (l'ordre est conservé). Puces **inertes**.
     pub fn new(messages: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        let messages: Vec<String> = messages.into_iter().map(Into::into).collect();
-        let title = match messages.len() {
+        Self::assemble(messages.into_iter().map(|m| (m.into(), None)).collect())
+    }
+
+    /// Récapitulatif **cliquable** : chaque `(message, msg)` devient une puce qui émet `msg` au
+    /// clic (pour focaliser le champ correspondant). L'ordre est conservé.
+    pub fn links(items: impl IntoIterator<Item = (impl Into<String>, Msg)>) -> Self {
+        Self::assemble(items.into_iter().map(|(m, msg)| (m.into(), Some(msg))).collect())
+    }
+
+    /// Assemble titre + puces (cliquables si un message est fourni).
+    fn assemble(items: Vec<(String, Option<Msg>)>) -> Self {
+        let title = match items.len() {
             1 => "Please fix 1 error".to_string(),
             n => format!("Please fix {n} errors"),
         };
-        let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(messages.len() + 1);
+        let empty = items.is_empty();
+        let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(items.len() + 1);
         children.push(Box::new(Text::new(title).size(14.0)));
-        for m in &messages {
-            children.push(Box::new(Text::new(format!("• {m}")).size(13.0)));
+        for (message, msg) in items {
+            children.push(Box::new(Bullet { label: format!("• {message}"), message: msg }));
         }
-        Self { empty: messages.is_empty(), children }
+        Self { empty, children }
     }
 
     /// `true` si aucun message — l'appelant peut alors ne rien afficher.
     pub fn is_empty(&self) -> bool {
         self.empty
+    }
+}
+
+/// Taille de police d'une puce du récapitulatif.
+const BULLET_SIZE: f32 = 13.0;
+
+/// Une ligne du récapitulatif (« • message »). **Cliquable** quand elle porte un message
+/// (elle focalise alors le champ fautif) ; simple texte sinon.
+struct Bullet<Msg> {
+    label: String,
+    message: Option<Msg>,
+}
+
+impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
+    fn style(&self) -> Style {
+        let measured = frus_text::measure(&self.label, BULLET_SIZE);
+        Style {
+            width: Dimension::Percent(1.0),
+            height: Dimension::Length((measured.height + 4.0).ceil()),
+            padding: Insets::new(2.0, 6.0, 2.0, 6.0),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        // Surbrillance discrète au survol/focus quand la puce est cliquable.
+        let highlight = status.hover_progress.max(status.focus_progress);
+        if self.message.is_some() && highlight > 0.0 {
+            let tint = theme.error.fade(0.12 * highlight * o);
+            scene.draw_rect(bounds, tint, theme.radius, 0.0, Color::TRANSPARENT);
+        }
+        scene.text(
+            Point::new(bounds.x + 6.0, bounds.y + 2.0),
+            self.label.clone(),
+            BULLET_SIZE,
+            theme.on_surface.fade(o),
+        );
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        self.message.clone()
+    }
+
+    fn focusable(&self) -> bool {
+        self.message.is_some()
+    }
+
+    fn semantics(&self) -> Option<Semantics> {
+        self.message
+            .as_ref()
+            .map(|_| Semantics::new(Role::Button).label(self.label.clone()).clickable())
     }
 }
 
@@ -364,5 +435,29 @@ mod tests {
         assert!(painted("• Invalid email") && painted("• Too short"), "une puce par message");
         // Vide → à ne pas afficher.
         assert!(ErrorSummary::<()>::new(Vec::<String>::new()).is_empty());
+    }
+
+    #[test]
+    fn error_summary_links_emit_focus_messages() {
+        #[derive(Clone, Debug, PartialEq)]
+        enum Msg {
+            Focus(&'static str),
+        }
+        let summary = ErrorSummary::links([
+            ("Invalid email", Msg::Focus("email")),
+            ("Too short", Msg::Focus("password")),
+        ]);
+        assert!(!summary.is_empty());
+        let kids = Widget::<Msg>::children(&summary);
+        // [0] = titre (inerte) ; [1..] = puces cliquables, dans l'ordre.
+        assert_eq!(kids[0].on_click(), None, "le titre n'est pas cliquable");
+        assert_eq!(kids[1].on_click(), Some(Msg::Focus("email")));
+        assert_eq!(kids[2].on_click(), Some(Msg::Focus("password")));
+        assert!(kids[1].focusable(), "une puce cliquable est focalisable");
+        // La variante inerte ne clique pas.
+        let inert = ErrorSummary::<Msg>::new(["Invalid email"]);
+        let inert_kids = Widget::<Msg>::children(&inert);
+        assert_eq!(inert_kids[1].on_click(), None);
+        assert!(!inert_kids[1].focusable(), "une puce inerte n'est pas focalisable");
     }
 }
