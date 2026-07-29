@@ -107,7 +107,7 @@ pub use breadcrumb::Breadcrumb;
 pub use button::{Button, Variant};
 pub use card::Card;
 pub use carousel::Carousel;
-pub use chart::BarChart;
+pub use chart::{BarChart, LineChart};
 pub use checkbox::Checkbox;
 pub use chip::Chip;
 pub use clip::{ClipOval, ClipPath, ClipRRect};

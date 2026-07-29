@@ -5,8 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, Button, Chip, Container, DateTimePicker, Dropdown, Flex, IconName, Menu,
-    RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
+    Autocomplete, Avatar, Button, Chip, Container, DateTimePicker, Dropdown, Flex, IconName,
+    LineChart, Menu, RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -846,6 +846,30 @@ fn bar_chart_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "graphique à barres dessiné");
     snapshot.assert_golden(golden("bar_chart"));
+}
+
+/// **Graphique en lignes (jalon 200)** : la même série `(jour, valeur)` que la BarChart, mais
+/// tracée en polyligne (segments + marqueurs ronds), valeurs au-dessus, libellés dessous, ligne
+/// de base. Reproduit son golden.
+#[test]
+fn line_chart_matches_golden() {
+    let theme = Theme::dark();
+    let chart = LineChart::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0);
+    // `LineChart` remplit la largeur (Percent) : le parent doit avoir une largeur **définie**.
+    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "graphique en lignes dessiné");
+    snapshot.assert_golden(golden("line_chart"));
 }
 
 /// **Champ avec suffixe cliquable (jalon 198)** : un `TextInput` rempli portant une icône
