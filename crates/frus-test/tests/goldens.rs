@@ -744,6 +744,43 @@ fn wizard_password_step_matches_golden() {
     snapshot.assert_golden(golden("wizard_password_step"));
 }
 
+/// **Assistant, mots de passe révélés + étapes par validité (jalons 194–195)** : la bascule
+/// « Hide password » démasque les champs (`obscure(false)`), et l'étape Account est marquée
+/// **terminée** (coche) via `Steps::completed` — pas seulement par position. Reproduit son golden.
+#[test]
+fn wizard_password_revealed_matches_golden() {
+    use frus_widgets::Steps;
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(24.0)
+            .child(
+                Steps::new(["Account", "Security", "Review"])
+                    .current(1)
+                    .completed([true, false, false]),
+            )
+            .child(
+                Flex::column()
+                    .gap(14.0)
+                    .child(TextInput::<()>::new("secret12").width(340.0).label("Password"))
+                    .child(TextInput::<()>::new("secret12").width(340.0).label("Confirm password"))
+                    .child(Button::new("Hide password").variant(Variant::Secondary)),
+            )
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Next")),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 440, 460, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "étape révélée dessinée");
+    snapshot.assert_golden(golden("wizard_password_revealed"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]

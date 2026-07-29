@@ -262,6 +262,8 @@ enum Msg {
     /// Étape précédente / suivante de l'assistant.
     WizardBack,
     WizardNext,
+    /// Révèle / masque les mots de passe de l'assistant.
+    WizardToggleReveal,
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -401,6 +403,8 @@ struct TodoApp {
     wizard_confirm: String,
     /// L'assistant a-t-il été soumis au moins une fois ? (n'affiche les erreurs qu'après.)
     wizard_submitted: bool,
+    /// Les mots de passe de l'assistant sont-ils **révélés** (démasqués) ?
+    wizard_reveal: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -686,6 +690,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::WizardNext => {
             app.wizard_step = (app.wizard_step + 1).min(2);
+            Command::none()
+        }
+        Msg::WizardToggleReveal => {
+            app.wizard_reveal = !app.wizard_reveal;
             Command::none()
         }
         Msg::WizardSubmit => {
@@ -1166,8 +1174,15 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     let form = wizard_form(app);
     let submitted = app.wizard_submitted;
 
+    // Les étapes sont marquées « terminées » par **validité** (jalon 195), pas seulement par
+    // position — cohérent avec « Next » gardé par la même validité.
     let steps = Steps::new(["Account", "Security", "Review"])
         .current(app.wizard_step)
+        .completed([
+            wizard_step_valid(&form, 0),
+            wizard_step_valid(&form, 1),
+            form.is_valid(),
+        ])
         .on_tap(Msg::WizardStep);
 
     // Contenu de l'étape courante.
@@ -1178,28 +1193,38 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                 .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false))
                 .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false)),
         ),
-        1 => Box::new(
-            Flex::column()
-                .gap(14.0)
-                .child(wizard_input(
-                    &form,
-                    submitted,
-                    "Password",
-                    &app.wizard_pass,
-                    "password",
-                    2,
-                    true,
-                ))
-                .child(wizard_input(
-                    &form,
-                    submitted,
-                    "Confirm password",
-                    &app.wizard_confirm,
-                    "confirm",
-                    3,
-                    true,
-                )),
-        ),
+        1 => {
+            // Les mots de passe sont masqués sauf si l'utilisateur les révèle (bascule).
+            let obscure = !app.wizard_reveal;
+            let toggle = if app.wizard_reveal { "Hide password" } else { "Show password" };
+            Box::new(
+                Flex::column()
+                    .gap(14.0)
+                    .child(wizard_input(
+                        &form,
+                        submitted,
+                        "Password",
+                        &app.wizard_pass,
+                        "password",
+                        2,
+                        obscure,
+                    ))
+                    .child(wizard_input(
+                        &form,
+                        submitted,
+                        "Confirm password",
+                        &app.wizard_confirm,
+                        "confirm",
+                        3,
+                        obscure,
+                    ))
+                    .child(
+                        button(toggle, Msg::WizardToggleReveal)
+                            .variant(Variant::Secondary)
+                            .size(14.0),
+                    ),
+            )
+        }
         _ => {
             let mut review = Flex::column().gap(14.0);
             // Récapitulatif cliquable : chaque puce saute à l'étape du champ fautif **et**
