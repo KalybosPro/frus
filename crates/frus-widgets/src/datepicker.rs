@@ -44,10 +44,41 @@ fn first_weekday(year: i32, month: u32) -> usize {
     (((y + y / 4 - y / 100 + y / 400 + T[m - 1] + 1) % 7 + 7) % 7) as usize
 }
 
+/// État d'une case-jour vis-à-vis de la sélection.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DayMark {
+    /// Ni sélectionné ni dans une plage.
+    Off,
+    /// Jour sélectionné (mode simple).
+    Selected,
+    /// Borne **début** d'une plage.
+    Start,
+    /// Borne **fin** d'une plage.
+    End,
+    /// Jour **entre** les deux bornes (bande de liaison).
+    Between,
+}
+
+/// Marqueur de plage d'une `date` `(année, mois, jour)` vis-à-vis de `[start, end]` :
+/// borne début/fin, jour intermédiaire, ou hors plage. Les dates se comparent par tuple
+/// (année, puis mois, puis jour), donc l'ordre chronologique est celui de `<`.
+fn range_mark(
+    date: (i32, u32, u32),
+    start: Option<(i32, u32, u32)>,
+    end: Option<(i32, u32, u32)>,
+) -> DayMark {
+    match (start, end) {
+        (Some(s), _) if date == s => DayMark::Start,
+        (_, Some(e)) if date == e => DayMark::End,
+        (Some(s), Some(e)) if s < date && date < e => DayMark::Between,
+        _ => DayMark::Off,
+    }
+}
+
 /// Une case-jour cliquable (vide si `day == 0`).
 struct Day<Msg> {
     day: u32,
-    selected: bool,
+    mark: DayMark,
     message: Option<Msg>,
 }
 
@@ -69,13 +100,28 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             return; // case de remplissage
         }
         let o = status.opacity;
-        let (bg, fg) = if self.selected {
-            (theme.primary, theme.on_primary)
-        } else {
-            let hovered = theme.state_layer(theme.surface, theme.on_surface, &status);
-            (hovered, theme.on_surface)
+        // Bande de plage (fond doux, coins carrés pour se toucher entre cases voisines).
+        let band = theme.primary.fade(0.18 * o);
+        let half = Rect::new(bounds.x, bounds.y, bounds.width * 0.5, bounds.height);
+        let right = Rect::new(bounds.x + bounds.width * 0.5, bounds.y, bounds.width * 0.5, bounds.height);
+        match self.mark {
+            // La borne peint sa demi-bande côté intérieur pour rejoindre les jours entre.
+            DayMark::Start => scene.draw_rect(right, band, 0.0, 0.0, Color::TRANSPARENT),
+            DayMark::End => scene.draw_rect(half, band, 0.0, 0.0, Color::TRANSPARENT),
+            DayMark::Between => scene.draw_rect(bounds, band, 0.0, 0.0, Color::TRANSPARENT),
+            _ => {}
+        }
+        // Fond de la case (pastille pleine pour une borne/sélection, survol sinon).
+        let (bg, fg) = match self.mark {
+            DayMark::Selected | DayMark::Start | DayMark::End => (theme.primary, theme.on_primary),
+            _ => {
+                let hovered = theme.state_layer(theme.surface, theme.on_surface, &status);
+                (hovered, theme.on_surface)
+            }
         };
-        scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
+        if self.mark != DayMark::Between {
+            scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
+        }
         let label = self.day.to_string();
         let w = frus_text::measure(&label, SIZE).width;
         scene.text(
@@ -119,6 +165,42 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         on_select: impl Fn(u32) -> Msg + 'static,
         on_nav: impl Fn(i32) -> Msg + 'static,
     ) -> Self {
+        Self::assemble(year, month, on_select, on_nav, move |day| {
+            if selected == Some(day) {
+                DayMark::Selected
+            } else {
+                DayMark::Off
+            }
+        })
+    }
+
+    /// Calendrier en **mode plage** : met en avant l'intervalle `[start, end]` (dates
+    /// `(année, mois, jour)`) — bornes en pastille pleine, jours entre en bande douce. Une seule
+    /// borne (`end == None`) affiche juste le début (sélection en cours). `on_select(jour)`
+    /// rapporte le jour cliqué du mois affiché — l'application décide s'il devient début ou fin.
+    pub fn range(
+        year: i32,
+        month: u32,
+        start: Option<(i32, u32, u32)>,
+        end: Option<(i32, u32, u32)>,
+        on_select: impl Fn(u32) -> Msg + 'static,
+        on_nav: impl Fn(i32) -> Msg + 'static,
+    ) -> Self {
+        let month = month.clamp(1, 12);
+        Self::assemble(year, month, on_select, on_nav, move |day| {
+            range_mark((year, month, day), start, end)
+        })
+    }
+
+    /// Assemble l'en-tête, la ligne des jours de semaine et la grille ; `mark_of(jour)` décide de
+    /// l'état de chaque case (sélection simple ou plage).
+    fn assemble(
+        year: i32,
+        month: u32,
+        on_select: impl Fn(u32) -> Msg + 'static,
+        on_nav: impl Fn(i32) -> Msg + 'static,
+        mark_of: impl Fn(u32) -> DayMark,
+    ) -> Self {
         let month = month.clamp(1, 12);
 
         // En-tête : ‹ Mois Année ›.
@@ -146,14 +228,14 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         for _ in 0..lead {
             grid = grid.cell(Day::<Msg> {
                 day: 0,
-                selected: false,
+                mark: DayMark::Off,
                 message: None,
             });
         }
         for day in 1..=total {
             grid = grid.cell(Day {
                 day,
-                selected: selected == Some(day),
+                mark: mark_of(day),
                 message: Some(on_select(day)),
             });
         }
@@ -247,5 +329,41 @@ mod tests {
         // (3 cases vides) → 3 + 31 = 34 cellules.
         let grid = &Widget::<Msg>::children(&dp)[2];
         assert_eq!(grid.children().len(), 34);
+    }
+
+    #[test]
+    fn range_marks_endpoints_and_interior() {
+        let start = Some((2026, 7, 10));
+        let end = Some((2026, 7, 15));
+        assert_eq!(range_mark((2026, 7, 10), start, end), DayMark::Start);
+        assert_eq!(range_mark((2026, 7, 15), start, end), DayMark::End);
+        assert_eq!(range_mark((2026, 7, 12), start, end), DayMark::Between);
+        assert_eq!(range_mark((2026, 7, 9), start, end), DayMark::Off, "avant le début");
+        assert_eq!(range_mark((2026, 7, 16), start, end), DayMark::Off, "après la fin");
+        // Traverse les frontières de mois : juin est « entre » juin-15 et août-01.
+        let cross = (Some((2026, 6, 15)), Some((2026, 8, 1)));
+        assert_eq!(range_mark((2026, 7, 20), cross.0, cross.1), DayMark::Between);
+        assert_eq!(range_mark((2026, 5, 31), cross.0, cross.1), DayMark::Off);
+        // Sélection en cours (une seule borne) : seul le début est marqué.
+        assert_eq!(range_mark((2026, 7, 10), start, None), DayMark::Start);
+        assert_eq!(range_mark((2026, 7, 12), start, None), DayMark::Off, "pas de bande sans fin");
+    }
+
+    #[test]
+    fn range_builds_grid_with_clickable_days() {
+        let dp = DatePicker::range(
+            2026,
+            7,
+            Some((2026, 7, 10)),
+            Some((2026, 7, 15)),
+            Msg::Pick,
+            Msg::Nav,
+        );
+        assert_eq!(Widget::<Msg>::children(&dp).len(), 3);
+        let grid = &Widget::<Msg>::children(&dp)[2];
+        // Cases de remplissage (mercredi = 3) + 31 jours.
+        assert_eq!(grid.children().len(), 34);
+        // Le 10 juillet (3 vides + jours 1..10 → index 12) reste cliquable.
+        assert_eq!(grid.children()[12].on_click(), Some(Msg::Pick(10)));
     }
 }

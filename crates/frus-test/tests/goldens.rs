@@ -551,6 +551,29 @@ fn form_wizard_matches_golden() {
     snapshot.assert_golden(golden("form_wizard"));
 }
 
+/// **Calendrier en mode plage (jalon 184)** : juillet 2026, intervalle du 10 au 15 —
+/// bornes en pastille pleine, jours intermédiaires en bande douce. Reproduit son golden.
+#[test]
+fn date_range_matches_golden() {
+    use frus_widgets::DatePicker;
+    let theme = Theme::dark();
+    let picker = DatePicker::range(
+        2026,
+        7,
+        Some((2026, 7, 10)),
+        Some((2026, 7, 15)),
+        |_| (),
+        |_| (),
+    );
+    let root: Container<()> = Container::new().padding(16.0).child(picker);
+    let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "calendrier et plage dessinés");
+    snapshot.assert_golden(golden("date_range"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.
