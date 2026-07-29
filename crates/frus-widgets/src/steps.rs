@@ -10,9 +10,10 @@
 //! des boutons qui changent l'étape courante). Le nom `Stepper` étant déjà pris par
 //! le sélecteur numérique −/valeur/+, cet indicateur s'appelle `Steps`.
 
-use frus_core::{Color, Point, Rect, Scene};
-use frus_layout::{Dimension, Style};
+use frus_core::{Color, Point, Rect, Role, Scene, Semantics};
+use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
+use crate::flex::Flex;
 use crate::icons::IconName;
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -36,19 +37,27 @@ const HEIGHT: f32 = 56.0;
 /// ```
 /// use frus_widgets::Steps;
 /// // Trois étapes, la deuxième en cours (la première est donc « terminée »).
-/// let steps: Steps = Steps::new(["Account", "Profile", "Review"]).current(1);
+/// let steps: Steps<()> = Steps::new(["Account", "Profile", "Review"]).current(1);
 /// ```
-pub struct Steps {
+pub struct Steps<Msg> {
     labels: Vec<String>,
     current: usize,
     /// Couleur d'accent surchargée ; `None` = `primary` du thème.
     color: Option<Color>,
+    /// Vide, ou **une** rangée de zones cliquables (hotspots) superposée aux marqueurs quand
+    /// [`on_tap`](Self::on_tap) est fourni.
+    children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl Steps {
+impl<Msg: Clone + 'static> Steps<Msg> {
     /// Crée un indicateur depuis les libellés d'étapes ; l'étape courante est la première.
     pub fn new(labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        Self { labels: labels.into_iter().map(Into::into).collect(), current: 0, color: None }
+        Self {
+            labels: labels.into_iter().map(Into::into).collect(),
+            current: 0,
+            color: None,
+            children: Vec::new(),
+        }
     }
 
     /// Fixe l'étape **courante** (les précédentes sont « terminées », les suivantes « à venir »).
@@ -64,6 +73,21 @@ impl Steps {
         self
     }
 
+    /// Rend les marqueurs **cliquables** : cliquer le marqueur de l'étape `i` émet `on_tap(i)`
+    /// (pour y sauter — typiquement une étape déjà visitée). Superpose une rangée de zones
+    /// cliquables transparentes alignées **exactement** sur les marqueurs (répartition
+    /// `SpaceBetween` de boîtes de la taille d'un marqueur), sans changer le rendu.
+    pub fn on_tap(mut self, on_tap: impl Fn(usize) -> Msg) -> Self {
+        let mut row: Flex<Msg> = Flex::row().justify(Justify::SpaceBetween);
+        for (i, label) in self.labels.iter().enumerate() {
+            row = row.child(Hotspot { label: label.clone(), message: on_tap(i) });
+        }
+        self.children = vec![Box::new(row)];
+        self
+    }
+}
+
+impl<Msg> Steps<Msg> {
     /// Abscisse du centre du marqueur `i` dans `bounds` (marqueurs répartis d'un bord à l'autre).
     fn center_x(&self, bounds: Rect, i: usize) -> f32 {
         let n = self.labels.len();
@@ -75,17 +99,20 @@ impl Steps {
     }
 }
 
-impl<Msg> Widget<Msg> for Steps {
+impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Percent(1.0),
             height: Dimension::Length(HEIGHT),
+            // Une éventuelle rangée de hotspots occupe le haut (bande des marqueurs).
+            flex_direction: FlexDirection::Column,
+            align: Align::Stretch,
             ..Default::default()
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
+        &self.children
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -146,12 +173,48 @@ impl<Msg> Widget<Msg> for Steps {
     }
 }
 
+/// Zone cliquable **transparente** de la taille d'un marqueur, superposée à celui-ci quand
+/// [`Steps::on_tap`] est utilisé : elle ne dessine rien mais capte le clic (et le focus clavier)
+/// pour sauter à l'étape correspondante.
+struct Hotspot<Msg> {
+    label: String,
+    message: Msg,
+}
+
+impl<Msg: Clone> Widget<Msg> for Hotspot<Msg> {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(MARKER_D),
+            height: Dimension::Length(MARKER_D),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+
+    fn on_click(&self) -> Option<Msg> {
+        Some(self.message.clone())
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn semantics(&self) -> Option<Semantics> {
+        Some(Semantics::new(Role::Button).label(self.label.clone()).clickable())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use frus_core::Primitive;
 
-    fn paint_steps(steps: &Steps) -> Vec<Primitive> {
+    fn paint_steps(steps: &Steps<()>) -> Vec<Primitive> {
         let mut scene = Scene::new();
         Widget::<()>::paint(
             steps,
@@ -165,15 +228,15 @@ mod tests {
 
     #[test]
     fn current_is_clamped_to_last() {
-        let steps = Steps::new(["A", "B", "C"]).current(9);
+        let steps = Steps::<()>::new(["A", "B", "C"]).current(9);
         assert_eq!(steps.current, 2);
-        assert_eq!(Steps::new(Vec::<String>::new()).current(3).current, 0);
+        assert_eq!(Steps::<()>::new(Vec::<String>::new()).current(3).current, 0);
     }
 
     #[test]
     fn markers_reflect_progress() {
         // 4 étapes, la 3e (index 2) courante : 0,1 terminées ; 2 courante ; 3 à venir.
-        let prims = paint_steps(&Steps::new(["A", "B", "C", "D"]).current(2));
+        let prims = paint_steps(&Steps::<()>::new(["A", "B", "C", "D"]).current(2));
         let has_text = |t: &str| {
             prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
@@ -185,5 +248,25 @@ mod tests {
         assert_eq!(checks, 2, "deux coches pour les deux étapes terminées");
         // Tous les libellés sont dessinés.
         assert!(has_text("A") && has_text("B") && has_text("C") && has_text("D"));
+    }
+
+    #[test]
+    fn on_tap_overlays_clickable_hotspots() {
+        #[derive(Clone, Debug, PartialEq)]
+        enum Msg {
+            Go(usize),
+        }
+        // Sans on_tap : aucun enfant (purement visuel).
+        let plain = Steps::<Msg>::new(["A", "B", "C"]).current(1);
+        assert!(Widget::<Msg>::children(&plain).is_empty());
+        // Avec on_tap : une rangée d'enfants dont chaque marqueur émet son index.
+        let tappable = Steps::new(["A", "B", "C"]).current(1).on_tap(Msg::Go);
+        let row = Widget::<Msg>::children(&tappable);
+        assert_eq!(row.len(), 1, "une seule rangée de hotspots");
+        let spots = row[0].children();
+        assert_eq!(spots.len(), 3, "un hotspot par étape");
+        assert_eq!(spots[0].on_click(), Some(Msg::Go(0)));
+        assert_eq!(spots[2].on_click(), Some(Msg::Go(2)));
+        assert!(spots[0].focusable(), "un hotspot est focalisable");
     }
 }
