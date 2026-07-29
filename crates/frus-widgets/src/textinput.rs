@@ -60,6 +60,9 @@ pub struct TextInput<Msg> {
     prefix: Option<IconName>,
     /// Icône décorative à droite dans la boîte (façon `suffixIcon`).
     suffix: Option<IconName>,
+    /// Message émis au **clic sur l'icône suffixe** (bouton effacer / révéler…). Rend le
+    /// suffixe cliquable : le clic y émet ce message au lieu de placer le caret.
+    suffix_action: Option<Msg>,
     /// Champ **multi-lignes** : Entrée insère un saut de ligne (au lieu de soumettre),
     /// la boîte fait `rows` lignes de haut et défile verticalement pour suivre le caret.
     multiline: bool,
@@ -150,6 +153,7 @@ impl<Msg> TextInput<Msg> {
             obscure: false,
             prefix: None,
             suffix: None,
+            suffix_action: None,
             multiline: false,
             rows: 3,
             outlined: false,
@@ -195,6 +199,26 @@ impl<Msg> TextInput<Msg> {
     pub fn suffix_icon(mut self, icon: IconName) -> Self {
         self.suffix = Some(icon);
         self
+    }
+
+    /// Rend l'icône **suffixe cliquable** : un clic dessus émet `message` (bouton effacer,
+    /// révéler un mot de passe…) au lieu de placer le caret. Implique une icône suffixe
+    /// (à définir via [`suffix_icon`](Self::suffix_icon)).
+    pub fn on_suffix(mut self, message: Msg) -> Self {
+        self.suffix_action = Some(message);
+        self
+    }
+
+    /// Le point local `(x, y)` tombe-t-il sur la **zone cliquable du suffixe** (à droite de la
+    /// boîte de saisie) ? Sert à la fois à router le clic et à ne pas y placer le caret.
+    fn suffix_hit(&self, local_x: f32, local_y: f32, width: f32) -> bool {
+        if self.suffix.is_none() {
+            return false;
+        }
+        let zone_left = width - (ICON_SIZE + ICON_PAD * 2.0);
+        let top = self.label_block();
+        let bottom = top + self.field_height();
+        local_x >= zone_left && local_y >= top && local_y <= bottom
     }
 
     /// Étiquette affichée au-dessus du champ.
@@ -545,6 +569,14 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         None
     }
 
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32) -> Option<Msg> {
+        if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
+            self.suffix_action.clone()
+        } else {
+            None
+        }
+    }
+
     fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
         let mut chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
@@ -657,6 +689,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         width: f32,
         scroll_cursor: usize,
     ) -> Option<usize> {
+        // Clic sur l'icône **suffixe cliquable** : ne pas placer de caret (le shell émettra
+        // son message via `positional_click`).
+        if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
+            return None;
+        }
         // Recompose la même géométrie de contenu que le rendu (insets d'icônes et de
         // décoration, repli, défilement horizontal), pour un clic exact. Le
         // **défilement vertical retenu** est déjà intégré à `local_y` par le shell.
@@ -1221,6 +1258,28 @@ mod tests {
         };
         assert_eq!(count_texts(""), 1, "vide : l'indice s'affiche");
         assert_eq!(count_texts("hi"), 0, "rempli : pas d'indice");
+    }
+
+    #[test]
+    fn clickable_suffix_emits_and_blocks_caret() {
+        let field = TextInput::new("hello")
+            .suffix_icon(IconName::Close)
+            .on_suffix(Msg::Submitted)
+            .width(220.0);
+        let (w, y) = (220.0, 12.0);
+        let x_suffix = w - 8.0; // près du bord droit (zone du suffixe)
+        // Clic sur le suffixe : émet le message, et ne place PAS de caret.
+        assert_eq!(
+            Widget::<Msg>::positional_click(&field, x_suffix, y, w),
+            Some(Msg::Submitted)
+        );
+        assert_eq!(Widget::<Msg>::cursor_at(&field, x_suffix, y, w, 0), None);
+        // Clic dans le corps : pas de suffixe, un caret est placé.
+        assert_eq!(Widget::<Msg>::positional_click(&field, 20.0, y, w), None);
+        assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
+        // Sans `on_suffix`, l'icône reste décorative (aucun clic positionnel).
+        let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
+        assert_eq!(Widget::<Msg>::positional_click(&deco, x_suffix, y, w), None);
     }
 
     #[test]

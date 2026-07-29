@@ -56,6 +56,14 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Clic **positionnel** : un message émis selon l'endroit cliqué (coordonnées locales depuis
+    /// le coin haut-gauche du widget), **prioritaire** sur [`on_click`](Self::on_click). Sert aux
+    /// sous-régions cliquables — p. ex. l'icône **suffixe** d'un [`crate::TextInput`] (effacer /
+    /// révéler). `None` (défaut) = aucune sous-région ; le shell retombe alors sur `on_click`.
+    fn positional_click(&self, _local_x: f32, _local_y: f32, _width: f32) -> Option<Msg> {
+        None
+    }
+
     /// Index de curseur correspondant à une position locale (px depuis le coin
     /// haut-gauche du widget) — pour placer le curseur au clic. `local_y` choisit la
     /// **ligne** dans un champ multi-lignes (ignoré sur une seule ligne).
@@ -447,6 +455,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_click(&self) -> Option<Msg> {
         (**self).on_click()
+    }
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32) -> Option<Msg> {
+        (**self).positional_click(local_x, local_y, width)
     }
     fn key(&self) -> Option<u64> {
         (**self).key()

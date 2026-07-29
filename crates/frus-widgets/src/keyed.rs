@@ -62,6 +62,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.on_click()
     }
 
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32) -> Option<Msg> {
+        self.inner.positional_click(local_x, local_y, width)
+    }
+
     fn key(&self) -> Option<u64> {
         Some(self.key)
     }

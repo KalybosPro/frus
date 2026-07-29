@@ -177,6 +177,8 @@ struct BackGesture {
 #[derive(Clone)]
 enum Msg {
     DraftChanged(String),
+    /// Efface le champ de saisie (icône suffixe « ✕ »).
+    ClearDraft,
     AddTodo,
     ToggleTodo(u64),
     DeleteTodo(u64),
@@ -498,6 +500,10 @@ fn show_toast(app: &mut TodoApp, text: &str) -> Command<Msg> {
 
 fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
     match message {
+        Msg::ClearDraft => {
+            app.draft.clear();
+            Command::none()
+        }
         Msg::DraftChanged(text) => {
             app.draft = text;
             Command::none()
@@ -1598,17 +1604,17 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .action("Clear completed", Msg::AskClearDone)
         .build();
 
-    // Saisie : champ (Entrée valide) + bouton d'ajout.
-    let input_row = row![
-        TextInput::new(app.draft.as_str())
-            .width((card_width - 150.0).max(160.0))
-            .size(18.0)
-            .on_input(Msg::DraftChanged)
-            .on_submit(Msg::AddTodo),
-        button("Add", Msg::AddTodo),
-    ]
-    .align(Align::Center)
-    .gap(10.0);
+    // Saisie : champ (Entrée valide) + bouton d'ajout. Le champ non vide porte une icône
+    // suffixe **cliquable** « ✕ » qui l'efface (jalon 198 : clic positionnel du suffixe).
+    let mut draft_input = TextInput::new(app.draft.as_str())
+        .width((card_width - 150.0).max(160.0))
+        .size(18.0)
+        .on_input(Msg::DraftChanged)
+        .on_submit(Msg::AddTodo);
+    if !app.draft.is_empty() {
+        draft_input = draft_input.suffix_icon(IconName::Close).on_suffix(Msg::ClearDraft);
+    }
+    let input_row = row![draft_input, button("Add", Msg::AddTodo)].align(Align::Center).gap(10.0);
 
     // Filtres : un contrôle segmenté (sélection unique).
     let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
@@ -2013,6 +2019,16 @@ mod tests {
         assert_eq!(app.orientation, Some(Orientation::Portrait));
         app.on_resize(900.0, 500.0);
         assert_eq!(app.orientation, Some(Orientation::Landscape));
+    }
+
+    #[test]
+    fn clear_draft_empties_the_field() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::DraftChanged("half-typed".to_string()));
+        assert_eq!(app.draft, "half-typed");
+        // Le suffixe « ✕ » (clic positionnel) émet ClearDraft, qui vide le champ.
+        reduce(&mut app, Msg::ClearDraft);
+        assert!(app.draft.is_empty());
     }
 
     #[test]

@@ -848,6 +848,25 @@ fn bar_chart_matches_golden() {
     snapshot.assert_golden(golden("bar_chart"));
 }
 
+/// **Champ avec suffixe cliquable (jalon 198)** : un `TextInput` rempli portant une icône
+/// suffixe « ✕ » cliquable (`on_suffix`) qui l'efface. Reproduit son golden.
+#[test]
+fn textinput_clear_matches_golden() {
+    let theme = Theme::dark();
+    let field = TextInput::<()>::new("Buy milk")
+        .width(280.0)
+        .label("New task")
+        .suffix_icon(IconName::Close)
+        .on_suffix(());
+    let root: Container<()> = Container::new().padding(20.0).child(field);
+    let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 60, "champ et suffixe dessinés");
+    snapshot.assert_golden(golden("textinput_clear"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]

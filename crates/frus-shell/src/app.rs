@@ -1725,7 +1725,26 @@ impl<A: Application> App<A> {
         let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
         let (message, announce) = match (self.runtime.input.pressed, released) {
             (Some(pressed), Some(released)) if pressed == released => {
-                let message = self.ui.as_ref().and_then(|ui| ui.msg_for(pressed));
+                // Clic **positionnel** (sous-région, p. ex. suffixe cliquable d'un champ) :
+                // prioritaire sur `on_click`. Coordonnées locales = curseur − coin du widget.
+                let positional = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.widget_rect(released))
+                    .and_then(|rect| {
+                        self.tree
+                            .as_ref()
+                            .and_then(|tree| find_widget(tree.as_ref(), released))
+                            .and_then(|widget| {
+                                widget.positional_click(
+                                    self.cursor.x - rect.x,
+                                    self.cursor.y - rect.y,
+                                    rect.width,
+                                )
+                            })
+                    });
+                let message =
+                    positional.or_else(|| self.ui.as_ref().and_then(|ui| ui.msg_for(pressed)));
                 // Annonce vocale de l'effet (tri, sélection…), lue sur le widget cliqué
                 // avant que `dispatch` ne reconstruise l'arbre.
                 let announce = self
