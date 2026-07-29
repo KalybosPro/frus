@@ -688,6 +688,25 @@ fn wizard_review_errors_matches_golden() {
     snapshot.assert_golden(golden("wizard_review_errors"));
 }
 
+/// **Bouton désactivé (jalon 191)** : « Next » actif (accent, ombre) à côté de sa version
+/// désactivée (grisée, sans ombre). Reproduit son golden.
+#[test]
+fn button_disabled_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Flex::row()
+            .gap(16.0)
+            .child(Button::new("Next"))
+            .child(Button::new("Next").enabled(false)),
+    );
+    let Some(snapshot) = render_widget(&root, 260, 90, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 40, "les deux boutons sont dessinés");
+    snapshot.assert_golden(golden("button_disabled"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]

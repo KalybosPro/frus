@@ -30,6 +30,8 @@ pub struct Button<Msg> {
     /// Rayons surchargés ; `None` = rayon du thème (uniforme).
     radius: Option<BorderRadius>,
     on_press: Option<Msg>,
+    /// Actif ? Désactivé (`false`) : grisé, sans ombre, ni clic ni focus.
+    enabled: bool,
 }
 
 impl<Msg> Button<Msg> {
@@ -41,7 +43,16 @@ impl<Msg> Button<Msg> {
             variant: Variant::Primary,
             radius: None,
             on_press: None,
+            enabled: true,
         }
+    }
+
+    /// Active ou **désactive** le bouton : désactivé, il est grisé, sans ombre, et
+    /// n'émet plus rien (ni clic ni focus clavier) — le rendu d'un contrôle indisponible
+    /// (façon Material), p. ex. « Suivant » tant qu'une étape est invalide.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     /// Surcharge les rayons des coins (uniforme via `f32`, par coin via
@@ -97,10 +108,23 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let (base, on_color, border) = self.palette(theme);
+        let radius = self.radius.unwrap_or_else(|| theme.radius.into());
+
+        // Désactivé : aplat neutre, texte discret, **sans ombre** — un contrôle indisponible.
+        if !self.enabled {
+            let fill = theme.surface.lerp(theme.muted, 0.12);
+            scene.draw_rect(bounds, fill.fade(o), radius, 1.0, theme.border.fade(o));
+            scene.text(
+                Point::new(bounds.x + PAD_X, bounds.y + PAD_Y),
+                self.label.clone(),
+                self.size,
+                theme.muted.fade(o),
+            );
+            return;
+        }
 
         // État survol/pression/focus via la state-layer bakée du thème.
         let color = theme.state_layer(base, on_color, &status);
-        let radius = self.radius.unwrap_or_else(|| theme.radius.into());
 
         let blur = 10.0;
         let shadow_rect = Rect::new(
@@ -129,19 +153,22 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
     }
 
     fn on_click(&self) -> Option<Msg> {
-        self.on_press.clone()
+        if self.enabled {
+            self.on_press.clone()
+        } else {
+            None
+        }
     }
 
     fn focusable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        Some(
-            frus_core::Semantics::new(frus_core::Role::Button)
-                .label(self.label.clone())
-                .clickable(),
-        )
+        let semantics =
+            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+        // Un bouton désactivé n'annonce pas d'action cliquable.
+        Some(if self.enabled { semantics.clickable() } else { semantics })
     }
 }
 
@@ -158,5 +185,40 @@ mod tests {
     fn on_click_returns_message() {
         let button = Button::new("OK").on_press(Msg::Pressed);
         assert_eq!(Widget::on_click(&button), Some(Msg::Pressed));
+    }
+
+    #[test]
+    fn disabled_button_is_inert_and_unfocusable() {
+        let button = Button::new("Next").on_press(Msg::Pressed).enabled(false);
+        assert_eq!(Widget::on_click(&button), None, "désactivé : aucun message");
+        assert!(!Widget::<Msg>::focusable(&button), "désactivé : hors tabulation");
+        // Sémantique sans action cliquable.
+        let semantics = Widget::<Msg>::semantics(&button).expect("sémantique présente");
+        assert!(!semantics.clickable, "désactivé : non annoncé cliquable");
+        // Réactivé : le clic repasse.
+        let enabled = Button::new("Next").on_press(Msg::Pressed).enabled(true);
+        assert_eq!(Widget::on_click(&enabled), Some(Msg::Pressed));
+    }
+
+    #[test]
+    fn disabled_button_paints_no_shadow() {
+        use frus_core::Primitive;
+        let paint = |enabled: bool| {
+            let button = Button::<Msg>::new("Next").enabled(enabled);
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &button,
+                Rect::new(0.0, 0.0, 90.0, 44.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
+        };
+        assert!(paint(true), "actif : une ombre est dessinée");
+        assert!(!paint(false), "désactivé : aucune ombre");
     }
 }
