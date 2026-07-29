@@ -213,7 +213,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         };
         // La marge horizontale ampute le budget des deux côtés (le contenu ne
         // touche pas les bords). `width` non fixé (f32::MAX) reste ~infini.
-        let budget = (width - H_PAD * 2.0).min(width) - leading_w - title_w - gap * 3.0;
+        let budget = width - H_PAD * 2.0 - leading_w - title_w - gap * 3.0;
         let overflow_btn_w = Self::action_width("⋯", action_size) + gap;
 
         // Largeur de chaque action ; les widgets libres sont **toujours** en ligne.
