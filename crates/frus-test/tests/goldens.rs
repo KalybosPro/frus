@@ -427,6 +427,27 @@ fn table_virtual_widgets_matches_golden() {
     snapshot.assert_golden(golden("table_virtual_widgets"));
 }
 
+/// **Tableau virtualisé à sélection multiple (jalon 177)** : colonne de cases à cocher (avec
+/// « tout cocher » épinglé) sur des lignes virtualisées, deux lignes cochées. Reproduit son golden.
+#[test]
+fn table_virtual_checkboxes_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(2)
+        .width(280.0)
+        .column_widths(&[120.0])
+        .header(&["Name", "Role"])
+        .checkboxes(|_| (), ())
+        .selected(&[1, 2])
+        .virtual_rows(1000, 130.0, |i| vec![format!("User {}", i + 1), "member".to_string()]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 320, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "cases, en-tête et lignes virtualisées dessinés");
+    snapshot.assert_golden(golden("table_virtual_checkboxes"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.

@@ -464,7 +464,7 @@ pub struct Table<Msg> {
     selected: Vec<usize>,
     on_sort: Option<Box<dyn Fn(usize) -> Msg>>,
     on_select: Option<Rc<dyn Fn(usize) -> Msg>>,
-    on_check: Option<Box<dyn Fn(usize) -> Msg>>,
+    on_check: Option<Rc<dyn Fn(usize) -> Msg>>,
     on_check_all: Option<Msg>,
     /// Rappel de redimensionnement (colonne, delta px). Actif seulement si toutes
     /// les colonnes sont de largeur **fixe** (géométrie des bords connue).
@@ -628,7 +628,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// d'une case « tout cocher ». `on_check(ligne)` bascule une ligne, `on_check_all`
     /// bascule toutes les lignes. L'état coché reflète [`selected`](Self::selected).
     pub fn checkboxes(mut self, on_check: impl Fn(usize) -> Msg + 'static, on_check_all: Msg) -> Self {
-        self.on_check = Some(Box::new(on_check));
+        self.on_check = Some(Rc::new(on_check));
         self.on_check_all = Some(on_check_all);
         self.rebuild();
         self
@@ -641,9 +641,10 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// lignes) : coût par frame ∝ lignes visibles, pas au total. L'en-tête reste **épinglé**.
     ///
     /// Sélection : [`on_select_row`](Self::on_select_row) et [`selected`](Self::selected)
-    /// fonctionnent sur les lignes visibles. Non combiné avec cases à cocher /
-    /// redimensionnement / réordonnancement / cellules-widgets (le contenu hors écran n'a pas
-    /// d'état retenu) — ceux-ci sont ignorés en mode virtualisé. Exclut [`row`](Self::row).
+    /// fonctionnent sur les lignes visibles ; la **sélection multiple**
+    /// ([`checkboxes`](Self::checkboxes)) est aussi prise en charge (colonne de cases +
+    /// « tout cocher » épinglé). Non combiné avec redimensionnement / réordonnancement —
+    /// ignorés en mode virtualisé. Exclut [`row`](Self::row).
     pub fn virtual_rows(
         mut self,
         count: usize,
@@ -658,8 +659,8 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Comme [`virtual_rows`](Self::virtual_rows), mais chaque ligne est faite de **widgets**
     /// (avatars, puces, boutons…) : `build(index)` renvoie un widget par colonne. Seules les
-    /// lignes visibles sont construites. Sélection au clic sur les lignes visibles ; l'en-tête
-    /// reste épinglé. Mêmes exclusions (cases à cocher / redimensionnement / réordonnancement).
+    /// lignes visibles sont construites. Sélection au clic **et** cases à cocher ; l'en-tête
+    /// reste épinglé. Mêmes exclusions (redimensionnement / réordonnancement).
     pub fn virtual_widget_rows(
         mut self,
         count: usize,
@@ -715,15 +716,31 @@ impl<Msg: Clone + 'static> Table<Msg> {
         }
     }
 
+    /// Nombre de lignes de données : le compte **virtualisé** s'il est défini, sinon les
+    /// lignes matérialisées. (En virtualisé, `rows` est vide.)
+    fn row_count(&self) -> usize {
+        self.virtual_data.as_ref().map(|(count, _, _)| *count).unwrap_or(self.rows.len())
+    }
+
+    /// Nombre de lignes sélectionnées **dans la plage** (indices `< row_count`). Suppose des
+    /// indices uniques et valides (contrat de [`selected`](Self::selected)) — O(sélection),
+    /// donc viable même pour une grille virtualisée de millions de lignes.
+    fn selected_count(&self) -> usize {
+        let n = self.row_count();
+        self.selected.iter().filter(|&&r| r < n).count()
+    }
+
     /// True si toutes les lignes sont sélectionnées (pour le « tout cocher »).
     fn all_selected(&self) -> bool {
-        !self.rows.is_empty() && (0..self.rows.len()).all(|r| self.selected.contains(&r))
+        let n = self.row_count();
+        n > 0 && self.selected_count() == n
     }
 
     /// True si **certaines** lignes (pas toutes) sont sélectionnées → « tout cocher »
     /// indéterminé.
     fn some_selected(&self) -> bool {
-        (0..self.rows.len()).any(|r| self.selected.contains(&r)) && !self.all_selected()
+        let s = self.selected_count();
+        s > 0 && s < self.row_count()
     }
 
     /// Régénère l'arbre (rangées + cellules) depuis les données et l'état courants.
@@ -830,12 +847,23 @@ impl<Msg: Clone + 'static> Table<Msg> {
             let total_width = self.total_width;
             let selected = self.selected.clone();
             let on_select = self.on_select.clone();
+            let on_check = self.on_check.clone();
             let list = List::new(count, ROW_H, move |i| {
                 let is_selected = selected.contains(&i);
                 let message = on_select.as_ref().map(|f| f(i));
                 let mut row = Flex::row().gap(ROW_GAP);
                 if let Some(w) = total_width {
                     row = row.width(w);
+                }
+                // Colonne de sélection multiple (comme l'en-tête « tout cocher » épinglé).
+                if let Some(check) = &on_check {
+                    row = row.child(CheckCell {
+                        checked: is_selected,
+                        indeterminate: false,
+                        header: false,
+                        selected: is_selected,
+                        message: Some(check(i)),
+                    });
                 }
                 match &build {
                     VirtualBuild::Text(f) => {
@@ -1464,6 +1492,23 @@ mod tests {
         // Une ligne visible reste cliquable (sélection).
         let click = ui.hit(Point::new(20.0, ROW_H + 15.0)).and_then(|id| ui.msg_for(id));
         assert!(matches!(click, Some(Msg::Select(_))), "ligne virtualisée cliquable : {click:?}");
+    }
+
+    #[test]
+    fn virtual_table_supports_checkboxes() {
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .header(&["Name", "Score"])
+            .checkboxes(Msg::Check, Msg::CheckAll)
+            .selected(&[0])
+            .virtual_rows(1000, 200.0, |i| vec![format!("R{i}"), format!("{i}")]);
+        let ui = build_ui(&table, Size::new(240.0, 260.0), &Runtime::default(), &Theme::default());
+        let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
+        // « Tout cocher » dans l'en-tête épinglé.
+        assert_eq!(click(CHECK_W * 0.5, ROW_H * 0.5), Some(Msg::CheckAll));
+        // Case de la première ligne visible (colonne de gauche, sous l'en-tête).
+        let row_check = click(CHECK_W * 0.5, ROW_H + 15.0);
+        assert!(matches!(row_check, Some(Msg::Check(_))), "case de ligne virtualisée : {row_check:?}");
     }
 
     #[test]
