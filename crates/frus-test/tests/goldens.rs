@@ -448,6 +448,30 @@ fn table_virtual_checkboxes_matches_golden() {
     snapshot.assert_golden(golden("table_virtual_checkboxes"));
 }
 
+/// **Tableau à colonnes gelées (jalon 178)** : la première colonne (« Name ») reste figée à
+/// gauche tandis que les colonnes de trimestres défilent horizontalement (Q3 hors cadre).
+/// Reproduit son golden (position initiale, offset horizontal nul).
+#[test]
+fn table_frozen_columns_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(4)
+        .width(280.0)
+        .column_widths(&[90.0, 90.0, 90.0, 90.0])
+        .header(&["Name", "Q1", "Q2", "Q3"])
+        .on_sort(|_| ())
+        .sorted(0, true)
+        .frozen_columns(1)
+        .row(&["Ada", "10", "20", "30"])
+        .row(&["Bob", "12", "18", "24"]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 320, 150, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "colonne gelée et colonnes défilantes dessinées");
+    snapshot.assert_golden(golden("table_frozen_columns"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.
