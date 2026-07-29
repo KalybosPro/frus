@@ -472,6 +472,29 @@ fn table_frozen_columns_matches_golden() {
     snapshot.assert_golden(golden("table_frozen_columns"));
 }
 
+/// **Colonnes gelées aux deux bords (jalon 179)** : « Name » figée à gauche et « Act » figée
+/// à droite, les colonnes du milieu défilant entre les deux, avec une ombre de séparation à
+/// chaque bord de gel. Reproduit son golden.
+#[test]
+fn table_frozen_both_edges_matches_golden() {
+    let theme = Theme::dark();
+    let table = Table::<()>::new(4)
+        .width(300.0)
+        .column_widths(&[80.0, 110.0, 110.0, 70.0])
+        .header(&["Name", "Q1", "Q2", "Act"])
+        .frozen_columns(1)
+        .frozen_columns_right(1)
+        .row(&["Ada", "10", "20", "..."])
+        .row(&["Bob", "12", "18", "..."]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 340, 150, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "colonnes gelées des deux bords dessinées");
+    snapshot.assert_golden(golden("table_frozen_both_edges"));
+}
+
 /// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
 /// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
 /// golden.

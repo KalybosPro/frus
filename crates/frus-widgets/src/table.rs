@@ -358,6 +358,68 @@ impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
     }
 }
 
+/// Largeur du dégradé d'**ombre de séparation** d'une colonne gelée.
+const FROZEN_SHADOW_W: f32 = 8.0;
+
+/// Calque d'**ombre de séparation** des colonnes gelées : un dégradé (scrim → transparent)
+/// posé au bord intérieur du bloc figé, par-dessus la zone défilante — repère visuel du gel.
+/// **Inerte** (ne capte aucun clic) : les cellules dessous restent cliquables.
+struct FrozenShadow {
+    /// Taille du calque (il remplit la pile) — sinon `Auto` le réduirait à 0×0.
+    width: f32,
+    height: f32,
+    /// Abscisse du bord droit du bloc figé de **gauche** (l'ombre part vers la droite).
+    left: Option<f32>,
+    /// Abscisse du bord gauche du bloc figé de **droite** (l'ombre part vers la gauche).
+    right: Option<f32>,
+}
+
+impl<Msg: Clone> Widget<Msg> for FrozenShadow {
+    fn style(&self) -> Style {
+        Style {
+            width: Dimension::Length(self.width),
+            height: Dimension::Length(self.height),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &[]
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let o = status.opacity;
+        let dark = theme.scheme.scrim.with_alpha(0.28 * o);
+        let clear = theme.scheme.scrim.with_alpha(0.0);
+        if let Some(x) = self.left {
+            scene.gradient_rect(
+                Rect::new(bounds.x + x, bounds.y, FROZEN_SHADOW_W, bounds.height),
+                dark,
+                clear,
+                [1.0, 0.0],
+                0.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+        if let Some(x) = self.right {
+            scene.gradient_rect(
+                Rect::new(bounds.x + x - FROZEN_SHADOW_W, bounds.y, FROZEN_SHADOW_W, bounds.height),
+                clear,
+                dark,
+                [1.0, 0.0],
+                0.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
+    }
+}
+
 /// Un espace transparent et **inerte** (ni cliquable, ni glissable) : cale les
 /// poignées de redimensionnement sur les bords de colonnes sans bloquer les clics
 /// (le calque de poignées flotte au-dessus de la grille).
@@ -477,9 +539,9 @@ pub struct Table<Msg> {
     /// par index — textes ou widgets)`. Seules les lignes **visibles** sont construites
     /// (défilement interne), pour des grilles de milliers de lignes. Exclut `rows`.
     virtual_data: Option<(usize, f32, VirtualBuild<Msg>)>,
-    /// Nombre de colonnes **gelées** (figées à gauche) : le reste défile horizontalement.
-    /// Nécessite une largeur totale et des colonnes toutes **fixes**. `None` = aucune.
-    frozen: Option<usize>,
+    /// Colonnes **gelées** `(gauche, droite)` : figées aux deux bords tandis que le milieu
+    /// défile horizontalement. Nécessite une largeur totale et des colonnes toutes **fixes**.
+    frozen: (usize, usize),
     root: Box<dyn Widget<Msg>>,
 }
 
@@ -514,7 +576,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             on_resize: None,
             on_reorder: None,
             virtual_data: None,
-            frozen: None,
+            frozen: (0, 0),
             root: Box::new(Flex::<Msg>::column().gap(ROW_GAP)),
         }
     }
@@ -640,13 +702,22 @@ impl<Msg: Clone + 'static> Table<Msg> {
     }
 
     /// **Gèle** les `n` premières colonnes : elles restent **figées** à gauche tandis que le
-    /// reste **défile horizontalement** (l'en-tête des colonnes défilantes suit ses colonnes).
-    /// Pour de larges grilles où l'on veut garder un identifiant en vue. Nécessite une
-    /// [`width`](Self::width) totale et des colonnes **toutes fixes**
-    /// ([`column_widths`](Self::column_widths)) — sinon sans effet. Tableaux **texte** ;
+    /// reste **défile horizontalement** (l'en-tête des colonnes défilantes suit ses colonnes),
+    /// avec une **ombre de séparation** au bord du gel. Pour de larges grilles où l'on garde un
+    /// identifiant en vue. Nécessite une [`width`](Self::width) totale et des colonnes **toutes
+    /// fixes** ([`column_widths`](Self::column_widths)) — sinon sans effet. Tableaux **texte** ;
     /// non combiné avec virtualisation / cases à cocher / redimensionnement / réordonnancement.
     pub fn frozen_columns(mut self, n: usize) -> Self {
-        self.frozen = Some(n);
+        self.frozen.0 = n;
+        self.rebuild();
+        self
+    }
+
+    /// **Gèle** les `m` **dernières** colonnes (figées à **droite** — colonnes d'actions,
+    /// totaux…), le milieu défilant. Se combine avec [`frozen_columns`](Self::frozen_columns)
+    /// (gel des deux bords). Mêmes conditions et exclusions.
+    pub fn frozen_columns_right(mut self, m: usize) -> Self {
+        self.frozen.1 = m;
         self.rebuild();
         self
     }
@@ -814,55 +885,23 @@ impl<Msg: Clone + 'static> Table<Msg> {
         }
     }
 
-    /// Construit la disposition **colonnes gelées** (bloc figé à gauche + reste dans un
-    /// défilement horizontal, en-tête compris). `None` si les conditions ne sont pas réunies
-    /// (pas de largeur totale, colonnes non toutes fixes, `n` hors bornes, ou combinaison non
-    /// prise en charge : virtualisation / cases / lignes-widgets) → repli sur la disposition normale.
-    fn build_frozen(&self) -> Option<Box<dyn Widget<Msg>>> {
-        let n = self.frozen?;
-        if self.virtual_data.is_some() || self.on_check.is_some() || n == 0 || n >= self.columns {
-            return None;
-        }
-        let total_width = self.total_width?;
-        if !(0..self.columns).all(|c| self.widths.get(c).copied().unwrap_or(0.0) > 0.0) {
-            return None;
-        }
-        // Largeurs des deux blocs (colonnes + écarts internes).
-        let span = |range: std::ops::Range<usize>| -> f32 {
-            let cols: f32 = range.clone().map(|c| self.widths[c]).sum();
-            cols + ROW_GAP * range.len().saturating_sub(1) as f32
-        };
-        let frozen_w = span(0..n);
-        let scroll_w = span(n..self.columns);
-
-        let header_present = !self.headers.is_empty();
-        let mut frozen = Flex::column().gap(ROW_GAP).width(frozen_w);
-        let mut scroll = Flex::column().gap(ROW_GAP).width(scroll_w);
-
-        // Rangée d'en-tête, scindée entre bloc figé et bloc défilant.
+    /// Construit un **bloc de colonnes** (en-tête + rangées texte) pour les colonnes `cols`,
+    /// à la largeur `w`. Suppose des rangées **texte** (validé en amont).
+    fn frozen_block(&self, cols: std::ops::Range<usize>, w: f32, header_present: bool) -> Flex<Msg> {
+        let mut col = Flex::column().gap(ROW_GAP).width(w);
         if header_present {
-            let mut fr = Flex::row().gap(ROW_GAP).width(frozen_w);
-            let mut sc = Flex::row().gap(ROW_GAP).width(scroll_w);
-            for c in 0..self.columns {
-                let cell = self.frozen_header_cell(c);
-                if c < n {
-                    fr = fr.child(cell);
-                } else {
-                    sc = sc.child(cell);
-                }
+            let mut hr = Flex::row().gap(ROW_GAP).width(w);
+            for c in cols.clone() {
+                hr = hr.child(self.frozen_header_cell(c));
             }
-            frozen = frozen.child(fr);
-            scroll = scroll.child(sc);
+            col = col.child(hr);
         }
-
-        // Rangées de données (texte uniquement).
         for (r, row) in self.rows.iter().enumerate() {
-            let RowKind::Text(cells) = row else { return None };
+            let RowKind::Text(cells) = row else { continue };
             let selected = self.selected.contains(&r);
-            let mut fr = Flex::row().gap(ROW_GAP).width(frozen_w);
-            let mut sc = Flex::row().gap(ROW_GAP).width(scroll_w);
-            for c in 0..self.columns {
-                let cell = Cell {
+            let mut rr = Flex::row().gap(ROW_GAP).width(w);
+            for c in cols.clone() {
+                rr = rr.child(Cell {
                     label: cells.get(c).cloned().unwrap_or_default(),
                     width: self.col_width(c),
                     header: false,
@@ -873,38 +912,81 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     message: self.on_select.as_ref().map(|f| f(r)),
                     reorder: None,
                     action: Vec::new(),
-                };
-                if c < n {
-                    fr = fr.child(cell);
-                } else {
-                    sc = sc.child(cell);
-                }
+                });
             }
-            frozen = frozen.child(fr);
-            scroll = scroll.child(sc);
+            col = col.child(rr);
+        }
+        col
+    }
+
+    /// Construit la disposition **colonnes gelées** : bloc figé à gauche et/ou à droite, le
+    /// milieu dans un défilement horizontal (en-tête compris), avec une **ombre de séparation**
+    /// à chaque bord de gel. `None` si les conditions ne sont pas réunies (pas de largeur
+    /// totale, colonnes non toutes fixes, comptes hors bornes, ou combinaison non prise en
+    /// charge : virtualisation / cases / lignes-widgets) → repli sur la disposition normale.
+    fn build_frozen(&self) -> Option<Box<dyn Widget<Msg>>> {
+        let (left, right) = self.frozen;
+        if (left == 0 && right == 0) || self.virtual_data.is_some() || self.on_check.is_some() {
+            return None;
+        }
+        if left + right >= self.columns {
+            return None;
+        }
+        let total_width = self.total_width?;
+        if !(0..self.columns).all(|c| self.widths.get(c).copied().unwrap_or(0.0) > 0.0) {
+            return None;
+        }
+        // Colonnes gelées : texte uniquement (contenu hors écran non retenu).
+        if self.rows.iter().any(|r| !matches!(r, RowKind::Text(_))) {
+            return None;
         }
 
-        // Hauteur totale (rangées + écarts) et largeur du viewport défilant restant.
+        let span = |a: usize, b: usize| -> f32 {
+            if b <= a {
+                return 0.0;
+            }
+            let cols: f32 = (a..b).map(|c| self.widths[c]).sum();
+            cols + ROW_GAP * ((b - a) - 1) as f32
+        };
+        let mid_end = self.columns - right;
+        let (left_w, mid_w, right_w) = (span(0, left), span(left, mid_end), span(mid_end, self.columns));
+
+        let header_present = !self.headers.is_empty();
         let n_rows = header_present as usize + self.rows.len();
         let total_h = if n_rows > 0 {
             n_rows as f32 * ROW_H + (n_rows as f32 - 1.0) * ROW_GAP
         } else {
             0.0
         };
-        let viewport_w = (total_width - frozen_w - ROW_GAP).max(0.0);
 
+        // Écarts entre blocs présents (le milieu défilant est toujours là).
+        let gaps = (left > 0) as usize + (right > 0) as usize;
+        let viewport_w = (total_width - left_w - right_w - gaps as f32 * ROW_GAP).max(0.0);
+
+        let mut row = Flex::row().gap(ROW_GAP).width(total_width);
+        if left > 0 {
+            row = row.child(self.frozen_block(0..left, left_w, header_present));
+        }
+        row = row.child(
+            Scroll::new()
+                .axis(Axis::Horizontal)
+                .width(viewport_w)
+                .height(total_h)
+                .child(self.frozen_block(left..mid_end, mid_w, header_present)),
+        );
+        if right > 0 {
+            row = row.child(self.frozen_block(mid_end..self.columns, right_w, header_present));
+        }
+
+        // Ombre de séparation au bord intérieur de chaque bloc gelé (par-dessus le défilant).
+        let shadow = FrozenShadow {
+            width: total_width,
+            height: total_h,
+            left: (left > 0).then_some(left_w),
+            right: (right > 0).then_some(total_width - right_w),
+        };
         Some(Box::new(
-            Flex::row()
-                .gap(ROW_GAP)
-                .width(total_width)
-                .child(frozen)
-                .child(
-                    Scroll::new()
-                        .axis(Axis::Horizontal)
-                        .width(viewport_w)
-                        .height(total_h)
-                        .child(scroll),
-                ),
+            Stack::new().width(total_width).height(total_h).layer(row).layer(shadow),
         ))
     }
 
@@ -1640,17 +1722,42 @@ mod tests {
             .frozen_columns(1)
             .row(&["Ada", "1", "2"])
             .row(&["Bob", "3", "4"]);
-        // Racine = rangée [bloc figé, zone défilante].
-        assert_eq!(Widget::<Msg>::children(&table).len(), 2, "bloc figé + zone défilante");
+        // Racine = pile [rangée de blocs, ombre] ; la rangée porte bloc figé + défilant.
         let ui = build_ui(&table, Size::new(240.0, 160.0), &Runtime::default(), &Theme::default());
         // Défilement **horizontal** : contenu (120+120) plus large que le viewport restant.
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1, "une zone défilable");
         assert!(maxes[0].1 > 0.0, "max horizontal > 0 : {:?}", maxes[0]);
-        // Cellule **gelée** cliquable (sélection) ; en-tête **défilant** triable.
+        // Cellule **gelée** cliquable (sélection) ; en-tête **défilant** triable — l'ombre au
+        // bord du gel ne bloque pas les clics.
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         assert_eq!(click(40.0, ROW_H * 1.5), Some(Msg::Select(0)), "cellule gelée sélectionne");
         assert_eq!(click(90.0, ROW_H * 0.5), Some(Msg::Sort(1)), "en-tête défilant trie");
+    }
+
+    #[test]
+    fn freezing_both_edges_pins_left_and_right_columns() {
+        // 4 colonnes : gel 1 à gauche, 1 à droite → la colonne 2 (milieu) défile.
+        let table = Table::<Msg>::new(4)
+            .width(260.0)
+            .column_widths(&[70.0, 120.0, 120.0, 70.0])
+            .header(&["Name", "A", "B", "Act"])
+            .on_sort(Msg::Sort)
+            .on_select_row(Msg::Select)
+            .frozen_columns(1)
+            .frozen_columns_right(1)
+            .row(&["Ada", "1", "2", "x"]);
+        let ui = build_ui(&table, Size::new(260.0, 120.0), &Runtime::default(), &Theme::default());
+        // Le milieu (A + B = 240) déborde du viewport restant → défilement horizontal.
+        let maxes = ui.scrollable_maxes();
+        assert_eq!(maxes.len(), 1);
+        assert!(maxes[0].1 > 0.0, "milieu défilant : {:?}", maxes[0]);
+        // En-tête figé à droite (« Act », colonne 3) triable, tout à droite du tableau.
+        let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
+        let right = click(225.0, ROW_H * 0.5);
+        assert_eq!(right, Some(Msg::Sort(3)), "colonne gelée à droite : {right:?}");
+        // En-tête figé à gauche (« Name », colonne 0) triable.
+        assert_eq!(click(30.0, ROW_H * 0.5), Some(Msg::Sort(0)), "colonne gelée à gauche");
     }
 
     #[test]
