@@ -781,6 +781,49 @@ fn wizard_password_revealed_matches_golden() {
     snapshot.assert_golden(golden("wizard_password_revealed"));
 }
 
+/// **Table éditable en ligne (jalon 196)** : une grille où chaque cellule est un widget
+/// (`Table::widget_row`) — cellules statiques **cliquables** (un `Container` qui émet
+/// « éditer cette cellule ») et une cellule **en édition** rendue par un `TextInput`. Prouve
+/// que l'édition en ligne se compose sans nouveau mécanisme. Reproduit son golden.
+#[test]
+fn table_editable_matches_golden() {
+    use frus_widgets::Table;
+    let theme = Theme::dark();
+    // Fabrique d'une cellule statique cliquable (clic → passer cette cellule en édition).
+    let cell = |value: &str| -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
+        let value = value.to_string();
+        Box::new(move || {
+            Box::new(
+                Container::<()>::new()
+                    .padding_each(6.0, 10.0, 6.0, 10.0)
+                    .child(Text::new(value.clone()).size(15.0))
+                    .on_click(()),
+            ) as Box<dyn frus_widgets::Widget<()>>
+        })
+    };
+    // Fabrique d'une cellule **en édition** : un champ de saisie lié à la valeur.
+    let editing = |value: &str| -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
+        let value = value.to_string();
+        Box::new(move || {
+            Box::new(TextInput::<()>::new(value.clone()).width(180.0).size(15.0))
+                as Box<dyn frus_widgets::Widget<()>>
+        })
+    };
+    let table = Table::new(3)
+        .header(&["Name", "Role", "Email"])
+        .column_widths(&[150.0, 150.0, 200.0])
+        .widget_row(vec![cell("Ada Lovelace"), cell("Engineer"), cell("ada@example.com")])
+        .widget_row(vec![cell("Alan Turing"), editing("Cryptographer"), cell("alan@example.com")])
+        .widget_row(vec![cell("Grace Hopper"), cell("Admiral"), cell("grace@example.com")]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 560, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "grille éditable dessinée");
+    snapshot.assert_golden(golden("table_editable"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]
