@@ -269,12 +269,14 @@ enum Msg {
     /// Révèle / masque les mots de passe de l'assistant.
     WizardToggleReveal,
     // --- Grille éditable (démo d'intégration) ---
-    /// Passe la cellule `(ligne, colonne)` en édition.
-    GridEdit(usize, usize),
-    /// Nouvelle valeur de la cellule en cours d'édition.
-    GridInput(String),
-    /// Valide l'édition de la cellule courante.
-    GridCommit,
+    /// Nouvelle valeur de la cellule `(ligne, colonne)`.
+    GridInput(usize, usize, String),
+    /// Entrée pressée dans la cellule `(ligne, colonne)` : saute à la ligne suivante, même colonne.
+    GridEnter(usize, usize),
+    /// Ajoute une ligne vide en fin de grille et y place le curseur.
+    GridAddRow,
+    /// Supprime la ligne `ligne`.
+    GridDeleteRow(usize),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -418,8 +420,6 @@ struct TodoApp {
     wizard_reveal: bool,
     /// Données de la grille éditable (lignes × colonnes de texte).
     grid: Vec<Vec<String>>,
-    /// Cellule `(ligne, colonne)` en cours d'édition, s'il y en a une.
-    grid_edit: Option<(usize, usize)>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -715,21 +715,30 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.wizard_reveal = !app.wizard_reveal;
             Command::none()
         }
-        Msg::GridEdit(r, c) => {
-            app.grid_edit = Some((r, c));
-            // Focalise le champ de la cellule (résolu après le prochain build).
-            Command::focus(("grid", r, c))
-        }
-        Msg::GridInput(value) => {
-            if let Some((r, c)) = app.grid_edit {
-                if let Some(cell) = app.grid.get_mut(r).and_then(|row| row.get_mut(c)) {
-                    *cell = value;
-                }
+        Msg::GridInput(r, c, value) => {
+            if let Some(cell) = app.grid.get_mut(r).and_then(|row| row.get_mut(c)) {
+                *cell = value;
             }
             Command::none()
         }
-        Msg::GridCommit => {
-            app.grid_edit = None;
+        Msg::GridEnter(r, c) => {
+            // Entrée = descendre d'une ligne (même colonne) ; sur la dernière, on reste.
+            if r + 1 < app.grid.len() {
+                Command::focus(("grid", r + 1, c))
+            } else {
+                Command::none()
+            }
+        }
+        Msg::GridAddRow => {
+            let cols = app.grid.first().map(|row| row.len()).unwrap_or(3);
+            app.grid.push(vec![String::new(); cols]);
+            // Focalise la première cellule de la nouvelle ligne.
+            Command::focus(("grid", app.grid.len() - 1, 0))
+        }
+        Msg::GridDeleteRow(r) => {
+            if r < app.grid.len() {
+                app.grid.remove(r);
+            }
             Command::none()
         }
         Msg::WizardSubmit => {
@@ -1142,42 +1151,47 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
 /// `Container` cliquable (clic → éditer cette cellule) ; en édition, un `TextInput` lié à la
 /// valeur (jalon 196 rendu interactif, jalon 197). Cliquer une cellule la focalise (jalon 198).
 fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-    let mut table = Table::new(3)
-        .header(&["Name", "Role", "Email"])
-        .column_widths(&[190.0, 170.0, 240.0]);
+    // Chaque cellule est un `TextInput` **toujours éditable** : Tab / Maj+Tab navigue de cellule en
+    // cellule (les focusables du shell, en ordre ligne-par-ligne), Entrée descend d'une ligne. La
+    // dernière colonne porte un bouton de suppression **non focusable** (Tab le saute).
+    const COL_W: [f32; 3] = [190.0, 170.0, 240.0];
+    let muted = theme.muted;
+    let mut table = Table::new(4)
+        .header(&["Name", "Role", "Email", ""])
+        .column_widths(&[COL_W[0], COL_W[1], COL_W[2], 44.0]);
     for (r, row) in app.grid.iter().enumerate() {
-        let cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..3)
+        let mut cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..3)
             .map(|c| {
                 let value = row[c].clone();
-                let editing = app.grid_edit == Some((r, c));
-                let factory: Box<dyn Fn() -> Box<dyn Widget<Msg>>> = if editing {
-                    Box::new(move || {
-                        Box::new(keyed(
-                            ("grid", r, c),
-                            TextInput::new(value.clone())
-                                .width(210.0)
-                                .size(15.0)
-                                .on_input(Msg::GridInput)
-                                .on_submit(Msg::GridCommit),
-                        )) as Box<dyn Widget<Msg>>
-                    })
-                } else {
-                    Box::new(move || {
-                        Box::new(
-                            Container::<Msg>::new()
-                                .padding_each(8.0, 10.0, 8.0, 10.0)
-                                .child(text(value.clone()).size(15.0))
-                                .on_click(Msg::GridEdit(r, c)),
-                        ) as Box<dyn Widget<Msg>>
-                    })
-                };
+                let w = COL_W[c] - 14.0;
+                let factory: Box<dyn Fn() -> Box<dyn Widget<Msg>>> = Box::new(move || {
+                    Box::new(keyed(
+                        ("grid", r, c),
+                        TextInput::new(value.clone())
+                            .width(w)
+                            .size(15.0)
+                            .on_input(move |v| Msg::GridInput(r, c, v))
+                            .on_submit(Msg::GridEnter(r, c)),
+                    )) as Box<dyn Widget<Msg>>
+                });
                 factory
             })
             .collect();
+        // Bouton de suppression de ligne (Container non focusable : Tab le saute).
+        cells.push(Box::new(move || {
+            Box::new(
+                Container::<Msg>::new()
+                    .padding(6.0)
+                    .child(Icon::new(IconName::Close).size(16.0).color(muted))
+                    .on_click(Msg::GridDeleteRow(r)),
+            ) as Box<dyn Widget<Msg>>
+        }));
         table = table.widget_row(cells);
     }
-    let hint = text("Click a cell to edit it, Enter to commit.").size(13.0).color(theme.muted);
-    let body = column![table, hint].gap(16.0).padding(24.0);
+    let hint =
+        text("Tab moves between cells, Enter jumps to the next row.").size(13.0).color(theme.muted);
+    let add = button("Add row", Msg::GridAddRow);
+    let body = column![table, add, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2208,7 +2222,7 @@ mod tests {
     }
 
     #[test]
-    fn grid_click_edit_commit() {
+    fn grid_edit_navigate_and_resize() {
         let mut app = TodoApp::default();
         app.grid = vec![
             vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
@@ -2217,19 +2231,26 @@ mod tests {
         reduce(&mut app, Msg::Push(Route::Grid));
         assert_eq!(current_route(&app), Route::Grid);
         assert!(primitive_count(&app) > 0, "la grille se rend");
-        // Cliquer une cellule l'ouvre en édition (et demande son focus).
-        let cmd = reduce(&mut app, Msg::GridEdit(0, 1));
-        assert_eq!(app.grid_edit, Some((0, 1)));
-        assert!(!cmd.is_empty(), "GridEdit demande le focus de la cellule");
-        assert!(primitive_count(&app) > 0, "la cellule en edition se rend");
-        // Saisir une nouvelle valeur puis valider.
-        reduce(&mut app, Msg::GridInput("Mathematician".to_string()));
+        // Saisir dans une cellule met à jour la bonne case (grille toujours éditable).
+        reduce(&mut app, Msg::GridInput(0, 1, "Mathematician".to_string()));
         assert_eq!(app.grid[0][1], "Mathematician");
-        reduce(&mut app, Msg::GridCommit);
-        assert!(app.grid_edit.is_none(), "commit ferme l'edition");
-        // Les autres cellules sont intactes.
-        assert_eq!(app.grid[0][0], "Ada");
-        assert_eq!(app.grid[1][1], "Crypto");
+        assert_eq!(app.grid[0][0], "Ada", "les autres cellules sont intactes");
+        // Entrée descend d'une ligne (même colonne) et demande le focus.
+        let cmd = reduce(&mut app, Msg::GridEnter(0, 1));
+        assert!(!cmd.is_empty(), "Entrée focalise la cellule du dessous");
+        // Entrée sur la dernière ligne ne bouge pas (pas de focus à demander).
+        let last = app.grid.len() - 1;
+        assert!(reduce(&mut app, Msg::GridEnter(last, 1)).is_empty(), "dernière ligne : on reste");
+        // Ajouter une ligne : une ligne vide en fin, focus sur sa 1re cellule.
+        let before = app.grid.len();
+        let cmd = reduce(&mut app, Msg::GridAddRow);
+        assert_eq!(app.grid.len(), before + 1);
+        assert_eq!(app.grid[before], vec!["", "", ""], "nouvelle ligne vide (3 colonnes)");
+        assert!(!cmd.is_empty(), "AddRow focalise la nouvelle ligne");
+        // Supprimer une ligne.
+        reduce(&mut app, Msg::GridDeleteRow(0));
+        assert_eq!(app.grid.len(), before, "une ligne retirée");
+        assert_eq!(app.grid[0][1], "Crypto", "la ligne suivante remonte");
     }
 
     #[test]
