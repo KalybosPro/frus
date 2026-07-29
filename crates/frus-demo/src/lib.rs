@@ -251,8 +251,10 @@ enum Msg {
     /// Ouvre/ferme la feuille modale d'actions rapides.
     ToggleSheet,
     // --- Assistant d'inscription (démo d'intégration) ---
-    /// Saute à l'étape `i` de l'assistant (marqueur Steps cliqué / puce du récapitulatif).
+    /// Saute à l'étape `i` de l'assistant (marqueur Steps cliqué).
     WizardStep(usize),
+    /// Saute à l'étape `usize` **et focalise** le champ `u8` (puce du récapitulatif cliquée).
+    WizardFocus(usize, u8),
     /// Saisie d'un champ de l'assistant : `(0=nom, 1=email, 2=mot de passe, 3=confirmation)`.
     WizardInput(u8, String),
     /// Étape précédente / suivante de l'assistant.
@@ -632,6 +634,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::WizardStep(i) => {
             app.wizard_step = i.min(2);
             Command::none()
+        }
+        Msg::WizardFocus(step, field) => {
+            // Saute à l'étape du champ fautif puis focalise ce champ (keyed + Command::focus).
+            app.wizard_step = step.min(2);
+            Command::focus(("wizard", field))
         }
         Msg::WizardInput(field, value) => {
             match field {
@@ -1081,7 +1088,27 @@ fn wizard_step_of(key: &str) -> usize {
     }
 }
 
-/// Un champ de l'assistant, dont l'erreur ne s'affiche **qu'après** une soumission.
+/// Index de champ (clé de focus) d'un champ de l'assistant — pour `keyed`/`Command::focus`.
+fn wizard_field_of(key: &str) -> u8 {
+    match key {
+        "name" => 0,
+        "email" => 1,
+        "password" => 2,
+        _ => 3,
+    }
+}
+
+/// L'étape `step` est-elle **valide** ? (pour n'autoriser « Next » qu'une fois l'étape remplie.)
+fn wizard_step_valid(form: &Form, step: usize) -> bool {
+    match step {
+        0 => form.error("name").is_none() && form.error("email").is_none(),
+        1 => form.error("password").is_none() && form.error("confirm").is_none(),
+        _ => form.is_valid(),
+    }
+}
+
+/// Un champ de l'assistant : erreur affichée **qu'après** soumission, valeur **masquée** pour un
+/// mot de passe, et **clé de focus** (`keyed`) pour que le récapitulatif puisse y sauter.
 fn wizard_input(
     form: &Form,
     submitted: bool,
@@ -1089,18 +1116,20 @@ fn wizard_input(
     value: &str,
     key: &str,
     field: u8,
-) -> TextInput<Msg> {
+    obscure: bool,
+) -> impl Widget<Msg> + 'static {
     let mut input = TextInput::new(value)
         .width(360.0)
         .size(16.0)
         .label(label)
+        .obscure(obscure)
         .on_input(move |s| Msg::WizardInput(field, s));
     if submitted {
         if let Some(err) = form.error(key) {
             input = input.error(err);
         }
     }
-    input
+    keyed(("wizard", field), input)
 }
 
 /// Écran **assistant d'inscription** : preuve d'intégration des briques récentes —
@@ -1119,8 +1148,8 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         0 => Box::new(
             Flex::column()
                 .gap(14.0)
-                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0))
-                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1)),
+                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false))
+                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false)),
         ),
         1 => Box::new(
             Flex::column()
@@ -1132,6 +1161,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                     &app.wizard_pass,
                     "password",
                     2,
+                    true,
                 ))
                 .child(wizard_input(
                     &form,
@@ -1140,16 +1170,17 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                     &app.wizard_confirm,
                     "confirm",
                     3,
+                    true,
                 )),
         ),
         _ => {
             let mut review = Flex::column().gap(14.0);
-            // Récapitulatif cliquable : chaque puce saute à l'étape du champ fautif.
+            // Récapitulatif cliquable : chaque puce saute à l'étape du champ fautif **et**
+            // le focalise (jalons 181 + 183 + focus programmatique).
             if submitted && !form.is_valid() {
-                let links = form
-                    .errors()
-                    .into_iter()
-                    .map(|(key, message)| (message.to_string(), Msg::WizardStep(wizard_step_of(key))));
+                let links = form.errors().into_iter().map(|(key, message)| {
+                    (message.to_string(), Msg::WizardFocus(wizard_step_of(key), wizard_field_of(key)))
+                });
                 review = review.child(ErrorSummary::links(links));
             }
             review = review.child(
@@ -1170,7 +1201,13 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         nav = nav.child(button("Back", Msg::WizardBack).variant(Variant::Secondary).size(16.0));
     }
     if app.wizard_step < 2 {
-        nav = nav.child(button("Next", Msg::WizardNext).variant(Variant::Primary).size(16.0));
+        // « Next » n'est actif qu'une fois l'étape courante valide (jalon 191 : Button désactivé).
+        nav = nav.child(
+            button("Next", Msg::WizardNext)
+                .variant(Variant::Primary)
+                .size(16.0)
+                .enabled(wizard_step_valid(&form, app.wizard_step)),
+        );
     } else {
         nav = nav.child(
             button("Create account", Msg::WizardSubmit).variant(Variant::Primary).size(16.0),
@@ -1969,6 +2006,9 @@ mod tests {
         assert_eq!(current_route(&app), Route::Wizard);
         assert!(primitive_count(&app) > 0, "l'écran assistant se rend");
 
+        // Étape Account invalide au départ (empêche « Next », jalon 191/192).
+        assert!(!wizard_step_valid(&wizard_form(&app), 0), "Account invalide au départ");
+
         // Soumission vide → erreurs révélées, saut à l'étape Review (récapitulatif).
         reduce(&mut app, Msg::WizardSubmit);
         assert!(app.wizard_submitted);
@@ -1976,11 +2016,19 @@ mod tests {
         assert!(app.toast.is_none());
         assert!(primitive_count(&app) > 0, "le récapitulatif d'erreurs se rend");
 
-        // Remplir valablement (email valide, mots de passe concordants).
+        // Une puce du récapitulatif saute à l'étape du champ **et** demande son focus.
+        let cmd = reduce(&mut app, Msg::WizardFocus(0, 1));
+        assert_eq!(app.wizard_step, 0);
+        assert!(!cmd.is_empty(), "WizardFocus emet une demande de focus");
+
+        // Remplir Account → l'étape devient valide.
         reduce(&mut app, Msg::WizardInput(0, "Ada".to_string()));
         reduce(&mut app, Msg::WizardInput(1, "ada@example.com".to_string()));
+        assert!(wizard_step_valid(&wizard_form(&app), 0), "Account valide une fois rempli");
+        // Remplir Security (mots de passe concordants).
         reduce(&mut app, Msg::WizardInput(2, "secret12".to_string()));
         reduce(&mut app, Msg::WizardInput(3, "secret12".to_string()));
+        assert!(wizard_step_valid(&wizard_form(&app), 1), "Security valide");
         reduce(&mut app, Msg::WizardSubmit);
         // Succès : notification + assistant réinitialisé.
         assert_eq!(app.toast.as_deref(), Some("Account created"));

@@ -707,6 +707,43 @@ fn button_disabled_matches_golden() {
     snapshot.assert_golden(golden("button_disabled"));
 }
 
+/// **Assistant, étape Security (jalon 192)** : `Steps` (Security courant), deux mots de passe
+/// **masqués** (`TextInput::obscure`), et « Next » **désactivé** (confirmation non concordante).
+/// Reproduit son golden.
+#[test]
+fn wizard_password_step_matches_golden() {
+    use frus_widgets::Steps;
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(24.0)
+            .child(Steps::new(["Account", "Security", "Review"]).current(1))
+            .child(
+                Flex::column()
+                    .gap(14.0)
+                    .child(TextInput::<()>::new("secret12").width(340.0).label("Password").obscure(true))
+                    .child(
+                        TextInput::<()>::new("secr")
+                            .width(340.0)
+                            .label("Confirm password")
+                            .obscure(true),
+                    ),
+            )
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Next").enabled(false)),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 440, 420, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "étape mot de passe dessinée");
+    snapshot.assert_golden(golden("wizard_password_step"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]
