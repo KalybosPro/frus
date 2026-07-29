@@ -630,6 +630,32 @@ fn toast_host_matches_golden() {
     snapshot.assert_golden(golden("toast_host"));
 }
 
+/// **Plage date + heure (jalon 189)** : calendrier double (28/07 → 03/08), plage horaire
+/// (09:00 → 17:30) et récapitulatif « début → fin ». Reproduit son golden.
+#[test]
+fn datetime_range_matches_golden() {
+    use frus_widgets::DateTimeRange;
+    let theme = Theme::dark();
+    let picker = DateTimeRange::new(
+        2026,
+        7,
+        Some((2026, 7, 28)),
+        Some((2026, 8, 3)),
+        (9, 0),
+        (17, 30),
+        |_| (),
+        |_| (),
+        |_, _, _| (),
+    );
+    let root: Container<()> = Container::new().padding(16.0).child(picker);
+    let Some(snapshot) = render_widget(&root, 580, 760, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 300, "calendrier double, heures et récap dessinés");
+    snapshot.assert_golden(golden("datetime_range"));
+}
+
 /// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
 /// « UNDO » à droite (façon Material). Reproduit son golden.
 #[test]
