@@ -974,6 +974,34 @@ fn line_chart_multi_matches_golden() {
     snapshot.assert_golden(golden("line_chart_multi"));
 }
 
+/// **Aires empilées (jalon 213)** : deux séries cumulées (`stacked(true)`) — chaque bande s'ajoute
+/// au-dessus de la précédente, l'échelle contient le total —, avec axe (`grid(4)`) et légende.
+/// Reproduit son golden.
+#[test]
+fn line_chart_stacked_matches_golden() {
+    let theme = Theme::dark();
+    let chart = LineChart::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .name("Sales")
+    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .legend(true)
+    .stacked(true);
+    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "aires empilées dessinées");
+    snapshot.assert_golden(golden("line_chart_stacked"));
+}
+
 /// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant
 /// l'icône « œil » suffixe (`on_suffix`) qui révèle le texte. Reproduit son golden.
 #[test]

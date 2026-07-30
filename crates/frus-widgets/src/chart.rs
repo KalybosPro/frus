@@ -414,6 +414,9 @@ impl<Msg> Widget<Msg> for BarChart {
 const MARKER_R: f32 = 3.5;
 /// Opacité (relative) de l'aire remplie sous la courbe.
 const AREA_ALPHA: f32 = 0.16;
+/// Opacité (relative) des bandes d'un graphique en **aires empilées** (plus soutenue, pour lire
+/// chaque strate).
+const STACK_ALPHA: f32 = 0.55;
 /// Hauteur de la bande de légende (au-dessus de la zone de tracé) quand elle est affichée.
 const LEGEND_H: f32 = 20.0;
 /// Côté de la pastille de couleur d'une entrée de légende.
@@ -448,6 +451,8 @@ pub struct LineChart {
     extra: Vec<(String, Color, Vec<f32>)>,
     /// Afficher une légende (pastille + nom par série) ?
     legend: bool,
+    /// Empiler les séries (aires cumulées) plutôt que les superposer ?
+    stacked: bool,
 }
 
 impl LineChart {
@@ -462,6 +467,7 @@ impl LineChart {
             name: None,
             extra: Vec::new(),
             legend: false,
+            stacked: false,
         }
     }
 
@@ -515,11 +521,31 @@ impl LineChart {
         self
     }
 
+    /// **Empile** les séries : chaque aire est cumulée au-dessus des précédentes (aires cumulées),
+    /// pour lire un total et sa composition. Implique le remplissage des bandes. Défaut : off.
+    pub fn stacked(mut self, stacked: bool) -> Self {
+        self.stacked = stacked;
+        self
+    }
+
     /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
         let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
         primary.chain(extra).fold(0.0, f32::max).max(1.0)
+    }
+
+    /// Le maximum de la **somme** des séries par catégorie (échelle en mode empilé).
+    fn stacked_max(&self) -> f32 {
+        let n = self.values.len();
+        (0..n)
+            .map(|i| {
+                let base = self.values[i].1;
+                let rest: f32 = self.extra.iter().map(|(_, _, vs)| vs.get(i).copied().unwrap_or(0.0)).sum();
+                base + rest
+            })
+            .fold(0.0, f32::max)
+            .max(1.0)
     }
 
     /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
@@ -548,8 +574,10 @@ impl<Msg> Widget<Msg> for LineChart {
         }
         let o = status.opacity;
         let accent = self.color.unwrap_or(theme.primary);
-        let max = self.max_value();
         let single = self.extra.is_empty();
+        let stacked = self.stacked && !single;
+        // En empilé, l'échelle doit contenir le **total** cumulé par catégorie.
+        let max = if stacked { self.stacked_max() } else { self.max_value() };
 
         // Géométrie partagée avec la BarChart : bande des valeurs en haut (libellés de valeur,
         // série unique seulement), libellés de catégorie en bas, marge gauche pour l'axe, et — le
@@ -577,46 +605,70 @@ impl<Msg> Widget<Msg> for LineChart {
             series.push((*color, name.as_str(), vals.as_slice()));
         }
 
-        // Points d'une série (index → centre de case, hauteur ∝ valeur).
-        let points_of = |vals: &[f32]| -> Vec<Point> {
-            (0..n.min(vals.len()))
-                .map(|i| {
-                    Point::new(plot_left + slot * (i as f32 + 0.5), baseline_y - (vals[i] / max) * plot_h)
-                })
-                .collect()
+        // Coordonnées d'une valeur (index, valeur) → point écran.
+        let pt = |i: usize, v: f32| {
+            Point::new(plot_left + slot * (i as f32 + 0.5), baseline_y - (v / max) * plot_h)
         };
 
-        for (color, _, vals) in &series {
-            let points = points_of(vals);
-            // Aire sous la courbe (série unique seulement, façon non-zero refermée).
-            if single && self.fill && points.len() >= 2 {
-                let mut area = Path::new().move_to(Point::new(points[0].x, baseline_y));
-                for p in &points {
-                    area = area.line_to(*p);
+        if stacked {
+            // Aires **cumulées** : chaque série est une bande entre son cumul bas et haut, du bas
+            // vers le haut ; le trait suit le bord supérieur.
+            let mut lower = vec![0.0_f32; n];
+            for (color, _, vals) in &series {
+                let upper: Vec<f32> =
+                    (0..n).map(|i| lower[i] + vals.get(i).copied().unwrap_or(0.0)).collect();
+                if n >= 2 {
+                    // Bande : bord bas (gauche→droite) puis bord haut (droite→gauche).
+                    let mut band = Path::new().move_to(pt(0, lower[0]));
+                    for i in 1..n {
+                        band = band.line_to(pt(i, lower[i]));
+                    }
+                    for i in (0..n).rev() {
+                        band = band.line_to(pt(i, upper[i]));
+                    }
+                    scene.fill_path(&band, color.fade(o * STACK_ALPHA));
+                    // Trait du bord supérieur.
+                    let mut line = Path::new().move_to(pt(0, upper[0]));
+                    for i in 1..n {
+                        line = line.line_to(pt(i, upper[i]));
+                    }
+                    scene.stroke_path(&line, color.fade(o), LINE_W);
                 }
-                area = area.line_to(Point::new(points[points.len() - 1].x, baseline_y));
-                scene.fill_path(&area, color.fade(o * AREA_ALPHA));
+                lower = upper;
             }
-            // Polyligne.
-            if points.len() >= 2 {
-                let mut line = Path::new().move_to(points[0]);
-                for p in &points[1..] {
-                    line = line.line_to(*p);
+        } else {
+            for (color, _, vals) in &series {
+                let points: Vec<Point> = (0..n.min(vals.len())).map(|i| pt(i, vals[i])).collect();
+                // Aire sous la courbe (série unique seulement, façon non-zero refermée).
+                if single && self.fill && points.len() >= 2 {
+                    let mut area = Path::new().move_to(Point::new(points[0].x, baseline_y));
+                    for p in &points {
+                        area = area.line_to(*p);
+                    }
+                    area = area.line_to(Point::new(points[points.len() - 1].x, baseline_y));
+                    scene.fill_path(&area, color.fade(o * AREA_ALPHA));
                 }
-                scene.stroke_path(&line, color.fade(o), LINE_W);
-            }
-            // Marqueurs, et — série unique — la valeur au-dessus de chaque point.
-            for (i, p) in points.iter().enumerate() {
-                scene.fill_path(&Path::circle(*p, MARKER_R), color.fade(o));
-                if single {
-                    let vs = format_value(vals[i]);
-                    let vw = frus_text::measure(&vs, VALUE_SIZE).width;
-                    scene.text(
-                        Point::new(p.x - vw * 0.5, p.y - MARKER_R - VALUE_SIZE - 2.0),
-                        vs,
-                        VALUE_SIZE,
-                        theme.on_surface.fade(o),
-                    );
+                // Polyligne.
+                if points.len() >= 2 {
+                    let mut line = Path::new().move_to(points[0]);
+                    for p in &points[1..] {
+                        line = line.line_to(*p);
+                    }
+                    scene.stroke_path(&line, color.fade(o), LINE_W);
+                }
+                // Marqueurs, et — série unique — la valeur au-dessus de chaque point.
+                for (i, p) in points.iter().enumerate() {
+                    scene.fill_path(&Path::circle(*p, MARKER_R), color.fade(o));
+                    if single {
+                        let vs = format_value(vals[i]);
+                        let vw = frus_text::measure(&vs, VALUE_SIZE).width;
+                        scene.text(
+                            Point::new(p.x - vw * 0.5, p.y - MARKER_R - VALUE_SIZE - 2.0),
+                            vs,
+                            VALUE_SIZE,
+                            theme.on_surface.fade(o),
+                        );
+                    }
                 }
             }
         }
@@ -648,8 +700,12 @@ impl<Msg> Widget<Msg> for LineChart {
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
             for (color, name, vals) in &series {
                 if hi < vals.len() {
-                    let py = baseline_y - (vals[hi] / max) * plot_h;
-                    scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
+                    // Marqueur accentué à la valeur (hors empilé : la hauteur individuelle n'a pas
+                    // de sens sur une strate cumulée).
+                    if !stacked {
+                        let py = baseline_y - (vals[hi] / max) * plot_h;
+                        scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
+                    }
                     let txt = if single {
                         format_value(vals[hi])
                     } else {
@@ -875,6 +931,24 @@ mod tests {
         // Les noms de séries figurent dans la légende.
         let has_text = |t: &str| prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t));
         assert!(has_text("Sales") && has_text("Costs"), "noms de séries en légende");
+    }
+
+    #[test]
+    fn stacked_areas_fill_a_band_per_series() {
+        let make = || {
+            LineChart::new([("A", 2.0), ("B", 4.0)]).series("x", Color::rgb8(200, 80, 80), [3.0, 1.0])
+        };
+        // L'échelle empilée prend le max des totaux par catégorie : max(2+3, 4+1) = 5.
+        assert_eq!(make().stacked(true).stacked_max(), 5.0);
+        let bands = |chart: &LineChart| {
+            paint_line(chart, 300.0, 200.0)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { fill: Some(_), stroke: None, path, .. }
+                    if path.verbs().iter().any(|v| matches!(v, frus_core::PathVerb::LineTo(_)))))
+                .count()
+        };
+        assert_eq!(bands(&make().stacked(true)), 2, "une bande cumulée par série");
+        assert_eq!(bands(&make()), 0, "sans empilage : pas de bande (multi-séries sans aire)");
     }
 
     #[test]
