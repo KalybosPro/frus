@@ -896,6 +896,30 @@ fn line_chart_axis_matches_golden() {
     snapshot.assert_golden(golden("line_chart_axis"));
 }
 
+/// **Graphique en lignes avec aire (jalon 206)** : la même série, avec l'aire sous la courbe
+/// remplie (`area(true)`) et l'axe des ordonnées (`grid(4)`). Reproduit son golden.
+#[test]
+fn line_chart_area_matches_golden() {
+    let theme = Theme::dark();
+    let chart = LineChart::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .area(true);
+    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "graphique avec aire dessiné");
+    snapshot.assert_golden(golden("line_chart_area"));
+}
+
 /// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant
 /// l'icône « œil » suffixe (`on_suffix`) qui révèle le texte. Reproduit son golden.
 #[test]

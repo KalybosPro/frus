@@ -217,6 +217,8 @@ impl<Msg> Widget<Msg> for BarChart {
 
 /// Rayon (px) des marqueurs ronds posés sur chaque point d'une [`LineChart`].
 const MARKER_R: f32 = 3.5;
+/// Opacité (relative) de l'aire remplie sous la courbe.
+const AREA_ALPHA: f32 = 0.16;
 /// Épaisseur (px) du trait de la polyligne.
 const LINE_W: f32 = 2.0;
 
@@ -234,6 +236,8 @@ pub struct LineChart {
     height: f32,
     /// Nombre de divisions de l'axe des ordonnées (lignes de grille + graduations) ; `0` = aucun.
     grid: usize,
+    /// Remplir l'aire sous la courbe (dégradé plat, couleur du trait atténuée) ?
+    fill: bool,
 }
 
 impl LineChart {
@@ -244,6 +248,7 @@ impl LineChart {
             color: None,
             height: DEFAULT_HEIGHT,
             grid: 0,
+            fill: false,
         }
     }
 
@@ -263,6 +268,13 @@ impl LineChart {
     /// graduations (`0..max`) dans une marge à gauche. `0` (défaut) = aucun axe.
     pub fn grid(mut self, divisions: usize) -> Self {
         self.grid = divisions;
+        self
+    }
+
+    /// Remplit l'**aire** sous la courbe (couleur du trait fortement atténuée), pour souligner le
+    /// volume plutôt que la seule tendance. Défaut : désactivé.
+    pub fn area(mut self, fill: bool) -> Self {
+        self.fill = fill;
         self
     }
 
@@ -324,6 +336,17 @@ impl<Msg> Widget<Msg> for LineChart {
                 Point::new(cx, py)
             })
             .collect();
+
+        // Aire sous la courbe : polygone points + retour par la ligne de base (façon non-zero,
+        // refermé automatiquement au remplissage). Peint avant le trait pour rester dessous.
+        if self.fill && points.len() >= 2 {
+            let mut area = Path::new().move_to(Point::new(points[0].x, baseline_y));
+            for p in &points {
+                area = area.line_to(*p);
+            }
+            area = area.line_to(Point::new(points[points.len() - 1].x, baseline_y));
+            scene.fill_path(&area, accent.fade(o * AREA_ALPHA));
+        }
 
         // Polyligne reliant les points (au moins deux points pour un segment).
         if points.len() >= 2 {
@@ -464,6 +487,30 @@ mod tests {
         };
         assert!(has_text("6") && has_text("2") && has_text("4"), "valeurs affichées");
         assert!(has_text("A") && has_text("B") && has_text("C"), "libellés affichés");
+    }
+
+    #[test]
+    fn area_fills_a_polygon_under_the_curve() {
+        // Un chemin **rempli** (sans contour) fait de segments droits = l'aire ; sans `.area`,
+        // seuls les marqueurs (cercles, sans `LineTo`) sont remplis.
+        let filled_polygons = |chart: &LineChart| {
+            paint_line(chart, 300.0, 200.0)
+                .iter()
+                .filter(|p| match p {
+                    Primitive::Path { fill: Some(_), stroke: None, path, .. } => path
+                        .verbs()
+                        .iter()
+                        .any(|v| matches!(v, frus_core::PathVerb::LineTo(_))),
+                    _ => false,
+                })
+                .count()
+        };
+        assert_eq!(filled_polygons(&LineChart::new([("A", 2.0), ("B", 6.0)])), 0, "aucune aire par défaut");
+        assert_eq!(
+            filled_polygons(&LineChart::new([("A", 2.0), ("B", 6.0)]).area(true)),
+            1,
+            "une aire remplie sous la courbe"
+        );
     }
 
     #[test]
