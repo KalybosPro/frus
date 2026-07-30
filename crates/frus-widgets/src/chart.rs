@@ -33,9 +33,9 @@ const AXIS_SIZE: f32 = 11.0;
 ///
 /// ```
 /// use frus_widgets::BarChart;
-/// let chart = BarChart::new([("Mon", 3.0), ("Tue", 5.0), ("Wed", 2.0)]).height(160.0);
+/// let chart: BarChart = BarChart::new([("Mon", 3.0), ("Tue", 5.0), ("Wed", 2.0)]).height(160.0);
 /// ```
-pub struct BarChart {
+pub struct BarChart<Msg = ()> {
     values: Vec<(String, f32)>,
     /// Couleur des barres ; `None` = `primary` du thème.
     color: Option<Color>,
@@ -48,9 +48,13 @@ pub struct BarChart {
     extra: Vec<(String, Color, Vec<f32>)>,
     /// Afficher une légende (pastille + nom par série) ?
     legend: bool,
+    /// Index de séries **masquées** (non tracées, atténuées en légende) — jalon 215.
+    hidden: Vec<usize>,
+    /// Message émis au clic sur une entrée de légende (index de série) — jalon 215.
+    on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
 }
 
-impl BarChart {
+impl<Msg> BarChart<Msg> {
     /// Crée un graphique depuis une série de `(libellé, valeur)`.
     pub fn new(data: impl IntoIterator<Item = (impl Into<String>, f32)>) -> Self {
         Self {
@@ -61,6 +65,8 @@ impl BarChart {
             name: None,
             extra: Vec::new(),
             legend: false,
+            hidden: Vec::new(),
+            on_legend: None,
         }
     }
 
@@ -107,6 +113,18 @@ impl BarChart {
         self
     }
 
+    /// **Masque** les séries d'index donnés (non tracées, atténuées en légende) — jalon 215.
+    pub fn hidden(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
+        self.hidden = indices.into_iter().collect();
+        self
+    }
+
+    /// Rend la **légende cliquable** : `on_legend(index)` au clic sur une entrée — jalon 215.
+    pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_legend = Some(Box::new(on_legend));
+        self
+    }
+
     /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
@@ -117,6 +135,13 @@ impl BarChart {
     /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
     fn has_legend(&self) -> bool {
         self.legend && (self.name.is_some() || !self.extra.is_empty())
+    }
+
+    /// Noms de toutes les séries (principale puis additionnelles) — pour la légende / le routage.
+    fn series_names(&self) -> Vec<&str> {
+        let mut names = vec![self.name.as_deref().unwrap_or("Series 1")];
+        names.extend(self.extra.iter().map(|(n, _, _)| n.as_str()));
+        names
     }
 }
 
@@ -201,6 +226,23 @@ fn draw_legend(scene: &mut Scene, theme: &Theme, left: f32, top: f32, series: &[
     }
 }
 
+/// Quelle **entrée de légende** contient le point local `(x, y)` ? Reconstruit la disposition de
+/// [`draw_legend`] pour router un clic vers l'index de série. Partagé (jalon 215).
+fn legend_hit(local_x: f32, local_y: f32, plot_left: f32, names: &[&str]) -> Option<usize> {
+    if local_y < 0.0 || local_y > LEGEND_H {
+        return None;
+    }
+    let mut x = plot_left;
+    for (i, name) in names.iter().enumerate() {
+        let entry_w = LEGEND_SWATCH + 5.0 + frus_text::measure(name, LEGEND_SIZE).width;
+        if local_x >= x && local_x <= x + entry_w {
+            return Some(i);
+        }
+        x += entry_w + 16.0;
+    }
+    None
+}
+
 /// Dessine une **infobulle** de survol : un guide vertical à `gx`, puis une boîte listant `lines`
 /// (chaque ligne : pastille optionnelle + texte). La boîte est dimensionnée au plus long libellé,
 /// posée à droite du guide (repliée à gauche si elle déborde), ancrée en haut de la zone de tracé.
@@ -273,7 +315,7 @@ fn chart_plot_hit(
     }
 }
 
-impl<Msg> Widget<Msg> for BarChart {
+impl<Msg> Widget<Msg> for BarChart<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Percent(1.0),
@@ -331,6 +373,9 @@ impl<Msg> Widget<Msg> for BarChart {
             let cx = plot_left + slot * (i as f32 + 0.5);
             let group_left = cx - group_w * 0.5;
             for (j, (color, _, vals)) in series.iter().enumerate() {
+                if self.hidden.contains(&j) {
+                    continue;
+                }
                 let value = vals.get(i).copied().unwrap_or(0.0);
                 let h = (value / max) * plot_h;
                 let draw_w = bar_w * inner;
@@ -365,19 +410,26 @@ impl<Msg> Widget<Msg> for BarChart {
             );
         }
 
-        // Légende (bande du haut), partagée.
+        // Légende (bande du haut), partagée ; les séries masquées y sont atténuées.
         if self.has_legend() {
-            let entries: Vec<(Color, &str)> = series.iter().map(|(c, name, _)| (*c, *name)).collect();
+            let entries: Vec<(Color, &str)> = series
+                .iter()
+                .enumerate()
+                .map(|(i, (c, name, _))| (if self.hidden.contains(&i) { c.fade(0.35) } else { *c }, *name))
+                .collect();
             draw_legend(scene, theme, plot_left, bounds.y, &entries, o);
         }
 
-        // Infobulle de survol (jalon 212) : catégorie la plus proche + valeur de chaque série.
+        // Infobulle de survol (jalon 212) : catégorie la plus proche + valeur de chaque série visible.
         if let Some(hc) = status.hover_cursor {
             let lx = hc.x - bounds.x;
             let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
-            for (color, name, vals) in &series {
+            for (j, (color, name, vals)) in series.iter().enumerate() {
+                if self.hidden.contains(&j) {
+                    continue;
+                }
                 let value = vals.get(hi).copied().unwrap_or(0.0);
                 let txt = if single {
                     format_value(value)
@@ -403,6 +455,16 @@ impl<Msg> Widget<Msg> for BarChart {
         let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
         let plot_top = legend_h + VALUE_SIZE + 6.0;
         chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
+    }
+
+    fn positional_click(&self, local_x: f32, local_y: f32, _width: f32) -> Option<Msg> {
+        // Clic sur une entrée de légende → on_legend(index) (jalon 215).
+        let f = self.on_legend.as_ref()?;
+        if !self.has_legend() {
+            return None;
+        }
+        let idx = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names())?;
+        Some(f(idx))
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -433,9 +495,9 @@ const LINE_W: f32 = 2.0;
 ///
 /// ```
 /// use frus_widgets::LineChart;
-/// let chart = LineChart::new([("Mon", 3.0), ("Tue", 5.0), ("Wed", 2.0)]).height(160.0);
+/// let chart: LineChart = LineChart::new([("Mon", 3.0), ("Tue", 5.0), ("Wed", 2.0)]).height(160.0);
 /// ```
-pub struct LineChart {
+pub struct LineChart<Msg = ()> {
     values: Vec<(String, f32)>,
     /// Couleur du trait et des marqueurs ; `None` = `primary` du thème.
     color: Option<Color>,
@@ -453,9 +515,13 @@ pub struct LineChart {
     legend: bool,
     /// Empiler les séries (aires cumulées) plutôt que les superposer ?
     stacked: bool,
+    /// Index de séries **masquées** (non tracées, atténuées en légende) — jalon 215.
+    hidden: Vec<usize>,
+    /// Message émis au clic sur une entrée de légende (index de série) — jalon 215.
+    on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
 }
 
-impl LineChart {
+impl<Msg> LineChart<Msg> {
     /// Crée un graphique en lignes depuis une série de `(libellé, valeur)`.
     pub fn new(data: impl IntoIterator<Item = (impl Into<String>, f32)>) -> Self {
         Self {
@@ -468,6 +534,8 @@ impl LineChart {
             extra: Vec::new(),
             legend: false,
             stacked: false,
+            hidden: Vec::new(),
+            on_legend: None,
         }
     }
 
@@ -528,6 +596,25 @@ impl LineChart {
         self
     }
 
+    /// **Masque** les séries d'index donnés (non tracées, atténuées en légende) — jalon 215.
+    pub fn hidden(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
+        self.hidden = indices.into_iter().collect();
+        self
+    }
+
+    /// Rend la **légende cliquable** : `on_legend(index)` au clic sur une entrée — jalon 215.
+    pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_legend = Some(Box::new(on_legend));
+        self
+    }
+
+    /// Noms de toutes les séries (principale puis additionnelles).
+    fn series_names(&self) -> Vec<&str> {
+        let mut names = vec![self.name.as_deref().unwrap_or("Series 1")];
+        names.extend(self.extra.iter().map(|(n, _, _)| n.as_str()));
+        names
+    }
+
     /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
@@ -554,7 +641,7 @@ impl LineChart {
     }
 }
 
-impl<Msg> Widget<Msg> for LineChart {
+impl<Msg> Widget<Msg> for LineChart<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Percent(1.0),
@@ -614,7 +701,10 @@ impl<Msg> Widget<Msg> for LineChart {
             // Aires **cumulées** : chaque série est une bande entre son cumul bas et haut, du bas
             // vers le haut ; le trait suit le bord supérieur.
             let mut lower = vec![0.0_f32; n];
-            for (color, _, vals) in &series {
+            for (j, (color, _, vals)) in series.iter().enumerate() {
+                if self.hidden.contains(&j) {
+                    continue;
+                }
                 let upper: Vec<f32> =
                     (0..n).map(|i| lower[i] + vals.get(i).copied().unwrap_or(0.0)).collect();
                 if n >= 2 {
@@ -637,7 +727,10 @@ impl<Msg> Widget<Msg> for LineChart {
                 lower = upper;
             }
         } else {
-            for (color, _, vals) in &series {
+            for (j, (color, _, vals)) in series.iter().enumerate() {
+                if self.hidden.contains(&j) {
+                    continue;
+                }
                 let points: Vec<Point> = (0..n.min(vals.len())).map(|i| pt(i, vals[i])).collect();
                 // Aire sous la courbe (série unique seulement, façon non-zero refermée).
                 if single && self.fill && points.len() >= 2 {
@@ -684,35 +777,40 @@ impl<Msg> Widget<Msg> for LineChart {
             );
         }
 
-        // Légende (bande du haut), partagée.
+        // Légende (bande du haut), partagée ; les séries masquées y sont atténuées.
         if self.has_legend() {
-            let entries: Vec<(Color, &str)> = series.iter().map(|(c, n, _)| (*c, *n)).collect();
+            let entries: Vec<(Color, &str)> = series
+                .iter()
+                .enumerate()
+                .map(|(i, (c, n, _))| (if self.hidden.contains(&i) { c.fade(0.35) } else { *c }, *n))
+                .collect();
             draw_legend(scene, theme, plot_left, bounds.y, &entries, o);
         }
 
         // Infobulle de sous-région (jalon 211) : quand le pointeur survole la zone de tracé
         // (`hover_cursor`, pose par le shell via `cursor_icon`), on met en avant la catégorie la
-        // plus proche, on accentue le marqueur de chaque série, et on liste leurs valeurs.
+        // plus proche, on accentue le marqueur de chaque série visible, et on liste leurs valeurs.
         if let Some(hc) = status.hover_cursor {
             let lx = hc.x - bounds.x;
             let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
-            for (color, name, vals) in &series {
-                if hi < vals.len() {
-                    // Marqueur accentué à la valeur (hors empilé : la hauteur individuelle n'a pas
-                    // de sens sur une strate cumulée).
-                    if !stacked {
-                        let py = baseline_y - (vals[hi] / max) * plot_h;
-                        scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
-                    }
-                    let txt = if single {
-                        format_value(vals[hi])
-                    } else {
-                        format!("{}  {}", name, format_value(vals[hi]))
-                    };
-                    lines.push((Some(*color), txt));
+            for (j, (color, name, vals)) in series.iter().enumerate() {
+                if self.hidden.contains(&j) || hi >= vals.len() {
+                    continue;
                 }
+                // Marqueur accentué à la valeur (hors empilé : la hauteur individuelle n'a pas
+                // de sens sur une strate cumulée).
+                if !stacked {
+                    let py = baseline_y - (vals[hi] / max) * plot_h;
+                    scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
+                }
+                let txt = if single {
+                    format_value(vals[hi])
+                } else {
+                    format!("{}  {}", name, format_value(vals[hi]))
+                };
+                lines.push((Some(*color), txt));
             }
             draw_tooltip(scene, theme, bounds, gx, plot_top, baseline_y, &lines, o);
         }
@@ -731,6 +829,16 @@ impl<Msg> Widget<Msg> for LineChart {
         let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
         let plot_top = legend_h + VALUE_SIZE + 6.0;
         chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
+    }
+
+    fn positional_click(&self, local_x: f32, local_y: f32, _width: f32) -> Option<Msg> {
+        // Clic sur une entrée de légende → on_legend(index) (jalon 215).
+        let f = self.on_legend.as_ref()?;
+        if !self.has_legend() {
+            return None;
+        }
+        let idx = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names())?;
+        Some(f(idx))
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -934,6 +1042,43 @@ mod tests {
     }
 
     #[test]
+    fn legend_click_emits_the_series_index() {
+        let chart = LineChart::<usize>::new([("A", 1.0)])
+            .name("Sales")
+            .series("Costs", Color::rgb8(1, 2, 3), [2.0])
+            .legend(true)
+            .on_legend(|i| i);
+        // Clic sur la 1re entrée (pastille près de x=0, y dans la bande de légende).
+        assert_eq!(Widget::<usize>::positional_click(&chart, 5.0, 10.0, 300.0), Some(0));
+        // 2e entrée : juste après la 1re (pastille + espace + « Sales » + écart).
+        let after_first = LEGEND_SWATCH + 5.0 + frus_text::measure("Sales", LEGEND_SIZE).width + 16.0;
+        assert_eq!(Widget::<usize>::positional_click(&chart, after_first + 4.0, 10.0, 300.0), Some(1));
+        // Hors de la bande (y trop bas) : aucun clic de légende.
+        assert_eq!(Widget::<usize>::positional_click(&chart, 5.0, 100.0, 300.0), None);
+        // Sans `on_legend`, la légende n'est pas cliquable.
+        let plain = LineChart::<usize>::new([("A", 1.0)])
+            .name("Sales")
+            .series("Costs", Color::rgb8(1, 2, 3), [2.0])
+            .legend(true);
+        assert_eq!(Widget::<usize>::positional_click(&plain, 5.0, 10.0, 300.0), None);
+    }
+
+    #[test]
+    fn hidden_series_is_not_drawn() {
+        let strokes = |chart: &LineChart| {
+            paint_line(chart, 300.0, 200.0)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { stroke: Some(_), fill: None, .. }))
+                .count()
+        };
+        let both = LineChart::new([("A", 2.0), ("B", 6.0)]).series("x", Color::rgb8(200, 80, 80), [3.0, 1.0]);
+        assert_eq!(strokes(&both), 2, "deux séries visibles = deux lignes");
+        let hidden =
+            LineChart::new([("A", 2.0), ("B", 6.0)]).series("x", Color::rgb8(200, 80, 80), [3.0, 1.0]).hidden([1]);
+        assert_eq!(strokes(&hidden), 1, "la série masquée n'est pas tracée");
+    }
+
+    #[test]
     fn stacked_areas_fill_a_band_per_series() {
         let make = || {
             LineChart::new([("A", 2.0), ("B", 4.0)]).series("x", Color::rgb8(200, 80, 80), [3.0, 1.0])
@@ -954,7 +1099,7 @@ mod tests {
     #[test]
     fn max_value_spans_all_series() {
         // L'échelle englobe la série additionnelle (max 9 > max principal 6).
-        let chart = LineChart::new([("A", 2.0), ("B", 6.0)]).series("x", Color::rgb8(1, 2, 3), [9.0, 1.0]);
+        let chart = LineChart::<()>::new([("A", 2.0), ("B", 6.0)]).series("x", Color::rgb8(1, 2, 3), [9.0, 1.0]);
         assert_eq!(chart.max_value(), 9.0);
     }
 
