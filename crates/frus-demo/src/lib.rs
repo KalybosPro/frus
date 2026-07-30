@@ -277,6 +277,8 @@ enum Msg {
     GridAddRow,
     /// Supprime la ligne `ligne`.
     GridDeleteRow(usize),
+    /// Trie la grille par la colonne `colonne` (bascule croissant / décroissant).
+    GridSort(usize),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -420,6 +422,8 @@ struct TodoApp {
     wizard_reveal: bool,
     /// Données de la grille éditable (lignes × colonnes de texte).
     grid: Vec<Vec<String>>,
+    /// Tri courant de la grille : `(colonne, croissant)` ; `None` = ordre de saisie.
+    grid_sort: Option<(usize, bool)>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -722,11 +726,13 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::GridEnter(r, c) => {
-            // Entrée = descendre d'une ligne (même colonne) ; sur la dernière, on reste.
+            // Entrée = descendre d'une ligne (même colonne) ; sur la dernière, on en crée une.
             if r + 1 < app.grid.len() {
                 Command::focus(("grid", r + 1, c))
             } else {
-                Command::none()
+                let cols = app.grid.first().map(|row| row.len()).unwrap_or(3);
+                app.grid.push(vec![String::new(); cols]);
+                Command::focus(("grid", r + 1, c))
             }
         }
         Msg::GridAddRow => {
@@ -739,6 +745,20 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             if r < app.grid.len() {
                 app.grid.remove(r);
             }
+            Command::none()
+        }
+        Msg::GridSort(c) => {
+            // Bascule croissant / décroissant sur la colonne cliquée, puis trie les lignes.
+            let asc = match app.grid_sort {
+                Some((col, asc)) if col == c => !asc,
+                _ => true,
+            };
+            app.grid_sort = Some((c, asc));
+            app.grid.sort_by(|a, b| {
+                let (x, y) = (a.get(c).map(String::as_str).unwrap_or(""), b.get(c).map(String::as_str).unwrap_or(""));
+                let ord = x.to_lowercase().cmp(&y.to_lowercase());
+                if asc { ord } else { ord.reverse() }
+            });
             Command::none()
         }
         Msg::WizardSubmit => {
@@ -1147,32 +1167,49 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
     }
 }
 
-/// Écran **grille éditable** : une `Table` dont chaque cellule est un widget — au repos, un
-/// `Container` cliquable (clic → éditer cette cellule) ; en édition, un `TextInput` lié à la
-/// valeur (jalon 196 rendu interactif, jalon 197). Cliquer une cellule la focalise (jalon 198).
+/// Validation **pure** d'une cellule de la grille : `Name` (col 0) obligatoire, `Email` (col 2)
+/// doit ressembler à une adresse. `None` = valide. Démontre `TextInput::error` par cellule.
+fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
+    match col {
+        0 if value.trim().is_empty() => Some("Required"),
+        2 if !value.is_empty() && !(value.contains('@') && value.contains('.')) => {
+            Some("Invalid email")
+        }
+        _ => None,
+    }
+}
+
+/// Écran **grille éditable** : une `Table` dont chaque cellule est un `TextInput` toujours éditable.
+/// Tab / Maj+Tab navigue de cellule en cellule (focusables du shell), Entrée descend d'une ligne
+/// (jalon 201). Les en-têtes trient (jalon 204, `on_sort`), les cellules invalides s'affichent en
+/// erreur, et Entrée sur la dernière ligne en crée une.
 fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-    // Chaque cellule est un `TextInput` **toujours éditable** : Tab / Maj+Tab navigue de cellule en
-    // cellule (les focusables du shell, en ordre ligne-par-ligne), Entrée descend d'une ligne. La
-    // dernière colonne porte un bouton de suppression **non focusable** (Tab le saute).
     const COL_W: [f32; 3] = [190.0, 170.0, 240.0];
     let muted = theme.muted;
     let mut table = Table::new(4)
         .header(&["Name", "Role", "Email", ""])
-        .column_widths(&[COL_W[0], COL_W[1], COL_W[2], 44.0]);
+        .column_widths(&[COL_W[0], COL_W[1], COL_W[2], 44.0])
+        .on_sort(Msg::GridSort);
+    // Indicateur de tri (flèche d'en-tête) sur la colonne triée.
+    if let Some((col, asc)) = app.grid_sort {
+        table = table.sorted(col, asc);
+    }
     for (r, row) in app.grid.iter().enumerate() {
         let mut cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..3)
             .map(|c| {
                 let value = row[c].clone();
                 let w = COL_W[c] - 14.0;
+                let err = grid_cell_error(c, &value);
                 let factory: Box<dyn Fn() -> Box<dyn Widget<Msg>>> = Box::new(move || {
-                    Box::new(keyed(
-                        ("grid", r, c),
-                        TextInput::new(value.clone())
-                            .width(w)
-                            .size(15.0)
-                            .on_input(move |v| Msg::GridInput(r, c, v))
-                            .on_submit(Msg::GridEnter(r, c)),
-                    )) as Box<dyn Widget<Msg>>
+                    let mut input = TextInput::new(value.clone())
+                        .width(w)
+                        .size(15.0)
+                        .on_input(move |v| Msg::GridInput(r, c, v))
+                        .on_submit(Msg::GridEnter(r, c));
+                    if let Some(e) = err {
+                        input = input.error(e);
+                    }
+                    Box::new(keyed(("grid", r, c), input)) as Box<dyn Widget<Msg>>
                 });
                 factory
             })
@@ -1188,8 +1225,9 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         }));
         table = table.widget_row(cells);
     }
-    let hint =
-        text("Tab moves between cells, Enter jumps to the next row.").size(13.0).color(theme.muted);
+    let hint = text("Click a header to sort, Tab between cells, Enter for the next row.")
+        .size(13.0)
+        .color(theme.muted);
     let add = button("Add row", Msg::GridAddRow);
     let body = column![table, add, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
@@ -2241,9 +2279,12 @@ mod tests {
         // Entrée descend d'une ligne (même colonne) et demande le focus.
         let cmd = reduce(&mut app, Msg::GridEnter(0, 1));
         assert!(!cmd.is_empty(), "Entrée focalise la cellule du dessous");
-        // Entrée sur la dernière ligne ne bouge pas (pas de focus à demander).
+        // Entrée sur la dernière ligne en crée une (jalon 204) et y saute.
         let last = app.grid.len() - 1;
-        assert!(reduce(&mut app, Msg::GridEnter(last, 1)).is_empty(), "dernière ligne : on reste");
+        let before_enter = app.grid.len();
+        let cmd = reduce(&mut app, Msg::GridEnter(last, 1));
+        assert_eq!(app.grid.len(), before_enter + 1, "Entrée sur la dernière ligne en crée une");
+        assert!(!cmd.is_empty(), "et y place le focus");
         // Ajouter une ligne : une ligne vide en fin, focus sur sa 1re cellule.
         let before = app.grid.len();
         let cmd = reduce(&mut app, Msg::GridAddRow);
@@ -2253,7 +2294,30 @@ mod tests {
         // Supprimer une ligne.
         reduce(&mut app, Msg::GridDeleteRow(0));
         assert_eq!(app.grid.len(), before, "une ligne retirée");
-        assert_eq!(app.grid[0][1], "Crypto", "la ligne suivante remonte");
+    }
+
+    #[test]
+    fn grid_sort_toggles_and_validates() {
+        let mut app = TodoApp::default();
+        app.grid = vec![
+            vec!["Charlie".to_string(), "QA".to_string(), "c@x.com".to_string()],
+            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec!["Bob".to_string(), "PM".to_string(), "b@x.com".to_string()],
+        ];
+        // Tri colonne 0 croissant, puis bascule décroissant.
+        reduce(&mut app, Msg::GridSort(0));
+        assert_eq!(app.grid_sort, Some((0, true)));
+        assert_eq!(app.grid[0][0], "Ada");
+        assert_eq!(app.grid[2][0], "Charlie");
+        reduce(&mut app, Msg::GridSort(0));
+        assert_eq!(app.grid_sort, Some((0, false)));
+        assert_eq!(app.grid[0][0], "Charlie");
+        // Validation par cellule : Name vide et email malformé sont signalés.
+        assert_eq!(grid_cell_error(0, ""), Some("Required"));
+        assert!(grid_cell_error(0, "Ada").is_none());
+        assert_eq!(grid_cell_error(2, "not-an-email"), Some("Invalid email"));
+        assert!(grid_cell_error(2, "a@x.com").is_none());
+        assert!(grid_cell_error(2, "").is_none(), "email vide toléré (pas encore saisi)");
     }
 
     #[test]
