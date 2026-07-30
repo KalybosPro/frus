@@ -219,6 +219,12 @@ impl<Msg> Widget<Msg> for BarChart {
 const MARKER_R: f32 = 3.5;
 /// Opacité (relative) de l'aire remplie sous la courbe.
 const AREA_ALPHA: f32 = 0.16;
+/// Hauteur de la bande de légende (au-dessus de la zone de tracé) quand elle est affichée.
+const LEGEND_H: f32 = 20.0;
+/// Côté de la pastille de couleur d'une entrée de légende.
+const LEGEND_SWATCH: f32 = 10.0;
+/// Taille de police des entrées de légende.
+const LEGEND_SIZE: f32 = 12.0;
 /// Épaisseur (px) du trait de la polyligne.
 const LINE_W: f32 = 2.0;
 
@@ -238,6 +244,13 @@ pub struct LineChart {
     grid: usize,
     /// Remplir l'aire sous la courbe (dégradé plat, couleur du trait atténuée) ?
     fill: bool,
+    /// Nom de la série principale (pour la légende) ; `None` = anonyme.
+    name: Option<String>,
+    /// Séries **additionnelles** `(nom, couleur, valeurs)`, alignées par index sur les catégories
+    /// de la série principale.
+    extra: Vec<(String, Color, Vec<f32>)>,
+    /// Afficher une légende (pastille + nom par série) ?
+    legend: bool,
 }
 
 impl LineChart {
@@ -249,6 +262,9 @@ impl LineChart {
             height: DEFAULT_HEIGHT,
             grid: 0,
             fill: false,
+            name: None,
+            extra: Vec::new(),
+            legend: false,
         }
     }
 
@@ -278,9 +294,40 @@ impl LineChart {
         self
     }
 
-    /// La valeur maximale de la série (au moins 1 pour une échelle stable).
+    /// Nomme la série **principale** (affiché dans la légende).
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Ajoute une **série additionnelle** `(nom, couleur, valeurs)`, alignée par index sur les
+    /// catégories de la série principale. Toutes les séries partagent l'échelle et l'axe.
+    pub fn series(
+        mut self,
+        name: impl Into<String>,
+        color: Color,
+        values: impl IntoIterator<Item = f32>,
+    ) -> Self {
+        self.extra.push((name.into(), color, values.into_iter().map(|v| v.max(0.0)).collect()));
+        self
+    }
+
+    /// Affiche une **légende** (pastille de couleur + nom) pour chaque série nommée. Défaut : off.
+    pub fn legend(mut self, legend: bool) -> Self {
+        self.legend = legend;
+        self
+    }
+
+    /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
-        self.values.iter().map(|(_, v)| *v).fold(0.0, f32::max).max(1.0)
+        let primary = self.values.iter().map(|(_, v)| *v);
+        let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
+        primary.chain(extra).fold(0.0, f32::max).max(1.0)
+    }
+
+    /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
+    fn has_legend(&self) -> bool {
+        self.legend && (self.name.is_some() || !self.extra.is_empty())
     }
 }
 
@@ -305,72 +352,80 @@ impl<Msg> Widget<Msg> for LineChart {
         let o = status.opacity;
         let accent = self.color.unwrap_or(theme.primary);
         let max = self.max_value();
+        let single = self.extra.is_empty();
 
-        // Même géométrie que la BarChart : bande des valeurs en haut, libellés en bas, marge
-        // gauche pour l'axe des ordonnées s'il est demandé.
+        // Géométrie partagée avec la BarChart : bande des valeurs en haut (libellés de valeur,
+        // série unique seulement), libellés de catégorie en bas, marge gauche pour l'axe, et — le
+        // cas échéant — une bande de légende tout en haut.
+        let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
         let baseline_y = bounds.y + bounds.height - X_LABEL_H;
-        let plot_top = bounds.y + VALUE_SIZE + 6.0;
+        let plot_top = bounds.y + legend_h + VALUE_SIZE + 6.0;
         let plot_h = (baseline_y - plot_top).max(1.0);
         let axis_w = axis_width(self.grid);
         let plot_left = bounds.x + axis_w;
         let plot_w = bounds.width - axis_w;
         let slot = plot_w / n as f32;
 
-        // Grille horizontale + graduations (derrière la courbe).
+        // Grille horizontale + graduations (derrière les courbes).
         draw_grid(scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, o);
 
         // Ligne de base (axe des abscisses).
-        scene.fill_rect(
-            Rect::new(plot_left, baseline_y, plot_w, 1.5),
-            theme.border.fade(o),
-        );
+        scene.fill_rect(Rect::new(plot_left, baseline_y, plot_w, 1.5), theme.border.fade(o));
 
-        // Points : centre de chaque case, hauteur proportionnelle à la valeur.
-        let points: Vec<Point> = self
-            .values
-            .iter()
-            .enumerate()
-            .map(|(i, (_, value))| {
-                let cx = plot_left + slot * (i as f32 + 0.5);
-                let py = baseline_y - (value / max) * plot_h;
-                Point::new(cx, py)
-            })
-            .collect();
-
-        // Aire sous la courbe : polygone points + retour par la ligne de base (façon non-zero,
-        // refermé automatiquement au remplissage). Peint avant le trait pour rester dessous.
-        if self.fill && points.len() >= 2 {
-            let mut area = Path::new().move_to(Point::new(points[0].x, baseline_y));
-            for p in &points {
-                area = area.line_to(*p);
-            }
-            area = area.line_to(Point::new(points[points.len() - 1].x, baseline_y));
-            scene.fill_path(&area, accent.fade(o * AREA_ALPHA));
+        // Toutes les séries à tracer : la principale puis les additionnelles, alignées par index.
+        let primary: Vec<f32> = self.values.iter().map(|(_, v)| *v).collect();
+        let mut series: Vec<(Color, &str, &[f32])> =
+            vec![(accent, self.name.as_deref().unwrap_or("Series 1"), primary.as_slice())];
+        for (name, color, vals) in &self.extra {
+            series.push((*color, name.as_str(), vals.as_slice()));
         }
 
-        // Polyligne reliant les points (au moins deux points pour un segment).
-        if points.len() >= 2 {
-            let mut line = Path::new().move_to(points[0]);
-            for p in &points[1..] {
-                line = line.line_to(*p);
+        // Points d'une série (index → centre de case, hauteur ∝ valeur).
+        let points_of = |vals: &[f32]| -> Vec<Point> {
+            (0..n.min(vals.len()))
+                .map(|i| {
+                    Point::new(plot_left + slot * (i as f32 + 0.5), baseline_y - (vals[i] / max) * plot_h)
+                })
+                .collect()
+        };
+
+        for (color, _, vals) in &series {
+            let points = points_of(vals);
+            // Aire sous la courbe (série unique seulement, façon non-zero refermée).
+            if single && self.fill && points.len() >= 2 {
+                let mut area = Path::new().move_to(Point::new(points[0].x, baseline_y));
+                for p in &points {
+                    area = area.line_to(*p);
+                }
+                area = area.line_to(Point::new(points[points.len() - 1].x, baseline_y));
+                scene.fill_path(&area, color.fade(o * AREA_ALPHA));
             }
-            scene.stroke_path(&line, accent.fade(o), LINE_W);
+            // Polyligne.
+            if points.len() >= 2 {
+                let mut line = Path::new().move_to(points[0]);
+                for p in &points[1..] {
+                    line = line.line_to(*p);
+                }
+                scene.stroke_path(&line, color.fade(o), LINE_W);
+            }
+            // Marqueurs, et — série unique — la valeur au-dessus de chaque point.
+            for (i, p) in points.iter().enumerate() {
+                scene.fill_path(&Path::circle(*p, MARKER_R), color.fade(o));
+                if single {
+                    let vs = format_value(vals[i]);
+                    let vw = frus_text::measure(&vs, VALUE_SIZE).width;
+                    scene.text(
+                        Point::new(p.x - vw * 0.5, p.y - MARKER_R - VALUE_SIZE - 2.0),
+                        vs,
+                        VALUE_SIZE,
+                        theme.on_surface.fade(o),
+                    );
+                }
+            }
         }
 
-        // Marqueurs + libellés.
-        for (i, (label, value)) in self.values.iter().enumerate() {
-            let p = points[i];
-            scene.fill_path(&Path::circle(p, MARKER_R), accent.fade(o));
-            // Valeur au-dessus du point.
-            let vs = format_value(*value);
-            let vw = frus_text::measure(&vs, VALUE_SIZE).width;
-            scene.text(
-                Point::new(p.x - vw * 0.5, p.y - MARKER_R - VALUE_SIZE - 2.0),
-                vs,
-                VALUE_SIZE,
-                theme.on_surface.fade(o),
-            );
-            // Libellé de catégorie sous la ligne de base.
+        // Libellés de catégorie (une fois, sous la ligne de base).
+        for (i, (label, _)) in self.values.iter().enumerate() {
             let lw = frus_text::measure(label, LABEL_SIZE).width;
             scene.text(
                 Point::new(plot_left + slot * (i as f32 + 0.5) - lw * 0.5, baseline_y + 4.0),
@@ -378,6 +433,29 @@ impl<Msg> Widget<Msg> for LineChart {
                 LABEL_SIZE,
                 theme.muted.fade(o),
             );
+        }
+
+        // Légende : pastille de couleur + nom par série, en haut, de gauche à droite.
+        if self.has_legend() {
+            let mut x = plot_left;
+            let sy = bounds.y + (LEGEND_H - LEGEND_SWATCH) * 0.5;
+            for (color, name, _) in &series {
+                scene.draw_rect(
+                    Rect::new(x, sy, LEGEND_SWATCH, LEGEND_SWATCH),
+                    color.fade(o),
+                    2.0,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+                x += LEGEND_SWATCH + 5.0;
+                scene.text(
+                    Point::new(x, bounds.y + (LEGEND_H - LEGEND_SIZE) * 0.5),
+                    (*name).to_string(),
+                    LEGEND_SIZE,
+                    theme.muted.fade(o),
+                );
+                x += frus_text::measure(name, LEGEND_SIZE).width + 16.0;
+            }
         }
     }
 
@@ -487,6 +565,38 @@ mod tests {
         };
         assert!(has_text("6") && has_text("2") && has_text("4"), "valeurs affichées");
         assert!(has_text("A") && has_text("B") && has_text("C"), "libellés affichés");
+    }
+
+    #[test]
+    fn multi_series_draws_each_line_and_a_legend() {
+        let chart = LineChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)])
+            .name("Sales")
+            .series("Costs", frus_core::Color::rgb8(200, 80, 80), [1.0, 3.0, 2.0])
+            .legend(true);
+        let prims = paint_line(&chart, 300.0, 220.0);
+        // Deux polylignes (une par série).
+        let polylines = prims
+            .iter()
+            .filter(|p| matches!(p, Primitive::Path { stroke: Some(_), fill: None, .. }))
+            .count();
+        assert_eq!(polylines, 2, "une polyligne par série");
+        // Deux pastilles de légende (~10x10).
+        let swatches = prims
+            .iter()
+            .filter(|p| matches!(p, Primitive::Rect { rect, .. }
+                if (rect.width - LEGEND_SWATCH).abs() < 0.5 && (rect.height - LEGEND_SWATCH).abs() < 0.5))
+            .count();
+        assert_eq!(swatches, 2, "une pastille par série");
+        // Les noms de séries figurent dans la légende.
+        let has_text = |t: &str| prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t));
+        assert!(has_text("Sales") && has_text("Costs"), "noms de séries en légende");
+    }
+
+    #[test]
+    fn max_value_spans_all_series() {
+        // L'échelle englobe la série additionnelle (max 9 > max principal 6).
+        let chart = LineChart::new([("A", 2.0), ("B", 6.0)]).series("x", Color::rgb8(1, 2, 3), [9.0, 1.0]);
+        assert_eq!(chart.max_value(), 9.0);
     }
 
     #[test]
