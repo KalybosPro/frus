@@ -281,6 +281,8 @@ enum Msg {
     GridSort(usize),
     /// Soumet la grille : n'aboutit que si toutes les cellules sont valides.
     GridSave,
+    /// Place le focus sur la première cellule invalide de la grille (le cas échéant).
+    GridFocusError,
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -761,6 +763,13 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             };
             return show_toast(app, &msg);
         }
+        Msg::GridFocusError => {
+            // Focalise la première cellule fautive (parcours ligne par ligne).
+            match grid_first_error(&app.grid) {
+                Some((r, c)) => Command::focus(("grid", r, c)),
+                None => Command::none(),
+            }
+        }
         Msg::GridSort(c) => {
             // Bascule croissant / décroissant sur la colonne cliquée, puis trie les lignes.
             let asc = match app.grid_sort {
@@ -1200,6 +1209,15 @@ fn grid_error_count(grid: &[Vec<String>]) -> usize {
         .count()
 }
 
+/// La **première** cellule invalide `(ligne, colonne)`, parcourue ligne par ligne (jalon 210).
+fn grid_first_error(grid: &[Vec<String>]) -> Option<(usize, usize)> {
+    grid.iter().enumerate().find_map(|(r, row)| {
+        (0..3)
+            .find(|&c| grid_cell_error(c, row.get(c).map(String::as_str).unwrap_or("")).is_some())
+            .map(|c| (r, c))
+    })
+}
+
 /// Écran **grille éditable** : une `Table` dont chaque cellule est un `TextInput` toujours éditable.
 /// Tab / Maj+Tab navigue de cellule en cellule (focusables du shell), Entrée descend d'une ligne
 /// (jalon 201). Les en-têtes trient (jalon 204, `on_sort`), les cellules invalides s'affichent en
@@ -1258,8 +1276,14 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         text(label).size(13.0).color(theme.error)
     };
     let add = button("Add row", Msg::GridAddRow);
-    let save = button("Save", Msg::GridSave);
-    let actions = row![add, save, status].gap(12.0).align(Align::Center);
+    // `Save` est désactivé (non cliquable) tant qu'une cellule est invalide (jalon 210).
+    let save = button("Save", Msg::GridSave).enabled(errors == 0);
+    let mut actions = row![add, save].gap(12.0).align(Align::Center);
+    // Raccourci vers la première cellule fautive, seulement s'il y a des erreurs.
+    if errors > 0 {
+        actions = actions.child(button("Go to first error", Msg::GridFocusError));
+    }
+    actions = actions.child(status);
     let body = column![table, actions, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
         .width(width)
@@ -2373,6 +2397,23 @@ mod tests {
         let mut app2 = TodoApp { grid: app.grid.clone(), ..TodoApp::default() };
         reduce(&mut app2, Msg::GridSave);
         assert_eq!(app2.snackbars.current().map(String::as_str), Some("Grid saved"));
+    }
+
+    #[test]
+    fn grid_focus_error_targets_the_first_faulty_cell() {
+        let mut app = TodoApp::default();
+        // Ligne 0 valide, ligne 1 : Name vide (colonne 0) = première faute attendue.
+        app.grid = vec![
+            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec!["".to_string(), "PM".to_string(), "nope".to_string()],
+        ];
+        assert_eq!(grid_first_error(&app.grid), Some((1, 0)));
+        assert!(!reduce(&mut app, Msg::GridFocusError).is_empty(), "focalise la cellule fautive");
+        // Tout valide : plus de cible, aucune commande.
+        app.grid[1][0] = "Bob".to_string();
+        app.grid[1][2] = "b@x.com".to_string();
+        assert_eq!(grid_first_error(&app.grid), None);
+        assert!(reduce(&mut app, Msg::GridFocusError).is_empty(), "rien à focaliser");
     }
 
     #[test]
