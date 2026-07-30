@@ -48,7 +48,7 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
     loc.format_for(&loc.langid(LANGS[lang].1), key, args![n: n])
 }
 use frus_widgets::{
-    button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BoxFit,
+    button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BarChart, BoxFit,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, CustomPaint, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
@@ -287,6 +287,8 @@ enum Msg {
     GridFocusError,
     /// Bascule la visibilité de la série `index` du graphique (clic de légende, jalon 218).
     ChartToggleSeries(usize),
+    /// Change le type de graphique affiché (sélecteur, jalon 219).
+    SetChartKind(usize),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -436,6 +438,8 @@ struct TodoApp {
     grid_error_cursor: Option<(usize, usize)>,
     /// Index des séries **masquées** du graphique (basculées via la légende, jalon 218).
     chart_hidden: Vec<usize>,
+    /// Type de graphique affiché : 0 lignes, 1 aires empilées, 2 barres groupées, 3 barres empilées (jalon 219).
+    chart_kind: usize,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -791,6 +795,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             } else {
                 app.chart_hidden.push(i);
             }
+            Command::none()
+        }
+        Msg::SetChartKind(k) => {
+            app.chart_kind = k;
             Command::none()
         }
         Msg::GridSort(c) => {
@@ -1337,30 +1345,75 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
 }
 
-/// Écran **tableau de bord graphique** : un `LineChart` multi-séries à légende **cliquable** —
-/// cliquer une entrée masque/affiche sa série (jalon 215/218) — avec axe, aire et halo animé au
-/// survol. Démontre le routage d'un clic de sous-région (légende) vers l'état de l'application.
+/// Catégories (axe des abscisses) du tableau de bord graphique.
+const CHART_CATS: [&str; 5] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+/// Séries du tableau de bord : `(nom, valeurs)`. Série 0 = accent du thème ; 1.. = `CHART_COLORS`.
+const CHART_SERIES: [(&str, [f32; 5]); 3] = [
+    ("Sales", [3.0, 7.0, 5.0, 8.0, 4.0]),
+    ("Costs", [2.0, 4.0, 3.0, 5.0, 2.0]),
+    ("Profit", [1.0, 3.0, 2.0, 3.0, 2.0]),
+];
+/// Couleurs des séries **additionnelles** (1.. ; la série 0 prend l'accent du thème).
+const CHART_COLORS: [Color; 2] = [
+    Color { r: 220.0 / 255.0, g: 120.0 / 255.0, b: 80.0 / 255.0, a: 1.0 },
+    Color { r: 90.0 / 255.0, g: 158.0 / 255.0, b: 242.0 / 255.0, a: 1.0 },
+];
+
+/// Construit le graphique du tableau de bord selon `app.chart_kind` (jalon 219) : lignes (0), aires
+/// empilées (1), barres groupées (2), barres empilées (3). Toutes les variantes partagent les
+/// mêmes données, l'axe, et l'état de visibilité `chart_hidden`. `legend` câble (ou non) la légende
+/// cliquable — utile pour un graphique **compagnon** qui ne réaffiche pas sa propre légende.
+fn dashboard_chart(app: &TodoApp, height: f32, legend: bool) -> Box<dyn Widget<Msg>> {
+    let hidden = app.chart_hidden.clone();
+    let cats = (0..5).map(|i| (CHART_CATS[i], CHART_SERIES[0].1[i]));
+    if app.chart_kind < 2 {
+        let mut c = LineChart::new(cats)
+            .height(height)
+            .grid(4)
+            .name(CHART_SERIES[0].0)
+            .series(CHART_SERIES[1].0, CHART_COLORS[0], CHART_SERIES[1].1)
+            .series(CHART_SERIES[2].0, CHART_COLORS[1], CHART_SERIES[2].1)
+            .hidden(hidden)
+            .animated(true);
+        if app.chart_kind == 1 {
+            c = c.stacked(true);
+        }
+        if legend {
+            c = c.legend(true).on_legend(Msg::ChartToggleSeries);
+        }
+        Box::new(c)
+    } else {
+        let mut c = BarChart::new(cats)
+            .height(height)
+            .grid(4)
+            .name(CHART_SERIES[0].0)
+            .series(CHART_SERIES[1].0, CHART_COLORS[0], CHART_SERIES[1].1)
+            .series(CHART_SERIES[2].0, CHART_COLORS[1], CHART_SERIES[2].1)
+            .hidden(hidden);
+        if app.chart_kind == 3 {
+            c = c.stacked(true);
+        }
+        if legend {
+            c = c.legend(true).on_legend(Msg::ChartToggleSeries);
+        }
+        Box::new(c)
+    }
+}
+
+/// Écran **tableau de bord graphique** : un `SegmentedControl` choisit le type (lignes / aires
+/// empilées / barres groupées / barres empilées, jalon 219), et la légende **cliquable** masque ou
+/// affiche une série (jalon 215/218). Démontre le routage de clics de sous-région vers l'état.
 fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-    let chart = LineChart::new([
-        ("Mon", 3.0),
-        ("Tue", 7.0),
-        ("Wed", 5.0),
-        ("Thu", 8.0),
-        ("Fri", 4.0),
-    ])
-    .height(240.0)
-    .grid(4)
-    .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
-    .series("Profit", Color::rgb8(90, 158, 242), [1.0, 3.0, 2.0, 3.0, 2.0])
-    .legend(true)
-    .on_legend(Msg::ChartToggleSeries)
-    .hidden(app.chart_hidden.clone())
-    .animated(true);
-    let hint = text("Click a legend entry to show or hide its series.")
+    let selector = SegmentedControl::new(app.chart_kind, Msg::SetChartKind)
+        .segment("Lines")
+        .segment("Stacked area")
+        .segment("Grouped bars")
+        .segment("Stacked bars");
+    let chart = dashboard_chart(app, 240.0, true);
+    let hint = text("Pick a chart type; click a legend entry to show or hide a series.")
         .size(13.0)
         .color(theme.muted);
-    let body = column![chart, hint].gap(16.0).padding(24.0);
+    let body = column![row![selector].align(Align::Center), chart, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2510,6 +2563,19 @@ mod tests {
         assert_eq!(app.chart_hidden, vec![1, 2]);
         reduce(&mut app, Msg::ChartToggleSeries(1));
         assert_eq!(app.chart_hidden, vec![2], "re-clic ré-affiche la série 1");
+    }
+
+    #[test]
+    fn chart_kind_selector_switches_type_and_each_renders() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Charts));
+        assert_eq!(app.chart_kind, 0, "lignes par défaut");
+        // Chaque type (aires empilées, barres groupées, barres empilées) se rend.
+        for k in [1usize, 2, 3] {
+            reduce(&mut app, Msg::SetChartKind(k));
+            assert_eq!(app.chart_kind, k);
+            assert!(primitive_count(&app) > 0, "le type {k} se rend");
+        }
     }
 
     #[test]
