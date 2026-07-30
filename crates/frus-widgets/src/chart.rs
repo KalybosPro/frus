@@ -42,6 +42,12 @@ pub struct BarChart {
     height: f32,
     /// Nombre de divisions de l'axe des ordonnées (lignes de grille + graduations) ; `0` = aucun.
     grid: usize,
+    /// Nom de la série principale (pour la légende) ; `None` = anonyme.
+    name: Option<String>,
+    /// Séries **additionnelles** `(nom, couleur, valeurs)` — barres **groupées** par catégorie.
+    extra: Vec<(String, Color, Vec<f32>)>,
+    /// Afficher une légende (pastille + nom par série) ?
+    legend: bool,
 }
 
 impl BarChart {
@@ -52,6 +58,9 @@ impl BarChart {
             color: None,
             height: DEFAULT_HEIGHT,
             grid: 0,
+            name: None,
+            extra: Vec::new(),
+            legend: false,
         }
     }
 
@@ -74,9 +83,40 @@ impl BarChart {
         self
     }
 
-    /// La valeur maximale de la série (au moins 1 pour une échelle stable).
+    /// Nomme la série **principale** (affiché dans la légende).
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Ajoute une **série additionnelle** `(nom, couleur, valeurs)`, dessinée en barres **groupées**
+    /// côte à côte dans chaque catégorie. Toutes les séries partagent l'échelle et l'axe.
+    pub fn series(
+        mut self,
+        name: impl Into<String>,
+        color: Color,
+        values: impl IntoIterator<Item = f32>,
+    ) -> Self {
+        self.extra.push((name.into(), color, values.into_iter().map(|v| v.max(0.0)).collect()));
+        self
+    }
+
+    /// Affiche une **légende** (pastille de couleur + nom) pour chaque série. Défaut : off.
+    pub fn legend(mut self, legend: bool) -> Self {
+        self.legend = legend;
+        self
+    }
+
+    /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
-        self.values.iter().map(|(_, v)| *v).fold(0.0, f32::max).max(1.0)
+        let primary = self.values.iter().map(|(_, v)| *v);
+        let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
+        primary.chain(extra).fold(0.0, f32::max).max(1.0)
+    }
+
+    /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
+    fn has_legend(&self) -> bool {
+        self.legend && (self.name.is_some() || !self.extra.is_empty())
     }
 }
 
@@ -137,6 +177,102 @@ fn draw_grid(
     }
 }
 
+/// Dessine une **légende** (pastille de couleur + nom, de gauche à droite) dans la bande du haut.
+/// Partagé BarChart / LineChart (jalon 209/212).
+fn draw_legend(scene: &mut Scene, theme: &Theme, left: f32, top: f32, series: &[(Color, &str)], o: f32) {
+    let mut x = left;
+    let sy = top + (LEGEND_H - LEGEND_SWATCH) * 0.5;
+    for (color, name) in series {
+        scene.draw_rect(
+            Rect::new(x, sy, LEGEND_SWATCH, LEGEND_SWATCH),
+            color.fade(o),
+            2.0,
+            0.0,
+            Color::TRANSPARENT,
+        );
+        x += LEGEND_SWATCH + 5.0;
+        scene.text(
+            Point::new(x, top + (LEGEND_H - LEGEND_SIZE) * 0.5),
+            (*name).to_string(),
+            LEGEND_SIZE,
+            theme.muted.fade(o),
+        );
+        x += frus_text::measure(name, LEGEND_SIZE).width + 16.0;
+    }
+}
+
+/// Dessine une **infobulle** de survol : un guide vertical à `gx`, puis une boîte listant `lines`
+/// (chaque ligne : pastille optionnelle + texte). La boîte est dimensionnée au plus long libellé,
+/// posée à droite du guide (repliée à gauche si elle déborde), ancrée en haut de la zone de tracé.
+/// Partagé BarChart / LineChart (jalon 211/212).
+#[allow(clippy::too_many_arguments)]
+fn draw_tooltip(
+    scene: &mut Scene,
+    theme: &Theme,
+    bounds: Rect,
+    gx: f32,
+    plot_top: f32,
+    baseline_y: f32,
+    lines: &[(Option<Color>, String)],
+    o: f32,
+) {
+    scene.fill_rect(
+        Rect::new(gx - 0.5, plot_top, 1.0, baseline_y - plot_top),
+        theme.border.fade(o * 0.8),
+    );
+    let pad = 8.0;
+    let line_h = TOOLTIP_SIZE + 5.0;
+    let dot = 7.0;
+    let text_w = lines
+        .iter()
+        .map(|(c, t)| {
+            let lead = if c.is_some() { dot + 5.0 } else { 0.0 };
+            lead + frus_text::measure(t, TOOLTIP_SIZE).width
+        })
+        .fold(0.0, f32::max);
+    let bw = text_w + pad * 2.0;
+    let bh = lines.len() as f32 * line_h + pad * 2.0 - 3.0;
+    let mut bx = gx + 12.0;
+    if bx + bw > bounds.x + bounds.width {
+        bx = gx - 12.0 - bw;
+    }
+    bx = bx.max(bounds.x);
+    let by = plot_top.max(bounds.y);
+    scene.draw_rect(Rect::new(bx, by, bw, bh), theme.surface.fade(o), 6.0, 1.0, theme.border.fade(o));
+    let mut ty = by + pad;
+    for (c, t) in lines {
+        let mut tx = bx + pad;
+        if let Some(col) = c {
+            scene.fill_path(
+                &Path::circle(Point::new(tx + dot * 0.5, ty + TOOLTIP_SIZE * 0.5), dot * 0.5),
+                col.fade(o),
+            );
+            tx += dot + 5.0;
+        }
+        scene.text(Point::new(tx, ty), t.clone(), TOOLTIP_SIZE, theme.on_surface.fade(o));
+        ty += line_h;
+    }
+}
+
+/// Le point local `(x, y)` est-il dans la **zone de tracé** ? Si oui, renvoie `Cursor::Default`
+/// (active le suivi du pointeur pour l'infobulle sans changer la forme du curseur — un graphe n'est
+/// pas cliquable), sinon `None`. Partagé BarChart / LineChart (jalon 211/212).
+fn chart_plot_hit(
+    local_x: f32,
+    local_y: f32,
+    width: f32,
+    height: f32,
+    plot_left: f32,
+    plot_top: f32,
+) -> Option<crate::interaction::Cursor> {
+    let baseline_y = height - X_LABEL_H;
+    if local_x >= plot_left && local_x <= width && local_y >= plot_top && local_y <= baseline_y {
+        Some(crate::interaction::Cursor::Default)
+    } else {
+        None
+    }
+}
+
 impl<Msg> Widget<Msg> for BarChart {
     fn style(&self) -> Style {
         Style {
@@ -158,48 +294,68 @@ impl<Msg> Widget<Msg> for BarChart {
         let o = status.opacity;
         let accent = self.color.unwrap_or(theme.primary);
         let max = self.max_value();
+        let single = self.extra.is_empty();
 
-        // Zone de tracé : sous la bande des valeurs, au-dessus des libellés de catégorie ; une
-        // marge à gauche accueille les graduations de l'axe des ordonnées, s'il est demandé.
+        // Zone de tracé : sous la bande des valeurs, au-dessus des libellés de catégorie ; marge
+        // gauche pour l'axe, et — le cas échéant — une bande de légende tout en haut.
+        let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
         let baseline_y = bounds.y + bounds.height - X_LABEL_H;
-        let plot_top = bounds.y + VALUE_SIZE + 6.0;
+        let plot_top = bounds.y + legend_h + VALUE_SIZE + 6.0;
         let plot_h = (baseline_y - plot_top).max(1.0);
         let axis_w = axis_width(self.grid);
         let plot_left = bounds.x + axis_w;
         let plot_w = bounds.width - axis_w;
         let slot = plot_w / n as f32;
-        let bar_w = slot * BAR_FILL;
 
         // Grille horizontale + graduations (derrière les barres).
         draw_grid(scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, o);
-
         // Ligne de base (axe des abscisses).
-        scene.fill_rect(
-            Rect::new(plot_left, baseline_y, plot_w, 1.5),
-            theme.border.fade(o),
-        );
+        scene.fill_rect(Rect::new(plot_left, baseline_y, plot_w, 1.5), theme.border.fade(o));
 
-        for (i, (label, value)) in self.values.iter().enumerate() {
+        // Toutes les séries : la principale puis les additionnelles (barres groupées).
+        let primary: Vec<f32> = self.values.iter().map(|(_, v)| *v).collect();
+        let mut series: Vec<(Color, &str, &[f32])> =
+            vec![(accent, self.name.as_deref().unwrap_or("Series 1"), primary.as_slice())];
+        for (name, color, vals) in &self.extra {
+            series.push((*color, name.as_str(), vals.as_slice()));
+        }
+        let s = series.len();
+
+        // Chaque catégorie : un groupe centré de `s` barres côte à côte. En série unique, la barre
+        // occupe toute la largeur du groupe (identique au rendu d'origine) ; groupée, un léger jeu
+        // sépare les barres.
+        let group_w = slot * BAR_FILL;
+        let bar_w = group_w / s as f32;
+        let inner = if s == 1 { 1.0 } else { 0.86 };
+        for i in 0..n {
             let cx = plot_left + slot * (i as f32 + 0.5);
-            let h = (value / max) * plot_h;
-            // Barre (coin supérieur arrondi via un petit rayon uniforme).
-            scene.draw_rect(
-                Rect::new(cx - bar_w * 0.5, baseline_y - h, bar_w, h),
-                accent.fade(o),
-                4.0,
-                0.0,
-                Color::TRANSPARENT,
-            );
-            // Valeur au-dessus de la barre.
-            let vs = format_value(*value);
-            let vw = frus_text::measure(&vs, VALUE_SIZE).width;
-            scene.text(
-                Point::new(cx - vw * 0.5, baseline_y - h - VALUE_SIZE - 2.0),
-                vs,
-                VALUE_SIZE,
-                theme.on_surface.fade(o),
-            );
+            let group_left = cx - group_w * 0.5;
+            for (j, (color, _, vals)) in series.iter().enumerate() {
+                let value = vals.get(i).copied().unwrap_or(0.0);
+                let h = (value / max) * plot_h;
+                let draw_w = bar_w * inner;
+                let bx = group_left + j as f32 * bar_w + (bar_w - draw_w) * 0.5;
+                scene.draw_rect(
+                    Rect::new(bx, baseline_y - h, draw_w, h),
+                    color.fade(o),
+                    4.0,
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+                // Valeur au-dessus (série unique seulement, pour éviter la surcharge).
+                if single {
+                    let vs = format_value(value);
+                    let vw = frus_text::measure(&vs, VALUE_SIZE).width;
+                    scene.text(
+                        Point::new(cx - vw * 0.5, baseline_y - h - VALUE_SIZE - 2.0),
+                        vs,
+                        VALUE_SIZE,
+                        theme.on_surface.fade(o),
+                    );
+                }
+            }
             // Libellé de catégorie sous la ligne de base.
+            let label = &self.values[i].0;
             let lw = frus_text::measure(label, LABEL_SIZE).width;
             scene.text(
                 Point::new(cx - lw * 0.5, baseline_y + 4.0),
@@ -208,6 +364,45 @@ impl<Msg> Widget<Msg> for BarChart {
                 theme.muted.fade(o),
             );
         }
+
+        // Légende (bande du haut), partagée.
+        if self.has_legend() {
+            let entries: Vec<(Color, &str)> = series.iter().map(|(c, name, _)| (*c, *name)).collect();
+            draw_legend(scene, theme, plot_left, bounds.y, &entries, o);
+        }
+
+        // Infobulle de survol (jalon 212) : catégorie la plus proche + valeur de chaque série.
+        if let Some(hc) = status.hover_cursor {
+            let lx = hc.x - bounds.x;
+            let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
+            let gx = plot_left + slot * (hi as f32 + 0.5);
+            let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
+            for (color, name, vals) in &series {
+                let value = vals.get(hi).copied().unwrap_or(0.0);
+                let txt = if single {
+                    format_value(value)
+                } else {
+                    format!("{}  {}", name, format_value(value))
+                };
+                lines.push((Some(*color), txt));
+            }
+            draw_tooltip(scene, theme, bounds, gx, plot_top, baseline_y, &lines, o);
+        }
+    }
+
+    fn cursor_icon(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        height: f32,
+    ) -> Option<crate::interaction::Cursor> {
+        if self.values.is_empty() {
+            return None;
+        }
+        let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
+        let plot_top = legend_h + VALUE_SIZE + 6.0;
+        chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -437,42 +632,19 @@ impl<Msg> Widget<Msg> for LineChart {
             );
         }
 
-        // Légende : pastille de couleur + nom par série, en haut, de gauche à droite.
+        // Légende (bande du haut), partagée.
         if self.has_legend() {
-            let mut x = plot_left;
-            let sy = bounds.y + (LEGEND_H - LEGEND_SWATCH) * 0.5;
-            for (color, name, _) in &series {
-                scene.draw_rect(
-                    Rect::new(x, sy, LEGEND_SWATCH, LEGEND_SWATCH),
-                    color.fade(o),
-                    2.0,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-                x += LEGEND_SWATCH + 5.0;
-                scene.text(
-                    Point::new(x, bounds.y + (LEGEND_H - LEGEND_SIZE) * 0.5),
-                    (*name).to_string(),
-                    LEGEND_SIZE,
-                    theme.muted.fade(o),
-                );
-                x += frus_text::measure(name, LEGEND_SIZE).width + 16.0;
-            }
+            let entries: Vec<(Color, &str)> = series.iter().map(|(c, n, _)| (*c, *n)).collect();
+            draw_legend(scene, theme, plot_left, bounds.y, &entries, o);
         }
 
         // Infobulle de sous-région (jalon 211) : quand le pointeur survole la zone de tracé
         // (`hover_cursor`, pose par le shell via `cursor_icon`), on met en avant la catégorie la
-        // plus proche et on liste la valeur de chaque série.
+        // plus proche, on accentue le marqueur de chaque série, et on liste leurs valeurs.
         if let Some(hc) = status.hover_cursor {
             let lx = hc.x - bounds.x;
             let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
-            // Guide vertical à la catégorie visée.
-            scene.fill_rect(
-                Rect::new(gx - 0.5, plot_top, 1.0, baseline_y - plot_top),
-                theme.border.fade(o * 0.8),
-            );
-            // Marqueurs accentués + lignes de l'infobulle (catégorie puis une par série).
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
             for (color, name, vals) in &series {
                 if hi < vals.len() {
@@ -486,40 +658,7 @@ impl<Msg> Widget<Msg> for LineChart {
                     lines.push((Some(*color), txt));
                 }
             }
-            // Boîte : dimensionnée au plus long libellé, placée à droite du guide (repliée à gauche
-            // si elle déborderait), ancrée en haut de la zone de tracé.
-            let pad = 8.0;
-            let line_h = TOOLTIP_SIZE + 5.0;
-            let dot = 7.0;
-            let text_w = lines
-                .iter()
-                .map(|(c, t)| {
-                    let lead = if c.is_some() { dot + 5.0 } else { 0.0 };
-                    lead + frus_text::measure(t, TOOLTIP_SIZE).width
-                })
-                .fold(0.0, f32::max);
-            let bw = text_w + pad * 2.0;
-            let bh = lines.len() as f32 * line_h + pad * 2.0 - 3.0;
-            let mut bx = gx + 12.0;
-            if bx + bw > bounds.x + bounds.width {
-                bx = gx - 12.0 - bw;
-            }
-            bx = bx.max(bounds.x);
-            let by = plot_top.max(bounds.y);
-            scene.draw_rect(Rect::new(bx, by, bw, bh), theme.surface.fade(o), 6.0, 1.0, theme.border.fade(o));
-            let mut ty = by + pad;
-            for (c, t) in &lines {
-                let mut tx = bx + pad;
-                if let Some(col) = c {
-                    scene.fill_path(
-                        &Path::circle(Point::new(tx + dot * 0.5, ty + TOOLTIP_SIZE * 0.5), dot * 0.5),
-                        col.fade(o),
-                    );
-                    tx += dot + 5.0;
-                }
-                scene.text(Point::new(tx, ty), t.clone(), TOOLTIP_SIZE, theme.on_surface.fade(o));
-                ty += line_h;
-            }
+            draw_tooltip(scene, theme, bounds, gx, plot_top, baseline_y, &lines, o);
         }
     }
 
@@ -530,21 +669,12 @@ impl<Msg> Widget<Msg> for LineChart {
         width: f32,
         height: f32,
     ) -> Option<crate::interaction::Cursor> {
-        // Active le suivi du pointeur (jalon 208) sur la zone de tracé — sans changer la forme du
-        // curseur (Default) — pour alimenter l'infobulle. Hors zone : pas d'avis.
         if self.values.is_empty() {
             return None;
         }
         let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
-        let baseline_y = height - X_LABEL_H;
         let plot_top = legend_h + VALUE_SIZE + 6.0;
-        let plot_left = axis_width(self.grid);
-        let plot_right = width;
-        if local_x >= plot_left && local_x <= plot_right && local_y >= plot_top && local_y <= baseline_y {
-            Some(crate::interaction::Cursor::Default)
-        } else {
-            None
-        }
+        chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -605,6 +735,50 @@ mod tests {
         };
         assert!(has_text("6") && has_text("2") && has_text("4"), "valeurs affichées");
         assert!(has_text("A") && has_text("B") && has_text("C"), "libellés affichés");
+    }
+
+    #[test]
+    fn grouped_series_draw_a_bar_per_series_and_a_legend() {
+        let chart = BarChart::new([("A", 4.0), ("B", 8.0), ("C", 6.0)])
+            .name("This year")
+            .series("Last year", Color::rgb8(200, 120, 80), [3.0, 7.0, 5.0])
+            .legend(true);
+        let prims = paint_chart(&chart, 320.0, 220.0);
+        // 3 catégories × 2 séries = 6 barres (hautes ; > la ligne de base et les pastilles).
+        let bars = prims
+            .iter()
+            .filter(|p| matches!(p, Primitive::Rect { rect, .. } if rect.height > 15.0))
+            .count();
+        assert_eq!(bars, 6, "une barre par (catégorie, série)");
+        // Deux pastilles de légende (~10×10).
+        let swatches = prims
+            .iter()
+            .filter(|p| matches!(p, Primitive::Rect { rect, .. }
+                if (rect.width - LEGEND_SWATCH).abs() < 0.5 && (rect.height - LEGEND_SWATCH).abs() < 0.5))
+            .count();
+        assert_eq!(swatches, 2, "une pastille par série");
+        let has_text = |t: &str| prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t));
+        assert!(has_text("This year") && has_text("Last year"), "noms de séries en légende");
+    }
+
+    #[test]
+    fn hovering_bars_shows_a_tooltip_guide() {
+        use crate::interaction::Cursor;
+        let chart = BarChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)]);
+        let guides = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(&chart, Rect::new(0.0, 0.0, 300.0, 220.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, Primitive::Rect { rect, .. } if rect.width <= 1.5 && rect.height > 50.0))
+                .count()
+        };
+        let hovering = Status { hover_cursor: Some(Point::new(150.0, 100.0)), ..Default::default() };
+        assert_eq!(guides(hovering), 1, "un guide au survol de la zone");
+        assert_eq!(guides(Status::default()), 0, "pas d'infobulle sans survol");
+        assert_eq!(Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0), Some(Cursor::Default));
+        assert_eq!(Widget::<()>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0), None);
     }
 
     fn paint_line(chart: &LineChart, w: f32, h: f32) -> Vec<Primitive> {
