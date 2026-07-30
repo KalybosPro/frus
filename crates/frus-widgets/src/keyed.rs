@@ -66,6 +66,16 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.positional_click(local_x, local_y, width)
     }
 
+    fn cursor_icon(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        height: f32,
+    ) -> Option<crate::interaction::Cursor> {
+        self.inner.cursor_icon(local_x, local_y, width, height)
+    }
+
     fn key(&self) -> Option<u64> {
         Some(self.key)
     }

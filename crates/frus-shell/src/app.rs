@@ -15,15 +15,15 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, Color, Edit,
-    FocusDirection, Insets, Key, KeyResponse, Point, Primitive, Rect, Runtime, Scene, Size, Theme,
-    Ui, Widget, WidgetId, WindowInsets,
+    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, Color,
+    Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, Point, Primitive, Rect,
+    Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::application::Application;
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
@@ -1499,12 +1499,37 @@ impl<A: Application> App<A> {
             self.handle_drag();
             return;
         }
-        if let Some(ui) = &self.ui {
-            let hovered = ui.hit(self.cursor);
-            if hovered != self.runtime.input.hovered {
-                self.runtime.input.hovered = hovered;
-                self.request_redraw();
-            }
+        let hovered = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+        if hovered != self.runtime.input.hovered {
+            self.runtime.input.hovered = hovered;
+            self.request_redraw();
+        }
+        // Curseur système selon la sous-région survolée (jalon 205) : main sur une icône
+        // cliquable, etc. Recalculé a chaque mouvement (la sous-region peut changer sans que le
+        // widget survole change).
+        self.update_cursor_icon(hovered);
+    }
+
+    /// Applique la forme de curseur demandee par le widget survole a la position locale du
+    /// pointeur (jalon 205), sinon le curseur par defaut. Traduit `frus_widgets::Cursor` vers winit.
+    fn update_cursor_icon(&mut self, hovered: Option<WidgetId>) {
+        let requested = hovered.and_then(|id| {
+            let rect = self.ui.as_ref()?.widget_rect(id)?;
+            let widget = find_widget(self.tree.as_ref()?.as_ref(), id)?;
+            widget.cursor_icon(
+                self.cursor.x - rect.x,
+                self.cursor.y - rect.y,
+                rect.width,
+                rect.height,
+            )
+        });
+        let icon = match requested.unwrap_or(UiCursor::Default) {
+            UiCursor::Default => CursorIcon::Default,
+            UiCursor::Pointer => CursorIcon::Pointer,
+            UiCursor::Text => CursorIcon::Text,
+        };
+        if let Some(window) = &self.window {
+            window.set_cursor(icon);
         }
     }
 

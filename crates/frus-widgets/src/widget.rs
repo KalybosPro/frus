@@ -3,7 +3,7 @@
 use frus_core::{Rect, Scene, Semantics, Size};
 use frus_layout::Style;
 
-use crate::interaction::{Key, Status};
+use crate::interaction::{Cursor, Key, Status};
 use crate::portal::Placement;
 use crate::runtime::Edit;
 use crate::scroll::Axis;
@@ -61,6 +61,14 @@ pub trait Widget<Msg> {
     /// sous-régions cliquables — p. ex. l'icône **suffixe** d'un [`crate::TextInput`] (effacer /
     /// révéler). `None` (défaut) = aucune sous-région ; le shell retombe alors sur `on_click`.
     fn positional_click(&self, _local_x: f32, _local_y: f32, _width: f32) -> Option<Msg> {
+        None
+    }
+
+    /// Forme du **curseur système** souhaitée à la position **locale** `(local_x, local_y)` dans la
+    /// boîte `width × height` du widget (jalon 205) : `Some(Cursor::Pointer)` sur une sous-région
+    /// cliquable (icône suffixe…), `None` (défaut) = pas d'avis, le shell garde le curseur par
+    /// défaut. N'affecte pas le clic ; c'est purement l'apparence du pointeur au survol.
+    fn cursor_icon(&self, _local_x: f32, _local_y: f32, _width: f32, _height: f32) -> Option<Cursor> {
         None
     }
 
@@ -458,6 +466,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn positional_click(&self, local_x: f32, local_y: f32, width: f32) -> Option<Msg> {
         (**self).positional_click(local_x, local_y, width)
+    }
+    fn cursor_icon(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Cursor> {
+        (**self).cursor_icon(local_x, local_y, width, height)
     }
     fn key(&self) -> Option<u64> {
         (**self).key()

@@ -5,6 +5,20 @@
 //! structure ne change pas. C'est la brique fondatrice de la reconciliation, et
 //! ce qui permet de suivre le survol, la pression et le **focus**.
 
+/// Forme du **curseur système** qu'un widget peut demander pour une sous-région donnée
+/// (jalon 205). Le shell la traduit vers le curseur de la fenêtre ; les widgets restent
+/// indépendants de la couche fenêtrage.
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum Cursor {
+    /// Flèche par défaut.
+    #[default]
+    Default,
+    /// Main (élément cliquable).
+    Pointer,
+    /// Barre verticale (zone de saisie de texte).
+    Text,
+}
+
 /// Identité positionnelle d'un widget (hash du chemin dans l'arbre).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct WidgetId(u64);

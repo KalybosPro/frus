@@ -130,7 +130,7 @@ pub use grid::Grid;
 pub use icon::Icon;
 pub use icons::IconName;
 pub use image::Image;
-pub use interaction::{InputState, Interaction, Key, KeyResponse, Status, WidgetId};
+pub use interaction::{Cursor, InputState, Interaction, Key, KeyResponse, Status, WidgetId};
 pub use interactive::{InteractiveView, InteractiveViewer};
 pub use kbd::Kbd;
 pub use keyed::Keyed;

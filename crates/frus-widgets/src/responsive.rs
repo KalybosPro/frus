@@ -110,6 +110,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.positional_click(local_x, local_y, width))
     }
 
+    fn cursor_icon(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        height: f32,
+    ) -> Option<crate::interaction::Cursor> {
+        self.inner.as_ref().and_then(|w| w.cursor_icon(local_x, local_y, width, height))
+    }
+
     fn key(&self) -> Option<u64> {
         self.inner.as_ref().and_then(|w| w.key())
     }

@@ -577,6 +577,21 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
     }
 
+    fn cursor_icon(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        _height: f32,
+    ) -> Option<crate::interaction::Cursor> {
+        // Main sur l'icône suffixe **active** (effacer / révéler) ; ailleurs, pas d'avis.
+        if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
+            Some(crate::interaction::Cursor::Pointer)
+        } else {
+            None
+        }
+    }
+
     fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
         let mut chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
@@ -1280,6 +1295,22 @@ mod tests {
         // Sans `on_suffix`, l'icône reste décorative (aucun clic positionnel).
         let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
         assert_eq!(Widget::<Msg>::positional_click(&deco, x_suffix, y, w), None);
+    }
+
+    #[test]
+    fn cursor_icon_is_pointer_over_active_suffix() {
+        use crate::interaction::Cursor;
+        let field = TextInput::new("hello")
+            .suffix_icon(IconName::Close)
+            .on_suffix(Msg::Submitted)
+            .width(220.0);
+        let (w, h, y) = (220.0, 40.0, 12.0);
+        // Main sur le suffixe, rien dans le corps.
+        assert_eq!(Widget::<Msg>::cursor_icon(&field, w - 8.0, y, w, h), Some(Cursor::Pointer));
+        assert_eq!(Widget::<Msg>::cursor_icon(&field, 20.0, y, w, h), None);
+        // Suffixe décoratif (sans on_suffix) : pas de main.
+        let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
+        assert_eq!(Widget::<Msg>::cursor_icon(&deco, w - 8.0, y, w, h), None);
     }
 
     #[test]
