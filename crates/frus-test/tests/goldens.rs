@@ -872,6 +872,30 @@ fn line_chart_matches_golden() {
     snapshot.assert_golden(golden("line_chart"));
 }
 
+/// **Graphique en lignes avec axe (jalon 203)** : la même série que `line_chart`, mais avec un axe
+/// des ordonnées à 4 divisions (`grid(4)`) — lignes de grille horizontales et graduations `0..max`
+/// dans une marge à gauche, partagées avec la BarChart. Reproduit son golden.
+#[test]
+fn line_chart_axis_matches_golden() {
+    let theme = Theme::dark();
+    let chart = LineChart::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4);
+    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "graphique avec axe dessiné");
+    snapshot.assert_golden(golden("line_chart_axis"));
+}
+
 /// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant
 /// l'icône « œil » suffixe (`on_suffix`) qui révèle le texte. Reproduit son golden.
 #[test]
