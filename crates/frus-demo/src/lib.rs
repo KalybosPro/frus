@@ -279,6 +279,8 @@ enum Msg {
     GridDeleteRow(usize),
     /// Trie la grille par la colonne `colonne` (bascule croissant / décroissant).
     GridSort(usize),
+    /// Soumet la grille : n'aboutit que si toutes les cellules sont valides.
+    GridSave,
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -747,6 +749,18 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             }
             Command::none()
         }
+        Msg::GridSave => {
+            let errors = grid_error_count(&app.grid);
+            if errors == 0 {
+                return show_toast(app, "Grid saved");
+            }
+            let msg = if errors == 1 {
+                "Fix 1 error before saving".to_string()
+            } else {
+                format!("Fix {errors} errors before saving")
+            };
+            return show_toast(app, &msg);
+        }
         Msg::GridSort(c) => {
             // Bascule croissant / décroissant sur la colonne cliquée, puis trie les lignes.
             let asc = match app.grid_sort {
@@ -1179,6 +1193,13 @@ fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
     }
 }
 
+/// Nombre total de cellules invalides dans la grille (jalon 204/207) — sert à jauger la soumission.
+fn grid_error_count(grid: &[Vec<String>]) -> usize {
+    grid.iter()
+        .flat_map(|row| (0..3).filter(move |&c| grid_cell_error(c, row.get(c).map(String::as_str).unwrap_or("")).is_some()))
+        .count()
+}
+
 /// Écran **grille éditable** : une `Table` dont chaque cellule est un `TextInput` toujours éditable.
 /// Tab / Maj+Tab navigue de cellule en cellule (focusables du shell), Entrée descend d'une ligne
 /// (jalon 201). Les en-têtes trient (jalon 204, `on_sort`), les cellules invalides s'affichent en
@@ -1228,8 +1249,18 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let hint = text("Click a header to sort, Tab between cells, Enter for the next row.")
         .size(13.0)
         .color(theme.muted);
+    // Barre d'état de validation : verte si tout est valide, sinon le décompte d'erreurs.
+    let errors = grid_error_count(&app.grid);
+    let status = if errors == 0 {
+        text("All cells valid").size(13.0).color(theme.primary)
+    } else {
+        let label = if errors == 1 { "1 error".to_string() } else { format!("{errors} errors") };
+        text(label).size(13.0).color(theme.error)
+    };
     let add = button("Add row", Msg::GridAddRow);
-    let body = column![table, add, hint].gap(16.0).padding(24.0);
+    let save = button("Save", Msg::GridSave);
+    let actions = row![add, save, status].gap(12.0).align(Align::Center);
+    let body = column![table, actions, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2318,6 +2349,30 @@ mod tests {
         assert_eq!(grid_cell_error(2, "not-an-email"), Some("Invalid email"));
         assert!(grid_cell_error(2, "a@x.com").is_none());
         assert!(grid_cell_error(2, "").is_none(), "email vide toléré (pas encore saisi)");
+    }
+
+    #[test]
+    fn grid_save_is_gated_on_cell_errors() {
+        let mut app = TodoApp::default();
+        // Une ligne valide, une avec un Name vide et un email malformé (2 erreurs).
+        app.grid = vec![
+            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec!["".to_string(), "PM".to_string(), "nope".to_string()],
+        ];
+        assert_eq!(grid_error_count(&app.grid), 2);
+        reduce(&mut app, Msg::GridSave);
+        assert_eq!(
+            app.snackbars.current().map(String::as_str),
+            Some("Fix 2 errors before saving"),
+            "la soumission est bloquée et compte les erreurs"
+        );
+        // Corrige les deux cellules : la grille devient valide, la sauvegarde aboutit.
+        app.grid[1][0] = "Bob".to_string();
+        app.grid[1][2] = "b@x.com".to_string();
+        assert_eq!(grid_error_count(&app.grid), 0);
+        let mut app2 = TodoApp { grid: app.grid.clone(), ..TodoApp::default() };
+        reduce(&mut app2, Msg::GridSave);
+        assert_eq!(app2.snackbars.current().map(String::as_str), Some("Grid saved"));
     }
 
     #[test]
