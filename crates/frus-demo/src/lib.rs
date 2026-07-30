@@ -428,6 +428,8 @@ struct TodoApp {
     grid: Vec<Vec<String>>,
     /// Tri courant de la grille : `(colonne, croissant)` ; `None` = ordre de saisie.
     grid_sort: Option<(usize, bool)>,
+    /// Dernière cellule fautive visée par « Next error » (jalon 214) — pour cycler à la suivante.
+    grid_error_cursor: Option<(usize, usize)>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -764,10 +766,16 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             return show_toast(app, &msg);
         }
         Msg::GridFocusError => {
-            // Focalise la première cellule fautive (parcours ligne par ligne).
-            match grid_first_error(&app.grid) {
-                Some((r, c)) => Command::focus(("grid", r, c)),
-                None => Command::none(),
+            // Cycle vers la cellule fautive suivante (bouclage), et la focalise.
+            match grid_next_error(&app.grid, app.grid_error_cursor) {
+                Some(pos) => {
+                    app.grid_error_cursor = Some(pos);
+                    Command::focus(("grid", pos.0, pos.1))
+                }
+                None => {
+                    app.grid_error_cursor = None;
+                    Command::none()
+                }
             }
         }
         Msg::GridSort(c) => {
@@ -1209,13 +1217,33 @@ fn grid_error_count(grid: &[Vec<String>]) -> usize {
         .count()
 }
 
-/// La **première** cellule invalide `(ligne, colonne)`, parcourue ligne par ligne (jalon 210).
+/// Toutes les cellules invalides `(ligne, colonne)`, en ordre ligne par ligne.
+fn grid_faults(grid: &[Vec<String>]) -> Vec<(usize, usize)> {
+    grid.iter()
+        .enumerate()
+        .flat_map(|(r, row)| {
+            (0..3).filter_map(move |c| {
+                grid_cell_error(c, row.get(c).map(String::as_str).unwrap_or(""))
+                    .is_some()
+                    .then_some((r, c))
+            })
+        })
+        .collect()
+}
+
+/// La **première** cellule invalide (jalon 210).
 fn grid_first_error(grid: &[Vec<String>]) -> Option<(usize, usize)> {
-    grid.iter().enumerate().find_map(|(r, row)| {
-        (0..3)
-            .find(|&c| grid_cell_error(c, row.get(c).map(String::as_str).unwrap_or("")).is_some())
-            .map(|c| (r, c))
-    })
+    grid_faults(grid).first().copied()
+}
+
+/// La cellule fautive **suivant** `after` (ordre ligne par ligne, bouclage en fin) — pour cycler
+/// entre toutes les fautes (jalon 214). `after = None` renvoie la première.
+fn grid_next_error(grid: &[Vec<String>], after: Option<(usize, usize)>) -> Option<(usize, usize)> {
+    let faults = grid_faults(grid);
+    match after {
+        None => faults.first().copied(),
+        Some(cur) => faults.iter().copied().find(|&f| f > cur).or_else(|| faults.first().copied()),
+    }
 }
 
 /// Écran **grille éditable** : une `Table` dont chaque cellule est un `TextInput` toujours éditable.
@@ -1279,9 +1307,9 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     // `Save` est désactivé (non cliquable) tant qu'une cellule est invalide (jalon 210).
     let save = button("Save", Msg::GridSave).enabled(errors == 0);
     let mut actions = row![add, save].gap(12.0).align(Align::Center);
-    // Raccourci vers la première cellule fautive, seulement s'il y a des erreurs.
+    // Raccourci qui cycle entre les cellules fautives, seulement s'il y a des erreurs.
     if errors > 0 {
-        actions = actions.child(button("Go to first error", Msg::GridFocusError));
+        actions = actions.child(button("Next error", Msg::GridFocusError));
     }
     actions = actions.child(status);
     let body = column![table, actions, hint].gap(16.0).padding(24.0);
@@ -2414,6 +2442,22 @@ mod tests {
         app.grid[1][2] = "b@x.com".to_string();
         assert_eq!(grid_first_error(&app.grid), None);
         assert!(reduce(&mut app, Msg::GridFocusError).is_empty(), "rien à focaliser");
+    }
+
+    #[test]
+    fn grid_next_error_cycles_through_all_faults() {
+        let mut app = TodoApp::default();
+        // Fautes attendues, en ordre : (0,0) Name vide, (0,2) email invalide, (1,2) email invalide.
+        app.grid = vec![
+            vec!["".to_string(), "PM".to_string(), "nope".to_string()],
+            vec!["Ada".to_string(), "Engineer".to_string(), "bad".to_string()],
+        ];
+        assert_eq!(grid_faults(&app.grid), vec![(0, 0), (0, 2), (1, 2)]);
+        // Chaque appel avance ; le dernier boucle sur la première.
+        for expected in [(0, 0), (0, 2), (1, 2), (0, 0)] {
+            reduce(&mut app, Msg::GridFocusError);
+            assert_eq!(app.grid_error_cursor, Some(expected));
+        }
     }
 
     #[test]
