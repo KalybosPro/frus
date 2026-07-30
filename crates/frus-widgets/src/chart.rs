@@ -225,6 +225,8 @@ const LEGEND_H: f32 = 20.0;
 const LEGEND_SWATCH: f32 = 10.0;
 /// Taille de police des entrées de légende.
 const LEGEND_SIZE: f32 = 12.0;
+/// Taille de police du contenu d'une infobulle.
+const TOOLTIP_SIZE: f32 = 12.0;
 /// Épaisseur (px) du trait de la polyligne.
 const LINE_W: f32 = 2.0;
 
@@ -457,6 +459,92 @@ impl<Msg> Widget<Msg> for LineChart {
                 x += frus_text::measure(name, LEGEND_SIZE).width + 16.0;
             }
         }
+
+        // Infobulle de sous-région (jalon 211) : quand le pointeur survole la zone de tracé
+        // (`hover_cursor`, pose par le shell via `cursor_icon`), on met en avant la catégorie la
+        // plus proche et on liste la valeur de chaque série.
+        if let Some(hc) = status.hover_cursor {
+            let lx = hc.x - bounds.x;
+            let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
+            let gx = plot_left + slot * (hi as f32 + 0.5);
+            // Guide vertical à la catégorie visée.
+            scene.fill_rect(
+                Rect::new(gx - 0.5, plot_top, 1.0, baseline_y - plot_top),
+                theme.border.fade(o * 0.8),
+            );
+            // Marqueurs accentués + lignes de l'infobulle (catégorie puis une par série).
+            let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
+            for (color, name, vals) in &series {
+                if hi < vals.len() {
+                    let py = baseline_y - (vals[hi] / max) * plot_h;
+                    scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
+                    let txt = if single {
+                        format_value(vals[hi])
+                    } else {
+                        format!("{}  {}", name, format_value(vals[hi]))
+                    };
+                    lines.push((Some(*color), txt));
+                }
+            }
+            // Boîte : dimensionnée au plus long libellé, placée à droite du guide (repliée à gauche
+            // si elle déborderait), ancrée en haut de la zone de tracé.
+            let pad = 8.0;
+            let line_h = TOOLTIP_SIZE + 5.0;
+            let dot = 7.0;
+            let text_w = lines
+                .iter()
+                .map(|(c, t)| {
+                    let lead = if c.is_some() { dot + 5.0 } else { 0.0 };
+                    lead + frus_text::measure(t, TOOLTIP_SIZE).width
+                })
+                .fold(0.0, f32::max);
+            let bw = text_w + pad * 2.0;
+            let bh = lines.len() as f32 * line_h + pad * 2.0 - 3.0;
+            let mut bx = gx + 12.0;
+            if bx + bw > bounds.x + bounds.width {
+                bx = gx - 12.0 - bw;
+            }
+            bx = bx.max(bounds.x);
+            let by = plot_top.max(bounds.y);
+            scene.draw_rect(Rect::new(bx, by, bw, bh), theme.surface.fade(o), 6.0, 1.0, theme.border.fade(o));
+            let mut ty = by + pad;
+            for (c, t) in &lines {
+                let mut tx = bx + pad;
+                if let Some(col) = c {
+                    scene.fill_path(
+                        &Path::circle(Point::new(tx + dot * 0.5, ty + TOOLTIP_SIZE * 0.5), dot * 0.5),
+                        col.fade(o),
+                    );
+                    tx += dot + 5.0;
+                }
+                scene.text(Point::new(tx, ty), t.clone(), TOOLTIP_SIZE, theme.on_surface.fade(o));
+                ty += line_h;
+            }
+        }
+    }
+
+    fn cursor_icon(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        height: f32,
+    ) -> Option<crate::interaction::Cursor> {
+        // Active le suivi du pointeur (jalon 208) sur la zone de tracé — sans changer la forme du
+        // curseur (Default) — pour alimenter l'infobulle. Hors zone : pas d'avis.
+        if self.values.is_empty() {
+            return None;
+        }
+        let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
+        let baseline_y = height - X_LABEL_H;
+        let plot_top = legend_h + VALUE_SIZE + 6.0;
+        let plot_left = axis_width(self.grid);
+        let plot_right = width;
+        if local_x >= plot_left && local_x <= plot_right && local_y >= plot_top && local_y <= baseline_y {
+            Some(crate::interaction::Cursor::Default)
+        } else {
+            None
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -565,6 +653,29 @@ mod tests {
         };
         assert!(has_text("6") && has_text("2") && has_text("4"), "valeurs affichées");
         assert!(has_text("A") && has_text("B") && has_text("C"), "libellés affichés");
+    }
+
+    #[test]
+    fn hovering_the_plot_shows_a_tooltip_guide() {
+        use crate::interaction::Cursor;
+        let chart = LineChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)]);
+        // Rectangles verticaux fins et hauts = le guide de l'infobulle.
+        let guides = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<()>::paint(&chart, Rect::new(0.0, 0.0, 300.0, 220.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, Primitive::Rect { rect, .. }
+                    if rect.width <= 1.5 && rect.height > 50.0))
+                .count()
+        };
+        let hovering = Status { hover_cursor: Some(Point::new(150.0, 100.0)), ..Default::default() };
+        assert_eq!(guides(hovering), 1, "un guide vertical au survol de la zone");
+        assert_eq!(guides(Status::default()), 0, "pas d'infobulle sans survol");
+        // `cursor_icon` active le suivi sur la zone de tracé (Default), pas en dehors.
+        assert_eq!(Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0), Some(Cursor::Default));
+        assert_eq!(Widget::<()>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0), None, "au-dessus de la zone");
     }
 
     #[test]
