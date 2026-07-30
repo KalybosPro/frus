@@ -1363,10 +1363,10 @@ const CHART_COLORS: [Color; 2] = [
 /// empilées (1), barres groupées (2), barres empilées (3). Toutes les variantes partagent les
 /// mêmes données, l'axe, et l'état de visibilité `chart_hidden`. `legend` câble (ou non) la légende
 /// cliquable — utile pour un graphique **compagnon** qui ne réaffiche pas sa propre légende.
-fn dashboard_chart(app: &TodoApp, height: f32, legend: bool) -> Box<dyn Widget<Msg>> {
+fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box<dyn Widget<Msg>> {
     let hidden = app.chart_hidden.clone();
     let cats = (0..5).map(|i| (CHART_CATS[i], CHART_SERIES[0].1[i]));
-    if app.chart_kind < 2 {
+    if kind < 2 {
         let mut c = LineChart::new(cats)
             .height(height)
             .grid(4)
@@ -1375,7 +1375,7 @@ fn dashboard_chart(app: &TodoApp, height: f32, legend: bool) -> Box<dyn Widget<M
             .series(CHART_SERIES[2].0, CHART_COLORS[1], CHART_SERIES[2].1)
             .hidden(hidden)
             .animated(true);
-        if app.chart_kind == 1 {
+        if kind == 1 {
             c = c.stacked(true);
         }
         if legend {
@@ -1390,7 +1390,7 @@ fn dashboard_chart(app: &TodoApp, height: f32, legend: bool) -> Box<dyn Widget<M
             .series(CHART_SERIES[1].0, CHART_COLORS[0], CHART_SERIES[1].1)
             .series(CHART_SERIES[2].0, CHART_COLORS[1], CHART_SERIES[2].1)
             .hidden(hidden);
-        if app.chart_kind == 3 {
+        if kind == 3 {
             c = c.stacked(true);
         }
         if legend {
@@ -1409,11 +1409,24 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         .segment("Stacked area")
         .segment("Grouped bars")
         .segment("Stacked bars");
-    let chart = dashboard_chart(app, 240.0, true);
-    let hint = text("Pick a chart type; click a legend entry to show or hide a series.")
+    let chart = dashboard_chart(app, app.chart_kind, 240.0, true);
+    // Graphique **compagnon** : la famille complémentaire (barres si le principal est en lignes, et
+    // inversement), sans sa propre légende — il partage `chart_hidden`, donc masquer une série via la
+    // légende du principal la masque **aussi** ici (jalon 220).
+    let companion_kind = if app.chart_kind < 2 { 2 } else { 0 };
+    let companion = dashboard_chart(app, companion_kind, 150.0, false);
+    let hint = text("Pick a chart type; click a legend entry to show or hide a series (both views).")
         .size(13.0)
         .color(theme.muted);
-    let body = column![row![selector].align(Align::Center), chart, hint].gap(16.0).padding(24.0);
+    let body = column![
+        row![selector].align(Align::Center),
+        chart,
+        text("Companion view").size(13.0).color(theme.muted),
+        companion,
+        hint
+    ]
+    .gap(16.0)
+    .padding(24.0);
     let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2576,6 +2589,20 @@ mod tests {
             assert_eq!(app.chart_kind, k);
             assert!(primitive_count(&app) > 0, "le type {k} se rend");
         }
+    }
+
+    #[test]
+    fn companion_chart_renders_across_families_with_hidden() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Charts));
+        // Une série masquée est partagée par le principal et le compagnon (même `chart_hidden`).
+        reduce(&mut app, Msg::ChartToggleSeries(1));
+        assert_eq!(app.chart_hidden, vec![1]);
+        // Lignes (compagnon = barres) puis barres (compagnon = lignes) : l'écran se rend des deux.
+        reduce(&mut app, Msg::SetChartKind(0));
+        assert!(primitive_count(&app) > 0, "principal lignes + compagnon barres");
+        reduce(&mut app, Msg::SetChartKind(2));
+        assert!(primitive_count(&app) > 0, "principal barres + compagnon lignes");
     }
 
     #[test]
