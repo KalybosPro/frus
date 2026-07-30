@@ -50,7 +50,7 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BoxFit,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
-    Container, CustomPaint, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, List,
+    Container, CustomPaint, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
@@ -161,6 +161,8 @@ enum Route {
     Wizard,
     /// Grille de données **éditable en ligne** (démo d'intégration : Table + TextInput par cellule).
     Grid,
+    /// Tableau de bord **graphique** (démo d'intégration : LineChart + légende cliquable, jalon 218).
+    Charts,
 }
 
 /// Geste retour : progression suivie au doigt, puis détente à ressort
@@ -283,6 +285,8 @@ enum Msg {
     GridSave,
     /// Place le focus sur la première cellule invalide de la grille (le cas échéant).
     GridFocusError,
+    /// Bascule la visibilité de la série `index` du graphique (clic de légende, jalon 218).
+    ChartToggleSeries(usize),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -430,6 +434,8 @@ struct TodoApp {
     grid_sort: Option<(usize, bool)>,
     /// Dernière cellule fautive visée par « Next error » (jalon 214) — pour cycler à la suivante.
     grid_error_cursor: Option<(usize, usize)>,
+    /// Index des séries **masquées** du graphique (basculées via la légende, jalon 218).
+    chart_hidden: Vec<usize>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -778,6 +784,15 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
                 }
             }
         }
+        Msg::ChartToggleSeries(i) => {
+            // Clic de légende : masque la série si visible, la ré-affiche sinon.
+            if let Some(pos) = app.chart_hidden.iter().position(|&h| h == i) {
+                app.chart_hidden.remove(pos);
+            } else {
+                app.chart_hidden.push(i);
+            }
+            Command::none()
+        }
         Msg::GridSort(c) => {
             // Bascule croissant / décroissant sur la colonne cliquée, puis trie les lignes.
             let asc = match app.grid_sort {
@@ -940,6 +955,7 @@ impl Application for TodoApp {
             Route::Journal => 2,
             Route::Wizard => 3,
             Route::Grid => 4,
+            Route::Charts => 5,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -973,6 +989,7 @@ impl Application for TodoApp {
                         "2" => self.routes.push(Route::Journal),
                         "3" => self.routes.push(Route::Wizard),
                         "4" => self.routes.push(Route::Grid),
+                        "5" => self.routes.push(Route::Charts),
                         _ => {}
                     }
                 }
@@ -1195,6 +1212,7 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
         Route::Journal => Box::new(journal_screen(theme, width, height)),
         Route::Wizard => wizard_screen(app, theme, width, height),
         Route::Grid => grid_screen(app, theme, width, height),
+        Route::Charts => charts_screen(app, theme, width, height),
     }
 }
 
@@ -1314,6 +1332,36 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     actions = actions.child(status);
     let body = column![table, actions, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
+        .width(width)
+        .height(height);
+    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+}
+
+/// Écran **tableau de bord graphique** : un `LineChart` multi-séries à légende **cliquable** —
+/// cliquer une entrée masque/affiche sa série (jalon 215/218) — avec axe, aire et halo animé au
+/// survol. Démontre le routage d'un clic de sous-région (légende) vers l'état de l'application.
+fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    let chart = LineChart::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(240.0)
+    .grid(4)
+    .name("Sales")
+    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series("Profit", Color::rgb8(90, 158, 242), [1.0, 3.0, 2.0, 3.0, 2.0])
+    .legend(true)
+    .on_legend(Msg::ChartToggleSeries)
+    .hidden(app.chart_hidden.clone())
+    .animated(true);
+    let hint = text("Click a legend entry to show or hide its series.")
+        .size(13.0)
+        .color(theme.muted);
+    let body = column![chart, hint].gap(16.0).padding(24.0);
+    let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
     Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
@@ -2054,6 +2102,9 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
             button("Editable grid →", Msg::Push(Route::Grid))
                 .variant(Variant::Secondary)
                 .size(15.0),
+            button("Charts →", Msg::Push(Route::Charts))
+                .variant(Variant::Secondary)
+                .size(15.0),
         ]
         .gap(12.0),
     )
@@ -2442,6 +2493,23 @@ mod tests {
         app.grid[1][2] = "b@x.com".to_string();
         assert_eq!(grid_first_error(&app.grid), None);
         assert!(reduce(&mut app, Msg::GridFocusError).is_empty(), "rien à focaliser");
+    }
+
+    #[test]
+    fn chart_legend_toggle_hides_and_shows_series() {
+        let mut app = TodoApp::default();
+        // L'écran graphique se rend.
+        reduce(&mut app, Msg::Push(Route::Charts));
+        assert_eq!(current_route(&app), Route::Charts);
+        assert!(primitive_count(&app) > 0, "le tableau de bord se rend");
+        // Clic de légende : masque la série, re-clic la ré-affiche (bascule).
+        assert!(app.chart_hidden.is_empty());
+        reduce(&mut app, Msg::ChartToggleSeries(1));
+        assert_eq!(app.chart_hidden, vec![1], "clic masque la série 1");
+        reduce(&mut app, Msg::ChartToggleSeries(2));
+        assert_eq!(app.chart_hidden, vec![1, 2]);
+        reduce(&mut app, Msg::ChartToggleSeries(1));
+        assert_eq!(app.chart_hidden, vec![2], "re-clic ré-affiche la série 1");
     }
 
     #[test]
