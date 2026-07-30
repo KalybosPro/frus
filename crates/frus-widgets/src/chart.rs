@@ -54,6 +54,8 @@ pub struct BarChart<Msg = ()> {
     on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
     /// Empiler les séries (barres cumulées) plutôt que les grouper ? — jalon 216.
     stacked: bool,
+    /// Message émis au clic sur une **barre** `(catégorie, série)` — jalon 222.
+    on_point: Option<Box<dyn Fn(usize, usize) -> Msg>>,
 }
 
 impl<Msg> BarChart<Msg> {
@@ -70,6 +72,7 @@ impl<Msg> BarChart<Msg> {
             hidden: Vec::new(),
             on_legend: None,
             stacked: false,
+            on_point: None,
         }
     }
 
@@ -132,6 +135,13 @@ impl<Msg> BarChart<Msg> {
     /// lieu de barres groupées côte à côte (jalon 212). Défaut : off.
     pub fn stacked(mut self, stacked: bool) -> Self {
         self.stacked = stacked;
+        self
+    }
+
+    /// Rend les **barres cliquables** : `on_point(catégorie, série)` au clic sur une barre (ou une
+    /// strate empilée) visible. Défaut : aucun — jalon 222.
+    pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
+        self.on_point = Some(Box::new(on_point));
         self
     }
 
@@ -502,14 +512,84 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
     }
 
-    fn positional_click(&self, local_x: f32, local_y: f32, _width: f32, _height: f32) -> Option<Msg> {
-        // Clic sur une entrée de légende → on_legend(index) (jalon 215).
-        let f = self.on_legend.as_ref()?;
-        if !self.has_legend() {
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
+        // 1) Clic sur une entrée de légende → on_legend(index) (jalon 215).
+        if let Some(f) = &self.on_legend {
+            if self.has_legend() {
+                if let Some(idx) = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names()) {
+                    return Some(f(idx));
+                }
+            }
+        }
+        // 2) Clic sur une **barre** (ou une strate empilée) → on_point(catégorie, série) (jalon 222).
+        // Géométrie identique au paint : on reconstruit chaque rectangle et on teste l'inclusion.
+        let f = self.on_point.as_ref()?;
+        let n = self.values.len();
+        if n == 0 {
             return None;
         }
-        let idx = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names())?;
-        Some(f(idx))
+        let single = self.extra.is_empty();
+        let stacked = self.stacked && !single;
+        let max = if stacked { self.stacked_max() } else { self.max_value() };
+        let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
+        let baseline_y = height - X_LABEL_H;
+        let plot_top = legend_h + VALUE_SIZE + 6.0;
+        let plot_h = (baseline_y - plot_top).max(1.0);
+        let plot_left = axis_width(self.grid);
+        let slot = (width - plot_left) / n as f32;
+        let s = 1 + self.extra.len();
+        let group_w = slot * BAR_FILL;
+        let bar_w = group_w / s as f32;
+        let inner = if s == 1 { 1.0 } else { 0.86 };
+        let primary: Vec<f32> = self.values.iter().map(|(_, v)| *v).collect();
+        let value_at = |j: usize, i: usize| -> f32 {
+            if j == 0 {
+                primary.get(i).copied().unwrap_or(0.0)
+            } else {
+                self.extra[j - 1].2.get(i).copied().unwrap_or(0.0)
+            }
+        };
+        for i in 0..n {
+            let cx = plot_left + slot * (i as f32 + 0.5);
+            if stacked {
+                let sbx = cx - group_w * 0.5;
+                let mut lower = 0.0_f32;
+                for j in 0..s {
+                    if self.hidden.contains(&j) {
+                        continue;
+                    }
+                    let value = value_at(j, i);
+                    let y_bottom = baseline_y - (lower / max) * plot_h;
+                    let y_top = baseline_y - ((lower + value) / max) * plot_h;
+                    if local_x >= sbx
+                        && local_x <= sbx + group_w
+                        && local_y >= y_top
+                        && local_y <= y_bottom
+                    {
+                        return Some(f(i, j));
+                    }
+                    lower += value;
+                }
+            } else {
+                let group_left = cx - group_w * 0.5;
+                for j in 0..s {
+                    if self.hidden.contains(&j) {
+                        continue;
+                    }
+                    let h = (value_at(j, i) / max) * plot_h;
+                    let draw_w = bar_w * inner;
+                    let bx = group_left + j as f32 * bar_w + (bar_w - draw_w) * 0.5;
+                    if local_x >= bx
+                        && local_x <= bx + draw_w
+                        && local_y >= baseline_y - h
+                        && local_y <= baseline_y
+                    {
+                        return Some(f(i, j));
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -1082,6 +1162,55 @@ mod tests {
         assert_eq!(guides(Status::default()), 0, "pas d'infobulle sans survol");
         assert_eq!(Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0), Some(Cursor::Default));
         assert_eq!(Widget::<()>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0), None);
+    }
+
+    #[test]
+    fn clicking_a_bar_emits_category_and_series() {
+        // Deux séries groupées : 2 barres par catégorie. Géométrie (width 300, height 200, sans
+        // axe ni légende), identique au paint.
+        let chart = BarChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
+            .on_point(|c, s| (c, s));
+        let baseline_y = 200.0 - X_LABEL_H;
+        let plot_h = baseline_y - (VALUE_SIZE + 6.0);
+        let slot = 300.0 / 2.0;
+        let group_w = slot * BAR_FILL;
+        let bar_w = group_w / 2.0;
+        // Catégorie A (i=0), série additionnelle (j=1), valeur 4 (max = 6).
+        let cx = slot * 0.5;
+        let group_left = cx - group_w * 0.5;
+        let bx = group_left + bar_w + (bar_w - bar_w * 0.86) * 0.5;
+        let bar_cx = bx + bar_w * 0.86 * 0.5;
+        let mid_y = baseline_y - (4.0 / 6.0) * plot_h * 0.5;
+        assert_eq!(
+            Widget::<(usize, usize)>::positional_click(&chart, bar_cx, mid_y, 300.0, 200.0),
+            Some((0, 1)),
+            "clic au milieu de la 2e barre de la catégorie A"
+        );
+        // Au-dessus de la barre (zone vide) : aucun message.
+        assert_eq!(Widget::<(usize, usize)>::positional_click(&chart, bar_cx, 2.0, 300.0, 200.0), None);
+        // Strate empilée : le clic dans la colonne renvoie la strate touchée.
+        let stacked = BarChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
+            .stacked(true)
+            .on_point(|c, s| (c, s));
+        // Catégorie A : strate 0 (valeur 2) en bas, strate 1 (valeur 4) au-dessus ; max total = 6.
+        let low_y = baseline_y - (1.0 / 6.0) * plot_h; // dans la strate du bas (0..2)
+        assert_eq!(
+            Widget::<(usize, usize)>::positional_click(&stacked, cx, low_y, 300.0, 200.0),
+            Some((0, 0)),
+            "clic bas de la colonne = strate 0"
+        );
+        // Série additionnelle masquée : sa barre n'est plus cliquable.
+        let hidden = BarChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
+            .on_point(|c, s| (c, s))
+            .hidden([1]);
+        assert_eq!(
+            Widget::<(usize, usize)>::positional_click(&hidden, bar_cx, mid_y, 300.0, 200.0),
+            None,
+            "barre d'une série masquée : pas de clic"
+        );
     }
 
     fn paint_line(chart: &LineChart, w: f32, h: f32) -> Vec<Primitive> {

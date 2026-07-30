@@ -1408,7 +1408,8 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             c = c.stacked(true);
         }
         if legend {
-            c = c.legend(true).on_legend(Msg::ChartToggleSeries);
+            // Le graphique principal : légende cliquable + barres cliquables (jalon 222).
+            c = c.legend(true).on_legend(Msg::ChartToggleSeries).on_point(Msg::ChartPoint);
         }
         Box::new(c)
     }
@@ -2623,6 +2624,30 @@ mod tests {
         reduce(&mut app, Msg::ChartPoint(1, 1));
         assert_eq!(app.chart_pin.as_deref(), Some("Costs · Tue = 4"));
         assert!(primitive_count(&app) > 0, "l'écran avec épingle se rend");
+    }
+
+    #[test]
+    fn grouped_bars_are_clickable_in_dashboard() {
+        // Le graphique principal en **barres groupées** (kind 2) câble `on_point` (jalon 222) : au
+        // moins un point de la zone de tracé émet `ChartPoint`. Balayage (indépendant des
+        // constantes de géométrie internes de frus-widgets).
+        let app = TodoApp::default();
+        let chart = dashboard_chart(&app, 2, 240.0, true);
+        let (w, h) = (600.0, 240.0);
+        let mut hit = false;
+        let mut y = 30.0;
+        while y < h - 22.0 && !hit {
+            let mut x = 40.0;
+            while x < w {
+                if let Some(Msg::ChartPoint(_, _)) = chart.positional_click(x, y, w, h) {
+                    hit = true;
+                    break;
+                }
+                x += 4.0;
+            }
+            y += 4.0;
+        }
+        assert!(hit, "une barre du tableau de bord emet ChartPoint");
     }
 
     #[test]
