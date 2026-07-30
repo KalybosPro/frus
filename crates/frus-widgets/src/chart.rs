@@ -532,6 +532,10 @@ const LEGEND_SWATCH: f32 = 10.0;
 const LEGEND_SIZE: f32 = 12.0;
 /// Taille de police du contenu d'une infobulle.
 const TOOLTIP_SIZE: f32 = 12.0;
+/// Vitesse (cycles/seconde) du halo pulsant animé (jalon 217).
+const PULSE_SPEED: f32 = 1.6;
+/// Croissance (px) du rayon du halo pulsant sur un cycle.
+const PULSE_GROW: f32 = 10.0;
 /// Épaisseur (px) du trait de la polyligne.
 const LINE_W: f32 = 2.0;
 
@@ -564,6 +568,8 @@ pub struct LineChart<Msg = ()> {
     hidden: Vec<usize>,
     /// Message émis au clic sur une entrée de légende (index de série) — jalon 215.
     on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
+    /// Animer un **halo pulsant** sur le point survolé (repaint continu) — jalon 217.
+    animated: bool,
 }
 
 impl<Msg> LineChart<Msg> {
@@ -581,6 +587,7 @@ impl<Msg> LineChart<Msg> {
             stacked: false,
             hidden: Vec::new(),
             on_legend: None,
+            animated: false,
         }
     }
 
@@ -650,6 +657,13 @@ impl<Msg> LineChart<Msg> {
     /// Rend la **légende cliquable** : `on_legend(index)` au clic sur une entrée — jalon 215.
     pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_legend = Some(Box::new(on_legend));
+        self
+    }
+
+    /// Anime un **halo pulsant** (grandit puis s'estompe) sur le point survolé. Demande un repaint
+    /// continu tant que le graphique est affiché. Défaut : off — jalon 217.
+    pub fn animated(mut self, animated: bool) -> Self {
+        self.animated = animated;
         self
     }
 
@@ -848,6 +862,15 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                 // de sens sur une strate cumulée).
                 if !stacked {
                     let py = baseline_y - (vals[hi] / max) * plot_h;
+                    // Halo pulsant animé (jalon 217) : grandit puis s'estompe sous le marqueur.
+                    if self.animated {
+                        let phase = (status.time * PULSE_SPEED).fract();
+                        let r = (MARKER_R + 2.0) + phase * PULSE_GROW;
+                        scene.fill_path(
+                            &Path::circle(Point::new(gx, py), r),
+                            color.fade(o * (1.0 - phase) * 0.4),
+                        );
+                    }
                     scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
                 }
                 let txt = if single {
@@ -884,6 +907,11 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         }
         let idx = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names())?;
         Some(f(idx))
+    }
+
+    fn continuous(&self) -> bool {
+        // Repaint continu quand le halo pulsant est actif (jalon 217).
+        self.animated
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -1130,6 +1158,32 @@ mod tests {
             .series("Costs", Color::rgb8(1, 2, 3), [2.0])
             .legend(true);
         assert_eq!(Widget::<usize>::positional_click(&plain, 5.0, 10.0, 300.0), None);
+    }
+
+    #[test]
+    fn animated_pulse_adds_a_halo_and_requests_continuous_repaint() {
+        let animated = LineChart::new([("A", 2.0), ("B", 6.0)]).animated(true);
+        let plain = LineChart::new([("A", 2.0), ("B", 6.0)]);
+        assert!(Widget::<()>::continuous(&animated), "animé => repaint continu");
+        assert!(!Widget::<()>::continuous(&plain), "fixe => pas de repaint continu");
+        // Cercles pleins (marqueurs/halo : chemins remplis sans segment droit) au survol.
+        let circles = |chart: &LineChart, t: f32| {
+            let mut scene = Scene::new();
+            let status = Status {
+                hover_cursor: Some(Point::new(150.0, 100.0)),
+                time: t,
+                ..Default::default()
+            };
+            Widget::<()>::paint(chart, Rect::new(0.0, 0.0, 300.0, 200.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { fill: Some(_), stroke: None, path, .. }
+                    if !path.verbs().iter().any(|v| matches!(v, frus_core::PathVerb::LineTo(_)))))
+                .count()
+        };
+        // Le halo animé ajoute un cercle que le graphique fixe n'a pas (au même survol).
+        assert!(circles(&animated, 0.1) > circles(&plain, 0.1), "le halo animé ajoute un cercle");
     }
 
     #[test]
