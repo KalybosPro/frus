@@ -875,6 +875,34 @@ fn bar_chart_grouped_matches_golden() {
     snapshot.assert_golden(golden("bar_chart_grouped"));
 }
 
+/// **BarChart empilée multi-séries (jalon 216)** : deux séries cumulées dans une seule barre par
+/// catégorie (`stacked(true)`), échelle au total, axe (`grid(4)`) et légende. Reproduit son golden.
+#[test]
+fn bar_chart_stacked_matches_golden() {
+    use frus_widgets::BarChart;
+    let theme = Theme::dark();
+    let chart = BarChart::<()>::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .name("This year")
+    .series("Last year", Color::rgb8(220, 120, 80), [2.0, 5.0, 6.0, 4.0, 3.0])
+    .legend(true)
+    .stacked(true);
+    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "barres empilées dessinées");
+    snapshot.assert_golden(golden("bar_chart_stacked"));
+}
+
 /// **Graphique en lignes (jalon 200)** : la même série `(jour, valeur)` que la BarChart, mais
 /// tracée en polyligne (segments + marqueurs ronds), valeurs au-dessus, libellés dessous, ligne
 /// de base. Reproduit son golden.

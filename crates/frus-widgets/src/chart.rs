@@ -52,6 +52,8 @@ pub struct BarChart<Msg = ()> {
     hidden: Vec<usize>,
     /// Message émis au clic sur une entrée de légende (index de série) — jalon 215.
     on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
+    /// Empiler les séries (barres cumulées) plutôt que les grouper ? — jalon 216.
+    stacked: bool,
 }
 
 impl<Msg> BarChart<Msg> {
@@ -67,6 +69,7 @@ impl<Msg> BarChart<Msg> {
             legend: false,
             hidden: Vec::new(),
             on_legend: None,
+            stacked: false,
         }
     }
 
@@ -125,11 +128,30 @@ impl<Msg> BarChart<Msg> {
         self
     }
 
+    /// **Empile** les séries : une barre par catégorie, segmentée par série (barres cumulées), au
+    /// lieu de barres groupées côte à côte (jalon 212). Défaut : off.
+    pub fn stacked(mut self, stacked: bool) -> Self {
+        self.stacked = stacked;
+        self
+    }
+
     /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
         let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
         primary.chain(extra).fold(0.0, f32::max).max(1.0)
+    }
+
+    /// Le maximum de la **somme** des séries par catégorie (échelle en mode empilé).
+    fn stacked_max(&self) -> f32 {
+        let n = self.values.len();
+        (0..n)
+            .map(|i| {
+                self.values[i].1
+                    + self.extra.iter().map(|(_, _, vs)| vs.get(i).copied().unwrap_or(0.0)).sum::<f32>()
+            })
+            .fold(0.0, f32::max)
+            .max(1.0)
     }
 
     /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
@@ -335,8 +357,10 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         }
         let o = status.opacity;
         let accent = self.color.unwrap_or(theme.primary);
-        let max = self.max_value();
         let single = self.extra.is_empty();
+        let stacked = self.stacked && !single;
+        // En empilé, l'échelle doit contenir le **total** cumulé par catégorie.
+        let max = if stacked { self.stacked_max() } else { self.max_value() };
 
         // Zone de tracé : sous la bande des valeurs, au-dessus des libellés de catégorie ; marge
         // gauche pour l'axe, et — le cas échéant — une bande de légende tout en haut.
@@ -363,40 +387,61 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         }
         let s = series.len();
 
-        // Chaque catégorie : un groupe centré de `s` barres côte à côte. En série unique, la barre
-        // occupe toute la largeur du groupe (identique au rendu d'origine) ; groupée, un léger jeu
-        // sépare les barres.
+        // Chaque catégorie : soit un groupe de `s` barres côte à côte (jalon 212), soit — en
+        // empilé — une seule barre segmentée par série (barres cumulées, jalon 216).
         let group_w = slot * BAR_FILL;
         let bar_w = group_w / s as f32;
         let inner = if s == 1 { 1.0 } else { 0.86 };
         for i in 0..n {
             let cx = plot_left + slot * (i as f32 + 0.5);
-            let group_left = cx - group_w * 0.5;
-            for (j, (color, _, vals)) in series.iter().enumerate() {
-                if self.hidden.contains(&j) {
-                    continue;
-                }
-                let value = vals.get(i).copied().unwrap_or(0.0);
-                let h = (value / max) * plot_h;
-                let draw_w = bar_w * inner;
-                let bx = group_left + j as f32 * bar_w + (bar_w - draw_w) * 0.5;
-                scene.draw_rect(
-                    Rect::new(bx, baseline_y - h, draw_w, h),
-                    color.fade(o),
-                    4.0,
-                    0.0,
-                    Color::TRANSPARENT,
-                );
-                // Valeur au-dessus (série unique seulement, pour éviter la surcharge).
-                if single {
-                    let vs = format_value(value);
-                    let vw = frus_text::measure(&vs, VALUE_SIZE).width;
-                    scene.text(
-                        Point::new(cx - vw * 0.5, baseline_y - h - VALUE_SIZE - 2.0),
-                        vs,
-                        VALUE_SIZE,
-                        theme.on_surface.fade(o),
+            if stacked {
+                // Segments empilés du bas vers le haut (les séries masquées ne comptent pas).
+                let sbx = cx - group_w * 0.5;
+                let mut lower = 0.0_f32;
+                for (j, (color, _, vals)) in series.iter().enumerate() {
+                    if self.hidden.contains(&j) {
+                        continue;
+                    }
+                    let value = vals.get(i).copied().unwrap_or(0.0);
+                    let y_bottom = baseline_y - (lower / max) * plot_h;
+                    let y_top = baseline_y - ((lower + value) / max) * plot_h;
+                    scene.draw_rect(
+                        Rect::new(sbx, y_top, group_w, y_bottom - y_top),
+                        color.fade(o),
+                        0.0,
+                        0.0,
+                        Color::TRANSPARENT,
                     );
+                    lower += value;
+                }
+            } else {
+                let group_left = cx - group_w * 0.5;
+                for (j, (color, _, vals)) in series.iter().enumerate() {
+                    if self.hidden.contains(&j) {
+                        continue;
+                    }
+                    let value = vals.get(i).copied().unwrap_or(0.0);
+                    let h = (value / max) * plot_h;
+                    let draw_w = bar_w * inner;
+                    let bx = group_left + j as f32 * bar_w + (bar_w - draw_w) * 0.5;
+                    scene.draw_rect(
+                        Rect::new(bx, baseline_y - h, draw_w, h),
+                        color.fade(o),
+                        4.0,
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                    // Valeur au-dessus (série unique seulement, pour éviter la surcharge).
+                    if single {
+                        let vs = format_value(value);
+                        let vw = frus_text::measure(&vs, VALUE_SIZE).width;
+                        scene.text(
+                            Point::new(cx - vw * 0.5, baseline_y - h - VALUE_SIZE - 2.0),
+                            vs,
+                            VALUE_SIZE,
+                            theme.on_surface.fade(o),
+                        );
+                    }
                 }
             }
             // Libellé de catégorie sous la ligne de base.
@@ -923,6 +968,30 @@ mod tests {
         assert_eq!(swatches, 2, "une pastille par série");
         let has_text = |t: &str| prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t));
         assert!(has_text("This year") && has_text("Last year"), "noms de séries en légende");
+    }
+
+    #[test]
+    fn stacked_bars_share_one_column_per_category() {
+        let chart = BarChart::new([("A", 2.0), ("B", 4.0)])
+            .series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
+            .stacked(true);
+        // Échelle empilée : max des totaux = max(2+3, 4+1) = 5.
+        assert_eq!(chart.stacked_max(), 5.0);
+        let prims = paint_chart(&chart, 300.0, 200.0);
+        let seg_widths: Vec<f32> = prims
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, .. } if rect.height > 2.0 => Some(rect.width),
+                _ => None,
+            })
+            .collect();
+        // 2 catégories × 2 séries = 4 segments, tous à la pleine largeur du groupe (une colonne).
+        assert_eq!(seg_widths.len(), 4, "un segment par (catégorie, série)");
+        let group_w = (300.0 / 2.0) * BAR_FILL;
+        assert!(
+            seg_widths.iter().all(|w| (w - group_w).abs() < 0.5),
+            "segments empilés = pleine largeur, obtenu {seg_widths:?}"
+        );
     }
 
     #[test]
