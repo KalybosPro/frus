@@ -289,6 +289,8 @@ enum Msg {
     ChartToggleSeries(usize),
     /// Change le type de graphique affiché (sélecteur, jalon 219).
     SetChartKind(usize),
+    /// Épingle le détail d'un point cliqué `(catégorie, série)` (jalon 221).
+    ChartPoint(usize, usize),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -440,6 +442,8 @@ struct TodoApp {
     chart_hidden: Vec<usize>,
     /// Type de graphique affiché : 0 lignes, 1 aires empilées, 2 barres groupées, 3 barres empilées (jalon 219).
     chart_kind: usize,
+    /// Détail **épinglé** d'un point cliqué (`série · catégorie = valeur`), le cas échéant (jalon 221).
+    chart_pin: Option<String>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -799,6 +803,15 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SetChartKind(k) => {
             app.chart_kind = k;
+            Command::none()
+        }
+        Msg::ChartPoint(cat, s) => {
+            // Épingle « série · catégorie = valeur » du point cliqué (index bornés).
+            if let (Some((name, vals)), Some(label)) = (CHART_SERIES.get(s), CHART_CATS.get(cat)) {
+                if let Some(v) = vals.get(cat) {
+                    app.chart_pin = Some(format!("{name} · {label} = {}", *v as i64));
+                }
+            }
             Command::none()
         }
         Msg::GridSort(c) => {
@@ -1379,7 +1392,8 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             c = c.stacked(true);
         }
         if legend {
-            c = c.legend(true).on_legend(Msg::ChartToggleSeries);
+            // Le graphique principal : légende cliquable + points cliquables (jalon 221).
+            c = c.legend(true).on_legend(Msg::ChartToggleSeries).on_point(Msg::ChartPoint);
         }
         Box::new(c)
     } else {
@@ -1415,12 +1429,18 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     // légende du principal la masque **aussi** ici (jalon 220).
     let companion_kind = if app.chart_kind < 2 { 2 } else { 0 };
     let companion = dashboard_chart(app, companion_kind, 150.0, false);
-    let hint = text("Pick a chart type; click a legend entry to show or hide a series (both views).")
+    let hint = text("Click a legend entry to toggle a series; click a point to pin its value.")
         .size(13.0)
         .color(theme.muted);
+    // Détail épinglé du dernier point cliqué (jalon 221).
+    let pinned: Box<dyn Widget<Msg>> = match &app.chart_pin {
+        Some(detail) => Box::new(Chip::new(detail.clone())),
+        None => Box::new(text("No point selected").size(13.0).color(theme.muted)),
+    };
     let body = column![
         row![selector].align(Align::Center),
         chart,
+        row![pinned].align(Align::Center),
         text("Companion view").size(13.0).color(theme.muted),
         companion,
         hint
@@ -2589,6 +2609,20 @@ mod tests {
             assert_eq!(app.chart_kind, k);
             assert!(primitive_count(&app) > 0, "le type {k} se rend");
         }
+    }
+
+    #[test]
+    fn clicking_a_point_pins_its_detail() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Charts));
+        assert!(app.chart_pin.is_none(), "rien d'épinglé au départ");
+        // Thu (index 3) de Sales (série 0) = 8.
+        reduce(&mut app, Msg::ChartPoint(3, 0));
+        assert_eq!(app.chart_pin.as_deref(), Some("Sales · Thu = 8"));
+        // Tue (index 1) de Costs (série 1) = 4 : remplace l'épingle.
+        reduce(&mut app, Msg::ChartPoint(1, 1));
+        assert_eq!(app.chart_pin.as_deref(), Some("Costs · Tue = 4"));
+        assert!(primitive_count(&app) > 0, "l'écran avec épingle se rend");
     }
 
     #[test]

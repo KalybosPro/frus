@@ -502,7 +502,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
     }
 
-    fn positional_click(&self, local_x: f32, local_y: f32, _width: f32) -> Option<Msg> {
+    fn positional_click(&self, local_x: f32, local_y: f32, _width: f32, _height: f32) -> Option<Msg> {
         // Clic sur une entrée de légende → on_legend(index) (jalon 215).
         let f = self.on_legend.as_ref()?;
         if !self.has_legend() {
@@ -519,6 +519,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
 
 /// Rayon (px) des marqueurs ronds posés sur chaque point d'une [`LineChart`].
 const MARKER_R: f32 = 3.5;
+/// Rayon (px) de tolérance pour cliquer un point (jalon 221).
+const POINT_HIT_R: f32 = 12.0;
 /// Opacité (relative) de l'aire remplie sous la courbe.
 const AREA_ALPHA: f32 = 0.16;
 /// Opacité (relative) des bandes d'un graphique en **aires empilées** (plus soutenue, pour lire
@@ -570,6 +572,8 @@ pub struct LineChart<Msg = ()> {
     on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
     /// Animer un **halo pulsant** sur le point survolé (repaint continu) — jalon 217.
     animated: bool,
+    /// Message émis au clic sur un **point** `(catégorie, série)` — jalon 221.
+    on_point: Option<Box<dyn Fn(usize, usize) -> Msg>>,
 }
 
 impl<Msg> LineChart<Msg> {
@@ -588,6 +592,7 @@ impl<Msg> LineChart<Msg> {
             hidden: Vec::new(),
             on_legend: None,
             animated: false,
+            on_point: None,
         }
     }
 
@@ -664,6 +669,13 @@ impl<Msg> LineChart<Msg> {
     /// continu tant que le graphique est affiché. Défaut : off — jalon 217.
     pub fn animated(mut self, animated: bool) -> Self {
         self.animated = animated;
+        self
+    }
+
+    /// Rend les **points cliquables** : `on_point(catégorie, série)` au clic près d'un marqueur
+    /// (des séries visibles). Défaut : aucun — jalon 221.
+    pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
+        self.on_point = Some(Box::new(on_point));
         self
     }
 
@@ -899,14 +911,44 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         chart_plot_hit(local_x, local_y, width, height, axis_width(self.grid), plot_top)
     }
 
-    fn positional_click(&self, local_x: f32, local_y: f32, _width: f32) -> Option<Msg> {
-        // Clic sur une entrée de légende → on_legend(index) (jalon 215).
-        let f = self.on_legend.as_ref()?;
-        if !self.has_legend() {
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
+        // 1) Clic sur une entrée de légende → on_legend(index) (jalon 215).
+        if let Some(f) = &self.on_legend {
+            if self.has_legend() {
+                if let Some(idx) = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names()) {
+                    return Some(f(idx));
+                }
+            }
+        }
+        // 2) Clic sur un **point** → on_point(catégorie, série) (jalon 221). Hors mode empilé, où
+        // les marqueurs individuels n'existent pas. Géométrie identique au paint.
+        let f = self.on_point.as_ref()?;
+        let n = self.values.len();
+        if n == 0 || (self.stacked && !self.extra.is_empty()) {
             return None;
         }
-        let idx = legend_hit(local_x, local_y, axis_width(self.grid), &self.series_names())?;
-        Some(f(idx))
+        let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
+        let baseline_y = height - X_LABEL_H;
+        let plot_top = legend_h + VALUE_SIZE + 6.0;
+        let plot_h = (baseline_y - plot_top).max(1.0);
+        let plot_left = axis_width(self.grid);
+        let slot = (width - plot_left) / n as f32;
+        let max = self.max_value();
+        let primary: Vec<f32> = self.values.iter().map(|(_, v)| *v).collect();
+        for j in 0..(1 + self.extra.len()) {
+            if self.hidden.contains(&j) {
+                continue;
+            }
+            let vals: &[f32] = if j == 0 { &primary } else { &self.extra[j - 1].2 };
+            for (i, &v) in vals.iter().enumerate().take(n) {
+                let px = plot_left + slot * (i as f32 + 0.5);
+                let py = baseline_y - (v / max) * plot_h;
+                if (local_x - px).hypot(local_y - py) <= POINT_HIT_R {
+                    return Some(f(i, j));
+                }
+            }
+        }
+        None
     }
 
     fn continuous(&self) -> bool {
@@ -1146,18 +1188,18 @@ mod tests {
             .legend(true)
             .on_legend(|i| i);
         // Clic sur la 1re entrée (pastille près de x=0, y dans la bande de légende).
-        assert_eq!(Widget::<usize>::positional_click(&chart, 5.0, 10.0, 300.0), Some(0));
+        assert_eq!(Widget::<usize>::positional_click(&chart, 5.0, 10.0, 300.0, 200.0), Some(0));
         // 2e entrée : juste après la 1re (pastille + espace + « Sales » + écart).
         let after_first = LEGEND_SWATCH + 5.0 + frus_text::measure("Sales", LEGEND_SIZE).width + 16.0;
-        assert_eq!(Widget::<usize>::positional_click(&chart, after_first + 4.0, 10.0, 300.0), Some(1));
+        assert_eq!(Widget::<usize>::positional_click(&chart, after_first + 4.0, 10.0, 300.0, 200.0), Some(1));
         // Hors de la bande (y trop bas) : aucun clic de légende.
-        assert_eq!(Widget::<usize>::positional_click(&chart, 5.0, 100.0, 300.0), None);
+        assert_eq!(Widget::<usize>::positional_click(&chart, 5.0, 100.0, 300.0, 200.0), None);
         // Sans `on_legend`, la légende n'est pas cliquable.
         let plain = LineChart::<usize>::new([("A", 1.0)])
             .name("Sales")
             .series("Costs", Color::rgb8(1, 2, 3), [2.0])
             .legend(true);
-        assert_eq!(Widget::<usize>::positional_click(&plain, 5.0, 10.0, 300.0), None);
+        assert_eq!(Widget::<usize>::positional_click(&plain, 5.0, 10.0, 300.0, 200.0), None);
     }
 
     #[test]
@@ -1184,6 +1226,36 @@ mod tests {
         };
         // Le halo animé ajoute un cercle que le graphique fixe n'a pas (au même survol).
         assert!(circles(&animated, 0.1) > circles(&plain, 0.1), "le halo animé ajoute un cercle");
+    }
+
+    #[test]
+    fn clicking_a_point_emits_category_and_series() {
+        let chart = LineChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
+            .on_point(|c, s| (c, s));
+        // Géométrie (width 300, height 200, sans axe ni légende) — identique au paint.
+        let baseline_y = 200.0 - X_LABEL_H;
+        let plot_h = baseline_y - (VALUE_SIZE + 6.0);
+        let slot = 300.0 / 2.0;
+        let px = slot * 0.5; // catégorie A (i = 0)
+        let py_primary = baseline_y - (2.0 / 6.0) * plot_h; // série 0, valeur 2 (max = 6)
+        assert_eq!(
+            Widget::<(usize, usize)>::positional_click(&chart, px, py_primary, 300.0, 200.0),
+            Some((0, 0)),
+            "clic sur le point A de la série principale"
+        );
+        // Loin de tout marqueur : aucun message.
+        assert_eq!(Widget::<(usize, usize)>::positional_click(&chart, slot, 5.0, 300.0, 200.0), None);
+        // Série principale masquée : son point n'est plus cliquable.
+        let hidden = LineChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
+            .on_point(|c, s| (c, s))
+            .hidden([0]);
+        assert_eq!(
+            Widget::<(usize, usize)>::positional_click(&hidden, px, py_primary, 300.0, 200.0),
+            None,
+            "point d'une série masquée : pas de clic"
+        );
     }
 
     #[test]

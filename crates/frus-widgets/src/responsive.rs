@@ -106,8 +106,8 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_click())
     }
 
-    fn positional_click(&self, local_x: f32, local_y: f32, width: f32) -> Option<Msg> {
-        self.inner.as_ref().and_then(|w| w.positional_click(local_x, local_y, width))
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.positional_click(local_x, local_y, width, height))
     }
 
     fn cursor_icon(

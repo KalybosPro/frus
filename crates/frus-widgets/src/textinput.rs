@@ -585,7 +585,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         None
     }
 
-    fn positional_click(&self, local_x: f32, local_y: f32, width: f32) -> Option<Msg> {
+    fn positional_click(&self, local_x: f32, local_y: f32, width: f32, _height: f32) -> Option<Msg> {
         if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
             self.suffix_action.clone()
         } else {
@@ -1301,16 +1301,16 @@ mod tests {
         let x_suffix = w - 8.0; // près du bord droit (zone du suffixe)
         // Clic sur le suffixe : émet le message, et ne place PAS de caret.
         assert_eq!(
-            Widget::<Msg>::positional_click(&field, x_suffix, y, w),
+            Widget::<Msg>::positional_click(&field, x_suffix, y, w, 40.0),
             Some(Msg::Submitted)
         );
         assert_eq!(Widget::<Msg>::cursor_at(&field, x_suffix, y, w, 0), None);
         // Clic dans le corps : pas de suffixe, un caret est placé.
-        assert_eq!(Widget::<Msg>::positional_click(&field, 20.0, y, w), None);
+        assert_eq!(Widget::<Msg>::positional_click(&field, 20.0, y, w, 40.0), None);
         assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
         // Sans `on_suffix`, l'icône reste décorative (aucun clic positionnel).
         let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
-        assert_eq!(Widget::<Msg>::positional_click(&deco, x_suffix, y, w), None);
+        assert_eq!(Widget::<Msg>::positional_click(&deco, x_suffix, y, w, 40.0), None);
     }
 
     #[test]

@@ -1773,6 +1773,7 @@ impl<A: Application> App<A> {
                                     self.cursor.x - rect.x,
                                     self.cursor.y - rect.y,
                                     rect.width,
+                                    rect.height,
                                 )
                             })
                     });
