@@ -458,6 +458,22 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
         if let Some(suffix) = self.suffix {
             let x = field.x + field.width - ICON_SIZE - ICON_PAD;
+            // Surbrillance (jalon 208) : halo discret derrière le suffixe **cliquable** quand le
+            // pointeur le survole (position absolue ramenee en local via `bounds`). Purement visuel.
+            if self.suffix_action.is_some() {
+                if let Some(hc) = status.hover_cursor {
+                    if self.suffix_hit(hc.x - bounds.x, hc.y - bounds.y, bounds.width) {
+                        let halo = Rect::new(x - 4.0, icon_y - 4.0, ICON_SIZE + 8.0, ICON_SIZE + 8.0);
+                        scene.draw_rect(
+                            halo,
+                            theme.muted.fade(o * 0.18),
+                            halo.height * 0.5,
+                            0.0,
+                            frus_core::Color::TRANSPARENT,
+                        );
+                    }
+                }
+            }
             let path = suffix.path().scaled(icon_scale).translated(x, icon_y);
             scene.fill_path(&path, icon_color);
         }
@@ -1295,6 +1311,37 @@ mod tests {
         // Sans `on_suffix`, l'icône reste décorative (aucun clic positionnel).
         let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
         assert_eq!(Widget::<Msg>::positional_click(&deco, x_suffix, y, w), None);
+    }
+
+    #[test]
+    fn hovering_active_suffix_paints_a_halo() {
+        let field = TextInput::new("hello")
+            .suffix_icon(IconName::Close)
+            .on_suffix(Msg::Submitted)
+            .width(220.0);
+        let bounds = Rect::new(0.0, 0.0, 220.0, 40.0);
+        // Compte les rectangles ~28x28 (le halo derrière l'icône suffixe).
+        let halos = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(&field, bounds, status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter(|p| match p {
+                    frus_core::Primitive::Rect { rect, .. } => {
+                        (rect.width - (ICON_SIZE + 8.0)).abs() < 0.5
+                            && (rect.height - (ICON_SIZE + 8.0)).abs() < 0.5
+                    }
+                    _ => false,
+                })
+                .count()
+        };
+        // Pointeur sur le suffixe → un halo ; ailleurs (corps) ou sans survol → aucun.
+        let over_suffix = Status { hover_cursor: Some(Point::new(212.0, 20.0)), ..Default::default() };
+        let over_body = Status { hover_cursor: Some(Point::new(20.0, 20.0)), ..Default::default() };
+        assert_eq!(halos(over_suffix), 1, "halo sur le suffixe survolé");
+        assert_eq!(halos(over_body), 0, "pas de halo dans le corps");
+        assert_eq!(halos(Status::default()), 0, "pas de halo sans survol");
     }
 
     #[test]

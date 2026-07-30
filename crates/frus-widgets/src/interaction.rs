@@ -139,6 +139,10 @@ pub struct Status {
     /// Défilement vertical **retenu** de ce widget (px), pour les widgets qui
     /// défilent leur propre contenu (champ multi-lignes) ; `0` sinon.
     pub scroll_y: f32,
+    /// Position **absolue** du pointeur quand il survole une **sous-région interactive** de ce
+    /// widget (jalon 208) ; `None` sinon. Le widget la ramène en local via ses `bounds` pour
+    /// surligner la zone visée (icône suffixe…). Posée par le shell d'après `cursor_icon`.
+    pub hover_cursor: Option<frus_core::Point>,
 }
 
 impl Default for Status {
@@ -157,6 +161,7 @@ impl Default for Status {
             anim_color: None,
             anim_radius: None,
             scroll_y: 0.0,
+            hover_cursor: None,
         }
     }
 }
@@ -170,6 +175,9 @@ pub struct InputState {
     pub pressed: Option<WidgetId>,
     /// Widget qui a le focus clavier.
     pub focused: Option<WidgetId>,
+    /// Position absolue du pointeur quand il survole une sous-région interactive du widget
+    /// survolé (jalon 208) ; `None` sinon. Posée par le shell (voir `Status::hover_cursor`).
+    pub hover_cursor: Option<frus_core::Point>,
 }
 
 impl InputState {
@@ -196,6 +204,8 @@ impl InputState {
             anim_color: None,
             anim_radius: None,
             scroll_y: 0.0,
+            // Position du pointeur uniquement pour le widget survolé (sinon `None`).
+            hover_cursor: if self.hovered == Some(id) { self.hover_cursor } else { None },
         }
     }
 }

@@ -1531,6 +1531,14 @@ impl<A: Application> App<A> {
         if let Some(window) = &self.window {
             window.set_cursor(icon);
         }
+        // Surbrillance de sous-region (jalon 208) : on retient la position du pointeur tant qu'il
+        // survole une sous-region interactive (cursor_icon a repondu). Un changement repeint (le
+        // hash de statut inclut hover_cursor) pour suivre / retirer le halo.
+        let hover_cursor = requested.map(|_| self.cursor);
+        if hover_cursor != self.runtime.input.hover_cursor {
+            self.runtime.input.hover_cursor = hover_cursor;
+            self.request_redraw();
+        }
     }
 
     /// Appui du pointeur (souris ou doigt) à la position `self.cursor`. `touch`

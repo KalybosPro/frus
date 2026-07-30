@@ -144,6 +144,8 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     quant(s.focus_progress).hash(h);
     quant(s.opacity).hash(h);
     quant(s.value).hash(h);
+    // Survol de sous-région (jalon 208) : un changement de position repeint la surbrillance.
+    s.hover_cursor.map(|p| (quant(p.x), quant(p.y))).hash(h);
 }
 
 /// Résultat de la construction d'une interface pour une frame donnée.
