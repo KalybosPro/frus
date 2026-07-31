@@ -848,6 +848,32 @@ fn table_editable_matches_golden() {
     snapshot.assert_golden(golden("table_editable"));
 }
 
+/// **DataTable auto-triant (jalon 232)** : un tableau texte qui **trie ses propres lignes** selon
+/// l'état `sorted(colonne, sens)` — ici par « Score » **décroissant** (tri numérique-aware), avec
+/// l'indicateur de sens sur l'en-tête. Reproduit son golden.
+#[test]
+fn data_table_sorted_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "9".to_string(), "London".to_string()],
+        vec!["Bob".to_string(), "12".to_string(), "Paris".to_string()],
+        vec!["Carol".to_string(), "2".to_string(), "Berlin".to_string()],
+        vec!["Dan".to_string(), "10".to_string(), "Rome".to_string()],
+    ];
+    let table = DataTable::<()>::new(["Name", "Score", "City"], rows)
+        .column_widths(&[150.0, 110.0, 150.0])
+        .sorted(1, false)
+        .on_sort(|_| ());
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 480, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable trié dessiné");
+    snapshot.assert_golden(golden("data_table_sorted"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]
