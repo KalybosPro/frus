@@ -81,6 +81,8 @@ fn range_mark(
 struct Day<Msg> {
     day: u32,
     mark: DayMark,
+    /// Jour **désactivé** (hors bornes) : atténué, non cliquable — jalon 231.
+    disabled: bool,
     message: Option<Msg>,
 }
 
@@ -102,6 +104,21 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             return; // case de remplissage
         }
         let o = status.opacity;
+        // Jour désactivé (hors bornes) : chiffre atténué, ni fond ni bande (jalon 231).
+        if self.disabled {
+            let label = self.day.to_string();
+            let w = frus_text::measure(&label, SIZE).width;
+            scene.text(
+                Point::new(
+                    bounds.x + (CELL - w) * 0.5,
+                    bounds.y + (CELL - frus_text::line_height(SIZE)) * 0.5,
+                ),
+                label,
+                SIZE,
+                theme.muted.fade(o * 0.4),
+            );
+            return;
+        }
         // Bande de plage (fond doux, coins carrés pour se toucher entre cases voisines).
         let band = theme.primary.fade(0.18 * o);
         let half = Rect::new(bounds.x, bounds.y, bounds.width * 0.5, bounds.height);
@@ -169,13 +186,53 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         on_select: impl Fn(u32) -> Msg + 'static,
         on_nav: impl Fn(i32) -> Msg + 'static,
     ) -> Self {
-        Self::assemble(year, month, on_select, on_nav, move |day| {
-            if selected == Some(day) {
-                DayMark::Selected
-            } else {
-                DayMark::Off
-            }
-        })
+        Self::assemble(
+            year,
+            month,
+            on_select,
+            on_nav,
+            move |day| {
+                if selected == Some(day) {
+                    DayMark::Selected
+                } else {
+                    DayMark::Off
+                }
+            },
+            |_| true,
+        )
+    }
+
+    /// Calendrier simple **borné** : les jours hors `[min, max]` (dates `(année, mois, jour)`,
+    /// bornes optionnelles et **incluses**) sont **désactivés** — atténués et non cliquables.
+    /// Identique à [`new`](Self::new) pour le reste (jour `selected`, `on_select`, `on_nav`).
+    /// Utile pour interdire les dates passées, une fenêtre de réservation, etc. — jalon 231.
+    pub fn bounded(
+        year: i32,
+        month: u32,
+        selected: Option<u32>,
+        min: Option<(i32, u32, u32)>,
+        max: Option<(i32, u32, u32)>,
+        on_select: impl Fn(u32) -> Msg + 'static,
+        on_nav: impl Fn(i32) -> Msg + 'static,
+    ) -> Self {
+        let month = month.clamp(1, 12);
+        Self::assemble(
+            year,
+            month,
+            on_select,
+            on_nav,
+            move |day| {
+                if selected == Some(day) {
+                    DayMark::Selected
+                } else {
+                    DayMark::Off
+                }
+            },
+            move |day| {
+                let date = (year, month, day);
+                min.map_or(true, |m| date >= m) && max.map_or(true, |m| date <= m)
+            },
+        )
     }
 
     /// Calendrier en **mode plage** : met en avant l'intervalle `[start, end]` (dates
@@ -191,9 +248,14 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         on_nav: impl Fn(i32) -> Msg + 'static,
     ) -> Self {
         let month = month.clamp(1, 12);
-        Self::assemble(year, month, on_select, on_nav, move |day| {
-            range_mark((year, month, day), start, end)
-        })
+        Self::assemble(
+            year,
+            month,
+            on_select,
+            on_nav,
+            move |day| range_mark((year, month, day), start, end),
+            |_| true,
+        )
     }
 
     /// Calendrier **double** : le mois `year`/`month` et le **suivant**, côte à côte, partageant
@@ -234,6 +296,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         on_select: impl Fn(u32) -> Msg + 'static,
         on_nav: impl Fn(i32) -> Msg + 'static,
         mark_of: impl Fn(u32) -> DayMark,
+        enabled: impl Fn(u32) -> bool,
     ) -> Self {
         let month = month.clamp(1, 12);
 
@@ -263,14 +326,17 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             grid = grid.cell(Day::<Msg> {
                 day: 0,
                 mark: DayMark::Off,
+                disabled: false,
                 message: None,
             });
         }
         for day in 1..=total {
+            let on = enabled(day);
             grid = grid.cell(Day {
                 day,
                 mark: mark_of(day),
-                message: Some(on_select(day)),
+                disabled: !on,
+                message: if on { Some(on_select(day)) } else { None },
             });
         }
 
@@ -366,6 +432,32 @@ mod tests {
         // (3 cases vides) → 3 + 31 = 34 cellules.
         let grid = &Widget::<Msg>::children(&dp)[2];
         assert_eq!(grid.children().len(), 34);
+    }
+
+    #[test]
+    fn bounded_disables_days_outside_the_range() {
+        // Fenêtre [10, 20] juillet 2026 : hors bornes = non cliquable, dans les bornes = cliquable.
+        let dp = DatePicker::bounded(
+            2026,
+            7,
+            None,
+            Some((2026, 7, 10)),
+            Some((2026, 7, 20)),
+            Msg::Pick,
+            Msg::Nav,
+        );
+        let grid = &Widget::<Msg>::children(&dp)[2];
+        // Juillet 2026 commence mercredi (3 cases vides) ; le jour `d` est à l'index 3 + (d - 1).
+        let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
+        assert_eq!(at(9), None, "9 juillet désactivé (avant min)");
+        assert_eq!(at(10), Some(Msg::Pick(10)), "10 juillet cliquable (borne min incluse)");
+        assert_eq!(at(15), Some(Msg::Pick(15)), "15 juillet cliquable (intérieur)");
+        assert_eq!(at(20), Some(Msg::Pick(20)), "20 juillet cliquable (borne max incluse)");
+        assert_eq!(at(21), None, "21 juillet désactivé (après max)");
+        // Sans borne max : tout ce qui est >= min est cliquable.
+        let open = DatePicker::bounded(2026, 7, None, Some((2026, 7, 10)), None, Msg::Pick, Msg::Nav);
+        let g2 = &Widget::<Msg>::children(&open)[2];
+        assert_eq!(g2.children()[3 + 30].on_click(), Some(Msg::Pick(31)), "31 juillet cliquable (pas de max)");
     }
 
     #[test]
