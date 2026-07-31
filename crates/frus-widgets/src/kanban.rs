@@ -15,7 +15,7 @@ use frus_layout::{Align, Dimension, FlexDirection, Style};
 use crate::interaction::Status;
 use crate::text::Text;
 use crate::theme::Theme;
-use crate::widget::Widget;
+use crate::widget::{ReorderAxis, Widget};
 
 /// Pas d'encodage d'un emplacement `(colonne, position)` en index plat : borne le nombre de cartes
 /// par colonne (largement suffisant pour un tableau). Voir [`kanban_slot`].
@@ -83,6 +83,10 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
         let (to_col, to_pos) = decode(to);
         self.on_move.as_ref().map(|f| f(self.from_col, self.from_pos, to_col, to_pos))
     }
+
+    fn reorder_axis(&self) -> ReorderAxis {
+        ReorderAxis::Vertical // les cartes glissent verticalement
+    }
 }
 
 /// Zone de dépôt en bas d'une colonne : cible d'insertion **en fin** de colonne (et seule cible d'une
@@ -119,6 +123,10 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
 
     fn on_reorder(&self, _to: usize) -> Option<Msg> {
         None // la zone de dépôt n'est pas une source de déplacement
+    }
+
+    fn reorder_axis(&self) -> ReorderAxis {
+        ReorderAxis::Vertical
     }
 }
 
@@ -274,6 +282,19 @@ mod tests {
         let (idx, moved) = first_card(col0.as_ref(), kanban_slot(1, 0)).expect("une carte");
         assert_eq!(idx, kanban_slot(0, 0), "index plat de la carte source");
         assert_eq!(moved, Some(Msg::Move(0, 0, 1, 0)), "dépôt en (1,0) : déplacement inter-colonnes");
+    }
+
+    #[test]
+    fn cards_declare_vertical_reorder_axis() {
+        fn first_axis(w: &dyn Widget<Msg>) -> Option<ReorderAxis> {
+            if w.reorder_index().is_some() {
+                return Some(w.reorder_axis());
+            }
+            w.children().iter().find_map(|c| first_axis(c.as_ref()))
+        }
+        let board = Kanban::new(Msg::Move).column("A", ["x"]);
+        let col0 = &Widget::<Msg>::children(&board)[0];
+        assert_eq!(first_axis(col0.as_ref()), Some(ReorderAxis::Vertical), "les cartes glissent verticalement");
     }
 
     #[test]

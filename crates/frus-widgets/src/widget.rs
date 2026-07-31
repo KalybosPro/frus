@@ -9,6 +9,18 @@ use crate::runtime::Edit;
 use crate::scroll::Axis;
 use crate::theme::Theme;
 
+/// Axe le long duquel un widget **réordonnable** se déplace au glisser : les colonnes de `Table`
+/// glissent à l'**horizontale** (défaut), les cartes de `Kanban` à la **verticale**. Le shell adapte
+/// l'aperçu de glisser (sens du fantôme, indicateur d'insertion) selon cet axe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ReorderAxis {
+    /// Réordonnancement horizontal (colonnes) — défaut.
+    #[default]
+    Horizontal,
+    /// Réordonnancement vertical (cartes empilées).
+    Vertical,
+}
+
 /// Un widget : un élément d'interface composable.
 ///
 /// `Msg` est le type de message applicatif émis lors d'une interaction (modèle
@@ -186,6 +198,13 @@ pub trait Widget<Msg> {
     /// Le widget connaît son propre index et le rappel `on_reorder(from, to)`.
     fn on_reorder(&self, _to: usize) -> Option<Msg> {
         None
+    }
+
+    /// **Axe** de déplacement de ce réordonnable (défaut [`ReorderAxis::Horizontal`]) : le shell
+    /// oriente l'aperçu de glisser (fantôme + indicateur d'insertion) en conséquence. Les cartes de
+    /// `Kanban` renvoient [`ReorderAxis::Vertical`].
+    fn reorder_axis(&self) -> ReorderAxis {
+        ReorderAxis::Horizontal
     }
 
     /// Texte à **énoncer** au lecteur d'écran quand ce widget est **activé** (clic
@@ -531,6 +550,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_reorder(&self, to: usize) -> Option<Msg> {
         (**self).on_reorder(to)
+    }
+    fn reorder_axis(&self) -> ReorderAxis {
+        (**self).reorder_axis()
     }
     fn announce(&self) -> Option<String> {
         (**self).announce()

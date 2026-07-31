@@ -17,7 +17,7 @@ use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, Color,
     Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, Point, Primitive, Rect,
-    Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
+    ReorderAxis, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -2140,25 +2140,64 @@ impl<A: Application> App<A> {
         let Some(src) = ui.widget_rect(id) else {
             return;
         };
+        let axis = self
+            .tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), id))
+            .map(|w| w.reorder_axis())
+            .unwrap_or(ReorderAxis::Horizontal);
         let dx = self.cursor.x - start.x;
-        // Réagence les colonnes voisines : le trou de la source se referme et la place de
-        // dépôt s'ouvre, selon l'abscisse **lissée** (ressort) du curseur — coulissement à
-        // inertie douce, tandis que le fantôme colle au curseur réel.
-        let reflowed = reflow_reorder_columns(scene.primitives(), src, self.reorder_x, id.as_u64());
-        scene.clear();
-        for primitive in reflowed {
-            scene.push_primitive(primitive);
+        let dy = self.cursor.y - start.y;
+
+        // Décalage du fantôme selon l'axe : **horizontal** (colonnes de Table) suit `dx` (léger
+        // soulèvement `-2`) ; **vertical** (cartes Kanban) suit le curseur en 2D.
+        let (gx, gy) = match axis {
+            ReorderAxis::Horizontal => (dx, -2.0),
+            ReorderAxis::Vertical => (dx, dy),
+        };
+
+        match axis {
+            ReorderAxis::Horizontal => {
+                // Réagence les colonnes voisines : le trou de la source se referme et la place de
+                // dépôt s'ouvre, selon l'abscisse **lissée** (ressort) du curseur — coulissement à
+                // inertie douce, tandis que le fantôme colle au curseur réel.
+                let reflowed = reflow_reorder_columns(scene.primitives(), src, self.reorder_x, id.as_u64());
+                scene.clear();
+                for primitive in reflowed {
+                    scene.push_primitive(primitive);
+                }
+            }
+            ReorderAxis::Vertical => {
+                // Pas de réagencement horizontal : on garde le tableau tel quel et on pose une
+                // **ligne d'insertion** au bord supérieur de l'emplacement survolé (carte/zone).
+                if let Some(line) = self.reorder_drop_line(3.0) {
+                    scene.set_clip(Rect::UNBOUNDED);
+                    scene.draw_rect(line, theme.primary, 1.5, 0.0, Color::TRANSPARENT);
+                }
+            }
         }
-        // Fantôme fidèle : les primitives de l'en-tête saisi (fond, texte, tri) — depuis
-        // la scène d'origine —, translatées et **dé-découpées** (sinon rognées à la source).
+
+        // Fantôme fidèle : les primitives de l'élément saisi (fond, texte…) — depuis la scène
+        // d'origine —, translatées et **dé-découpées** (sinon rognées à la source).
         let ghost: Vec<Primitive> = ui
             .scene()
             .primitives()
             .iter()
             .filter(|p| p.owner() == id.as_u64())
-            .map(|p| p.translated(dx, -2.0).with_clip(Rect::UNBOUNDED))
+            .map(|p| p.translated(gx, gy).with_clip(Rect::UNBOUNDED))
             .collect();
-        draw_ghost_card(scene, theme, src.translate(dx, -2.0), &ghost);
+        draw_ghost_card(scene, theme, src.translate(gx, gy), &ghost);
+    }
+
+    /// Ligne d'**insertion** (aperçu vertical) : un fin bandeau au bord supérieur de l'emplacement
+    /// réordonnable survolé (carte ou zone de dépôt). `None` si le curseur n'est pas sur une cible.
+    fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
+        let target = self.ui.as_ref()?.hit(self.cursor)?;
+        let tree = self.tree.as_ref()?;
+        // Seulement au-dessus d'un emplacement réordonnable (carte/zone de dépôt).
+        find_widget(tree.as_ref(), target)?.reorder_index()?;
+        let rect = self.ui.as_ref()?.widget_rect(target)?;
+        Some(drop_insertion_line(rect, thickness))
     }
 
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
@@ -2413,11 +2452,28 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
     }
 }
 
+/// Géométrie de la **ligne d'insertion** d'un aperçu de réordonnancement **vertical** : un fin
+/// bandeau (épaisseur `thickness`) centré sur le **bord supérieur** de l'emplacement cible, sur toute
+/// sa largeur. Fonction pure — testable sans GPU.
+fn drop_insertion_line(target: Rect, thickness: f32) -> Rect {
+    Rect::new(target.x, target.y - thickness * 0.5, target.width, thickness)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{draw_ghost_card, resolve_focus, spring_toward, Rect, Scene, Theme};
+    use super::{draw_ghost_card, drop_insertion_line, resolve_focus, spring_toward, Rect, Scene, Theme};
     use frus_widgets::WidgetId;
     use std::collections::HashSet;
+
+    #[test]
+    fn insertion_line_sits_on_the_target_top_edge() {
+        // Bandeau d'épaisseur 4 centré sur le bord supérieur (y=100) d'une cible large de 200.
+        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0);
+        assert_eq!(line.x, 20.0, "aligné à gauche de la cible");
+        assert_eq!(line.width, 200.0, "toute la largeur de la cible");
+        assert_eq!(line.y, 98.0, "centré sur le bord supérieur (100 - 4/2)");
+        assert_eq!(line.height, 4.0);
+    }
 
     #[test]
     fn focus_returns_to_trigger_when_overlay_closes() {

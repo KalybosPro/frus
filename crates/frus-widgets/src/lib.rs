@@ -185,7 +185,7 @@ pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, FocusDirection,
     Scrollbar, Ui,
 };
-pub use widget::Widget;
+pub use widget::{ReorderAxis, Widget};
 
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{
