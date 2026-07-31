@@ -304,6 +304,10 @@ enum Msg {
     DataPageSize(usize),
     /// Clic sur une ligne du tableau de données : (dé)sélectionne la ligne **source** (jalon 239).
     DataSelectRow(usize),
+    /// Coche/décoche une ligne **source** du tableau de données (sélection multiple, jalon 241).
+    DataCheck(usize),
+    /// Case « tout cocher » du tableau de données : coche tout, ou vide si déjà tout coché (jalon 241).
+    DataCheckAll,
     /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
     SetWeekdaysOnly(bool),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
@@ -475,6 +479,9 @@ struct TodoApp {
     /// Ligne **source** sélectionnée du tableau de données ; `None` = aucune (jalon 239). Le
     /// `DataTable` traduit cet index d'origine en position surlignée à travers tri/pagination.
     data_selected: Option<usize>,
+    /// Lignes **source** cochées (sélection multiple) du tableau de données (jalon 241). Pilote les
+    /// cases + le surlignage ; l'app décide ce que « tout cocher » recouvre (ici les 12 lignes).
+    data_checked: Vec<usize>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -863,6 +870,25 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::DataSelectRow(i) => {
             // Re-clic sur la ligne déjà sélectionnée = désélection (bascule).
             app.data_selected = if app.data_selected == Some(i) { None } else { Some(i) };
+            Command::none()
+        }
+        Msg::DataCheck(i) => {
+            // Bascule l'appartenance de la ligne source à l'ensemble coché.
+            match app.data_checked.iter().position(|&x| x == i) {
+                Some(pos) => {
+                    app.data_checked.remove(pos);
+                }
+                None => app.data_checked.push(i),
+            }
+            Command::none()
+        }
+        Msg::DataCheckAll => {
+            // Tout coché → on vide ; sinon on coche les 12 lignes source.
+            app.data_checked = if app.data_checked.len() == DATA_PEOPLE.len() {
+                Vec::new()
+            } else {
+                (0..DATA_PEOPLE.len()).collect()
+            };
             Command::none()
         }
         Msg::SetWeekdaysOnly(on) => {
@@ -1476,26 +1502,28 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .sort_with(3, |a, b| level_rank(a).cmp(&level_rank(b)))
         .on_sort(Msg::DataSort)
         .on_select_row(Msg::DataSelectRow)
+        // Sélection multiple (jalon 241) : cases à cocher pour une sélection groupée, en plus du
+        // clic de ligne (focus). Les lignes cochées pilotent le surlignage via `selected`.
+        .checkboxes(Msg::DataCheck, Msg::DataCheckAll)
+        .selected(&app.data_checked)
         .paginated(page, per, Msg::DataPage)
         .page_sizes(&[5, 10], Msg::DataPageSize);
     if let Some((col, asc)) = app.data_sort {
         table = table.sorted(col, asc);
     }
-    // Surligne la ligne **source** sélectionnée (le `DataTable` la place à sa position triée).
-    if let Some(i) = app.data_selected {
-        table = table.selected(&[i]);
-    }
-    let hint = text("Click a header to sort, or a row to select; the DataTable handles both itself.")
+    let hint = text("Check rows to select many; click a row to focus it; click a header to sort.")
         .size(13.0)
         .color(theme.muted);
-    // Détail de la ligne sélectionnée : on la lit dans les données **source** par son index.
+    // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données source.
     let detail = match app.data_selected.and_then(|i| DATA_PEOPLE.get(i)) {
         Some((n, r, s, l)) => {
-            text(format!("Selected: {n} — {r} (score {s}, {l} priority)")).size(15.0).color(theme.on_surface)
+            text(format!("Focused: {n} — {r} (score {s}, {l} priority)")).size(15.0).color(theme.on_surface)
         }
-        None => text("No row selected.").size(15.0).color(theme.muted),
+        None => text("No row focused.").size(15.0).color(theme.muted),
     };
-    let body = column![table, detail, hint].gap(16.0).padding(24.0);
+    // Résumé de la sélection **groupée** (cases cochées).
+    let summary = text(format!("{} checked", app.data_checked.len())).size(13.0).color(theme.muted);
+    let body = column![table, detail, summary, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2940,6 +2968,17 @@ mod tests {
         reduce(&mut app, Msg::DataSort(3));
         assert_eq!(app.data_sort, Some((3, true)), "tri de la colonne Level");
         assert!(primitive_count(&app) > 0, "se rend trie par priorite");
+        // Sélection multiple (cases) : toggle d'une ligne, puis « tout cocher »/« tout décocher ».
+        assert!(app.data_checked.is_empty(), "rien de coche au depart");
+        reduce(&mut app, Msg::DataCheck(2));
+        assert_eq!(app.data_checked, vec![2], "coche la ligne source 2");
+        reduce(&mut app, Msg::DataCheck(2));
+        assert!(app.data_checked.is_empty(), "re-check = decoche");
+        reduce(&mut app, Msg::DataCheckAll);
+        assert_eq!(app.data_checked.len(), DATA_PEOPLE.len(), "tout cocher = 12 lignes");
+        reduce(&mut app, Msg::DataCheckAll);
+        assert!(app.data_checked.is_empty(), "re-tout-cocher = tout decocher");
+        assert!(primitive_count(&app) > 0, "se rend avec cases a cocher");
     }
 
     #[test]

@@ -105,6 +105,11 @@ pub struct DataTable<Msg = ()> {
     /// ([`compare_cells`]). Permet d'ordonner des cellules que le défaut trie mal — dates
     /// formatées, montants (« $1.2M »), priorités (« High »/« Medium »/« Low »).
     comparators: Vec<Option<Rc<dyn Fn(&str, &str) -> Ordering>>>,
+    /// Sélection **multiple** (jalon 241) : colonne de cases à cocher. `on_check(ligne_source)`
+    /// bascule une ligne, `on_check_all` bascule la case de tête. L'état coché suit
+    /// [`selected`](Self::selected) (mêmes index source).
+    on_check: Option<Rc<dyn Fn(usize) -> Msg>>,
+    on_check_all: Option<Msg>,
     /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
     /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
@@ -132,6 +137,8 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             on_select: None,
             selected: Vec::new(),
             comparators: Vec::new(),
+            on_check: None,
+            on_check_all: None,
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -197,10 +204,23 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
-    /// Lignes **sélectionnées** (surlignées), désignées par leur index de **ligne source**. Le
-    /// `DataTable` ne surligne que celles visibles dans la tranche courante.
+    /// Lignes **sélectionnées** (surlignées / cases cochées), désignées par leur index de **ligne
+    /// source**. Le `DataTable` ne surligne (et ne coche) que celles visibles dans la tranche
+    /// courante.
     pub fn selected(mut self, rows: &[usize]) -> Self {
         self.selected = rows.to_vec();
+        self.rebuild();
+        self
+    }
+
+    /// Active la **sélection multiple** : une colonne de cases à cocher coiffée d'un « tout cocher ».
+    /// `on_check(ligne_source)` bascule une ligne (index de la **ligne source**, traduit depuis la
+    /// position affichée), `on_check_all` bascule la case de tête. L'état coché reflète
+    /// [`selected`](Self::selected). Se combine avec [`on_select_row`](Self::on_select_row) : la case
+    /// gère la sélection groupée, un clic sur le corps de la ligne reste un clic de ligne.
+    pub fn checkboxes(mut self, on_check: impl Fn(usize) -> Msg + 'static, on_check_all: Msg) -> Self {
+        self.on_check = Some(Rc::new(on_check));
+        self.on_check_all = Some(on_check_all);
         self.rebuild();
         self
     }
@@ -283,6 +303,13 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             let f = f.clone();
             let indices = page_indices.clone();
             t = t.on_select_row(move |d| f(indices.get(d).copied().unwrap_or(d)));
+        }
+        // Sélection multiple : même traduction position affichée → index source pour les cases.
+        if let (Some(f), Some(all)) = (&self.on_check, &self.on_check_all) {
+            let f = f.clone();
+            let indices = page_indices.clone();
+            let all = all.clone();
+            t = t.checkboxes(move |d| f(indices.get(d).copied().unwrap_or(d)), all);
         }
         if !self.selected.is_empty() {
             let display_sel: Vec<usize> = page_indices
@@ -452,6 +479,26 @@ mod tests {
         assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
         // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
         assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
+    }
+
+    #[test]
+    fn checkbox_click_reports_the_source_row_through_sort_and_page() {
+        // Mêmes données que la sélection simple : tri croissant → ordre source [1, 2, 0].
+        let rows = vec![
+            vec!["A".to_string(), "3".to_string()],
+            vec!["B".to_string(), "1".to_string()],
+            vec!["C".to_string(), "2".to_string()],
+        ];
+        // `999` = message de la case « tout cocher » (sentinelle, filtrée).
+        let dt: DataTable<usize> =
+            DataTable::new(["N", "K"], rows).sorted(1, true).paginated(2, 2, |_| 0).checkboxes(|i| i, 999);
+        let mut v = Vec::new();
+        // `children()[0]` = le Table ; `[1]` = le pied (pager) ignoré.
+        collect_clicks(Widget::<usize>::children(&dt)[0].as_ref(), &mut v);
+        v.retain(|&m| m != 999); // enlève la case de tête
+        v.dedup();
+        // Page 2 (taille 2) des lignes triées [1, 2, 0] → la case renvoie l'index **source** 0.
+        assert_eq!(v, vec![0], "la case renvoie l'index de la ligne source, page comprise");
     }
 
     #[test]

@@ -1022,6 +1022,35 @@ fn data_table_custom_sort_matches_golden() {
     snapshot.assert_golden(golden("data_table_custom_sort"));
 }
 
+/// **DataTable à sélection multiple (jalon 241)** : colonne de cases à cocher coiffée d'un « tout
+/// cocher ». Le tableau est trié par « Score » décroissant `[Bob, Dan, Ada, Carol]` ; les lignes
+/// **source** 0 (Ada) et 3 (Dan) sont cochées → deux cases cochées (aux positions triées) et la case
+/// de tête **indéterminée** (2 sur 4). Reproduit son golden.
+#[test]
+fn data_table_checkboxes_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "9".to_string(), "London".to_string()],
+        vec!["Bob".to_string(), "12".to_string(), "Paris".to_string()],
+        vec!["Carol".to_string(), "2".to_string(), "Berlin".to_string()],
+        vec!["Dan".to_string(), "10".to_string(), "Rome".to_string()],
+    ];
+    let table = DataTable::<()>::new(["Name", "Score", "City"], rows)
+        .column_widths(&[150.0, 110.0, 150.0])
+        .sorted(1, false)
+        .on_sort(|_| ())
+        .checkboxes(|_| (), ())
+        .selected(&[0, 3]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 500, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable à cases à cocher dessiné");
+    snapshot.assert_golden(golden("data_table_checkboxes"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]
