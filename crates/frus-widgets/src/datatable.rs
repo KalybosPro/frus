@@ -13,7 +13,9 @@ use std::rc::Rc;
 use frus_core::{Rect, Scene};
 use frus_layout::Style;
 
+use crate::flex::Flex;
 use crate::interaction::Status;
+use crate::pagination::Pagination;
 use crate::table::Table;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -44,6 +46,22 @@ pub fn sort_rows(rows: &[Vec<String>], col: usize, ascending: bool) -> Vec<Vec<S
     out
 }
 
+/// Nombre de pages pour `len` lignes découpées par tranches de `per_page` (au moins **1**).
+pub fn page_count(len: usize, per_page: usize) -> usize {
+    let per = per_page.max(1);
+    (len.div_ceil(per)).max(1)
+}
+
+/// La **tranche** de lignes de la page `current` (1-indexée) de taille `per_page`. La page est
+/// ramenée dans `[1, page_count]` si elle déborde. Réutilisable hors widget.
+pub fn page_rows(rows: &[Vec<String>], current: usize, per_page: usize) -> Vec<Vec<String>> {
+    let per = per_page.max(1);
+    let current = current.clamp(1, page_count(rows.len(), per));
+    let start = (current - 1) * per;
+    let end = (start + per).min(rows.len());
+    rows[start..end].to_vec()
+}
+
 /// Un tableau de données **texte** qui trie ses propres lignes selon l'état de tri fourni, puis
 /// délègue le rendu à un [`Table`](crate::Table).
 ///
@@ -58,7 +76,11 @@ pub struct DataTable<Msg = ()> {
     widths: Vec<f32>,
     sort: Option<(usize, bool)>,
     on_sort: Option<Rc<dyn Fn(usize) -> Msg>>,
-    inner: Table<Msg>,
+    /// Pagination `(page courante 1-indexée, taille de page)` — jalon 233.
+    page: Option<(usize, usize)>,
+    on_page: Option<Rc<dyn Fn(usize) -> Msg>>,
+    /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un `Pagination` dessous.
+    inner: Box<dyn Widget<Msg>>,
 }
 
 impl<Msg: Clone + 'static> DataTable<Msg> {
@@ -76,7 +98,9 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             widths: vec![0.0; cols],
             sort: None,
             on_sort: None,
-            inner: Table::new(cols),
+            page: None,
+            on_page: None,
+            inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
         me
@@ -107,11 +131,33 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
-    /// (Re)construit le `Table` interne : lignes triées selon `sort`, en-têtes, largeurs, indicateur.
+    /// **Pagine** le tableau : n'affiche que la tranche de la page `current` (1-indexée) de taille
+    /// `per_page`, et pose un sélecteur [`Pagination`](crate::Pagination) dessous. `on_page(page)`
+    /// au clic sur une page (l'application met à jour `current`). Le découpage suit le **tri**.
+    pub fn paginated(
+        mut self,
+        current: usize,
+        per_page: usize,
+        on_page: impl Fn(usize) -> Msg + 'static,
+    ) -> Self {
+        self.page = Some((current.max(1), per_page.max(1)));
+        self.on_page = Some(Rc::new(on_page));
+        self.rebuild();
+        self
+    }
+
+    /// (Re)construit le rendu : lignes triées selon `sort`, découpées à la page `page` le cas
+    /// échéant, dans un `Table` (en-têtes, largeurs, indicateur) éventuellement coiffé d'un
+    /// `Pagination` dessous.
     fn rebuild(&mut self) {
-        let display = match self.sort {
+        let sorted = match self.sort {
             Some((col, asc)) => sort_rows(&self.rows, col, asc),
             None => self.rows.clone(),
+        };
+        // Découpe la page sur les lignes **déjà triées** (le cas échéant).
+        let display = match self.page {
+            Some((current, per)) => page_rows(&sorted, current, per),
+            None => sorted.clone(),
         };
         let hrefs: Vec<&str> = self.headers.iter().map(|s| s.as_str()).collect();
         let mut t = Table::new(self.headers.len().max(1)).header(&hrefs);
@@ -129,17 +175,27 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         if let Some((col, asc)) = self.sort {
             t = t.sorted(col, asc);
         }
-        self.inner = t;
+        // Table seul, ou table + sélecteur de page (calculé sur le nombre **total** de lignes triées).
+        self.inner = match (self.page, &self.on_page) {
+            (Some((current, per)), Some(on_page)) => {
+                let pages = page_count(sorted.len(), per);
+                let current = current.clamp(1, pages);
+                let on_page = on_page.clone();
+                let pager = Pagination::new(current, pages, move |p| on_page(p));
+                Box::new(Flex::column().gap(12.0).child(t).child(pager))
+            }
+            _ => Box::new(t),
+        };
     }
 }
 
 impl<Msg: Clone> Widget<Msg> for DataTable<Msg> {
     fn style(&self) -> Style {
-        Widget::<Msg>::style(&self.inner)
+        self.inner.style()
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        Widget::<Msg>::children(&self.inner)
+        self.inner.children()
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
@@ -149,7 +205,7 @@ impl<Msg: Clone> Widget<Msg> for DataTable<Msg> {
     }
 
     fn stack(&self) -> bool {
-        Widget::<Msg>::stack(&self.inner)
+        self.inner.stack()
     }
 }
 
@@ -193,5 +249,29 @@ mod tests {
             .on_sort(|_| ());
         // En-tête + lignes → arbre de rendu non vide.
         assert!(!Widget::<()>::children(&dt).is_empty(), "le DataTable produit un arbre");
+    }
+
+    #[test]
+    fn pagination_slices_rows_and_counts_pages() {
+        let rows: Vec<Vec<String>> = (1..=7).map(|i| vec![i.to_string()]).collect();
+        assert_eq!(page_count(7, 3), 3, "7 lignes / 3 = 3 pages");
+        assert_eq!(page_count(0, 3), 1, "au moins une page");
+        let col0 = |rs: Vec<Vec<String>>| rs.iter().map(|r| r[0].clone()).collect::<Vec<_>>();
+        // Page 1 : 1,2,3 ; page 3 : 7 (dernière, partielle).
+        assert_eq!(col0(page_rows(&rows, 1, 3)), ["1", "2", "3"]);
+        assert_eq!(col0(page_rows(&rows, 3, 3)), ["7"]);
+        // Page hors bornes ramenée dans l'intervalle.
+        assert_eq!(col0(page_rows(&rows, 99, 3)), ["7"]);
+    }
+
+    #[test]
+    fn data_table_with_pagination_builds_table_and_pager() {
+        let rows: Vec<Vec<String>> =
+            (1..=10).map(|i| vec![format!("R{i}"), i.to_string()]).collect();
+        let dt = DataTable::<()>::new(["Name", "Score"], rows)
+            .sorted(1, true)
+            .paginated(1, 4, |_| ());
+        // inner = colonne [table, pagination] → deux enfants.
+        assert_eq!(Widget::<()>::children(&dt).len(), 2, "table + sélecteur de page");
     }
 }

@@ -874,6 +874,37 @@ fn data_table_sorted_matches_golden() {
     snapshot.assert_golden(golden("data_table_sorted"));
 }
 
+/// **DataTable paginé (jalon 233)** : sept lignes triées par « Score » décroissant, découpées en
+/// pages de **3** — la page 1 (3 lignes) sous un sélecteur [`Pagination`]. Reproduit son golden.
+#[test]
+fn data_table_paginated_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let rows: Vec<Vec<String>> = [
+        ("Ada", 9),
+        ("Bob", 12),
+        ("Carol", 2),
+        ("Dan", 10),
+        ("Eve", 6),
+        ("Finn", 15),
+        ("Gwen", 4),
+    ]
+    .iter()
+    .map(|(n, s)| vec![n.to_string(), s.to_string()])
+    .collect();
+    let table = DataTable::<()>::new(["Name", "Score"], rows)
+        .column_widths(&[160.0, 120.0])
+        .sorted(1, false)
+        .paginated(1, 3, |_| ());
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 380, 260, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable paginé dessiné");
+    snapshot.assert_golden(golden("data_table_paginated"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]
