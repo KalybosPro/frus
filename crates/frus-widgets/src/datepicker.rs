@@ -202,6 +202,36 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
+    /// Calendrier simple **filtré par prédicat** : un jour `(année, mois, jour)` est cliquable ssi
+    /// `is_enabled(date)` est vrai — les autres sont **désactivés** (atténués, non cliquables). C'est
+    /// l'escape hatch général (façon `selectableDayPredicate` de Flutter) : jours **blackout**
+    /// isolés, week-ends interdits, bornes, ou toute combinaison. `selected`/`on_select`/`on_nav`
+    /// comme [`new`](Self::new) — jalon 235.
+    pub fn filtered(
+        year: i32,
+        month: u32,
+        selected: Option<u32>,
+        is_enabled: impl Fn((i32, u32, u32)) -> bool + 'static,
+        on_select: impl Fn(u32) -> Msg + 'static,
+        on_nav: impl Fn(i32) -> Msg + 'static,
+    ) -> Self {
+        let month = month.clamp(1, 12);
+        Self::assemble(
+            year,
+            month,
+            on_select,
+            on_nav,
+            move |day| {
+                if selected == Some(day) {
+                    DayMark::Selected
+                } else {
+                    DayMark::Off
+                }
+            },
+            move |day| is_enabled((year, month, day)),
+        )
+    }
+
     /// Calendrier simple **borné** : les jours hors `[min, max]` (dates `(année, mois, jour)`,
     /// bornes optionnelles et **incluses**) sont **désactivés** — atténués et non cliquables.
     /// Identique à [`new`](Self::new) pour le reste (jour `selected`, `on_select`, `on_nav`).
@@ -487,6 +517,26 @@ mod tests {
         let open = DatePicker::bounded(2026, 7, None, Some((2026, 7, 10)), None, Msg::Pick, Msg::Nav);
         let g2 = &Widget::<Msg>::children(&open)[2];
         assert_eq!(g2.children()[3 + 30].on_click(), Some(Msg::Pick(31)), "31 juillet cliquable (pas de max)");
+    }
+
+    #[test]
+    fn filtered_disables_days_by_predicate() {
+        // Blackout : les 12 et 18 juillet indisponibles ; tout le reste cliquable.
+        let blackout = [(2026, 7, 12), (2026, 7, 18)];
+        let dp = DatePicker::filtered(
+            2026,
+            7,
+            None,
+            move |date| !blackout.contains(&date),
+            Msg::Pick,
+            Msg::Nav,
+        );
+        let grid = &Widget::<Msg>::children(&dp)[2];
+        let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
+        assert_eq!(at(12), None, "12 juillet en blackout");
+        assert_eq!(at(18), None, "18 juillet en blackout");
+        assert_eq!(at(13), Some(Msg::Pick(13)), "13 juillet cliquable");
+        assert_eq!(at(1), Some(Msg::Pick(1)), "1er juillet cliquable");
     }
 
     #[test]

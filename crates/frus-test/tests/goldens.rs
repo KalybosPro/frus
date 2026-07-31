@@ -601,6 +601,31 @@ fn date_range_bounded_matches_golden() {
     snapshot.assert_golden(golden("date_range_bounded"));
 }
 
+/// **Calendrier filtré / blackout (jalon 235)** : juillet 2026, quelques jours **indisponibles**
+/// épars (prédicat `selectableDayPredicate` façon Flutter) — atténués et non cliquables, le 21
+/// sélectionné. Reproduit son golden.
+#[test]
+fn date_blackout_matches_golden() {
+    use frus_widgets::DatePicker;
+    let theme = Theme::dark();
+    let blackout = [(2026, 7, 4), (2026, 7, 5), (2026, 7, 14), (2026, 7, 15), (2026, 7, 27)];
+    let picker = DatePicker::filtered(
+        2026,
+        7,
+        Some(21),
+        move |date| !blackout.contains(&date),
+        |_| (),
+        |_| (),
+    );
+    let root: Container<()> = Container::new().padding(16.0).child(picker);
+    let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "calendrier avec jours blackout dessiné");
+    snapshot.assert_golden(golden("date_blackout"));
+}
+
 /// **Calendrier en mode plage (jalon 184)** : juillet 2026, intervalle du 10 au 15 —
 /// bornes en pastille pleine, jours intermédiaires en bande douce. Reproduit son golden.
 #[test]
