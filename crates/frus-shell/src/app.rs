@@ -15,9 +15,9 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, Color,
-    Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, Point, Primitive, Rect,
-    ReorderAxis, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
+    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, subtree_ids,
+    Color, Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, Point, Primitive,
+    Rect, ReorderAxis, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -2176,13 +2176,22 @@ impl<A: Application> App<A> {
             }
         }
 
-        // Fantôme fidèle : les primitives de l'élément saisi (fond, texte…) — depuis la scène
-        // d'origine —, translatées et **dé-découpées** (sinon rognées à la source).
+        // Fantôme fidèle : les primitives de l'élément saisi — depuis la scène d'origine —,
+        // translatées et **dé-découpées** (sinon rognées à la source). Pour une **carte riche**,
+        // le fond est peint par la carte mais son contenu (libellé, étiquettes, bouton ×) par des
+        // enfants, sous d'autres propriétaires : on capte donc les primitives de **tout le
+        // sous-arbre** de l'élément, pas seulement les siennes.
+        let owners: std::collections::HashSet<u64> = self
+            .tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), id))
+            .map(|w| subtree_ids(w, id).iter().map(|i| i.as_u64()).collect())
+            .unwrap_or_else(|| std::iter::once(id.as_u64()).collect());
         let ghost: Vec<Primitive> = ui
             .scene()
             .primitives()
             .iter()
-            .filter(|p| p.owner() == id.as_u64())
+            .filter(|p| owners.contains(&p.owner()))
             .map(|p| p.translated(gx, gy).with_clip(Rect::UNBOUNDED))
             .collect();
         draw_ghost_card(scene, theme, src.translate(gx, gy), &ghost);

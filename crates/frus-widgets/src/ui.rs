@@ -1756,6 +1756,24 @@ pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
     out
 }
 
+/// Identités du **sous-arbre** enraciné en `root_id` — le widget `widget` ayant cette identité —,
+/// soit `[root_id, …descendants]`, dérivées par le même schéma positionnel que [`collect_ids`].
+///
+/// Sert au **fantôme de glisser** : les primitives d'une carte **riche** sont peintes par ses
+/// enfants (autres propriétaires que la carte). Pour capter tout son visuel, le shell rassemble les
+/// primitives de **tout** le sous-arbre, pas seulement celles de la carte elle-même.
+pub fn subtree_ids<Msg>(widget: &dyn Widget<Msg>, root_id: WidgetId) -> Vec<WidgetId> {
+    fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, out: &mut Vec<WidgetId>) {
+        out.push(id);
+        for (index, child) in widget.children().iter().enumerate() {
+            walk(child.as_ref(), child_id(id, index, child.as_ref()), out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(widget, root_id, &mut out);
+    out
+}
+
 /// Identité du **premier** widget déclarant la clé `key` (hash), ou `None`. Sert au
 /// shell à résoudre une demande de focus par clé (`Command::focus`) : l'application
 /// enveloppe un champ dans `keyed(k, …)`, puis focalise par `k`.
@@ -2395,6 +2413,26 @@ mod tests {
         let p = Point::new(card.x + 5.0, card.y + 5.0);
         assert!(ui.reorderable_at(p).is_some(), "la carte est saisissable au point");
         assert!(ui.hit(p).is_none(), "…mais pas cliquable (absente du registre de hits)");
+    }
+
+    #[test]
+    fn subtree_ids_covers_a_widget_and_its_descendants() {
+        use crate::Text;
+        // Racine (Container) > Flex(colonne) > [Text, Text].
+        let tree: Container<Msg> =
+            Container::new().child(Flex::<Msg>::column().child(Text::new("a")).child(Text::new("b")));
+        let all = collect_ids(&tree);
+        // Depuis la racine : identique à `collect_ids` (même parcours positionnel).
+        assert_eq!(subtree_ids(&tree, WidgetId::ROOT), all);
+        // Le sous-arbre d'un enfant commence par sa propre identité et reste un sous-ensemble
+        // **strict** de l'arbre (le fantôme d'une carte riche capte ainsi tout son contenu).
+        let flex_id = all[1];
+        let sub = subtree_ids(Widget::children(&tree)[0].as_ref(), flex_id);
+        assert_eq!(sub[0], flex_id, "le sous-arbre commence par l'identité fournie");
+        assert!(
+            sub.len() < all.len() && sub.iter().all(|i| all.contains(i)),
+            "sous-ensemble de l'arbre incluant les descendants"
+        );
     }
 
     impl<Msg: Clone> Ui<Msg> {
