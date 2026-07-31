@@ -22,6 +22,8 @@ const X_LABEL_H: f32 = 22.0;
 /// Taille de police des valeurs (au-dessus des barres) et des libellés (dessous).
 const VALUE_SIZE: f32 = 12.0;
 const LABEL_SIZE: f32 = 12.0;
+/// Taille de police de la part (`%`) écrite dans une strate en mode 100 % (jalon 227).
+const STRATA_LABEL_SIZE: f32 = 11.0;
 /// Fraction de la « case » d'une barre réellement occupée par la barre (le reste = espacement).
 const BAR_FILL: f32 = 0.6;
 /// Largeur de la marge gauche réservée aux graduations de l'axe des ordonnées (quand présent).
@@ -472,6 +474,19 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     scene.draw_rect(rect, color.fade(o), 0.0, 0.0, Color::TRANSPARENT);
                     if self.selected == Some((i, j)) {
                         sel_rect = Some(rect);
+                    }
+                    // En 100 %, la part (%) est écrite au centre de la strate si elle est assez
+                    // haute pour l'accueillir (jalon 227) ; texte lisible sur fond saturé.
+                    let seg_h = y_bottom - y_top;
+                    if normalized && seg_h >= STRATA_LABEL_SIZE + 4.0 {
+                        let pct = format!("{}%", (value / denom * 100.0).round() as i64);
+                        let pw = frus_text::measure(&pct, STRATA_LABEL_SIZE).width;
+                        scene.text(
+                            Point::new(cx - pw * 0.5, (y_top + y_bottom) * 0.5 - STRATA_LABEL_SIZE * 0.5),
+                            pct,
+                            STRATA_LABEL_SIZE,
+                            theme.on_primary.fade(o * 0.95),
+                        );
                     }
                     lower += value;
                 }
@@ -1328,6 +1343,27 @@ mod tests {
         // En absolu : aucune mention de pourcentage.
         let abs = tooltip_texts(&make(false));
         assert!(!abs.iter().any(|t| t.contains('%')), "pas de % en absolu, obtenu {abs:?}");
+    }
+
+    #[test]
+    fn normalized_bars_label_each_strata_with_its_percentage() {
+        // En 100 %, chaque strate assez haute porte sa part (%) en son centre.
+        let make = |norm: bool| {
+            BarChart::new([("A", 2.0), ("B", 6.0)])
+                .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
+                .stacked(true)
+                .normalized(norm)
+        };
+        // Sans axe (pas de graduation %), tout texte finissant par « % » est un libellé de strate.
+        let pct_labels = |chart: &BarChart| {
+            paint_chart(chart, 300.0, 260.0)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Text { text, .. } if text.ends_with('%')))
+                .count()
+        };
+        // 2 catégories × 2 séries visibles = 4 strates étiquetées.
+        assert_eq!(pct_labels(&make(true)), 4, "une part % par strate");
+        assert_eq!(pct_labels(&make(false)), 0, "aucun % en absolu");
     }
 
     #[test]
