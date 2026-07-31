@@ -101,6 +101,10 @@ pub struct DataTable<Msg = ()> {
     /// tranche affichée, exactement comme il le fait déjà pour le tri et la page.
     on_select: Option<Rc<dyn Fn(usize) -> Msg>>,
     selected: Vec<usize>,
+    /// Comparateur **personnalisé** par colonne (jalon 240) : `None` = tri par défaut
+    /// ([`compare_cells`]). Permet d'ordonner des cellules que le défaut trie mal — dates
+    /// formatées, montants (« $1.2M »), priorités (« High »/« Medium »/« Low »).
+    comparators: Vec<Option<Rc<dyn Fn(&str, &str) -> Ordering>>>,
     /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
     /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
@@ -127,6 +131,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             on_page_size: None,
             on_select: None,
             selected: Vec::new(),
+            comparators: Vec::new(),
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -200,14 +205,33 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
-    /// Ordre des **index de lignes source** après tri (stable) ; identité si aucun tri.
+    /// Donne un **comparateur personnalisé** à la colonne `col` : `cmp(a, b)` ordonne deux de ses
+    /// cellules (texte). Remplace le tri par défaut ([`compare_cells`]) pour cette colonne — utile
+    /// quand les valeurs se trient mal telles quelles : dates formatées (« Mar 2024 »), montants
+    /// (« $1.2M »), priorités (« High »/« Medium »/« Low »). Le sens (`sorted(_, ascending)`)
+    /// s'applique par-dessus (le comparateur définit l'ordre **croissant**).
+    pub fn sort_with(mut self, col: usize, cmp: impl Fn(&str, &str) -> Ordering + 'static) -> Self {
+        if self.comparators.len() <= col {
+            self.comparators.resize_with(col + 1, || None);
+        }
+        self.comparators[col] = Some(Rc::new(cmp));
+        self.rebuild();
+        self
+    }
+
+    /// Ordre des **index de lignes source** après tri (stable) ; identité si aucun tri. Le tri
+    /// utilise le comparateur **personnalisé** de la colonne s'il en a un, sinon [`compare_cells`].
     fn sorted_order(&self) -> Vec<usize> {
         let mut order: Vec<usize> = (0..self.rows.len()).collect();
         if let Some((col, asc)) = self.sort {
             let empty = String::new();
+            let custom = self.comparators.get(col).and_then(|c| c.as_ref());
             order.sort_by(|&a, &b| {
-                let ord =
-                    compare_cells(self.rows[a].get(col).unwrap_or(&empty), self.rows[b].get(col).unwrap_or(&empty));
+                let (x, y) = (self.rows[a].get(col).unwrap_or(&empty), self.rows[b].get(col).unwrap_or(&empty));
+                let ord = match custom {
+                    Some(cmp) => cmp(x, y),
+                    None => compare_cells(x, y),
+                };
                 if asc {
                     ord
                 } else {
@@ -428,6 +452,35 @@ mod tests {
         assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
         // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
         assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
+    }
+
+    #[test]
+    fn custom_comparator_orders_a_column_semantically() {
+        // Colonne de **priorité** que le tri texte classerait par ordre alphabétique
+        // (High < Low < Medium) — sémantiquement faux. Un comparateur maison impose Low < Medium < High.
+        let rows = vec![
+            vec!["A".to_string(), "High".to_string()],
+            vec!["B".to_string(), "Low".to_string()],
+            vec!["C".to_string(), "Medium".to_string()],
+        ];
+        let rank = |s: &str| match s {
+            "Low" => 0,
+            "Medium" => 1,
+            "High" => 2,
+            _ => 3,
+        };
+        let dt: DataTable<usize> = DataTable::new(["N", "Prio"], rows)
+            .sorted(1, true)
+            .sort_with(1, move |a, b| rank(a).cmp(&rank(b)))
+            .on_select_row(|i| i);
+        let mut clicks = Vec::new();
+        for c in Widget::<usize>::children(&dt) {
+            collect_clicks(c.as_ref(), &mut clicks);
+        }
+        clicks.dedup();
+        // Croissant sémantique Low(1) < Medium(2) < High(0) → index source [1, 2, 0], pas l'ordre
+        // alphabétique [High(0), Low(1), Medium(2)] du tri par défaut.
+        assert_eq!(clicks, vec![1, 2, 0], "le comparateur personnalisé ordonne par priorité");
     }
 
     #[test]

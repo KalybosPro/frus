@@ -988,6 +988,40 @@ fn data_table_selected_matches_golden() {
     snapshot.assert_golden(golden("data_table_selected"));
 }
 
+/// **DataTable à tri personnalisé (jalon 240)** : une colonne « Priority » triée **croissant** par un
+/// comparateur maison (`Low < Medium < High`). Le tri texte par défaut classerait `High, Low, Medium`
+/// (alphabétique) — ici l'ordre affiché est bien `Low, Medium, High`. Reproduit son golden.
+#[test]
+fn data_table_custom_sort_matches_golden() {
+    use frus_widgets::DataTable;
+    use std::cmp::Ordering;
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "High".to_string()],
+        vec!["Bob".to_string(), "Low".to_string()],
+        vec!["Carol".to_string(), "Medium".to_string()],
+        vec!["Dan".to_string(), "High".to_string()],
+    ];
+    let rank = |s: &str| match s {
+        "Low" => 0,
+        "Medium" => 1,
+        "High" => 2,
+        _ => 3,
+    };
+    let table = DataTable::<()>::new(["Name", "Priority"], rows)
+        .column_widths(&[170.0, 150.0])
+        .sorted(1, true)
+        .sort_with(1, move |a, b| rank(a).cmp(&rank(b)).then(Ordering::Equal))
+        .on_sort(|_| ());
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 420, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable à tri personnalisé dessiné");
+    snapshot.assert_golden(golden("data_table_custom_sort"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]

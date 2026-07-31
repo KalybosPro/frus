@@ -1431,20 +1431,31 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
 }
 
 /// Jeu de données statique (nom, rôle, score) du tableau de données — jalon 237.
-const DATA_PEOPLE: [(&str, &str, u32); 12] = [
-    ("Ada Lovelace", "Engineer", 92),
-    ("Alan Turing", "Cryptographer", 88),
-    ("Grace Hopper", "Admiral", 95),
-    ("Katherine Johnson", "Mathematician", 90),
-    ("Edsger Dijkstra", "Researcher", 84),
-    ("Barbara Liskov", "Professor", 91),
-    ("Donald Knuth", "Author", 87),
-    ("Margaret Hamilton", "Director", 93),
-    ("Tim Berners-Lee", "Inventor", 89),
-    ("Linus Torvalds", "Maintainer", 86),
-    ("Radia Perlman", "Engineer", 90),
-    ("Vint Cerf", "Architect", 85),
+const DATA_PEOPLE: [(&str, &str, u32, &str); 12] = [
+    ("Ada Lovelace", "Engineer", 92, "High"),
+    ("Alan Turing", "Cryptographer", 88, "Medium"),
+    ("Grace Hopper", "Admiral", 95, "High"),
+    ("Katherine Johnson", "Mathematician", 90, "Medium"),
+    ("Edsger Dijkstra", "Researcher", 84, "Low"),
+    ("Barbara Liskov", "Professor", 91, "High"),
+    ("Donald Knuth", "Author", 87, "Low"),
+    ("Margaret Hamilton", "Director", 93, "High"),
+    ("Tim Berners-Lee", "Inventor", 89, "Medium"),
+    ("Linus Torvalds", "Maintainer", 86, "Low"),
+    ("Radia Perlman", "Engineer", 90, "Medium"),
+    ("Vint Cerf", "Architect", 85, "Low"),
 ];
+
+/// Rang sémantique d'un niveau de priorité (`Low < Medium < High`) — clé de tri **personnalisée**
+/// de la colonne « Level » du tableau de données (le tri texte la classerait alphabétiquement).
+fn level_rank(s: &str) -> u8 {
+    match s {
+        "Low" => 0,
+        "Medium" => 1,
+        "High" => 2,
+        _ => 3,
+    }
+}
 
 /// Écran **tableau de données** : un `DataTable` en lecture seule qui **trie ses propres lignes**
 /// (jalon 232) et **pagine** avec sélecteur de taille (jalons 233/236). L'app ne garde que l'état
@@ -1453,13 +1464,16 @@ const DATA_PEOPLE: [(&str, &str, u32); 12] = [
 fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let rows: Vec<Vec<String>> = DATA_PEOPLE
         .iter()
-        .map(|(n, r, s)| vec![n.to_string(), r.to_string(), s.to_string()])
+        .map(|(n, r, s, l)| vec![n.to_string(), r.to_string(), s.to_string(), l.to_string()])
         .collect();
     // `0` (défaut dérivé) = valeurs de départ raisonnables.
     let per = if app.data_page_size == 0 { 5 } else { app.data_page_size };
     let page = app.data_page.max(1);
-    let mut table: DataTable<Msg> = DataTable::new(["Name", "Role", "Score"], rows)
-        .column_widths(&[200.0, 180.0, 100.0])
+    let mut table: DataTable<Msg> = DataTable::new(["Name", "Role", "Score", "Level"], rows)
+        .column_widths(&[200.0, 170.0, 90.0, 110.0])
+        // Colonne « Level » : clé de tri **personnalisée** (Low < Medium < High), sinon le tri
+        // texte la classerait par ordre alphabétique (jalon 240).
+        .sort_with(3, |a, b| level_rank(a).cmp(&level_rank(b)))
         .on_sort(Msg::DataSort)
         .on_select_row(Msg::DataSelectRow)
         .paginated(page, per, Msg::DataPage)
@@ -1476,7 +1490,9 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .color(theme.muted);
     // Détail de la ligne sélectionnée : on la lit dans les données **source** par son index.
     let detail = match app.data_selected.and_then(|i| DATA_PEOPLE.get(i)) {
-        Some((n, r, s)) => text(format!("Selected: {n} — {r} (score {s})")).size(15.0).color(theme.on_surface),
+        Some((n, r, s, l)) => {
+            text(format!("Selected: {n} — {r} (score {s}, {l} priority)")).size(15.0).color(theme.on_surface)
+        }
         None => text("No row selected.").size(15.0).color(theme.muted),
     };
     let body = column![table, detail, hint].gap(16.0).padding(24.0);
@@ -2918,6 +2934,12 @@ mod tests {
         reduce(&mut app, Msg::DataSelectRow(7));
         assert_eq!(app.data_selected, None, "re-clic = deselection");
         assert!(primitive_count(&app) > 0, "se rend avec detail de ligne");
+        // Tri personnalisé de la colonne Level (index 3) : ordre semantique, pas alphabetique.
+        assert_eq!(level_rank("Low"), 0);
+        assert!(level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High"));
+        reduce(&mut app, Msg::DataSort(3));
+        assert_eq!(app.data_sort, Some((3, true)), "tri de la colonne Level");
+        assert!(primitive_count(&app) > 0, "se rend trie par priorite");
     }
 
     #[test]
