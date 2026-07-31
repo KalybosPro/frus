@@ -312,6 +312,10 @@ enum Msg {
     DataSearch(String),
     /// Action groupée : désélectionne toutes les lignes cochées du tableau de données (jalon 243).
     DataClearChecked,
+    /// Action groupée : ouvre la confirmation de suppression des lignes cochées (jalon 245).
+    DataAskDelete,
+    /// Ferme la confirmation de suppression sans rien supprimer (jalon 245).
+    DataCancelDelete,
     /// Action groupée : supprime les lignes cochées du tableau de données (jalon 243).
     DataDeleteChecked,
     /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
@@ -493,6 +497,8 @@ struct TodoApp {
     /// Lignes du tableau de données (jalon 243) : `None` = jeu de départ `DATA_PEOPLE` ; `Some` dès
     /// qu'une action groupée (Delete) les modifie. Voir [`TodoApp::data_rows`].
     data_rows: Option<Vec<(String, String, u32, String)>>,
+    /// Modale de confirmation de suppression groupée du tableau de données ouverte ? (jalon 245)
+    data_confirm_delete: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -921,9 +927,18 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.data_checked.clear();
             Command::none()
         }
+        Msg::DataAskDelete => {
+            app.data_confirm_delete = true;
+            Command::none()
+        }
+        Msg::DataCancelDelete => {
+            app.data_confirm_delete = false;
+            Command::none()
+        }
         Msg::DataDeleteChecked => {
             // Supprime réellement les lignes cochées (index source, en ordre décroissant pour ne pas
-            // décaler les suivants), puis remet à zéro sélection et focus.
+            // décaler les suivants), puis remet à zéro sélection, focus et modale.
+            app.data_confirm_delete = false;
             let mut rows = app.data_rows();
             let mut checked: Vec<usize> = app.data_checked.iter().copied().filter(|&i| i < rows.len()).collect();
             checked.sort_unstable();
@@ -1303,6 +1318,7 @@ impl Application for TodoApp {
     fn can_go_back(&self) -> bool {
         !self.routes.is_empty()
             && !self.confirm_clear
+            && !self.data_confirm_delete
             && !self.menu_open
             && !self.drawer_open
             && !self.sheet_open
@@ -1559,7 +1575,7 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             vec![
                 Box::new(button("Clear", Msg::DataClearChecked).variant(Variant::Secondary).size(14.0))
                     as Box<dyn Widget<Msg>>,
-                Box::new(button("Delete", Msg::DataDeleteChecked).variant(Variant::Danger).size(14.0)),
+                Box::new(button("Delete", Msg::DataAskDelete).variant(Variant::Danger).size(14.0)),
             ]
         })
         .paginated(page, per, Msg::DataPage)
@@ -1583,7 +1599,18 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
-    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+    let content = Container::new().width(width).height(height).color(theme.background).child(screen);
+    // Confirmation avant suppression groupée (jalon 245) : une modale centrée, fermable au clic
+    // extérieur/Échap (`dismiss`), superposée à l'écran.
+    if app.data_confirm_delete {
+        Box::new(
+            Portal::new(content)
+                .overlay(data_confirm_content(app.data_checked.len()), Placement::Center)
+                .dismiss(Msg::DataCancelDelete),
+        )
+    } else {
+        Box::new(content)
+    }
 }
 
 /// Catégories (axe des abscisses) du tableau de bord graphique.
@@ -2156,6 +2183,23 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         .border(1.0, theme.border)
         .padding_each(8.0, 12.0, 8.0, 12.0)
         .child(line)
+}
+
+/// Contenu de la modale de confirmation de suppression groupée du tableau de données (jalon 245).
+fn data_confirm_content(count: usize) -> Card<Msg> {
+    Card::new().padding(24.0).child(
+        column![
+            text("Delete selected rows?").size(22.0).weight(FontWeight::Medium),
+            text(format!("{count} row(s) will be removed.")).size(16.0),
+            row![
+                button("Cancel", Msg::DataCancelDelete).variant(Variant::Secondary),
+                button("Delete", Msg::DataDeleteChecked).variant(Variant::Danger),
+            ]
+            .justify(Justify::Center)
+            .gap(12.0),
+        ]
+        .gap(16.0),
+    )
 }
 
 /// Contenu de la modale de confirmation d'effacement des terminées.
@@ -3051,8 +3095,19 @@ mod tests {
         assert_eq!(app.data_selected, Some(1), "Clear ne touche pas le focus");
         let before = app.data_rows().len();
         reduce(&mut app, Msg::DataCheck(0));
+        // Confirmation (jalon 245) : Delete ouvre la modale ; Cancel ferme sans supprimer.
+        reduce(&mut app, Msg::DataAskDelete);
+        assert!(app.data_confirm_delete, "Delete ouvre la confirmation");
+        assert_eq!(app.data_rows().len(), before, "rien de supprime tant qu'on n'a pas confirme");
+        assert!(primitive_count(&app) > 0, "se rend avec la modale");
+        reduce(&mut app, Msg::DataCancelDelete);
+        assert!(!app.data_confirm_delete, "Cancel ferme la modale");
+        assert_eq!(app.data_rows().len(), before, "Cancel ne supprime rien");
+        // Confirmer supprime reellement et ferme la modale.
+        reduce(&mut app, Msg::DataAskDelete);
         reduce(&mut app, Msg::DataDeleteChecked);
-        assert_eq!(app.data_rows().len(), before - 1, "Delete retire la ligne cochee");
+        assert!(!app.data_confirm_delete, "confirmer ferme la modale");
+        assert_eq!(app.data_rows().len(), before - 1, "Delete confirme retire la ligne cochee");
         assert!(app.data_checked.is_empty(), "Delete vide la selection");
         assert_eq!(app.data_selected, None, "Delete remet le focus a zero");
         assert!(primitive_count(&app) > 0, "se rend apres suppression");
