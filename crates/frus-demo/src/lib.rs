@@ -51,7 +51,7 @@ use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BarChart, BoxFit,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, CustomPaint, DataTable, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
-    NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
+    Kanban, NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
     TextSpan, WindowInsets,
@@ -166,6 +166,8 @@ enum Route {
     /// Tableau de données **en lecture seule** (démo d'intégration : DataTable auto-triant + paginé,
     /// jalon 237).
     Data,
+    /// Tableau **Kanban** : colonnes de cartes, glisser-déposer inter-colonnes (jalon 247).
+    Board,
 }
 
 /// Geste retour : progression suivie au doigt, puis détente à ressort
@@ -231,6 +233,8 @@ enum Msg {
     ToggleNode(u64),
     /// Sélectionne un nœud de l'arbre de fichiers (jalon 246).
     SelectNode(u64),
+    /// Déplace une carte du Kanban : `(from_col, from_pos, to_col, to_pos)` (jalon 247).
+    KanbanMove(usize, usize, usize, usize),
     /// Choisit une couleur.
     PickColor(Color),
     /// Sélectionne un jour dans le calendrier.
@@ -503,6 +507,9 @@ struct TodoApp {
     data_rows: Option<Vec<(String, String, u32, String)>>,
     /// Modale de confirmation de suppression groupée du tableau de données ouverte ? (jalon 245)
     data_confirm_delete: bool,
+    /// Cartes du Kanban par colonne (jalon 247) ; `None` = jeu de départ `KANBAN_SEED`. `Some` dès
+    /// qu'une carte est déplacée. Voir [`TodoApp::kanban_cols`].
+    kanban: Option<Vec<Vec<String>>>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -518,6 +525,15 @@ impl TodoApp {
             None => {
                 DATA_PEOPLE.iter().map(|(n, r, s, l)| (n.to_string(), r.to_string(), *s, l.to_string())).collect()
             }
+        }
+    }
+
+    /// Cartes du Kanban par colonne : celles de l'état si déplacées, sinon le jeu de départ
+    /// `KANBAN_SEED` (jalon 247).
+    fn kanban_cols(&self) -> Vec<Vec<String>> {
+        match &self.kanban {
+            Some(cols) => cols.clone(),
+            None => KANBAN_SEED.iter().map(|col| col.iter().map(|s| s.to_string()).collect()).collect(),
         }
     }
 }
@@ -1019,6 +1035,21 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.tree_selected = if app.tree_selected == Some(id) { None } else { Some(id) };
             Command::none()
         }
+        Msg::KanbanMove(from_col, from_pos, to_col, to_pos) => {
+            let mut cols = app.kanban_cols();
+            if from_col < cols.len() && from_pos < cols[from_col].len() && to_col < cols.len() {
+                let card = cols[from_col].remove(from_pos);
+                // Après retrait, une cible plus loin dans la **même** colonne se décale d'un cran.
+                let mut tp = to_pos;
+                if from_col == to_col && from_pos < tp {
+                    tp -= 1;
+                }
+                tp = tp.min(cols[to_col].len());
+                cols[to_col].insert(tp, card);
+                app.kanban = Some(cols);
+            }
+            Command::none()
+        }
         Msg::PickColor(c) => {
             app.picked = Some(c);
             Command::none()
@@ -1142,6 +1173,7 @@ impl Application for TodoApp {
             Route::Grid => 4,
             Route::Charts => 5,
             Route::Data => 6,
+            Route::Board => 7,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -1177,6 +1209,7 @@ impl Application for TodoApp {
                         "4" => self.routes.push(Route::Grid),
                         "5" => self.routes.push(Route::Charts),
                         "6" => self.routes.push(Route::Data),
+                        "7" => self.routes.push(Route::Board),
                         _ => {}
                     }
                 }
@@ -1402,6 +1435,7 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
         Route::Grid => grid_screen(app, theme, width, height),
         Route::Charts => charts_screen(app, theme, width, height),
         Route::Data => data_screen(app, theme, width, height),
+        Route::Board => board_screen(app, theme, width, height),
     }
 }
 
@@ -1620,6 +1654,30 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     } else {
         Box::new(content)
     }
+}
+
+/// Titres des colonnes du Kanban (démo, jalon 247).
+const KANBAN_TITLES: [&str; 3] = ["To do", "Doing", "Done"];
+/// Cartes de départ du Kanban, par colonne (démo, jalon 247).
+const KANBAN_SEED: [&[&str]; 3] = [
+    &["Design API", "Write spec", "Triage bugs"],
+    &["Build widget"],
+    &["Kickoff", "Research"],
+];
+
+/// Écran **Kanban** : des colonnes de cartes, avec glisser-déposer inter-colonnes (jalon 247). L'app
+/// tient les cartes par colonne ; le widget émet `KanbanMove(from_col, from_pos, to_col, to_pos)` au
+/// dépôt, et le reducer déplace la carte.
+fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    let cols = app.kanban_cols();
+    let mut board = Kanban::new(Msg::KanbanMove);
+    for (i, title) in KANBAN_TITLES.iter().enumerate() {
+        board = board.column(*title, cols.get(i).cloned().unwrap_or_default());
+    }
+    let hint = text("Drag a card onto another column (or card) to move it.").size(13.0).color(theme.muted);
+    let body = column![board, hint].gap(16.0).padding(24.0);
+    let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), body].width(width).height(height);
+    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
 }
 
 /// Catégories (axe des abscisses) du tableau de bord graphique.
@@ -2513,6 +2571,9 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
             button("Data table →", Msg::Push(Route::Data))
                 .variant(Variant::Secondary)
                 .size(15.0),
+            button("Kanban board →", Msg::Push(Route::Board))
+                .variant(Variant::Secondary)
+                .size(15.0),
         ]
         .gap(12.0),
     )
@@ -2989,6 +3050,28 @@ mod tests {
         reduce(&mut app, Msg::SelectNode(1));
         assert_eq!(app.tree_selected, None, "re-clic = deselection");
         assert!(primitive_count(&app) > 0, "la vitrine se rend avec selection");
+    }
+
+    #[test]
+    fn kanban_move_relocates_a_card() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Board));
+        assert_eq!(current_route(&app), Route::Board);
+        let start = app.kanban_cols();
+        // "Design API" est en (0,0). Le deplacer en tete de "Doing" (colonne 1) : il quitte la 0 et
+        // apparait en tete de la 1.
+        reduce(&mut app, Msg::KanbanMove(0, 0, 1, 0));
+        let after = app.kanban_cols();
+        assert_eq!(after[0].len(), start[0].len() - 1, "la carte quitte la colonne source");
+        assert_eq!(after[1][0], "Design API", "la carte arrive en tete de la colonne cible");
+        assert!(!after[0].contains(&"Design API".to_string()), "plus dans la source");
+        // Deplacement dans la MEME colonne : (1,0) vers la fin — le decalage d'index est gere.
+        let doing_len = after[1].len();
+        reduce(&mut app, Msg::KanbanMove(1, 0, 1, doing_len));
+        let end = app.kanban_cols();
+        assert_eq!(end[1].len(), doing_len, "meme nombre de cartes (reordonne, pas duplique)");
+        assert_eq!(end[1].last().unwrap(), "Design API", "carte deplacee en fin de colonne");
+        assert!(primitive_count(&app) > 0, "le tableau se rend");
     }
 
     #[test]

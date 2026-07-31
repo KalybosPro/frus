@@ -1160,6 +1160,26 @@ fn tree_selected_matches_golden() {
     snapshot.assert_golden(golden("tree_selected"));
 }
 
+/// **Kanban (jalon 247)** : trois colonnes titrées (`To do`/`Doing`/`Done`) de cartes, chacune sur un
+/// panneau thémé, avec une **zone de dépôt** au bas de chaque colonne. Le glisser-déposer inter-colonnes
+/// est câblé (mécanisme de réordonnancement) ; ce golden fige la **disposition**. Reproduit son golden.
+#[test]
+fn kanban_matches_golden() {
+    use frus_widgets::Kanban;
+    let theme = Theme::dark();
+    let board = Kanban::<()>::new(|_, _, _, _| ())
+        .column("To do", ["Design API", "Write spec"])
+        .column("Doing", ["Build widget"])
+        .column("Done", ["Kickoff", "Research"]);
+    let root: Container<()> = Container::new().padding(16.0).child(board);
+    let Some(snapshot) = render_widget(&root, 760, 280, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "tableau Kanban dessiné");
+    snapshot.assert_golden(golden("kanban"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]
