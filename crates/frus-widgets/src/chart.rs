@@ -490,6 +490,19 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     }
                     lower += value;
                 }
+                // Total de la colonne au-dessus de la strate supérieure (empilé **absolu** : parité
+                // avec la valeur des barres simples ; en 100 % la colonne est pleine) — jalon 228.
+                if !normalized && lower > 0.0 {
+                    let vs = format_value(lower);
+                    let vw = frus_text::measure(&vs, VALUE_SIZE).width;
+                    let top_y = baseline_y - (lower / denom) * plot_h;
+                    scene.text(
+                        Point::new(cx - vw * 0.5, top_y - VALUE_SIZE - 2.0),
+                        vs,
+                        VALUE_SIZE,
+                        theme.on_surface.fade(o),
+                    );
+                }
             } else {
                 let group_left = cx - group_w * 0.5;
                 for (j, (color, _, vals)) in series.iter().enumerate() {
@@ -1364,6 +1377,26 @@ mod tests {
         // 2 catégories × 2 séries visibles = 4 strates étiquetées.
         assert_eq!(pct_labels(&make(true)), 4, "une part % par strate");
         assert_eq!(pct_labels(&make(false)), 0, "aucun % en absolu");
+    }
+
+    #[test]
+    fn stacked_absolute_bars_show_the_column_total() {
+        let make = || {
+            BarChart::new([("A", 2.0), ("B", 4.0)]).series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
+        };
+        // Empilé absolu : le total de chaque colonne (A = 2+3 = 5, B = 4+1 = 5) est écrit au-dessus.
+        let abs = paint_chart(&make().stacked(true), 300.0, 220.0);
+        let count5 = abs
+            .iter()
+            .filter(|p| matches!(p, Primitive::Text { text, .. } if text == "5"))
+            .count();
+        assert_eq!(count5, 2, "un total par colonne (5 et 5)");
+        // En 100 % : pas de total brut (colonnes pleines, parts en %).
+        let norm = paint_chart(&make().stacked(true).normalized(true), 300.0, 220.0);
+        assert!(
+            !norm.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "5")),
+            "pas de total brut en 100%"
+        );
     }
 
     #[test]
