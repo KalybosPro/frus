@@ -1135,6 +1135,31 @@ fn data_table_empty_matches_golden() {
     snapshot.assert_golden(golden("data_table_empty"));
 }
 
+/// **Tree sélectionnable (jalon 246)** : un arbre de fichiers déplié — chevrons (▾/▸), indentation,
+/// **lignes de guidage** verticales vers les ancêtres, et un nœud **sélectionné** surligné
+/// (`button.rs`). Reproduit son golden.
+#[test]
+fn tree_selected_matches_golden() {
+    use frus_widgets::Tree;
+    let theme = Theme::dark();
+    let tree = Tree::<()>::new(|_| ())
+        .on_select(|_| ())
+        .selected(Some(3))
+        .node(1, 0, "src", true, true)
+        .node(2, 1, "widgets", true, true)
+        .node(3, 2, "button.rs", false, false)
+        .node(4, 2, "grid.rs", false, false)
+        .node(5, 1, "main.rs", false, false)
+        .node(6, 0, "Cargo.toml", false, false);
+    let root: Container<()> = Container::new().padding(16.0).child(tree);
+    let Some(snapshot) = render_widget(&root, 320, 240, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "arbre dessiné");
+    snapshot.assert_golden(golden("tree_selected"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]

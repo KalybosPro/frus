@@ -1,8 +1,15 @@
 //! [`Tree`] : un arbre hiérarchique **contrôlé**. L'application tient la structure
 //! et les nœuds dépliés, et ne passe que les **lignes visibles**, à plat (avec
 //! leur profondeur). Le widget se contente de rendre.
+//!
+//! Deux gestes distincts, façon explorateur de fichiers : cliquer le **chevron**
+//! (dé)plie le nœud (`on_toggle`), cliquer **ailleurs** sur la ligne **sélectionne**
+//! le nœud (`on_select`, feuilles comprises). Des **lignes de guidage** verticales
+//! matérialisent les niveaux d'indentation, et la ligne sélectionnée est surlignée.
 
-use frus_core::{Point, Rect, Scene};
+use std::rc::Rc;
+
+use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -13,19 +20,40 @@ const ROW_H: f32 = 32.0;
 const INDENT: f32 = 20.0;
 const SIZE: f32 = 16.0;
 
-/// Une ligne d'arbre : indentée, avec chevron si le nœud a des enfants.
+/// Une ligne d'arbre : indentée, chevron si le nœud a des enfants, **lignes de guidage** vers ses
+/// ancêtres, et fond de **sélection**. Le clic du chevron (dé)plie (`toggle`), le reste sélectionne
+/// (`select`) — distingués par [`positional_click`](Widget::positional_click).
 struct Row<Msg> {
     depth: usize,
     label: String,
     expandable: bool,
     expanded: bool,
+    selected: bool,
     /// Message de bascule (nœuds pliables seulement).
-    message: Option<Msg>,
+    toggle: Option<Msg>,
+    /// Message de sélection (si l'arbre est sélectionnable).
+    select: Option<Msg>,
 }
+
+impl<Msg: Clone> Row<Msg> {
+    /// Abscisse locale de départ du chevron (dans la boîte de la ligne).
+    fn chevron_start(&self) -> f32 {
+        self.depth as f32 * INDENT
+    }
+}
+
+/// Marge à droite du label (le fond de survol/sélection déborde un peu du texte).
+const ROW_PAD_R: f32 = 12.0;
 
 impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn style(&self) -> Style {
+        // Largeur **intrinsèque** = indentation + chevron + label (+ marge) : sans elle, la ligne
+        // n'aurait aucune largeur (pas d'enfant à mesurer) et le fond de sélection serait invisible.
+        // Le `Tree` (colonne, align Stretch) étire ensuite toutes les lignes à la plus large.
+        let text_w = frus_text::measure(&self.label, SIZE).width;
+        let width = self.chevron_start() + INDENT + text_w + ROW_PAD_R;
         Style {
+            width: Dimension::Length(width),
             height: Dimension::Length(ROW_H),
             ..Default::default()
         }
@@ -37,11 +65,29 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        if self.message.is_some() && status.hover_progress > 0.0 {
+        let clickable = self.toggle.is_some() || self.select.is_some();
+        // Fond : sélection (teinte primaire) prioritaire, sinon état de survol.
+        if self.selected {
+            let bg = theme.surface.lerp(theme.primary, 0.16);
+            scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
+        } else if clickable && status.hover_progress > 0.0 {
             let bg = theme.state_layer(theme.surface, theme.on_surface, &status);
-            scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, frus_core::Color::TRANSPARENT);
+            scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
         }
-        let x = bounds.x + self.depth as f32 * INDENT;
+
+        // Lignes de guidage verticales : une par niveau d'ancêtre, centrées dans son cran d'indentation.
+        for d in 0..self.depth {
+            let gx = bounds.x + d as f32 * INDENT + INDENT * 0.5;
+            scene.draw_rect(
+                Rect::new(gx, bounds.y, 1.0, bounds.height),
+                theme.border.fade(o * 0.6),
+                0.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+
+        let x = bounds.x + self.chevron_start();
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         if self.expandable {
             scene.text(
@@ -51,38 +97,62 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
                 theme.muted.fade(o),
             );
         }
-        scene.text(
-            Point::new(x + INDENT, ty),
-            self.label.clone(),
-            SIZE,
-            theme.on_surface.fade(o),
-        );
+        scene.text(Point::new(x + INDENT, ty), self.label.clone(), SIZE, theme.on_surface.fade(o));
+    }
+
+    fn positional_click(&self, local_x: f32, _local_y: f32, _width: f32, _height: f32) -> Option<Msg> {
+        // Le chevron (dé)plie ; le reste de la ligne sélectionne (à défaut, bascule).
+        let start = self.chevron_start();
+        if self.expandable && local_x >= start && local_x < start + INDENT {
+            return self.toggle.clone();
+        }
+        self.select.clone().or_else(|| self.toggle.clone())
     }
 
     fn on_click(&self) -> Option<Msg> {
-        self.message.clone()
+        // Repli clavier (Entrée/Espace) : action principale = sélection, sinon bascule.
+        self.select.clone().or_else(|| self.toggle.clone())
     }
 
     fn focusable(&self) -> bool {
-        self.message.is_some()
+        self.toggle.is_some() || self.select.is_some()
     }
 }
 
 /// Un arbre hiérarchique (lignes visibles à plat).
 pub struct Tree<Msg> {
     on_toggle: Box<dyn Fn(u64) -> Msg>,
+    on_select: Option<Rc<dyn Fn(u64) -> Msg>>,
+    selected: Option<u64>,
     nodes: Vec<(u64, usize, String, bool, bool)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Tree<Msg> {
-    /// Crée un arbre ; `on_toggle(id)` est émis au clic sur un nœud pliable.
+    /// Crée un arbre ; `on_toggle(id)` est émis au clic sur le **chevron** d'un nœud pliable.
     pub fn new(on_toggle: impl Fn(u64) -> Msg + 'static) -> Self {
         Self {
             on_toggle: Box::new(on_toggle),
+            on_select: None,
+            selected: None,
             nodes: Vec::new(),
             children: Vec::new(),
         }
+    }
+
+    /// Rend les nœuds **sélectionnables** : `on_select(id)` au clic sur le corps de la ligne (hors
+    /// chevron), **feuilles comprises**. Sans cela, cliquer la ligne (dé)plie comme avant.
+    pub fn on_select(mut self, on_select: impl Fn(u64) -> Msg + 'static) -> Self {
+        self.on_select = Some(Rc::new(on_select));
+        self.rebuild();
+        self
+    }
+
+    /// Indique le nœud **sélectionné** (surligné). `None` = aucun.
+    pub fn selected(mut self, id: Option<u64>) -> Self {
+        self.selected = id;
+        self.rebuild();
+        self
     }
 
     /// Ajoute une ligne visible : `id`, `depth` (indentation), `label`, si le nœud
@@ -110,7 +180,9 @@ impl<Msg: Clone + 'static> Tree<Msg> {
                     label: label.clone(),
                     expandable: *expandable,
                     expanded: *expanded,
-                    message: expandable.then(|| (self.on_toggle)(*id)),
+                    selected: self.selected == Some(*id),
+                    toggle: expandable.then(|| (self.on_toggle)(*id)),
+                    select: self.on_select.as_ref().map(|f| f(*id)),
                 }) as Box<dyn Widget<Msg>>
             })
             .collect();
@@ -144,10 +216,12 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Toggle(u64),
+        Select(u64),
     }
 
     #[test]
     fn expandable_nodes_toggle_leaves_do_not() {
+        // Sans `on_select`, la ligne se comporte comme avant : le dossier bascule, la feuille non.
         let tree = Tree::new(Msg::Toggle)
             .node(1, 0, "Dossier", true, true)
             .node(2, 1, "fichier.txt", false, false);
@@ -155,5 +229,23 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].on_click(), Some(Msg::Toggle(1))); // dossier pliable
         assert_eq!(rows[1].on_click(), None); // feuille
+    }
+
+    #[test]
+    fn chevron_toggles_body_selects() {
+        // Avec `on_select`, le chevron (dé)plie et le corps de la ligne sélectionne — feuilles comprises.
+        let tree = Tree::new(Msg::Toggle)
+            .on_select(Msg::Select)
+            .selected(Some(2))
+            .node(1, 0, "Dossier", true, true)
+            .node(2, 1, "fichier.txt", false, false);
+        let rows = Widget::<Msg>::children(&tree);
+        // Nœud pliable (depth 0) : chevron dans [0, INDENT) → bascule ; au-delà → sélection.
+        assert_eq!(rows[0].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H), Some(Msg::Toggle(1)));
+        assert_eq!(rows[0].positional_click(INDENT * 3.0, 0.0, 200.0, ROW_H), Some(Msg::Select(1)));
+        // Feuille (depth 1) : aucune zone chevron → tout sélectionne (même sous le cran d'indentation).
+        assert_eq!(rows[1].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H), Some(Msg::Select(2)));
+        // Clavier (on_click) : action principale = sélection.
+        assert_eq!(rows[0].on_click(), Some(Msg::Select(1)));
     }
 }

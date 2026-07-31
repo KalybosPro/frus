@@ -229,6 +229,8 @@ enum Msg {
     SetPage(usize),
     /// Déplie/replie un nœud d'arbre.
     ToggleNode(u64),
+    /// Sélectionne un nœud de l'arbre de fichiers (jalon 246).
+    SelectNode(u64),
     /// Choisit une couleur.
     PickColor(Color),
     /// Sélectionne un jour dans le calendrier.
@@ -411,6 +413,8 @@ struct TodoApp {
     page: usize,
     /// Nœuds d'arbre dépliés (démo Tree).
     expanded: std::collections::HashSet<u64>,
+    /// Nœud d'arbre sélectionné (démo Tree, jalon 246) ; `None` = aucun.
+    tree_selected: Option<u64>,
     /// Couleur choisie (démo ColorPicker).
     picked: Option<Color>,
     /// Calendrier : année / mois (1..12) / jour sélectionné.
@@ -1008,6 +1012,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             if !app.expanded.remove(&id) {
                 app.expanded.insert(id);
             }
+            Command::none()
+        }
+        Msg::SelectNode(id) => {
+            // Re-clic sur le nœud déjà sélectionné = désélection (bascule).
+            app.tree_selected = if app.tree_selected == Some(id) { None } else { Some(id) };
             Command::none()
         }
         Msg::PickColor(c) => {
@@ -2029,7 +2038,11 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
 
     // Arbre de fichiers (déplié selon l'état).
     let open = |id: u64| app.expanded.contains(&id);
-    let mut tree = Tree::new(Msg::ToggleNode).node(1, 0, "src", true, open(1));
+    // Chevron = (dé)plier ; corps de la ligne = sélectionner le nœud (jalon 246).
+    let mut tree = Tree::new(Msg::ToggleNode)
+        .on_select(Msg::SelectNode)
+        .selected(app.tree_selected)
+        .node(1, 0, "src", true, open(1));
     if open(1) {
         tree = tree.node(2, 1, "widgets", true, open(2));
         if open(2) {
@@ -2961,6 +2974,21 @@ mod tests {
         reduce(&mut app, Msg::ChartPoint(1, 1));
         assert_eq!(app.chart_pin.as_deref(), Some("Costs · Tue = 4"));
         assert!(primitive_count(&app) > 0, "l'écran avec épingle se rend");
+    }
+
+    #[test]
+    fn tree_node_selection_toggles() {
+        // Arbre de fichiers (vitrine Settings) : sélectionner un nœud, puis re-cliquer désélectionne.
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Settings));
+        assert_eq!(app.tree_selected, None, "aucun noeud selectionne au depart");
+        reduce(&mut app, Msg::SelectNode(6));
+        assert_eq!(app.tree_selected, Some(6), "clic = noeud selectionne");
+        reduce(&mut app, Msg::SelectNode(1));
+        assert_eq!(app.tree_selected, Some(1), "clic ailleurs = deplace la selection");
+        reduce(&mut app, Msg::SelectNode(1));
+        assert_eq!(app.tree_selected, None, "re-clic = deselection");
+        assert!(primitive_count(&app) > 0, "la vitrine se rend avec selection");
     }
 
     #[test]
