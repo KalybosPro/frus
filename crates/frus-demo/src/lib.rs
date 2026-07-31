@@ -302,6 +302,8 @@ enum Msg {
     DataPage(usize),
     /// Change la taille de page du tableau de données (jalon 237).
     DataPageSize(usize),
+    /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
+    SetWeekdaysOnly(bool),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -399,6 +401,8 @@ struct TodoApp {
     year: i32,
     month: u32,
     selected_day: Option<u32>,
+    /// Calendrier de la vitrine : désactiver les week-ends (`DatePicker::filtered`) ? — jalon 238.
+    weekdays_only: bool,
     /// Slide courant du carrousel (démo).
     slide: usize,
     /// Popover d'info ouvert ?
@@ -849,6 +853,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::DataPageSize(s) => {
             app.data_page_size = s;
             app.data_page = 1; // changer la taille ramène à la première page
+            Command::none()
+        }
+        Msg::SetWeekdaysOnly(on) => {
+            app.weekdays_only = on;
             Command::none()
         }
         Msg::ChartPoint(cat, s) => {
@@ -1844,7 +1852,14 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
             .align(Align::Center)
             .gap(12.0),
             Divider::new(),
-            DatePicker::new(app.year, app.month, app.selected_day, Msg::PickDay, Msg::NavMonth),
+            row![
+                text("Weekdays only").size(16.0),
+                spacer(),
+                Switch::new(app.weekdays_only).on_toggle(Msg::SetWeekdaysOnly),
+            ]
+            .align(Align::Center)
+            .gap(12.0),
+            demo_calendar(app),
         ]
         .gap(14.0),
     );
@@ -2324,6 +2339,35 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
         ]
         .gap(12.0),
     )
+}
+
+/// Jour de la semaine (0 = dimanche … 6 = samedi) d'une date (Sakamoto) — jalon 238.
+fn weekday(y: i32, m: u32, d: u32) -> u32 {
+    const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let yy = if m < 3 { y - 1 } else { y };
+    (((yy + yy / 4 - yy / 100 + yy / 400 + T[(m - 1) as usize] + d as i32) % 7 + 7) % 7) as u32
+}
+
+/// Vrai si la date tombe un **week-end** (samedi ou dimanche).
+fn is_weekend(y: i32, m: u32, d: u32) -> bool {
+    matches!(weekday(y, m, d), 0 | 6)
+}
+
+/// Le calendrier de la vitrine : `DatePicker::filtered` grisant les **week-ends** si `weekdays_only`
+/// (jalon 238), sinon tous les jours cliquables (`DatePicker::new`).
+fn demo_calendar(app: &TodoApp) -> Box<dyn Widget<Msg>> {
+    if app.weekdays_only {
+        Box::new(DatePicker::filtered(
+            app.year,
+            app.month,
+            app.selected_day,
+            |(y, m, d)| !is_weekend(y, m, d),
+            Msg::PickDay,
+            Msg::NavMonth,
+        ))
+    } else {
+        Box::new(DatePicker::new(app.year, app.month, app.selected_day, Msg::PickDay, Msg::NavMonth))
+    }
 }
 
 /// Section « Stats » : un agencement maître-détail responsive (`TwoPane`). Côte à
@@ -2845,6 +2889,23 @@ mod tests {
         assert_eq!(app.data_page_size, 10);
         assert_eq!(app.data_page, 1, "changer la taille ramene a la page 1");
         assert!(primitive_count(&app) > 0, "se rend apres tri/pagination");
+    }
+
+    #[test]
+    fn calendar_weekdays_only_filters_weekends() {
+        // Juillet 2026 : 4-5 = samedi/dimanche ; 6 = lundi.
+        assert!(is_weekend(2026, 7, 4) && is_weekend(2026, 7, 5), "4-5 juillet = week-end");
+        assert!(!is_weekend(2026, 7, 6), "6 juillet = lundi (ouvre)");
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Settings));
+        assert!(!app.weekdays_only, "tous les jours par defaut");
+        assert!(primitive_count(&app) > 0, "vitrine se rend");
+        // Bascule : le calendrier filtré se rend, puis revient.
+        reduce(&mut app, Msg::SetWeekdaysOnly(true));
+        assert!(app.weekdays_only);
+        assert!(primitive_count(&app) > 0, "calendrier filtre se rend");
+        reduce(&mut app, Msg::SetWeekdaysOnly(false));
+        assert!(!app.weekdays_only);
     }
 
     #[test]
