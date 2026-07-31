@@ -127,6 +127,10 @@ pub struct DataTable<Msg = ()> {
     /// avant tri et pagination — tout reste en index source (sélection/cases inchangées).
     query: Option<String>,
     on_query: Option<Rc<dyn Fn(String) -> Msg>>,
+    /// Barre d'**actions groupées** (jalon 243) : fabrique de widgets d'action (boutons…), rappelée à
+    /// chaque reconstruction. Rendue **au-dessus** du tableau **seulement** quand des lignes sont
+    /// sélectionnées, précédée d'un « N selected ». L'app câble ses boutons (variantes, messages).
+    bulk_actions: Option<Rc<dyn Fn() -> Vec<Box<dyn Widget<Msg>>>>>,
     /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
     /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
@@ -158,6 +162,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             on_check_all: None,
             query: None,
             on_query: None,
+            bulk_actions: None,
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -252,6 +257,17 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     pub fn searchable(mut self, query: impl Into<String>, on_query: impl Fn(String) -> Msg + 'static) -> Self {
         self.query = Some(query.into());
         self.on_query = Some(Rc::new(on_query));
+        self.rebuild();
+        self
+    }
+
+    /// Ajoute une **barre d'actions groupées** au-dessus du tableau, visible **seulement** quand des
+    /// lignes sont [`selected`](Self::selected). La fabrique `make` produit les widgets d'action
+    /// (typiquement des [`Button`](crate::Button) — l'app choisit variantes et messages) ; la barre les
+    /// précède d'un libellé « N selected ». Rappelée à chaque reconstruction (widgets frais). Le
+    /// nombre affiché est celui des lignes **sélectionnées** (toutes pages confondues).
+    pub fn bulk_actions(mut self, make: impl Fn() -> Vec<Box<dyn Widget<Msg>>> + 'static) -> Self {
+        self.bulk_actions = Some(Rc::new(make));
         self.rebuild();
         self
     }
@@ -387,6 +403,19 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             }
             _ => Box::new(t),
         };
+        // Actions groupées : une barre au-dessus du tableau, uniquement si une sélection existe.
+        let mut block = block;
+        if let Some(make) = &self.bulk_actions {
+            if !self.selected.is_empty() {
+                let label = Text::new(format!("{} selected", self.selected.len())).size(14.0);
+                let mut bar =
+                    Flex::row().align(Align::Center).gap(8.0).child(label).child(Flex::row().flex(1.0));
+                for w in make() {
+                    bar = bar.child(w);
+                }
+                block = Box::new(Flex::column().gap(12.0).child(bar).child(block));
+            }
+        }
         // Recherche : coiffe le tableau d'un champ (sinon on garde le bloc tel quel).
         self.inner = if let Some(on_query) = &self.on_query {
             let on_query = on_query.clone();
@@ -528,6 +557,28 @@ mod tests {
         assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
         // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
         assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
+    }
+
+    #[test]
+    fn bulk_actions_bar_shows_only_with_a_selection() {
+        use crate::button::Button;
+        let rows = vec![vec!["A".to_string()], vec!["B".to_string()]];
+        // `777` = message d'une action de la barre (sentinelle).
+        let make = |sel: &[usize]| -> DataTable<usize> {
+            DataTable::new(["N"], rows.clone())
+                .checkboxes(|i| i, 900usize)
+                .selected(sel)
+                .bulk_actions(|| vec![Box::new(Button::new("Clear").on_press(777usize)) as Box<dyn Widget<usize>>])
+        };
+        let has_action = |dt: &DataTable<usize>| {
+            let mut v = Vec::new();
+            for c in Widget::<usize>::children(dt) {
+                collect_clicks(c.as_ref(), &mut v);
+            }
+            v.contains(&777)
+        };
+        assert!(!has_action(&make(&[])), "aucune barre sans sélection");
+        assert!(has_action(&make(&[0])), "barre d'actions présente dès qu'une ligne est sélectionnée");
     }
 
     #[test]

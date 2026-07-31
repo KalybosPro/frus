@@ -310,6 +310,10 @@ enum Msg {
     DataCheckAll,
     /// Frappe dans le champ de recherche du tableau de données : met à jour le filtre (jalon 242).
     DataSearch(String),
+    /// Action groupée : désélectionne toutes les lignes cochées du tableau de données (jalon 243).
+    DataClearChecked,
+    /// Action groupée : supprime les lignes cochées du tableau de données (jalon 243).
+    DataDeleteChecked,
     /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
     SetWeekdaysOnly(bool),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
@@ -486,10 +490,26 @@ struct TodoApp {
     data_checked: Vec<usize>,
     /// Requête de recherche du tableau de données (jalon 242) ; le `DataTable` filtre l'affichage.
     data_query: String,
+    /// Lignes du tableau de données (jalon 243) : `None` = jeu de départ `DATA_PEOPLE` ; `Some` dès
+    /// qu'une action groupée (Delete) les modifie. Voir [`TodoApp::data_rows`].
+    data_rows: Option<Vec<(String, String, u32, String)>>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
     app.routes.last().copied().unwrap_or(Route::Home)
+}
+
+impl TodoApp {
+    /// Lignes courantes du tableau de données : celles de l'état si elles ont été modifiées
+    /// (Delete groupé), sinon le jeu de départ `DATA_PEOPLE` (jalon 243).
+    fn data_rows(&self) -> Vec<(String, String, u32, String)> {
+        match &self.data_rows {
+            Some(rows) => rows.clone(),
+            None => {
+                DATA_PEOPLE.iter().map(|(n, r, s, l)| (n.to_string(), r.to_string(), *s, l.to_string())).collect()
+            }
+        }
+    }
 }
 
 /// Index d'un filtre (pour le contrôle segmenté).
@@ -887,17 +907,33 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::DataCheckAll => {
-            // Tout coché → on vide ; sinon on coche les 12 lignes source.
-            app.data_checked = if app.data_checked.len() == DATA_PEOPLE.len() {
-                Vec::new()
-            } else {
-                (0..DATA_PEOPLE.len()).collect()
-            };
+            // Tout coché → on vide ; sinon on coche toutes les lignes source courantes.
+            let n = app.data_rows().len();
+            app.data_checked = if app.data_checked.len() == n { Vec::new() } else { (0..n).collect() };
             Command::none()
         }
         Msg::DataSearch(q) => {
             app.data_query = q;
             app.data_page = 1; // un nouveau filtre ramène à la première page
+            Command::none()
+        }
+        Msg::DataClearChecked => {
+            app.data_checked.clear();
+            Command::none()
+        }
+        Msg::DataDeleteChecked => {
+            // Supprime réellement les lignes cochées (index source, en ordre décroissant pour ne pas
+            // décaler les suivants), puis remet à zéro sélection et focus.
+            let mut rows = app.data_rows();
+            let mut checked: Vec<usize> = app.data_checked.iter().copied().filter(|&i| i < rows.len()).collect();
+            checked.sort_unstable();
+            checked.dedup();
+            for &i in checked.iter().rev() {
+                rows.remove(i);
+            }
+            app.data_rows = Some(rows);
+            app.data_checked.clear();
+            app.data_selected = None;
             Command::none()
         }
         Msg::SetWeekdaysOnly(on) => {
@@ -1497,10 +1533,9 @@ fn level_rank(s: &str) -> u8 {
 /// `(tri, page, taille)` — le tri d'affichage n'est **pas** recopié dans le reducer (contraste
 /// volontaire avec la grille éditable voisine). — jalon 237.
 fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-    let rows: Vec<Vec<String>> = DATA_PEOPLE
-        .iter()
-        .map(|(n, r, s, l)| vec![n.to_string(), r.to_string(), s.to_string(), l.to_string()])
-        .collect();
+    let people = app.data_rows();
+    let rows: Vec<Vec<String>> =
+        people.iter().map(|(n, r, s, l)| vec![n.clone(), r.clone(), s.to_string(), l.clone()]).collect();
     // `0` (défaut dérivé) = valeurs de départ raisonnables.
     let per = if app.data_page_size == 0 { 5 } else { app.data_page_size };
     let page = app.data_page.max(1);
@@ -1517,16 +1552,24 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         // clic de ligne (focus). Les lignes cochées pilotent le surlignage via `selected`.
         .checkboxes(Msg::DataCheck, Msg::DataCheckAll)
         .selected(&app.data_checked)
+        // Barre d'actions groupées (jalon 243) : visible quand des lignes sont cochées.
+        .bulk_actions(|| {
+            vec![
+                Box::new(button("Clear", Msg::DataClearChecked).variant(Variant::Secondary).size(14.0))
+                    as Box<dyn Widget<Msg>>,
+                Box::new(button("Delete", Msg::DataDeleteChecked).variant(Variant::Danger).size(14.0)),
+            ]
+        })
         .paginated(page, per, Msg::DataPage)
         .page_sizes(&[5, 10], Msg::DataPageSize);
     if let Some((col, asc)) = app.data_sort {
         table = table.sorted(col, asc);
     }
-    let hint = text("Check rows to select many; click a row to focus it; click a header to sort.")
+    let hint = text("Check rows for bulk actions; click a row to focus it; click a header to sort.")
         .size(13.0)
         .color(theme.muted);
-    // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données source.
-    let detail = match app.data_selected.and_then(|i| DATA_PEOPLE.get(i)) {
+    // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données courantes.
+    let detail = match app.data_selected.and_then(|i| people.get(i)) {
         Some((n, r, s, l)) => {
             text(format!("Focused: {n} — {r} (score {s}, {l} priority)")).size(15.0).color(theme.on_surface)
         }
@@ -2996,6 +3039,21 @@ mod tests {
         assert_eq!(app.data_query, "ada", "le filtre est mis a jour");
         assert_eq!(app.data_page, 1, "un nouveau filtre ramene a la page 1");
         assert!(primitive_count(&app) > 0, "se rend filtre");
+        // Actions groupees (jalon 243) : Clear vide la selection, Delete supprime les lignes cochees.
+        reduce(&mut app, Msg::DataCheck(0));
+        reduce(&mut app, Msg::DataCheck(1));
+        reduce(&mut app, Msg::DataSelectRow(1));
+        assert_eq!(app.data_checked.len(), 2);
+        reduce(&mut app, Msg::DataClearChecked);
+        assert!(app.data_checked.is_empty(), "Clear vide la selection");
+        assert_eq!(app.data_selected, Some(1), "Clear ne touche pas le focus");
+        let before = app.data_rows().len();
+        reduce(&mut app, Msg::DataCheck(0));
+        reduce(&mut app, Msg::DataDeleteChecked);
+        assert_eq!(app.data_rows().len(), before - 1, "Delete retire la ligne cochee");
+        assert!(app.data_checked.is_empty(), "Delete vide la selection");
+        assert_eq!(app.data_selected, None, "Delete remet le focus a zero");
+        assert!(primitive_count(&app) > 0, "se rend apres suppression");
     }
 
     #[test]

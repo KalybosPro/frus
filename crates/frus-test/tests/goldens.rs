@@ -1078,6 +1078,38 @@ fn data_table_search_matches_golden() {
     snapshot.assert_golden(golden("data_table_search"));
 }
 
+/// **DataTable à actions groupées (jalon 243)** : quand des lignes sont cochées, une barre coiffe le
+/// tableau — « N selected » + les boutons d'action fournis par l'application (ici `Clear` secondaire et
+/// `Delete` danger). Deux lignes sélectionnées → « 2 selected ». Reproduit son golden.
+#[test]
+fn data_table_bulk_actions_matches_golden() {
+    use frus_widgets::{Button, DataTable, Variant};
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "9".to_string()],
+        vec!["Bob".to_string(), "12".to_string()],
+        vec!["Carol".to_string(), "2".to_string()],
+        vec!["Dan".to_string(), "10".to_string()],
+    ];
+    let table = DataTable::<()>::new(["Name", "Score"], rows)
+        .column_widths(&[160.0, 120.0])
+        .checkboxes(|_| (), ())
+        .selected(&[0, 3])
+        .bulk_actions(|| {
+            vec![
+                Box::new(Button::new("Clear").variant(Variant::Secondary).size(14.0)),
+                Box::new(Button::new("Delete").variant(Variant::Danger).size(14.0)),
+            ]
+        });
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 460, 250, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable à barre d'actions dessiné");
+    snapshot.assert_golden(golden("data_table_bulk_actions"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]
