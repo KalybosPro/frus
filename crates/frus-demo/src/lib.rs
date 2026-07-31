@@ -50,7 +50,7 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BarChart, BoxFit,
     FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
-    Container, CustomPaint, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
+    Container, CustomPaint, DataTable, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
     NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
     Slider, Stack,
@@ -163,6 +163,9 @@ enum Route {
     Grid,
     /// Tableau de bord **graphique** (démo d'intégration : LineChart + légende cliquable, jalon 218).
     Charts,
+    /// Tableau de données **en lecture seule** (démo d'intégration : DataTable auto-triant + paginé,
+    /// jalon 237).
+    Data,
 }
 
 /// Geste retour : progression suivie au doigt, puis détente à ressort
@@ -293,6 +296,12 @@ enum Msg {
     ChartPoint(usize, usize),
     /// Active/désactive l'empilage **100 %** (proportions) du graphique (jalon 224).
     SetChartNormalized(bool),
+    /// Clic sur un en-tête du tableau de données : (dé)trie la colonne (jalon 237).
+    DataSort(usize),
+    /// Change la page du tableau de données (jalon 237).
+    DataPage(usize),
+    /// Change la taille de page du tableau de données (jalon 237).
+    DataPageSize(usize),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -450,6 +459,13 @@ struct TodoApp {
     chart_sel: Option<(usize, usize)>,
     /// Empilage **100 %** (proportions) activé pour les graphiques empilés (jalon 224).
     chart_normalized: bool,
+    /// Tri du tableau de données `(colonne, croissant)` ; `None` = ordre source (jalon 237). Le tri
+    /// d'affichage est fait par le `DataTable`, **pas** recopié ici.
+    data_sort: Option<(usize, bool)>,
+    /// Page courante (1-indexée) du tableau de données ; `0` = page 1 (jalon 237).
+    data_page: usize,
+    /// Taille de page du tableau de données ; `0` = défaut (jalon 237).
+    data_page_size: usize,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -815,6 +831,26 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.chart_normalized = on;
             Command::none()
         }
+        Msg::DataSort(c) => {
+            // Bascule croissant/décroissant (nouvelle colonne = croissant). Le `DataTable` trie
+            // lui-même l'affichage — on ne recopie **pas** de `sort_by` ici (jalon 237).
+            let asc = match app.data_sort {
+                Some((col, asc)) if col == c => !asc,
+                _ => true,
+            };
+            app.data_sort = Some((c, asc));
+            app.data_page = 1; // le tri ramène à la première page
+            Command::none()
+        }
+        Msg::DataPage(p) => {
+            app.data_page = p;
+            Command::none()
+        }
+        Msg::DataPageSize(s) => {
+            app.data_page_size = s;
+            app.data_page = 1; // changer la taille ramène à la première page
+            Command::none()
+        }
         Msg::ChartPoint(cat, s) => {
             // Re-clic sur l'élément déjà sélectionné : on **désépingle** (jalon 225). Sinon on épingle
             // « série · catégorie = valeur » et on retient la sélection `(cat, série)` (jalons 221/223).
@@ -992,6 +1028,7 @@ impl Application for TodoApp {
             Route::Wizard => 3,
             Route::Grid => 4,
             Route::Charts => 5,
+            Route::Data => 6,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -1026,6 +1063,7 @@ impl Application for TodoApp {
                         "3" => self.routes.push(Route::Wizard),
                         "4" => self.routes.push(Route::Grid),
                         "5" => self.routes.push(Route::Charts),
+                        "6" => self.routes.push(Route::Data),
                         _ => {}
                     }
                 }
@@ -1249,6 +1287,7 @@ fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -
         Route::Wizard => wizard_screen(app, theme, width, height),
         Route::Grid => grid_screen(app, theme, width, height),
         Route::Charts => charts_screen(app, theme, width, height),
+        Route::Data => data_screen(app, theme, width, height),
     }
 }
 
@@ -1368,6 +1407,52 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     actions = actions.child(status);
     let body = column![table, actions, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
+        .width(width)
+        .height(height);
+    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+}
+
+/// Jeu de données statique (nom, rôle, score) du tableau de données — jalon 237.
+const DATA_PEOPLE: [(&str, &str, u32); 12] = [
+    ("Ada Lovelace", "Engineer", 92),
+    ("Alan Turing", "Cryptographer", 88),
+    ("Grace Hopper", "Admiral", 95),
+    ("Katherine Johnson", "Mathematician", 90),
+    ("Edsger Dijkstra", "Researcher", 84),
+    ("Barbara Liskov", "Professor", 91),
+    ("Donald Knuth", "Author", 87),
+    ("Margaret Hamilton", "Director", 93),
+    ("Tim Berners-Lee", "Inventor", 89),
+    ("Linus Torvalds", "Maintainer", 86),
+    ("Radia Perlman", "Engineer", 90),
+    ("Vint Cerf", "Architect", 85),
+];
+
+/// Écran **tableau de données** : un `DataTable` en lecture seule qui **trie ses propres lignes**
+/// (jalon 232) et **pagine** avec sélecteur de taille (jalons 233/236). L'app ne garde que l'état
+/// `(tri, page, taille)` — le tri d'affichage n'est **pas** recopié dans le reducer (contraste
+/// volontaire avec la grille éditable voisine). — jalon 237.
+fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    let rows: Vec<Vec<String>> = DATA_PEOPLE
+        .iter()
+        .map(|(n, r, s)| vec![n.to_string(), r.to_string(), s.to_string()])
+        .collect();
+    // `0` (défaut dérivé) = valeurs de départ raisonnables.
+    let per = if app.data_page_size == 0 { 5 } else { app.data_page_size };
+    let page = app.data_page.max(1);
+    let mut table: DataTable<Msg> = DataTable::new(["Name", "Role", "Score"], rows)
+        .column_widths(&[200.0, 180.0, 100.0])
+        .on_sort(Msg::DataSort)
+        .paginated(page, per, Msg::DataPage)
+        .page_sizes(&[5, 10], Msg::DataPageSize);
+    if let Some((col, asc)) = app.data_sort {
+        table = table.sorted(col, asc);
+    }
+    let hint = text("Click a header to sort; the DataTable sorts and paginates itself.")
+        .size(13.0)
+        .color(theme.muted);
+    let body = column![table, hint].gap(16.0).padding(24.0);
+    let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
     Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
@@ -2233,6 +2318,9 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
             button("Charts →", Msg::Push(Route::Charts))
                 .variant(Variant::Secondary)
                 .size(15.0),
+            button("Data table →", Msg::Push(Route::Data))
+                .variant(Variant::Secondary)
+                .size(15.0),
         ]
         .gap(12.0),
     )
@@ -2735,6 +2823,28 @@ mod tests {
         // Un autre point ré-épingle normalement.
         reduce(&mut app, Msg::ChartPoint(0, 0));
         assert_eq!(app.chart_sel, Some((0, 0)), "un autre point re-epingle");
+    }
+
+    #[test]
+    fn data_table_screen_sorts_and_paginates_without_touching_data() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Data));
+        assert_eq!(current_route(&app), Route::Data);
+        assert!(primitive_count(&app) > 0, "l'ecran data se rend");
+        // Tri : premier clic croissant, re-clic décroissant ; le tri ramène à la page 1.
+        reduce(&mut app, Msg::DataPage(2));
+        assert_eq!(app.data_page, 2);
+        reduce(&mut app, Msg::DataSort(2));
+        assert_eq!(app.data_sort, Some((2, true)), "premier clic = croissant");
+        assert_eq!(app.data_page, 1, "le tri ramene a la page 1");
+        reduce(&mut app, Msg::DataSort(2));
+        assert_eq!(app.data_sort, Some((2, false)), "re-clic = decroissant");
+        // Taille de page : change et ramène à la page 1.
+        reduce(&mut app, Msg::DataPage(2));
+        reduce(&mut app, Msg::DataPageSize(10));
+        assert_eq!(app.data_page_size, 10);
+        assert_eq!(app.data_page, 1, "changer la taille ramene a la page 1");
+        assert!(primitive_count(&app) > 0, "se rend apres tri/pagination");
     }
 
     #[test]
