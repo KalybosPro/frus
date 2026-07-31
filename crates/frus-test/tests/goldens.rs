@@ -1051,6 +1051,33 @@ fn data_table_checkboxes_matches_golden() {
     snapshot.assert_golden(golden("data_table_checkboxes"));
 }
 
+/// **DataTable cherchable (jalon 242)** : un champ de recherche coiffe le tableau, dont les lignes
+/// source sont **filtrées** (sous-chaîne insensible à la casse, toutes colonnes) avant tri. La requête
+/// « ar » ne garde que `Bob (Paris)` et `Carol (Berlin)` parmi quatre. Reproduit son golden.
+#[test]
+fn data_table_search_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "London".to_string()],
+        vec!["Bob".to_string(), "Paris".to_string()],
+        vec!["Carol".to_string(), "Berlin".to_string()],
+        vec!["Dan".to_string(), "Rome".to_string()],
+    ];
+    let table = DataTable::<()>::new(["Name", "City"], rows)
+        .column_widths(&[150.0, 150.0])
+        .searchable("ar", |_| ())
+        .sorted(0, true)
+        .on_sort(|_| ());
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 400, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable cherchable dessiné");
+    snapshot.assert_golden(golden("data_table_search"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]

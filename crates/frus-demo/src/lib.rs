@@ -308,6 +308,8 @@ enum Msg {
     DataCheck(usize),
     /// Case « tout cocher » du tableau de données : coche tout, ou vide si déjà tout coché (jalon 241).
     DataCheckAll,
+    /// Frappe dans le champ de recherche du tableau de données : met à jour le filtre (jalon 242).
+    DataSearch(String),
     /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
     SetWeekdaysOnly(bool),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
@@ -482,6 +484,8 @@ struct TodoApp {
     /// Lignes **source** cochées (sélection multiple) du tableau de données (jalon 241). Pilote les
     /// cases + le surlignage ; l'app décide ce que « tout cocher » recouvre (ici les 12 lignes).
     data_checked: Vec<usize>,
+    /// Requête de recherche du tableau de données (jalon 242) ; le `DataTable` filtre l'affichage.
+    data_query: String,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -889,6 +893,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             } else {
                 (0..DATA_PEOPLE.len()).collect()
             };
+            Command::none()
+        }
+        Msg::DataSearch(q) => {
+            app.data_query = q;
+            app.data_page = 1; // un nouveau filtre ramène à la première page
             Command::none()
         }
         Msg::SetWeekdaysOnly(on) => {
@@ -1500,6 +1509,8 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         // Colonne « Level » : clé de tri **personnalisée** (Low < Medium < High), sinon le tri
         // texte la classerait par ordre alphabétique (jalon 240).
         .sort_with(3, |a, b| level_rank(a).cmp(&level_rank(b)))
+        // Recherche : filtre les lignes source (toutes colonnes) avant tri/pagination (jalon 242).
+        .searchable(app.data_query.as_str(), Msg::DataSearch)
         .on_sort(Msg::DataSort)
         .on_select_row(Msg::DataSelectRow)
         // Sélection multiple (jalon 241) : cases à cocher pour une sélection groupée, en plus du
@@ -2979,6 +2990,12 @@ mod tests {
         reduce(&mut app, Msg::DataCheckAll);
         assert!(app.data_checked.is_empty(), "re-tout-cocher = tout decocher");
         assert!(primitive_count(&app) > 0, "se rend avec cases a cocher");
+        // Recherche : la frappe met a jour le filtre et ramene a la page 1.
+        reduce(&mut app, Msg::DataPage(2));
+        reduce(&mut app, Msg::DataSearch("ada".to_string()));
+        assert_eq!(app.data_query, "ada", "le filtre est mis a jour");
+        assert_eq!(app.data_page, 1, "un nouveau filtre ramene a la page 1");
+        assert!(primitive_count(&app) > 0, "se rend filtre");
     }
 
     #[test]

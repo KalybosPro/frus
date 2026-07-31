@@ -19,6 +19,7 @@ use crate::pagination::Pagination;
 use crate::segmented::SegmentedControl;
 use crate::table::Table;
 use crate::text::Text;
+use crate::textinput::TextInput;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -29,6 +30,17 @@ pub fn compare_cells(a: &str, b: &str) -> Ordering {
         (Ok(x), Ok(y)) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
         _ => a.to_lowercase().cmp(&b.to_lowercase()),
     }
+}
+
+/// `true` si une cellule de `row` **contient** `query` (sous-chaîne **insensible à la casse**). Une
+/// requête vide ou blanche laisse tout passer. Base du filtre d'un [`DataTable`] ; réutilisable hors
+/// widget (un reducer peut filtrer ses données de la même façon).
+pub fn row_matches(row: &[String], query: &str) -> bool {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return true;
+    }
+    row.iter().any(|cell| cell.to_lowercase().contains(&q))
 }
 
 /// Renvoie une **copie** de `rows` triée par la colonne `col` (`ascending` = croissant) via
@@ -110,6 +122,11 @@ pub struct DataTable<Msg = ()> {
     /// [`selected`](Self::selected) (mêmes index source).
     on_check: Option<Rc<dyn Fn(usize) -> Msg>>,
     on_check_all: Option<Msg>,
+    /// Recherche (jalon 242) : requête courante + rappel à la frappe. Quand `on_query` est posé, un
+    /// champ de recherche coiffe le tableau et les lignes source sont **filtrées** ([`row_matches`])
+    /// avant tri et pagination — tout reste en index source (sélection/cases inchangées).
+    query: Option<String>,
+    on_query: Option<Rc<dyn Fn(String) -> Msg>>,
     /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
     /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
@@ -139,6 +156,8 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             comparators: Vec::new(),
             on_check: None,
             on_check_all: None,
+            query: None,
+            on_query: None,
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -225,6 +244,18 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
+    /// Rend le tableau **cherchable** : un champ de recherche (valeur `query`) coiffe le tableau, et
+    /// les lignes source sont **filtrées** ([`row_matches`], sous-chaîne insensible à la casse sur
+    /// toutes les colonnes) avant tri/pagination. `on_query(texte)` à chaque frappe (l'application met
+    /// à jour `query`, et en général revient à la page 1). Le filtre agit en amont du tri, de la page
+    /// **et** de la sélection : cases et surlignage restent en index source, sur le sous-ensemble visible.
+    pub fn searchable(mut self, query: impl Into<String>, on_query: impl Fn(String) -> Msg + 'static) -> Self {
+        self.query = Some(query.into());
+        self.on_query = Some(Rc::new(on_query));
+        self.rebuild();
+        self
+    }
+
     /// Donne un **comparateur personnalisé** à la colonne `col` : `cmp(a, b)` ordonne deux de ses
     /// cellules (texte). Remplace le tri par défaut ([`compare_cells`]) pour cette colonne — utile
     /// quand les valeurs se trient mal telles quelles : dates formatées (« Mar 2024 »), montants
@@ -239,10 +270,17 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
-    /// Ordre des **index de lignes source** après tri (stable) ; identité si aucun tri. Le tri
-    /// utilise le comparateur **personnalisé** de la colonne s'il en a un, sinon [`compare_cells`].
+    /// Ordre des **index de lignes source** après **filtre** (recherche) puis tri (stable) ;
+    /// l'identité filtrée si aucun tri. Le tri utilise le comparateur **personnalisé** de la colonne
+    /// s'il en a un, sinon [`compare_cells`].
     fn sorted_order(&self) -> Vec<usize> {
-        let mut order: Vec<usize> = (0..self.rows.len()).collect();
+        // Filtre de recherche en amont : ne garde que les lignes source correspondantes.
+        let mut order: Vec<usize> = (0..self.rows.len())
+            .filter(|&i| match &self.query {
+                Some(q) => row_matches(&self.rows[i], q),
+                None => true,
+            })
+            .collect();
         if let Some((col, asc)) = self.sort {
             let empty = String::new();
             let custom = self.comparators.get(col).and_then(|c| c.as_ref());
@@ -323,8 +361,8 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             }
         }
         // Table seul, ou table + pied (libellé de tranche + sélecteur de page + taille de page),
-        // calculé sur le nombre **total** de lignes triées.
-        self.inner = match (self.page, &self.on_page) {
+        // calculé sur le nombre **total** de lignes triées (déjà filtrées).
+        let block: Box<dyn Widget<Msg>> = match (self.page, &self.on_page) {
             (Some((current, per)), Some(on_page)) => {
                 let pages = page_count(total, per);
                 let current = current.clamp(1, pages);
@@ -348,6 +386,17 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
                 Box::new(Flex::column().gap(12.0).child(t).child(footer))
             }
             _ => Box::new(t),
+        };
+        // Recherche : coiffe le tableau d'un champ (sinon on garde le bloc tel quel).
+        self.inner = if let Some(on_query) = &self.on_query {
+            let on_query = on_query.clone();
+            let field = TextInput::new(self.query.clone().unwrap_or_default())
+                .placeholder("Search")
+                .width(240.0)
+                .on_input(move |s| on_query(s));
+            Box::new(Flex::column().gap(12.0).child(field).child(block))
+        } else {
+            block
         };
     }
 }
@@ -479,6 +528,36 @@ mod tests {
         assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
         // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
         assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
+    }
+
+    #[test]
+    fn row_matches_is_case_insensitive_substring_over_all_cells() {
+        let row = vec!["Ada Lovelace".to_string(), "Engineer".to_string()];
+        assert!(row_matches(&row, ""), "requête vide = tout passe");
+        assert!(row_matches(&row, "  "), "requête blanche = tout passe");
+        assert!(row_matches(&row, "ENGIN"), "insensible à la casse, sous-chaîne");
+        assert!(row_matches(&row, "love"), "autre colonne");
+        assert!(!row_matches(&row, "zzz"), "aucune correspondance");
+    }
+
+    #[test]
+    fn search_filters_rows_before_sort_and_keeps_source_indices() {
+        // Quatre lignes ; on cherche « a » → seules Ada et Cal correspondent (index source 0, 2).
+        let rows = vec![
+            vec!["Ada".to_string(), "3".to_string()],
+            vec!["Bob".to_string(), "1".to_string()],
+            vec!["Cal".to_string(), "2".to_string()],
+            vec!["Eve".to_string(), "4".to_string()],
+        ];
+        // Tri croissant par clé parmi {Ada(3), Cal(2)} → Cal(2), Ada(3) = index source [2, 0].
+        let dt: DataTable<usize> =
+            DataTable::new(["N", "K"], rows).searchable("a", |_| 0).sorted(1, true).on_select_row(|i| i);
+        let mut clicks = Vec::new();
+        for c in Widget::<usize>::children(&dt) {
+            collect_clicks(c.as_ref(), &mut clicks);
+        }
+        clicks.dedup();
+        assert_eq!(clicks, vec![2, 0], "filtré puis trié, en index source");
     }
 
     #[test]
