@@ -1114,6 +1114,64 @@ fn bar_chart_selected_matches_golden() {
     snapshot.assert_golden(golden("bar_chart_selected"));
 }
 
+/// **Barres empilées 100 % (jalon 224)** : `stacked(true).normalized(true)` — chaque colonne
+/// remplit toute la hauteur, chaque strate occupant sa proportion ; l'axe est en pourcentages.
+/// Reproduit son golden.
+#[test]
+fn bar_chart_normalized_matches_golden() {
+    let theme = Theme::dark();
+    let chart = BarChart::<()>::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .name("Sales")
+    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .legend(true)
+    .stacked(true)
+    .normalized(true);
+    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "colonnes 100 % dessinées");
+    snapshot.assert_golden(golden("bar_chart_normalized"));
+}
+
+/// **Aires empilées 100 % (jalon 224)** : `stacked(true).normalized(true)` — chaque catégorie
+/// remplit toute la hauteur, chaque bande occupant sa proportion ; l'axe est en pourcentages.
+/// Reproduit son golden.
+#[test]
+fn line_chart_normalized_matches_golden() {
+    let theme = Theme::dark();
+    let chart = LineChart::<()>::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .name("Sales")
+    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .legend(true)
+    .stacked(true)
+    .normalized(true);
+    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "aires 100 % dessinées");
+    snapshot.assert_golden(golden("line_chart_normalized"));
+}
+
 /// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant
 /// l'icône « œil » suffixe (`on_suffix`) qui révèle le texte. Reproduit son golden.
 #[test]

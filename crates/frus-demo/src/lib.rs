@@ -291,6 +291,8 @@ enum Msg {
     SetChartKind(usize),
     /// Épingle le détail d'un point cliqué `(catégorie, série)` (jalon 221).
     ChartPoint(usize, usize),
+    /// Active/désactive l'empilage **100 %** (proportions) du graphique (jalon 224).
+    SetChartNormalized(bool),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
     WizardSubmit,
 }
@@ -446,6 +448,8 @@ struct TodoApp {
     chart_pin: Option<String>,
     /// Point/barre **sélectionné** `(catégorie, série)`, mis en évidence dans le graphique (jalon 223).
     chart_sel: Option<(usize, usize)>,
+    /// Empilage **100 %** (proportions) activé pour les graphiques empilés (jalon 224).
+    chart_normalized: bool,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -805,6 +809,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SetChartKind(k) => {
             app.chart_kind = k;
+            Command::none()
+        }
+        Msg::SetChartNormalized(on) => {
+            app.chart_normalized = on;
             Command::none()
         }
         Msg::ChartPoint(cat, s) => {
@@ -1393,7 +1401,7 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             .hidden(hidden)
             .animated(true);
         if kind == 1 {
-            c = c.stacked(true);
+            c = c.stacked(true).normalized(app.chart_normalized);
         }
         if legend {
             // Le graphique principal : légende cliquable + points cliquables (jalon 221) + point
@@ -1414,7 +1422,7 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             .series(CHART_SERIES[2].0, CHART_COLORS[1], CHART_SERIES[2].1)
             .hidden(hidden);
         if kind == 3 {
-            c = c.stacked(true);
+            c = c.stacked(true).normalized(app.chart_normalized);
         }
         if legend {
             // Le graphique principal : légende cliquable + barres cliquables (jalon 222) + barre
@@ -1438,6 +1446,21 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         .segment("Stacked area")
         .segment("Grouped bars")
         .segment("Stacked bars");
+    // Bascule **100 %** (jalon 224) : visible seulement pour les types empilés (aires/barres empilées),
+    // où la normalisation a un sens.
+    let stacked_kind = app.chart_kind == 1 || app.chart_kind == 3;
+    let normalize_row: Box<dyn Widget<Msg>> = if stacked_kind {
+        Box::new(
+            row![
+                text("100% stacking").size(13.0).color(theme.muted),
+                Switch::new(app.chart_normalized).on_toggle(Msg::SetChartNormalized)
+            ]
+            .gap(10.0)
+            .align(Align::Center),
+        )
+    } else {
+        Box::new(Container::new().width(0.0).height(0.0))
+    };
     let chart = dashboard_chart(app, app.chart_kind, 240.0, true);
     // Graphique **compagnon** : la famille complémentaire (barres si le principal est en lignes, et
     // inversement), sans sa propre légende — il partage `chart_hidden`, donc masquer une série via la
@@ -1454,6 +1477,7 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     };
     let body = column![
         row![selector].align(Align::Center),
+        normalize_row,
         chart,
         row![pinned].align(Align::Center),
         text("Companion view").size(13.0).color(theme.muted),
@@ -2676,6 +2700,22 @@ mod tests {
         reduce(&mut app, Msg::ChartPoint(1, 1));
         assert_eq!(app.chart_sel, Some((1, 1)), "la selection suit le dernier clic");
         assert!(primitive_count(&app) > 0, "l'ecran avec point mis en evidence se rend");
+    }
+
+    #[test]
+    fn normalized_toggle_applies_to_stacked_kinds() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Charts));
+        assert!(!app.chart_normalized, "absolu par defaut");
+        reduce(&mut app, Msg::SetChartNormalized(true));
+        assert!(app.chart_normalized, "bascule activee");
+        // Les deux types empilés (aires empilées kind 1, barres empilées kind 3) se rendent en 100 %.
+        for k in [1usize, 3] {
+            reduce(&mut app, Msg::SetChartKind(k));
+            assert!(primitive_count(&app) > 0, "le type empile {k} se rend en 100%");
+        }
+        reduce(&mut app, Msg::SetChartNormalized(false));
+        assert!(!app.chart_normalized, "bascule desactivee");
     }
 
     #[test]

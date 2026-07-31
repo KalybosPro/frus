@@ -59,6 +59,8 @@ pub struct BarChart<Msg = ()> {
     /// Barre/strate **épinglée** `(catégorie, série)`, mise en évidence par un anneau persistant —
     /// jalon 223.
     selected: Option<(usize, usize)>,
+    /// Empilage **100 %** : chaque colonne est normalisée à son total (proportions) — jalon 224.
+    normalized: bool,
 }
 
 impl<Msg> BarChart<Msg> {
@@ -77,6 +79,7 @@ impl<Msg> BarChart<Msg> {
             stacked: false,
             on_point: None,
             selected: None,
+            normalized: false,
         }
     }
 
@@ -156,11 +159,32 @@ impl<Msg> BarChart<Msg> {
         self
     }
 
+    /// Normalise l'empilage en **100 %** : chaque colonne remplit toute la hauteur, chaque strate
+    /// occupant sa **proportion** du total de la catégorie (plutôt que sa valeur absolue). N'a d'effet
+    /// qu'en mode empilé multi-séries. Défaut : off — jalon 224.
+    pub fn normalized(mut self, normalized: bool) -> Self {
+        self.normalized = normalized;
+        self
+    }
+
     /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
         let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
         primary.chain(extra).fold(0.0, f32::max).max(1.0)
+    }
+
+    /// Total (des séries **visibles**) de la catégorie `i` — dénominateur de l'empilage 100 %.
+    fn category_total(&self, i: usize) -> f32 {
+        let base = if self.hidden.contains(&0) { 0.0 } else { self.values.get(i).map(|(_, v)| *v).unwrap_or(0.0) };
+        let rest: f32 = self
+            .extra
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| !self.hidden.contains(&(j + 1)))
+            .map(|(_, (_, _, vs))| vs.get(i).copied().unwrap_or(0.0))
+            .sum();
+        (base + rest).max(1e-6)
     }
 
     /// Le maximum de la **somme** des séries par catégorie (échelle en mode empilé).
@@ -220,6 +244,7 @@ fn draw_grid(
     baseline_y: f32,
     max: f32,
     divisions: usize,
+    percent: bool,
     opacity: f32,
 ) {
     if divisions == 0 {
@@ -233,8 +258,8 @@ fn draw_grid(
         if i > 0 {
             scene.fill_rect(Rect::new(plot_left, y, plot_w, 1.0), theme.border.fade(opacity * 0.6));
         }
-        // Graduation : valeur alignée à droite dans la marge.
-        let label = format_value(max * t);
+        // Graduation : valeur (ou pourcentage en mode 100 %) alignée à droite dans la marge.
+        let label = if percent { format!("{}%", (t * 100.0).round() as i64) } else { format_value(max * t) };
         let lw = frus_text::measure(&label, AXIS_SIZE).width;
         scene.text(
             Point::new(plot_left - 6.0 - lw, y - AXIS_SIZE * 0.5),
@@ -380,6 +405,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         let accent = self.color.unwrap_or(theme.primary);
         let single = self.extra.is_empty();
         let stacked = self.stacked && !single;
+        // Empilage **100 %** (jalon 224) : chaque colonne est normalisée à son total (proportions).
+        let normalized = self.normalized && stacked;
         // En empilé, l'échelle doit contenir le **total** cumulé par catégorie.
         let max = if stacked { self.stacked_max() } else { self.max_value() };
 
@@ -394,8 +421,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         let plot_w = bounds.width - axis_w;
         let slot = plot_w / n as f32;
 
-        // Grille horizontale + graduations (derrière les barres).
-        draw_grid(scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, o);
+        // Grille horizontale + graduations (derrière les barres) ; en 100 %, l'axe est en pourcentages.
+        draw_grid(scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, normalized, o);
         // Ligne de base (axe des abscisses).
         scene.fill_rect(Rect::new(plot_left, baseline_y, plot_w, 1.5), theme.border.fade(o));
 
@@ -418,16 +445,18 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         for i in 0..n {
             let cx = plot_left + slot * (i as f32 + 0.5);
             if stacked {
-                // Segments empilés du bas vers le haut (les séries masquées ne comptent pas).
+                // Segments empilés du bas vers le haut (les séries masquées ne comptent pas). En
+                // 100 %, le dénominateur est le total de la catégorie (colonne pleine), sinon l'échelle.
                 let sbx = cx - group_w * 0.5;
+                let denom = if normalized { self.category_total(i) } else { max };
                 let mut lower = 0.0_f32;
                 for (j, (color, _, vals)) in series.iter().enumerate() {
                     if self.hidden.contains(&j) {
                         continue;
                     }
                     let value = vals.get(i).copied().unwrap_or(0.0);
-                    let y_bottom = baseline_y - (lower / max) * plot_h;
-                    let y_top = baseline_y - ((lower + value) / max) * plot_h;
+                    let y_bottom = baseline_y - (lower / denom) * plot_h;
+                    let y_top = baseline_y - ((lower + value) / denom) * plot_h;
                     let rect = Rect::new(sbx, y_top, group_w, y_bottom - y_top);
                     scene.draw_rect(rect, color.fade(o), 0.0, 0.0, Color::TRANSPARENT);
                     if self.selected == Some((i, j)) {
@@ -678,6 +707,8 @@ pub struct LineChart<Msg = ()> {
     /// Point **épinglé** `(catégorie, série)`, mis en évidence par un halo + anneau persistants —
     /// jalon 223.
     selected: Option<(usize, usize)>,
+    /// Empilage **100 %** : chaque catégorie est normalisée à son total (proportions) — jalon 224.
+    normalized: bool,
 }
 
 impl<Msg> LineChart<Msg> {
@@ -698,6 +729,7 @@ impl<Msg> LineChart<Msg> {
             animated: false,
             on_point: None,
             selected: None,
+            normalized: false,
         }
     }
 
@@ -791,6 +823,27 @@ impl<Msg> LineChart<Msg> {
         self
     }
 
+    /// Normalise l'empilage en **100 %** : chaque catégorie remplit toute la hauteur, chaque strate
+    /// occupant sa **proportion** du total. N'a d'effet qu'en aires empilées multi-séries. Défaut :
+    /// off — jalon 224.
+    pub fn normalized(mut self, normalized: bool) -> Self {
+        self.normalized = normalized;
+        self
+    }
+
+    /// Total (des séries **visibles**) de la catégorie `i` — dénominateur de l'empilage 100 %.
+    fn category_total(&self, i: usize) -> f32 {
+        let base = if self.hidden.contains(&0) { 0.0 } else { self.values.get(i).map(|(_, v)| *v).unwrap_or(0.0) };
+        let rest: f32 = self
+            .extra
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| !self.hidden.contains(&(j + 1)))
+            .map(|(_, (_, _, vs))| vs.get(i).copied().unwrap_or(0.0))
+            .sum();
+        (base + rest).max(1e-6)
+    }
+
     /// Noms de toutes les séries (principale puis additionnelles).
     fn series_names(&self) -> Vec<&str> {
         let mut names = vec![self.name.as_deref().unwrap_or("Series 1")];
@@ -846,6 +899,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         let accent = self.color.unwrap_or(theme.primary);
         let single = self.extra.is_empty();
         let stacked = self.stacked && !single;
+        // Empilage **100 %** (jalon 224) : chaque catégorie est normalisée à son total (proportions).
+        let normalized = self.normalized && stacked;
         // En empilé, l'échelle doit contenir le **total** cumulé par catégorie.
         let max = if stacked { self.stacked_max() } else { self.max_value() };
 
@@ -861,8 +916,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         let plot_w = bounds.width - axis_w;
         let slot = plot_w / n as f32;
 
-        // Grille horizontale + graduations (derrière les courbes).
-        draw_grid(scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, o);
+        // Grille horizontale + graduations (derrière les courbes) ; en 100 %, l'axe est en pourcentages.
+        draw_grid(scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, normalized, o);
 
         // Ligne de base (axe des abscisses).
         scene.fill_rect(Rect::new(plot_left, baseline_y, plot_w, 1.5), theme.border.fade(o));
@@ -879,6 +934,12 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         let pt = |i: usize, v: f32| {
             Point::new(plot_left + slot * (i as f32 + 0.5), baseline_y - (v / max) * plot_h)
         };
+        // Point d'un **cumul** empilé : en 100 %, le dénominateur est le total de la catégorie
+        // (bande pleine hauteur), sinon l'échelle globale (jalon 224).
+        let spt = |i: usize, cum: f32| {
+            let denom = if normalized { self.category_total(i) } else { max };
+            Point::new(plot_left + slot * (i as f32 + 0.5), baseline_y - (cum / denom) * plot_h)
+        };
 
         if stacked {
             // Aires **cumulées** : chaque série est une bande entre son cumul bas et haut, du bas
@@ -892,18 +953,18 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     (0..n).map(|i| lower[i] + vals.get(i).copied().unwrap_or(0.0)).collect();
                 if n >= 2 {
                     // Bande : bord bas (gauche→droite) puis bord haut (droite→gauche).
-                    let mut band = Path::new().move_to(pt(0, lower[0]));
+                    let mut band = Path::new().move_to(spt(0, lower[0]));
                     for i in 1..n {
-                        band = band.line_to(pt(i, lower[i]));
+                        band = band.line_to(spt(i, lower[i]));
                     }
                     for i in (0..n).rev() {
-                        band = band.line_to(pt(i, upper[i]));
+                        band = band.line_to(spt(i, upper[i]));
                     }
                     scene.fill_path(&band, color.fade(o * STACK_ALPHA));
                     // Trait du bord supérieur.
-                    let mut line = Path::new().move_to(pt(0, upper[0]));
+                    let mut line = Path::new().move_to(spt(0, upper[0]));
                     for i in 1..n {
-                        line = line.line_to(pt(i, upper[i]));
+                        line = line.line_to(spt(i, upper[i]));
                     }
                     scene.stroke_path(&line, color.fade(o), LINE_W);
                 }
@@ -1186,6 +1247,46 @@ mod tests {
         assert!(
             seg_widths.iter().all(|w| (w - group_w).abs() < 0.5),
             "segments empilés = pleine largeur, obtenu {seg_widths:?}"
+        );
+    }
+
+    #[test]
+    fn normalized_stacked_bars_fill_each_column() {
+        // 100 % : chaque colonne remplit toute la hauteur, quelle que soit sa somme brute.
+        let make = |norm: bool| {
+            BarChart::new([("A", 2.0), ("B", 4.0)])
+                .series("x", Color::rgb8(1, 2, 3), [3.0, 4.0])
+                .stacked(true)
+                .normalized(norm)
+        };
+        // Hauteur cumulée des segments de la colonne A (moitié gauche : x < 150).
+        let col_a = |chart: &BarChart| {
+            paint_chart(chart, 300.0, 200.0)
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { rect, .. } if rect.height > 2.0 && rect.x < 150.0 => Some(rect.height),
+                    _ => None,
+                })
+                .sum::<f32>()
+        };
+        let plot_h = (200.0 - X_LABEL_H) - (VALUE_SIZE + 6.0); // 160
+        // Colonne A (total 5) : pleine en 100 %...
+        assert!(
+            (col_a(&make(true)) - plot_h).abs() < 1.0,
+            "colonne A pleine en 100%, obtenu {}",
+            col_a(&make(true))
+        );
+        // ...mais partielle en absolu (le max total, 8, est en B).
+        assert!(
+            col_a(&make(false)) < plot_h - 20.0,
+            "colonne A partielle en absolu, obtenu {}",
+            col_a(&make(false))
+        );
+        // L'axe en 100 % affiche un pourcentage.
+        let prims = paint_chart(&make(true).grid(4), 300.0, 200.0);
+        assert!(
+            prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "100%")),
+            "axe en pourcentage"
         );
     }
 
@@ -1510,6 +1611,52 @@ mod tests {
         };
         assert_eq!(bands(&make().stacked(true)), 2, "une bande cumulée par série");
         assert_eq!(bands(&make()), 0, "sans empilage : pas de bande (multi-séries sans aire)");
+    }
+
+    #[test]
+    fn normalized_stacked_areas_fill_to_the_top() {
+        let make = |norm: bool| {
+            LineChart::new([("A", 2.0), ("B", 4.0)])
+                .series("x", Color::rgb8(1, 2, 3), [3.0, 4.0])
+                .stacked(true)
+                .normalized(norm)
+        };
+        // Ordonnées du trait du bord **supérieur** (dernière bande tracée = dernière série visible).
+        let top_line_ys = |chart: &LineChart| -> Vec<f32> {
+            let prims = paint_line(chart, 300.0, 200.0);
+            let path = prims
+                .iter()
+                .rev()
+                .find_map(|p| match p {
+                    Primitive::Path { stroke: Some(_), fill: None, path, .. }
+                        if path.verbs().iter().any(|v| matches!(v, frus_core::PathVerb::LineTo(_))) =>
+                    {
+                        Some(path)
+                    }
+                    _ => None,
+                })
+                .expect("un trait de bord supérieur");
+            path.verbs()
+                .iter()
+                .filter_map(|v| match v {
+                    frus_core::PathVerb::MoveTo(p) | frus_core::PathVerb::LineTo(p) => Some(p.y),
+                    _ => None,
+                })
+                .collect()
+        };
+        let plot_top = VALUE_SIZE + 6.0; // 18 (sans légende ni axe)
+        // 100 % : le bord supérieur est plat, à 100 % (plot_top) pour chaque catégorie.
+        let ys = top_line_ys(&make(true));
+        assert!(
+            ys.iter().all(|y| (y - plot_top).abs() < 1.0),
+            "bord haut a 100% partout, obtenu {ys:?}"
+        );
+        // Absolu : le bord supérieur suit les totaux (pas tous à plot_top).
+        let ys_abs = top_line_ys(&make(false));
+        assert!(
+            ys_abs.iter().any(|y| (y - plot_top).abs() > 5.0),
+            "bord haut suit les totaux, obtenu {ys_abs:?}"
+        );
     }
 
     #[test]
