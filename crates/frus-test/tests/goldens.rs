@@ -575,6 +575,32 @@ fn date_bounded_matches_golden() {
     snapshot.assert_golden(golden("date_bounded"));
 }
 
+/// **Calendrier plage bornée (jalon 234)** : juillet 2026, plage sélectionnée 10–15 dans une
+/// fenêtre autorisée `[8, 20]` — les bornes/jours entre sont mis en avant, le hors-fenêtre est
+/// désactivé (atténué). Reproduit son golden.
+#[test]
+fn date_range_bounded_matches_golden() {
+    use frus_widgets::DatePicker;
+    let theme = Theme::dark();
+    let picker = DatePicker::range_bounded(
+        2026,
+        7,
+        Some((2026, 7, 10)),
+        Some((2026, 7, 15)),
+        Some((2026, 7, 8)),
+        Some((2026, 7, 20)),
+        |_| (),
+        |_| (),
+    );
+    let root: Container<()> = Container::new().padding(16.0).child(picker);
+    let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "plage bornée dessinée");
+    snapshot.assert_golden(golden("date_range_bounded"));
+}
+
 /// **Calendrier en mode plage (jalon 184)** : juillet 2026, intervalle du 10 au 15 —
 /// bornes en pastille pleine, jours intermédiaires en bande douce. Reproduit son golden.
 #[test]

@@ -258,6 +258,35 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
+    /// Calendrier en **mode plage borné** : comme [`range`](Self::range), mais les jours hors
+    /// `[min, max]` (bornes optionnelles et **incluses**) sont **désactivés** — atténués et non
+    /// cliquables. Combine la mise en avant d'un intervalle sélectionné et une fenêtre de saisie
+    /// autorisée (p.ex. réserver une plage dans une période ouverte) — jalon 234.
+    #[allow(clippy::too_many_arguments)]
+    pub fn range_bounded(
+        year: i32,
+        month: u32,
+        start: Option<(i32, u32, u32)>,
+        end: Option<(i32, u32, u32)>,
+        min: Option<(i32, u32, u32)>,
+        max: Option<(i32, u32, u32)>,
+        on_select: impl Fn(u32) -> Msg + 'static,
+        on_nav: impl Fn(i32) -> Msg + 'static,
+    ) -> Self {
+        let month = month.clamp(1, 12);
+        Self::assemble(
+            year,
+            month,
+            on_select,
+            on_nav,
+            move |day| range_mark((year, month, day), start, end),
+            move |day| {
+                let date = (year, month, day);
+                min.map_or(true, |m| date >= m) && max.map_or(true, |m| date <= m)
+            },
+        )
+    }
+
     /// Calendrier **double** : le mois `year`/`month` et le **suivant**, côte à côte, partageant
     /// la même plage `[start, end]` — pour saisir de longues plages sans changer de mois.
     /// `on_select((année, mois, jour))` rapporte la date **complète** du jour cliqué (le mois est
@@ -458,6 +487,28 @@ mod tests {
         let open = DatePicker::bounded(2026, 7, None, Some((2026, 7, 10)), None, Msg::Pick, Msg::Nav);
         let g2 = &Widget::<Msg>::children(&open)[2];
         assert_eq!(g2.children()[3 + 30].on_click(), Some(Msg::Pick(31)), "31 juillet cliquable (pas de max)");
+    }
+
+    #[test]
+    fn range_bounded_disables_days_outside_the_window() {
+        // Plage 10..15 sélectionnée, mais fenêtre de saisie autorisée [8, 20] juillet 2026.
+        let dp = DatePicker::range_bounded(
+            2026,
+            7,
+            Some((2026, 7, 10)),
+            Some((2026, 7, 15)),
+            Some((2026, 7, 8)),
+            Some((2026, 7, 20)),
+            Msg::Pick,
+            Msg::Nav,
+        );
+        let grid = &Widget::<Msg>::children(&dp)[2];
+        let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
+        assert_eq!(at(7), None, "7 juillet hors fenêtre (avant min)");
+        assert_eq!(at(8), Some(Msg::Pick(8)), "8 juillet cliquable (borne min)");
+        assert_eq!(at(12), Some(Msg::Pick(12)), "12 juillet cliquable (dans la plage)");
+        assert_eq!(at(20), Some(Msg::Pick(20)), "20 juillet cliquable (borne max)");
+        assert_eq!(at(21), None, "21 juillet hors fenêtre (après max)");
     }
 
     #[test]
