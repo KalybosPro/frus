@@ -235,6 +235,10 @@ enum Msg {
     SelectNode(u64),
     /// Déplace une carte du Kanban : `(from_col, from_pos, to_col, to_pos)` (jalon 247).
     KanbanMove(usize, usize, usize, usize),
+    /// Ajoute une carte au bas d'une colonne du Kanban (jalon 249).
+    KanbanAdd(usize),
+    /// Supprime la carte `(col, pos)` du Kanban (jalon 249).
+    KanbanDelete(usize, usize),
     /// Choisit une couleur.
     PickColor(Color),
     /// Sélectionne un jour dans le calendrier.
@@ -1050,6 +1054,22 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             }
             Command::none()
         }
+        Msg::KanbanAdd(col) => {
+            let mut cols = app.kanban_cols();
+            if col < cols.len() {
+                cols[col].push("New card".to_string());
+                app.kanban = Some(cols);
+            }
+            Command::none()
+        }
+        Msg::KanbanDelete(col, pos) => {
+            let mut cols = app.kanban_cols();
+            if col < cols.len() && pos < cols[col].len() {
+                cols[col].remove(pos);
+                app.kanban = Some(cols);
+            }
+            Command::none()
+        }
         Msg::PickColor(c) => {
             app.picked = Some(c);
             Command::none()
@@ -1665,16 +1685,41 @@ const KANBAN_SEED: [&[&str]; 3] = [
     &["Kickoff", "Research"],
 ];
 
-/// Écran **Kanban** : des colonnes de cartes, avec glisser-déposer inter-colonnes (jalon 247). L'app
-/// tient les cartes par colonne ; le widget émet `KanbanMove(from_col, from_pos, to_col, to_pos)` au
-/// dépôt, et le reducer déplace la carte.
+/// Une **carte riche** du Kanban (jalon 249) : le libellé à gauche, un bouton **×** de suppression à
+/// droite (`KanbanDelete(col, pos)`).
+fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<Msg>> {
+    Box::new(
+        row![
+            text(label).size(14.0),
+            Flex::row().flex(1.0),
+            button("×", Msg::KanbanDelete(col, pos)).variant(Variant::Danger).size(12.0),
+        ]
+        .align(Align::Center)
+        .gap(8.0),
+    )
+}
+
+/// Écran **Kanban** : des colonnes de **cartes riches** (libellé + × de suppression), avec ajout par
+/// colonne (jalon 249) et glisser-déposer inter-colonnes (jalon 247). L'app tient les cartes ; le widget
+/// émet `KanbanMove`/`KanbanAdd`/`KanbanDelete`, le reducer applique.
 fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let cols = app.kanban_cols();
-    let mut board = Kanban::new(Msg::KanbanMove);
-    for (i, title) in KANBAN_TITLES.iter().enumerate() {
-        board = board.column(*title, cols.get(i).cloned().unwrap_or_default());
+    let mut board = Kanban::new(Msg::KanbanMove).on_add(Msg::KanbanAdd);
+    for (c, title) in KANBAN_TITLES.iter().enumerate() {
+        let cards = cols.get(c).cloned().unwrap_or_default();
+        let factories: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = cards
+            .iter()
+            .enumerate()
+            .map(|(pos, label)| {
+                let label = label.clone();
+                Box::new(move || rich_card(&label, c, pos)) as Box<dyn Fn() -> Box<dyn Widget<Msg>>>
+            })
+            .collect();
+        board = board.column_widgets(*title, factories);
     }
-    let hint = text("Drag a card onto another column (or card) to move it.").size(13.0).color(theme.muted);
+    let hint = text("Add cards with + Add card; remove with ×; drag a card to move it.")
+        .size(13.0)
+        .color(theme.muted);
     let body = column![board, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), body].width(width).height(height);
     Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
@@ -3072,6 +3117,14 @@ mod tests {
         assert_eq!(end[1].len(), doing_len, "meme nombre de cartes (reordonne, pas duplique)");
         assert_eq!(end[1].last().unwrap(), "Design API", "carte deplacee en fin de colonne");
         assert!(primitive_count(&app) > 0, "le tableau se rend");
+        // Ajout / suppression (jalon 249) : + Add card ajoute au bas ; × supprime la carte visee.
+        let col0_len = app.kanban_cols()[0].len();
+        reduce(&mut app, Msg::KanbanAdd(0));
+        assert_eq!(app.kanban_cols()[0].len(), col0_len + 1, "Add ajoute une carte");
+        assert_eq!(app.kanban_cols()[0].last().unwrap(), "New card", "ajoutee au bas de la colonne");
+        reduce(&mut app, Msg::KanbanDelete(0, 0));
+        assert_eq!(app.kanban_cols()[0].len(), col0_len, "Delete retire une carte");
+        assert!(primitive_count(&app) > 0, "se rend apres ajout/suppression");
     }
 
     #[test]

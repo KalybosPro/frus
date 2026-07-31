@@ -1180,6 +1180,38 @@ fn kanban_matches_golden() {
     snapshot.assert_golden(golden("kanban"));
 }
 
+/// **Kanban à cartes riches (jalon 249)** : des cartes **widgets** (libellé + bouton × de suppression)
+/// et un bouton **« + Add card »** au bas de chaque colonne. Reproduit son golden.
+#[test]
+fn kanban_rich_matches_golden() {
+    use frus_widgets::{Align, Button, Flex, Kanban, Text, Variant};
+    let theme = Theme::dark();
+    // Fabrique d'une carte riche : libellé à gauche, bouton × à droite.
+    fn rich(label: &'static str) -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
+        Box::new(move || {
+            Box::new(
+                Flex::row()
+                    .align(Align::Center)
+                    .gap(8.0)
+                    .child(Text::new(label).size(14.0))
+                    .child(Flex::row().flex(1.0))
+                    .child(Button::new("×").variant(Variant::Secondary).size(13.0)),
+            ) as Box<dyn frus_widgets::Widget<()>>
+        })
+    }
+    let board = Kanban::<()>::new(|_, _, _, _| ())
+        .on_add(|_| ())
+        .column_widgets("To do", [rich("Design API"), rich("Write spec")])
+        .column_widgets("Doing", [rich("Build widget")]);
+    let root: Container<()> = Container::new().padding(16.0).child(board);
+    let Some(snapshot) = render_widget(&root, 540, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "Kanban à cartes riches dessiné");
+    snapshot.assert_golden(golden("kanban_rich"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]

@@ -12,6 +12,7 @@ use std::rc::Rc;
 use frus_core::{Color, Insets, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
+use crate::button::{Button, Variant};
 use crate::interaction::Status;
 use crate::text::Text;
 use crate::theme::Theme;
@@ -37,9 +38,13 @@ fn decode(slot: usize) -> (usize, usize) {
     (slot / STRIDE, slot % STRIDE)
 }
 
-/// Une carte : source **et** cible de glisser-déposer. Peinte comme une tuile surélevée.
+/// Une carte : source **et** cible de glisser-déposer. Peinte comme une tuile surélevée, elle affiche
+/// soit un **libellé** (carte texte), soit un **contenu widget** fourni par l'application (carte riche :
+/// libellé + étiquettes + bouton de suppression…), posé en enfant.
 struct Card<Msg> {
     label: String,
+    /// Contenu **riche** (0 ou 1 widget) : quand présent, la carte l'héberge au lieu du libellé.
+    content: Vec<Box<dyn Widget<Msg>>>,
     /// Emplacement propre (index plat) : sert de `reorder_index` (source saisie **et** cible de dépôt).
     slot: usize,
     from_col: usize,
@@ -49,15 +54,24 @@ struct Card<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Card<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Auto, // étirée à la largeur de la colonne (align Stretch)
-            height: Dimension::Length(CARD_H),
-            ..Default::default()
+        if self.content.is_empty() {
+            // Carte texte : hauteur fixe, libellé peint par la carte.
+            Style { width: Dimension::Auto, height: Dimension::Length(CARD_H), ..Default::default() }
+        } else {
+            // Carte riche : le contenu est un enfant, la carte s'adapte (plancher `CARD_H`), avec marge.
+            Style {
+                width: Dimension::Auto,
+                height: Dimension::Auto,
+                min_height: Dimension::Length(CARD_H),
+                padding: Insets::uniform(8.0),
+                align: Align::Center,
+                ..Default::default()
+            }
         }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &[]
+        &self.content
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -66,8 +80,11 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
         let base = theme.surface.lerp(theme.on_surface, 0.05);
         let fill = theme.state_layer(base, theme.on_surface, &status);
         scene.draw_rect(bounds, fill.fade(o), theme.radius, 1.0, theme.border.fade(o));
-        let ty = bounds.y + (bounds.height - frus_text::line_height(15.0)) * 0.5;
-        scene.text(Point::new(bounds.x + 12.0, ty), self.label.clone(), 15.0, theme.on_surface.fade(o));
+        // Libellé seulement pour une carte **texte** (une carte riche peint son propre contenu).
+        if self.content.is_empty() {
+            let ty = bounds.y + (bounds.height - frus_text::line_height(15.0)) * 0.5;
+            scene.text(Point::new(bounds.x + 12.0, ty), self.label.clone(), 15.0, theme.on_surface.fade(o));
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -171,9 +188,30 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
 ///     .column("Doing", ["Build"])
 ///     .column("Done", ["Kickoff"]);
 /// ```
+/// Fabrique du **contenu riche** d'une carte : rappelée à chaque reconstruction (widget frais), pour
+/// des cartes au-delà du texte (libellé + étiquettes + bouton de suppression…).
+pub type CardFactory<Msg> = Rc<dyn Fn() -> Box<dyn Widget<Msg>>>;
+
+/// Cartes d'une colonne : **texte** simple, ou **widgets** riches (par carte).
+enum ColCards<Msg> {
+    Text(Vec<String>),
+    Widgets(Vec<CardFactory<Msg>>),
+}
+
+impl<Msg> ColCards<Msg> {
+    fn len(&self) -> usize {
+        match self {
+            ColCards::Text(v) => v.len(),
+            ColCards::Widgets(v) => v.len(),
+        }
+    }
+}
+
 pub struct Kanban<Msg = ()> {
     on_move: Option<Rc<dyn Fn(usize, usize, usize, usize) -> Msg>>,
-    columns: Vec<(String, Vec<String>)>,
+    /// Bouton « + Add card » en bas de chaque colonne (jalon 249) : `on_add(col)` à l'ajout.
+    on_add: Option<Rc<dyn Fn(usize) -> Msg>>,
+    columns: Vec<(String, ColCards<Msg>)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -181,12 +219,35 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     /// Crée un tableau ; `on_move(from_col, from_pos, to_col, to_pos)` est émis quand une carte est
     /// **déposée** sur un emplacement (autre carte, ou fin d'une colonne).
     pub fn new(on_move: impl Fn(usize, usize, usize, usize) -> Msg + 'static) -> Self {
-        Self { on_move: Some(Rc::new(on_move)), columns: Vec::new(), children: Vec::new() }
+        Self { on_move: Some(Rc::new(on_move)), on_add: None, columns: Vec::new(), children: Vec::new() }
     }
 
     /// Ajoute une **colonne** titrée avec ses cartes (texte), dans l'ordre.
     pub fn column(mut self, title: impl Into<String>, cards: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.columns.push((title.into(), cards.into_iter().map(Into::into).collect()));
+        let cards = ColCards::Text(cards.into_iter().map(Into::into).collect());
+        self.columns.push((title.into(), cards));
+        self.rebuild();
+        self
+    }
+
+    /// Ajoute une colonne dont chaque carte est un **widget** (carte riche : libellé + étiquettes +
+    /// bouton de suppression…), fourni par une **fabrique** rappelée à chaque reconstruction. La carte
+    /// reste source/cible de glisser-déposer ; ses éléments cliquables (bouton ×…) captent leur clic.
+    pub fn column_widgets(
+        mut self,
+        title: impl Into<String>,
+        cards: impl IntoIterator<Item = Box<dyn Fn() -> Box<dyn Widget<Msg>>>>,
+    ) -> Self {
+        let cards = ColCards::Widgets(cards.into_iter().map(Rc::from).collect());
+        self.columns.push((title.into(), cards));
+        self.rebuild();
+        self
+    }
+
+    /// Ajoute un bouton **« + Add card »** au bas de chaque colonne ; `on_add(col)` au clic (l'app
+    /// ajoute une carte à la colonne). Sans cet appel, aucun bouton d'ajout.
+    pub fn on_add(mut self, on_add: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_add = Some(Rc::new(on_add));
         self.rebuild();
         self
     }
@@ -200,21 +261,40 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             .collect();
     }
 
-    /// Construit une colonne : titre + cartes (chacune source/cible de dépôt) + zone de dépôt finale.
-    fn build_column(&self, col: usize, title: &str, cards: &[String]) -> Box<dyn Widget<Msg>> {
+    /// Construit une colonne : titre + cartes (chacune source/cible de dépôt) + zone de dépôt finale +
+    /// éventuel bouton d'ajout.
+    fn build_column(&self, col: usize, title: &str, cards: &ColCards<Msg>) -> Box<dyn Widget<Msg>> {
         let mut children: Vec<Box<dyn Widget<Msg>>> =
             vec![Box::new(Text::new(title.to_string()).size(16.0))];
-        for (pos, label) in cards.iter().enumerate() {
-            children.push(Box::new(Card {
-                label: label.clone(),
-                slot: kanban_slot(col, pos),
-                from_col: col,
-                from_pos: pos,
-                on_move: self.on_move.clone(),
-            }));
+        let make_card = |pos: usize, content: Vec<Box<dyn Widget<Msg>>>, label: String| Card {
+            label,
+            content,
+            slot: kanban_slot(col, pos),
+            from_col: col,
+            from_pos: pos,
+            on_move: self.on_move.clone(),
+        };
+        match cards {
+            ColCards::Text(labels) => {
+                for (pos, label) in labels.iter().enumerate() {
+                    children.push(Box::new(make_card(pos, Vec::new(), label.clone())));
+                }
+            }
+            ColCards::Widgets(factories) => {
+                for (pos, make) in factories.iter().enumerate() {
+                    children.push(Box::new(make_card(pos, vec![make()], String::new())));
+                }
+            }
         }
         // Emplacement d'insertion en fin de colonne (et cible d'une colonne vide).
         children.push(Box::new(DropZone { slot: kanban_slot(col, cards.len()) }));
+        // Bouton « + Add card » (jalon 249), si demandé.
+        if let Some(on_add) = &self.on_add {
+            let on_add = on_add.clone();
+            children.push(Box::new(
+                Button::new("+ Add card").variant(Variant::Secondary).size(13.0).on_press(on_add(col)),
+            ));
+        }
         Box::new(Column { children })
     }
 }
@@ -248,6 +328,18 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Move(usize, usize, usize, usize),
+        Add(usize),
+        Del(usize),
+    }
+
+    /// Collecte, en ordre d'arbre, tous les messages `on_click` non nuls d'un sous-arbre.
+    fn collect_clicks(w: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
+        if let Some(m) = w.on_click() {
+            out.push(m);
+        }
+        for c in w.children() {
+            collect_clicks(c.as_ref(), out);
+        }
     }
 
     /// Trouve la première carte (widget avec `reorder_index`) d'un sous-arbre et renvoie
@@ -295,6 +387,28 @@ mod tests {
         let board = Kanban::new(Msg::Move).column("A", ["x"]);
         let col0 = &Widget::<Msg>::children(&board)[0];
         assert_eq!(first_axis(col0.as_ref()), Some(ReorderAxis::Vertical), "les cartes glissent verticalement");
+    }
+
+    #[test]
+    fn rich_cards_host_content_and_add_button_is_present() {
+        // Colonne **riche** : chaque carte héberge un bouton × (suppression) ; + un bouton d'ajout.
+        let cards: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..2)
+            .map(|i| {
+                Box::new(move || Box::new(Button::new("x").on_press(Msg::Del(i))) as Box<dyn Widget<Msg>>)
+                    as Box<dyn Fn() -> Box<dyn Widget<Msg>>>
+            })
+            .collect();
+        let board = Kanban::new(Msg::Move).on_add(Msg::Add).column_widgets("Col", cards);
+        let col0 = &Widget::<Msg>::children(&board)[0];
+        // La carte riche reste **réordonnable** (glisser câblé) et route un Move.
+        let (idx, moved) = first_card(col0.as_ref(), kanban_slot(0, 1)).expect("une carte");
+        assert_eq!(idx, kanban_slot(0, 0), "la carte riche garde son index plat");
+        assert_eq!(moved, Some(Msg::Move(0, 0, 0, 1)), "et route toujours le déplacement");
+        // Les clics accessibles incluent la suppression (× de chaque carte) et l'ajout (bouton colonne).
+        let mut clicks = Vec::new();
+        collect_clicks(col0.as_ref(), &mut clicks);
+        assert!(clicks.contains(&Msg::Del(0)) && clicks.contains(&Msg::Del(1)), "× de suppression par carte");
+        assert!(clicks.contains(&Msg::Add(0)), "bouton + Add card de la colonne");
     }
 
     #[test]
