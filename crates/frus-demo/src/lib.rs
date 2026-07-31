@@ -444,6 +444,8 @@ struct TodoApp {
     chart_kind: usize,
     /// Détail **épinglé** d'un point cliqué (`série · catégorie = valeur`), le cas échéant (jalon 221).
     chart_pin: Option<String>,
+    /// Point/barre **sélectionné** `(catégorie, série)`, mis en évidence dans le graphique (jalon 223).
+    chart_sel: Option<(usize, usize)>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -806,10 +808,12 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::ChartPoint(cat, s) => {
-            // Épingle « série · catégorie = valeur » du point cliqué (index bornés).
+            // Épingle « série · catégorie = valeur » du point cliqué (index bornés) et retient la
+            // sélection `(catégorie, série)` pour la mettre en évidence dans le graphique (jalon 223).
             if let (Some((name, vals)), Some(label)) = (CHART_SERIES.get(s), CHART_CATS.get(cat)) {
                 if let Some(v) = vals.get(cat) {
                     app.chart_pin = Some(format!("{name} · {label} = {}", *v as i64));
+                    app.chart_sel = Some((cat, s));
                 }
             }
             Command::none()
@@ -1392,8 +1396,13 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             c = c.stacked(true);
         }
         if legend {
-            // Le graphique principal : légende cliquable + points cliquables (jalon 221).
-            c = c.legend(true).on_legend(Msg::ChartToggleSeries).on_point(Msg::ChartPoint);
+            // Le graphique principal : légende cliquable + points cliquables (jalon 221) + point
+            // sélectionné mis en évidence (jalon 223).
+            c = c
+                .legend(true)
+                .on_legend(Msg::ChartToggleSeries)
+                .on_point(Msg::ChartPoint)
+                .selected(app.chart_sel);
         }
         Box::new(c)
     } else {
@@ -1408,8 +1417,13 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             c = c.stacked(true);
         }
         if legend {
-            // Le graphique principal : légende cliquable + barres cliquables (jalon 222).
-            c = c.legend(true).on_legend(Msg::ChartToggleSeries).on_point(Msg::ChartPoint);
+            // Le graphique principal : légende cliquable + barres cliquables (jalon 222) + barre
+            // sélectionnée mise en évidence (jalon 223).
+            c = c
+                .legend(true)
+                .on_legend(Msg::ChartToggleSeries)
+                .on_point(Msg::ChartPoint)
+                .selected(app.chart_sel);
         }
         Box::new(c)
     }
@@ -2648,6 +2662,20 @@ mod tests {
             y += 4.0;
         }
         assert!(hit, "une barre du tableau de bord emet ChartPoint");
+    }
+
+    #[test]
+    fn clicking_a_point_marks_it_selected() {
+        // Le clic épingle non seulement le détail (jalon 221) mais aussi la sélection `(cat, série)`
+        // mise en évidence dans le graphique (jalon 223).
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Charts));
+        assert_eq!(app.chart_sel, None, "rien de selectionne au depart");
+        reduce(&mut app, Msg::ChartPoint(3, 0));
+        assert_eq!(app.chart_sel, Some((3, 0)), "le point cliqué devient la selection");
+        reduce(&mut app, Msg::ChartPoint(1, 1));
+        assert_eq!(app.chart_sel, Some((1, 1)), "la selection suit le dernier clic");
+        assert!(primitive_count(&app) > 0, "l'ecran avec point mis en evidence se rend");
     }
 
     #[test]

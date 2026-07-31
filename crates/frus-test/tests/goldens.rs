@@ -5,8 +5,8 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, Button, Chip, Container, DateTimePicker, Dropdown, Flex, IconName,
-    LineChart, Menu, RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
+    Autocomplete, Avatar, BarChart, Button, Chip, Container, DateTimePicker, Dropdown, Flex,
+    IconName, LineChart, Menu, RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -1056,6 +1056,62 @@ fn line_chart_hidden_matches_golden() {
     };
     assert!(snapshot.lit_pixels(40) > 100, "série masquée : une seule courbe");
     snapshot.assert_golden(golden("line_chart_hidden"));
+}
+
+/// **Point épinglé (jalon 223)** : deux séries en lignes, le point `(Thu, Sales)` **sélectionné**
+/// (`selected(Some((3, 0)))`) reçoit un halo + un anneau d'accent persistants (sans survol).
+/// Reproduit son golden.
+#[test]
+fn line_chart_selected_matches_golden() {
+    let theme = Theme::dark();
+    let chart = LineChart::<()>::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .name("Sales")
+    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .legend(true)
+    .selected(Some((3, 0)));
+    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "point épinglé mis en évidence");
+    snapshot.assert_golden(golden("line_chart_selected"));
+}
+
+/// **Barre épinglée (jalon 223)** : deux séries en barres groupées, la barre `(Thu, Sales)`
+/// **sélectionnée** (`selected(Some((3, 0)))`) reçoit un anneau d'accent persistant. Reproduit son
+/// golden.
+#[test]
+fn bar_chart_selected_matches_golden() {
+    let theme = Theme::dark();
+    let chart = BarChart::<()>::new([
+        ("Mon", 3.0),
+        ("Tue", 7.0),
+        ("Wed", 5.0),
+        ("Thu", 8.0),
+        ("Fri", 4.0),
+    ])
+    .height(200.0)
+    .grid(4)
+    .name("Sales")
+    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .legend(true)
+    .selected(Some((3, 0)));
+    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 100, "barre épinglée mise en évidence");
+    snapshot.assert_golden(golden("bar_chart_selected"));
 }
 
 /// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant

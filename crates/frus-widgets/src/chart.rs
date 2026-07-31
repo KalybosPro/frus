@@ -56,6 +56,9 @@ pub struct BarChart<Msg = ()> {
     stacked: bool,
     /// Message émis au clic sur une **barre** `(catégorie, série)` — jalon 222.
     on_point: Option<Box<dyn Fn(usize, usize) -> Msg>>,
+    /// Barre/strate **épinglée** `(catégorie, série)`, mise en évidence par un anneau persistant —
+    /// jalon 223.
+    selected: Option<(usize, usize)>,
 }
 
 impl<Msg> BarChart<Msg> {
@@ -73,6 +76,7 @@ impl<Msg> BarChart<Msg> {
             on_legend: None,
             stacked: false,
             on_point: None,
+            selected: None,
         }
     }
 
@@ -142,6 +146,13 @@ impl<Msg> BarChart<Msg> {
     /// strate empilée) visible. Défaut : aucun — jalon 222.
     pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
         self.on_point = Some(Box::new(on_point));
+        self
+    }
+
+    /// **Épingle** une barre/strate `(catégorie, série)` : elle reçoit un anneau d'accent persistant
+    /// (met en évidence la sélection courante, façon détail cliqué). `None` = rien — jalon 223.
+    pub fn selected(mut self, selected: Option<(usize, usize)>) -> Self {
+        self.selected = selected;
         self
     }
 
@@ -402,6 +413,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         let group_w = slot * BAR_FILL;
         let bar_w = group_w / s as f32;
         let inner = if s == 1 { 1.0 } else { 0.86 };
+        // Rectangle de la barre/strate épinglée, capturé pour tracer son anneau après coup (jalon 223).
+        let mut sel_rect: Option<Rect> = None;
         for i in 0..n {
             let cx = plot_left + slot * (i as f32 + 0.5);
             if stacked {
@@ -415,13 +428,11 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     let value = vals.get(i).copied().unwrap_or(0.0);
                     let y_bottom = baseline_y - (lower / max) * plot_h;
                     let y_top = baseline_y - ((lower + value) / max) * plot_h;
-                    scene.draw_rect(
-                        Rect::new(sbx, y_top, group_w, y_bottom - y_top),
-                        color.fade(o),
-                        0.0,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
+                    let rect = Rect::new(sbx, y_top, group_w, y_bottom - y_top);
+                    scene.draw_rect(rect, color.fade(o), 0.0, 0.0, Color::TRANSPARENT);
+                    if self.selected == Some((i, j)) {
+                        sel_rect = Some(rect);
+                    }
                     lower += value;
                 }
             } else {
@@ -434,13 +445,11 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     let h = (value / max) * plot_h;
                     let draw_w = bar_w * inner;
                     let bx = group_left + j as f32 * bar_w + (bar_w - draw_w) * 0.5;
-                    scene.draw_rect(
-                        Rect::new(bx, baseline_y - h, draw_w, h),
-                        color.fade(o),
-                        4.0,
-                        0.0,
-                        Color::TRANSPARENT,
-                    );
+                    let rect = Rect::new(bx, baseline_y - h, draw_w, h);
+                    scene.draw_rect(rect, color.fade(o), 4.0, 0.0, Color::TRANSPARENT);
+                    if self.selected == Some((i, j)) {
+                        sel_rect = Some(rect);
+                    }
                     // Valeur au-dessus (série unique seulement, pour éviter la surcharge).
                     if single {
                         let vs = format_value(value);
@@ -462,6 +471,18 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                 label.clone(),
                 LABEL_SIZE,
                 theme.muted.fade(o),
+            );
+        }
+
+        // Barre/strate épinglée (jalon 223) : anneau d'accent persistant, légèrement dilaté autour
+        // du rectangle, dans une couleur contrastée (indépendant du survol).
+        if let Some(r) = sel_rect {
+            scene.draw_rect(
+                Rect::new(r.x - 2.5, r.y - 2.5, r.width + 5.0, r.height + 5.0),
+                Color::TRANSPARENT,
+                5.0,
+                2.0,
+                theme.on_surface.fade(o),
             );
         }
 
@@ -654,6 +675,9 @@ pub struct LineChart<Msg = ()> {
     animated: bool,
     /// Message émis au clic sur un **point** `(catégorie, série)` — jalon 221.
     on_point: Option<Box<dyn Fn(usize, usize) -> Msg>>,
+    /// Point **épinglé** `(catégorie, série)`, mis en évidence par un halo + anneau persistants —
+    /// jalon 223.
+    selected: Option<(usize, usize)>,
 }
 
 impl<Msg> LineChart<Msg> {
@@ -673,6 +697,7 @@ impl<Msg> LineChart<Msg> {
             on_legend: None,
             animated: false,
             on_point: None,
+            selected: None,
         }
     }
 
@@ -756,6 +781,13 @@ impl<Msg> LineChart<Msg> {
     /// (des séries visibles). Défaut : aucun — jalon 221.
     pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
         self.on_point = Some(Box::new(on_point));
+        self
+    }
+
+    /// **Épingle** un point `(catégorie, série)` : il reçoit un halo + un anneau d'accent persistants
+    /// (met en évidence la sélection courante, façon détail cliqué). `None` = rien — jalon 223.
+    pub fn selected(mut self, selected: Option<(usize, usize)>) -> Self {
+        self.selected = selected;
         self
     }
 
@@ -913,6 +945,19 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                             theme.on_surface.fade(o),
                         );
                     }
+                }
+            }
+        }
+
+        // Point épinglé (jalon 223) : halo + anneau d'accent persistants sur le marqueur sélectionné
+        // (hors empilé et hors série masquée), indépendant du survol.
+        if let Some((sc, ss)) = self.selected {
+            if !stacked && ss < series.len() && !self.hidden.contains(&ss) && sc < n {
+                let (color, _, vals) = series[ss];
+                if let Some(&v) = vals.get(sc) {
+                    let p = pt(sc, v);
+                    scene.fill_path(&Path::circle(p, MARKER_R + 6.0), color.fade(o * 0.22));
+                    scene.stroke_path(&Path::circle(p, MARKER_R + 3.0), color.fade(o), 2.0);
                 }
             }
         }
@@ -1213,6 +1258,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn selected_bar_draws_a_persistent_ring() {
+        // La barre épinglée reçoit un rectangle à **bordure** (les barres normales ont une bordure 0).
+        let rings = |chart: &BarChart| {
+            paint_chart(chart, 300.0, 200.0)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Rect { border_width, .. } if *border_width > 0.5))
+                .count()
+        };
+        assert_eq!(rings(&BarChart::new([("A", 2.0), ("B", 6.0)])), 0, "aucun anneau sans sélection");
+        assert_eq!(
+            rings(&BarChart::new([("A", 2.0), ("B", 6.0)]).selected(Some((1, 0)))),
+            1,
+            "un anneau sur la barre épinglée"
+        );
+        // Série masquée épinglée : sa barre n'est pas tracée, donc pas d'anneau.
+        let hidden = BarChart::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
+            .hidden([1])
+            .selected(Some((0, 1)));
+        assert_eq!(rings(&hidden), 0, "pas d'anneau sur une série masquée");
+    }
+
     fn paint_line(chart: &LineChart, w: f32, h: f32) -> Vec<Primitive> {
         let mut scene = Scene::new();
         Widget::<()>::paint(
@@ -1385,6 +1453,30 @@ mod tests {
             None,
             "point d'une série masquée : pas de clic"
         );
+    }
+
+    #[test]
+    fn selected_point_draws_a_persistent_ring() {
+        // Un anneau (cercle **contour**, sans segment droit) apparaît sur le point épinglé, sans survol.
+        let rings = |chart: &LineChart| {
+            paint_line(chart, 300.0, 200.0)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { stroke: Some(_), fill: None, path, .. }
+                    if !path.verbs().iter().any(|v| matches!(v, frus_core::PathVerb::LineTo(_)))))
+                .count()
+        };
+        assert_eq!(rings(&LineChart::new([("A", 2.0), ("B", 6.0)])), 0, "aucun anneau sans sélection");
+        assert_eq!(
+            rings(&LineChart::new([("A", 2.0), ("B", 6.0)]).selected(Some((0, 0)))),
+            1,
+            "un anneau sur le point épinglé"
+        );
+        // Série masquée épinglée : pas d'anneau.
+        let hidden = LineChart::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
+            .hidden([0])
+            .selected(Some((0, 0)));
+        assert_eq!(rings(&hidden), 0, "pas d'anneau sur une série masquée");
     }
 
     #[test]
