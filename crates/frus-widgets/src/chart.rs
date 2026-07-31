@@ -475,15 +475,20 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     if self.selected == Some((i, j)) {
                         sel_rect = Some(rect);
                     }
-                    // En 100 %, la part (%) est écrite au centre de la strate si elle est assez
-                    // haute pour l'accueillir (jalon 227) ; texte lisible sur fond saturé.
+                    // Libellé centré dans la strate si elle est assez haute pour l'accueillir : la
+                    // part (%) en 100 % (jalon 227), la valeur brute en empilé absolu (jalon 229).
+                    // Texte lisible sur fond saturé.
                     let seg_h = y_bottom - y_top;
-                    if normalized && seg_h >= STRATA_LABEL_SIZE + 4.0 {
-                        let pct = format!("{}%", (value / denom * 100.0).round() as i64);
-                        let pw = frus_text::measure(&pct, STRATA_LABEL_SIZE).width;
+                    if seg_h >= STRATA_LABEL_SIZE + 4.0 {
+                        let label = if normalized {
+                            format!("{}%", (value / denom * 100.0).round() as i64)
+                        } else {
+                            format_value(value)
+                        };
+                        let lw = frus_text::measure(&label, STRATA_LABEL_SIZE).width;
                         scene.text(
-                            Point::new(cx - pw * 0.5, (y_top + y_bottom) * 0.5 - STRATA_LABEL_SIZE * 0.5),
-                            pct,
+                            Point::new(cx - lw * 0.5, (y_top + y_bottom) * 0.5 - STRATA_LABEL_SIZE * 0.5),
+                            label,
                             STRATA_LABEL_SIZE,
                             theme.on_primary.fade(o * 0.95),
                         );
@@ -1397,6 +1402,20 @@ mod tests {
             !norm.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "5")),
             "pas de total brut en 100%"
         );
+    }
+
+    #[test]
+    fn stacked_absolute_bars_label_each_strata_with_its_value() {
+        // Empilé absolu : chaque strate assez haute porte sa valeur brute (parité avec le % en 100 %).
+        let chart = BarChart::new([("A", 3.0), ("B", 5.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 6.0])
+            .stacked(true);
+        let prims = paint_chart(&chart, 300.0, 260.0);
+        let has = |t: &str| prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t));
+        // Valeurs de strates : A = 3 et 4, B = 5 et 6.
+        assert!(has("3") && has("4") && has("6"), "chaque strate porte sa valeur");
+        // Le total de colonne (A = 7, B = 11) reste au sommet (jalon 228).
+        assert!(has("7") && has("11"), "total de colonne conservé");
     }
 
     #[test]
