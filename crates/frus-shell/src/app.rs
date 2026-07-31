@@ -1721,9 +1721,24 @@ impl<A: Application> App<A> {
         if let Some(Drag::Reorder { id, from, moved: true, .. }) = &ended {
             let target = self.ui.as_ref().and_then(|ui| ui.reorderable_at(self.cursor));
             let tree = self.tree.as_ref();
-            let to = target
+            let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
                 .and_then(|widget| widget.reorder_index());
+            // Moitié **basse** d'une cible verticale survolée → insertion **après** (index +1) :
+            // l'emplacement effectif de dépôt suit la ligne d'insertion peinte. Sans effet à
+            // l'horizontale (colonnes de `Table`) ni hors cible.
+            let to = match (base, target) {
+                (Some(base), Some(tid)) => {
+                    let after = self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.widget_rect(tid))
+                        .map(|rect| self.reorder_insert_after(tid, rect))
+                        .unwrap_or(false);
+                    Some(base + after as usize)
+                }
+                _ => None,
+            };
             let message = match to {
                 Some(to) if to != *from => tree
                     .and_then(|t| find_widget(t.as_ref(), *id))
@@ -2197,13 +2212,29 @@ impl<A: Application> App<A> {
         draw_ghost_card(scene, theme, src.translate(gx, gy), &ghost);
     }
 
-    /// Ligne d'**insertion** (aperçu vertical) : un fin bandeau au bord supérieur de l'emplacement
-    /// réordonnable survolé (carte ou zone de dépôt). `None` si le curseur n'est pas sur une cible.
+    /// Ligne d'**insertion** (aperçu vertical) : un fin bandeau au bord de l'emplacement réordonnable
+    /// survolé (carte ou zone de dépôt) — **supérieur** si le curseur est dans sa moitié haute
+    /// (insertion **avant**), **inférieur** dans sa moitié basse (insertion **après**). `None` si le
+    /// curseur n'est pas sur une cible.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
         // Emplacement réordonnable (carte/zone de dépôt) sous le curseur, via le registre dédié.
         let target = self.ui.as_ref()?.reorderable_at(self.cursor)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
-        Some(drop_insertion_line(rect, thickness))
+        Some(drop_insertion_line(rect, thickness, self.reorder_insert_after(target, rect)))
+    }
+
+    /// Pour un emplacement à réordonnancement **vertical**, indique si le curseur est dans sa moitié
+    /// **basse** — donc si l'insertion se fait **après** lui (index +1 : entre cette carte et la
+    /// suivante). Toujours `false` sur l'axe **horizontal** (les colonnes de `Table` gardent leur
+    /// logique de dépôt inchangée). C'est le pendant, côté **routage**, de la ligne d'insertion.
+    fn reorder_insert_after(&self, target: WidgetId, rect: Rect) -> bool {
+        let vertical = self
+            .tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), target))
+            .map(|w| matches!(w.reorder_axis(), ReorderAxis::Vertical))
+            .unwrap_or(false);
+        vertical && rect.height > 0.0 && self.cursor.y > rect.y + rect.height * 0.5
     }
 
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
@@ -2459,10 +2490,12 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
 }
 
 /// Géométrie de la **ligne d'insertion** d'un aperçu de réordonnancement **vertical** : un fin
-/// bandeau (épaisseur `thickness`) centré sur le **bord supérieur** de l'emplacement cible, sur toute
-/// sa largeur. Fonction pure — testable sans GPU.
-fn drop_insertion_line(target: Rect, thickness: f32) -> Rect {
-    Rect::new(target.x, target.y - thickness * 0.5, target.width, thickness)
+/// bandeau (épaisseur `thickness`) centré sur le bord de la cible **où se fera l'insertion** — bord
+/// **supérieur** (insertion avant, moitié haute survolée) ou **inférieur** (insertion après,
+/// `after = true`, moitié basse survolée), sur toute la largeur. Fonction pure — testable sans GPU.
+fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
+    let edge = if after { target.y + target.height } else { target.y };
+    Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
 }
 
 #[cfg(test)]
@@ -2473,11 +2506,23 @@ mod tests {
 
     #[test]
     fn insertion_line_sits_on_the_target_top_edge() {
-        // Bandeau d'épaisseur 4 centré sur le bord supérieur (y=100) d'une cible large de 200.
-        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0);
+        // Moitié haute survolée → insertion **avant** : bandeau d'épaisseur 4 centré sur le bord
+        // supérieur (y=100) d'une cible large de 200.
+        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, false);
         assert_eq!(line.x, 20.0, "aligné à gauche de la cible");
         assert_eq!(line.width, 200.0, "toute la largeur de la cible");
         assert_eq!(line.y, 98.0, "centré sur le bord supérieur (100 - 4/2)");
+        assert_eq!(line.height, 4.0);
+    }
+
+    #[test]
+    fn insertion_line_sits_on_the_target_bottom_edge_when_inserting_after() {
+        // Moitié basse survolée → insertion **après** : le bandeau glisse sur le bord **inférieur**
+        // (y = 100 + 44 = 144, centré → 142). Même largeur, même épaisseur.
+        let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, true);
+        assert_eq!(line.x, 20.0, "toujours aligné à gauche");
+        assert_eq!(line.width, 200.0, "toute la largeur de la cible");
+        assert_eq!(line.y, 142.0, "centré sur le bord inférieur (144 - 4/2)");
         assert_eq!(line.height, 4.0);
     }
 
