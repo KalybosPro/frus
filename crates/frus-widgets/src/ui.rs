@@ -116,6 +116,9 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.layout_builder().is_some()
         || widget.stack()
         || widget.overlay().is_some()
+        // Un réordonnable (carte Kanban, en-tête glissable) : ses bornes alimentent le registre
+        // des réordonnables, non caché — on ne met donc pas son sous-arbre en cache de peinture.
+        || widget.reorder_index().is_some()
     {
         return None;
     }
@@ -165,6 +168,9 @@ pub struct Ui<Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    /// **Réordonnables** (en-têtes de colonne, cartes Kanban) : (id, bornes visibles). Repérés
+    /// indépendamment du clic — une carte n'est pas cliquable mais reste saisissable/cible de dépôt.
+    reorderables: Vec<(WidgetId, Rect)>,
     /// Fenêtres interactives (`InteractiveViewer`) : (id, fenêtre écran). Le shell y
     /// route le pan (glisser) et le zoom (molette / pincement).
     interactives: Vec<(WidgetId, Rect)>,
@@ -366,6 +372,12 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
+    /// Widget **réordonnable** le plus au-dessus sous `point` : son id. Base du glisser-déposer de
+    /// réordonnancement (source à l'appui, cible au dépôt) — indépendant de la cliquabilité.
+    pub fn reorderable_at(&self, point: Point) -> Option<WidgetId> {
+        self.reorderables.iter().rev().find(|(_, rect)| rect.contains(point)).map(|(id, _)| *id)
+    }
+
     /// Fenêtre **interactive** (`InteractiveViewer`) la plus au-dessus sous `point` :
     /// (id, sa fenêtre écran). Le shell y route le pan et le zoom.
     pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
@@ -510,6 +522,7 @@ struct Builder<'a, Msg> {
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    reorderables: Vec<(WidgetId, Rect)>,
     interactives: Vec<(WidgetId, Rect)>,
     /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
     /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
@@ -759,13 +772,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 matrix = matrix.then(Affine::rotation(angle).about(pivot_of(pivot_align)));
             }
 
-            let (p0, h0, lp0, f0, s0, d0, sem0) = (
+            let (p0, h0, lp0, f0, s0, d0, r0, sem0) = (
                 self.scene.primitives().len(),
                 self.hits.len(),
                 self.long_presses.len(),
                 self.focusables.len(),
                 self.scrollables.len(),
                 self.draggables.len(),
+                self.reorderables.len(),
                 self.semantics.len(),
             );
             self.walk_node(widget, id, translation, clip, rects, index);
@@ -802,6 +816,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     *r = matrix.apply_rect(*r);
                 }
                 for (_, r) in &mut self.draggables[d0..] {
+                    *r = matrix.apply_rect(*r);
+                }
+                for (_, r) in &mut self.reorderables[r0..] {
                     *r = matrix.apply_rect(*r);
                 }
                 for (_, r, _) in &mut self.semantics[sem0..] {
@@ -867,13 +884,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         matrix: Affine,
         owner: WidgetId,
     ) {
-        let (p0, h0, lp0, f0, s0, d0, sem0) = (
+        let (p0, h0, lp0, f0, s0, d0, r0, sem0) = (
             self.scene.primitives().len(),
             self.hits.len(),
             self.long_presses.len(),
             self.focusables.len(),
             self.scrollables.len(),
             self.draggables.len(),
+            self.reorderables.len(),
             self.semantics.len(),
         );
         let mut child_index = 0;
@@ -902,6 +920,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 *r = matrix.apply_rect(*r);
             }
             for (_, r) in &mut self.draggables[d0..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r) in &mut self.reorderables[r0..] {
                 *r = matrix.apply_rect(*r);
             }
             for (_, r, _) in &mut self.semantics[sem0..] {
@@ -954,6 +975,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             if widget.draggable() {
                 self.draggables.push((id, visible));
+            }
+            if widget.reorder_index().is_some() {
+                self.reorderables.push((id, visible));
             }
             // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
             if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
@@ -1395,6 +1419,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if widget.draggable() {
                 self.draggables.push((id, visible));
             }
+            if widget.reorder_index().is_some() {
+                self.reorderables.push((id, visible));
+            }
             // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
             if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
                 self.semantics.push((id, visible, sem));
@@ -1662,6 +1689,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
         draggables: Vec::new(),
+        reorderables: Vec::new(),
         interactives: Vec::new(),
         overlays: Vec::new(),
         wants_animation: false,
@@ -1705,6 +1733,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
+        reorderables: builder.reorderables,
         interactives: builder.interactives,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
@@ -2350,6 +2379,22 @@ mod tests {
         rt.scroll.insert(sid, (0.0, 50.0));
         let ui2 = build_ui(&tree, Size::new(200.0, 100.0), &rt, &Theme::default());
         assert_eq!(ui2.first_rect().0.y, -50.0);
+    }
+
+    #[test]
+    fn kanban_cards_are_reorderable_without_being_clickable() {
+        use crate::Kanban;
+        let board = Kanban::new(|_, _, _, _| Msg::A).column("To do", ["Card A"]);
+        let rt = Runtime::default();
+        let ui = build_ui(&board, Size::new(400.0, 300.0), &rt, &Theme::default());
+        // La carte **et** la zone de dépôt sont enregistrées comme réordonnables.
+        assert!(ui.reorderables.len() >= 2, "carte + zone de dépôt dans le registre des réordonnables");
+        // Un point sur la carte est **saisissable** (réordonnable) mais **non cliquable** — c'est tout
+        // l'intérêt du registre : sans lui, `ui.hit` seul ne trouverait pas la carte.
+        let card = ui.reorderables[0].1;
+        let p = Point::new(card.x + 5.0, card.y + 5.0);
+        assert!(ui.reorderable_at(p).is_some(), "la carte est saisissable au point");
+        assert!(ui.hit(p).is_none(), "…mais pas cliquable (absente du registre de hits)");
     }
 
     impl<Msg: Clone> Ui<Msg> {

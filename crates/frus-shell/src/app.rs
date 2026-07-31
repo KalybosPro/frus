@@ -1719,7 +1719,7 @@ impl<A: Application> App<A> {
         // Réordonnancement : au dépôt, la colonne cible est l'en-tête réordonnable
         // sous le curseur ; on route `on_reorder(from, to)` de l'en-tête saisi.
         if let Some(Drag::Reorder { id, from, moved: true, .. }) = &ended {
-            let target = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+            let target = self.ui.as_ref().and_then(|ui| ui.reorderable_at(self.cursor));
             let tree = self.tree.as_ref();
             let to = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
@@ -2116,11 +2116,10 @@ impl<A: Application> App<A> {
 
     /// Applique un glissement de widget : calcule la fraction horizontale et
     /// route le message produit par `on_drag`.
-    /// En-tête **réordonnable** le plus au-dessus sous `point` : `(id, colonne)`.
-    /// Réutilise la table de hit-test (les en-têtes triables sont cliquables) et lit
-    /// leur index de colonne dans l'arbre.
+    /// Widget **réordonnable** le plus au-dessus sous `point` : `(id, index plat)`. Utilise le registre
+    /// des réordonnables (indépendant du clic) — donc aussi les cartes/zones Kanban, non cliquables.
     fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize)> {
-        let id = self.ui.as_ref()?.hit(point)?;
+        let id = self.ui.as_ref()?.reorderable_at(point)?;
         let from = self
             .tree
             .as_ref()
@@ -2192,10 +2191,8 @@ impl<A: Application> App<A> {
     /// Ligne d'**insertion** (aperçu vertical) : un fin bandeau au bord supérieur de l'emplacement
     /// réordonnable survolé (carte ou zone de dépôt). `None` si le curseur n'est pas sur une cible.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
-        let target = self.ui.as_ref()?.hit(self.cursor)?;
-        let tree = self.tree.as_ref()?;
-        // Seulement au-dessus d'un emplacement réordonnable (carte/zone de dépôt).
-        find_widget(tree.as_ref(), target)?.reorder_index()?;
+        // Emplacement réordonnable (carte/zone de dépôt) sous le curseur, via le registre dédié.
+        let target = self.ui.as_ref()?.reorderable_at(self.cursor)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
         Some(drop_insertion_line(rect, thickness))
     }
