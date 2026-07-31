@@ -302,6 +302,8 @@ enum Msg {
     DataPage(usize),
     /// Change la taille de page du tableau de données (jalon 237).
     DataPageSize(usize),
+    /// Clic sur une ligne du tableau de données : (dé)sélectionne la ligne **source** (jalon 239).
+    DataSelectRow(usize),
     /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
     SetWeekdaysOnly(bool),
     /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
@@ -470,6 +472,9 @@ struct TodoApp {
     data_page: usize,
     /// Taille de page du tableau de données ; `0` = défaut (jalon 237).
     data_page_size: usize,
+    /// Ligne **source** sélectionnée du tableau de données ; `None` = aucune (jalon 239). Le
+    /// `DataTable` traduit cet index d'origine en position surlignée à travers tri/pagination.
+    data_selected: Option<usize>,
 }
 
 fn current_route(app: &TodoApp) -> Route {
@@ -853,6 +858,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::DataPageSize(s) => {
             app.data_page_size = s;
             app.data_page = 1; // changer la taille ramène à la première page
+            Command::none()
+        }
+        Msg::DataSelectRow(i) => {
+            // Re-clic sur la ligne déjà sélectionnée = désélection (bascule).
+            app.data_selected = if app.data_selected == Some(i) { None } else { Some(i) };
             Command::none()
         }
         Msg::SetWeekdaysOnly(on) => {
@@ -1451,15 +1461,25 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let mut table: DataTable<Msg> = DataTable::new(["Name", "Role", "Score"], rows)
         .column_widths(&[200.0, 180.0, 100.0])
         .on_sort(Msg::DataSort)
+        .on_select_row(Msg::DataSelectRow)
         .paginated(page, per, Msg::DataPage)
         .page_sizes(&[5, 10], Msg::DataPageSize);
     if let Some((col, asc)) = app.data_sort {
         table = table.sorted(col, asc);
     }
-    let hint = text("Click a header to sort; the DataTable sorts and paginates itself.")
+    // Surligne la ligne **source** sélectionnée (le `DataTable` la place à sa position triée).
+    if let Some(i) = app.data_selected {
+        table = table.selected(&[i]);
+    }
+    let hint = text("Click a header to sort, or a row to select; the DataTable handles both itself.")
         .size(13.0)
         .color(theme.muted);
-    let body = column![table, hint].gap(16.0).padding(24.0);
+    // Détail de la ligne sélectionnée : on la lit dans les données **source** par son index.
+    let detail = match app.data_selected.and_then(|i| DATA_PEOPLE.get(i)) {
+        Some((n, r, s)) => text(format!("Selected: {n} — {r} (score {s})")).size(15.0).color(theme.on_surface),
+        None => text("No row selected.").size(15.0).color(theme.muted),
+    };
+    let body = column![table, detail, hint].gap(16.0).padding(24.0);
     let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2889,6 +2909,15 @@ mod tests {
         assert_eq!(app.data_page_size, 10);
         assert_eq!(app.data_page, 1, "changer la taille ramene a la page 1");
         assert!(primitive_count(&app) > 0, "se rend apres tri/pagination");
+        // Sélection de ligne : un clic sélectionne la ligne **source**, re-clic désélectionne.
+        assert_eq!(app.data_selected, None, "aucune ligne au depart");
+        reduce(&mut app, Msg::DataSelectRow(3));
+        assert_eq!(app.data_selected, Some(3), "clic = ligne source selectionnee");
+        reduce(&mut app, Msg::DataSelectRow(7));
+        assert_eq!(app.data_selected, Some(7), "clic ailleurs = deplace la selection");
+        reduce(&mut app, Msg::DataSelectRow(7));
+        assert_eq!(app.data_selected, None, "re-clic = deselection");
+        assert!(primitive_count(&app) > 0, "se rend avec detail de ligne");
     }
 
     #[test]

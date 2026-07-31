@@ -96,6 +96,11 @@ pub struct DataTable<Msg = ()> {
     /// Tailles de page proposées + rappel au changement (sélecteur du pied) — jalon 236.
     page_sizes: Vec<usize>,
     on_page_size: Option<Rc<dyn Fn(usize) -> Msg>>,
+    /// Sélection de ligne (jalon 239) : rappel au clic + lignes surlignées. Les index sont ceux
+    /// des **lignes source** (avant tri/pagination) — le `DataTable` fait la traduction avec la
+    /// tranche affichée, exactement comme il le fait déjà pour le tri et la page.
+    on_select: Option<Rc<dyn Fn(usize) -> Msg>>,
+    selected: Vec<usize>,
     /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
     /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
@@ -120,6 +125,8 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             on_page: None,
             page_sizes: Vec::new(),
             on_page_size: None,
+            on_select: None,
+            selected: Vec::new(),
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -176,23 +183,64 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
+    /// Rend les lignes **cliquables** : `on_select_row(ligne_source)` au clic sur une ligne.
+    /// L'index passé est celui de la **ligne source** (avant tri/pagination) — le `DataTable`
+    /// traduit la position affichée en index d'origine.
+    pub fn on_select_row(mut self, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_select = Some(Rc::new(on_select));
+        self.rebuild();
+        self
+    }
+
+    /// Lignes **sélectionnées** (surlignées), désignées par leur index de **ligne source**. Le
+    /// `DataTable` ne surligne que celles visibles dans la tranche courante.
+    pub fn selected(mut self, rows: &[usize]) -> Self {
+        self.selected = rows.to_vec();
+        self.rebuild();
+        self
+    }
+
+    /// Ordre des **index de lignes source** après tri (stable) ; identité si aucun tri.
+    fn sorted_order(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..self.rows.len()).collect();
+        if let Some((col, asc)) = self.sort {
+            let empty = String::new();
+            order.sort_by(|&a, &b| {
+                let ord =
+                    compare_cells(self.rows[a].get(col).unwrap_or(&empty), self.rows[b].get(col).unwrap_or(&empty));
+                if asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
+            });
+        }
+        order
+    }
+
     /// (Re)construit le rendu : lignes triées selon `sort`, découpées à la page `page` le cas
     /// échéant, dans un `Table` (en-têtes, largeurs, indicateur) éventuellement coiffé d'un
     /// `Pagination` dessous.
     fn rebuild(&mut self) {
-        let sorted = match self.sort {
-            Some((col, asc)) => sort_rows(&self.rows, col, asc),
-            None => self.rows.clone(),
-        };
-        // Découpe la page sur les lignes **déjà triées** (le cas échéant).
-        let display = match self.page {
-            Some((current, per)) => page_rows(&sorted, current, per),
-            None => sorted.clone(),
+        // On raisonne sur des **index de lignes source** (triés puis découpés) : cela préserve
+        // l'identité d'origine de chaque ligne à travers le tri et la pagination, pour traduire
+        // la sélection (index affiché ↔ index source) dans les deux sens.
+        let order = self.sorted_order();
+        let total = order.len();
+        let page_indices: Vec<usize> = match self.page {
+            Some((current, per)) => {
+                let per = per.max(1);
+                let current = current.clamp(1, page_count(total, per));
+                let start = (current - 1) * per;
+                let end = (start + per).min(total);
+                order[start..end].to_vec()
+            }
+            None => order.clone(),
         };
         let hrefs: Vec<&str> = self.headers.iter().map(|s| s.as_str()).collect();
         let mut t = Table::new(self.headers.len().max(1)).header(&hrefs);
-        for row in &display {
-            let refs: Vec<&str> = row.iter().map(|s| s.as_str()).collect();
+        for &i in &page_indices {
+            let refs: Vec<&str> = self.rows[i].iter().map(|s| s.as_str()).collect();
             t = t.row(&refs);
         }
         if self.widths.iter().any(|w| *w > 0.0) {
@@ -205,11 +253,28 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         if let Some((col, asc)) = self.sort {
             t = t.sorted(col, asc);
         }
+        // Sélection : `Table` raisonne en **positions affichées** (0..tranche). On câble le clic
+        // pour renvoyer l'index **source** et on traduit les lignes sélectionnées source → position.
+        if let Some(f) = &self.on_select {
+            let f = f.clone();
+            let indices = page_indices.clone();
+            t = t.on_select_row(move |d| f(indices.get(d).copied().unwrap_or(d)));
+        }
+        if !self.selected.is_empty() {
+            let display_sel: Vec<usize> = page_indices
+                .iter()
+                .enumerate()
+                .filter(|(_, orig)| self.selected.contains(orig))
+                .map(|(d, _)| d)
+                .collect();
+            if !display_sel.is_empty() {
+                t = t.selected(&display_sel);
+            }
+        }
         // Table seul, ou table + pied (libellé de tranche + sélecteur de page + taille de page),
         // calculé sur le nombre **total** de lignes triées.
         self.inner = match (self.page, &self.on_page) {
             (Some((current, per)), Some(on_page)) => {
-                let total = sorted.len();
                 let pages = page_count(total, per);
                 let current = current.clamp(1, pages);
                 // Libellé « N–M of T » de la tranche courante (jalon 236).
@@ -329,6 +394,40 @@ mod tests {
         assert_eq!(page_range_label(3, 3, 7), "7\u{2013}7 of 7", "dernière page partielle");
         assert_eq!(page_range_label(1, 3, 0), "0 of 0", "vide");
         assert_eq!(page_range_label(99, 3, 7), "7\u{2013}7 of 7", "page hors bornes ramenée");
+    }
+
+    /// Collecte, en ordre d'arbre, tous les messages `on_click` non nuls d'un sous-arbre.
+    fn collect_clicks(w: &dyn Widget<usize>, out: &mut Vec<usize>) {
+        if let Some(m) = w.on_click() {
+            out.push(m);
+        }
+        for c in w.children() {
+            collect_clicks(c.as_ref(), out);
+        }
+    }
+
+    #[test]
+    fn selection_click_reports_the_source_row_through_sort_and_page() {
+        // Trois lignes, clé numérique en colonne 1. Tri croissant → ordre source [1, 2, 0].
+        let rows = vec![
+            vec!["A".to_string(), "3".to_string()],
+            vec!["B".to_string(), "1".to_string()],
+            vec!["C".to_string(), "2".to_string()],
+        ];
+        let make = |page: usize| -> DataTable<usize> {
+            DataTable::new(["N", "K"], rows.clone()).sorted(1, true).paginated(page, 2, |_| 0).on_select_row(|i| i)
+        };
+        // `children()[0]` = le Table ; `[1]` = le pied (pager) qu'on ignore.
+        let clicks_of = |dt: &DataTable<usize>| {
+            let mut v = Vec::new();
+            collect_clicks(Widget::<usize>::children(dt)[0].as_ref(), &mut v);
+            v.dedup(); // une cellule cliquable par colonne → répétitions consécutives
+            v
+        };
+        // Page 1 (taille 2) des lignes triées [1, 2, 0] : le clic renvoie l'index **source** 1 puis 2.
+        assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
+        // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
+        assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
     }
 
     #[test]

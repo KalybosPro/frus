@@ -117,7 +117,7 @@ pub use colorpicker::ColorPicker;
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use container::Container;
 pub use custompaint::CustomPaint;
-pub use datatable::{compare_cells, sort_rows, DataTable};
+pub use datatable::{compare_cells, page_count, page_range_label, page_rows, sort_rows, DataTable};
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;

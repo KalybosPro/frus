@@ -958,6 +958,36 @@ fn data_table_paginated_matches_golden() {
     snapshot.assert_golden(golden("data_table_paginated"));
 }
 
+/// **DataTable à ligne sélectionnée (jalon 239)** : le tableau trié par « Score » **décroissant**,
+/// une **ligne source** marquée `selected` — surlignée à sa **position triée**, pas à son index
+/// d'origine. Prouve la traduction index source ↔ position affichée. Reproduit son golden.
+#[test]
+fn data_table_selected_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "9".to_string(), "London".to_string()],
+        vec!["Bob".to_string(), "12".to_string(), "Paris".to_string()],
+        vec!["Carol".to_string(), "2".to_string(), "Berlin".to_string()],
+        vec!["Dan".to_string(), "10".to_string(), "Rome".to_string()],
+    ];
+    // Tri décroissant par score → [Bob 12, Dan 10, Ada 9, Carol 2]. La ligne **source** 3 (Dan)
+    // doit apparaître surlignée en **2e** position affichée.
+    let table = DataTable::<()>::new(["Name", "Score", "City"], rows)
+        .column_widths(&[150.0, 110.0, 150.0])
+        .sorted(1, false)
+        .on_sort(|_| ())
+        .on_select_row(|_| ())
+        .selected(&[3]);
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 480, 220, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 150, "DataTable avec ligne sélectionnée dessiné");
+    snapshot.assert_golden(golden("data_table_selected"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]
