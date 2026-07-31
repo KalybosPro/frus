@@ -11,12 +11,14 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 use frus_core::{Rect, Scene};
-use frus_layout::Style;
+use frus_layout::{Align, Style};
 
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::pagination::Pagination;
+use crate::segmented::SegmentedControl;
 use crate::table::Table;
+use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -62,6 +64,18 @@ pub fn page_rows(rows: &[Vec<String>], current: usize, per_page: usize) -> Vec<V
     rows[start..end].to_vec()
 }
 
+/// Libellé « N–M of T » de la tranche courante (`0 of 0` si vide) — jalon 236. Réutilisable.
+pub fn page_range_label(current: usize, per_page: usize, total: usize) -> String {
+    if total == 0 {
+        return "0 of 0".to_string();
+    }
+    let per = per_page.max(1);
+    let current = current.clamp(1, page_count(total, per));
+    let start = (current - 1) * per + 1;
+    let end = (current * per).min(total);
+    format!("{start}\u{2013}{end} of {total}")
+}
+
 /// Un tableau de données **texte** qui trie ses propres lignes selon l'état de tri fourni, puis
 /// délègue le rendu à un [`Table`](crate::Table).
 ///
@@ -79,7 +93,11 @@ pub struct DataTable<Msg = ()> {
     /// Pagination `(page courante 1-indexée, taille de page)` — jalon 233.
     page: Option<(usize, usize)>,
     on_page: Option<Rc<dyn Fn(usize) -> Msg>>,
-    /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un `Pagination` dessous.
+    /// Tailles de page proposées + rappel au changement (sélecteur du pied) — jalon 236.
+    page_sizes: Vec<usize>,
+    on_page_size: Option<Rc<dyn Fn(usize) -> Msg>>,
+    /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
+    /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
 }
 
@@ -100,6 +118,8 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             on_sort: None,
             page: None,
             on_page: None,
+            page_sizes: Vec::new(),
+            on_page_size: None,
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -146,6 +166,16 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
+    /// Ajoute un **sélecteur de taille de page** (un `SegmentedControl` des `sizes` proposées) dans
+    /// le pied. `on_page_size(taille)` au changement (l'app met à jour la taille et, en général,
+    /// revient à la page 1). Sans effet si le tableau n'est pas paginé.
+    pub fn page_sizes(mut self, sizes: &[usize], on_page_size: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.page_sizes = sizes.iter().copied().filter(|&s| s > 0).collect();
+        self.on_page_size = Some(Rc::new(on_page_size));
+        self.rebuild();
+        self
+    }
+
     /// (Re)construit le rendu : lignes triées selon `sort`, découpées à la page `page` le cas
     /// échéant, dans un `Table` (en-têtes, largeurs, indicateur) éventuellement coiffé d'un
     /// `Pagination` dessous.
@@ -175,14 +205,31 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         if let Some((col, asc)) = self.sort {
             t = t.sorted(col, asc);
         }
-        // Table seul, ou table + sélecteur de page (calculé sur le nombre **total** de lignes triées).
+        // Table seul, ou table + pied (libellé de tranche + sélecteur de page + taille de page),
+        // calculé sur le nombre **total** de lignes triées.
         self.inner = match (self.page, &self.on_page) {
             (Some((current, per)), Some(on_page)) => {
-                let pages = page_count(sorted.len(), per);
+                let total = sorted.len();
+                let pages = page_count(total, per);
                 let current = current.clamp(1, pages);
+                // Libellé « N–M of T » de la tranche courante (jalon 236).
+                let label = Text::new(page_range_label(current, per, total)).size(13.0);
                 let on_page = on_page.clone();
                 let pager = Pagination::new(current, pages, move |p| on_page(p));
-                Box::new(Flex::column().gap(12.0).child(t).child(pager))
+                let mut footer =
+                    Flex::row().align(Align::Center).gap(12.0).child(label).child(Flex::row().flex(1.0)).child(pager);
+                // Sélecteur de taille de page, si proposé (jalon 236).
+                if let (Some(on_size), false) = (&self.on_page_size, self.page_sizes.is_empty()) {
+                    let sizes = self.page_sizes.clone();
+                    let sel = sizes.iter().position(|&s| s == per).unwrap_or(0);
+                    let on_size = on_size.clone();
+                    let mut seg = SegmentedControl::new(sel, move |i| on_size(sizes[i]));
+                    for s in &self.page_sizes {
+                        seg = seg.segment(s.to_string());
+                    }
+                    footer = footer.child(seg);
+                }
+                Box::new(Flex::column().gap(12.0).child(t).child(footer))
             }
             _ => Box::new(t),
         };
@@ -271,7 +318,27 @@ mod tests {
         let dt = DataTable::<()>::new(["Name", "Score"], rows)
             .sorted(1, true)
             .paginated(1, 4, |_| ());
-        // inner = colonne [table, pagination] → deux enfants.
-        assert_eq!(Widget::<()>::children(&dt).len(), 2, "table + sélecteur de page");
+        // inner = colonne [table, pied] → deux enfants.
+        assert_eq!(Widget::<()>::children(&dt).len(), 2, "table + pied de pagination");
+    }
+
+    #[test]
+    fn page_range_label_describes_the_slice() {
+        assert_eq!(page_range_label(1, 3, 7), "1\u{2013}3 of 7");
+        assert_eq!(page_range_label(2, 3, 7), "4\u{2013}6 of 7");
+        assert_eq!(page_range_label(3, 3, 7), "7\u{2013}7 of 7", "dernière page partielle");
+        assert_eq!(page_range_label(1, 3, 0), "0 of 0", "vide");
+        assert_eq!(page_range_label(99, 3, 7), "7\u{2013}7 of 7", "page hors bornes ramenée");
+    }
+
+    #[test]
+    fn page_size_selector_appears_in_the_footer() {
+        let rows: Vec<Vec<String>> = (1..=7).map(|i| vec![i.to_string()]).collect();
+        // inner = [table, pied] ; le pied est une Flex row [libellé, spacer, pager, (sélecteur)].
+        let footer_len = |dt: &DataTable<()>| Widget::<()>::children(dt)[1].children().len();
+        let base = DataTable::<()>::new(["N"], rows.clone()).paginated(1, 3, |_| ());
+        let sized = DataTable::<()>::new(["N"], rows).paginated(1, 3, |_| ()).page_sizes(&[3, 5], |_| ());
+        assert_eq!(footer_len(&base), 3, "libellé + spacer + pager");
+        assert_eq!(footer_len(&sized), 4, "+ sélecteur de taille");
     }
 }

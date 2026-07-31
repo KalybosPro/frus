@@ -925,8 +925,9 @@ fn data_table_sorted_matches_golden() {
     snapshot.assert_golden(golden("data_table_sorted"));
 }
 
-/// **DataTable paginé (jalon 233)** : sept lignes triées par « Score » décroissant, découpées en
-/// pages de **3** — la page 1 (3 lignes) sous un sélecteur [`Pagination`]. Reproduit son golden.
+/// **DataTable paginé (jalons 233/236)** : sept lignes triées par « Score » décroissant, pages de
+/// **3** — la page 1 (3 lignes) sous un pied « N–M of T » + [`Pagination`] + sélecteur de taille de
+/// page (3/5/10). Reproduit son golden.
 #[test]
 fn data_table_paginated_matches_golden() {
     use frus_widgets::DataTable;
@@ -946,9 +947,10 @@ fn data_table_paginated_matches_golden() {
     let table = DataTable::<()>::new(["Name", "Score"], rows)
         .column_widths(&[160.0, 120.0])
         .sorted(1, false)
-        .paginated(1, 3, |_| ());
+        .paginated(1, 3, |_| ())
+        .page_sizes(&[3, 5, 10], |_| ());
     let root: Container<()> = Container::new().padding(16.0).child(table);
-    let Some(snapshot) = render_widget(&root, 380, 260, &theme) else {
+    let Some(snapshot) = render_widget(&root, 560, 260, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
