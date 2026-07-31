@@ -221,6 +221,17 @@ fn format_value(v: f32) -> String {
     }
 }
 
+/// Formate une mesure pour l'infobulle : la valeur brute, suivie de sa **part** (`%`) du total quand
+/// un dénominateur d'empilage 100 % est fourni (jalon 226). `None` = valeur seule.
+fn format_measure(value: f32, percent_of: Option<f32>) -> String {
+    match percent_of {
+        Some(total) if total > 0.0 => {
+            format!("{} ({}%)", format_value(value), (value / total * 100.0).round() as i64)
+        }
+        _ => format_value(value),
+    }
+}
+
 /// Largeur de la marge d'axe si `divisions > 0`, sinon `0` (partagé BarChart / LineChart).
 fn axis_width(divisions: usize) -> f32 {
     if divisions > 0 {
@@ -531,16 +542,15 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
             let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
+            // En 100 %, chaque mesure est suivie de sa part du total de la catégorie survolée (jalon 226).
+            let percent_of = if normalized { Some(self.category_total(hi)) } else { None };
             for (j, (color, name, vals)) in series.iter().enumerate() {
                 if self.hidden.contains(&j) {
                     continue;
                 }
                 let value = vals.get(hi).copied().unwrap_or(0.0);
-                let txt = if single {
-                    format_value(value)
-                } else {
-                    format!("{}  {}", name, format_value(value))
-                };
+                let vtxt = format_measure(value, percent_of);
+                let txt = if single { vtxt } else { format!("{}  {}", name, vtxt) };
                 lines.push((Some(*color), txt));
             }
             draw_tooltip(scene, theme, bounds, gx, plot_top, baseline_y, &lines, o);
@@ -1052,6 +1062,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
             let hi = (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
+            // En 100 %, chaque mesure est suivie de sa part du total de la catégorie survolée (jalon 226).
+            let percent_of = if normalized { Some(self.category_total(hi)) } else { None };
             for (j, (color, name, vals)) in series.iter().enumerate() {
                 if self.hidden.contains(&j) || hi >= vals.len() {
                     continue;
@@ -1071,11 +1083,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     }
                     scene.fill_path(&Path::circle(Point::new(gx, py), MARKER_R + 2.0), color.fade(o));
                 }
-                let txt = if single {
-                    format_value(vals[hi])
-                } else {
-                    format!("{}  {}", name, format_value(vals[hi]))
-                };
+                let vtxt = format_measure(vals[hi], percent_of);
+                let txt = if single { vtxt } else { format!("{}  {}", name, vtxt) };
                 lines.push((Some(*color), txt));
             }
             draw_tooltip(scene, theme, bounds, gx, plot_top, baseline_y, &lines, o);
@@ -1288,6 +1297,37 @@ mod tests {
             prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "100%")),
             "axe en pourcentage"
         );
+    }
+
+    #[test]
+    fn normalized_bar_tooltip_shows_percentages() {
+        // Deux séries empilées ; en 100 %, l'infobulle de survol ajoute la part (%) de chaque série.
+        let make = |norm: bool| {
+            BarChart::new([("A", 2.0), ("B", 6.0)])
+                .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
+                .stacked(true)
+                .normalized(norm)
+        };
+        let tooltip_texts = |chart: &BarChart| -> Vec<String> {
+            let mut scene = Scene::new();
+            // Survol de la catégorie A (x ~ centre de la 1re colonne).
+            let status = Status { hover_cursor: Some(Point::new(75.0, 90.0)), ..Default::default() };
+            Widget::<()>::paint(chart, Rect::new(0.0, 0.0, 300.0, 200.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        // Catégorie A : les deux séries valent 2 → 50 % chacune.
+        let norm = tooltip_texts(&make(true));
+        assert!(norm.iter().any(|t| t.contains("(50%)")), "part en % dans l'infobulle 100%, obtenu {norm:?}");
+        // En absolu : aucune mention de pourcentage.
+        let abs = tooltip_texts(&make(false));
+        assert!(!abs.iter().any(|t| t.contains('%')), "pas de % en absolu, obtenu {abs:?}");
     }
 
     #[test]
@@ -1657,6 +1697,34 @@ mod tests {
             ys_abs.iter().any(|y| (y - plot_top).abs() > 5.0),
             "bord haut suit les totaux, obtenu {ys_abs:?}"
         );
+    }
+
+    #[test]
+    fn normalized_line_tooltip_shows_percentages() {
+        // Aires empilées ; en 100 %, l'infobulle de survol ajoute la part (%) de chaque série.
+        let make = |norm: bool| {
+            LineChart::new([("A", 2.0), ("B", 6.0)])
+                .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
+                .stacked(true)
+                .normalized(norm)
+        };
+        let tooltip_texts = |chart: &LineChart| -> Vec<String> {
+            let mut scene = Scene::new();
+            let status = Status { hover_cursor: Some(Point::new(75.0, 90.0)), ..Default::default() };
+            Widget::<()>::paint(chart, Rect::new(0.0, 0.0, 300.0, 200.0), status, &Theme::default(), &mut scene);
+            scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let norm = tooltip_texts(&make(true));
+        assert!(norm.iter().any(|t| t.contains("(50%)")), "part en % dans l'infobulle 100%, obtenu {norm:?}");
+        let abs = tooltip_texts(&make(false));
+        assert!(!abs.iter().any(|t| t.contains('%')), "pas de % en absolu, obtenu {abs:?}");
     }
 
     #[test]
