@@ -1110,6 +1110,31 @@ fn data_table_bulk_actions_matches_golden() {
     snapshot.assert_golden(golden("data_table_bulk_actions"));
 }
 
+/// **DataTable état vide (jalon 244)** : un champ de recherche dont la requête « zzz » ne correspond à
+/// aucune ligne → sous l'en-tête, un message d'**état vide** centré (ici surchargé) remplace le corps,
+/// **sans** pied de pagination. Reproduit son golden.
+#[test]
+fn data_table_empty_matches_golden() {
+    use frus_widgets::DataTable;
+    let theme = Theme::dark();
+    let rows = vec![
+        vec!["Ada".to_string(), "London".to_string()],
+        vec!["Bob".to_string(), "Paris".to_string()],
+    ];
+    let table = DataTable::<()>::new(["Name", "City"], rows)
+        .column_widths(&[150.0, 150.0])
+        .searchable("zzz", |_| ())
+        .paginated(1, 5, |_| ())
+        .empty_text("No people match your search");
+    let root: Container<()> = Container::new().padding(16.0).child(table);
+    let Some(snapshot) = render_widget(&root, 400, 200, &theme) else {
+        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        return;
+    };
+    assert!(snapshot.lit_pixels(40) > 80, "DataTable état vide dessiné");
+    snapshot.assert_golden(golden("data_table_empty"));
+}
+
 /// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
 /// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
 #[test]

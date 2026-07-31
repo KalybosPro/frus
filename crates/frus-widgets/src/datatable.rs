@@ -131,6 +131,9 @@ pub struct DataTable<Msg = ()> {
     /// chaque reconstruction. Rendue **au-dessus** du tableau **seulement** quand des lignes sont
     /// sélectionnées, précédée d'un « N selected ». L'app câble ses boutons (variantes, messages).
     bulk_actions: Option<Rc<dyn Fn() -> Vec<Box<dyn Widget<Msg>>>>>,
+    /// Texte de l'**état vide** (jalon 244) : affiché centré, sous l'en-tête, quand aucune ligne n'est
+    /// visible (données vides ou filtre sans résultat). Surchargeable via [`empty_text`](DataTable::empty_text).
+    empty_text: String,
     /// Rendu : le `Table` (lignes triées/paginées), éventuellement coiffé d'un pied (libellé de
     /// tranche + `Pagination` + sélecteur de taille) dessous.
     inner: Box<dyn Widget<Msg>>,
@@ -163,6 +166,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             query: None,
             on_query: None,
             bulk_actions: None,
+            empty_text: "No results".to_string(),
             inner: Box::new(Flex::<Msg>::column()),
         };
         me.rebuild();
@@ -272,6 +276,14 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
+    /// Surcharge le texte de l'**état vide** (défaut « No results ») — p. ex. « No people match your
+    /// search ». Affiché centré sous l'en-tête quand aucune ligne n'est visible (jalon 244).
+    pub fn empty_text(mut self, text: impl Into<String>) -> Self {
+        self.empty_text = text.into();
+        self.rebuild();
+        self
+    }
+
     /// Donne un **comparateur personnalisé** à la colonne `col` : `cmp(a, b)` ordonne deux de ses
     /// cellules (texte). Remplace le tri par défaut ([`compare_cells`]) pour cette colonne — utile
     /// quand les valeurs se trient mal telles quelles : dates formatées (« Mar 2024 »), montants
@@ -376,9 +388,14 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
                 t = t.selected(&display_sel);
             }
         }
-        // Table seul, ou table + pied (libellé de tranche + sélecteur de page + taille de page),
-        // calculé sur le nombre **total** de lignes triées (déjà filtrées).
-        let block: Box<dyn Widget<Msg>> = match (self.page, &self.on_page) {
+        // État vide (données vides ou filtre sans résultat) : en-tête + message centré, **sans** pied
+        // (un pager « 0 of 0 » sous un corps vide n'apporte rien). Le message est surchargeable.
+        let block: Box<dyn Widget<Msg>> = if total == 0 {
+            let message = Text::new(self.empty_text.clone()).size(15.0);
+            let empty = Flex::column().align(Align::Center).padding(24.0).child(message);
+            Box::new(Flex::column().gap(8.0).child(t).child(empty))
+        } else {
+            match (self.page, &self.on_page) {
             (Some((current, per)), Some(on_page)) => {
                 let pages = page_count(total, per);
                 let current = current.clamp(1, pages);
@@ -402,6 +419,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
                 Box::new(Flex::column().gap(12.0).child(t).child(footer))
             }
             _ => Box::new(t),
+            }
         };
         // Actions groupées : une barre au-dessus du tableau, uniquement si une sélection existe.
         let mut block = block;
@@ -557,6 +575,22 @@ mod tests {
         assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
         // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
         assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
+    }
+
+    #[test]
+    fn empty_filter_drops_rows_and_pager() {
+        // Deux lignes, filtre « zzz » qui ne matche rien → état vide : aucune ligne cliquable, et le
+        // **pied de pagination est retiré** (sinon son unique bouton de page émettrait `0`).
+        let rows = vec![vec!["Ada".to_string()], vec!["Bob".to_string()]];
+        let dt: DataTable<usize> =
+            DataTable::new(["N"], rows).searchable("zzz", |_| 0).paginated(1, 5, |_| 0).on_select_row(|i| i);
+        let mut clicks = Vec::new();
+        for c in Widget::<usize>::children(&dt) {
+            collect_clicks(c.as_ref(), &mut clicks);
+        }
+        assert!(clicks.is_empty(), "ni ligne cliquable ni pager quand le filtre ne matche rien");
+        // L'arbre reste non vide : en-tête + message d'état vide.
+        assert!(!Widget::<usize>::children(&dt).is_empty(), "en-tête + message rendus");
     }
 
     #[test]

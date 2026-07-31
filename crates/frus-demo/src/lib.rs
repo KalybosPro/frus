@@ -1546,6 +1546,8 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .sort_with(3, |a, b| level_rank(a).cmp(&level_rank(b)))
         // Recherche : filtre les lignes source (toutes colonnes) avant tri/pagination (jalon 242).
         .searchable(app.data_query.as_str(), Msg::DataSearch)
+        // État vide surchargé (jalon 244) : message quand le filtre/les données ne montrent rien.
+        .empty_text("No people match your search")
         .on_sort(Msg::DataSort)
         .on_select_row(Msg::DataSelectRow)
         // Sélection multiple (jalon 241) : cases à cocher pour une sélection groupée, en plus du
@@ -3054,6 +3056,9 @@ mod tests {
         assert!(app.data_checked.is_empty(), "Delete vide la selection");
         assert_eq!(app.data_selected, None, "Delete remet le focus a zero");
         assert!(primitive_count(&app) > 0, "se rend apres suppression");
+        // Etat vide (jalon 244) : un filtre sans resultat se rend quand meme (en-tete + message).
+        reduce(&mut app, Msg::DataSearch("zzzzz".to_string()));
+        assert!(primitive_count(&app) > 0, "se rend avec l'etat vide");
     }
 
     #[test]
