@@ -1011,6 +1011,33 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     }
                     scene.stroke_path(&line, color.fade(o), LINE_W);
                 }
+                // Valeur (ou part %) au centre de la bande à chaque catégorie, si la bande y est
+                // assez épaisse — parité avec les strates de barres (jalons 227/229) — jalon 230.
+                for i in 0..n {
+                    let value = vals.get(i).copied().unwrap_or(0.0);
+                    if value <= 0.0 {
+                        continue;
+                    }
+                    let y_lo = spt(i, lower[i]).y;
+                    let y_hi = spt(i, upper[i]).y;
+                    if y_lo - y_hi >= STRATA_LABEL_SIZE + 4.0 {
+                        let label = if normalized {
+                            format!("{}%", (value / self.category_total(i) * 100.0).round() as i64)
+                        } else {
+                            format_value(value)
+                        };
+                        let lw = frus_text::measure(&label, STRATA_LABEL_SIZE).width;
+                        let px = plot_left + slot * (i as f32 + 0.5);
+                        // Borne le libellé dans la zone de tracé (les catégories de bord sinon débordent).
+                        let lx = (px - lw * 0.5).clamp(plot_left, (plot_left + plot_w - lw).max(plot_left));
+                        scene.text(
+                            Point::new(lx, (y_lo + y_hi) * 0.5 - STRATA_LABEL_SIZE * 0.5),
+                            label,
+                            STRATA_LABEL_SIZE,
+                            theme.on_primary.fade(o * 0.95),
+                        );
+                    }
+                }
                 lower = upper;
             }
         } else {
@@ -1813,6 +1840,28 @@ mod tests {
         assert!(norm.iter().any(|t| t.contains("(50%)")), "part en % dans l'infobulle 100%, obtenu {norm:?}");
         let abs = tooltip_texts(&make(false));
         assert!(!abs.iter().any(|t| t.contains('%')), "pas de % en absolu, obtenu {abs:?}");
+    }
+
+    #[test]
+    fn stacked_areas_label_each_band_with_value_or_percentage() {
+        // Absolu : chaque bande assez épaisse porte sa valeur à chaque catégorie.
+        let abs = LineChart::new([("A", 3.0), ("B", 5.0)])
+            .series("x", Color::rgb8(1, 2, 3), [4.0, 6.0])
+            .stacked(true);
+        let prims = paint_line(&abs, 300.0, 260.0);
+        let has = |t: &str| prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t));
+        // Valeurs de bandes : série 0 = 3,5 ; série x = 4,6.
+        assert!(has("3") && has("4") && has("5") && has("6"), "valeurs de bandes affichées");
+        // 100 % : parts en %.
+        let norm = LineChart::new([("A", 2.0), ("B", 6.0)])
+            .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
+            .stacked(true)
+            .normalized(true);
+        let np = paint_line(&norm, 300.0, 260.0);
+        assert!(
+            np.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text.ends_with('%'))),
+            "parts en % affichées dans les bandes"
+        );
     }
 
     #[test]
