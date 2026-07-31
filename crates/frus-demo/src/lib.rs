@@ -816,9 +816,12 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::ChartPoint(cat, s) => {
-            // Épingle « série · catégorie = valeur » du point cliqué (index bornés) et retient la
-            // sélection `(catégorie, série)` pour la mettre en évidence dans le graphique (jalon 223).
-            if let (Some((name, vals)), Some(label)) = (CHART_SERIES.get(s), CHART_CATS.get(cat)) {
+            // Re-clic sur l'élément déjà sélectionné : on **désépingle** (jalon 225). Sinon on épingle
+            // « série · catégorie = valeur » et on retient la sélection `(cat, série)` (jalons 221/223).
+            if app.chart_sel == Some((cat, s)) {
+                app.chart_sel = None;
+                app.chart_pin = None;
+            } else if let (Some((name, vals)), Some(label)) = (CHART_SERIES.get(s), CHART_CATS.get(cat)) {
                 if let Some(v) = vals.get(cat) {
                     app.chart_pin = Some(format!("{name} · {label} = {}", *v as i64));
                     app.chart_sel = Some((cat, s));
@@ -1467,7 +1470,7 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     // légende du principal la masque **aussi** ici (jalon 220).
     let companion_kind = if app.chart_kind < 2 { 2 } else { 0 };
     let companion = dashboard_chart(app, companion_kind, 150.0, false);
-    let hint = text("Click a legend entry to toggle a series; click a point to pin its value.")
+    let hint = text("Click a legend entry to toggle a series; click a point to pin it, or again to unpin.")
         .size(13.0)
         .color(theme.muted);
     // Détail épinglé du dernier point cliqué (jalon 221).
@@ -2716,6 +2719,22 @@ mod tests {
         }
         reduce(&mut app, Msg::SetChartNormalized(false));
         assert!(!app.chart_normalized, "bascule desactivee");
+    }
+
+    #[test]
+    fn re_clicking_a_selected_point_unpins_it() {
+        let mut app = TodoApp::default();
+        reduce(&mut app, Msg::Push(Route::Charts));
+        reduce(&mut app, Msg::ChartPoint(2, 1));
+        assert_eq!(app.chart_sel, Some((2, 1)), "premier clic epingle");
+        assert!(app.chart_pin.is_some(), "detail epingle");
+        // Re-clic sur le même point : désépingle (sélection et détail effacés).
+        reduce(&mut app, Msg::ChartPoint(2, 1));
+        assert_eq!(app.chart_sel, None, "re-clic desepingle");
+        assert!(app.chart_pin.is_none(), "detail efface");
+        // Un autre point ré-épingle normalement.
+        reduce(&mut app, Msg::ChartPoint(0, 0));
+        assert_eq!(app.chart_sel, Some((0, 0)), "un autre point re-epingle");
     }
 
     #[test]
