@@ -132,6 +132,26 @@ const PAN_FLING_MIN: f32 = 80.0;
 /// Largeur (px physiques) de la zone de bord activant le geste retour.
 const BACK_EDGE: f32 = 24.0;
 
+/// Aperçu de **glisser-déposer** (réordonnancement) — géométrie de peinture. La *couleur* d'ombre
+/// vient du thème (`theme.scheme.shadow`, comme le fait `Button`) ; seule la géométrie est ici, en
+/// constantes nommées plutôt qu'en nombres magiques épars.
+mod drag_preview {
+    /// Décalage vertical de l'ombre portée du fantôme (px).
+    pub const SHADOW_OFFSET_Y: f32 = 4.0;
+    /// Flou de l'ombre portée du fantôme (px).
+    pub const SHADOW_BLUR: f32 = 12.0;
+    /// Opacité de l'ombre du fantôme.
+    pub const SHADOW_ALPHA: f32 = 0.28;
+    /// Opacité du bord `primary` du fantôme.
+    pub const BORDER_ALPHA: f32 = 0.9;
+    /// Épaisseur du bord `primary` du fantôme (px).
+    pub const BORDER_WIDTH: f32 = 1.5;
+    /// Léger soulèvement vertical du fantôme lors d'un glisser **horizontal** (colonnes).
+    pub const LIFT_Y: f32 = -2.0;
+    /// Épaisseur de la **ligne d'insertion** (aperçu vertical) (px).
+    pub const INSERT_THICKNESS: f32 = 3.0;
+}
+
 /// Glissement en cours à la souris.
 enum Drag {
     /// Poignée de barre de défilement.
@@ -2196,7 +2216,7 @@ impl<A: Application> App<A> {
         // Décalage du fantôme selon l'axe : **horizontal** (colonnes de Table) suit `dx` (léger
         // soulèvement `-2`) ; **vertical** (cartes Kanban) suit le curseur en 2D.
         let (gx, gy) = match axis {
-            ReorderAxis::Horizontal => (dx, -2.0),
+            ReorderAxis::Horizontal => (dx, drag_preview::LIFT_Y),
             ReorderAxis::Vertical => (dx, dy),
         };
 
@@ -2225,7 +2245,7 @@ impl<A: Application> App<A> {
                 // Réagence les **cartes** : le trou de la carte soulevée se referme (colonne source)
                 // et la place s'ouvre sous la **ligne d'insertion** (colonne cible). Puis on pose la
                 // ligne par-dessus, au bord retenu (moitié survolée, jalon 252).
-                let line = self.reorder_drop_line(3.0);
+                let line = self.reorder_drop_line(drag_preview::INSERT_THICKNESS);
                 let reflowed = reflow_reorder_cards(scene.primitives(), src, line, &owners);
                 scene.clear();
                 for primitive in reflowed {
@@ -2233,7 +2253,7 @@ impl<A: Application> App<A> {
                 }
                 if let Some(line) = line {
                     scene.set_clip(Rect::UNBOUNDED);
-                    scene.draw_rect(line, theme.primary, 1.5, 0.0, Color::TRANSPARENT);
+                    scene.draw_rect(line, theme.primary, theme.radius.min(line.height * 0.5), 0.0, Color::TRANSPARENT);
                 }
             }
         }
@@ -2517,16 +2537,21 @@ fn resolve_focus(
 /// ou pleine en repli si `ghost` est vide, puis bord `primary`. Fonction pure — testable
 /// sans GPU. Le coulissement des voisines est fait en amont (`reflow_reorder_columns`).
 fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primitive]) {
+    use drag_preview::{BORDER_ALPHA, BORDER_WIDTH, SHADOW_ALPHA, SHADOW_BLUR, SHADOW_OFFSET_Y};
     scene.set_clip(Rect::UNBOUNDED);
-    scene.shadow(card.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
+    // Couleur d'ombre **du thème** (surchargeable) — même rôle que l'ombre de `Button` ; seule la
+    // géométrie (décalage, flou, opacité) est en constantes locales.
+    let shadow = theme.scheme.shadow.with_alpha(SHADOW_ALPHA);
+    scene.shadow(card.translate(0.0, SHADOW_OFFSET_Y), shadow, theme.radius, SHADOW_BLUR);
+    let border = theme.primary.fade(BORDER_ALPHA);
     if ghost.is_empty() {
-        scene.draw_rect(card, theme.surface, theme.radius, 1.5, theme.primary.fade(0.9));
+        scene.draw_rect(card, theme.surface, theme.radius, BORDER_WIDTH, border);
     } else {
         scene.draw_rect(card, theme.surface, theme.radius, 0.0, Color::TRANSPARENT);
         for primitive in ghost {
             scene.push_primitive(primitive.clone());
         }
-        scene.draw_rect(card, Color::TRANSPARENT, theme.radius, 1.5, theme.primary.fade(0.9));
+        scene.draw_rect(card, Color::TRANSPARENT, theme.radius, BORDER_WIDTH, border);
     }
 }
 
