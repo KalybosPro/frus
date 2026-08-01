@@ -110,7 +110,7 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
         // Ombre + carte.
         scene.shadow(
             Rect::new(bounds.x - 8.0, bounds.y - 4.0, bounds.width + 16.0, bounds.height + 16.0),
-            Color::rgba(0.0, 0.0, 0.0, 0.3).fade(o),
+            theme.scheme.shadow.with_alpha(0.3).fade(o),
             theme.radius + 8.0,
             8.0,
         );

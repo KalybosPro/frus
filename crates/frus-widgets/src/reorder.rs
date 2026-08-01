@@ -245,6 +245,25 @@ mod tests {
     }
 
     #[test]
+    fn same_column_reflow_lifts_upper_cards_and_holds_the_rest() {
+        // Réagencement **dans la même colonne** (source == cible) : on soulève la carte du **haut**
+        // (owner 1) et on vise une insertion **après** la 2e carte (ligne au bord y=104 de owner 3).
+        let base = board();
+        let lifted = HashSet::from([1]);
+        let line = Rect::new(0.0, 104.0, 100.0, 3.0);
+        let out =
+            reflow_reorder_cards(base.primitives(), Rect::new(0.0, 0.0, 100.0, 44.0), Some(line), &lifted);
+        assert_eq!(rect_y_of_owner(&out, 1), None, "carte soulevée retirée");
+        // owner 2 (centre 74) : sous la source (−cran), au-dessus de la ligne → **remonte** d'un cran.
+        assert_eq!(rect_y_of_owner(&out, 2), Some(8.0), "la carte au-dessus de la ligne comble le trou");
+        // owner 3 (centre 126) : sous la source (−cran) **et** sous la ligne (+cran) → net **nul** :
+        // il reste en place, la place de dépôt s'ouvrant juste au-dessus de lui.
+        assert_eq!(rect_y_of_owner(&out, 3), Some(104.0), "la carte sous la ligne reste (décalage net nul)");
+        // Colonne voisine intacte.
+        assert_eq!(rect_y_of_owner(&out, 4), Some(0.0), "colonne B non touchée");
+    }
+
+    #[test]
     fn tall_backgrounds_stay_put() {
         let base = board();
         let lifted = HashSet::from([1]);

@@ -1,6 +1,6 @@
 //! [`Card`] : une surface themée (fond, bordure, rayon, ombre) avec un enfant.
 
-use frus_core::{Color, Insets, Rect, Scene};
+use frus_core::{Insets, Rect, Scene};
 use frus_layout::Style;
 
 use crate::interaction::Status;
@@ -64,7 +64,7 @@ impl<Msg> Widget<Msg> for Card<Msg> {
                 bounds.width + 2.0 * blur,
                 bounds.height + 2.0 * blur,
             ),
-            Color::rgba(0.0, 0.0, 0.0, 0.30).fade(o),
+            theme.scheme.shadow.with_alpha(0.30).fade(o),
             theme.radius + blur,
             blur,
         );
