@@ -1571,7 +1571,8 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     }
     let hint = text("Click a header to sort, Tab between cells, Enter for the next row.")
         .size(13.0)
-        .color(theme.muted);
+        .color(theme.muted)
+        .wrap();
     // Barre d'état de validation : verte si tout est valide, sinon le décompte d'erreurs.
     let errors = grid_error_count(&app.grid);
     let status = if errors == 0 {
@@ -1589,7 +1590,9 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         actions = actions.child(button("Next error", Msg::GridFocusError));
     }
     actions = actions.child(status);
-    let body = column![table, actions, hint].gap(16.0).padding(24.0);
+    // Table éditable (colonnes fixes ~644 px) : région **défilable** bornée (X colonnes, Y lignes).
+    let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
+    let body = column![table_area, actions, hint].gap(16.0).padding(24.0).flex(1.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -1664,17 +1667,24 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     }
     let hint = text("Check rows for bulk actions; click a row to focus it; click a header to sort.")
         .size(13.0)
-        .color(theme.muted);
+        .color(theme.muted)
+        .wrap();
     // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données courantes.
     let detail = match app.data_selected.and_then(|i| people.get(i)) {
-        Some((n, r, s, l)) => {
-            text(format!("Focused: {n} — {r} (score {s}, {l} priority)")).size(15.0).color(theme.on_surface)
-        }
-        None => text("No row focused.").size(15.0).color(theme.muted),
+        Some((n, r, s, l)) => text(format!("Focused: {n} — {r} (score {s}, {l} priority)"))
+            .size(15.0)
+            .color(theme.on_surface)
+            .wrap(),
+        None => text("No row focused.").size(15.0).color(theme.muted).wrap(),
     };
     // Résumé de la sélection **groupée** (cases cochées).
     let summary = text(format!("{} checked", app.data_checked.len())).size(13.0).color(theme.muted);
-    let body = column![table, detail, summary, hint].gap(16.0).padding(24.0);
+    // La table (colonnes fixes ~610 px) dépasse la largeur du téléphone : région **défilable**
+    // bornée (colonnes en X, lignes en Y) — pas un pan de page, un tableau scrollable façon Flutter.
+    let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
+    // `flex(1.0)` : le corps remplit la hauteur sous la barre, pour que la région de table s'étende
+    // (sinon elle retombe à sa taille de base et laisse un grand vide dessous).
+    let body = column![table_area, detail, summary, hint].gap(16.0).padding(24.0).flex(1.0);
     let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -1854,13 +1864,14 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     let companion = dashboard_chart(app, companion_kind, 150.0, false);
     let hint = text("Click a legend entry to toggle a series; click a point to pin it, or again to unpin.")
         .size(13.0)
-        .color(theme.muted);
+        .color(theme.muted)
+        .wrap();
     // Détail épinglé du dernier point cliqué (jalon 221).
     let pinned: Box<dyn Widget<Msg>> = match &app.chart_pin {
         Some(detail) => Box::new(Chip::new(detail.clone())),
         None => Box::new(text("No point selected").size(13.0).color(theme.muted)),
     };
-    let body = column![
+    let content = column![
         row![selector].align(Align::Center),
         normalize_row,
         chart,
@@ -1871,6 +1882,8 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     ]
     .gap(16.0)
     .padding(24.0);
+    // Contenu fixe haut (graphiques + compagnon ≈ 550-650 px) : défile **verticalement** sous la barre.
+    let body = Scroll::new().width(width).flex(1.0).child(content);
     let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -1937,9 +1950,10 @@ fn wizard_input(
     field: u8,
     obscure: bool,
     eye: Option<bool>,
+    field_width: f32,
 ) -> impl Widget<Msg> + 'static {
     let mut input = TextInput::new(value)
-        .width(360.0)
+        .width(field_width)
         .size(16.0)
         .label(label)
         .obscure(obscure)
@@ -1963,6 +1977,9 @@ fn wizard_input(
 fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let form = wizard_form(app);
     let submitted = app.wizard_submitted;
+    // Largeur de champ **responsive** : tient dans la largeur (moins le padding 24×2), plafonnée à
+    // 360 px pour ne pas s'étirer sur grand écran.
+    let field_w = (width - 48.0).clamp(240.0, 360.0);
 
     // Les étapes sont marquées « terminées » par **validité** (jalon 195), pas seulement par
     // position — cohérent avec « Next » gardé par la même validité.
@@ -1980,8 +1997,8 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         0 => Box::new(
             Flex::column()
                 .gap(14.0)
-                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false, None))
-                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false, None)),
+                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false, None, field_w))
+                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false, None, field_w)),
         ),
         1 => {
             // Mots de passe masqués sauf révélation : l'icône œil **dans le champ** bascule (198).
@@ -1999,6 +2016,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                         2,
                         obscure,
                         eye,
+                        field_w,
                     ))
                     .child(wizard_input(
                         &form,
@@ -2009,6 +2027,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                         3,
                         obscure,
                         eye,
+                        field_w,
                     )),
             )
         }
@@ -2028,7 +2047,8 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                     if app.wizard_name.is_empty() { "—" } else { app.wizard_name.as_str() },
                     if app.wizard_email.is_empty() { "—" } else { app.wizard_email.as_str() },
                 ))
-                .size(16.0),
+                .size(16.0)
+                .wrap(),
             );
             Box::new(review)
         }
@@ -2053,7 +2073,9 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         );
     }
 
-    let body = column![steps, content, nav].gap(24.0).padding(24.0);
+    let inner = column![steps, content, nav].gap(24.0).padding(24.0);
+    // Défile verticalement si le contenu dépasse (petits écrans, clavier ouvert).
+    let body = Scroll::new().width(width).flex(1.0).child(inner);
     let screen = column![NavBar::new("Sign-up wizard").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
@@ -2522,27 +2544,29 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         );
         // Rangée d'icônes vectorielles (jalon 89) + image bitmap (jalon 90) :
         // chemins tessellisés colorés au thème, et une texture GPU ajustée `Cover`.
-        card_body = card_body.child(
-            Flex::row()
-                .gap(16.0)
-                .align(Align::Center)
-                .child(Icon::new(IconName::Check).color(theme.primary))
-                .child(Icon::new(IconName::Star))
-                .child(Icon::new(IconName::Heart))
-                .child(Icon::new(IconName::Menu))
-                .child(Icon::new(IconName::ChevronRight))
-                .child(Image::new(demo_image(), 72.0, 48.0).fit(BoxFit::Cover))
-                // Calque à opacité de groupe (jalon 92) : deux carrés qui se
-                // chevauchent, composités d'un bloc → le chevauchement ne fonce
-                // pas (pas de double-superposition de l'alpha).
-                .child(CustomPaint::new(72.0, 48.0, |scene, bounds, theme| {
-                    scene.layer(0.55, |inner| {
-                        let c = theme.primary;
-                        inner.fill_rect(Rect::new(bounds.x + 6.0, bounds.y + 8.0, 32.0, 32.0), c);
-                        inner.fill_rect(Rect::new(bounds.x + 30.0, bounds.y + 8.0, 32.0, 32.0), c);
-                    });
-                })),
-        );
+        // Vitrine de widgets (~360 px) plus large que la carte sur téléphone : **défile
+        // horizontalement** (hauteur fixe = celle de la rangée) plutôt que de déborder.
+        let showcase = Flex::row()
+            .gap(16.0)
+            .align(Align::Center)
+            .child(Icon::new(IconName::Check).color(theme.primary))
+            .child(Icon::new(IconName::Star))
+            .child(Icon::new(IconName::Heart))
+            .child(Icon::new(IconName::Menu))
+            .child(Icon::new(IconName::ChevronRight))
+            .child(Image::new(demo_image(), 72.0, 48.0).fit(BoxFit::Cover))
+            // Calque à opacité de groupe (jalon 92) : deux carrés qui se
+            // chevauchent, composités d'un bloc → le chevauchement ne fonce
+            // pas (pas de double-superposition de l'alpha).
+            .child(CustomPaint::new(72.0, 48.0, |scene, bounds, theme| {
+                scene.layer(0.55, |inner| {
+                    let c = theme.primary;
+                    inner.fill_rect(Rect::new(bounds.x + 6.0, bounds.y + 8.0, 32.0, 32.0), c);
+                    inner.fill_rect(Rect::new(bounds.x + 30.0, bounds.y + 8.0, 32.0, 32.0), c);
+                });
+            }));
+        card_body =
+            card_body.child(Scroll::new().axis(Axis::Horizontal).width(card_width).height(52.0).child(showcase));
     }
     // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —
     // sans clés, sa disparition (clavier ouvert → écran court) décale les ids
