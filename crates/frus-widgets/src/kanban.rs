@@ -30,6 +30,9 @@ const CARD_H: f32 = 44.0;
 /// [`reorder_index`](Widget::reorder_index) d'une carte (source **et** cible). Réutilisable pour
 /// tester le routage du glisser-déposer.
 pub fn kanban_slot(col: usize, pos: usize) -> usize {
+    // Au-delà de STRIDE cartes dans une colonne, `pos` déborderait sur le champ colonne (l'index
+    // plat viserait silencieusement la colonne suivante). Garde en debug ; STRIDE reste large.
+    debug_assert!(pos < STRIDE, "position {pos} hors borne (STRIDE = {STRIDE}) : débordement de colonne");
     col * STRIDE + pos
 }
 
@@ -144,6 +147,10 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
 
     fn reorder_axis(&self) -> ReorderAxis {
         ReorderAxis::Vertical
+    }
+
+    fn reorder_draggable(&self) -> bool {
+        false // cible **seule** : on y dépose, on ne la soulève pas
     }
 }
 
@@ -409,6 +416,27 @@ mod tests {
         collect_clicks(col0.as_ref(), &mut clicks);
         assert!(clicks.contains(&Msg::Del(0)) && clicks.contains(&Msg::Del(1)), "× de suppression par carte");
         assert!(clicks.contains(&Msg::Add(0)), "bouton + Add card de la colonne");
+    }
+
+    #[test]
+    fn cards_are_draggable_but_the_drop_zone_is_target_only() {
+        /// Renvoie `reorder_draggable` du premier réordonnable (carte) et cherche une zone de dépôt
+        /// (réordonnable **non** saisissable) dans le sous-arbre.
+        fn scan(w: &dyn Widget<Msg>, out: &mut Vec<bool>) {
+            if w.reorder_index().is_some() {
+                out.push(w.reorder_draggable());
+            }
+            for c in w.children() {
+                scan(c.as_ref(), out);
+            }
+        }
+        let board = Kanban::new(Msg::Move).column("To do", ["A", "B"]);
+        let col0 = &Widget::<Msg>::children(&board)[0];
+        let mut flags = Vec::new();
+        scan(col0.as_ref(), &mut flags);
+        // Deux cartes saisissables + une zone de dépôt non saisissable.
+        assert_eq!(flags.iter().filter(|&&d| d).count(), 2, "les deux cartes sont saisissables");
+        assert_eq!(flags.iter().filter(|&&d| !d).count(), 1, "la zone de dépôt est cible seule");
     }
 
     #[test]

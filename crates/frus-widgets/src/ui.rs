@@ -328,6 +328,13 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .find(|(fid, _)| *fid == id)
             .map(|(_, rect)| *rect)
+            // Repli sur le registre des **réordonnables**. Les cartes Kanban (et les en-têtes
+            // réordonnables mais **non** triables) ne sont pas focusables : sans ce repli, le shell
+            // ne trouve pas leurs bornes, et tout l'aperçu de glisser **vertical** (fantôme, ligne
+            // d'insertion, réagencement) comme le routage *insert-after* restent lettre morte.
+            .or_else(|| {
+                self.reorderables.iter().find(|(rid, _)| *rid == id).map(|(_, rect)| *rect)
+            })
     }
 
     /// Les identités de **tous** les widgets focusables de la frame (scope compris) —
@@ -2409,10 +2416,13 @@ mod tests {
         assert!(ui.reorderables.len() >= 2, "carte + zone de dépôt dans le registre des réordonnables");
         // Un point sur la carte est **saisissable** (réordonnable) mais **non cliquable** — c'est tout
         // l'intérêt du registre : sans lui, `ui.hit` seul ne trouverait pas la carte.
-        let card = ui.reorderables[0].1;
+        let (card_id, card) = ui.reorderables[0];
         let p = Point::new(card.x + 5.0, card.y + 5.0);
         assert!(ui.reorderable_at(p).is_some(), "la carte est saisissable au point");
         assert!(ui.hit(p).is_none(), "…mais pas cliquable (absente du registre de hits)");
+        // `widget_rect` doit retrouver la carte **via le repli réordonnable** (elle n'est pas
+        // focusable) : sinon l'aperçu de glisser vertical du shell ne démarre jamais.
+        assert_eq!(ui.widget_rect(card_id), Some(card), "widget_rect retombe sur le registre réordonnable");
     }
 
     #[test]

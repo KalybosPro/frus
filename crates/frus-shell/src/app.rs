@@ -1297,9 +1297,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
 
-                // Ressort du réordonnancement : l'abscisse lissée rejoint le curseur
-                // (constante de temps ~70 ms) — les colonnes coulissent avec inertie.
-                let reorder_animating = if matches!(self.drag, Some(Drag::Reorder { moved: true, .. })) {
+                // Ressort du réordonnancement **horizontal** : l'abscisse lissée rejoint le curseur
+                // (constante de temps ~70 ms) — les colonnes coulissent avec inertie. Sans objet à la
+                // verticale (cartes Kanban), dont le réagencement suit le curseur sans lissage x :
+                // gardé à l'axe horizontal pour ne pas animer à vide.
+                let horizontal_reorder = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
+                    && self.dragged_reorder_axis() == Some(ReorderAxis::Horizontal);
+                let reorder_animating = if horizontal_reorder {
                     self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
                     (self.cursor.x - self.reorder_x).abs() > 0.5
                 } else {
@@ -1740,18 +1744,31 @@ impl<A: Application> App<A> {
                 }
                 _ => None,
             };
+            // Dépôt **sur soi-même** : aucun déplacement, même en moitié basse (où `to = from + 1`
+            // passerait le garde `to != from`) — sinon on émettrait un mouvement nul + une annonce.
+            let self_drop = target == Some(*id);
             let message = match to {
-                Some(to) if to != *from => tree
+                Some(to) if to != *from && !self_drop => tree
                     .and_then(|t| find_widget(t.as_ref(), *id))
                     .and_then(|widget| widget.on_reorder(to)),
                 _ => None,
             };
             if let Some(message) = message {
                 let to = to.unwrap_or(*from);
+                let axis = tree
+                    .and_then(|t| find_widget(t.as_ref(), *id))
+                    .map(|w| w.reorder_axis())
+                    .unwrap_or(ReorderAxis::Horizontal);
                 self.dispatch(message);
-                // Le déplacement effectif est énoncé au lecteur d'écran (pendant du
-                // repère visuel qu'est le fantôme, pour l'utilisateur non-voyant).
-                self.set_announcement(format!("Column moved to position {}", to + 1));
+                // Déplacement énoncé au lecteur d'écran (pendant du fantôme, pour l'utilisateur non
+                // voyant). L'index dépend de l'axe : à l'horizontale `to` est la **position de
+                // colonne** (1-based) ; à la verticale c'est un index **plat** (col×STRIDE+pos) qui
+                // n'a pas de sens à lire — on énonce alors le déplacement sans numéro.
+                let announcement = match axis {
+                    ReorderAxis::Horizontal => format!("Column moved to position {}", to + 1),
+                    ReorderAxis::Vertical => "Card moved".to_string(),
+                };
+                self.set_announcement(announcement);
             }
         }
         // Fling : l'élan du doigt projette une destination balistique (friction),
@@ -2136,12 +2153,24 @@ impl<A: Application> App<A> {
     /// des réordonnables (indépendant du clic) — donc aussi les cartes/zones Kanban, non cliquables.
     fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize)> {
         let id = self.ui.as_ref()?.reorderable_at(point)?;
-        let from = self
-            .tree
-            .as_ref()
-            .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| widget.reorder_index())?;
+        let widget = self.tree.as_ref().and_then(|tree| find_widget(tree.as_ref(), id))?;
+        // Cible **seule** (zone de dépôt) : réordonnable mais non saisissable — on ne démarre pas de
+        // glisser dessus (le dépôt, lui, continue de la viser via `ui.reorderable_at`).
+        if !widget.reorder_draggable() {
+            return None;
+        }
+        let from = widget.reorder_index()?;
         Some((id, from))
+    }
+
+    /// Axe du réordonnable actuellement **saisi** (glisser en cours), s'il y en a un. Sert à
+    /// n'appliquer le **ressort horizontal** (`reorder_x`) qu'aux colonnes de `Table` — les cartes
+    /// Kanban (vertical) réagencent sans lissage x.
+    fn dragged_reorder_axis(&self) -> Option<ReorderAxis> {
+        let Some(Drag::Reorder { id, .. }) = self.drag else {
+            return None;
+        };
+        self.tree.as_ref().and_then(|t| find_widget(t.as_ref(), id)).map(|w| w.reorder_axis())
     }
 
     /// Peint l'**aperçu de réordonnancement** par-dessus la scène (non découpée) :

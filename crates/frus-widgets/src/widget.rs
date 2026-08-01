@@ -207,6 +207,14 @@ pub trait Widget<Msg> {
         ReorderAxis::Horizontal
     }
 
+    /// Ce réordonnable peut-il être **saisi** comme source d'un glisser ? Défaut `true` pour tout
+    /// réordonnable. Une **cible seule** — la zone de dépôt en fin de colonne Kanban — renvoie
+    /// `false` : on peut y **déposer** une carte, pas la **soulever** (sinon on lèverait un fantôme
+    /// vide qui ne déplace rien).
+    fn reorder_draggable(&self) -> bool {
+        true
+    }
+
     /// Texte à **énoncer** au lecteur d'écran quand ce widget est **activé** (clic
     /// souris ou Entrée/Espace) — une région live le lit à voix haute. Décrit l'effet
     /// **résultant** de l'activation (« Sorted by Name ascending », « All rows
@@ -550,6 +558,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_reorder(&self, to: usize) -> Option<Msg> {
         (**self).on_reorder(to)
+    }
+    fn reorder_draggable(&self) -> bool {
+        (**self).reorder_draggable()
     }
     fn reorder_axis(&self) -> ReorderAxis {
         (**self).reorder_axis()
