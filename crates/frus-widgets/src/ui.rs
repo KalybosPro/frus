@@ -98,6 +98,20 @@ struct Snapshot {
     focus_scope_start: Option<usize>,
 }
 
+/// Bornes basses des registres d'**interaction** au début d'une composition transformée (calque
+/// échelle/rotation) : on ne re-mappe que ce que le sous-arbre vient d'ajouter. Distinct de
+/// [`Snapshot`] (cache de frontière) car il **inclut `reorderables`** — ceux-ci ne sont jamais mis
+/// en cache mais doivent bien être transformés. Voir [`transform_interaction_registries`].
+struct XformBase {
+    hits: usize,
+    long_presses: usize,
+    focusables: usize,
+    scrollables: usize,
+    draggables: usize,
+    reorderables: usize,
+    semantics: usize,
+}
+
 /// Nombre de nœuds du sous-arbre **si** il est « plat » — c.-à-d. si la
 /// frontière et **tous** ses descendants empruntent la branche de parcours par
 /// défaut (enfants en préfixe) : ni défilable, ni navigateur, ni liste
@@ -677,6 +691,55 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.semantics.extend(data.semantics);
     }
 
+    /// Bornes basses des registres d'interaction **avant** un sous-arbre composité transformé.
+    fn xform_base(&self) -> XformBase {
+        XformBase {
+            hits: self.hits.len(),
+            long_presses: self.long_presses.len(),
+            focusables: self.focusables.len(),
+            scrollables: self.scrollables.len(),
+            draggables: self.draggables.len(),
+            reorderables: self.reorderables.len(),
+            semantics: self.semantics.len(),
+        }
+    }
+
+    /// Applique la transformation de calque `matrix` aux entrées de registre **ajoutées depuis**
+    /// `base` : le point de test des cibles de clic / appui long passe par `M⁻¹` (sans écraser une
+    /// transformation intérieure déjà posée) ; et si `matrix` conserve l'alignement sur les axes
+    /// (échelle/translation, sans rotation), les **rectangles** de focus / défilement / glisser /
+    /// **réordonnancement** / accessibilité sont mappés exactement par `M` (sinon laissés tels
+    /// quels — le clic reste juste via `M⁻¹`). **Facteur commun** des deux sites de composition
+    /// transformée (frontière de `walk` et `emit_transformed_child`) : un seul endroit à tenir à
+    /// jour, qui n'oublie aucun registre (le jalon 250 avait justement oublié `reorderables` dans
+    /// l'un des deux).
+    fn transform_interaction_registries(&mut self, base: &XformBase, matrix: Affine) {
+        let inverse = matrix.inverse();
+        for h in &mut self.hits[base.hits..] {
+            h.xform.get_or_insert(inverse);
+        }
+        for h in &mut self.long_presses[base.long_presses..] {
+            h.xform.get_or_insert(inverse);
+        }
+        if matrix.is_axis_aligned() {
+            for (_, r) in &mut self.focusables[base.focusables..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r, _, _) in &mut self.scrollables[base.scrollables..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r) in &mut self.draggables[base.draggables..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r) in &mut self.reorderables[base.reorderables..] {
+                *r = matrix.apply_rect(*r);
+            }
+            for (_, r, _) in &mut self.semantics[base.semantics..] {
+                *r = matrix.apply_rect(*r);
+            }
+        }
+    }
+
     /// Point d'entrée du parcours d'un nœud. Si le nœud est une **frontière de
     /// repaint** cachable, tente de rejouer son sous-arbre depuis le cache de
     /// peinture ; sinon (ou sur *miss*), délègue au parcours complet
@@ -779,16 +842,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 matrix = matrix.then(Affine::rotation(angle).about(pivot_of(pivot_align)));
             }
 
-            let (p0, h0, lp0, f0, s0, d0, r0, sem0) = (
-                self.scene.primitives().len(),
-                self.hits.len(),
-                self.long_presses.len(),
-                self.focusables.len(),
-                self.scrollables.len(),
-                self.draggables.len(),
-                self.reorderables.len(),
-                self.semantics.len(),
-            );
+            let p0 = self.scene.primitives().len();
+            let base = self.xform_base();
             self.walk_node(widget, id, translation, clip, rects, index);
             // Enveloppe la plage de primitives — peinte à plat — dans un calque
             // transformé par `M` (échelle/rotation appliquées au compositing).
@@ -801,37 +856,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 transform: Some(LayerTransform::new(matrix)),
                 owner: id.as_u64(),
             });
-            // Cibles de clic / appui long : le point de test passe par `M⁻¹` (sans
-            // écraser une transformation intérieure déjà posée).
-            let inverse = matrix.inverse();
-            for h in &mut self.hits[h0..] {
-                h.xform.get_or_insert(inverse);
-            }
-            for h in &mut self.long_presses[lp0..] {
-                h.xform.get_or_insert(inverse);
-            }
-            // Focus / défilement / glisser / accessibilité stockent un **rectangle**
-            // (pas de point contre-transformé). Si `M` conserve l'alignement sur les
-            // axes (échelle/translation, sans rotation), l'image reste un rectangle :
-            // on la calcule exactement. Sinon (rotation), on laisse tel quel — bornes
-            // approchées (le clic, lui, reste juste via `M⁻¹`).
-            if matrix.is_axis_aligned() {
-                for (_, r) in &mut self.focusables[f0..] {
-                    *r = matrix.apply_rect(*r);
-                }
-                for (_, r, _, _) in &mut self.scrollables[s0..] {
-                    *r = matrix.apply_rect(*r);
-                }
-                for (_, r) in &mut self.draggables[d0..] {
-                    *r = matrix.apply_rect(*r);
-                }
-                for (_, r) in &mut self.reorderables[r0..] {
-                    *r = matrix.apply_rect(*r);
-                }
-                for (_, r, _) in &mut self.semantics[sem0..] {
-                    *r = matrix.apply_rect(*r);
-                }
-            }
+            // Contre-transforme le hit-test et mappe les rectangles d'interaction du sous-arbre.
+            self.transform_interaction_registries(&base, matrix);
             return;
         }
 
@@ -891,16 +917,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         matrix: Affine,
         owner: WidgetId,
     ) {
-        let (p0, h0, lp0, f0, s0, d0, r0, sem0) = (
-            self.scene.primitives().len(),
-            self.hits.len(),
-            self.long_presses.len(),
-            self.focusables.len(),
-            self.scrollables.len(),
-            self.draggables.len(),
-            self.reorderables.len(),
-            self.semantics.len(),
-        );
+        let p0 = self.scene.primitives().len();
+        let base = self.xform_base();
         let mut child_index = 0;
         self.walk(child, cid, translation, clip, child_rects, &mut child_index);
         let group = self.scene.split_off(p0);
@@ -912,30 +930,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             transform: Some(LayerTransform::new(matrix)),
             owner: owner.as_u64(),
         });
-        let inverse = matrix.inverse();
-        for h in &mut self.hits[h0..] {
-            h.xform.get_or_insert(inverse);
-        }
-        for h in &mut self.long_presses[lp0..] {
-            h.xform.get_or_insert(inverse);
-        }
-        if matrix.is_axis_aligned() {
-            for (_, r) in &mut self.focusables[f0..] {
-                *r = matrix.apply_rect(*r);
-            }
-            for (_, r, _, _) in &mut self.scrollables[s0..] {
-                *r = matrix.apply_rect(*r);
-            }
-            for (_, r) in &mut self.draggables[d0..] {
-                *r = matrix.apply_rect(*r);
-            }
-            for (_, r) in &mut self.reorderables[r0..] {
-                *r = matrix.apply_rect(*r);
-            }
-            for (_, r, _) in &mut self.semantics[sem0..] {
-                *r = matrix.apply_rect(*r);
-            }
-        }
+        self.transform_interaction_registries(&base, matrix);
     }
 
     fn walk_node(

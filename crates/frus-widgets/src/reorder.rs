@@ -13,6 +13,15 @@ use std::collections::{HashMap, HashSet};
 
 use frus_core::{Primitive, Rect};
 
+/// Facteur du garde « **fond** vs cellule/carte » **partagé** par les deux réagencements : un bloc
+/// dont l'**extent le long de l'axe de réordonnancement** (largeur pour les colonnes horizontales,
+/// hauteur pour les cartes verticales) dépasse `OVERSIZE_FACTOR × cran` est un arrière-plan de
+/// page/colonne, pas une cellule/carte — laissé en place. Les deux fonctions ci-dessous sont la
+/// **même idée sur axes transposés** ; leurs corps diffèrent car le modèle d'interaction diffère
+/// (colonnes : coulissement **continu** suivant le curseur ; cartes : décalage **binaire** selon la
+/// ligne d'insertion), aussi ne les fusionne-t-on pas — seule la constante est mutualisée.
+const OVERSIZE_FACTOR: f32 = 1.5;
+
 /// Réagence les primitives `prims` pour l'aperçu, en fonction de l'abscisse `cursor_x`
 /// du curseur. La colonne **source** (`src`, soulevée, `lifted_owner` = son en-tête) est
 /// retirée ; les colonnes de part et d'autre coulissent d'un cran (largeur de la source),
@@ -27,7 +36,7 @@ pub fn reflow_reorder_columns(
     let slot = src.width;
     // Au-delà de cette largeur, un bloc couvre plus qu'une cellule (fond de page/ligne) :
     // laissé en place pour ne pas déplacer un arrière-plan entier.
-    let max_cell = src.width * 1.5;
+    let max_cell = src.width * OVERSIZE_FACTOR;
 
     // Boîte englobante par propriétaire (regroupe fond + texte + icône d'une cellule).
     let mut bounds: HashMap<u64, Rect> = HashMap::new();
@@ -91,7 +100,7 @@ pub fn reflow_reorder_cards(
 ) -> Vec<Primitive> {
     let slot = src.height;
     // Au-delà : un bloc couvre plus qu'une carte (fond de colonne/page) — laissé en place.
-    let max_card = src.height * 1.5;
+    let max_card = src.height * OVERSIZE_FACTOR;
     let in_band = |cx: f32, x0: f32, w: f32| cx >= x0 && cx <= x0 + w;
 
     prims
