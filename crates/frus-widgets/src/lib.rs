@@ -161,7 +161,7 @@ pub use scaffold::{fab_button, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
 pub use skeleton::Skeleton;
-pub use reorder::reflow_reorder_columns;
+pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use slider::{RangeSlider, Slider};
 pub use spinner::Spinner;
 pub use stack::Stack;

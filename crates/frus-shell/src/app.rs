@@ -15,9 +15,10 @@ use web_time::Instant;
 
 use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
-    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_columns, subtree_ids,
-    Color, Cursor as UiCursor, Edit, FocusDirection, Insets, Key, KeyResponse, Point, Primitive,
-    Rect, ReorderAxis, Runtime, Scene, Size, Theme, Ui, Widget, WidgetId, WindowInsets,
+    build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
+    reflow_reorder_columns, subtree_ids, Color, Cursor as UiCursor, Edit, FocusDirection, Insets,
+    Key, KeyResponse, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, Size, Theme, Ui, Widget,
+    WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
@@ -2170,6 +2171,16 @@ impl<A: Application> App<A> {
             ReorderAxis::Vertical => (dx, dy),
         };
 
+        // Propriétaires du **sous-arbre** de l'élément saisi : sert au fantôme (capter le contenu
+        // d'une carte riche, peint par des enfants, jalon 251) **et** au réagencement vertical
+        // (retirer la carte soulevée de l'aperçu). Repli : la carte seule.
+        let owners: std::collections::HashSet<u64> = self
+            .tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), id))
+            .map(|w| subtree_ids(w, id).iter().map(|i| i.as_u64()).collect())
+            .unwrap_or_else(|| std::iter::once(id.as_u64()).collect());
+
         match axis {
             ReorderAxis::Horizontal => {
                 // Réagence les colonnes voisines : le trou de la source se referme et la place de
@@ -2182,9 +2193,16 @@ impl<A: Application> App<A> {
                 }
             }
             ReorderAxis::Vertical => {
-                // Pas de réagencement horizontal : on garde le tableau tel quel et on pose une
-                // **ligne d'insertion** au bord supérieur de l'emplacement survolé (carte/zone).
-                if let Some(line) = self.reorder_drop_line(3.0) {
+                // Réagence les **cartes** : le trou de la carte soulevée se referme (colonne source)
+                // et la place s'ouvre sous la **ligne d'insertion** (colonne cible). Puis on pose la
+                // ligne par-dessus, au bord retenu (moitié survolée, jalon 252).
+                let line = self.reorder_drop_line(3.0);
+                let reflowed = reflow_reorder_cards(scene.primitives(), src, line, &owners);
+                scene.clear();
+                for primitive in reflowed {
+                    scene.push_primitive(primitive);
+                }
+                if let Some(line) = line {
                     scene.set_clip(Rect::UNBOUNDED);
                     scene.draw_rect(line, theme.primary, 1.5, 0.0, Color::TRANSPARENT);
                 }
@@ -2195,13 +2213,7 @@ impl<A: Application> App<A> {
         // translatées et **dé-découpées** (sinon rognées à la source). Pour une **carte riche**,
         // le fond est peint par la carte mais son contenu (libellé, étiquettes, bouton ×) par des
         // enfants, sous d'autres propriétaires : on capte donc les primitives de **tout le
-        // sous-arbre** de l'élément, pas seulement les siennes.
-        let owners: std::collections::HashSet<u64> = self
-            .tree
-            .as_ref()
-            .and_then(|t| find_widget(t.as_ref(), id))
-            .map(|w| subtree_ids(w, id).iter().map(|i| i.as_u64()).collect())
-            .unwrap_or_else(|| std::iter::once(id.as_u64()).collect());
+        // sous-arbre** de l'élément (voir `owners` ci-dessus).
         let ghost: Vec<Primitive> = ui
             .scene()
             .primitives()

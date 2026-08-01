@@ -9,7 +9,7 @@
 //! **suit le doigt** au lieu de sauter d'une colonne à l'autre. Les blocs plus larges
 //! qu'une colonne (fonds de page/ligne) sont laissés en place.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use frus_core::{Primitive, Rect};
 
@@ -67,6 +67,63 @@ pub fn reflow_reorder_columns(
         .collect()
 }
 
+/// Réagencement **vertical** pour l'aperçu de réordonnancement des **cartes** d'un Kanban :
+/// pendant qu'on glisse une carte, celles de sa colonne **source** qui la suivent **remontent**
+/// (le trou de la carte soulevée se referme), et celles de la colonne **cible** situées au niveau
+/// ou en dessous de la **ligne d'insertion** **descendent** (la place de dépôt s'ouvre).
+///
+/// Comme [`reflow_reorder_columns`], purement **géométrique** — aucune connaissance de l'arbre :
+/// - `src` : bornes de la carte soulevée (bande x de la **colonne source** et hauteur d'un cran) ;
+/// - `line` : la **ligne d'insertion** (bande x de la **colonne cible** et abscisse d'insertion) —
+///   `None` si le curseur n'est sur aucune cible (seul le trou source se referme) ;
+/// - `lifted` : les propriétaires du **sous-arbre** de la carte soulevée — retirés de l'aperçu
+///   (dessinés à part en fantôme).
+///
+/// Le seuil de **cran** vaut la hauteur de la carte. Un bloc plus **haut** que `1.5×` ce cran est un
+/// fond de colonne/page (pas une carte) : laissé en place — pendant vertical du garde `max_cell`.
+/// Chaque primitive coulisse selon le **centre** de ses bornes ; les lignes d'insertion se posant aux
+/// **bords** des cartes (jamais en plein centre), une carte ne se cisaille pas.
+pub fn reflow_reorder_cards(
+    prims: &[Primitive],
+    src: Rect,
+    line: Option<Rect>,
+    lifted: &HashSet<u64>,
+) -> Vec<Primitive> {
+    let slot = src.height;
+    // Au-delà : un bloc couvre plus qu'une carte (fond de colonne/page) — laissé en place.
+    let max_card = src.height * 1.5;
+    let in_band = |cx: f32, x0: f32, w: f32| cx >= x0 && cx <= x0 + w;
+
+    prims
+        .iter()
+        .filter_map(|p| {
+            // Carte soulevée : retirée de l'aperçu (elle flotte en fantôme).
+            if lifted.contains(&p.owner()) {
+                return None;
+            }
+            let b = p.bounds();
+            // Grand fond (colonne/page) : immobile.
+            if b.height >= max_card {
+                return Some(p.clone());
+            }
+            let cx = b.x + b.width * 0.5;
+            let cy = b.y + b.height * 0.5;
+            let mut dy = 0.0;
+            // Colonne **cible** : ce qui est au niveau/en dessous de la ligne descend (trou ouvert).
+            if let Some(line) = line {
+                if in_band(cx, line.x, line.width) && cy >= line.y {
+                    dy += slot;
+                }
+            }
+            // Colonne **source** : ce qui suit la carte soulevée remonte (trou refermé).
+            if in_band(cx, src.x, src.width) && cy > src.y {
+                dy -= slot;
+            }
+            Some(p.translated(0.0, dy))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +177,79 @@ mod tests {
         assert_eq!(rect_x_of_owner(&out, 3), None, "colonne source retirée");
         assert_eq!(rect_x_of_owner(&out, 1), Some(100.0), "col 0 → 100");
         assert_eq!(rect_x_of_owner(&out, 2), Some(200.0), "col 1 → 200");
+    }
+
+    /// Deux colonnes (bandes x [0,100] et [120,220]) de 3 cartes (44 px, cran 52) sur fond haut.
+    /// Cartes : col A owners 1..3, col B owners 4..6 ; fonds de colonne owners 100 / 200 (hauts).
+    fn board() -> Scene {
+        let mut s = Scene::new();
+        s.set_owner(100);
+        s.fill_rect(Rect::new(0.0, 0.0, 100.0, 300.0), Color::WHITE);
+        s.set_owner(200);
+        s.fill_rect(Rect::new(120.0, 0.0, 100.0, 300.0), Color::WHITE);
+        for i in 0..3 {
+            let y = i as f32 * 52.0;
+            s.set_owner((i + 1) as u64);
+            s.fill_rect(Rect::new(0.0, y, 100.0, 44.0), Color::BLACK);
+            s.set_owner((i + 4) as u64);
+            s.fill_rect(Rect::new(120.0, y, 100.0, 44.0), Color::BLACK);
+        }
+        s
+    }
+
+    fn rect_y_of_owner(prims: &[Primitive], owner: u64) -> Option<f32> {
+        prims.iter().find_map(|p| match p {
+            Primitive::Rect { rect, owner: o, .. } if *o == owner && rect.height < 100.0 => Some(rect.y),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn lifting_a_card_closes_the_source_gap() {
+        let base = board();
+        // Carte soulevée = col A, carte du haut (owner 1) ; pas de cible (line = None).
+        let lifted = HashSet::from([1]);
+        let out = reflow_reorder_cards(base.primitives(), Rect::new(0.0, 0.0, 100.0, 44.0), None, &lifted);
+        assert_eq!(rect_y_of_owner(&out, 1), None, "carte soulevée retirée");
+        assert_eq!(rect_y_of_owner(&out, 2), Some(8.0), "carte suivante remonte d'un cran (52 − 44)");
+        assert_eq!(rect_y_of_owner(&out, 3), Some(60.0), "et la dernière aussi (104 − 44)");
+        assert_eq!(rect_y_of_owner(&out, 4), Some(0.0), "colonne voisine intacte");
+    }
+
+    #[test]
+    fn insertion_line_opens_a_hole_in_the_target_column() {
+        let base = board();
+        // Carte soulevée = col B, carte du haut (owner 4) ; cible = col A, insertion avant la 2e
+        // carte (ligne au bord supérieur y=52 de owner 2).
+        let lifted = HashSet::from([4]);
+        let line = Rect::new(0.0, 52.0, 100.0, 3.0);
+        let out =
+            reflow_reorder_cards(base.primitives(), Rect::new(120.0, 0.0, 100.0, 44.0), Some(line), &lifted);
+        // Colonne source (B) : le trou se referme.
+        assert_eq!(rect_y_of_owner(&out, 4), None, "carte soulevée retirée");
+        assert_eq!(rect_y_of_owner(&out, 5), Some(8.0), "col source : carte suivante remonte");
+        assert_eq!(rect_y_of_owner(&out, 6), Some(60.0), "col source : dernière remonte");
+        // Colonne cible (A) : la place s'ouvre sous la ligne.
+        assert_eq!(rect_y_of_owner(&out, 1), Some(0.0), "au-dessus de la ligne : immobile");
+        assert_eq!(rect_y_of_owner(&out, 2), Some(96.0), "sous la ligne : descend d'un cran (52 + 44)");
+        assert_eq!(rect_y_of_owner(&out, 3), Some(148.0), "et la suivante aussi (104 + 44)");
+    }
+
+    #[test]
+    fn tall_backgrounds_stay_put() {
+        let base = board();
+        let lifted = HashSet::from([1]);
+        let line = Rect::new(0.0, 52.0, 100.0, 3.0);
+        let out =
+            reflow_reorder_cards(base.primitives(), Rect::new(0.0, 0.0, 100.0, 44.0), Some(line), &lifted);
+        // Les deux fonds de colonne (hauteur 300 > 1.5×44) restent à y = 0.
+        let bgs: Vec<f32> = out
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, .. } if rect.height > 150.0 => Some(rect.y),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(bgs, vec![0.0, 0.0], "fonds de colonne immobiles");
     }
 }
