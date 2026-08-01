@@ -26,7 +26,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
-use crate::application::Application;
+use crate::application::{Application, Lifecycle};
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
 /// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android et Web
@@ -302,6 +302,8 @@ pub struct App<A: Application> {
     /// attribué au clavier logiciel.
     inset_baseline: Option<(Insets, (u32, u32))>,
     /// Poignée de l'activité Android (pour interroger les insets, le clavier…).
+    /// État du **cycle de vie** courant — pour ne notifier l'app qu'aux **transitions** réelles.
+    lifecycle: Lifecycle,
     #[cfg(target_os = "android")]
     android_app: Option<winit::platform::android::activity::AndroidApp>,
     /// Le clavier logiciel est-il demandé ? (suit le focus des champs texte).
@@ -357,6 +359,8 @@ impl<A: Application> App<A> {
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
             inset_baseline: None,
+            // L'app démarre « détachée » ; `resumed` la passera à `Resumed`.
+            lifecycle: Lifecycle::Detached,
             #[cfg(target_os = "android")]
             android_app: None,
             #[cfg(target_os = "android")]
@@ -432,6 +436,14 @@ impl<A: Application> App<A> {
                     }
                 }
             }
+        }
+    }
+
+    /// Notifie l'app d'un **changement** de cycle de vie (jamais deux fois le même état d'affilée).
+    fn set_lifecycle(&mut self, state: Lifecycle) {
+        if self.lifecycle != state {
+            self.lifecycle = state;
+            self.app.on_lifecycle(state);
         }
     }
 
@@ -591,6 +603,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if self.window.is_some() {
             return;
         }
+        // Retour au premier plan (ou démarrage) : la surface va (re)naître ci-dessous.
+        self.set_lifecycle(Lifecycle::Resumed);
 
         let mut attributes = Window::default_attributes()
             .with_title(self.app.title())
@@ -694,9 +708,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// relâche renderer + fenêtre ; `resumed` les recrée au retour (sans rejouer
     /// `init`, cf. `started`). Inoffensif sur bureau (l'événement n'y survient pas).
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        // Arrière-plan : la surface est perdue → l'app passe en `Paused`.
+        self.set_lifecycle(Lifecycle::Paused);
         self.renderer = None;
         self.window = None;
         self.last_frame = None;
+    }
+
+    /// Fin de la boucle d'événements (fermeture) : dernière notification `Detached` — l'app peut y
+    /// persister son état avant que le processus ne disparaisse.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.set_lifecycle(Lifecycle::Detached);
     }
 
     /// Message produit par un effet (thread de fond) : on l'applique et on
@@ -753,6 +775,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+
+            // Gain/perte de focus **au premier plan** : `Resumed` ⇄ `Inactive`. On ne touche pas à
+            // `Paused`/`Detached` (arrière-plan/fermeture) — décidés par `suspended`/`exiting`.
+            WindowEvent::Focused(focused) => {
+                if !matches!(self.lifecycle, Lifecycle::Paused | Lifecycle::Detached) {
+                    self.set_lifecycle(if focused { Lifecycle::Resumed } else { Lifecycle::Inactive });
+                }
+            }
 
             WindowEvent::Resized(size) => {
                 if let Some(renderer) = self.renderer.as_mut() {

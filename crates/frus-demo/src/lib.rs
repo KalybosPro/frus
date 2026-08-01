@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use frus_shell::{Application, Command, Subscription};
+use frus_shell::{Application, Command, Lifecycle, Subscription};
 use frus_l10n::{args, Localizer};
 use std::sync::OnceLock;
 
@@ -403,6 +403,10 @@ struct TodoApp {
     // --- Chrono (souscription timer) ---
     /// Le chrono tourne-t-il ? (pilote la souscription `every`).
     running: bool,
+    /// L'app est-elle en **arrière-plan** ? (cycle de vie, jalon 259) — mis à `true` sur
+    /// `Paused`/`Detached` via [`Application::on_lifecycle`] ; le minuteur se suspend alors. Défaut
+    /// `false` (premier plan) — compatible `#[derive(Default)]`.
+    background: bool,
     /// Secondes écoulées depuis le démarrage du chrono.
     elapsed: u32,
     /// Onglet actif de l'écran Réglages.
@@ -1252,8 +1256,10 @@ impl Application for TodoApp {
     }
 
     fn subscription(&self) -> Subscription<Msg> {
-        // Un tick par seconde tant que le chrono tourne (sinon rien).
-        if self.running {
+        // Un tick par seconde tant que le chrono tourne **et** que l'app est au premier plan : en
+        // arrière-plan (`on_lifecycle` → `foreground = false`) le minuteur se **suspend**, façon
+        // Flutter (le framework arrête la souscription par diff, puis la relance au retour).
+        if self.running && !self.background {
             Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
         } else {
             Subscription::none()
@@ -1294,6 +1300,16 @@ impl Application for TodoApp {
             self.insets = safe;
             eprintln!("[demo] insets : {safe:?}");
         }
+    }
+
+    fn on_lifecycle(&mut self, state: Lifecycle) {
+        // Démonstration du contrat de cycle de vie (jalon 259) : on **suspend le chrono** en
+        // arrière-plan et on le **reprend** au premier plan — comme une app Flutter couperait ses
+        // minuteurs/capteurs. La trace part aussi dans logcat (vérification sur appareil).
+        eprintln!("[demo] lifecycle : {state:?}");
+        // Suspend en arrière-plan (Paused/Detached) ; garde le minuteur en `Inactive` (perte de
+        // focus mais toujours visible) — comme Flutter suspend sur `paused`, pas sur `inactive`.
+        self.background = matches!(state, Lifecycle::Paused | Lifecycle::Detached);
     }
 
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {

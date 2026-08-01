@@ -17,7 +17,7 @@ mod reload;
 mod subscription;
 
 pub use app::App;
-pub use application::Application;
+pub use application::{Application, Lifecycle};
 pub use command::Command;
 pub use subscription::Subscription;
 

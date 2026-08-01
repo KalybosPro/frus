@@ -10,6 +10,24 @@ use frus_widgets::{Theme, Widget, WindowInsets};
 use crate::command::Command;
 use crate::subscription::Subscription;
 
+/// État du **cycle de vie** de l'application, façon Flutter (`AppLifecycleState`). Le framework le
+/// transmet à [`Application::on_lifecycle`] à chaque transition, pour que l'app **réagisse** (mettre
+/// en pause un minuteur/une caméra en arrière-plan, écrire une sauvegarde avant destruction…).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Lifecycle {
+    /// Au **premier plan**, visible et **interactif**.
+    Resumed,
+    /// Visible mais **non focalisé** (volet de notifications, dialogue système, multi-fenêtre…) —
+    /// l'app ne devrait pas réagir aux entrées mais reste affichée.
+    Inactive,
+    /// En **arrière-plan**, **non visible** (la surface de rendu est perdue sur Android). Bon moment
+    /// pour relâcher les ressources et suspendre le travail non essentiel.
+    Paused,
+    /// En cours de **destruction** — dernière occasion de persister l'état (le processus peut être
+    /// tué ensuite sans autre notification).
+    Detached,
+}
+
 /// Ce qu'une application fournit au framework (modèle à messages, façon Elm).
 pub trait Application {
     /// Type de message émis par l'interface et consommé par [`Application::update`].
@@ -69,6 +87,13 @@ pub trait Application {
     /// **changement de palier** dans sa logique (p. ex. fermer un tiroir en
     /// rétrécissant), au-delà du simple rendu.
     fn on_resize(&mut self, _width: f32, _height: f32) {}
+
+    /// Appelé à chaque **transition de cycle de vie** (voir [`Lifecycle`]) : `Resumed` au premier
+    /// plan, `Inactive` quand la fenêtre perd le focus, `Paused` en arrière-plan (surface perdue),
+    /// `Detached` juste avant la fermeture. Défaut : ne rien faire. L'app y suspend/reprend son
+    /// travail (minuteurs, capteurs) ou persiste son état — comme `didChangeAppLifecycleState` de
+    /// Flutter.
+    fn on_lifecycle(&mut self, _state: Lifecycle) {}
 
     /// Appelé quand les **insets fenêtre** changent, séparés par nature :
     /// `padding` = barres système/encoche (statique), `view_insets` = clavier
