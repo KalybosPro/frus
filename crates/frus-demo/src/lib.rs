@@ -1738,13 +1738,13 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
         .size(13.0)
         .color(theme.muted)
         .wrap();
-    // Le board (rangée de colonnes de largeur fixe) dépasse souvent la largeur — et sa hauteur peut
-    // dépasser l'écran : on le rend **défilable en 2D** dans un viewport qui remplit l'espace sous la
-    // barre (comme Flutter borne le contenu au viewport et le fait défiler). Le padding est **dans**
-    // le contenu défilé pour garder une marge visuelle. Glisser une carte réordonne ; glisser une
-    // zone vide fait défiler.
+    // Le board (rangée de colonnes de largeur fixe) dépasse la largeur de l'écran : on le rend
+    // défilable **horizontalement** (axe **intentionnel**, façon Flutter — la rangée de colonnes est
+    // un scroller horizontal, pas un pan 2D). Le défilement **vertical** des cartes est propre à
+    // chaque colonne (dans le widget `Kanban`). Le padding est **dans** le contenu défilé (marge
+    // visuelle). Glisser une carte réordonne ; glisser une zone vide fait défiler.
     let board_area = Scroll::new()
-        .axis(Axis::Both)
+        .axis(Axis::Horizontal)
         .width(width)
         .flex(1.0)
         .child(Container::new().padding(24.0).child(board));
