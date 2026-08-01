@@ -435,6 +435,29 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Redemande **explicitement** le clavier logiciel pour le champ focalisé — appelé quand
+    /// l'utilisateur **tape dans un champ texte** (même déjà focalisé). Indispensable car le clavier
+    /// peut avoir été fermé par le **bouton retour système** sans que l'app en soit notifiée :
+    /// `soft_input_shown` reste alors `true` et le focus ne change pas au ré-appui, donc le diff de
+    /// [`sync_soft_input`](Self::sync_soft_input) ne verrait aucun changement et ne rouvrirait
+    /// jamais le clavier. Ici on rouvre inconditionnellement — comportement natif : taper dans un
+    /// champ montre le clavier.
+    fn request_soft_input(&mut self) {
+        #[cfg(target_os = "android")]
+        {
+            self.soft_input_shown = true;
+            self.ime_composing = 0;
+            if crate::android_ime::installed() {
+                if let Some(id) = self.runtime.input.focused {
+                    self.push_ime_context(id);
+                }
+                crate::android_ime::start_input();
+            } else if let Some(app) = &self.android_app {
+                app.show_soft_input(true);
+            }
+        }
+    }
+
     /// Applique les opérations IME en attente au champ focalisé (pont §6).
     /// La composition est matérialisée **dans le champ** : chaque mise à jour
     /// efface la précédente (le modèle contrôlé n'a pas encore de région de
@@ -1658,6 +1681,9 @@ impl<A: Application> App<A> {
                 self.goal_x = None;
                 self.runtime.edits.insert(id, Edit { cursor, anchor: None, composing: None });
                 self.drag = Some(Drag::TextSelect { id, rect });
+                // Taper dans un champ **rouvre** le clavier — même s'il était déjà « montré » côté app
+                // mais fermé par le retour système (voir `request_soft_input`).
+                self.request_soft_input();
 
                 // Double-clic : sélectionne le mot sous le curseur.
                 let now = Instant::now();
