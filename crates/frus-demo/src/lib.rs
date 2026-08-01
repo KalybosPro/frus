@@ -49,7 +49,7 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
 }
 use frus_widgets::{
     button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BarChart, BoxFit,
-    FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
+    Axis, FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
     Container, CustomPaint, DataTable, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
     Kanban, NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
     RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
@@ -1717,11 +1717,25 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
             .collect();
         board = board.column_widgets(*title, factories);
     }
+    // Le hint **s'enroule** dans la largeur (sinon la ligne déborde à droite hors écran).
     let hint = text("Add cards with + Add card; remove with ×; drag a card to move it.")
         .size(13.0)
-        .color(theme.muted);
-    let body = column![board, hint].gap(16.0).padding(24.0);
-    let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), body].width(width).height(height);
+        .color(theme.muted)
+        .wrap();
+    // Le board (rangée de colonnes de largeur fixe) dépasse souvent la largeur — et sa hauteur peut
+    // dépasser l'écran : on le rend **défilable en 2D** dans un viewport qui remplit l'espace sous la
+    // barre (comme Flutter borne le contenu au viewport et le fait défiler). Le padding est **dans**
+    // le contenu défilé pour garder une marge visuelle. Glisser une carte réordonne ; glisser une
+    // zone vide fait défiler.
+    let board_area = Scroll::new()
+        .axis(Axis::Both)
+        .width(width)
+        .flex(1.0)
+        .child(Container::new().padding(24.0).child(board));
+    let hint_bar = Container::new().width(width).padding(24.0).child(hint);
+    let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), board_area, hint_bar]
+        .width(width)
+        .height(height);
     Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
 }
 
