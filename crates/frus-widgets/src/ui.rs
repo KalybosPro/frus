@@ -2421,6 +2421,23 @@ mod tests {
     }
 
     #[test]
+    fn reorderables_inside_a_scroll_are_still_registered() {
+        // Scénario des jalons 258/260 : le board (avec ses cartes réordonnables) est **enveloppé
+        // dans un `Scroll`**. Les réordonnables doivent rester enregistrés — sinon glisser une carte
+        // ne s'engage plus dès que le board défile.
+        use crate::{Axis, Kanban, Scroll};
+        let board = Kanban::new(|_, _, _, _| Msg::A).column("To do", ["Card A"]);
+        let scrolled = Scroll::new().axis(Axis::Horizontal).width(400.0).height(300.0).child(board);
+        let rt = Runtime::default();
+        let ui = build_ui(&scrolled, Size::new(400.0, 300.0), &rt, &Theme::default());
+        assert!(
+            ui.reorderables.len() >= 2,
+            "carte + zone de dépôt réordonnables même dans un Scroll (obtenu : {})",
+            ui.reorderables.len()
+        );
+    }
+
+    #[test]
     fn subtree_ids_covers_a_widget_and_its_descendants() {
         use crate::Text;
         // Racine (Container) > Flex(colonne) > [Text, Text].
