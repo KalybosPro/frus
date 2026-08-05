@@ -1,7 +1,7 @@
 # frus-hello — cible Web (wasm + WebGPU)
 
 `frus-hello` tourne dans le navigateur via **WebGPU**, sans changer une ligne de l'app :
-le **point d'entrée unique** `frus_shell::main!(Counter::default())` engendre lui-même
+le **point d'entrée unique** `frus::main!(Counter::default())` engendre lui-même
 l'entrée Web `#[wasm_bindgen(start)]` (qui appelle `frus_shell::run_web`), comme il engendre
 les entrées bureau et Android — l'app n'écrit **rien** de spécifique à la plateforme.
 

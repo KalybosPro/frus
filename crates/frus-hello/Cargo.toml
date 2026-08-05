@@ -10,12 +10,11 @@ license.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-# Le point d'entrée unique `frus_shell::main!` ré-exporte anyhow/log : l'app n'a pas à
-# les déclarer.
-frus-shell = { path = "../frus-shell" }
-frus-widgets = { path = "../frus-widgets" }
+# **Une seule dépendance** : la façade `frus` ré-exporte shell + widgets + `main!` (et
+# anyhow/log). L'app n'a rien d'autre à déclarer (hors wasm-bindgen pour le Web).
+frus = { path = "../frus" }
 
-# Web (wasm) : la macro `frus_shell::main!` engendre l'entrée `#[wasm_bindgen(start)]`.
+# Web (wasm) : la macro `frus::main!` engendre l'entrée `#[wasm_bindgen(start)]`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 

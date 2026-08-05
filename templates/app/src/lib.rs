@@ -3,8 +3,8 @@
 //! - Bureau : `cargo run`
 //! - Android : `cargo apk run`   (voir https://… le guide de démarrage)
 
-use frus_shell::{Application, Command};
-use frus_widgets::{button, column, text, Align, Container, Justify, Theme, Variant, Widget};
+// Une **seule** dépendance : la façade `frus` fournit tout (couche framework + widgets + DSL).
+use frus::{button, column, text, Align, Application, Command, Container, Justify, Theme, Variant, Widget};
 
 /// L'état de l'application : un simple compteur.
 #[derive(Default)]
@@ -69,9 +69,9 @@ impl Application for App {
 }
 
 // **Point d'entrée unique** — façon Flutter (`void main() => runApp(App())`) : une seule
-// déclaration engendre les entrées bureau / Android / Web (voir `frus_shell::main!`). Le mince
+// déclaration engendre les entrées bureau / Android / Web (voir `frus::main!`). Le mince
 // binaire `src/bin/{{project-name}}.rs` appelle la `run()` ainsi produite pour le bureau.
-frus_shell::main!(App::default());
+frus::main!(App::default());
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,7 @@
 //! `cargo run` (ajouter `RUST_LOG=info` pour les logs).
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-fn main() -> frus_shell::anyhow::Result<()> {
+fn main() -> frus::anyhow::Result<()> {
     {{crate_name}}::run()
 }
 

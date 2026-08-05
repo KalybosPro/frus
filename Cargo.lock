@@ -1224,6 +1224,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "frus"
+version = "0.0.0"
+dependencies = [
+ "frus-shell",
+ "frus-widgets",
+]
+
+[[package]]
 name = "frus-core"
 version = "0.0.0"
 dependencies = [
@@ -1261,8 +1269,7 @@ dependencies = [
 name = "frus-hello"
 version = "0.0.0"
 dependencies = [
- "frus-shell",
- "frus-widgets",
+ "frus",
  "wasm-bindgen",
 ]
 

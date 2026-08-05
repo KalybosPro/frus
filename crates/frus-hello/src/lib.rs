@@ -8,8 +8,8 @@
 
 use std::time::Duration;
 
-use frus_shell::{Application, Command, Subscription};
-use frus_widgets::{button, column, text, Align, Container, Justify, Theme, Variant, Widget};
+// Une **seule** dépendance : la façade `frus` fournit tout (couche framework + widgets + DSL).
+use frus::{button, column, text, Align, Application, Command, Container, Justify, Subscription, Theme, Variant, Widget};
 
 /// L'état de l'application : un simple compteur.
 #[derive(Default)]
@@ -99,9 +99,9 @@ impl Application for Counter {
 }
 
 // **Point d'entrée unique** — façon Flutter (`void main() => runApp(App())`) : une
-// seule déclaration engendre les entrées bureau / Android / Web (voir `frus_shell::main!`).
+// seule déclaration engendre les entrées bureau / Android / Web (voir `frus::main!`).
 // Le mince binaire `src/bin/frus-hello.rs` appelle la `run()` ainsi produite pour le bureau.
-frus_shell::main!(Counter::default());
+frus::main!(Counter::default());
 
 #[cfg(test)]
 mod tests {

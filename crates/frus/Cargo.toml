@@ -1,0 +1,11 @@
+[package]
+name = "frus"
+description = "frus — la façade : une seule dépendance pour écrire une application (shell + widgets + point d'entrée unique)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# La façade ne fait que ré-exporter : pas de `cdylib` propre. L'app reste `rlib` + `cdylib`.
+[dependencies]
+frus-shell = { path = "../frus-shell" }
+frus-widgets = { path = "../frus-widgets" }
