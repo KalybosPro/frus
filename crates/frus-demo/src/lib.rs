@@ -1730,13 +1730,11 @@ fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<Msg>> {
 /// émet `KanbanMove`/`KanbanAdd`/`KanbanDelete`, le reducer applique.
 fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let cols = app.kanban_cols();
-    // Hauteur explicite de la zone défilable des cartes par colonne (jalon 264, façon Trello) :
-    // l'app la fournit à partir de la hauteur d'écran (un flex-scroll s'effondrerait sans hauteur
-    // d'ancêtre définie — jalon 263). On réserve navbar + hint + paddings + titre + bouton d'ajout,
-    // et on garde un plancher pour ne jamais s'effondrer sur un petit écran.
-    const BOARD_CHROME: f32 = 300.0;
-    let card_area = (height - BOARD_CHROME).max(160.0);
-    let mut board = Kanban::new(Msg::KanbanMove).on_add(Msg::KanbanAdd).card_area_height(card_area);
+    // Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
+    // colonnes remplissent la hauteur du board (posé dans un ancêtre à hauteur définie — ici l'écran
+    // borné et le Scroll horizontal ci-dessous) et chaque colonne défile ses cartes en `flex(1)`.
+    // Plus besoin de calculer une hauteur (l'ancien stopgap `card_area_height`, jalon 264).
+    let mut board = Kanban::new(Msg::KanbanMove).on_add(Msg::KanbanAdd).scrollable_columns();
     for (c, title) in KANBAN_TITLES.iter().enumerate() {
         let cards = cols.get(c).cloned().unwrap_or_default();
         let factories: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = cards
@@ -1757,13 +1755,15 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
     // Le board (rangée de colonnes de largeur fixe) dépasse la largeur de l'écran : on le rend
     // défilable **horizontalement** (axe **intentionnel**, façon Flutter — la rangée de colonnes est
     // un scroller horizontal, pas un pan 2D). Le défilement **vertical** des cartes est propre à
-    // chaque colonne (dans le widget `Kanban`). Le padding est **dans** le contenu défilé (marge
-    // visuelle). Glisser une carte réordonne ; glisser une zone vide fait défiler.
-    let board_area = Scroll::new()
-        .axis(Axis::Horizontal)
-        .width(width)
-        .flex(1.0)
-        .child(Container::new().padding(24.0).child(board));
+    // chaque colonne (jalon 266, `scrollable_columns`). Glisser une carte réordonne ; glisser une
+    // zone vide fait défiler.
+    //
+    // La marge visuelle est un **Flex** `flex(1)` + padding (et non un `Container` : un box à hauteur
+    // `Auto` casserait la chaîne à hauteur définie dont le remplissage des colonnes a besoin — le
+    // `Flex` en `flex(1)` remplit, lui, la hauteur définie de l'écran).
+    let board_scroll =
+        Scroll::new().axis(Axis::Horizontal).width(width - 48.0).flex(1.0).child(board);
+    let board_area: Flex<Msg> = Flex::column().flex(1.0).padding(24.0).child(board_scroll);
     let hint_bar = Container::new().width(width).padding(24.0).child(hint);
     let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), board_area, hint_bar]
         .width(width)

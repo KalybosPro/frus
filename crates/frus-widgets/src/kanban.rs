@@ -227,6 +227,11 @@ pub struct Kanban<Msg = ()> {
     /// fixe au-dessus, bouton « + Add card » fixe en dessous). `None` : la colonne s'étend à la
     /// hauteur de son contenu (comportement d'origine). Voir [`Kanban::card_area_height`].
     card_area_height: Option<f32>,
+    /// Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
+    /// colonnes **remplissent** la hauteur du board (via `Row` étirée) et la zone de cartes de
+    /// chaque colonne est un `Scroll` `flex(1)` qui prend le reste puis défile. Prime sur
+    /// `card_area_height`. Voir [`Kanban::scrollable_columns`].
+    fill_columns: bool,
     columns: Vec<(String, ColCards<Msg>)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -239,6 +244,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             on_move: Some(Rc::new(on_move)),
             on_add: None,
             card_area_height: None,
+            fill_columns: false,
             columns: Vec::new(),
             children: Vec::new(),
         }
@@ -288,6 +294,18 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         self
     }
 
+    /// Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
+    /// colonnes **remplissent** la hauteur du board et la zone de cartes de chaque colonne prend le
+    /// reste (sous le titre, au-dessus du bouton « + Add card ») puis **défile**. Contrairement à
+    /// [`Kanban::card_area_height`], l'app n'a pas à calculer de hauteur : le board se pose dans un
+    /// ancêtre à **hauteur définie** (fenêtre, `Scroll` horizontal borné…) et le remplissage flex
+    /// fait le reste. Prime sur `card_area_height` si les deux sont posés.
+    pub fn scrollable_columns(mut self) -> Self {
+        self.fill_columns = true;
+        self.rebuild();
+        self
+    }
+
     fn rebuild(&mut self) {
         self.children = self
             .columns
@@ -328,22 +346,27 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
 
         let mut children: Vec<Box<dyn Widget<Msg>>> =
             vec![Box::new(Text::new(title.to_string()).size(16.0))];
-        // Largeur intérieure de la colonne (largeur de colonne moins son padding).
+        // Largeur intérieure de la colonne (largeur de colonne moins son padding). La zone de cartes
+        // défilable enveloppe les cartes dans un `Flex` vertical (une seule enfant pour le `Scroll`).
         let inner_w = COL_W - 2.0 * COL_PAD;
-        match self.card_area_height {
-            // Zone de cartes **défilable verticalement**, à hauteur **explicite** (jalon 264, façon
-            // Trello). L'app fournit la hauteur : un flex-scroll s'effondrerait sans hauteur d'ancêtre
-            // définie (jalon 263).
-            Some(h) => {
-                let list = cards_v
-                    .into_iter()
-                    .fold(Flex::column().gap(8.0).width(inner_w), Flex::child_boxed);
-                children.push(Box::new(
-                    Scroll::new().axis(Axis::Vertical).width(inner_w).height(h).child(list),
-                ));
-            }
-            // Colonne qui s'étend à la hauteur de son contenu (comportement d'origine).
-            None => children.extend(cards_v),
+        let list = |cards: Vec<Box<dyn Widget<Msg>>>| {
+            cards.into_iter().fold(Flex::column().gap(8.0).width(inner_w), Flex::child_boxed)
+        };
+        if self.fill_columns {
+            // **Remplissage** (jalon 266) : la colonne remplit la hauteur du board (Row étirée) ;
+            // la zone de cartes en `Scroll` `flex(1)` prend le reste (sous le titre, au-dessus du
+            // bouton) puis défile. Pas de hauteur explicite : le flex fait le calcul.
+            children.push(Box::new(
+                Scroll::new().axis(Axis::Vertical).width(inner_w).flex(1.0).child(list(cards_v)),
+            ));
+        } else if let Some(h) = self.card_area_height {
+            // Hauteur **explicite** (jalon 264) : repli quand l'ancêtre n'est pas à hauteur définie.
+            children.push(Box::new(
+                Scroll::new().axis(Axis::Vertical).width(inner_w).height(h).child(list(cards_v)),
+            ));
+        } else {
+            // Colonne qui s'étend à la hauteur de son contenu (comportement d'origine, cartes nues).
+            children.extend(cards_v);
         }
         // Bouton « + Add card » (jalon 249), si demandé.
         if let Some(on_add) = &self.on_add {
@@ -358,10 +381,20 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Kanban<Msg> {
     fn style(&self) -> Style {
+        // Mode **remplissage** (jalon 266) : la rangée prend la hauteur de son parent
+        // (`Percent(1.0)` — l'ancêtre est à hauteur définie) et **étire** ses colonnes
+        // (`Align::Stretch`) pour que chacune remplisse ce board ; leur zone de cartes en `flex(1)`
+        // prend alors le reste puis défile. Sinon : hauteur du contenu, colonnes calées en haut.
+        let (align, height) = if self.fill_columns {
+            (Align::Stretch, Dimension::Percent(1.0))
+        } else {
+            (Align::Start, Dimension::Auto)
+        };
         Style {
+            height,
             flex_direction: FlexDirection::Row,
             gap: 12.0,
-            align: Align::Start,
+            align,
             padding: Insets::ZERO,
             ..Default::default()
         }

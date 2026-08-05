@@ -2459,6 +2459,36 @@ mod tests {
     }
 
     #[test]
+    fn scrollable_columns_fill_the_board_height_then_scroll() {
+        // Jalon 266 : `Kanban::scrollable_columns()` fait **remplir** aux colonnes la hauteur du
+        // board (posé dans un ancêtre à hauteur définie), et chaque colonne défile ses cartes
+        // verticalement **sans hauteur explicite** (le flex fait le calcul, plus de stopgap J264).
+        // On vérifie qu'au moins une colonne a un `Scroll` vertical dont le viewport **remplit** la
+        // hauteur (bien plus que le défaut 200) et **défile** (max_y > 0), preuve du fill-then-scroll.
+        use crate::{Axis, Flex, Kanban, Scroll};
+        // Assez de cartes pour **déborder** le viewport rempli (sinon max_y = 0 : rien à défiler).
+        let long: Vec<String> = (0..24).map(|i| format!("card {i}")).collect();
+        let board = Kanban::new(|_, _, _, _| Msg::A).scrollable_columns().column("To do", long);
+        // Imbrication de `board_screen` : le board dans un Scroll horizontal, lui-même dans un **Flex**
+        // à `flex(1)` + padding (la marge visuelle **sans** casser la chaîne à hauteur définie — un
+        // Container `Auto` la casserait). Le tout dans un écran (Flex colonne) à hauteur bornée.
+        let scroll_h = Scroll::new().axis(Axis::Horizontal).width(360.0).flex(1.0).child(board);
+        let padded: Flex<Msg> = Flex::column().flex(1.0).padding(24.0).child(scroll_h);
+        let root: Flex<Msg> = Flex::column().width(400.0).height(600.0).child(padded);
+        let ui = build_ui(&root, Size::new(400.0, 600.0), &Runtime::default(), &Theme::default());
+        // Un scroll **vertical** de colonne : viewport haut (remplit) et défilable.
+        let filled = ui
+            .scrollables
+            .iter()
+            .any(|(_, vp, _mx, my)| vp.height > 300.0 && *my > 0.0);
+        assert!(
+            filled,
+            "une colonne remplit la hauteur du board puis défile (scrollables: {:?})",
+            ui.scrollables
+        );
+    }
+
+    #[test]
     fn subtree_ids_covers_a_widget_and_its_descendants() {
         use crate::Text;
         // Racine (Container) > Flex(colonne) > [Text, Text].

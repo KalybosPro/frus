@@ -32,6 +32,11 @@ impl Axis {
 pub struct Scroll<Msg> {
     width: Dimension,
     height: Dimension,
+    /// La largeur a-t-elle été **fixée** explicitement ? Sinon, en mode flex, la
+    /// largeur ne doit pas servir de base (voir [`Scroll::style`]).
+    width_explicit: bool,
+    /// La hauteur a-t-elle été **fixée** explicitement ? (idem pour l'axe vertical.)
+    height_explicit: bool,
     flex_grow: f32,
     axis: Axis,
     content: Vec<Box<dyn Widget<Msg>>>,
@@ -43,6 +48,8 @@ impl<Msg> Scroll<Msg> {
         Self {
             width: Dimension::Auto,
             height: Dimension::Length(200.0),
+            width_explicit: false,
+            height_explicit: false,
             flex_grow: 0.0,
             axis: Axis::Vertical,
             content: Vec::new(),
@@ -58,12 +65,14 @@ impl<Msg> Scroll<Msg> {
     /// Fixe la largeur du viewport, en pixels logiques.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
+        self.width_explicit = true;
         self
     }
 
     /// Fixe la hauteur du viewport, en pixels logiques.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
+        self.height_explicit = true;
         self
     }
 
@@ -89,12 +98,23 @@ impl<Msg> Default for Scroll<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
     fn style(&self) -> Style {
-        Style {
-            width: self.width,
-            height: self.height,
-            flex_grow: self.flex_grow,
-            ..Default::default()
-        }
+        // En mode **flex** (fill-then-scroll), une dimension d'axe **non fixée**
+        // explicitement ne doit pas servir de base : sinon la hauteur par défaut
+        // (200) resterait une base flexible et le viewport ne remplirait pas
+        // l'espace restant du parent (il faudrait `+200` de libre pour grandir).
+        // On la met alors à `Auto` (base 0) pour que `flex_grow` **remplisse**.
+        let filling = self.flex_grow > 0.0;
+        let height = if filling && !self.height_explicit && self.axis.free_y() {
+            Dimension::Auto
+        } else {
+            self.height
+        };
+        let width = if filling && !self.width_explicit && self.axis.free_x() {
+            Dimension::Auto
+        } else {
+            self.width
+        };
+        Style { width, height, flex_grow: self.flex_grow, ..Default::default() }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
