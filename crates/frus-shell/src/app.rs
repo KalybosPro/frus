@@ -1973,11 +1973,11 @@ impl<A: Application> App<A> {
     /// boucle via le proxy ; les demandes de focus sont **mises en attente** puis
     /// résolues contre l'arbre fraîchement construit à la prochaine frame.
     ///
-    /// Sur le Web, le travail des tâches reste **synchrone** (le type `Task` ne peut
-    /// pas `await`) — un effet réellement asynchrone (fetch réseau) demandera une
-    /// variante `Command` dédiée.
+    /// Les tâches **asynchrones** ([`Command::perform_async`]) sont, elles, pilotées
+    /// **par le navigateur** sur le Web (`spawn_local` — un vrai `fetch` peut `await`)
+    /// et **menées à terme** sur un thread en natif (`block_on`).
     fn run_command(&mut self, command: crate::command::Command<A::Message>) {
-        let (tasks, focus) = command.into_parts();
+        let (tasks, async_tasks, focus) = command.into_parts();
         self.pending_focus.extend(focus);
         for task in tasks {
             let proxy = self.proxy.clone();
@@ -1990,6 +1990,26 @@ impl<A: Application> App<A> {
             #[cfg(target_arch = "wasm32")]
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(message) = task() {
+                    let _ = proxy.send_event(message);
+                }
+            });
+        }
+        for future in async_tasks {
+            let proxy = self.proxy.clone();
+            // Natif : la future est menée à terme sur son propre thread (`block_on`) —
+            // les futures autonomes n'ont pas besoin d'un réacteur ; une E/S réseau
+            // réelle s'appuie sur le runtime async de l'application.
+            #[cfg(not(target_arch = "wasm32"))]
+            std::thread::spawn(move || {
+                if let Some(message) = pollster::block_on(future) {
+                    let _ = proxy.send_event(message);
+                }
+            });
+            // Web : le navigateur pilote la future (mono-thread) — `fetch` &co. `await`
+            // réellement, sans bloquer la boucle.
+            #[cfg(target_arch = "wasm32")]
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Some(message) = future.await {
                     let _ = proxy.send_event(message);
                 }
             });
