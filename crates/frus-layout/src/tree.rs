@@ -78,6 +78,34 @@ impl<T> Layout<T> {
         free_x: bool,
         free_y: bool,
     ) {
+        // **Remplir l'axe contraint** (façon `ListView` de Flutter) : le contenu d'un défilable
+        // **à un seul axe** prend la taille du viewport sur l'axe **transverse** (contraint), au
+        // lieu de se caler sur son contenu — sans quoi un enfant `flex(1)`/`Percent` sur cet axe
+        // s'effondrerait faute d'une base définie, et l'app devrait insérer un conteneur
+        // « remplisseur ». On ne touche l'axe que s'il est **contraint alors que l'autre est
+        // libre** (vrai défilement mono-axe : ni la mise en page définie — deux axes contraints —,
+        // ni le défilement 2D — deux axes libres), et **seulement** si la dimension racine est
+        // `Auto` (un choix explicite de taille est respecté).
+        let fill_w = !free_x && free_y;
+        let fill_h = !free_y && free_x;
+        if fill_w || fill_h {
+            if let Ok(current) = self.tree.style(root) {
+                let mut style = current.clone();
+                let mut changed = false;
+                if fill_w && matches!(style.size.width, taffy::Dimension::Auto) {
+                    style.size.width = taffy::Dimension::Length(width);
+                    changed = true;
+                }
+                if fill_h && matches!(style.size.height, taffy::Dimension::Auto) {
+                    style.size.height = taffy::Dimension::Length(height);
+                    changed = true;
+                }
+                if changed {
+                    let _ = self.tree.set_style(root, style);
+                }
+            }
+        }
+
         let axis = |free: bool, size: f32| {
             if free {
                 AvailableSpace::MaxContent

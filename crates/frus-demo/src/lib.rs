@@ -1746,12 +1746,14 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
     // chaque colonne (jalon 266, `scrollable_columns`). Glisser une carte réordonne ; glisser une
     // zone vide fait défiler.
     //
-    // La marge visuelle est un **Flex** `flex(1)` + padding (et non un `Container` : un box à hauteur
-    // `Auto` casserait la chaîne à hauteur définie dont le remplissage des colonnes a besoin — le
-    // `Flex` en `flex(1)` remplit, lui, la hauteur définie de l'écran).
-    let board_scroll =
-        Scroll::new().axis(Axis::Horizontal).width(width - 48.0).flex(1.0).child(board);
-    let board_area: Flex<Msg> = Flex::column().flex(1.0).padding(24.0).child(board_scroll);
+    // Un simple `Container` à padding suffit pour la marge : depuis le jalon 269, `compute_scroll`
+    // **remplit l'axe contraint**, si bien que ce `Container` prend la hauteur du viewport (il
+    // s'effondrait avant, d'où l'ancien contournement `Flex` `flex(1)`) et le board suit.
+    let board_area = Scroll::new()
+        .axis(Axis::Horizontal)
+        .width(width)
+        .flex(1.0)
+        .child(Container::new().padding(24.0).child(board));
     let hint_bar = Container::new().width(width).padding(24.0).child(hint);
     let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), board_area, hint_bar]
         .width(width)

@@ -2465,16 +2465,18 @@ mod tests {
         // verticalement **sans hauteur explicite** (le flex fait le calcul, plus de stopgap J264).
         // On vérifie qu'au moins une colonne a un `Scroll` vertical dont le viewport **remplit** la
         // hauteur (bien plus que le défaut 200) et **défile** (max_y > 0), preuve du fill-then-scroll.
-        use crate::{Axis, Flex, Kanban, Scroll};
+        use crate::{Axis, Container, Flex, Kanban, Scroll};
         // Assez de cartes pour **déborder** le viewport rempli (sinon max_y = 0 : rien à défiler).
         let long: Vec<String> = (0..24).map(|i| format!("card {i}")).collect();
         let board = Kanban::new(|_, _, _, _| Msg::A).scrollable_columns().column("To do", long);
-        // Imbrication de `board_screen` : le board dans un Scroll horizontal, lui-même dans un **Flex**
-        // à `flex(1)` + padding (la marge visuelle **sans** casser la chaîne à hauteur définie — un
-        // Container `Auto` la casserait). Le tout dans un écran (Flex colonne) à hauteur bornée.
-        let scroll_h = Scroll::new().axis(Axis::Horizontal).width(360.0).flex(1.0).child(board);
-        let padded: Flex<Msg> = Flex::column().flex(1.0).padding(24.0).child(scroll_h);
-        let root: Flex<Msg> = Flex::column().width(400.0).height(600.0).child(padded);
+        // Imbrication de `board_screen` : le board dans un **simple `Container` à padding** (la marge
+        // visuelle), lui-même dans un Scroll horizontal `flex(1)`, dans un écran (Flex colonne) à
+        // hauteur bornée. Ce `Container` `Auto` **s'effondrait** au jalon 266 (d'où le contournement
+        // `Flex` `flex(1)`) ; depuis que `compute_scroll` **remplit l'axe contraint**, il remplit la
+        // hauteur du viewport et le board suit — plus besoin de conteneur « remplisseur ».
+        let padded = Container::<Msg>::new().padding(24.0).child(board);
+        let scroll_h = Scroll::new().axis(Axis::Horizontal).width(360.0).flex(1.0).child(padded);
+        let root: Flex<Msg> = Flex::column().width(400.0).height(600.0).child(scroll_h);
         let ui = build_ui(&root, Size::new(400.0, 600.0), &Runtime::default(), &Theme::default());
         // Un scroll **vertical** de colonne : viewport haut (remplit) et défilable.
         let filled = ui
