@@ -267,6 +267,11 @@ pub struct App<A: Application> {
     /// position réelle par ressort, donnant au coulissement des colonnes une inertie
     /// douce (le fond « rattrape » le fantôme qui, lui, colle au curseur).
     reorder_x: f32,
+    /// Ordonnée **lissée** de la **ligne d'insertion** pendant un réordonnancement
+    /// **vertical** (cartes Kanban) : elle rejoint par ressort le bord d'emplacement
+    /// **retenu** (moitié survolée), si bien que la ligne et le trou *glissent* entre
+    /// cartes au lieu de sauter — pendant vertical du ressort `reorder_x` horizontal.
+    reorder_y: f32,
     /// Dernier message d'**annonce** poussé à la région live AccessKit (lecteur
     /// d'écran). Persiste tel quel : il n'est re-énoncé qu'au changement, si bien
     /// qu'un même texte reconduit chaque frame ne se répète pas. Bureau uniquement.
@@ -345,6 +350,7 @@ impl<A: Application> App<A> {
             build_dirty: true,
             drag: None,
             reorder_x: 0.0,
+            reorder_y: 0.0,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             announce: String::new(),
             press: PressRecognizer::new(),
@@ -1370,17 +1376,31 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
 
-                // Ressort du réordonnancement **horizontal** : l'abscisse lissée rejoint le curseur
-                // (constante de temps ~70 ms) — les colonnes coulissent avec inertie. Sans objet à la
-                // verticale (cartes Kanban), dont le réagencement suit le curseur sans lissage x :
-                // gardé à l'axe horizontal pour ne pas animer à vide.
-                let horizontal_reorder = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
-                    && self.dragged_reorder_axis() == Some(ReorderAxis::Horizontal);
-                let reorder_animating = if horizontal_reorder {
-                    self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
-                    (self.cursor.x - self.reorder_x).abs() > 0.5
-                } else {
-                    false
+                // Ressort du réordonnancement, selon l'axe (constante de temps ~70 ms) :
+                // - **horizontal** (colonnes de `Table`) : l'abscisse lissée `reorder_x` rejoint le
+                //   curseur — les colonnes coulissent avec inertie tandis que le fantôme colle au
+                //   curseur réel ;
+                // - **vertical** (cartes Kanban) : l'ordonnée lissée `reorder_y` rejoint le bord
+                //   d'emplacement **retenu** (moitié survolée) — la ligne d'insertion et le trou
+                //   *glissent* entre cartes au lieu de sauter (pendant vertical de `reorder_x`).
+                let reorder_axis = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
+                    .then(|| self.dragged_reorder_axis())
+                    .flatten();
+                let reorder_animating = match reorder_axis {
+                    Some(ReorderAxis::Horizontal) => {
+                        self.reorder_x = spring_toward(self.reorder_x, self.cursor.x, dt, 0.07);
+                        (self.cursor.x - self.reorder_x).abs() > 0.5
+                    }
+                    Some(ReorderAxis::Vertical) => {
+                        match self.reorder_drop_line(drag_preview::INSERT_THICKNESS) {
+                            Some(target) => {
+                                self.reorder_y = spring_toward(self.reorder_y, target.y, dt, 0.07);
+                                (target.y - self.reorder_y).abs() > 0.5
+                            }
+                            None => false,
+                        }
+                    }
+                    None => false,
                 };
 
                 let animating = self.runtime.advance(dt)
@@ -1677,6 +1697,7 @@ impl<A: Application> App<A> {
         if let Some((id, from)) = self.reorderable_at(self.cursor) {
             self.drag = Some(Drag::Reorder { id, from, start: self.cursor, moved: false });
             self.reorder_x = self.cursor.x; // départ collé au curseur (pas de ressaut)
+            self.reorder_y = self.cursor.y; // idem pour la ligne d'insertion verticale
         }
 
         self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
@@ -2301,7 +2322,13 @@ impl<A: Application> App<A> {
                 // Réagence les **cartes** : le trou de la carte soulevée se referme (colonne source)
                 // et la place s'ouvre sous la **ligne d'insertion** (colonne cible). Puis on pose la
                 // ligne par-dessus, au bord retenu (moitié survolée, jalon 252).
-                let line = self.reorder_drop_line(drag_preview::INSERT_THICKNESS);
+                //
+                // Ligne **lissée** (jalon 265) : on garde l'emplacement retenu (largeur, abscisse,
+                // épaisseur) mais on remplace l'**ordonnée** par le ressort `reorder_y` — la ligne
+                // *et* le trou glissent entre cartes (inertie verticale) au lieu de sauter d'un cran.
+                let line = self
+                    .reorder_drop_line(drag_preview::INSERT_THICKNESS)
+                    .map(|r| Rect { y: self.reorder_y, ..r });
                 let reflowed = reflow_reorder_cards(scene.primitives(), src, line, &owners);
                 scene.clear();
                 for primitive in reflowed {
