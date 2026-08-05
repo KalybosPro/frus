@@ -13,7 +13,9 @@ use frus_core::{Color, Insets, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::button::{Button, Variant};
+use crate::flex::Flex;
 use crate::interaction::Status;
+use crate::scroll::{Axis, Scroll};
 use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::{ReorderAxis, Widget};
@@ -23,6 +25,8 @@ use crate::widget::{ReorderAxis, Widget};
 const STRIDE: usize = 1000;
 /// Largeur d'une colonne.
 const COL_W: f32 = 220.0;
+/// Marge intérieure (uniforme) du panneau d'une colonne.
+const COL_PAD: f32 = 12.0;
 /// Hauteur d'une carte.
 const CARD_H: f32 = 44.0;
 
@@ -166,7 +170,7 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
             width: Dimension::Length(COL_W),
             flex_direction: FlexDirection::Column,
             gap: 8.0,
-            padding: Insets::uniform(12.0),
+            padding: Insets::uniform(COL_PAD),
             ..Default::default()
         }
     }
@@ -218,6 +222,11 @@ pub struct Kanban<Msg = ()> {
     on_move: Option<Rc<dyn Fn(usize, usize, usize, usize) -> Msg>>,
     /// Bouton « + Add card » en bas de chaque colonne (jalon 249) : `on_add(col)` à l'ajout.
     on_add: Option<Rc<dyn Fn(usize) -> Msg>>,
+    /// Hauteur explicite de la **zone défilable des cartes** de chaque colonne (jalon 264, façon
+    /// Trello). `Some(h)` : les cartes défilent verticalement dans une région de hauteur `h` (titre
+    /// fixe au-dessus, bouton « + Add card » fixe en dessous). `None` : la colonne s'étend à la
+    /// hauteur de son contenu (comportement d'origine). Voir [`Kanban::card_area_height`].
+    card_area_height: Option<f32>,
     columns: Vec<(String, ColCards<Msg>)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -226,7 +235,13 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     /// Crée un tableau ; `on_move(from_col, from_pos, to_col, to_pos)` est émis quand une carte est
     /// **déposée** sur un emplacement (autre carte, ou fin d'une colonne).
     pub fn new(on_move: impl Fn(usize, usize, usize, usize) -> Msg + 'static) -> Self {
-        Self { on_move: Some(Rc::new(on_move)), on_add: None, columns: Vec::new(), children: Vec::new() }
+        Self {
+            on_move: Some(Rc::new(on_move)),
+            on_add: None,
+            card_area_height: None,
+            columns: Vec::new(),
+            children: Vec::new(),
+        }
     }
 
     /// Ajoute une **colonne** titrée avec ses cartes (texte), dans l'ordre.
@@ -259,6 +274,20 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         self
     }
 
+    /// Rend les cartes de chaque colonne **défilables verticalement** dans une région de hauteur `h`
+    /// (pixels logiques), façon Trello : le **titre** reste fixe au-dessus, le bouton « + Add card »
+    /// fixe en dessous, et seules les cartes (avec la zone de dépôt finale) défilent. Sans cet appel,
+    /// la colonne s'étend à la hauteur de son contenu.
+    ///
+    /// C'est un stopgap **contrôlé par l'application** (façon Flutter : l'app fournit la hauteur) :
+    /// un `Scroll` en `flex(1)` ne reçoit pas de hauteur exploitable tant que sa chaîne d'ancêtres ne
+    /// lui fournit pas une hauteur **définie** (jalon 263), d'où une hauteur explicite ici.
+    pub fn card_area_height(mut self, h: f32) -> Self {
+        self.card_area_height = Some(h);
+        self.rebuild();
+        self
+    }
+
     fn rebuild(&mut self) {
         self.children = self
             .columns
@@ -271,8 +300,6 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     /// Construit une colonne : titre + cartes (chacune source/cible de dépôt) + zone de dépôt finale +
     /// éventuel bouton d'ajout.
     fn build_column(&self, col: usize, title: &str, cards: &ColCards<Msg>) -> Box<dyn Widget<Msg>> {
-        let mut children: Vec<Box<dyn Widget<Msg>>> =
-            vec![Box::new(Text::new(title.to_string()).size(16.0))];
         let make_card = |pos: usize, content: Vec<Box<dyn Widget<Msg>>>, label: String| Card {
             label,
             content,
@@ -281,20 +308,43 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             from_pos: pos,
             on_move: self.on_move.clone(),
         };
+        // Les cartes (chacune source **et** cible) + la zone de dépôt finale : c'est la partie
+        // **défilable** de la colonne (le titre et le bouton d'ajout restent fixes).
+        let mut cards_v: Vec<Box<dyn Widget<Msg>>> = Vec::new();
         match cards {
             ColCards::Text(labels) => {
                 for (pos, label) in labels.iter().enumerate() {
-                    children.push(Box::new(make_card(pos, Vec::new(), label.clone())));
+                    cards_v.push(Box::new(make_card(pos, Vec::new(), label.clone())));
                 }
             }
             ColCards::Widgets(factories) => {
                 for (pos, make) in factories.iter().enumerate() {
-                    children.push(Box::new(make_card(pos, vec![make()], String::new())));
+                    cards_v.push(Box::new(make_card(pos, vec![make()], String::new())));
                 }
             }
         }
         // Emplacement d'insertion en fin de colonne (et cible d'une colonne vide).
-        children.push(Box::new(DropZone { slot: kanban_slot(col, cards.len()) }));
+        cards_v.push(Box::new(DropZone { slot: kanban_slot(col, cards.len()) }));
+
+        let mut children: Vec<Box<dyn Widget<Msg>>> =
+            vec![Box::new(Text::new(title.to_string()).size(16.0))];
+        // Largeur intérieure de la colonne (largeur de colonne moins son padding).
+        let inner_w = COL_W - 2.0 * COL_PAD;
+        match self.card_area_height {
+            // Zone de cartes **défilable verticalement**, à hauteur **explicite** (jalon 264, façon
+            // Trello). L'app fournit la hauteur : un flex-scroll s'effondrerait sans hauteur d'ancêtre
+            // définie (jalon 263).
+            Some(h) => {
+                let list = cards_v
+                    .into_iter()
+                    .fold(Flex::column().gap(8.0).width(inner_w), Flex::child_boxed);
+                children.push(Box::new(
+                    Scroll::new().axis(Axis::Vertical).width(inner_w).height(h).child(list),
+                ));
+            }
+            // Colonne qui s'étend à la hauteur de son contenu (comportement d'origine).
+            None => children.extend(cards_v),
+        }
         // Bouton « + Add card » (jalon 249), si demandé.
         if let Some(on_add) = &self.on_add {
             let on_add = on_add.clone();

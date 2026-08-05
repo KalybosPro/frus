@@ -1730,7 +1730,13 @@ fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<Msg>> {
 /// émet `KanbanMove`/`KanbanAdd`/`KanbanDelete`, le reducer applique.
 fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let cols = app.kanban_cols();
-    let mut board = Kanban::new(Msg::KanbanMove).on_add(Msg::KanbanAdd);
+    // Hauteur explicite de la zone défilable des cartes par colonne (jalon 264, façon Trello) :
+    // l'app la fournit à partir de la hauteur d'écran (un flex-scroll s'effondrerait sans hauteur
+    // d'ancêtre définie — jalon 263). On réserve navbar + hint + paddings + titre + bouton d'ajout,
+    // et on garde un plancher pour ne jamais s'effondrer sur un petit écran.
+    const BOARD_CHROME: f32 = 300.0;
+    let card_area = (height - BOARD_CHROME).max(160.0);
+    let mut board = Kanban::new(Msg::KanbanMove).on_add(Msg::KanbanAdd).card_area_height(card_area);
     for (c, title) in KANBAN_TITLES.iter().enumerate() {
         let cards = cols.get(c).cloned().unwrap_or_default();
         let factories: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = cards

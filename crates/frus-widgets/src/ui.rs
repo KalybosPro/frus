@@ -2438,6 +2438,27 @@ mod tests {
     }
 
     #[test]
+    fn reorderables_inside_a_per_column_card_scroll_are_still_registered() {
+        // Jalon 264 : `card_area_height` place les cartes de chaque colonne dans un `Scroll`
+        // **vertical à hauteur explicite** (façon Trello). C'est exactement le cas qui *s'effondrait*
+        // au jalon 263 (flex-scroll sans hauteur d'ancêtre définie → cartes découpées à zéro, plus
+        // réordonnables). Avec une hauteur **définie**, les cartes visibles doivent rester
+        // enregistrées comme réordonnables — garde-fou contre une régression du glisser par colonne.
+        use crate::{Kanban};
+        let board = Kanban::new(|_, _, _, _| Msg::A)
+            .card_area_height(220.0)
+            .column("To do", ["Card A", "Card B"]);
+        let rt = Runtime::default();
+        let ui = build_ui(&board, Size::new(400.0, 300.0), &rt, &Theme::default());
+        assert!(
+            ui.reorderables.len() >= 3,
+            "2 cartes + zone de dépôt réordonnables dans un scroll vertical à hauteur définie \
+             (obtenu : {})",
+            ui.reorderables.len()
+        );
+    }
+
+    #[test]
     fn subtree_ids_covers_a_widget_and_its_descendants() {
         use crate::Text;
         // Racine (Container) > Flex(colonne) > [Text, Text].

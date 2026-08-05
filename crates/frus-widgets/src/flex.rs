@@ -109,6 +109,13 @@ impl<Msg> Flex<Msg> {
         self.children.push(Box::new(child));
         self
     }
+
+    /// Ajoute un enfant **déjà boxé** (utile quand les enfants sont construits dynamiquement, en
+    /// `Vec<Box<dyn Widget>>`, et déjà effacés au type dynamique).
+    pub fn child_boxed(mut self, child: Box<dyn Widget<Msg>>) -> Self {
+        self.children.push(child);
+        self
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
