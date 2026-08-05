@@ -1,12 +1,13 @@
-//! Binaire bureau : délègue au point d'entrée de la bibliothèque.
+//! Binaire bureau : appelle le point d'entrée `run()` engendré par `frus_shell::main!`
+//! dans la bibliothèque. (Sur Android/Web il n'y a pas de binaire : l'entrée est
+//! `android_main` / `start`, elles aussi engendrées par la macro.)
 //!
 //! `cargo run` (ajouter `RUST_LOG=info` pour les logs).
 
-#[cfg(not(target_os = "android"))]
-fn main() -> anyhow::Result<()> {
-    {{crate_name}}::run_desktop()
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+fn main() -> frus_shell::anyhow::Result<()> {
+    {{crate_name}}::run()
 }
 
-// Sur Android il n'y a pas de binaire : l'entrée est `android_main` dans la lib.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
 fn main() {}

@@ -90,21 +90,9 @@ fn fallback_gradient() -> ImageHandle {
     ImageData::from_rgba(W, H, rgba).into_handle()
 }
 
-/// Point d'entrée bureau : ouvre la fenêtre et lance la boucle winit.
-#[cfg(not(target_os = "android"))]
-pub fn run_desktop() -> anyhow::Result<()> {
-    frus_shell::run(TodoApp::default())
-}
-
-/// Point d'entrée Android : appelé par l'activité native, reçoit l'`AndroidApp`
-/// et démarre la même application.
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(android_app: frus_shell::AndroidApp) {
-    if let Err(err) = frus_shell::run_android(TodoApp::default(), android_app) {
-        log::error!("frus-demo (android) s'est arrêté : {err:#}");
-    }
-}
+// Point d'entrée **unique** (façon Flutter) : une seule déclaration engendre les entrées
+// bureau (`run()`, appelée par le binaire) et Android (`android_main`). Voir `frus_shell::main!`.
+frus_shell::main!(TodoApp::default());
 
 // --- Constantes de mouvement (partagées geste ↔ navigation) ---
 

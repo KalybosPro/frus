@@ -1261,10 +1261,8 @@ dependencies = [
 name = "frus-hello"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "frus-shell",
  "frus-widgets",
- "log",
  "wasm-bindgen",
 ]
 

@@ -375,20 +375,9 @@ impl Application for Showcase {
     }
 }
 
-/// Point d'entrée **bureau** : ouvre la fenêtre et lance la boucle.
-#[cfg(not(target_os = "android"))]
-pub fn run_desktop() -> anyhow::Result<()> {
-    frus_shell::run(Showcase::default())
-}
-
-/// Point d'entrée **Android** : appelé par l'activité native.
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(android_app: frus_shell::AndroidApp) {
-    if let Err(err) = frus_shell::run_android(Showcase::default(), android_app) {
-        log::error!("frus-transforms (android) s'est arrêté : {err:#}");
-    }
-}
+// Point d'entrée **unique** (façon Flutter) : une seule déclaration engendre les entrées
+// bureau (`run()`, appelée par le binaire) et Android (`android_main`). Voir `frus_shell::main!`.
+frus_shell::main!(Showcase::default());
 
 #[cfg(test)]
 mod tests {

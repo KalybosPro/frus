@@ -98,30 +98,10 @@ impl Application for Counter {
     }
 }
 
-/// Point d'entrée **bureau** : ouvre la fenêtre et lance la boucle.
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-pub fn run_desktop() -> anyhow::Result<()> {
-    frus_shell::run(Counter::default())
-}
-
-/// Point d'entrée **Web** : appelé automatiquement au chargement du module wasm
-/// (`wasm-bindgen`). Attache un canvas et lance la boucle pilotée par le navigateur.
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn start() {
-    if let Err(err) = frus_shell::run_web(Counter::default()) {
-        log::error!("frus-hello (web) s'est arrêté : {err:#}");
-    }
-}
-
-/// Point d'entrée **Android** : appelé par l'activité native.
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(android_app: frus_shell::AndroidApp) {
-    if let Err(err) = frus_shell::run_android(Counter::default(), android_app) {
-        log::error!("frus-hello (android) s'est arrêté : {err:#}");
-    }
-}
+// **Point d'entrée unique** — façon Flutter (`void main() => runApp(App())`) : une
+// seule déclaration engendre les entrées bureau / Android / Web (voir `frus_shell::main!`).
+// Le mince binaire `src/bin/frus-hello.rs` appelle la `run()` ainsi produite pour le bureau.
+frus_shell::main!(Counter::default());
 
 #[cfg(test)]
 mod tests {

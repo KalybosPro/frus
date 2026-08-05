@@ -68,20 +68,10 @@ impl Application for App {
     }
 }
 
-/// Point d'entrée **bureau** : ouvre la fenêtre et lance la boucle.
-#[cfg(not(target_os = "android"))]
-pub fn run_desktop() -> anyhow::Result<()> {
-    frus_shell::run(App::default())
-}
-
-/// Point d'entrée **Android** : appelé par l'activité native.
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(android_app: frus_shell::AndroidApp) {
-    if let Err(err) = frus_shell::run_android(App::default(), android_app) {
-        log::error!("{{project-name}} (android) s'est arrêté : {err:#}");
-    }
-}
+// **Point d'entrée unique** — façon Flutter (`void main() => runApp(App())`) : une seule
+// déclaration engendre les entrées bureau / Android / Web (voir `frus_shell::main!`). Le mince
+// binaire `src/bin/{{project-name}}.rs` appelle la `run()` ainsi produite pour le bureau.
+frus_shell::main!(App::default());
 
 #[cfg(test)]
 mod tests {

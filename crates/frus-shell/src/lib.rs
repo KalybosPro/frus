@@ -30,6 +30,63 @@ pub use frus_widgets::{Orientation, SizeClass};
 #[cfg(target_os = "android")]
 pub use winit::platform::android::activity::AndroidApp;
 
+/// Ré-exports **pour la macro [`main!`]** : l'application déclare son point d'entrée
+/// unique sans dépendre directement de ces crates.
+#[doc(hidden)]
+pub use anyhow;
+#[doc(hidden)]
+pub use log;
+
+/// Déclare le **point d'entrée unique** d'une application frus — l'équivalent du
+/// `void main() => runApp(App())` de Flutter. Invoquée **une seule fois** (dans la
+/// bibliothèque de l'app), elle engendre les points d'entrée de **chaque plateforme**,
+/// tous délégant à la **même** application :
+///
+/// - **bureau** : une fonction `run()` (que le mince binaire de l'app appelle) ;
+/// - **Android** : le symbole natif `android_main` attendu par l'activité ;
+/// - **Web** : la fonction `#[wasm_bindgen(start)]`.
+///
+/// L'argument est une **expression** qui construit l'application (rappelée par
+/// plateforme, jamais partagée) :
+///
+/// ```ignore
+/// frus_shell::main!(App::default());
+/// ```
+///
+/// La plateforme Web garde sa dépendance `wasm-bindgen` (ciblée `wasm32`), comme une
+/// app Flutter garde `flutter` dans son `pubspec` : la macro y renvoie via `::wasm_bindgen`.
+#[macro_export]
+macro_rules! main {
+    ($app:expr $(,)?) => {
+        /// Point d'entrée **bureau** : ouvre la fenêtre et pilote la boucle (appelé par
+        /// le binaire mince de l'application). Engendré par [`frus_shell::main!`].
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        pub fn run() -> $crate::anyhow::Result<()> {
+            $crate::run($app)
+        }
+
+        /// Point d'entrée **Android** : appelé par l'activité native. Engendré par
+        /// [`frus_shell::main!`].
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        fn android_main(android_app: $crate::AndroidApp) {
+            if let ::core::result::Result::Err(err) = $crate::run_android($app, android_app) {
+                $crate::log::error!("frus (android) stopped: {:#}", err);
+            }
+        }
+
+        /// Point d'entrée **Web** : appelé au chargement du module wasm. Engendré par
+        /// [`frus_shell::main!`].
+        #[cfg(target_arch = "wasm32")]
+        #[::wasm_bindgen::prelude::wasm_bindgen(start)]
+        pub fn start() {
+            if let ::core::result::Result::Err(err) = $crate::run_web($app) {
+                $crate::log::error!("frus (web) stopped: {:#}", err);
+            }
+        }
+    };
+}
+
 /// Lance une application : ouvre la fenêtre et pilote la boucle d'événements.
 ///
 /// ```no_run
