@@ -2973,7 +2973,8 @@ mod tests {
         let rt = Runtime::default();
 
         build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
-                                            // Reconstruction de la `view` (config potentiellement changée).
+
+        // Reconstruction de la `view` (config potentiellement changée).
         rt.paint_cache.borrow_mut().bump_generation();
         build_ui(&tree, size, &rt, &theme); // frame 2
         assert_eq!(
@@ -2991,8 +2992,9 @@ mod tests {
         let mut rt = Runtime::default();
 
         build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
-                                            // Sans reconstruction, mais l'état d'interaction d'un descendant change
-                                            // (survol animé de la frontière) → l'empreinte diffère → repaint.
+
+        // Sans reconstruction, mais l'état d'interaction d'un descendant change
+        // (survol animé de la frontière) → l'empreinte diffère → repaint.
         rt.anims.insert(
             WidgetId::ROOT,
             crate::Anim {

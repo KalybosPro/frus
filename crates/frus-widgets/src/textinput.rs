@@ -1597,7 +1597,8 @@ mod tests {
             .width(220.0);
         let (w, y) = (220.0, 12.0);
         let x_suffix = w - 8.0; // près du bord droit (zone du suffixe)
-                                // Clic sur le suffixe : émet le message, et ne place PAS de caret.
+
+        // Clic sur le suffixe : émet le message, et ne place PAS de caret.
         assert_eq!(
             Widget::<Msg>::positional_click(&field, x_suffix, y, w, 40.0),
             Some(Msg::Submitted)

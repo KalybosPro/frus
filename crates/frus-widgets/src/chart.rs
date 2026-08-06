@@ -1541,7 +1541,8 @@ mod tests {
                 .sum::<f32>()
         };
         let plot_h = (200.0 - X_LABEL_H) - (VALUE_SIZE + 6.0); // 160
-                                                               // Colonne A (total 5) : pleine en 100 %...
+
+        // Colonne A (total 5) : pleine en 100 %...
         assert!(
             (col_a(&make(true)) - plot_h).abs() < 1.0,
             "colonne A pleine en 100%, obtenu {}",
@@ -2190,7 +2191,8 @@ mod tests {
                 .collect()
         };
         let plot_top = VALUE_SIZE + 6.0; // 18 (sans légende ni axe)
-                                         // 100 % : le bord supérieur est plat, à 100 % (plot_top) pour chaque catégorie.
+
+        // 100 % : le bord supérieur est plat, à 100 % (plot_top) pour chaque catégorie.
         let ys = top_line_ys(&make(true));
         assert!(
             ys.iter().all(|y| (y - plot_top).abs() < 1.0),
