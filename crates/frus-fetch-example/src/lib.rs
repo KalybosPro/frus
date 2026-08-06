@@ -16,32 +16,19 @@ use std::time::Duration;
 
 // Une **seule** dépendance : la façade `frus` (feature `net` pour `fetch` / `Request`).
 use frus::{
-    button, column, text, Align, Application, Color, Command, Container, Justify, Request, Theme,
-    Variant, Widget,
+    button, column, text, Align, Application, Color, Command, Container, Justify, RemoteData,
+    Request, Theme, Variant, Widget,
 };
 
 /// L'API interrogée : une blague renvoyée en **texte simple** (en-tête `Accept: text/plain`).
 /// Elle autorise les requêtes navigateur (CORS), donc l'exemple marche aussi sur le Web.
 const JOKE_URL: &str = "https://icanhazdadjoke.com/";
 
-/// Où en est la requête — la machine à états que la `view` peint telle quelle.
-#[derive(Default)]
-enum Status {
-    /// Rien de demandé encore.
-    #[default]
-    Idle,
-    /// Requête en vol.
-    Loading,
-    /// Réponse reçue (le corps).
-    Loaded(String),
-    /// La requête a échoué (message d'erreur).
-    Failed(String),
-}
-
-/// L'état : uniquement le statut de la requête.
+/// L'état : le statut de la requête, exprimé par l'idiome [`RemoteData`] du framework
+/// (`NotAsked → Loading → Success | Failure`) plutôt qu'une machine à états maison.
 #[derive(Default)]
 struct FetchDemo {
-    status: Status,
+    joke: RemoteData<String>,
 }
 
 /// Les messages émis par l'interface et par l'effet réseau.
@@ -62,9 +49,9 @@ impl Application for FetchDemo {
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Fetch => {
-                self.status = Status::Loading;
+                self.joke = RemoteData::Loading;
                 // Un GET avec en-tête (texte simple) et un timeout : si l'API ne répond
-                // pas en 5 s, on récolte un `FetchError::Network` → branche `Failed`.
+                // pas en 5 s, on récolte un `FetchError::Network` → branche `Failure`.
                 return Command::perform_async(async {
                     let res = Request::get(JOKE_URL)
                         .header("Accept", "text/plain")
@@ -75,8 +62,8 @@ impl Application for FetchDemo {
                     Msg::Got(res.map_err(|err| err.to_string()))
                 });
             }
-            Msg::Got(Ok(body)) => self.status = Status::Loaded(body.trim().to_string()),
-            Msg::Got(Err(err)) => self.status = Status::Failed(err),
+            // Le `Result` de l'effet devient directement un `RemoteData` (corps rogné au passage).
+            Msg::Got(res) => self.joke = RemoteData::from_result(res.map(|body| body.trim().to_string())),
         }
         Command::none()
     }
@@ -84,18 +71,18 @@ impl Application for FetchDemo {
     /// `view` ne fait que peindre l'état : un bouton, puis le rendu du statut courant.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
         // Étiquette du bouton selon l'état (relance possible même après coup).
-        let label = match self.status {
-            Status::Idle => "Get a joke",
-            Status::Loading => "Loading…",
+        let label = match self.joke {
+            RemoteData::NotAsked => "Get a joke",
+            RemoteData::Loading => "Loading…",
             _ => "Get another joke",
         };
 
-        // La zone de résultat, peinte selon le statut.
-        let result: Box<dyn Widget<Msg>> = match &self.status {
-            Status::Idle => Box::new(text("Press the button to fetch a joke.").size(18.0)),
-            Status::Loading => Box::new(text("Loading…").size(18.0)),
-            Status::Loaded(body) => Box::new(text(body.clone()).size(22.0)),
-            Status::Failed(err) => {
+        // La zone de résultat : on **replie** les quatre cas de `RemoteData`.
+        let result: Box<dyn Widget<Msg>> = match self.joke.as_ref() {
+            RemoteData::NotAsked => Box::new(text("Press the button to fetch a joke.").size(18.0)),
+            RemoteData::Loading => Box::new(text("Loading…").size(18.0)),
+            RemoteData::Success(body) => Box::new(text(body.clone()).size(22.0)),
+            RemoteData::Failure(err) => {
                 Box::new(text(format!("Failed: {err}")).size(18.0).color(Color::rgb(0.85, 0.2, 0.2)))
             }
         };
@@ -141,9 +128,9 @@ mod tests {
     #[test]
     fn fetch_enters_loading_and_emits_an_effect() {
         let mut app = FetchDemo::default();
-        assert!(matches!(app.status, Status::Idle));
+        assert_eq!(app.joke, RemoteData::NotAsked);
         let cmd = app.update(Msg::Fetch);
-        assert!(matches!(app.status, Status::Loading));
+        assert!(app.joke.is_loading());
         assert!(!cmd.is_empty(), "Fetch doit produire un effet réseau");
     }
 
@@ -153,15 +140,9 @@ mod tests {
         let mut app = FetchDemo::default();
 
         app.update(Msg::Got(Ok("  a good joke  ".to_string())));
-        match &app.status {
-            Status::Loaded(body) => assert_eq!(body, "a good joke"),
-            _ => panic!("Ok doit mener à Loaded"),
-        }
+        assert_eq!(app.joke.value().map(String::as_str), Some("a good joke"));
 
         app.update(Msg::Got(Err("HTTP status 500".to_string())));
-        match &app.status {
-            Status::Failed(err) => assert_eq!(err, "HTTP status 500"),
-            _ => panic!("Err doit mener à Failed"),
-        }
+        assert_eq!(app.joke.error().map(String::as_str), Some("HTTP status 500"));
     }
 }

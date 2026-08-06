@@ -27,7 +27,7 @@ pub use frus_widgets::*;
 
 // Couche framework : le trait [`Application`] et ses compagnons (effets, souscriptions,
 // cycle de vie).
-pub use frus_shell::{Application, Command, Lifecycle, Subscription};
+pub use frus_shell::{Application, Command, Lifecycle, RemoteData, Subscription};
 
 // Ré-exports utilitaires pour le binaire mince et pour la macro d'entrée (l'app n'a pas à
 // déclarer `anyhow` / `log`).

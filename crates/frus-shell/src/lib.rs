@@ -17,11 +17,13 @@ mod gesture;
 #[cfg(feature = "net")]
 pub mod net;
 mod reload;
+mod remote;
 mod subscription;
 
 pub use app::App;
 pub use application::{Application, Lifecycle};
 pub use command::Command;
+pub use remote::RemoteData;
 pub use subscription::Subscription;
 
 /// HTTP cross-plateforme (feature `net`) — le raccourci [`fetch`], le constructeur
