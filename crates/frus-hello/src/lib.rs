@@ -9,7 +9,10 @@
 use std::time::Duration;
 
 // Une **seule** dépendance : la façade `frus` fournit tout (couche framework + widgets + DSL).
-use frus::{button, column, text, Align, Application, Command, Container, Justify, Subscription, Theme, Variant, Widget};
+use frus::{
+    button, column, row, text, Align, Application, Command, Container, Justify, Subscription,
+    Theme, Variant, Widget,
+};
 
 /// L'état de l'application : un simple compteur.
 #[derive(Default)]
@@ -40,7 +43,9 @@ impl Application for Counter {
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Increment | Msg::Tick => self.count += 1,
-            Msg::Decrement => self.count -= 1,
+            Msg::Decrement => if self.count > 0 {
+                self.count -= 1;
+            },
             Msg::ToggleAuto => self.auto = !self.auto,
         }
         Command::none()
@@ -62,8 +67,10 @@ impl Application for Counter {
         let content = column![
             text(format!("{}", self.count)).size(48.0),
             column![
-                button("+", Msg::Increment).variant(Variant::Primary),
-                button("−", Msg::Decrement).variant(Variant::Secondary),
+                row![
+                    button("+", Msg::Increment).variant(Variant::Primary),
+                    button("−", Msg::Decrement).variant(Variant::Secondary)
+                ].gap(20.0),
                 button(
                     if self.auto { "Stop auto" } else { "Start auto" },
                     Msg::ToggleAuto,
@@ -122,12 +129,21 @@ mod tests {
     #[test]
     fn auto_mode_drives_the_subscription() {
         let mut app = Counter::default();
-        assert!(app.subscription().is_empty(), "au repos : aucune souscription");
+        assert!(
+            app.subscription().is_empty(),
+            "au repos : aucune souscription"
+        );
         app.update(Msg::ToggleAuto);
-        assert!(!app.subscription().is_empty(), "auto : une source every(1s)");
+        assert!(
+            !app.subscription().is_empty(),
+            "auto : une source every(1s)"
+        );
         app.update(Msg::Tick);
         assert_eq!(app.count, 1, "un tick incrémente");
         app.update(Msg::ToggleAuto);
-        assert!(app.subscription().is_empty(), "auto coupé : plus de souscription");
+        assert!(
+            app.subscription().is_empty(),
+            "auto coupé : plus de souscription"
+        );
     }
 }

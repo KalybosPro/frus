@@ -1,0 +1,93 @@
+name: Bug report
+description: Something in frus behaves incorrectly
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A minimal reproduction is by far the most useful thing you can give us — often it turns out to be a widget-sizing or registry issue that is obvious from ten lines of `view`.
+
+        Before filing: the [known gotchas](https://github.com/KalybosPro/frus/blob/master/CONTRIBUTING.md#platform-notes-and-known-gotchas) section covers a few surprises that look like bugs (unsized `Scroll` collapsing, RTL text rendering off-screen, interactive widgets not registered for hit-testing).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+      placeholder: |
+        Expected: the list scrolls to the last item.
+        Actual: the last item is clipped and scrolling stops early.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest `view` / `update` that shows the problem. A patch against `frus-hello` is ideal.
+      render: rust
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform(s)
+      description: Where did you see this? Select every platform you actually tested.
+      multiple: true
+      options:
+        - Windows (desktop)
+        - Linux (desktop)
+        - macOS (desktop)
+        - Android
+        - Web (wasm + WebGPU)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: frus commit
+      description: Output of `git rev-parse --short HEAD`.
+      placeholder: f24fa0c
+    validations:
+      required: true
+
+  - type: input
+    id: toolchain
+    attributes:
+      label: Rust version
+      description: Output of `rustc --version`.
+      placeholder: rustc 1.96.1 (31fca3adb 2026-06-26)
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU / driver
+      description: Relevant for anything visual. `wgpu` logs the adapter it picked at startup with `RUST_LOG=wgpu=info`.
+      placeholder: NVIDIA RTX 3060 / Vulkan 1.3, driver 550.54
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output with `RUST_LOG=frus_shell=debug,frus_gpu=debug`, and any panic backtrace.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recording
+      description: For anything visual, please include one. Before/after if this is a regression.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I am on the latest `master`
+          required: false

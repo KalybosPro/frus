@@ -1,0 +1,472 @@
+<title>frus — état du framework</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Le logo vit dans le crate du shell ; ce chemin suppose donc que le site est
+     servi depuis la **racine du dépôt**, pas depuis `docs/`. -->
+<link rel="icon" href="../crates/frus-shell/assets/logo.png" type="image/png">
+<style>
+  :root {
+    --bg: #eef2ef;
+    --surface: #ffffff;
+    --raised: #f6f9f6;
+    --line: #d9e2dc;
+    --ink: #14201b;
+    --muted: #5d7268;
+    --faint: #869a90;
+    --emerald: #17a866;
+    --emerald-soft: #17a86622;
+    --rust: #c26327;
+    --rust-soft: #c2632718;
+    --ok: #17a866;
+    --warn: #b8801f;
+    --gap: #c8462f;
+    --shadow: 0 1px 2px rgba(20,32,27,.06), 0 8px 24px -12px rgba(20,32,27,.14);
+    --mono: "Cascadia Code", "JetBrains Mono", "SFMono-Regular", "Consolas", ui-monospace, monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c130f;
+      --surface: #121b16;
+      --raised: #17221c;
+      --line: #23322a;
+      --ink: #e7efe9;
+      --muted: #93a99d;
+      --faint: #6a7f74;
+      --emerald: #3ddc97;
+      --emerald-soft: #3ddc9718;
+      --rust: #e6934c;
+      --rust-soft: #e6934c14;
+      --ok: #3ddc97;
+      --warn: #e6b455;
+      --gap: #ef7a6b;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 34px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #eef2ef; --surface: #ffffff; --raised: #f6f9f6; --line: #d9e2dc;
+    --ink: #14201b; --muted: #5d7268; --faint: #869a90;
+    --emerald: #17a866; --emerald-soft: #17a86622; --rust: #c26327; --rust-soft: #c2632718;
+    --ok: #17a866; --warn: #b8801f; --gap: #c8462f;
+    --shadow: 0 1px 2px rgba(20,32,27,.06), 0 8px 24px -12px rgba(20,32,27,.14);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c130f; --surface: #121b16; --raised: #17221c; --line: #23322a;
+    --ink: #e7efe9; --muted: #93a99d; --faint: #6a7f74;
+    --emerald: #3ddc97; --emerald-soft: #3ddc9718; --rust: #e6934c; --rust-soft: #e6934c14;
+    --ok: #3ddc97; --warn: #e6b455; --gap: #ef7a6b;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 34px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: clamp(20px, 5vw, 56px) clamp(16px, 4vw, 40px) 80px; }
+
+  .mono { font-family: var(--mono); }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--emerald); margin: 0 0 10px; font-weight: 600;
+  }
+  h2 { font-family: var(--mono); font-weight: 600; letter-spacing: -.01em; text-wrap: balance;
+       font-size: clamp(19px, 2.6vw, 23px); margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; max-width: 62ch; }
+  a { color: var(--emerald); text-underline-offset: 3px; }
+
+  /* ---- Masthead ---- */
+  .masthead { padding: 8px 0 34px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
+  .brandrow { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  /* `align-self` plutôt que de passer la rangée en `center` : les puces gardent
+     leur alignement sur la ligne de base du logotype. La source est carrée avec
+     une marge transparente, d'où une taille un peu généreuse. */
+  .logo { align-self: center; width: 64px; height: 64px; flex: none; }
+  .brand {
+    font-family: var(--mono); font-weight: 700; font-size: clamp(44px, 11vw, 92px);
+    line-height: .9; letter-spacing: -.04em; margin: 0;
+    background: linear-gradient(120deg, var(--ink) 40%, var(--emerald));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand .dot { color: var(--rust); -webkit-text-fill-color: var(--rust); }
+  .tagchip {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; white-space: nowrap;
+  }
+  .tagchip b { color: var(--emerald); font-weight: 600; }
+  .thesis { font-size: clamp(17px, 2.5vw, 21px); line-height: 1.5; max-width: 40ch;
+            margin: 22px 0 0; color: var(--ink); text-wrap: balance; }
+  .thesis .accent { color: var(--emerald); }
+
+  /* ---- Metrics ---- */
+  .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px;
+             background: var(--line); border: 1px solid var(--line); border-radius: 14px;
+             overflow: hidden; margin-top: 32px; }
+  .metric { background: var(--surface); padding: 18px 16px; }
+  .metric .v { font-family: var(--mono); font-weight: 700; font-size: clamp(22px, 3.4vw, 30px);
+               letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .metric .v small { font-size: .5em; color: var(--faint); font-weight: 600; letter-spacing: 0; }
+  .metric .k { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+               color: var(--muted); margin-top: 8px; }
+  @media (max-width: 720px) { .metrics { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 380px) { .metrics { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ---- Section shell ---- */
+  section { margin-top: 46px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+          padding: clamp(20px, 3vw, 30px); box-shadow: var(--shadow); }
+
+  /* ---- Platforms ---- */
+  .plats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 720px) { .plats { grid-template-columns: 1fr; } }
+  .plat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px;
+          position: relative; overflow: hidden; }
+  .plat::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+                  background: var(--emerald); opacity: .9; }
+  .plat.partial::before { background: var(--warn); }
+  .plat h3 { font-family: var(--mono); font-size: 16px; margin: 6px 0 2px; letter-spacing: -.01em; }
+  .plat .stack { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  .plat p { font-size: 13.5px; color: var(--muted); margin: 12px 0 0; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+          font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+          padding: 3px 9px; border-radius: 999px; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.ok { color: var(--ok); background: var(--emerald-soft); }
+  .pill.warn { color: var(--warn); background: #b8801f18; }
+  .pill.gap { color: var(--gap); background: #c8462f14; }
+
+  /* ---- Architecture / stacks ---- */
+  .arch { display: flex; flex-direction: column; gap: 10px; }
+  .layer { display: grid; grid-template-columns: 168px 1fr; gap: 18px; align-items: center;
+           background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .layer .lname { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .layer .lname small { display: block; color: var(--faint); font-weight: 400; font-size: 11px; margin-top: 2px; }
+  .crates { display: flex; flex-wrap: wrap; gap: 7px; }
+  .crate { font-family: var(--mono); font-size: 12px; padding: 4px 10px; border-radius: 7px;
+           border: 1px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; }
+  .crate.key { border-color: color-mix(in srgb, var(--emerald) 55%, var(--line)); color: var(--emerald);
+               background: var(--emerald-soft); font-weight: 600; }
+  .arrow { text-align: center; color: var(--faint); font-family: var(--mono); font-size: 13px; margin: -2px 0; }
+  @media (max-width: 560px) { .layer { grid-template-columns: 1fr; gap: 10px; } }
+
+  /* ---- Capabilities ---- */
+  .caps { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .caps { grid-template-columns: 1fr; } }
+  .capgroup { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .capgroup h4 { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+                 color: var(--muted); margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+  .capgroup h4::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--emerald); }
+  .capgroup.g2 h4::before { background: var(--rust); }
+  .taglist { display: flex; flex-wrap: wrap; gap: 7px; }
+  .tag { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+         background: var(--raised); color: var(--ink); }
+  .tag.p { border-style: dashed; color: var(--muted); }
+
+  /* ---- Tests ---- */
+  .bars { display: flex; flex-direction: column; gap: 11px; }
+  .bar { display: grid; grid-template-columns: 120px 1fr 52px; align-items: center; gap: 14px; }
+  .bar .bname { font-family: var(--mono); font-size: 13px; }
+  .bar .track { height: 12px; background: var(--raised); border: 1px solid var(--line);
+                border-radius: 7px; overflow: hidden; }
+  .bar .fill { height: 100%; width: var(--w); border-radius: 6px;
+               background: linear-gradient(90deg, var(--emerald), color-mix(in srgb, var(--emerald) 60%, var(--rust)));
+               transform-origin: left; transition: transform 1s cubic-bezier(.2,.7,.2,1); }
+  .bar .bval { font-family: var(--mono); font-size: 13px; font-weight: 600; text-align: right;
+               font-variant-numeric: tabular-nums; }
+  .reveal .bar .fill { transform: scaleX(0); }
+  .reveal.in .bar .fill { transform: scaleX(1); }
+
+  /* ---- Timeline ---- */
+  .tl { position: relative; padding-left: 24px; }
+  .tl::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px;
+                background: linear-gradient(var(--emerald), var(--rust)); opacity: .5; }
+  .tli { position: relative; padding: 0 0 20px 8px; }
+  .tli:last-child { padding-bottom: 0; }
+  .tli::before { content: ""; position: absolute; left: -23px; top: 5px; width: 12px; height: 12px;
+                 border-radius: 50%; background: var(--surface); border: 2px solid var(--emerald); }
+  .tli .range { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--emerald);
+                letter-spacing: .04em; }
+  .tli .tt { font-weight: 600; font-size: 15px; margin: 2px 0 2px; }
+  .tli .td { color: var(--muted); font-size: 13.5px; }
+
+  /* ---- Gaps ---- */
+  .gaps { display: flex; flex-direction: column; gap: 10px; }
+  .grow { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: start;
+          padding: 14px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+  .grow .gt { font-weight: 600; font-size: 14.5px; }
+  .grow .gd { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 18px 0 0; font-size: 12.5px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11.5px; }
+  .legend i { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
+
+  footer { margin-top: 54px; padding-top: 22px; border-top: 1px solid var(--line);
+           color: var(--faint); font-family: var(--mono); font-size: 12px; display: flex;
+           justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+  /* Reveal */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s cubic-bezier(.2,.7,.2,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal, .bar .fill { transition: none; }
+    .reveal { opacity: 1; transform: none; }
+    .reveal .bar .fill { transform: scaleX(1); }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead reveal">
+    <div class="brandrow">
+      <img class="logo" src="../crates/frus-shell/assets/logo.png" alt="" width="56" height="56">
+      <h1 class="brand">frus<span class="dot">.</span></h1>
+      <span class="tagchip">jalon <b>J269</b> · <span class="mono">d299a98</span></span>
+      <span class="tagchip">Rust · GPU · <b>Elm</b></span>
+    </div>
+    <p class="thesis">Un framework UI Rust <span class="accent">greenfield</span> — un seul code, trois plateformes natives, l'ergonomie de Flutter.</p>
+
+    <div class="metrics">
+      <div class="metric"><div class="v">270</div><div class="k">jalons</div></div>
+      <div class="metric"><div class="v">320</div><div class="k">commits</div></div>
+      <div class="metric"><div class="v">47,7<small>k</small></div><div class="k">lignes rust</div></div>
+      <div class="metric"><div class="v">13</div><div class="k">crates</div></div>
+      <div class="metric"><div class="v">542</div><div class="k">tests</div></div>
+      <div class="metric"><div class="v">3</div><div class="k">plateformes</div></div>
+    </div>
+  </header>
+
+  <section class="reveal">
+    <p class="eyebrow">Couverture plateforme</p>
+    <h2>Un code, trois cibles natives</h2>
+    <p class="sub">Le même <span class="mono">Application</span> tourne partout ; seule la couche <span class="mono">frus-shell</span> connaît la plateforme.</p>
+    <div class="plats">
+      <div class="plat">
+        <span class="pill ok">Complet</span>
+        <h3>Bureau</h3>
+        <div class="stack">winit · wgpu · AccessKit</div>
+        <p>Windows / Linux / macOS. Presse-papier, accessibilité lecteur d'écran, live-reload en dev.</p>
+      </div>
+      <div class="plat">
+        <span class="pill ok">Complet</span>
+        <h3>Android</h3>
+        <div class="stack">activité native · Vulkan</div>
+        <p>Clavier mou (IME réel : composition/swipe), insets, cycle de vie — <b>validé sur appareil</b>.</p>
+      </div>
+      <div class="plat partial">
+        <span class="pill warn">Fonctionnel</span>
+        <h3>Web</h3>
+        <div class="stack">wasm · WebGPU</div>
+        <p>Rendu, entrée, animations, souscriptions. Reste : un effet réellement <b>asynchrone</b> (fetch).</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="eyebrow">Architecture</p>
+    <h2>Quatre couches, du pixel à l'app</h2>
+    <p class="sub">Chaque crate a un rôle net ; les dépendances montent des fondations vers l'application.</p>
+    <div class="card">
+      <div class="arch">
+        <div class="layer">
+          <div class="lname">Application <small>ce que le dev écrit</small></div>
+          <div class="crates">
+            <span class="crate key">frus</span>
+            <span class="crate">frus-hello</span>
+            <span class="crate">gabarit</span>
+            <span class="crate">frus-demo</span>
+            <span class="crate">frus-transforms</span>
+            <span class="crate">frus-test</span>
+          </div>
+        </div>
+        <div class="arrow">▲</div>
+        <div class="layer">
+          <div class="lname">Shell <small>couche plateforme</small></div>
+          <div class="crates">
+            <span class="crate key">frus-shell</span>
+            <span class="crate">Application</span>
+            <span class="crate">Command</span>
+            <span class="crate">Subscription</span>
+            <span class="crate">cycle de vie</span>
+            <span class="crate">IME</span>
+            <span class="crate">main!</span>
+          </div>
+        </div>
+        <div class="arrow">▲</div>
+        <div class="layer">
+          <div class="lname">Widgets <small>UI &amp; interaction</small></div>
+          <div class="crates">
+            <span class="crate key">frus-widgets</span>
+            <span class="crate">Ui / scène</span>
+            <span class="crate">interaction</span>
+            <span class="crate">réordonnancement</span>
+            <span class="crate">thème</span>
+          </div>
+        </div>
+        <div class="arrow">▲</div>
+        <div class="layer">
+          <div class="lname">Fondations <small>rendu &amp; mesure</small></div>
+          <div class="crates">
+            <span class="crate">frus-core</span>
+            <span class="crate">frus-layout</span>
+            <span class="crate">frus-text</span>
+            <span class="crate">frus-gpu</span>
+            <span class="crate">frus-image</span>
+            <span class="crate">frus-l10n</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="eyebrow">Socle technique</p>
+    <h2>Sur quoi frus s'appuie</h2>
+    <p class="sub">Un cœur mince par-dessus des crates Rust éprouvées ; tout le reste — widgets, layout, interaction — est écrit dans frus.</p>
+    <div class="card">
+      <div class="arch">
+        <div class="layer">
+          <div class="lname">Rendu &amp; fenêtre <small>GPU · entrée</small></div>
+          <div class="crates">
+            <span class="crate">wgpu</span><span class="crate">winit</span><span class="crate">lyon</span>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="lname">Texte, layout &amp; images <small>shaping · flex</small></div>
+          <div class="crates">
+            <span class="crate">taffy</span><span class="crate">cosmic-text</span><span class="crate">glyphon</span><span class="crate">image</span>
+          </div>
+        </div>
+        <div class="layer">
+          <div class="lname">Ponts plateforme <small>a11y · mobile · web</small></div>
+          <div class="crates">
+            <span class="crate">accesskit</span><span class="crate">android-activity</span><span class="crate">jni</span><span class="crate">wasm-bindgen</span><span class="crate">web-sys</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="eyebrow">Capacités</p>
+    <h2>Ce qui marche aujourd'hui</h2>
+    <p class="sub">De quoi écrire une app non triviale — la logique se teste sans GPU ni fenêtre.</p>
+    <div class="caps">
+      <div class="capgroup">
+        <h4>Widgets</h4>
+        <div class="taglist">
+          <span class="tag">Champs texte (IME)</span><span class="tag">Kanban DnD</span><span class="tag">DataTable</span>
+          <span class="tag">Grille éditable</span><span class="tag">Graphiques</span><span class="tag">Date / Time pickers</span>
+          <span class="tag">Dropdown</span><span class="tag">Listes</span><span class="tag">Arbre</span>
+          <span class="tag">Toasts</span><span class="tag">Modales / Portails</span><span class="tag">Tiroir</span>
+          <span class="tag">Navbar / Scaffold</span><span class="tag">Wizard validé</span><span class="tag">Icônes</span>
+          <span class="tag">Images</span><span class="tag">Onglets</span><span class="tag">Transforms</span>
+        </div>
+      </div>
+      <div class="capgroup">
+        <h4>Mise en page</h4>
+        <div class="taglist">
+          <span class="tag">Flex</span><span class="tag">Grille</span><span class="tag">Wrap</span>
+          <span class="tag">Scroll 1D / 2D</span><span class="tag">Fill-then-scroll</span><span class="tag">Aspect-ratio</span>
+          <span class="tag">Fitted-box</span><span class="tag">Stack</span><span class="tag">Percent / Auto / Length</span>
+        </div>
+      </div>
+      <div class="capgroup">
+        <h4>Interaction</h4>
+        <div class="taglist">
+          <span class="tag">Appui long · fling</span><span class="tag">Navigation à ressort</span><span class="tag">Geste retour</span>
+          <span class="tag">Réordonnancement DnD</span><span class="tag">Inertie du glisser</span><span class="tag">Focus / clavier</span>
+        </div>
+      </div>
+      <div class="capgroup g2">
+        <h4>Transverse &amp; ergonomie</h4>
+        <div class="taglist">
+          <span class="tag">Thème surchargeable</span><span class="tag">a11y (AccessKit)</span><span class="tag">i18n / RTL</span>
+          <span class="tag">Animations (ressorts)</span><span class="tag">Cycle de vie</span><span class="tag">Effets / souscriptions</span>
+          <span class="tag">Live-reload (dev)</span><span class="tag">Point d'entrée unique</span><span class="tag">Façade `frus`</span>
+          <span class="tag">Gabarit cargo-generate</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="eyebrow">Santé des tests</p>
+    <h2>542 tests, tous verts</h2>
+    <p class="sub">Le cœur UI est couvert par des tests de logique et des <span class="mono">goldens</span> (rendu comparé au pixel).</p>
+    <div class="card bars" id="bars">
+      <div class="bar"><span class="bname">widgets</span><span class="track"><span class="fill" style="--w:100%"></span></span><span class="bval">396</span></div>
+      <div class="bar"><span class="bname">goldens</span><span class="track"><span class="fill" style="--w:19.4%"></span></span><span class="bval">77</span></div>
+      <div class="bar"><span class="bname">demo</span><span class="track"><span class="fill" style="--w:9.1%"></span></span><span class="bval">36</span></div>
+      <div class="bar"><span class="bname">shell</span><span class="track"><span class="fill" style="--w:6.8%"></span></span><span class="bval">27</span></div>
+      <div class="bar"><span class="bname">layout</span><span class="track"><span class="fill" style="--w:2.6%"></span></span><span class="bval">4</span></div>
+      <div class="bar"><span class="bname">hello</span><span class="track"><span class="fill" style="--w:2%"></span></span><span class="bval">2</span></div>
+      <div class="legend">
+        <span><i style="background:var(--ok)"></i>tests de logique — sans GPU</span>
+        <span><i style="background:var(--rust)"></i>goldens — rendu au pixel</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="eyebrow">Là où on vient d'arriver</p>
+    <h2>L'arc de la session : J251 → J269</h2>
+    <p class="sub">Consolidation mobile, puis deux sauts d'ergonomie qui rapprochent frus de Flutter.</p>
+    <div class="card">
+      <div class="tl">
+        <div class="tli">
+          <div class="range">J251 – J256</div>
+          <div class="tt">Glisser-déposer enrichi</div>
+          <div class="td">Fantôme fidèle, indicateur d'insertion, reflow des voisins, consolidation du domaine DnD.</div>
+        </div>
+        <div class="tli">
+          <div class="range">J257 – J262</div>
+          <div class="tt">Robustesse mobile</div>
+          <div class="td">Réouverture du clavier, cycle de vie façon Flutter, balayage overflow (tables défilables, textes enroulés).</div>
+        </div>
+        <div class="tli">
+          <div class="range">J263 – J266</div>
+          <div class="tt">Défilement par colonne, puis fill-then-scroll</div>
+          <div class="td">Le patron Trello complet ; d'un stopgap à hauteur explicite vers un vrai remplissage flex.</div>
+        </div>
+        <div class="tli">
+          <div class="range">J267 – J268</div>
+          <div class="tt">Point d'entrée unique + façade</div>
+          <div class="td"><span class="mono">frus::main!(App::default())</span> — une déclaration, une dépendance, trois plateformes câblées.</div>
+        </div>
+        <div class="tli">
+          <div class="range">J269</div>
+          <div class="tt">compute_scroll remplit l'axe contraint</div>
+          <div class="td">Le <span class="mono">Scroll</span> se comporte comme un <span class="mono">ListView</span> : plus de conteneur « remplisseur » côté app.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal">
+    <p class="eyebrow">Ce qui reste</p>
+    <h2>Les manques, honnêtement</h2>
+    <p class="sub">Ils sont surtout côté Web asynchrone et distribution — pas dans le cœur UI.</p>
+    <div class="gaps">
+      <div class="grow"><span class="pill warn">Partiel</span><div><div class="gt">Effet asynchrone Web</div><div class="gd">Le <span class="mono">Task</span> actuel est synchrone ; un vrai fetch réseau reste à porter (<span class="mono">spawn_local</span> est en place).</div></div></div>
+      <div class="grow"><span class="pill gap">À faire</span><div><div class="gt">Publication crates.io</div><div class="gd">Aujourd'hui en dépendances <span class="mono">path</span> locales ; viser <span class="mono">frus = "0.1"</span>.</div></div></div>
+      <div class="grow"><span class="pill gap">À faire</span><div><div class="gt">Web : presse-papier · a11y · live-reload</div><div class="gd">Désactivés sur le Web — chantiers distincts des providers natifs.</div></div></div>
+      <div class="grow"><span class="pill gap">Idée</span><div><div class="gt">Cibles iOS / macOS natives</div><div class="gd">La couche shell est isolée ; l'ajout d'une cible reste circonscrit.</div></div></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>frus · framework UI Rust cross-plateforme</span>
+    <span>état au jalon J269</span>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+  })();
+</script>

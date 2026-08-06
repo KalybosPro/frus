@@ -1,0 +1,64 @@
+name: Feature request
+description: Propose a new widget, API, or capability
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        frus is built milestone by milestone, and each milestone starts from a problem rather than a solution. The more concretely you can state the problem, the more likely this gets built.
+
+        Check [ROADMAP.md](https://github.com/KalybosPro/frus/blob/master/ROADMAP.md) first — it may already be planned, or listed as a deliberate non-goal.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to build that frus makes hard or impossible today? Describe the situation, not the API you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: What would this look like in an app's `view` or `update`? Sketch it in Rust, even roughly.
+      render: rust
+
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: Prior art
+      description: |
+        How do Flutter, SwiftUI, Compose, iced, or egui solve this? What do they get right, and what would you do differently?
+
+        frus's stated approach is to port the shape of what works and fix what doesn't — so "Flutter does X but it's annoying because Y" is a genuinely useful answer here.
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: What are you doing instead today? How bad is it?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which layer does this touch?
+      description: Best guess is fine — see [ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+      multiple: true
+      options:
+        - "frus-core (geometry, color, scene, animation)"
+        - "frus-layout"
+        - "frus-text"
+        - "frus-gpu (rendering)"
+        - "frus-widgets (a widget or interaction)"
+        - "frus-shell (platform, effects, subscriptions)"
+        - "Tooling / docs / examples"
+        - "Not sure"
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be willing to open a PR for this (with guidance if needed)
+          required: false

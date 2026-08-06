@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or idea
+    url: https://github.com/KalybosPro/frus/discussions
+    about: For "how do I…", "should frus do X?", and anything not yet a concrete bug or feature. English or French.
+  - name: Security vulnerability
+    url: https://github.com/KalybosPro/frus/security/advisories/new
+    about: Report privately. Please do not open a public issue for a security problem.
+  - name: Design decisions — the milestone notes
+    url: https://github.com/KalybosPro/frus/tree/master/docs
+    about: 276 notes recording why things are the way they are, including rejected alternatives. Grep here before asking.

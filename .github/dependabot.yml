@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Rust dependencies. wgpu/winit/taffy/cosmic-text are tightly coupled to the
+  # renderer, so major bumps are reviewed by hand rather than merged on sight.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      patch-and-minor:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Graphics stack: pin deliberately, upgrade as its own milestone.
+      - dependency-name: "wgpu"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "winit"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "glyphon"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "cosmic-text"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "taffy"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"
