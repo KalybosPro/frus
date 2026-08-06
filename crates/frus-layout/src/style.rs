@@ -239,7 +239,10 @@ impl Style {
         if let Some(columns) = self.grid_columns {
             use taffy::style_helpers::fr;
             style.display = taffy::Display::Grid;
-            style.grid_template_columns = (0..columns).map(|_| fr(1.0)).collect();
+            // `1.0_f32` explicite : `fr` est générique, et le repli silencieux de
+            // `1.0` vers `f32` est en cours de retrait (future_incompatible,
+            // rust#154024). Sans le suffixe, ceci deviendra une erreur dure.
+            style.grid_template_columns = (0..columns).map(|_| fr(1.0_f32)).collect();
         }
 
         style

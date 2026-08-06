@@ -140,20 +140,20 @@ jobs:
           cargo apk build -p frus-hello --lib
 
   # ---------------------------------------------------------------------------
-  # iOS target — bootstrapping. `frus-shell` gained explicit platform cfg aliases
-  # (`desktop` / `android` / `ios` / `web`, see its build.rs) so that iOS no longer
-  # falls into the desktop branch and inherits arboard, env_logger and AccessKit.
+  # iOS target. `frus-shell` has explicit platform cfg aliases (`desktop` /
+  # `android` / `ios` / `web`, see its build.rs) so that iOS does not fall into the
+  # desktop branch and inherit arboard, env_logger and AccessKit.
   #
-  # This job is the feedback loop for that work: it compiles for the simulator and
-  # for a device, without code signing (a plain `cargo build` needs none).
+  # Compiles for the simulator and for a device, without code signing (a plain
+  # `cargo build` needs none).
   #
-  # TODO: drop `continue-on-error` once the iOS shell actually runs — lifecycle,
-  # safe-area insets, IME and soft keyboard are not wired yet. See ROADMAP.md.
+  # Blocking: both targets compile today, so a break here is a real regression.
+  # Note this proves iOS *compiles*, not that it *runs* — lifecycle, safe-area
+  # insets, IME and soft keyboard are still unwired. See ROADMAP.md.
   # ---------------------------------------------------------------------------
   ios:
-    name: Build iOS (advisory)
+    name: Build iOS
     runs-on: macos-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:

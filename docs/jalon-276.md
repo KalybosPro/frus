@@ -88,11 +88,23 @@ sûreté, et elle est vérifiable ici :
 - `cargo build -p frus-hello --target wasm32-unknown-unknown` — OK ;
 - `cargo test --workspace --exclude frus-gpu --exclude frus-test` — **613 tests, 0 échec**.
 
-**iOS lui-même n'est pas vérifié par ce jalon.** La machine de développement est sous
-Windows : ni SDK Apple ni linker, donc pas de compilation croisée crédible. C'est le nouveau
-job CI `ios` (advisory, `macos-latest`, cibles `aarch64-apple-ios-sim` et
-`aarch64-apple-ios`) qui tranchera — il est là précisément pour dire la vérité sur ce que
-l'on vient d'écrire à l'aveugle.
+**iOS lui-même n'est pas vérifiable depuis la machine de développement** (Windows : ni SDK
+Apple ni linker, donc pas de compilation croisée crédible). C'est le nouveau job CI `ios`
+(`macos-latest`) qui a tranché — il est là précisément pour dire la vérité sur ce que l'on
+a écrit à l'aveugle. **Verdict : les deux cibles compilent.**
+
+```
+aarch64-apple-ios      →  Finished `dev` profile in 1m 33s
+aarch64-apple-ios-sim  →  Finished `dev` profile in 16.17s
+```
+
+Le log confirme le dispositif au-delà du simple « ça compile » : `objc2-ui-kit` et `metal`
+sont dans l'arbre (backend UIKit de winit, sortie Metal de wgpu), et **ni `arboard`, ni
+`accesskit_winit`, ni `env_logger` n'y sont** — l'exclusion du `Cargo.toml` a tenu, et le
+`run()` sous `#[cfg(ios)]` type-checke.
+
+Le job est donc passé **bloquant** : ce qui vient d'être acquis ne doit pas régresser
+silencieusement. Il prouve qu'iOS *compile*, pas qu'iOS *tourne*.
 
 ## Reste
 
