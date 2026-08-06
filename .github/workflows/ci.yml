@@ -128,12 +128,16 @@ jobs:
         with:
           ndk-version: r26d
 
+      # `--lib` is required, not optional: frus-hello carries both a lib
+      # (rlib + cdylib) and a bin target. Without it cargo-apk cannot pick an
+      # artifact and panics inside `Artifact::file_name` rather than reporting a
+      # useful error. Android loads the cdylib (`android_main`), never the bin.
       - name: Build
         env:
           ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
         run: |
           cargo install cargo-apk --locked
-          cargo apk build -p frus-hello
+          cargo apk build -p frus-hello --lib
 
   # ---------------------------------------------------------------------------
   # iOS target — bootstrapping. `frus-shell` gained explicit platform cfg aliases
