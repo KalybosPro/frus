@@ -18,7 +18,7 @@ opening an issue.
 | --- | --- |
 | [getting-started.md](getting-started.md) | Write and run your first frus application |
 | [cahier des charges.md](cahier%20des%20charges.md) | The original brief: vision, philosophy, working method |
-| [idees-flutter.md](idees-flutter.md) | Flutter ideas evaluated for porting — what to take, what to fix |
+| [prior art](idees-flutter.md) | Ideas from mature UI toolkits, evaluated for porting — what to take, what to fix |
 | [etat.html](etat.html) | A visual snapshot of the framework's state |
 
 ## Where to start
@@ -98,7 +98,7 @@ If you're new to the codebase, these are the notes worth reading first:
 | [58](jalon-58.md) | Thème : state-layers Material bakées + rôles M3 étendus |
 | [59](jalon-59.md) | Généralisation des state-layers Material |
 | [60](jalon-60.md) | Typographie : `TextStyle` + `TextTheme` (graisse et italique rendus) |
-| [61](jalon-61.md) | AppBar/NavBar personnalisables (degré Flutter) |
+| [61](jalon-61.md) | AppBar/NavBar entièrement personnalisables |
 | [62](jalon-62.md) | `TextSpan` : texte riche, de l'arbre stylé au GPU |
 | [63](jalon-63.md) | `TextLayout` : caret, hit-test et sélection sur cosmic-text |
 | [64](jalon-64.md) | Mesure sous contraintes (closures taffy) + paragraphe à retour à la ligne |
@@ -142,7 +142,7 @@ If you're new to the codebase, these are the notes worth reading first:
 | [102](jalon-102.md) | `AnimatedContainer` : marge (padding) animée |
 | [103](jalon-103.md) | `Animatable` : le pont explicite → valeur typée vivante |
 | [104](jalon-104.md) | `Animatable` composés : `TweenSequence` + tweens de boîte |
-| [105](jalon-105.md) | Container : `alignment` + `decoration` composite (parité Flutter) |
+| [105](jalon-105.md) | Container : `alignment` + `decoration` composite |
 | [106](jalon-106.md) | `Alignment` fractionnel + `Tween<Alignment>` (placement manuel) |
 | [107](jalon-107.md) | Ancrage : listes virtualisées + `AlignmentDirectional` |
 | [108](jalon-108.md) | `AlignmentGeometry` : l'ancrage unifié |
@@ -187,7 +187,7 @@ If you're new to the codebase, these are the notes worth reading first:
 | [147](jalon-147.md) | Flux date + heure, minutes fines & 12 h AM/PM |
 | [148](jalon-148.md) | Tableau : sélection multiple & colonnes à largeur variable |
 | [149](jalon-149.md) | Tableau : « tout cocher » indéterminé & tri au clavier |
-| [150](jalon-150.md) | Audit `Dropdown` / `Autocomplete` (niveau Flutter) |
+| [150](jalon-150.md) | Audit `Dropdown` / `Autocomplete` : mise au niveau attendu |
 | [151](jalon-151.md) | Tableau : redimensionnement de colonnes à la souris |
 | [152](jalon-152.md) | Autocomplétion : mise en avant du texte & suggestion active |
 | [153](jalon-153.md) | Tableau : réordonnancement des colonnes (glisser un en-tête) |
@@ -295,15 +295,15 @@ If you're new to the codebase, these are the notes worth reading first:
 | [256](jalon-256.md) | Consolidation : registres transformés (ui.rs) + facteur de réagencement partagé |
 | [257](jalon-257.md) | Correctif clavier Android : rouvrir le clavier au ré-appui d'un champ |
 | [258](jalon-258.md) | Respect du viewport : board Kanban défilable + texte enroulé (fin du débordement) |
-| [259](jalon-259.md) | Contrat de cycle de vie de l'application (façon Flutter) |
-| [260](jalon-260.md) | Défilement Kanban façon Flutter : axe horizontal intentionnel (fin du pan 2D) |
+| [259](jalon-259.md) | Contrat de cycle de vie de l'application |
+| [260](jalon-260.md) | Défilement Kanban : axe horizontal intentionnel (fin du pan 2D) |
 | [261](jalon-261.md) | Finitions DnD : ombres `Card`/`Toast` thémées + test de réagencement même-colonne |
 | [262](jalon-262.md) | Balayage overflow des écrans (tables défilables + textes enroulés + corps verticaux) |
 | [263](jalon-263.md) | Défilement vertical par colonne : blocage layout + garde-fou réordonnables-dans-Scroll |
 | [264](jalon-264.md) | Défilement vertical par colonne (façon Trello), via hauteur explicite |
 | [265](jalon-265.md) | Inertie verticale du glisser (ligne d'insertion à ressort) |
 | [266](jalon-266.md) | Fill-then-scroll : défilement vertical par colonne **sans hauteur explicite** |
-| [267](jalon-267.md) | Point d'entrée **unique** (façon Flutter) |
+| [267](jalon-267.md) | Point d'entrée **unique**, une entrée par plateforme |
 | [268](jalon-268.md) | Crate-façade `frus` : **une seule dépendance** |
 | [269](jalon-269.md) | `compute_scroll` **remplit l'axe contraint** (fin du conteneur remplisseur) |
 | [270](jalon-270.md) | Effets **asynchrones** (`perform_async` / `run_async`) |
