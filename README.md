@@ -21,7 +21,7 @@ One codebase → desktop, Android, and the web. GPU-rendered. Elm-shaped. No DSL
 
 ## What is frus?
 
-frus is a greenfield attempt at the framework Flutter would be if it had been designed in Rust from day one: **the entire framework — renderer, layout, widgets, gestures, theming, animation, accessibility — is Rust**. There is no embedded VM, no second language for app logic, and no platform channel between your code and the pixels.
+frus is a greenfield attempt at a UI framework designed in Rust from day one: **the entire framework — renderer, layout, widgets, gestures, theming, animation, accessibility — is Rust**. There is no embedded VM, no second language for app logic, and no platform channel between your code and the pixels.
 
 The parts that *must* be native (window creation, IME, screen readers, the Android activity) live behind one thin crate, `frus-shell`. Everything above it is portable.
 

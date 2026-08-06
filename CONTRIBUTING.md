@@ -29,7 +29,7 @@ You don't need to know `wgpu` to be useful here.
 | If you know… | Good places to start |
 |---|---|
 | **Rust, no graphics** | Widgets, layout behaviour, `frus-core` types, tests, examples, API ergonomics |
-| **Flutter / SwiftUI / Compose** | Port a widget or interaction pattern we're missing. Tell us where our API is worse than theirs — that's a valid issue |
+| **Another UI toolkit** | Port a widget or interaction pattern we're missing. Tell us where our API is worse than the one you know — that's a valid issue |
 | **GPU / graphics** | `frus-gpu`: batching, the glyph atlas, path tessellation, shader work, the compositor |
 | **Mobile** | Android shell hardening; iOS shell is unclaimed and self-contained |
 | **Web** | wasm target: clipboard, accessibility, live-reload are all unwired |
@@ -179,9 +179,9 @@ These are the standing rules the codebase is built on. A PR that violates one ne
 
 **1. Everything in Rust.** No framework logic in another language, ever. The only non-Rust code allowed is a paper-thin native adapter (Kotlin/Swift/Win32/JS) that exposes a platform API and contains no logic of its own.
 
-**2. Follow Flutter's footsteps, don't copy Flutter.** Flutter has solved a lot of hard problems — spring physics, the widget/element split, gesture arenas, lifecycle. Port the *shape* of what works. But where Flutter has a weakness, fix it rather than inheriting it. Every departure should be defensible.
+**2. Learn from mature toolkits, don't copy them.** Spring physics, the widget/element split, gesture arenas, lifecycle contracts — these are solved problems, and the solutions are worth studying. Port the *shape* of what works. But where a prior design has a weakness, fix it rather than inheriting it. Every departure should be defensible.
 
-**3. Customizable like Flutter.** Every widget's styling and every slot must be overridable by the app. Themed defaults, yes. Hardcoded-only, never. If you find yourself writing a literal color or dimension inside a widget's paint path, it belongs in the theme or in a builder method.
+**3. Customizable to the last detail.** Every widget's styling and every slot must be overridable by the app. Themed defaults, yes. Hardcoded-only, never. If you find yourself writing a literal color or dimension inside a widget's paint path, it belongs in the theme or in a builder method.
 
 **4. Pure `update`.** State transitions are a pure function of state and message. Side effects go through `Command`; external events come in through `Subscription`. This is what makes the framework testable without a GPU, and it is not negotiable.
 
@@ -245,7 +245,7 @@ frus is small and maintainer-led today. That means:
 - **Maintainers merge.** Every PR needs an approving review from a maintainer. Currently that is [@KalybosPro](https://github.com/KalybosPro).
 - **Architecture changes go through discussion first.** For anything marked 🔴 in [ROADMAP.md](ROADMAP.md), or anything that changes a crate boundary or a public trait, open an issue or discussion before writing code. You'll get a faster answer and avoid rewriting.
 - **Disagreements are settled by argument, not seniority.** The [design principles](#design-principles) are the shared ground. If you think one of them is wrong for a particular case, say so — several existing milestones exist because someone pushed back.
-- **"Flutter does it this way" starts a discussion, it doesn't end one.** We port what works and fix what doesn't.
+- **"Framework X does it this way" starts a discussion, it doesn't end one.** We port what works and fix what doesn't.
 - **Sustained, high-quality contribution in an area earns review rights in it.** There's no formal process yet; if the project grows to need one, it will be written down here.
 
 Issue labels you'll see: `good first issue`, `help wanted`, `needs triage`, `needs design`, `bug`, `enhancement`, plus area labels (`area: widgets`, `area: gpu`, `area: shell`, `area: web`, `area: android`, `area: docs`).
