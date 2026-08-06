@@ -1,31 +1,71 @@
-//! [`fetch`] : un **GET HTTP cross-plateforme**, derrière la feature `net`.
+//! HTTP cross-plateforme, derrière la feature `net`.
 //!
-//! Une seule signature — `async fn fetch(url) -> Result<String, FetchError>` — pour les
-//! trois plateformes ; l'implémentation diffère mais l'app ne voit qu'une future à
-//! `await`, typiquement dans un [`crate::Command::perform_async`] :
+//! Deux niveaux d'API, une seule pour les trois plateformes (bureau, Android, Web) :
+//!
+//! - [`fetch(url)`](fetch) — le **raccourci** : un GET texte, à `await` directement.
+//! - [`Request`] — le **constructeur** quand il faut plus : méthode (`POST`, `PUT`…),
+//!   **en-têtes**, **corps**, **timeout**. On termine par [`Request::send`].
 //!
 //! ```ignore
+//! use frus_shell::{Command, Request};
+//!
+//! // GET simple.
 //! Msg::Load => Command::perform_async(async {
 //!     match frus_shell::fetch("https://example.com/api").await {
 //!         Ok(body) => Msg::Loaded(body),
 //!         Err(err) => Msg::Failed(err.to_string()),
 //!     }
 //! }),
+//!
+//! // POST JSON avec en-tête et délai maximal.
+//! Msg::Save(json) => Command::perform_async(async move {
+//!     let res = Request::post("https://example.com/api")
+//!         .header("Content-Type", "application/json")
+//!         .body(json)
+//!         .timeout(std::time::Duration::from_secs(10))
+//!         .send()
+//!         .await;
+//!     match res { Ok(_) => Msg::Saved, Err(e) => Msg::Failed(e.to_string()) }
+//! }),
 //! ```
 //!
-//! - **Web** : le `fetch` du navigateur (`window.fetch`) via `web-sys` — asynchrone natif.
+//! - **Web** : le `fetch` du navigateur (`window.fetch`) via `web-sys` — asynchrone natif ;
+//!   le timeout est armé par un `AbortController` + `setTimeout`.
 //! - **Natif** : le client bloquant `ureq`, mené à terme dans le corps de la future (sur
 //!   le thread dédié de `perform_async` — bloquer ce thread est sans risque). TLS inclus.
-//!
-//! GET texte volontairement minimal ; en-têtes/POST/flux viendront si le besoin s'en fait
-//! sentir.
 
 use std::fmt;
+use std::time::Duration;
 
-/// Pourquoi un [`fetch`] a échoué.
+/// Méthode HTTP d'une [`Request`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Method {
+    Get,
+    Post,
+    Put,
+    Delete,
+    Patch,
+    Head,
+}
+
+impl Method {
+    /// Le verbe HTTP en toutes lettres (`"GET"`, `"POST"`…).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Method::Get => "GET",
+            Method::Post => "POST",
+            Method::Put => "PUT",
+            Method::Delete => "DELETE",
+            Method::Patch => "PATCH",
+            Method::Head => "HEAD",
+        }
+    }
+}
+
+/// Pourquoi une requête a échoué.
 #[derive(Debug, Clone)]
 pub enum FetchError {
-    /// Échec réseau / transport (DNS, connexion, TLS, requête invalide…).
+    /// Échec réseau / transport (DNS, connexion, TLS, timeout, requête invalide…).
     Network(String),
     /// La réponse a un **code d'état** non-2xx.
     Status(u16),
@@ -45,41 +85,177 @@ impl fmt::Display for FetchError {
 
 impl std::error::Error for FetchError {}
 
-/// GET l'URL et renvoie le corps en texte (**natif** : client `ureq` bloquant, exécuté
-/// dans la future). Voir la doc du module.
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn fetch(url: impl Into<String>) -> Result<String, FetchError> {
-    let url = url.into();
-    match ureq::get(&url).call() {
-        Ok(resp) => resp.into_string().map_err(|e| FetchError::Decode(e.to_string())),
-        Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
-        Err(e) => Err(FetchError::Network(e.to_string())),
+/// Une requête HTTP à construire puis [`send`](Request::send).
+///
+/// Bâtie par chaînage — méthode d'abord ([`get`](Request::get), [`post`](Request::post)…),
+/// puis en-têtes / corps / timeout au besoin :
+///
+/// ```ignore
+/// Request::post(url).header("Accept", "application/json").body(payload).send().await
+/// ```
+#[derive(Debug, Clone)]
+pub struct Request {
+    method: Method,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+    timeout: Option<Duration>,
+}
+
+impl Request {
+    /// Une requête pour `method` vers `url` (sans en-tête, corps ni timeout).
+    pub fn new(method: Method, url: impl Into<String>) -> Self {
+        Self { method, url: url.into(), headers: Vec::new(), body: None, timeout: None }
+    }
+
+    /// Raccourci : requête `GET`.
+    pub fn get(url: impl Into<String>) -> Self {
+        Self::new(Method::Get, url)
+    }
+    /// Raccourci : requête `POST`.
+    pub fn post(url: impl Into<String>) -> Self {
+        Self::new(Method::Post, url)
+    }
+    /// Raccourci : requête `PUT`.
+    pub fn put(url: impl Into<String>) -> Self {
+        Self::new(Method::Put, url)
+    }
+    /// Raccourci : requête `DELETE`.
+    pub fn delete(url: impl Into<String>) -> Self {
+        Self::new(Method::Delete, url)
+    }
+
+    /// Ajoute un en-tête (cumulable : appeler plusieurs fois n'écrase rien).
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// Fixe le corps de la requête (texte). Le dernier appel gagne.
+    pub fn body(mut self, body: impl Into<String>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+
+    /// Délai maximal avant abandon (`FetchError::Network`). Sans cet appel, aucun
+    /// délai n'est imposé côté client.
+    pub fn timeout(mut self, dur: Duration) -> Self {
+        self.timeout = Some(dur);
+        self
+    }
+
+    /// Exécute la requête et renvoie le corps de la réponse en texte.
+    ///
+    /// **Natif** : client `ureq` bloquant, exécuté dans la future.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn send(self) -> Result<String, FetchError> {
+        let mut req = ureq::request(self.method.as_str(), &self.url);
+        for (name, value) in &self.headers {
+            req = req.set(name, value);
+        }
+        if let Some(dur) = self.timeout {
+            req = req.timeout(dur);
+        }
+        let result = match &self.body {
+            Some(b) => req.send_string(b),
+            None => req.call(),
+        };
+        match result {
+            Ok(resp) => resp.into_string().map_err(|e| FetchError::Decode(e.to_string())),
+            Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
+            Err(e) => Err(FetchError::Network(e.to_string())),
+        }
+    }
+
+    /// Exécute la requête et renvoie le corps de la réponse en texte.
+    ///
+    /// **Web** : `window.fetch` ; le timeout est armé par un `AbortController` +
+    /// `setTimeout`, désarmé dès la réponse reçue.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn send(self) -> Result<String, FetchError> {
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::{JsCast, JsValue};
+        use wasm_bindgen_futures::JsFuture;
+
+        let window = web_sys::window().ok_or_else(|| FetchError::Network("no window".into()))?;
+
+        let init = web_sys::RequestInit::new();
+        init.set_method(self.method.as_str());
+
+        if !self.headers.is_empty() {
+            let headers =
+                web_sys::Headers::new().map_err(|e| FetchError::Network(format!("{e:?}")))?;
+            for (name, value) in &self.headers {
+                headers
+                    .append(name, value)
+                    .map_err(|e| FetchError::Network(format!("{e:?}")))?;
+            }
+            init.set_headers(&headers);
+        }
+
+        if let Some(b) = &self.body {
+            init.set_body(&JsValue::from_str(b));
+        }
+
+        // Timeout : un AbortController dont le signal est passé à la requête ; un
+        // setTimeout déclenche `abort()` au-delà du délai.
+        let controller = if self.timeout.is_some() {
+            let c =
+                web_sys::AbortController::new().map_err(|e| FetchError::Network(format!("{e:?}")))?;
+            init.set_signal(Some(&c.signal()));
+            Some(c)
+        } else {
+            None
+        };
+
+        let request = web_sys::Request::new_with_str_and_init(&self.url, &init)
+            .map_err(|e| FetchError::Network(format!("{e:?}")))?;
+
+        // Arme le minuteur juste avant l'envoi ; on garde le `Closure` vivant jusqu'à
+        // la fin de la requête (il est désarmé avant d'être libéré).
+        let mut _timer_closure = None;
+        let timeout_handle = if let (Some(dur), Some(controller)) = (self.timeout, controller) {
+            let ms = dur.as_millis().min(i32::MAX as u128) as i32;
+            let closure = Closure::<dyn FnMut()>::new(move || controller.abort());
+            let handle = window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    ms,
+                )
+                .map_err(|e| FetchError::Network(format!("{e:?}")))?;
+            _timer_closure = Some(closure);
+            Some(handle)
+        } else {
+            None
+        };
+
+        let resp_val = JsFuture::from(window.fetch_with_request(&request)).await;
+
+        // Désarme le minuteur quel que soit le résultat (le `Closure` peut alors mourir).
+        if let Some(handle) = timeout_handle {
+            window.clear_timeout_with_handle(handle);
+        }
+
+        let resp_val = resp_val.map_err(|e| FetchError::Network(format!("{e:?}")))?;
+        let resp: web_sys::Response = resp_val
+            .dyn_into()
+            .map_err(|_| FetchError::Network("invalid response".into()))?;
+        if !resp.ok() {
+            return Err(FetchError::Status(resp.status()));
+        }
+        let text_promise = resp.text().map_err(|e| FetchError::Decode(format!("{e:?}")))?;
+        let text = JsFuture::from(text_promise)
+            .await
+            .map_err(|e| FetchError::Decode(format!("{e:?}")))?;
+        text.as_string()
+            .ok_or_else(|| FetchError::Decode("response body is not text".into()))
     }
 }
 
-/// GET l'URL et renvoie le corps en texte (**Web** : `window.fetch`, asynchrone natif).
-/// Voir la doc du module.
-#[cfg(target_arch = "wasm32")]
+/// Raccourci : GET l'`url` et renvoie le corps en texte. Équivaut à
+/// `Request::get(url).send().await`. Voir la doc du module.
 pub async fn fetch(url: impl Into<String>) -> Result<String, FetchError> {
-    use wasm_bindgen::JsCast;
-    use wasm_bindgen_futures::JsFuture;
-
-    let url = url.into();
-    let window = web_sys::window().ok_or_else(|| FetchError::Network("no window".into()))?;
-    let resp_val = JsFuture::from(window.fetch_with_str(&url))
-        .await
-        .map_err(|e| FetchError::Network(format!("{e:?}")))?;
-    let resp: web_sys::Response = resp_val
-        .dyn_into()
-        .map_err(|_| FetchError::Network("invalid response".into()))?;
-    if !resp.ok() {
-        return Err(FetchError::Status(resp.status()));
-    }
-    let text_promise = resp.text().map_err(|e| FetchError::Decode(format!("{e:?}")))?;
-    let text = JsFuture::from(text_promise)
-        .await
-        .map_err(|e| FetchError::Decode(format!("{e:?}")))?;
-    text.as_string().ok_or_else(|| FetchError::Decode("response body is not text".into()))
+    Request::get(url).send().await
 }
 
 #[cfg(test)]
@@ -91,5 +267,43 @@ mod tests {
         assert_eq!(FetchError::Status(404).to_string(), "HTTP status 404");
         assert!(FetchError::Network("dns".into()).to_string().contains("dns"));
         assert!(FetchError::Decode("utf8".into()).to_string().contains("utf8"));
+    }
+
+    #[test]
+    fn method_verbs() {
+        assert_eq!(Method::Get.as_str(), "GET");
+        assert_eq!(Method::Post.as_str(), "POST");
+        assert_eq!(Method::Delete.as_str(), "DELETE");
+    }
+
+    #[test]
+    fn builder_accumulates_headers_body_and_timeout() {
+        let r = Request::post("https://example.com/api")
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .body("{}")
+            .timeout(Duration::from_secs(5));
+
+        assert_eq!(r.method, Method::Post);
+        assert_eq!(r.url, "https://example.com/api");
+        assert_eq!(
+            r.headers,
+            vec![
+                ("Content-Type".to_string(), "application/json".to_string()),
+                ("Accept".to_string(), "application/json".to_string()),
+            ]
+        );
+        assert_eq!(r.body.as_deref(), Some("{}"));
+        assert_eq!(r.timeout, Some(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn fetch_shortcut_is_a_bare_get() {
+        // `fetch(url)` ne doit rien ajouter : GET, sans en-tête ni corps ni timeout.
+        let r = Request::get("https://example.com");
+        assert_eq!(r.method, Method::Get);
+        assert!(r.headers.is_empty());
+        assert!(r.body.is_none());
+        assert!(r.timeout.is_none());
     }
 }

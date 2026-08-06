@@ -38,6 +38,7 @@ pub use frus_shell::{anyhow, log};
 pub use frus_shell::main;
 pub use frus_widgets::{column, row};
 
-// GET HTTP cross-plateforme (feature `net`) : `frus::fetch(url).await` — voir [`frus::net`].
+// HTTP cross-plateforme (feature `net`) : le raccourci `frus::fetch(url).await` et le
+// constructeur `frus::Request` (méthode/en-têtes/corps/timeout) — voir [`frus::net`].
 #[cfg(feature = "net")]
-pub use frus_shell::{fetch, net, FetchError};
+pub use frus_shell::{fetch, net, FetchError, Method, Request};

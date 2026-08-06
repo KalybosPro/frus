@@ -24,9 +24,10 @@ pub use application::{Application, Lifecycle};
 pub use command::Command;
 pub use subscription::Subscription;
 
-/// GET HTTP cross-plateforme et son erreur (feature `net`) — voir [`net::fetch`].
+/// HTTP cross-plateforme (feature `net`) — le raccourci [`fetch`], le constructeur
+/// [`Request`] (méthode/en-têtes/corps/timeout) et l'erreur [`FetchError`].
 #[cfg(feature = "net")]
-pub use net::{fetch, FetchError};
+pub use net::{fetch, FetchError, Method, Request};
 
 /// Ré-export : paliers de taille et orientation, pour piloter la responsivité
 /// côté app.
