@@ -75,13 +75,29 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             pill_h,
         );
         if self.selected {
-            scene.draw_rect(pill, theme.primary.fade(0.16 * o), pill_h * 0.5, 0.0, Color::TRANSPARENT);
+            scene.draw_rect(
+                pill,
+                theme.primary.fade(0.16 * o),
+                pill_h * 0.5,
+                0.0,
+                Color::TRANSPARENT,
+            );
         } else if status.hover_progress > 0.0 {
             let a = 0.12 * status.hover_progress * o;
-            scene.draw_rect(pill, theme.muted.fade(a), pill_h * 0.5, 0.0, Color::TRANSPARENT);
+            scene.draw_rect(
+                pill,
+                theme.muted.fade(a),
+                pill_h * 0.5,
+                0.0,
+                Color::TRANSPARENT,
+            );
         }
 
-        let color = if self.selected { theme.primary } else { theme.muted };
+        let color = if self.selected {
+            theme.primary
+        } else {
+            theme.muted
+        };
         scene.text(
             Point::new(bounds.x + (bounds.width - icon_m.width) * 0.5, top),
             self.icon.clone(),
@@ -100,7 +116,11 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
 
         // Pastille de notification, ancrée au coin haut-droit du glyphe d'icône.
         if let Some(count) = self.badge.filter(|&n| n > 0) {
-            let text = if count > 99 { "99+".to_string() } else { count.to_string() };
+            let text = if count > 99 {
+                "99+".to_string()
+            } else {
+                count.to_string()
+            };
             let m = frus_text::measure(&text, BADGE_SIZE);
             let bw = (m.width + 8.0).max(m.height + 4.0);
             let bh = m.height + 4.0;
@@ -355,7 +375,9 @@ mod tests {
 
     #[test]
     fn bottom_bar_items_are_flexible() {
-        let bar = BottomBar::new(0, Msg::Go).item("H", "Home").item("S", "Search");
+        let bar = BottomBar::new(0, Msg::Go)
+            .item("H", "Home")
+            .item("S", "Search");
         let children = Widget::<Msg>::children(&bar);
         assert_eq!(children.len(), 2);
         // Élément de barre : partage la largeur (flex_grow > 0), pas de largeur fixe.

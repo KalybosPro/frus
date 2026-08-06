@@ -488,12 +488,19 @@ mod tests {
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(64.0, 64.0), &rt, &theme);
         let layer = ui.scene().primitives().iter().find_map(|p| match p {
-            Primitive::Layer { opacity, primitives, .. } => Some((*opacity, primitives.len())),
+            Primitive::Layer {
+                opacity,
+                primitives,
+                ..
+            } => Some((*opacity, primitives.len())),
             _ => None,
         });
         let (op, n) = layer.expect("un calque d'opacité de groupe");
         assert!((op - 0.5).abs() < 1e-6, "opacité de groupe = {op}");
-        assert!(n >= 1, "le calque enveloppe le contenu peint ({n} primitives)");
+        assert!(
+            n >= 1,
+            "le calque enveloppe le contenu peint ({n} primitives)"
+        );
     }
 
     /// Opacité pleine (`1.0`) : aucun calque n'est émis (chemin opaque, coût nul).
@@ -521,8 +528,7 @@ mod tests {
     /// durée et la courbe fournies ; `opacity` seule non (opacité fixe).
     #[test]
     fn animated_opacity_declares_anim_target() {
-        let animated: Container<()> =
-            Container::new().animated_opacity(0.0, 0.3, Curve::ease_in());
+        let animated: Container<()> = Container::new().animated_opacity(0.0, 0.3, Curve::ease_in());
         assert_eq!(Widget::<()>::anim_target(&animated), Some(0.0));
         assert_eq!(Widget::<()>::anim_duration(&animated), 0.3);
         assert_eq!(Widget::<()>::anim_curve(&animated), Curve::ease_in());
@@ -544,10 +550,16 @@ mod tests {
         let blue = Color::rgb(0.0, 0.0, 1.0);
         let mut rt = crate::runtime::Runtime::default();
         let start: Container<()> =
-            Container::new().width(20.0).height(20.0).animated_color(red, 0.10, Curve::Linear);
+            Container::new()
+                .width(20.0)
+                .height(20.0)
+                .animated_color(red, 0.10, Curve::Linear);
         rt.advance_colors(&start, 1.0); // montage → rouge
         let to_blue: Container<()> =
-            Container::new().width(20.0).height(20.0).animated_color(blue, 0.10, Curve::Linear);
+            Container::new()
+                .width(20.0)
+                .height(20.0)
+                .animated_color(blue, 0.10, Curve::Linear);
         rt.advance_colors(&to_blue, 0.05); // t = 0.5
 
         let theme = crate::Theme::dark();
@@ -576,10 +588,14 @@ mod tests {
         let mut rt = crate::runtime::Runtime::default();
         let red = Color::rgb(1.0, 0.0, 0.0);
         let start: Container<()> =
-            Container::new().color(red).animated_size(20.0, 20.0, 0.10, Curve::Linear);
+            Container::new()
+                .color(red)
+                .animated_size(20.0, 20.0, 0.10, Curve::Linear);
         rt.advance_sizes(&start, 1.0); // montage → 20×20
         let to_big: Container<()> =
-            Container::new().color(red).animated_size(40.0, 40.0, 0.10, Curve::Linear);
+            Container::new()
+                .color(red)
+                .animated_size(40.0, 40.0, 0.10, Curve::Linear);
         rt.advance_sizes(&to_big, 0.05); // t = 0.5 → 30×30
 
         let theme = crate::Theme::dark();
@@ -593,8 +609,16 @@ mod tests {
                 _ => None,
             })
             .expect("un rectangle de fond");
-        assert!((rect.width - 30.0).abs() < 1.0, "largeur interpolée : {}", rect.width);
-        assert!((rect.height - 30.0).abs() < 1.0, "hauteur interpolée : {}", rect.height);
+        assert!(
+            (rect.width - 30.0).abs() < 1.0,
+            "largeur interpolée : {}",
+            rect.width
+        );
+        assert!(
+            (rect.height - 30.0).abs() < 1.0,
+            "hauteur interpolée : {}",
+            rect.height
+        );
     }
 
     /// Un `animated_radius` peint le rayon **interpolé** : montée à 0, transition
@@ -604,11 +628,17 @@ mod tests {
         use frus_core::{Primitive, Size};
         let red = Color::rgb(1.0, 0.0, 0.0);
         let mut rt = crate::runtime::Runtime::default();
-        let sharp: Container<()> =
-            Container::new().width(40.0).height(40.0).color(red).animated_radius(0.0, 0.10, Curve::Linear);
+        let sharp: Container<()> = Container::new()
+            .width(40.0)
+            .height(40.0)
+            .color(red)
+            .animated_radius(0.0, 0.10, Curve::Linear);
         rt.advance_radii(&sharp, 1.0); // montage → 0
-        let round: Container<()> =
-            Container::new().width(40.0).height(40.0).color(red).animated_radius(20.0, 0.10, Curve::Linear);
+        let round: Container<()> = Container::new()
+            .width(40.0)
+            .height(40.0)
+            .color(red)
+            .animated_radius(20.0, 0.10, Curve::Linear);
         rt.advance_radii(&round, 0.05); // t = 0.5 → 10
 
         let theme = crate::Theme::dark();
@@ -622,7 +652,11 @@ mod tests {
                 _ => None,
             })
             .expect("un rectangle de fond");
-        assert!((radius.top_left - 10.0).abs() < 1.0, "rayon interpolé : {}", radius.top_left);
+        assert!(
+            (radius.top_left - 10.0).abs() < 1.0,
+            "rayon interpolé : {}",
+            radius.top_left
+        );
     }
 
     /// Un `animated_padding` **décale l'enfant au layout** : montée à 0, transition
@@ -683,7 +717,10 @@ mod tests {
                 _ => None,
             })
             .expect("le fond rouge de l'enfant");
-        assert!((rect.x - 40.0).abs() < 1.0 && (rect.y - 40.0).abs() < 1.0, "centré : {rect:?}");
+        assert!(
+            (rect.x - 40.0).abs() < 1.0 && (rect.y - 40.0).abs() < 1.0,
+            "centré : {rect:?}"
+        );
     }
 
     /// `alignment(BottomRight)` ancre l'enfant (20×20) au coin bas-droit d'une boîte
@@ -709,7 +746,10 @@ mod tests {
                 _ => None,
             })
             .expect("le fond rouge de l'enfant");
-        assert!((rect.x - 80.0).abs() < 1.0 && (rect.y - 80.0).abs() < 1.0, "coin bas-droit : {rect:?}");
+        assert!(
+            (rect.x - 80.0).abs() < 1.0 && (rect.y - 80.0).abs() < 1.0,
+            "coin bas-droit : {rect:?}"
+        );
     }
 
     /// Un ancrage **fractionnel** (hors des neuf positions discrètes) place l'enfant
@@ -738,7 +778,10 @@ mod tests {
                 _ => None,
             })
             .expect("le fond rouge de l'enfant");
-        assert!((rect.x - 60.0).abs() < 1.0 && (rect.y - 20.0).abs() < 1.0, "fractionnel : {rect:?}");
+        assert!(
+            (rect.x - 60.0).abs() < 1.0 && (rect.y - 20.0).abs() < 1.0,
+            "fractionnel : {rect:?}"
+        );
     }
 
     /// Un ancrage **directionnel** suit le sens de lecture : `CENTER_START` place
@@ -764,7 +807,10 @@ mod tests {
                 })
                 .expect("le fond rouge de l'enfant")
         };
-        assert!(child_x(&crate::Theme::dark()).abs() < 1.0, "start à gauche en LTR");
+        assert!(
+            child_x(&crate::Theme::dark()).abs() < 1.0,
+            "start à gauche en LTR"
+        );
         assert!(
             (child_x(&crate::Theme::dark().rtl()) - 80.0).abs() < 1.0,
             "start à droite en RTL"
@@ -800,7 +846,11 @@ mod tests {
             })
             .expect("le fond vert décoré");
         assert!(color.g > 0.9, "fond vert : {color:?}");
-        assert!((radius.top_left - 8.0).abs() < 1e-3, "rayon composite : {}", radius.top_left);
+        assert!(
+            (radius.top_left - 8.0).abs() < 1e-3,
+            "rayon composite : {}",
+            radius.top_left
+        );
     }
 
     /// `margin(...)` réserve de l'espace **autour** de la boîte : il pousse les
@@ -824,7 +874,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(*rect),
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => {
+                    Some(*rect)
+                }
                 _ => None,
             })
             .expect("le fond vert du 2e enfant");
@@ -832,7 +884,10 @@ mod tests {
             (rect.y - 30.0).abs() < 0.5 && (rect.x - 10.0).abs() < 0.5,
             "marge : poussé à y=30, inséré à x=10 : {rect:?}"
         );
-        assert!((rect.height - 20.0).abs() < 0.5, "la marge n'agrandit pas la boîte : {rect:?}");
+        assert!(
+            (rect.height - 20.0).abs() < 0.5,
+            "la marge n'agrandit pas la boîte : {rect:?}"
+        );
     }
 
     #[test]
@@ -844,8 +899,9 @@ mod tests {
         // Sans bordure (ou invisible) : padding inchangé.
         let plain: Container<()> = Container::new().padding(4.0);
         assert_eq!(Widget::style(&plain).padding, Insets::uniform(4.0));
-        let invisible: Container<()> =
-            Container::new().padding(4.0).border(2.0, Color::TRANSPARENT);
+        let invisible: Container<()> = Container::new()
+            .padding(4.0)
+            .border(2.0, Color::TRANSPARENT);
         assert_eq!(Widget::style(&invisible).padding, Insets::uniform(4.0));
     }
 }

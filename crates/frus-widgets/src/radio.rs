@@ -37,7 +37,11 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
         let o = status.opacity;
         let cy = bounds.y + (bounds.height - DOT) * 0.5;
         let outer = Rect::new(bounds.x, cy, DOT, DOT);
-        let ring = if self.selected { theme.primary } else { theme.border };
+        let ring = if self.selected {
+            theme.primary
+        } else {
+            theme.border
+        };
         scene.draw_rect(outer, theme.surface.fade(o), DOT * 0.5, 2.0, ring.fade(o));
         if self.selected {
             let inner = DOT * 0.5;

@@ -32,7 +32,9 @@ impl LayerTransform {
 
     /// Une rotation d'`angle` radians autour de `pivot` (px écran).
     pub fn rotation(angle: f32, pivot: Point) -> Self {
-        Self { affine: Affine::rotation(angle).about(pivot) }
+        Self {
+            affine: Affine::rotation(angle).about(pivot),
+        }
     }
 
     /// Conjugue la transformation par une mise à l'échelle (pour suivre
@@ -358,64 +360,103 @@ impl Primitive {
     /// `p.scaled(f).translated(pivot.x * (1 - f), pivot.y * (1 - f))`.
     pub fn translated(&self, dx: f32, dy: f32) -> Primitive {
         match self.clone() {
-            Primitive::Rect { rect, color, color2, gradient_dir, radius, border_width, border_color, blur, clip, owner } => {
-                Primitive::Rect {
-                    rect: rect.translate(dx, dy),
-                    color,
-                    color2,
-                    gradient_dir,
-                    radius,
-                    border_width,
-                    border_color,
-                    blur,
-                    clip: clip.translate(dx, dy),
-                    owner,
-                }
-            }
-            Primitive::Text { position, text, size, color, weight, italic, max_width, decoration, decoration_color, clip, owner } => {
-                Primitive::Text {
-                    position: Point::new(position.x + dx, position.y + dy),
-                    text,
-                    size,
-                    color,
-                    weight,
-                    italic,
-                    max_width,
-                    decoration,
-                    decoration_color,
-                    clip: clip.translate(dx, dy),
-                    owner,
-                }
-            }
-            Primitive::RichText { position, runs, max_width, clip, owner } => {
-                Primitive::RichText {
-                    position: Point::new(position.x + dx, position.y + dy),
-                    runs,
-                    max_width,
-                    clip: clip.translate(dx, dy),
-                    owner,
-                }
-            }
-            Primitive::Path { path, fill, stroke, clip, owner } => {
-                Primitive::Path {
-                    path: path.translated(dx, dy),
-                    fill,
-                    stroke,
-                    clip: clip.translate(dx, dy),
-                    owner,
-                }
-            }
-            Primitive::Image { image, rect, uv, tint, clip, owner } => {
-                Primitive::Image {
-                    image,
-                    rect: rect.translate(dx, dy),
-                    uv,
-                    tint,
-                    clip: clip.translate(dx, dy),
-                    owner,
-                }
-            }
-            Primitive::Layer { primitives, opacity, clip, clip_shape, transform, owner } => {
+            Primitive::Rect {
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                clip,
+                owner,
+            } => Primitive::Rect {
+                rect: rect.translate(dx, dy),
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                clip: clip.translate(dx, dy),
+                owner,
+            },
+            Primitive::Text {
+                position,
+                text,
+                size,
+                color,
+                weight,
+                italic,
+                max_width,
+                decoration,
+                decoration_color,
+                clip,
+                owner,
+            } => Primitive::Text {
+                position: Point::new(position.x + dx, position.y + dy),
+                text,
+                size,
+                color,
+                weight,
+                italic,
+                max_width,
+                decoration,
+                decoration_color,
+                clip: clip.translate(dx, dy),
+                owner,
+            },
+            Primitive::RichText {
+                position,
+                runs,
+                max_width,
+                clip,
+                owner,
+            } => Primitive::RichText {
+                position: Point::new(position.x + dx, position.y + dy),
+                runs,
+                max_width,
+                clip: clip.translate(dx, dy),
+                owner,
+            },
+            Primitive::Path {
+                path,
+                fill,
+                stroke,
+                clip,
+                owner,
+            } => Primitive::Path {
+                path: path.translated(dx, dy),
+                fill,
+                stroke,
+                clip: clip.translate(dx, dy),
+                owner,
+            },
+            Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint,
+                clip,
+                owner,
+            } => Primitive::Image {
+                image,
+                rect: rect.translate(dx, dy),
+                uv,
+                tint,
+                clip: clip.translate(dx, dy),
+                owner,
+            },
+            Primitive::Layer {
+                primitives,
+                opacity,
+                clip,
+                clip_shape,
+                transform,
+                owner,
+            } => {
                 Primitive::Layer {
                     primitives: primitives.iter().map(|p| p.translated(dx, dy)).collect(),
                     opacity,
@@ -486,27 +527,109 @@ impl Primitive {
     pub fn with_clip(&self, clip: Rect) -> Primitive {
         match self.clone() {
             Primitive::Rect {
-                rect, color, color2, gradient_dir, radius, border_width, border_color, blur, owner, ..
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                owner,
+                ..
             } => Primitive::Rect {
-                rect, color, color2, gradient_dir, radius, border_width, border_color, blur, clip, owner,
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                clip,
+                owner,
             },
             Primitive::Text {
-                position, text, size, color, weight, italic, max_width, decoration, decoration_color, owner, ..
+                position,
+                text,
+                size,
+                color,
+                weight,
+                italic,
+                max_width,
+                decoration,
+                decoration_color,
+                owner,
+                ..
             } => Primitive::Text {
-                position, text, size, color, weight, italic, max_width, decoration, decoration_color, clip, owner,
+                position,
+                text,
+                size,
+                color,
+                weight,
+                italic,
+                max_width,
+                decoration,
+                decoration_color,
+                clip,
+                owner,
             },
-            Primitive::RichText { position, runs, max_width, owner, .. } => {
-                Primitive::RichText { position, runs, max_width, clip, owner }
-            }
-            Primitive::Path { path, fill, stroke, owner, .. } => {
-                Primitive::Path { path, fill, stroke, clip, owner }
-            }
-            Primitive::Image { image, rect, uv, tint, owner, .. } => {
-                Primitive::Image { image, rect, uv, tint, clip, owner }
-            }
-            Primitive::Layer { primitives, opacity, clip_shape, transform, owner, .. } => {
-                Primitive::Layer { primitives, opacity, clip, clip_shape, transform, owner }
-            }
+            Primitive::RichText {
+                position,
+                runs,
+                max_width,
+                owner,
+                ..
+            } => Primitive::RichText {
+                position,
+                runs,
+                max_width,
+                clip,
+                owner,
+            },
+            Primitive::Path {
+                path,
+                fill,
+                stroke,
+                owner,
+                ..
+            } => Primitive::Path {
+                path,
+                fill,
+                stroke,
+                clip,
+                owner,
+            },
+            Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint,
+                owner,
+                ..
+            } => Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint,
+                clip,
+                owner,
+            },
+            Primitive::Layer {
+                primitives,
+                opacity,
+                clip_shape,
+                transform,
+                owner,
+                ..
+            } => Primitive::Layer {
+                primitives,
+                opacity,
+                clip,
+                clip_shape,
+                transform,
+                owner,
+            },
         }
     }
 
@@ -770,13 +893,7 @@ impl Scene {
     }
 
     /// Ajoute une ombre douce (rectangle arrondi au bord flou), sans bordure.
-    pub fn shadow(
-        &mut self,
-        rect: Rect,
-        color: Color,
-        radius: impl Into<BorderRadius>,
-        blur: f32,
-    ) {
+    pub fn shadow(&mut self, rect: Rect, color: Color, radius: impl Into<BorderRadius>, blur: f32) {
         self.primitives.push(Primitive::Rect {
             rect,
             color,
@@ -1015,7 +1132,10 @@ mod tests {
     fn push_faded_scales_alpha_and_keeps_owner() {
         let mut scene = Scene::new();
         scene.set_owner(42);
-        scene.fill_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::rgba(1.0, 0.0, 0.0, 1.0));
+        scene.fill_rect(
+            Rect::new(0.0, 0.0, 1.0, 1.0),
+            Color::rgba(1.0, 0.0, 0.0, 1.0),
+        );
         let source = scene.primitives()[0].clone();
         assert_eq!(source.owner(), 42);
 
@@ -1032,12 +1152,24 @@ mod tests {
     #[test]
     fn scaled_multiplies_geometry_not_colors() {
         let mut scene = Scene::new();
-        scene.draw_rect(Rect::new(2.0, 4.0, 10.0, 20.0), Color::rgb(1.0, 0.0, 0.0), 3.0, 1.0, Color::WHITE);
+        scene.draw_rect(
+            Rect::new(2.0, 4.0, 10.0, 20.0),
+            Color::rgb(1.0, 0.0, 0.0),
+            3.0,
+            1.0,
+            Color::WHITE,
+        );
         scene.text(Point::new(5.0, 6.0), "hi", 18.0, Color::BLACK);
 
         let big = scene.scaled(2.0);
         match &big.primitives()[0] {
-            Primitive::Rect { rect, radius, border_width, color, .. } => {
+            Primitive::Rect {
+                rect,
+                radius,
+                border_width,
+                color,
+                ..
+            } => {
                 assert_eq!(*rect, Rect::new(4.0, 8.0, 20.0, 40.0));
                 assert_eq!(*radius, BorderRadius::uniform(6.0));
                 assert_eq!(*border_width, 2.0);
@@ -1046,7 +1178,12 @@ mod tests {
             _ => panic!("attendu un rectangle"),
         }
         match &big.primitives()[1] {
-            Primitive::Text { position, size, text, .. } => {
+            Primitive::Text {
+                position,
+                size,
+                text,
+                ..
+            } => {
                 assert_eq!(*position, Point::new(10.0, 12.0));
                 assert_eq!(*size, 36.0);
                 assert_eq!(text, "hi"); // texte inchangé
@@ -1066,7 +1203,13 @@ mod tests {
         });
         assert_eq!(scene.len(), 1);
         match &scene.primitives()[0] {
-            Primitive::Layer { primitives, opacity, clip, owner, .. } => {
+            Primitive::Layer {
+                primitives,
+                opacity,
+                clip,
+                owner,
+                ..
+            } => {
                 assert_eq!(primitives.len(), 2);
                 assert_eq!(*opacity, 0.5);
                 assert_eq!(*clip, Rect::new(0.0, 0.0, 50.0, 50.0));
@@ -1079,7 +1222,9 @@ mod tests {
     #[test]
     fn fading_a_layer_scales_its_group_opacity() {
         let mut scene = Scene::new();
-        scene.layer(0.8, |inner| inner.fill_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::WHITE));
+        scene.layer(0.8, |inner| {
+            inner.fill_rect(Rect::new(0.0, 0.0, 1.0, 1.0), Color::WHITE)
+        });
         let layer = scene.primitives()[0].clone();
         let mut target = Scene::new();
         target.push_faded(&layer, 0.5);
@@ -1092,7 +1237,9 @@ mod tests {
     #[test]
     fn scaling_a_layer_scales_its_children() {
         let mut scene = Scene::new();
-        scene.layer(1.0, |inner| inner.fill_rect(Rect::new(2.0, 3.0, 4.0, 5.0), Color::WHITE));
+        scene.layer(1.0, |inner| {
+            inner.fill_rect(Rect::new(2.0, 3.0, 4.0, 5.0), Color::WHITE)
+        });
         let big = scene.scaled(2.0);
         match &big.primitives()[0] {
             Primitive::Layer { primitives, .. } => match &primitives[0] {

@@ -50,7 +50,12 @@ pub fn render_widget<Msg: Clone + 'static>(
     theme: &Theme,
 ) -> Option<Snapshot> {
     let runtime = Runtime::default();
-    let ui = build_ui(root, Size::new(width as f32, height as f32), &runtime, theme);
+    let ui = build_ui(
+        root,
+        Size::new(width as f32, height as f32),
+        &runtime,
+        theme,
+    );
     render_scene(ui.scene(), width, height, theme.background)
 }
 
@@ -59,7 +64,12 @@ impl Snapshot {
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         assert!(x < self.width && y < self.height, "pixel hors cadre");
         let i = ((y * self.width + x) * 4) as usize;
-        [self.rgba[i], self.rgba[i + 1], self.rgba[i + 2], self.rgba[i + 3]]
+        [
+            self.rgba[i],
+            self.rgba[i + 1],
+            self.rgba[i + 2],
+            self.rgba[i + 3],
+        ]
     }
 
     /// Nombre de pixels dont un canal RGB au moins dépasse `threshold` —
@@ -158,16 +168,22 @@ fn write_png(path: &Path, snapshot: &Snapshot) {
     }
     let file = std::fs::File::create(path)
         .unwrap_or_else(|e| panic!("création de {} : {e}", path.display()));
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), snapshot.width, snapshot.height);
+    let mut encoder = png::Encoder::new(
+        std::io::BufWriter::new(file),
+        snapshot.width,
+        snapshot.height,
+    );
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().expect("en-tête PNG");
-    writer.write_image_data(&snapshot.rgba).expect("écriture PNG");
+    writer
+        .write_image_data(&snapshot.rgba)
+        .expect("écriture PNG");
 }
 
 fn read_png(path: &Path) -> Snapshot {
-    let file = std::fs::File::open(path)
-        .unwrap_or_else(|e| panic!("lecture de {} : {e}", path.display()));
+    let file =
+        std::fs::File::open(path).unwrap_or_else(|e| panic!("lecture de {} : {e}", path.display()));
     let decoder = png::Decoder::new(std::io::BufReader::new(file));
     let mut reader = decoder.read_info().expect("info PNG");
     let mut buf = vec![0; reader.output_buffer_size()];

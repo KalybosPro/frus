@@ -62,7 +62,12 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
             Color::TRANSPARENT,
         );
         scene.fill_rect(
-            Rect::new(bounds.x + radius, bounds.y, (bounds.width - 2.0 * radius).max(0.0), 1.0),
+            Rect::new(
+                bounds.x + radius,
+                bounds.y,
+                (bounds.width - 2.0 * radius).max(0.0),
+                1.0,
+            ),
             theme.border.fade(o),
         );
         // Poignée arrondie centrée près du haut.
@@ -120,10 +125,11 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
 
     /// Définit le **corps de fond** (toujours visible) et finalise la feuille.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
-        self.modal_panel = self
-            .sheet_content
-            .take()
-            .map(|content| Box::new(SheetPanel { children: vec![content] }) as Box<dyn Widget<Msg>>);
+        self.modal_panel = self.sheet_content.take().map(|content| {
+            Box::new(SheetPanel {
+                children: vec![content],
+            }) as Box<dyn Widget<Msg>>
+        });
         self.children = vec![Box::new(body)];
         self
     }
@@ -152,7 +158,9 @@ impl<Msg: Clone> Widget<Msg> for BottomSheet<Msg> {
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         // C'est la **progression** animée (`anim_target`) qui décide de
         // l'affichage et du glissement vers le haut.
-        self.modal_panel.as_ref().map(|p| (p.as_ref(), Placement::Bottom))
+        self.modal_panel
+            .as_ref()
+            .map(|p| (p.as_ref(), Placement::Bottom))
     }
 
     fn overlay_dismiss(&self) -> Option<Msg> {
@@ -244,7 +252,10 @@ mod tests {
                 if (rect.width - 500.0).abs() < 1.0 && rect.height < 300.0
                     && (rect.y + rect.height - 400.0).abs() < 1.0)
         });
-        assert!(docked, "le panneau doit être pleine-largeur, accosté au bas");
+        assert!(
+            docked,
+            "le panneau doit être pleine-largeur, accosté au bas"
+        );
     }
 
     #[test]

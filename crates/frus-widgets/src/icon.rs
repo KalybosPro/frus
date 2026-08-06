@@ -24,7 +24,11 @@ pub struct Icon {
 impl Icon {
     /// Une icône `24` px, couleur du thème.
     pub fn new(name: IconName) -> Self {
-        Self { name, size: GRID, color: None }
+        Self {
+            name,
+            size: GRID,
+            color: None,
+        }
     }
 
     /// Fixe la taille (côté du carré), en pixels logiques.
@@ -91,7 +95,11 @@ mod tests {
         assert_eq!(prims.len(), 1);
         assert!(matches!(
             prims[0],
-            Primitive::Path { fill: Some(_), stroke: None, .. }
+            Primitive::Path {
+                fill: Some(_),
+                stroke: None,
+                ..
+            }
         ));
     }
 

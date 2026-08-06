@@ -69,7 +69,11 @@ impl<Msg: Clone + 'static> Toast<Msg> {
         let label = label.into().to_uppercase();
         let width = (frus_text::measure(&label, ACTION_SIZE).width + ACTION_PAD_X * 2.0).ceil();
         self.action_w = width + ACTION_GAP;
-        self.children = vec![Box::new(ActionButton { label, width, message })];
+        self.children = vec![Box::new(ActionButton {
+            label,
+            width,
+            message,
+        })];
         self
     }
 }
@@ -88,7 +92,9 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
     fn style(&self) -> Style {
         let measured = frus_text::measure(&self.text, SIZE);
         let mut style = Style {
-            width: Dimension::Length((measured.width + PAD_X * 2.0 + ACCENT + self.action_w).ceil()),
+            width: Dimension::Length(
+                (measured.width + PAD_X * 2.0 + ACCENT + self.action_w).ceil(),
+            ),
             height: Dimension::Length((measured.height + PAD_Y * 2.0).max(ACTION_H).ceil()),
             ..Default::default()
         };
@@ -109,12 +115,23 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
         let o = status.opacity;
         // Ombre + carte.
         scene.shadow(
-            Rect::new(bounds.x - 8.0, bounds.y - 4.0, bounds.width + 16.0, bounds.height + 16.0),
+            Rect::new(
+                bounds.x - 8.0,
+                bounds.y - 4.0,
+                bounds.width + 16.0,
+                bounds.height + 16.0,
+            ),
             theme.scheme.shadow.with_alpha(0.3).fade(o),
             theme.radius + 8.0,
             8.0,
         );
-        scene.draw_rect(bounds, theme.surface.fade(o), theme.radius, 1.0, theme.border.fade(o));
+        scene.draw_rect(
+            bounds,
+            theme.surface.fade(o),
+            theme.radius,
+            1.0,
+            theme.border.fade(o),
+        );
         // Barre d'accent à gauche.
         scene.draw_rect(
             Rect::new(bounds.x, bounds.y, ACCENT, bounds.height),
@@ -182,7 +199,11 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
     }
 
     fn semantics(&self) -> Option<Semantics> {
-        Some(Semantics::new(Role::Button).label(self.label.clone()).clickable())
+        Some(
+            Semantics::new(Role::Button)
+                .label(self.label.clone())
+                .clickable(),
+        )
     }
 }
 
@@ -203,7 +224,9 @@ pub struct SnackbarQueue<T> {
 
 impl<T> Default for SnackbarQueue<T> {
     fn default() -> Self {
-        Self { items: VecDeque::new() }
+        Self {
+            items: VecDeque::new(),
+        }
     }
 }
 
@@ -282,7 +305,13 @@ mod tests {
     fn paints_card_accent_and_text() {
         let toast = Toast::<()>::new("Enregistré").success();
         let mut scene = Scene::new();
-        Widget::<()>::paint(&toast, Rect::new(0.0, 0.0, 160.0, 44.0), Status::default(), &Theme::default(), &mut scene);
+        Widget::<()>::paint(
+            &toast,
+            Rect::new(0.0, 0.0, 160.0, 44.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
         // Accent succès présent + texte.
         let green = Color::rgb8(70, 190, 120);
         assert!(scene
@@ -337,7 +366,11 @@ mod tests {
         // On déclenche la sortie (fondu) sans retirer tout de suite.
         q.start_leaving();
         assert!(q.is_leaving(), "en sortie");
-        assert_eq!(q.current(), Some(&"hello"), "toujours visible pendant la sortie");
+        assert_eq!(
+            q.current(),
+            Some(&"hello"),
+            "toujours visible pendant la sortie"
+        );
         // Puis retrait effectif.
         assert_eq!(q.dismiss(), Some("hello"));
         assert!(!q.is_leaving());

@@ -104,7 +104,11 @@ pub(crate) struct Painter {
 impl Painter {
     /// Construit le painter pour un format de cible donné (surface ou texture).
     /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.quad.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/quad.wgsl").into()),
@@ -117,20 +121,19 @@ impl Painter {
             mapped_at_creation: false,
         });
 
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("frus.viewport.bgl"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("frus.viewport.bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
         let viewport_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("frus.viewport.bind_group"),
@@ -188,7 +191,8 @@ impl Painter {
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frus.instance_buffer"),
-            size: (INITIAL_INSTANCE_CAPACITY * std::mem::size_of::<Instance>()) as wgpu::BufferAddress,
+            size: (INITIAL_INSTANCE_CAPACITY * std::mem::size_of::<Instance>())
+                as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -286,7 +290,11 @@ impl Painter {
             });
             self.instance_capacity = new_capacity;
         }
-        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
+        queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&self.instances),
+        );
         count as u32
     }
 
@@ -452,7 +460,11 @@ mod tests {
         let idx = (cy * bytes_per_row + cx * 4) as usize;
         let pixel = [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]];
 
-        assert_eq!(pixel, [255, 0, 0, 255], "le pixel central doit être rouge opaque");
+        assert_eq!(
+            pixel,
+            [255, 0, 0, 255],
+            "le pixel central doit être rouge opaque"
+        );
     }
 
     /// Un rectangle très arrondi couvrant toute la texture : le centre est
@@ -714,7 +726,10 @@ mod tests {
         let mut scene = Scene::new();
         // Clip limité à un carré 16x16 en haut-gauche.
         scene.set_clip(Rect::new(0.0, 0.0, 16.0, 16.0));
-        scene.fill_rect(Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32), Color::rgb(1.0, 0.0, 0.0));
+        scene.fill_rect(
+            Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32),
+            Color::rgb(1.0, 0.0, 0.0),
+        );
 
         let count = painter.prepare_frame(&device, &queue, &scene, &[]);
         let mut encoder =

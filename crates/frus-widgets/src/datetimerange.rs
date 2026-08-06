@@ -18,8 +18,18 @@ use crate::timepicker::{Endpoint, TimeField, TimeRange};
 use crate::widget::Widget;
 
 const MONTHS: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 /// Un sélecteur de plage date + heure.
@@ -51,7 +61,14 @@ impl<Msg: Clone + 'static> DateTimeRange<Msg> {
         let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::new();
         if let (Some(s), Some(e)) = (start_date, end_date) {
             let stamp = |d: (i32, u32, u32), t: (u32, u32)| {
-                format!("{} {}, {}  {:02}:{:02}", MONTHS[(d.1 - 1) as usize], d.2, d.0, t.0, t.1)
+                format!(
+                    "{} {}, {}  {:02}:{:02}",
+                    MONTHS[(d.1 - 1) as usize],
+                    d.2,
+                    d.0,
+                    t.0,
+                    t.1
+                )
             };
             let summary = format!("{}  →  {}", stamp(s, start_time), stamp(e, end_time));
             children.push(Box::new(Text::new(summary).size(16.0)));
@@ -97,10 +114,7 @@ mod tests {
         Time(Endpoint, TimeField, u32),
     }
 
-    fn build(
-        start: Option<(i32, u32, u32)>,
-        end: Option<(i32, u32, u32)>,
-    ) -> DateTimeRange<Msg> {
+    fn build(start: Option<(i32, u32, u32)>, end: Option<(i32, u32, u32)>) -> DateTimeRange<Msg> {
         DateTimeRange::new(
             2026,
             7,
@@ -118,7 +132,10 @@ mod tests {
     fn summary_appears_only_with_both_dates() {
         // Aucune / une seule borne → [calendrier, heures]. Les deux → [récap, calendrier, heures].
         assert_eq!(Widget::<Msg>::children(&build(None, None)).len(), 2);
-        assert_eq!(Widget::<Msg>::children(&build(Some((2026, 7, 28)), None)).len(), 2);
+        assert_eq!(
+            Widget::<Msg>::children(&build(Some((2026, 7, 28)), None)).len(),
+            2
+        );
         assert_eq!(
             Widget::<Msg>::children(&build(Some((2026, 7, 28)), Some((2026, 8, 3)))).len(),
             3,
@@ -128,7 +145,12 @@ mod tests {
     #[test]
     fn renders_the_combined_summary() {
         let dtr = build(Some((2026, 7, 28)), Some((2026, 8, 3)));
-        let ui = build_ui(&dtr, Size::new(560.0, 700.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &dtr,
+            Size::new(560.0, 700.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let has = ui.scene().primitives().iter().any(|p| {
             matches!(p, Primitive::Text { text, .. }
                 if text == "July 28, 2026  09:00  →  August 3, 2026  17:30")

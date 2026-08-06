@@ -43,9 +43,11 @@ impl Application for Counter {
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Increment | Msg::Tick => self.count += 1,
-            Msg::Decrement => if self.count > 0 {
-                self.count -= 1;
-            },
+            Msg::Decrement => {
+                if self.count > 0 {
+                    self.count -= 1;
+                }
+            }
             Msg::ToggleAuto => self.auto = !self.auto,
         }
         Command::none()
@@ -70,7 +72,8 @@ impl Application for Counter {
                 row![
                     button("+", Msg::Increment).variant(Variant::Primary),
                     button("−", Msg::Decrement).variant(Variant::Secondary)
-                ].gap(20.0),
+                ]
+                .gap(20.0),
                 button(
                     if self.auto { "Stop auto" } else { "Start auto" },
                     Msg::ToggleAuto,

@@ -49,7 +49,13 @@ impl<Msg> Widget<Msg> for ProgressBar {
         let o = status.opacity;
         let radius = bounds.height * 0.5;
         // Piste.
-        scene.draw_rect(bounds, theme.muted.fade(0.3 * o), radius, 0.0, Color::TRANSPARENT);
+        scene.draw_rect(
+            bounds,
+            theme.muted.fade(0.3 * o),
+            radius,
+            0.0,
+            Color::TRANSPARENT,
+        );
         // Remplissage (au moins un rond quand > 0, jamais plus large que la piste).
         let fill_w = (bounds.width * self.value).clamp(0.0, bounds.width);
         if fill_w > 0.0 {
@@ -120,7 +126,13 @@ mod tests {
         // value 0 → pas de primitive de remplissage.
         let bar = ProgressBar::new(0.0).width(100.0);
         let mut scene = Scene::new();
-        Widget::<()>::paint(&bar, Rect::new(0.0, 0.0, 100.0, HEIGHT), Status::default(), &Theme::default(), &mut scene);
+        Widget::<()>::paint(
+            &bar,
+            Rect::new(0.0, 0.0, 100.0, HEIGHT),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
         assert_eq!(scene.primitives().len(), 1, "seule la piste est dessinée");
     }
 }

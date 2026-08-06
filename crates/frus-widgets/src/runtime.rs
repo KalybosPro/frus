@@ -106,7 +106,12 @@ pub struct ValueAnim {
 impl ValueAnim {
     /// Une valeur **au repos** à `v` (aucune transition en cours).
     fn settled(v: f32) -> Self {
-        Self { current: v, from: v, to: v, elapsed: 0.0 }
+        Self {
+            current: v,
+            from: v,
+            to: v,
+            elapsed: 0.0,
+        }
     }
 }
 
@@ -123,7 +128,12 @@ struct ColorAnim {
 
 impl ColorAnim {
     fn settled(c: Color) -> Self {
-        Self { current: c, from: c, to: c, elapsed: 0.0 }
+        Self {
+            current: c,
+            from: c,
+            to: c,
+            elapsed: 0.0,
+        }
     }
 }
 
@@ -140,13 +150,21 @@ struct SizeAnim {
 
 impl SizeAnim {
     fn settled(s: Size) -> Self {
-        Self { current: s, from: s, to: s, elapsed: 0.0 }
+        Self {
+            current: s,
+            from: s,
+            to: s,
+            elapsed: 0.0,
+        }
     }
 }
 
 /// Interpolation linéaire de deux tailles (par composante).
 fn lerp_size(a: Size, b: Size, t: f32) -> Size {
-    Size::new(a.width + (b.width - a.width) * t, a.height + (b.height - a.height) * t)
+    Size::new(
+        a.width + (b.width - a.width) * t,
+        a.height + (b.height - a.height) * t,
+    )
 }
 
 /// Timeline d'un **rayon de coin** animé (`Container::animated_radius`) :
@@ -162,7 +180,12 @@ struct RadiusAnim {
 
 impl RadiusAnim {
     fn settled(r: BorderRadius) -> Self {
-        Self { current: r, from: r, to: r, elapsed: 0.0 }
+        Self {
+            current: r,
+            from: r,
+            to: r,
+            elapsed: 0.0,
+        }
     }
 }
 
@@ -179,7 +202,12 @@ struct PaddingAnim {
 
 impl PaddingAnim {
     fn settled(p: Insets) -> Self {
-        Self { current: p, from: p, to: p, elapsed: 0.0 }
+        Self {
+            current: p,
+            from: p,
+            to: p,
+            elapsed: 0.0,
+        }
     }
 }
 
@@ -349,10 +377,19 @@ impl Runtime {
             out: &mut Vec<(WidgetId, f32, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_target() {
-                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+                out.push((
+                    id,
+                    target,
+                    widget.anim_duration().max(0.0),
+                    widget.anim_curve(),
+                ));
             }
             for (index, child) in widget.children().iter().enumerate() {
-                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    out,
+                );
             }
         }
         let mut targets: Vec<(WidgetId, f32, f32, Curve)> = Vec::new();
@@ -414,10 +451,19 @@ impl Runtime {
             out: &mut Vec<(WidgetId, Color, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_color() {
-                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+                out.push((
+                    id,
+                    target,
+                    widget.anim_duration().max(0.0),
+                    widget.anim_curve(),
+                ));
             }
             for (index, child) in widget.children().iter().enumerate() {
-                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    out,
+                );
             }
         }
         let mut targets: Vec<(WidgetId, Color, f32, Curve)> = Vec::new();
@@ -477,10 +523,19 @@ impl Runtime {
             out: &mut Vec<(WidgetId, Size, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_size() {
-                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+                out.push((
+                    id,
+                    target,
+                    widget.anim_duration().max(0.0),
+                    widget.anim_curve(),
+                ));
             }
             for (index, child) in widget.children().iter().enumerate() {
-                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    out,
+                );
             }
         }
         let mut targets: Vec<(WidgetId, Size, f32, Curve)> = Vec::new();
@@ -539,10 +594,19 @@ impl Runtime {
             out: &mut Vec<(WidgetId, BorderRadius, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_radius() {
-                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+                out.push((
+                    id,
+                    target,
+                    widget.anim_duration().max(0.0),
+                    widget.anim_curve(),
+                ));
             }
             for (index, child) in widget.children().iter().enumerate() {
-                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    out,
+                );
             }
         }
         let mut targets: Vec<(WidgetId, BorderRadius, f32, Curve)> = Vec::new();
@@ -594,17 +658,30 @@ impl Runtime {
     /// (`Widget::anim_padding`), suivant sa durée/courbe. Montage : adopte la
     /// cible sans transition. Renvoie `true` s'il reste une marge en mouvement.
     /// Comme la taille, la sortie est **consommée au layout** (`effective_style`).
-    pub fn advance_paddings<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
+    pub fn advance_paddings<Msg>(
+        &mut self,
+        root: &dyn crate::widget::Widget<Msg>,
+        dt: f32,
+    ) -> bool {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
             out: &mut Vec<(WidgetId, Insets, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_padding() {
-                out.push((id, target, widget.anim_duration().max(0.0), widget.anim_curve()));
+                out.push((
+                    id,
+                    target,
+                    widget.anim_duration().max(0.0),
+                    widget.anim_curve(),
+                ));
             }
             for (index, child) in widget.children().iter().enumerate() {
-                collect(child.as_ref(), crate::ui::child_id(id, index, child.as_ref()), out);
+                collect(
+                    child.as_ref(),
+                    crate::ui::child_id(id, index, child.as_ref()),
+                    out,
+                );
             }
         }
         let mut targets: Vec<(WidgetId, Insets, f32, Curve)> = Vec::new();
@@ -732,7 +809,11 @@ impl Runtime {
         let decay = (-PAN_FRICTION * dt).exp();
         let mut animating = false;
         for id in ids {
-            let mut v = self.interactive_velocity.get(&id).copied().unwrap_or((0.0, 0.0));
+            let mut v = self
+                .interactive_velocity
+                .get(&id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
             let mut view = self.interactive.get(&id).copied().unwrap_or_default();
             let moved = view.pan(v.0 * dt, v.1 * dt);
             // Bornage : un axe qui bute annule sa vitesse (pas de rebond).
@@ -827,7 +908,13 @@ mod tests {
         let id = WidgetId::ROOT.child(2);
         let mut rt = Runtime::default();
         // Montage : démarre transparent.
-        rt.anims.insert(id, Anim { opacity: 0.0, ..Default::default() });
+        rt.anims.insert(
+            id,
+            Anim {
+                opacity: 0.0,
+                ..Default::default()
+            },
+        );
         assert!(rt.advance(0.03));
         let o = rt.opacity(id);
         assert!(o > 0.0 && o < 1.0, "opacité = {o}");
@@ -907,7 +994,14 @@ mod tests {
         let sample = |curve: Curve| {
             let mut rt = Runtime::default();
             rt.set_value(id, 0.0);
-            rt.advance_values(&Mock { target: 1.0, duration: dur, curve }, dt);
+            rt.advance_values(
+                &Mock {
+                    target: 1.0,
+                    duration: dur,
+                    curve,
+                },
+                dt,
+            );
             (rt.value(id), rt)
         };
         let (ein, mut rt_in) = sample(Curve::ease_in());
@@ -920,7 +1014,14 @@ mod tests {
 
         // Grand pas : toutes atteignent la cible (les courbes finissent à 1).
         for rt in [&mut rt_in, &mut rt_out, &mut rt_lin] {
-            rt.advance_values(&Mock { target: 1.0, duration: dur, curve: Curve::Linear }, 1.0);
+            rt.advance_values(
+                &Mock {
+                    target: 1.0,
+                    duration: dur,
+                    curve: Curve::Linear,
+                },
+                1.0,
+            );
         }
         assert_eq!(rt_in.value(id), 1.0);
         assert_eq!(rt_out.value(id), 1.0);
@@ -937,15 +1038,20 @@ mod tests {
         let mut rt = Runtime::default();
 
         // Montage au rouge : adopte la cible sans transition.
-        let start: crate::Container<()> = crate::Container::new().animated_color(red, 0.10, Curve::Linear);
+        let start: crate::Container<()> =
+            crate::Container::new().animated_color(red, 0.10, Curve::Linear);
         assert!(!rt.advance_colors(&start, 1.0));
         assert_eq!(rt.anim_color(id), Some(red));
 
         // Cible bleue : tween linéaire, à mi-parcours ≈ (0.5, 0, 0.5).
-        let to_blue: crate::Container<()> = crate::Container::new().animated_color(blue, 0.10, Curve::Linear);
+        let to_blue: crate::Container<()> =
+            crate::Container::new().animated_color(blue, 0.10, Curve::Linear);
         assert!(rt.advance_colors(&to_blue, 0.05));
         let mid = rt.anim_color(id).unwrap();
-        assert!((mid.r - 0.5).abs() < 0.05 && (mid.b - 0.5).abs() < 0.05, "mi-parcours = {mid:?}");
+        assert!(
+            (mid.r - 0.5).abs() < 0.05 && (mid.b - 0.5).abs() < 0.05,
+            "mi-parcours = {mid:?}"
+        );
 
         // Fin : atteint le bleu.
         rt.advance_colors(&to_blue, 1.0);
@@ -1004,7 +1110,11 @@ mod tests {
             crate::Container::new().animated_radius(20.0, 0.10, Curve::Linear);
         assert!(rt.advance_radii(&round, 0.05));
         let mid = rt.anim_radius(id).unwrap();
-        assert!((mid.top_left - 10.0).abs() < 0.5, "mi-parcours = {}", mid.top_left);
+        assert!(
+            (mid.top_left - 10.0).abs() < 0.5,
+            "mi-parcours = {}",
+            mid.top_left
+        );
 
         rt.advance_radii(&round, 1.0);
         assert_eq!(rt.anim_radius(id), Some(BorderRadius::from(20.0)));
@@ -1021,11 +1131,13 @@ mod tests {
         let id = WidgetId::ROOT;
         let mut rt = Runtime::default();
 
-        let p0: crate::Container<()> = crate::Container::new().animated_padding(0.0, 0.10, Curve::Linear);
+        let p0: crate::Container<()> =
+            crate::Container::new().animated_padding(0.0, 0.10, Curve::Linear);
         assert!(!rt.advance_paddings(&p0, 1.0));
         assert_eq!(rt.anim_padding(id), Some(Insets::uniform(0.0)));
 
-        let p20: crate::Container<()> = crate::Container::new().animated_padding(20.0, 0.10, Curve::Linear);
+        let p20: crate::Container<()> =
+            crate::Container::new().animated_padding(20.0, 0.10, Curve::Linear);
         assert!(rt.advance_paddings(&p20, 0.05)); // t = 0.5 → 10
         let mid = rt.anim_padding(id).unwrap();
         assert!((mid.left - 10.0).abs() < 0.5, "mi-parcours = {}", mid.left);
@@ -1046,7 +1158,14 @@ mod tests {
         let advance = |duration: f32| {
             let mut rt = Runtime::default();
             rt.set_value(id, 0.0);
-            rt.advance_values(&Mock { target: 1.0, duration, curve: Curve::Linear }, 0.025);
+            rt.advance_values(
+                &Mock {
+                    target: 1.0,
+                    duration,
+                    curve: Curve::Linear,
+                },
+                0.025,
+            );
             rt.value(id)
         };
         let fast = advance(0.05); // t = 0.5
@@ -1089,7 +1208,10 @@ mod tests {
         }
         let (_, y) = rt.scroll.get(&id).copied().unwrap();
         assert!((y - 100.0).abs() < 1.0, "arrivé à la cible : {y}");
-        assert!(!rt.scroll_target.contains_key(&id), "état d'animation nettoyé au repos");
+        assert!(
+            !rt.scroll_target.contains_key(&id),
+            "état d'animation nettoyé au repos"
+        );
     }
 
     #[test]
@@ -1099,7 +1221,14 @@ mod tests {
         let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
         let mut rt = Runtime::default();
         // Contenu zoomé ×2, lancé vers la gauche à grande vitesse.
-        rt.interactive.insert(id, InteractiveView { scale: 2.0, tx: 0.0, ty: 0.0 });
+        rt.interactive.insert(
+            id,
+            InteractiveView {
+                scale: 2.0,
+                tx: 0.0,
+                ty: 0.0,
+            },
+        );
         rt.interactive_velocity.insert(id, (-2000.0, 0.0));
         let viewports = [(id, vp)];
         let mut frames = 0;
@@ -1109,8 +1238,15 @@ mod tests {
         }
         let view = rt.interactive.get(&id).copied().unwrap();
         // Reste borné (contenu ×2 couvre la fenêtre → tx ∈ [-200, 0]).
-        assert!(view.tx >= -200.0 - 1e-3 && view.tx <= 0.0 + 1e-3, "borné : {}", view.tx);
-        assert!(!rt.interactive_velocity.contains_key(&id), "vitesse nettoyée au repos");
+        assert!(
+            view.tx >= -200.0 - 1e-3 && view.tx <= 0.0 + 1e-3,
+            "borné : {}",
+            view.tx
+        );
+        assert!(
+            !rt.interactive_velocity.contains_key(&id),
+            "vitesse nettoyée au repos"
+        );
     }
 
     #[test]

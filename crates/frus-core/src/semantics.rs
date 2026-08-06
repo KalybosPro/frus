@@ -130,7 +130,9 @@ mod tests {
 
     #[test]
     fn builders_compose() {
-        let s = Semantics::new(Role::CheckBox).label("Notifications").toggled(true);
+        let s = Semantics::new(Role::CheckBox)
+            .label("Notifications")
+            .toggled(true);
         assert_eq!(s.role, Role::CheckBox);
         assert_eq!(s.label.as_deref(), Some("Notifications"));
         assert_eq!(s.toggled, Toggled::True);

@@ -26,7 +26,10 @@ pub struct RotatedBox<Msg> {
 impl<Msg> RotatedBox<Msg> {
     /// Tourne l'enfant de `quarter_turns` quarts de tour horaires.
     pub fn new(quarter_turns: i32) -> Self {
-        Self { quarter_turns, children: Vec::new() }
+        Self {
+            quarter_turns,
+            children: Vec::new(),
+        }
     }
 
     /// Définit l'enfant tourné.
@@ -73,7 +76,14 @@ mod tests {
     fn odd_quarter_turn_swaps_the_layout_box() {
         let green = Color::rgb(0.0, 1.0, 0.0);
         let root = Flex::<()>::column()
-            .child(RotatedBox::new(1).child(Container::new().width(80.0).height(20.0).color(Color::rgb(0.3, 0.3, 0.3))))
+            .child(
+                RotatedBox::new(1).child(
+                    Container::new()
+                        .width(80.0)
+                        .height(20.0)
+                        .color(Color::rgb(0.3, 0.3, 0.3)),
+                ),
+            )
             .child(Container::new().width(40.0).height(30.0).color(green));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
@@ -83,7 +93,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(rect.y),
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => {
+                    Some(rect.y)
+                }
                 _ => None,
             })
             .expect("le frère vert");
@@ -98,7 +110,14 @@ mod tests {
     fn even_quarter_turn_keeps_the_box() {
         let green = Color::rgb(0.0, 1.0, 0.0);
         let root = Flex::<()>::column()
-            .child(RotatedBox::new(2).child(Container::new().width(80.0).height(20.0).color(Color::rgb(0.3, 0.3, 0.3))))
+            .child(
+                RotatedBox::new(2).child(
+                    Container::new()
+                        .width(80.0)
+                        .height(20.0)
+                        .color(Color::rgb(0.3, 0.3, 0.3)),
+                ),
+            )
             .child(Container::new().width(40.0).height(30.0).color(green));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
@@ -108,18 +127,27 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(rect.y),
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => {
+                    Some(rect.y)
+                }
                 _ => None,
             })
             .expect("le frère vert");
-        assert!((sibling_y - 20.0).abs() < 0.5, "boîte inchangée 80×20 → frère à y=20 : {sibling_y}");
+        assert!(
+            (sibling_y - 20.0).abs() < 0.5,
+            "boîte inchangée 80×20 → frère à y=20 : {sibling_y}"
+        );
     }
 
     /// La rotation émet un **calque tourné** (partie linéaire hors-diagonale).
     #[test]
     fn emits_a_rotated_layer() {
-        let root = RotatedBox::<()>::new(1)
-            .child(Container::new().width(80.0).height(20.0).color(Color::rgb(0.3, 0.3, 0.3)));
+        let root = RotatedBox::<()>::new(1).child(
+            Container::new()
+                .width(80.0)
+                .height(20.0)
+                .color(Color::rgb(0.3, 0.3, 0.3)),
+        );
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(200.0, 400.0), &rt, &theme);
@@ -128,11 +156,17 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { transform: Some(t), .. } => Some(t.affine),
+                Primitive::Layer {
+                    transform: Some(t), ..
+                } => Some(t.affine),
                 _ => None,
             })
             .expect("un calque tourné");
         // +90° : partie linéaire ≈ [0, 1, -1, 0].
-        assert!(m.m[0].abs() < 1e-3 && (m.m[1] - 1.0).abs() < 1e-3, "rotation +90° : {:?}", m.m);
+        assert!(
+            m.m[0].abs() < 1e-3 && (m.m[1] - 1.0).abs() < 1e-3,
+            "rotation +90° : {:?}",
+            m.m
+        );
     }
 }

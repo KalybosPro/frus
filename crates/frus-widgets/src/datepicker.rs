@@ -122,7 +122,12 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
         // Bande de plage (fond doux, coins carrés pour se toucher entre cases voisines).
         let band = theme.primary.fade(0.18 * o);
         let half = Rect::new(bounds.x, bounds.y, bounds.width * 0.5, bounds.height);
-        let right = Rect::new(bounds.x + bounds.width * 0.5, bounds.y, bounds.width * 0.5, bounds.height);
+        let right = Rect::new(
+            bounds.x + bounds.width * 0.5,
+            bounds.y,
+            bounds.width * 0.5,
+            bounds.height,
+        );
         match self.mark {
             // La borne peint sa demi-bande côté intérieur pour rejoindre les jours entre.
             DayMark::Start => scene.draw_rect(right, band, 0.0, 0.0, Color::TRANSPARENT),
@@ -172,8 +177,18 @@ pub struct DatePicker<Msg> {
 
 const WEEKDAYS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTHS: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 impl<Msg: Clone + 'static> DatePicker<Msg> {
@@ -331,20 +346,37 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         on_nav: impl Fn(i32) -> Msg + 'static,
     ) -> Self {
         let month = month.clamp(1, 12);
-        let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+        let (ny, nm) = if month == 12 {
+            (year + 1, 1)
+        } else {
+            (year, month + 1)
+        };
         // Partagés entre les deux mois.
         let on_select = std::rc::Rc::new(on_select);
         let on_nav = std::rc::Rc::new(on_nav);
         let (os1, os2) = (on_select.clone(), on_select);
         let (nv1, nv2) = (on_nav.clone(), on_nav);
-        let left =
-            DatePicker::range(year, month, start, end, move |d| os1((year, month, d)), move |n| {
-                nv1(n)
-            });
-        let right =
-            DatePicker::range(ny, nm, start, end, move |d| os2((ny, nm, d)), move |n| nv2(n));
+        let left = DatePicker::range(
+            year,
+            month,
+            start,
+            end,
+            move |d| os1((year, month, d)),
+            move |n| nv1(n),
+        );
+        let right = DatePicker::range(
+            ny,
+            nm,
+            start,
+            end,
+            move |d| os2((ny, nm, d)),
+            move |n| nv2(n),
+        );
         let row = Flex::row().gap(DUAL_GAP).child(left).child(right);
-        Self { children: vec![Box::new(row)], dual: true }
+        Self {
+            children: vec![Box::new(row)],
+            dual: true,
+        }
     }
 
     /// Assemble l'en-tête, la ligne des jours de semaine et la grille ; `mark_of(jour)` décide de
@@ -363,11 +395,21 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         let header = Flex::row()
             .align(Align::Center)
             .gap(8.0)
-            .child(Button::new("‹").variant(Variant::Secondary).size(15.0).on_press(on_nav(-1)))
+            .child(
+                Button::new("‹")
+                    .variant(Variant::Secondary)
+                    .size(15.0)
+                    .on_press(on_nav(-1)),
+            )
             .child(Flex::row().flex(1.0))
             .child(Text::new(format!("{} {}", MONTHS[(month - 1) as usize], year)).size(16.0))
             .child(Flex::row().flex(1.0))
-            .child(Button::new("›").variant(Variant::Secondary).size(15.0).on_press(on_nav(1)));
+            .child(
+                Button::new("›")
+                    .variant(Variant::Secondary)
+                    .size(15.0)
+                    .on_press(on_nav(1)),
+            );
 
         // Ligne des jours de la semaine.
         let mut weekdays = Grid::new(7).gap(2.0);
@@ -441,7 +483,11 @@ impl<Msg> Widget<Msg> for WeekdayCell {
 impl<Msg: Clone> Widget<Msg> for DatePicker<Msg> {
     fn style(&self) -> Style {
         let month_w = 7.0 * (CELL + 2.0);
-        let width = if self.dual { 2.0 * month_w + DUAL_GAP } else { month_w };
+        let width = if self.dual {
+            2.0 * month_w + DUAL_GAP
+        } else {
+            month_w
+        };
         Style {
             width: Dimension::Length(width),
             flex_direction: FlexDirection::Column,
@@ -509,14 +555,38 @@ mod tests {
         // Juillet 2026 commence mercredi (3 cases vides) ; le jour `d` est à l'index 3 + (d - 1).
         let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
         assert_eq!(at(9), None, "9 juillet désactivé (avant min)");
-        assert_eq!(at(10), Some(Msg::Pick(10)), "10 juillet cliquable (borne min incluse)");
-        assert_eq!(at(15), Some(Msg::Pick(15)), "15 juillet cliquable (intérieur)");
-        assert_eq!(at(20), Some(Msg::Pick(20)), "20 juillet cliquable (borne max incluse)");
+        assert_eq!(
+            at(10),
+            Some(Msg::Pick(10)),
+            "10 juillet cliquable (borne min incluse)"
+        );
+        assert_eq!(
+            at(15),
+            Some(Msg::Pick(15)),
+            "15 juillet cliquable (intérieur)"
+        );
+        assert_eq!(
+            at(20),
+            Some(Msg::Pick(20)),
+            "20 juillet cliquable (borne max incluse)"
+        );
         assert_eq!(at(21), None, "21 juillet désactivé (après max)");
         // Sans borne max : tout ce qui est >= min est cliquable.
-        let open = DatePicker::bounded(2026, 7, None, Some((2026, 7, 10)), None, Msg::Pick, Msg::Nav);
+        let open = DatePicker::bounded(
+            2026,
+            7,
+            None,
+            Some((2026, 7, 10)),
+            None,
+            Msg::Pick,
+            Msg::Nav,
+        );
         let g2 = &Widget::<Msg>::children(&open)[2];
-        assert_eq!(g2.children()[3 + 30].on_click(), Some(Msg::Pick(31)), "31 juillet cliquable (pas de max)");
+        assert_eq!(
+            g2.children()[3 + 30].on_click(),
+            Some(Msg::Pick(31)),
+            "31 juillet cliquable (pas de max)"
+        );
     }
 
     #[test]
@@ -556,8 +626,16 @@ mod tests {
         let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
         assert_eq!(at(7), None, "7 juillet hors fenêtre (avant min)");
         assert_eq!(at(8), Some(Msg::Pick(8)), "8 juillet cliquable (borne min)");
-        assert_eq!(at(12), Some(Msg::Pick(12)), "12 juillet cliquable (dans la plage)");
-        assert_eq!(at(20), Some(Msg::Pick(20)), "20 juillet cliquable (borne max)");
+        assert_eq!(
+            at(12),
+            Some(Msg::Pick(12)),
+            "12 juillet cliquable (dans la plage)"
+        );
+        assert_eq!(
+            at(20),
+            Some(Msg::Pick(20)),
+            "20 juillet cliquable (borne max)"
+        );
         assert_eq!(at(21), None, "21 juillet hors fenêtre (après max)");
     }
 
@@ -568,15 +646,30 @@ mod tests {
         assert_eq!(range_mark((2026, 7, 10), start, end), DayMark::Start);
         assert_eq!(range_mark((2026, 7, 15), start, end), DayMark::End);
         assert_eq!(range_mark((2026, 7, 12), start, end), DayMark::Between);
-        assert_eq!(range_mark((2026, 7, 9), start, end), DayMark::Off, "avant le début");
-        assert_eq!(range_mark((2026, 7, 16), start, end), DayMark::Off, "après la fin");
+        assert_eq!(
+            range_mark((2026, 7, 9), start, end),
+            DayMark::Off,
+            "avant le début"
+        );
+        assert_eq!(
+            range_mark((2026, 7, 16), start, end),
+            DayMark::Off,
+            "après la fin"
+        );
         // Traverse les frontières de mois : juin est « entre » juin-15 et août-01.
         let cross = (Some((2026, 6, 15)), Some((2026, 8, 1)));
-        assert_eq!(range_mark((2026, 7, 20), cross.0, cross.1), DayMark::Between);
+        assert_eq!(
+            range_mark((2026, 7, 20), cross.0, cross.1),
+            DayMark::Between
+        );
         assert_eq!(range_mark((2026, 5, 31), cross.0, cross.1), DayMark::Off);
         // Sélection en cours (une seule borne) : seul le début est marqué.
         assert_eq!(range_mark((2026, 7, 10), start, None), DayMark::Start);
-        assert_eq!(range_mark((2026, 7, 12), start, None), DayMark::Off, "pas de bande sans fin");
+        assert_eq!(
+            range_mark((2026, 7, 12), start, None),
+            DayMark::Off,
+            "pas de bande sans fin"
+        );
     }
 
     #[test]

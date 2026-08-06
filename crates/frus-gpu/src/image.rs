@@ -105,7 +105,11 @@ pub(crate) struct ImagePainter {
 impl ImagePainter {
     /// Construit le painter pour un format de cible donné.
     /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.image.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/image.wgsl").into()),
@@ -221,7 +225,8 @@ impl ImagePainter {
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frus.image.instance_buffer"),
-            size: (INITIAL_INSTANCE_CAPACITY * std::mem::size_of::<Instance>()) as wgpu::BufferAddress,
+            size: (INITIAL_INSTANCE_CAPACITY * std::mem::size_of::<Instance>())
+                as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -265,7 +270,15 @@ impl ImagePainter {
         self.frame_ids.clear();
 
         for primitive in scene.primitives() {
-            if let Primitive::Image { image, rect, uv, tint, clip, .. } = primitive {
+            if let Primitive::Image {
+                image,
+                rect,
+                uv,
+                tint,
+                clip,
+                ..
+            } = primitive
+            {
                 let id = image.id();
                 self.ensure_texture(device, queue, image);
                 if let Some(cached) = self.cache.get_mut(&id) {
@@ -298,12 +311,21 @@ impl ImagePainter {
             });
             self.instance_capacity = new_capacity;
         }
-        queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.instances));
+        queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&self.instances),
+        );
         count as u32
     }
 
     /// Téléverse la texture d'une image si elle n'est pas déjà en cache.
-    fn ensure_texture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, image: &frus_core::ImageHandle) {
+    fn ensure_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &frus_core::ImageHandle,
+    ) {
         let id = image.id();
         if self.cache.contains_key(&id) {
             return;
@@ -357,11 +379,21 @@ impl ImagePainter {
                 },
             ],
         });
-        self.cache.insert(id, CachedTexture { bind_group, used: true });
+        self.cache.insert(
+            id,
+            CachedTexture {
+                bind_group,
+                used: true,
+            },
+        );
     }
 
     /// Dessine les images (un quad instancié par image, texture liée au dessin).
-    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, instance_count: u32) {
+    pub(crate) fn draw<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+        instance_count: u32,
+    ) {
         if instance_count == 0 {
             return;
         }

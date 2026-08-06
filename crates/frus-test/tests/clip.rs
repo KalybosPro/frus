@@ -55,15 +55,23 @@ fn rrect_clip_rounds_off_the_corners() {
     // Carré centré 40×40 : x, y ∈ [12, 52].
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0);
     let m = ClipShape::RRect(BorderRadius::uniform(16.0));
-    let Some(frame) = render(&clipped_layer(sq, m)) else { return };
+    let Some(frame) = render(&clipped_layer(sq, m)) else {
+        return;
+    };
 
     // Le cœur et les milieux de bord restent peints.
     assert!(is_red(frame.pixel(32, 32)), "centre → rouge");
     assert!(is_red(frame.pixel(32, 14)), "milieu du bord haut → rouge");
     assert!(is_red(frame.pixel(14, 32)), "milieu du bord gauche → rouge");
     // Les coins (dans le carré, hors du rayon) sont gommés.
-    assert!(is_clear(frame.pixel(14, 14)), "coin haut-gauche → gommé par l'arrondi");
-    assert!(is_clear(frame.pixel(50, 50)), "coin bas-droit → gommé par l'arrondi");
+    assert!(
+        is_clear(frame.pixel(14, 14)),
+        "coin haut-gauche → gommé par l'arrondi"
+    );
+    assert!(
+        is_clear(frame.pixel(50, 50)),
+        "coin bas-droit → gommé par l'arrondi"
+    );
 }
 
 /// **Rayon par coin.** Seul le coin **haut-gauche** est arrondi (rayon 16) ; les trois
@@ -71,13 +79,32 @@ fn rrect_clip_rounds_off_the_corners() {
 #[test]
 fn rrect_clip_rounds_only_the_specified_corner() {
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0); // x, y ∈ [12, 52]
-    let br = BorderRadius { top_left: 16.0, top_right: 0.0, bottom_right: 0.0, bottom_left: 0.0 };
-    let Some(frame) = render(&clipped_layer(sq, ClipShape::RRect(br))) else { return };
+    let br = BorderRadius {
+        top_left: 16.0,
+        top_right: 0.0,
+        bottom_right: 0.0,
+        bottom_left: 0.0,
+    };
+    let Some(frame) = render(&clipped_layer(sq, ClipShape::RRect(br))) else {
+        return;
+    };
 
-    assert!(is_clear(frame.pixel(15, 15)), "coin haut-gauche → arrondi (gommé)");
-    assert!(is_red(frame.pixel(49, 15)), "coin haut-droit → net (conservé)");
-    assert!(is_red(frame.pixel(15, 49)), "coin bas-gauche → net (conservé)");
-    assert!(is_red(frame.pixel(49, 49)), "coin bas-droit → net (conservé)");
+    assert!(
+        is_clear(frame.pixel(15, 15)),
+        "coin haut-gauche → arrondi (gommé)"
+    );
+    assert!(
+        is_red(frame.pixel(49, 15)),
+        "coin haut-droit → net (conservé)"
+    );
+    assert!(
+        is_red(frame.pixel(15, 49)),
+        "coin bas-gauche → net (conservé)"
+    );
+    assert!(
+        is_red(frame.pixel(49, 49)),
+        "coin bas-droit → net (conservé)"
+    );
 }
 
 /// **Ellipse.** Un carré plein découpé en ovale garde son centre mais perd ses
@@ -85,14 +112,22 @@ fn rrect_clip_rounds_only_the_specified_corner() {
 #[test]
 fn oval_clip_keeps_the_inscribed_disc() {
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0); // centre (32, 32), rayon 20
-    let Some(frame) = render(&clipped_layer(sq, ClipShape::Oval)) else { return };
+    let Some(frame) = render(&clipped_layer(sq, ClipShape::Oval)) else {
+        return;
+    };
 
     assert!(is_red(frame.pixel(32, 32)), "centre → rouge");
     assert!(is_red(frame.pixel(32, 14)), "haut du disque → rouge");
     assert!(is_red(frame.pixel(50, 32)), "droite du disque → rouge");
     // Coins du carré : hors du disque inscrit → gommés.
-    assert!(is_clear(frame.pixel(15, 15)), "coin haut-gauche → hors du disque");
-    assert!(is_clear(frame.pixel(49, 49)), "coin bas-droit → hors du disque");
+    assert!(
+        is_clear(frame.pixel(15, 15)),
+        "coin haut-gauche → hors du disque"
+    );
+    assert!(
+        is_clear(frame.pixel(49, 49)),
+        "coin bas-droit → hors du disque"
+    );
 }
 
 /// **Chemin arbitraire.** Un losange (rendu en masque par le GPU) découpe le carré :
@@ -107,14 +142,22 @@ fn path_clip_masks_to_the_shape() {
         .line_to(Point::new(12.0, 32.0))
         .close();
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0);
-    let Some(frame) = render(&clipped_layer(sq, ClipShape::Path(diamond))) else { return };
+    let Some(frame) = render(&clipped_layer(sq, ClipShape::Path(diamond))) else {
+        return;
+    };
 
     assert!(is_red(frame.pixel(32, 32)), "centre du losange → rouge");
     assert!(is_red(frame.pixel(32, 16)), "sommet haut → rouge");
     assert!(is_red(frame.pixel(32, 48)), "sommet bas → rouge");
     // Coins du carré : hors du losange → gommés par le masque.
-    assert!(is_clear(frame.pixel(15, 15)), "coin haut-gauche → hors du losange");
-    assert!(is_clear(frame.pixel(49, 49)), "coin bas-droit → hors du losange");
+    assert!(
+        is_clear(frame.pixel(15, 15)),
+        "coin haut-gauche → hors du losange"
+    );
+    assert!(
+        is_clear(frame.pixel(49, 49)),
+        "coin bas-droit → hors du losange"
+    );
 }
 
 /// **Rayon nul = rectangle.** `RRect(0)` ne gomme aucun coin : le carré reste plein
@@ -122,7 +165,12 @@ fn path_clip_masks_to_the_shape() {
 #[test]
 fn rrect_zero_radius_is_a_plain_rect() {
     let sq = Rect::new(12.0, 12.0, 40.0, 40.0);
-    let Some(frame) = render(&clipped_layer(sq, ClipShape::RRect(BorderRadius::uniform(0.0)))) else { return };
+    let Some(frame) = render(&clipped_layer(
+        sq,
+        ClipShape::RRect(BorderRadius::uniform(0.0)),
+    )) else {
+        return;
+    };
 
     assert!(is_red(frame.pixel(14, 14)), "coin conservé (rayon nul)");
     assert!(is_red(frame.pixel(50, 50)), "coin conservé (rayon nul)");

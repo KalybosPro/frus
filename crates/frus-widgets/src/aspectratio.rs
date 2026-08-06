@@ -77,9 +77,9 @@ mod tests {
     #[test]
     fn derives_free_dimension_from_ratio() {
         let red = Color::rgb(1.0, 0.0, 0.0);
-        let root = crate::Flex::<()>::column().width(100.0).child(
-            AspectRatio::new(2.0).child(Container::new().flex(1.0).color(red)),
-        );
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .child(AspectRatio::new(2.0).child(Container::new().flex(1.0).color(red)));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
@@ -103,9 +103,9 @@ mod tests {
     #[test]
     fn ratio_below_one_is_taller_than_wide() {
         let red = Color::rgb(1.0, 0.0, 0.0);
-        let root = crate::Flex::<()>::column().width(100.0).child(
-            AspectRatio::new(0.5).child(Container::new().flex(1.0).color(red)),
-        );
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .child(AspectRatio::new(0.5).child(Container::new().flex(1.0).color(red)));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 400.0), &rt, &theme);

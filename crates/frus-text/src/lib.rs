@@ -191,7 +191,11 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
             Attrs::new()
                 .family(family_for(&run.text))
                 .weight(Weight(available_weight(run.weight)))
-                .style(if run.italic { Style::Italic } else { Style::Normal })
+                .style(if run.italic {
+                    Style::Italic
+                } else {
+                    Style::Normal
+                })
                 .metrics(Metrics::new(run.size, line_height(run.size))),
         )
     });
@@ -324,7 +328,11 @@ impl TextLayout {
                         offsets[i] = glyph.x + glyph.w * (j as f32 / k);
                     }
                     if let Some(next) = (0..=n).find(|&i| {
-                        let b = if i == n { lo + span.len() } else { char_bytes[i] };
+                        let b = if i == n {
+                            lo + span.len()
+                        } else {
+                            char_bytes[i]
+                        };
                         b == glyph.end
                     }) {
                         offsets[next] = glyph.x + glyph.w;
@@ -489,7 +497,11 @@ mod tests {
         let text = "un texte assez long pour se replier sur plusieurs lignes";
         let free = measure_wrapped(text, 16.0, FontWeight::Regular, false, None);
         let narrow = measure_wrapped(text, 16.0, FontWeight::Regular, false, Some(120.0));
-        assert!(narrow.width <= 120.0, "replié dans la largeur : {}", narrow.width);
+        assert!(
+            narrow.width <= 120.0,
+            "replié dans la largeur : {}",
+            narrow.width
+        );
         assert!(narrow.height > free.height, "le repli grandit la hauteur");
     }
 
@@ -555,7 +567,10 @@ mod tests {
         // de lignes sont contigus (aucun caractère fantôme au point de coupure).
         let text = "aaaa bbbb cccc dddd"; // 19 caractères, un mot par ligne à 60 px
         let layout = TextLayout::wrapped(text, 18.0, FontWeight::Regular, false, Some(60.0));
-        assert!(layout.size().height > line_height(18.0) * 2.0, "plusieurs lignes visuelles");
+        assert!(
+            layout.size().height > line_height(18.0) * 2.0,
+            "plusieurs lignes visuelles"
+        );
 
         // Début de chaque mot : "aaaa"@0, "bbbb"@5, "cccc"@10, "dddd"@15 — chacun à
         // x ≈ 0 (début de sa ligne), sur des lignes de y croissant.
@@ -605,7 +620,12 @@ mod tests {
         db.set_monospace_family(MONO_FAMILY);
         let mut fs = FontSystem::new_with_locale_and_db("en-TG".to_string(), db);
 
-        for weight in [FontWeight::Regular, FontWeight::Medium, FontWeight::SemiBold, FontWeight::Bold] {
+        for weight in [
+            FontWeight::Regular,
+            FontWeight::Medium,
+            FontWeight::SemiBold,
+            FontWeight::Bold,
+        ] {
             for italic in [false, true] {
                 let attrs = Attrs::new()
                     .weight(Weight(available_weight(weight)))
@@ -687,8 +707,14 @@ mod tests {
 
         let wide = first_glyph_x(Some(1080.0));
         let free = first_glyph_x(None);
-        assert!(wide > 500.0, "RTL large devrait pousser à droite (x={wide})");
-        assert!(free < 50.0, "RTL non contraint devrait commencer à gauche (x={free})");
+        assert!(
+            wide > 500.0,
+            "RTL large devrait pousser à droite (x={wide})"
+        );
+        assert!(
+            free < 50.0,
+            "RTL non contraint devrait commencer à gauche (x={free})"
+        );
     }
 
     #[test]
@@ -698,7 +724,11 @@ mod tests {
         // sensible). Un repli manquant donnerait 0 ou des .notdef.
         let hello = "مرحبا بالعالم"; // « bonjour le monde »
         let m = measure(hello, 24.0);
-        assert!(m.width > 60.0, "l'arabe doit se façonner (largeur {})", m.width);
+        assert!(
+            m.width > 60.0,
+            "l'arabe doit se façonner (largeur {})",
+            m.width
+        );
         assert!(m.height > 0.0);
 
         // Le repli n'écrase pas le latin : « Hello » garde une largeur cohérente.

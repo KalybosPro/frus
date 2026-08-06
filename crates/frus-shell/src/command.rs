@@ -49,7 +49,11 @@ fn focus_key(key: impl std::hash::Hash) -> u64 {
 impl<Msg: Send + 'static> Command<Msg> {
     /// Aucun effet.
     pub fn none() -> Self {
-        Self { tasks: Vec::new(), async_tasks: Vec::new(), focus: Vec::new() }
+        Self {
+            tasks: Vec::new(),
+            async_tasks: Vec::new(),
+            focus: Vec::new(),
+        }
     }
 
     /// Regroupe plusieurs commandes en une seule.
@@ -62,7 +66,11 @@ impl<Msg: Send + 'static> Command<Msg> {
             async_tasks.extend(command.async_tasks);
             focus.extend(command.focus);
         }
-        Self { tasks, async_tasks, focus }
+        Self {
+            tasks,
+            async_tasks,
+            focus,
+        }
     }
 
     /// Exécute une tâche **synchrone** en arrière-plan ; son résultat devient un message.
@@ -123,7 +131,11 @@ impl<Msg: Send + 'static> Command<Msg> {
     where
         F: Future<Output = Option<Msg>> + Send + 'static,
     {
-        Self { tasks: Vec::new(), async_tasks: vec![Box::pin(future)], focus: Vec::new() }
+        Self {
+            tasks: Vec::new(),
+            async_tasks: vec![Box::pin(future)],
+            focus: Vec::new(),
+        }
     }
 
     /// Exécute une **future** asynchrone à effet de bord (`None` = aucun message). Version
@@ -133,7 +145,11 @@ impl<Msg: Send + 'static> Command<Msg> {
     where
         F: Future<Output = Option<Msg>> + 'static,
     {
-        Self { tasks: Vec::new(), async_tasks: vec![Box::pin(future)], focus: Vec::new() }
+        Self {
+            tasks: Vec::new(),
+            async_tasks: vec![Box::pin(future)],
+            focus: Vec::new(),
+        }
     }
 
     /// Demande le **focus** du widget portant la clé `key` (le champ enveloppé par
@@ -141,7 +157,11 @@ impl<Msg: Send + 'static> Command<Msg> {
     /// vue — typiquement renvoyé quand une soumission de formulaire échoue, pour
     /// sauter au premier champ invalide (`Form::first_invalid`).
     pub fn focus(key: impl std::hash::Hash) -> Self {
-        Self { tasks: Vec::new(), async_tasks: Vec::new(), focus: vec![focus_key(key)] }
+        Self {
+            tasks: Vec::new(),
+            async_tasks: Vec::new(),
+            focus: vec![focus_key(key)],
+        }
     }
 
     /// `true` si la commande n'a ni effet ni demande de focus.

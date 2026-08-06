@@ -151,7 +151,10 @@ impl Form {
 
     /// La valeur enregistrée du champ `key` (pour la validation croisée).
     pub fn value(&self, key: &str) -> Option<&str> {
-        self.fields.iter().find(|(k, _, _)| *k == key).map(|(_, v, _)| v.as_str())
+        self.fields
+            .iter()
+            .find(|(k, _, _)| *k == key)
+            .map(|(_, v, _)| v.as_str())
     }
 
     /// `true` si aucun champ n'est en erreur.
@@ -211,7 +214,12 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
     /// Récapitulatif **cliquable** : chaque `(message, msg)` devient une puce qui émet `msg` au
     /// clic (pour focaliser le champ correspondant). L'ordre est conservé.
     pub fn links(items: impl IntoIterator<Item = (impl Into<String>, Msg)>) -> Self {
-        Self::assemble(items.into_iter().map(|(m, msg)| (m.into(), Some(msg))).collect())
+        Self::assemble(
+            items
+                .into_iter()
+                .map(|(m, msg)| (m.into(), Some(msg)))
+                .collect(),
+        )
     }
 
     /// Assemble titre + puces (cliquables si un message est fourni).
@@ -224,7 +232,10 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
         let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::with_capacity(items.len() + 1);
         children.push(Box::new(Text::new(title).size(14.0)));
         for (message, msg) in items {
-            children.push(Box::new(Bullet { label: format!("• {message}"), message: msg }));
+            children.push(Box::new(Bullet {
+                label: format!("• {message}"),
+                message: msg,
+            }));
         }
         Self { empty, children }
     }
@@ -285,9 +296,11 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
     }
 
     fn semantics(&self) -> Option<Semantics> {
-        self.message
-            .as_ref()
-            .map(|_| Semantics::new(Role::Button).label(self.label.clone()).clickable())
+        self.message.as_ref().map(|_| {
+            Semantics::new(Role::Button)
+                .label(self.label.clone())
+                .clickable()
+        })
     }
 }
 
@@ -349,10 +362,7 @@ mod tests {
 
     #[test]
     fn all_returns_the_first_failure() {
-        let rule = Rule::all([
-            Rule::required("Required"),
-            Rule::email("Invalid email"),
-        ]);
+        let rule = Rule::all([Rule::required("Required"), Rule::email("Invalid email")]);
         // Vide → la première règle (required) l'emporte.
         assert_eq!(rule.check(""), Some("Required".to_string()));
         // Non vide mais pas un e-mail → la seconde.
@@ -371,7 +381,11 @@ mod tests {
         assert_eq!(report.error("email"), Some("Invalid email"));
         assert_eq!(report.error("password"), Some("Too short"));
         assert_eq!(report.error("name"), None, "champ valide → pas d'erreur");
-        assert_eq!(report.first_invalid(), Some("email"), "premier en échec, dans l'ordre");
+        assert_eq!(
+            report.first_invalid(),
+            Some("email"),
+            "premier en échec, dans l'ordre"
+        );
     }
 
     #[test]
@@ -389,19 +403,21 @@ mod tests {
                 .field("password", pw, Rule::min_len(8, "Too short"))
                 .matches("confirm", cf, "password", "Passwords do not match")
         };
-        assert_eq!(report("secret12", "secret12").error("confirm"), None, "identiques → OK");
+        assert_eq!(
+            report("secret12", "secret12").error("confirm"),
+            None,
+            "identiques → OK"
+        );
         let bad = report("secret12", "secretXX");
         assert_eq!(bad.error("confirm"), Some("Passwords do not match"));
         assert_eq!(bad.first_invalid(), Some("confirm"));
         // `field_with` généralise : accès à une autre valeur via `form.value`.
-        let dates = Form::new().field("start", "10", Rule::new(|_| None)).field_with(
-            "end",
-            "5",
-            |v, form| {
+        let dates = Form::new()
+            .field("start", "10", Rule::new(|_| None))
+            .field_with("end", "5", |v, form| {
                 let start: i32 = form.value("start").unwrap_or("0").parse().unwrap_or(0);
                 (v.parse::<i32>().unwrap_or(0) < start).then(|| "End before start".to_string())
-            },
-        );
+            });
         assert_eq!(dates.error("end"), Some("End before start"));
     }
 
@@ -424,7 +440,12 @@ mod tests {
         use frus_core::Primitive;
         let summary = ErrorSummary::<()>::new(["Invalid email", "Too short"]);
         assert!(!summary.is_empty());
-        let ui = build_ui(&summary, Size::new(300.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &summary,
+            Size::new(300.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let painted = |t: &str| {
             ui.scene()
                 .primitives()
@@ -432,7 +453,10 @@ mod tests {
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
         assert!(painted("Please fix 2 errors"), "titre du récapitulatif");
-        assert!(painted("• Invalid email") && painted("• Too short"), "une puce par message");
+        assert!(
+            painted("• Invalid email") && painted("• Too short"),
+            "une puce par message"
+        );
         // Vide → à ne pas afficher.
         assert!(ErrorSummary::<()>::new(Vec::<String>::new()).is_empty());
     }
@@ -458,6 +482,9 @@ mod tests {
         let inert = ErrorSummary::<Msg>::new(["Invalid email"]);
         let inert_kids = Widget::<Msg>::children(&inert);
         assert_eq!(inert_kids[1].on_click(), None);
-        assert!(!inert_kids[1].focusable(), "une puce inerte n'est pas focalisable");
+        assert!(
+            !inert_kids[1].focusable(),
+            "une puce inerte n'est pas focalisable"
+        );
     }
 }

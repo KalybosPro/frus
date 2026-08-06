@@ -291,7 +291,11 @@ mod tests {
     #[test]
     fn tree_update_has_root_plus_children() {
         let nodes = vec![
-            (wid(10), Rect::new(0.0, 0.0, 40.0, 20.0), sem(Role::Button).label("Ok")),
+            (
+                wid(10),
+                Rect::new(0.0, 0.0, 40.0, 20.0),
+                sem(Role::Button).label("Ok"),
+            ),
             (
                 wid(20),
                 Rect::new(0.0, 30.0, 40.0, 20.0),
@@ -312,7 +316,10 @@ mod tests {
         let nodes = vec![(wid(10), Rect::new(0.0, 0.0, 40.0, 20.0), sem(Role::Button))];
         // Sans annonce : pas de nœud live.
         let quiet = build_tree_update(&nodes, None, "frus", "");
-        assert!(quiet.nodes.iter().all(|(id, _)| *id != LIVE_ID), "aucune région live");
+        assert!(
+            quiet.nodes.iter().all(|(id, _)| *id != LIVE_ID),
+            "aucune région live"
+        );
         // Avec annonce : un nœud live poli portant le message, enfant de la racine.
         let loud = build_tree_update(&nodes, None, "frus", "Column moved to position 2");
         let live = loud
@@ -320,10 +327,16 @@ mod tests {
             .iter()
             .find(|(id, _)| *id == LIVE_ID)
             .expect("région live présente");
-        assert_eq!(live.1.label().as_deref(), Some("Column moved to position 2"));
+        assert_eq!(
+            live.1.label().as_deref(),
+            Some("Column moved to position 2")
+        );
         assert_eq!(live.1.live(), Some(Live::Polite));
         let (_, root) = &loud.nodes[0];
-        assert!(root.children().contains(&LIVE_ID), "la racine référence la région live");
+        assert!(
+            root.children().contains(&LIVE_ID),
+            "la racine référence la région live"
+        );
     }
 
     #[test]

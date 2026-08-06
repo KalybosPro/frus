@@ -168,7 +168,11 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         let semantics =
             frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
         // Un bouton désactivé n'annonce pas d'action cliquable.
-        Some(if self.enabled { semantics.clickable() } else { semantics })
+        Some(if self.enabled {
+            semantics.clickable()
+        } else {
+            semantics
+        })
     }
 }
 
@@ -191,7 +195,10 @@ mod tests {
     fn disabled_button_is_inert_and_unfocusable() {
         let button = Button::new("Next").on_press(Msg::Pressed).enabled(false);
         assert_eq!(Widget::on_click(&button), None, "désactivé : aucun message");
-        assert!(!Widget::<Msg>::focusable(&button), "désactivé : hors tabulation");
+        assert!(
+            !Widget::<Msg>::focusable(&button),
+            "désactivé : hors tabulation"
+        );
         // Sémantique sans action cliquable.
         let semantics = Widget::<Msg>::semantics(&button).expect("sémantique présente");
         assert!(!semantics.clickable, "désactivé : non annoncé cliquable");

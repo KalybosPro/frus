@@ -189,7 +189,11 @@ impl AnimationController {
     /// (ou `set_value`/`animate_to`…). Idiome des animations continues pilotées
     /// (pulsation, indicateur, halo) — façon `AnimationController.repeat` de Flutter.
     pub fn repeat(&mut self, period: f32, reverse: bool, curve: Curve) {
-        self.repeat = Some(Repeat { period, reverse, curve: curve.clone() });
+        self.repeat = Some(Repeat {
+            period,
+            reverse,
+            curve: curve.clone(),
+        });
         // Démarre le premier cycle vers le haut depuis la valeur courante.
         self.start_interpolation(self.upper, period, curve);
     }
@@ -200,7 +204,11 @@ impl AnimationController {
         self.repeat = None;
         // Ressort critique par défaut, à la manière de Flutter (`fling`).
         let spring = SpringDescription::with_damping_ratio(1.0, 500.0, 1.0);
-        let target = if velocity < 0.0 { self.lower } else { self.upper };
+        let target = if velocity < 0.0 {
+            self.lower
+        } else {
+            self.upper
+        };
         self.heading_up = velocity >= 0.0;
         self.status = if self.heading_up {
             Status::Forward
@@ -279,7 +287,11 @@ impl AnimationController {
             if let Some(rep) = self.repeat.clone() {
                 let target = if rep.reverse {
                     // Aller-retour : repart vers le bord opposé à celui atteint.
-                    if self.heading_up { self.lower } else { self.upper }
+                    if self.heading_up {
+                        self.lower
+                    } else {
+                        self.upper
+                    }
                 } else {
                     // Sawtooth : repart du bas vers le haut.
                     self.value = self.lower;
@@ -329,7 +341,11 @@ mod tests {
         assert_eq!(ctrl.status(), Status::Forward);
         assert!(ctrl.is_animating());
         settle(&mut ctrl, 1000);
-        assert!((ctrl.value() - 1.0).abs() < 1e-3, "value = {}", ctrl.value());
+        assert!(
+            (ctrl.value() - 1.0).abs() < 1e-3,
+            "value = {}",
+            ctrl.value()
+        );
         assert_eq!(ctrl.status(), Status::Completed);
         assert!(!ctrl.is_animating());
     }
@@ -352,7 +368,12 @@ mod tests {
         ctrl.forward(0.5, Curve::ease_in_out());
         let mut prev = ctrl.value();
         while ctrl.tick(0.016) {
-            assert!(ctrl.value() >= prev - 1e-4, "recule : {} < {}", ctrl.value(), prev);
+            assert!(
+                ctrl.value() >= prev - 1e-4,
+                "recule : {} < {}",
+                ctrl.value(),
+                prev
+            );
             assert!(ctrl.value() <= 1.0 + 1e-4);
             prev = ctrl.value();
         }
@@ -365,7 +386,11 @@ mod tests {
         ctrl.fling(3.0); // vitesse positive → vers le haut
         assert_eq!(ctrl.status(), Status::Forward);
         settle(&mut ctrl, 2000);
-        assert!((ctrl.value() - 1.0).abs() < 1e-2, "value = {}", ctrl.value());
+        assert!(
+            (ctrl.value() - 1.0).abs() < 1e-2,
+            "value = {}",
+            ctrl.value()
+        );
         assert_eq!(ctrl.status(), Status::Completed);
     }
 
@@ -388,7 +413,11 @@ mod tests {
         ctrl.spring_to(1.0, spring, 5.0);
         assert_eq!(ctrl.status(), Status::Forward);
         settle(&mut ctrl, 2000);
-        assert!((ctrl.value() - 1.0).abs() < 1e-2, "value = {}", ctrl.value());
+        assert!(
+            (ctrl.value() - 1.0).abs() < 1e-2,
+            "value = {}",
+            ctrl.value()
+        );
         assert_eq!(ctrl.status(), Status::Completed);
     }
 

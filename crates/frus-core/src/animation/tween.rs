@@ -31,7 +31,10 @@ impl Lerp for Point {
 
 impl Lerp for Size {
     fn lerp(self, other: Self, t: f32) -> Self {
-        Size::new(self.width.lerp(other.width, t), self.height.lerp(other.height, t))
+        Size::new(
+            self.width.lerp(other.width, t),
+            self.height.lerp(other.height, t),
+        )
     }
 }
 
@@ -118,7 +121,10 @@ pub trait Animatable {
     where
         Self: Sized,
     {
-        Animation { animatable: self, controller }
+        Animation {
+            animatable: self,
+            controller,
+        }
     }
 }
 
@@ -196,7 +202,10 @@ impl<T> TweenSequence<T> {
     /// à zéro).
     pub fn new(first: impl Animatable<Output = T> + 'static, weight: f32) -> Self {
         let w = weight.max(0.0);
-        Self { items: vec![(Box::new(first), w)], total_weight: w }
+        Self {
+            items: vec![(Box::new(first), w)],
+            total_weight: w,
+        }
     }
 
     /// Enchaîne un segment de plus, occupant `weight` de la progression totale.
@@ -320,8 +329,8 @@ mod tests {
     /// chacun parcouru en entier sur sa moitié.
     #[test]
     fn tween_sequence_relays_equal_weight_segments() {
-        let seq = TweenSequence::new(Tween::new(0.0f32, 10.0), 1.0)
-            .then(Tween::new(10.0, 30.0), 1.0);
+        let seq =
+            TweenSequence::new(Tween::new(0.0f32, 10.0), 1.0).then(Tween::new(10.0, 30.0), 1.0);
         assert_eq!(seq.evaluate(0.0), 0.0);
         assert_eq!(seq.evaluate(0.25), 5.0); // milieu du 1er segment
         assert_eq!(seq.evaluate(0.5), 10.0); // couture
@@ -334,8 +343,8 @@ mod tests {
     #[test]
     fn tween_sequence_honors_weights() {
         // 3 parts pour le 1er, 1 part pour le 2e → couture à t = 0.75.
-        let seq = TweenSequence::new(Tween::new(0.0f32, 100.0), 3.0)
-            .then(Tween::new(100.0, 200.0), 1.0);
+        let seq =
+            TweenSequence::new(Tween::new(0.0f32, 100.0), 3.0).then(Tween::new(100.0, 200.0), 1.0);
         assert_eq!(seq.evaluate(0.75), 100.0); // fin du 1er / début du 2e
         assert_eq!(seq.evaluate(0.375), 50.0); // milieu du 1er (0.375 / 0.75)
         assert_eq!(seq.evaluate(0.875), 150.0); // milieu du 2e

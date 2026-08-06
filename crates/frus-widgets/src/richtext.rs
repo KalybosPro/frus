@@ -68,9 +68,7 @@ impl RichText {
                 decoration: style.decoration,
                 // Héritée = couleur du run : résolue ici pour que le fondu de
                 // sortie s'applique aussi aux décorations.
-                decoration_color: style
-                    .decoration_color
-                    .map(|c| c.fade(opacity)),
+                decoration_color: style.decoration_color.map(|c| c.fade(opacity)),
             })
             .collect()
     }

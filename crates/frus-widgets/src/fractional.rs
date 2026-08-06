@@ -116,7 +116,10 @@ mod tests {
                 _ => None,
             })
             .expect("le fond rouge de l'enfant");
-        assert!((rect.width - 50.0).abs() < 0.5, "moitié de la largeur : {rect:?}");
+        assert!(
+            (rect.width - 50.0).abs() < 0.5,
+            "moitié de la largeur : {rect:?}"
+        );
     }
 
     /// `height_factor(0.25)` prend le quart de la hauteur du parent : dans une
@@ -124,11 +127,14 @@ mod tests {
     #[test]
     fn height_factor_takes_a_fraction_of_the_parent() {
         let red = Color::rgb(1.0, 0.0, 0.0);
-        let root = crate::Flex::<()>::column().width(100.0).height(200.0).child(
-            FractionallySizedBox::new()
-                .height_factor(0.25)
-                .child(Container::new().flex(1.0).color(red)),
-        );
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .height(200.0)
+            .child(
+                FractionallySizedBox::new()
+                    .height_factor(0.25)
+                    .child(Container::new().flex(1.0).color(red)),
+            );
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
@@ -141,6 +147,9 @@ mod tests {
                 _ => None,
             })
             .expect("le fond rouge de l'enfant");
-        assert!((rect.height - 50.0).abs() < 0.5, "quart de la hauteur : {rect:?}");
+        assert!(
+            (rect.height - 50.0).abs() < 0.5,
+            "quart de la hauteur : {rect:?}"
+        );
     }
 }

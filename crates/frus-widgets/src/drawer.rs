@@ -58,8 +58,15 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
         let o = status.opacity;
         // Surface opaque du tiroir + fin liseré sur le bord intérieur.
         scene.fill_rect(bounds, theme.surface.fade(o));
-        let x = if self.border_left { bounds.x } else { bounds.x + bounds.width - 1.0 };
-        scene.fill_rect(Rect::new(x, bounds.y, 1.0, bounds.height), theme.border.fade(o));
+        let x = if self.border_left {
+            bounds.x
+        } else {
+            bounds.x + bounds.width - 1.0
+        };
+        scene.fill_rect(
+            Rect::new(x, bounds.y, 1.0, bounds.height),
+            theme.border.fade(o),
+        );
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -123,8 +130,10 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
     /// Définit le **corps de fond** (toujours visible) et finalise le tiroir.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
         let panel = self.panel_content.take().map(|content| {
-            Box::new(DrawerPanel { children: vec![content], border_left: self.right })
-                as Box<dyn Widget<Msg>>
+            Box::new(DrawerPanel {
+                children: vec![content],
+                border_left: self.right,
+            }) as Box<dyn Widget<Msg>>
         });
 
         if self.permanent {
@@ -173,7 +182,11 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         // Uniquement en mode modal : c'est la **progression** animée
         // (`anim_target`) qui décide de l'affichage et du glissement.
-        let placement = if self.right { Placement::Right } else { Placement::Left };
+        let placement = if self.right {
+            Placement::Right
+        } else {
+            Placement::Left
+        };
         self.modal_panel.as_ref().map(|p| (p.as_ref(), placement))
     }
 
@@ -243,9 +256,10 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        let scrim = ui.scene().primitives().iter().any(
-            |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
-        );
+        let scrim =
+            ui.scene().primitives().iter().any(
+                |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
+            );
         assert!(!scrim, "un tiroir fermé ne peint pas de voile");
     }
 
@@ -261,9 +275,10 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        let scrim = ui.scene().primitives().iter().any(
-            |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
-        );
+        let scrim =
+            ui.scene().primitives().iter().any(
+                |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
+            );
         assert!(scrim, "le voile doit couvrir la fenêtre");
         let panel = ui.scene().primitives().iter().any(|p| {
             matches!(p, frus_core::Primitive::Rect { rect, .. }
@@ -282,9 +297,7 @@ mod tests {
         rt.set_value(crate::WidgetId::ROOT, 0.5);
         let ui = build_ui(&drawer, Size::new(500.0, 400.0), &rt, &Theme::default());
         let panel_edge = ui.scene().primitives().iter().find_map(|p| match p {
-            frus_core::Primitive::Rect { rect, .. }
-                if (rect.width - DRAWER_WIDTH).abs() < 1.0 =>
-            {
+            frus_core::Primitive::Rect { rect, .. } if (rect.width - DRAWER_WIDTH).abs() < 1.0 => {
                 Some(rect.x + rect.width)
             }
             _ => None,
@@ -309,7 +322,10 @@ mod tests {
         assert_eq!(Widget::<Msg>::anim_target(&drawer), None);
         assert!(Widget::<Msg>::overlay(&drawer).is_none());
         // Rangée [panneau, corps].
-        assert_eq!(Widget::<Msg>::style(&drawer).flex_direction, FlexDirection::Row);
+        assert_eq!(
+            Widget::<Msg>::style(&drawer).flex_direction,
+            FlexDirection::Row
+        );
         assert_eq!(Widget::<Msg>::children(&drawer).len(), 2);
 
         let ui = build_ui(
@@ -319,16 +335,20 @@ mod tests {
             &Theme::default(),
         );
         // Pas de voile plein écran (le panneau ne couvre que sa largeur).
-        let scrim = ui.scene().primitives().iter().any(
-            |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 900.0),
-        );
+        let scrim =
+            ui.scene().primitives().iter().any(
+                |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 900.0),
+            );
         assert!(!scrim, "un tiroir permanent ne peint pas de voile");
         // Le panneau accosté est présent, plein-hauteur, à gauche (x ≈ 0).
         let docked = ui.scene().primitives().iter().any(|p| {
             matches!(p, frus_core::Primitive::Rect { rect, .. }
                 if (rect.width - DRAWER_WIDTH).abs() < 1.0 && rect.x < 1.0 && rect.height >= 399.0)
         });
-        assert!(docked, "le panneau doit être accosté à gauche, plein-hauteur");
+        assert!(
+            docked,
+            "le panneau doit être accosté à gauche, plein-hauteur"
+        );
     }
 
     #[test]

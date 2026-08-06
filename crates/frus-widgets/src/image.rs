@@ -22,7 +22,13 @@ pub struct Image {
 impl Image {
     /// Une image `width×height`, ajustée en [`BoxFit::Contain`] par défaut.
     pub fn new(image: ImageHandle, width: f32, height: f32) -> Self {
-        Self { image, width, height, fit: BoxFit::Contain, tint: None }
+        Self {
+            image,
+            width,
+            height,
+            fit: BoxFit::Contain,
+            tint: None,
+        }
     }
 
     /// Change le mode d'ajustement.
@@ -73,7 +79,13 @@ mod tests {
 
     fn paint(image: Image, bounds: Rect) -> Primitive {
         let mut scene = Scene::new();
-        Widget::<()>::paint(&image, bounds, Status::default(), &Theme::default(), &mut scene);
+        Widget::<()>::paint(
+            &image,
+            bounds,
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
         scene.primitives()[0].clone()
     }
 

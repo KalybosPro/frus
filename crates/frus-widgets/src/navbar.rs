@@ -55,7 +55,10 @@ impl<Msg: Clone + 'static> NavBar<Msg> {
     /// Ajoute un bouton retour émettant `message`.
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
-            Button::new("←").variant(Variant::Secondary).size(16.0).on_press(message),
+            Button::new("←")
+                .variant(Variant::Secondary)
+                .size(16.0)
+                .on_press(message),
         )];
         self
     }
@@ -135,7 +138,12 @@ mod tests {
             Dimension::Length(h) => assert_eq!(h, 72.0),
             _ => panic!("hauteur imposée attendue"),
         }
-        let ui = build_ui(&bar, Size::new(400.0, 72.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &bar,
+            Size::new(400.0, 72.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let styled = ui.scene().primitives().iter().any(|p| {
             matches!(
                 p,
@@ -149,7 +157,12 @@ mod tests {
     #[test]
     fn back_button_emits_message() {
         let bar: NavBar<Msg> = NavBar::new("Réglages").on_back(Msg::Back);
-        let ui = build_ui(&bar, Size::new(400.0, 56.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &bar,
+            Size::new(400.0, 56.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Le bouton retour est à gauche ; un clic y renvoie le message de retour.
         let id = ui.hit(Point::new(40.0, 28.0)).expect("bouton retour");
         assert_eq!(ui.msg_for(id), Some(Msg::Back));
@@ -158,7 +171,12 @@ mod tests {
     #[test]
     fn bar_paints_title_and_divider() {
         let bar: NavBar<Msg> = NavBar::new("Titre");
-        let ui = build_ui(&bar, Size::new(400.0, 56.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &bar,
+            Size::new(400.0, 56.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let has_text = ui
             .scene()
             .primitives()

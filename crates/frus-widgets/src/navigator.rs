@@ -36,7 +36,12 @@ impl<Msg> Navigator<Msg> {
     }
 
     /// Ajoute l'écran **sortant** et l'avancement d'une transition en cours.
-    pub fn from(mut self, previous: impl Widget<Msg> + 'static, progress: f32, forward: bool) -> Self {
+    pub fn from(
+        mut self,
+        previous: impl Widget<Msg> + 'static,
+        progress: f32,
+        forward: bool,
+    ) -> Self {
         self.children.insert(0, Box::new(previous));
         self.progress = progress.clamp(0.0, 1.0);
         self.forward = forward;
@@ -75,7 +80,10 @@ mod tests {
     use frus_core::{Color, Primitive};
 
     fn screen(color: Color) -> Container<()> {
-        Container::<()>::new().width(400.0).height(300.0).color(color)
+        Container::<()>::new()
+            .width(400.0)
+            .height(300.0)
+            .color(color)
     }
 
     #[test]
@@ -123,7 +131,10 @@ mod tests {
         };
         let front = x_of(red); // +0.5·400 = 200
         let back = x_of(blue); // parallaxe : -0.5·400·0.3 = -60
-        assert!(front > back, "l'avant ({front}) est à droite de l'arrière ({back})");
+        assert!(
+            front > back,
+            "l'avant ({front}) est à droite de l'arrière ({back})"
+        );
         // Sans parallaxe l'arrière serait à -200 ; il est comprimé vers 0.
         assert!(back > -200.0 && back < 0.0, "arrière parallaxé : {back}");
     }

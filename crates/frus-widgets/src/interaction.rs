@@ -205,7 +205,11 @@ impl InputState {
             anim_radius: None,
             scroll_y: 0.0,
             // Position du pointeur uniquement pour le widget survolé (sinon `None`).
-            hover_cursor: if self.hovered == Some(id) { self.hover_cursor } else { None },
+            hover_cursor: if self.hovered == Some(id) {
+                self.hover_cursor
+            } else {
+                None
+            },
         }
     }
 }
@@ -216,13 +220,19 @@ mod tests {
 
     #[test]
     fn same_path_yields_same_id() {
-        assert_eq!(WidgetId::ROOT.child(0).child(2), WidgetId::ROOT.child(0).child(2));
+        assert_eq!(
+            WidgetId::ROOT.child(0).child(2),
+            WidgetId::ROOT.child(0).child(2)
+        );
     }
 
     #[test]
     fn different_paths_differ() {
         assert_ne!(WidgetId::ROOT.child(0), WidgetId::ROOT.child(1));
-        assert_ne!(WidgetId::ROOT.child(0).child(1), WidgetId::ROOT.child(1).child(0));
+        assert_ne!(
+            WidgetId::ROOT.child(0).child(1),
+            WidgetId::ROOT.child(1).child(0)
+        );
         assert_ne!(WidgetId::ROOT, WidgetId::ROOT.child(0));
     }
 
@@ -235,7 +245,10 @@ mod tests {
         // Une clé n'entre pas en collision avec un indice positionnel de même valeur.
         assert_ne!(WidgetId::ROOT.keyed(0), WidgetId::ROOT.child(0));
         // Parents différents → identités différentes pour la même clé.
-        assert_ne!(WidgetId::ROOT.child(0).keyed(7), WidgetId::ROOT.child(1).keyed(7));
+        assert_ne!(
+            WidgetId::ROOT.child(0).keyed(7),
+            WidgetId::ROOT.child(1).keyed(7)
+        );
     }
 
     #[test]
@@ -243,18 +256,32 @@ mod tests {
         let id = WidgetId::ROOT.child(0);
         let other = WidgetId::ROOT.child(1);
 
-        let hovered = InputState { hovered: Some(id), ..Default::default() };
+        let hovered = InputState {
+            hovered: Some(id),
+            ..Default::default()
+        };
         assert_eq!(hovered.status_for(id).interaction, Interaction::Hovered);
 
-        let pressed = InputState { hovered: Some(id), pressed: Some(id), ..Default::default() };
+        let pressed = InputState {
+            hovered: Some(id),
+            pressed: Some(id),
+            ..Default::default()
+        };
         assert_eq!(pressed.status_for(id).interaction, Interaction::Pressed);
 
         // Pressé mais pointeur ailleurs → pas "Pressed".
-        let moved_away = InputState { hovered: Some(other), pressed: Some(id), ..Default::default() };
+        let moved_away = InputState {
+            hovered: Some(other),
+            pressed: Some(id),
+            ..Default::default()
+        };
         assert_eq!(moved_away.status_for(id).interaction, Interaction::None);
 
         // Focus indépendant de l'interaction pointeur.
-        let focused = InputState { focused: Some(id), ..Default::default() };
+        let focused = InputState {
+            focused: Some(id),
+            ..Default::default()
+        };
         assert!(focused.status_for(id).focused);
         assert!(!focused.status_for(other).focused);
     }

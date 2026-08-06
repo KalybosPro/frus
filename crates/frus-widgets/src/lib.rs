@@ -28,11 +28,11 @@ mod clip;
 mod collapsible;
 mod colorpicker;
 mod container;
+mod custompaint;
 mod datatable;
 mod datepicker;
 mod datetimepicker;
 mod datetimerange;
-mod custompaint;
 mod divider;
 mod drawer;
 mod dropdown;
@@ -56,18 +56,19 @@ mod keyed;
 mod layoutbuilder;
 mod list;
 mod menu;
-mod popover;
 mod navbar;
 mod navigator;
 mod navrail;
 mod navscaffold;
 mod pagination;
-mod portal;
 mod paintcache;
+mod popover;
+mod portal;
 mod progressbar;
 mod radio;
 mod rating;
 mod relayout;
+mod reorder;
 mod responsive;
 mod richtext;
 mod rotatedbox;
@@ -76,7 +77,6 @@ mod scaffold;
 mod scroll;
 mod segmented;
 mod skeleton;
-mod reorder;
 mod slider;
 mod spinner;
 mod stack;
@@ -99,6 +99,7 @@ mod ui;
 mod widget;
 
 pub use alert::{Alert, AlertKind};
+pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use appbar::AppBar;
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
@@ -115,10 +116,11 @@ pub use chip::Chip;
 pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;
-pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use container::Container;
 pub use custompaint::CustomPaint;
-pub use datatable::{compare_cells, page_count, page_range_label, page_rows, row_matches, sort_rows, DataTable};
+pub use datatable::{
+    compare_cells, page_count, page_range_label, page_rows, row_matches, sort_rows, DataTable,
+};
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
@@ -133,6 +135,7 @@ pub use grid::Grid;
 pub use icon::Icon;
 pub use icons::IconName;
 pub use image::Image;
+pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
 pub use interaction::{Cursor, InputState, Interaction, Key, KeyResponse, Status, WidgetId};
 pub use interactive::{InteractiveView, InteractiveViewer};
 pub use kanban::{kanban_slot, Kanban};
@@ -141,18 +144,19 @@ pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
 pub use list::{List, VirtualList};
 pub use menu::Menu;
-pub use popover::Popover;
 pub use navbar::NavBar;
 pub use navigator::Navigator;
 pub use navrail::{BottomBar, NavRail};
 pub use navscaffold::NavScaffold;
 pub use pagination::Pagination;
+pub use paintcache::PaintCache;
+pub use popover::Popover;
 pub use portal::{Placement, Portal};
 pub use progressbar::ProgressBar;
 pub use radio::RadioGroup;
 pub use rating::Rating;
-pub use paintcache::PaintCache;
 pub use relayout::LayoutCache;
+pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
@@ -161,7 +165,6 @@ pub use scaffold::{fab_button, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
 pub use skeleton::Skeleton;
-pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use slider::{RangeSlider, Slider};
 pub use spinner::Spinner;
 pub use stack::Stack;
@@ -180,7 +183,6 @@ pub use toasthost::{ToastHost, ToastPosition};
 pub use transform::Transform;
 pub use tree::Tree;
 pub use twopane::TwoPane;
-pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
 pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
     FocusDirection, Scrollbar, Ui,
@@ -189,10 +191,11 @@ pub use widget::{ReorderAxis, Widget};
 
 // Ré-exports de commodité pour les appelants.
 pub use frus_core::{
-    Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius, BoxDecoration,
-    BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets, InsetsDirectional,
-    LinearGradient, Orientation, Path, PathVerb, Point, Primitive, Rect, Role, Scene, Semantics,
-    SizeClass, Size, TextDecoration, TextDirection, TextSpan, TextStyle, Toggled, WindowInsets,
+    Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius,
+    BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets,
+    InsetsDirectional, LinearGradient, Orientation, Path, PathVerb, Point, Primitive, Rect, Role,
+    Scene, Semantics, Size, SizeClass, TextDecoration, TextDirection, TextSpan, TextStyle, Toggled,
+    WindowInsets,
 };
 /// Couche d'animation partagée (physique, courbes, pilote) — voir
 /// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent

@@ -478,7 +478,10 @@ mod tests {
         let hue = |c: Color| frus_core::Hct::from_color(c).hue;
         let delta = (hue(light.primary) - hue(dark.primary)).abs();
         let delta = delta.min(360.0 - delta);
-        assert!(delta < 12.0, "teintes clair/sombre divergentes ({delta:.1}°)");
+        assert!(
+            delta < 12.0,
+            "teintes clair/sombre divergentes ({delta:.1}°)"
+        );
         // Et le sombre est bien… sombre.
         assert!(dark.background.compute_luminance() < 0.1);
         assert!(light.background.compute_luminance() > 0.85);
@@ -494,7 +497,11 @@ mod tests {
     fn flat_fields_mirror_the_scheme() {
         // Les champs plats sont des vues dérivées du schéma — y compris au
         // milieu d'un fondu (le lerp passe par le schéma).
-        for theme in [Theme::dark(), Theme::light(), Theme::dark().lerp(&Theme::light(), 0.37)] {
+        for theme in [
+            Theme::dark(),
+            Theme::light(),
+            Theme::dark().lerp(&Theme::light(), 0.37),
+        ] {
             assert_eq!(theme.background, theme.scheme.background);
             assert_eq!(theme.surface, theme.scheme.surface);
             assert_eq!(theme.primary, theme.scheme.primary);

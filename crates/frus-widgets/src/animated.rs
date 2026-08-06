@@ -106,7 +106,9 @@ pub struct Opacity<Msg> {
 impl<Msg: Clone + 'static> Opacity<Msg> {
     /// Enveloppe `child` d'une opacité de groupe `opacity`.
     pub fn new(opacity: f32, child: impl Widget<Msg> + 'static) -> Self {
-        Self { inner: Container::new().opacity(opacity).child(child) }
+        Self {
+            inner: Container::new().opacity(opacity).child(child),
+        }
     }
 }
 
@@ -126,7 +128,11 @@ impl<Msg: Clone + 'static> AnimatedOpacity<Msg> {
         curve: Curve,
         child: impl Widget<Msg> + 'static,
     ) -> Self {
-        Self { inner: Container::new().animated_opacity(opacity, duration, curve).child(child) }
+        Self {
+            inner: Container::new()
+                .animated_opacity(opacity, duration, curve)
+                .child(child),
+        }
     }
 }
 
@@ -153,30 +159,42 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
     /// Nouvelle boîte animée : `duration` (secondes) et `curve` partagées par
     /// toutes ses propriétés animées.
     pub fn new(duration: f32, curve: Curve) -> Self {
-        Self { inner: Container::new(), duration, curve }
+        Self {
+            inner: Container::new(),
+            duration,
+            curve,
+        }
     }
 
     /// Fond dont la couleur s'anime vers `color`.
     pub fn color(mut self, color: Color) -> Self {
-        self.inner = self.inner.animated_color(color, self.duration, self.curve.clone());
+        self.inner = self
+            .inner
+            .animated_color(color, self.duration, self.curve.clone());
         self
     }
 
     /// Taille animée `width×height` (interpolée au layout).
     pub fn size(mut self, width: f32, height: f32) -> Self {
-        self.inner = self.inner.animated_size(width, height, self.duration, self.curve.clone());
+        self.inner = self
+            .inner
+            .animated_size(width, height, self.duration, self.curve.clone());
         self
     }
 
     /// Rayon de coin animé (uniforme via `f32` ou par coin via [`BorderRadius`]).
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
-        self.inner = self.inner.animated_radius(radius, self.duration, self.curve.clone());
+        self.inner = self
+            .inner
+            .animated_radius(radius, self.duration, self.curve.clone());
         self
     }
 
     /// Opacité de groupe animée `[0,1]`.
     pub fn opacity(mut self, opacity: f32) -> Self {
-        self.inner = self.inner.animated_opacity(opacity, self.duration, self.curve.clone());
+        self.inner = self
+            .inner
+            .animated_opacity(opacity, self.duration, self.curve.clone());
         self
     }
 
@@ -211,7 +229,10 @@ mod tests {
             .opacity(0.5);
         assert_eq!(Widget::<()>::anim_color(&w), Some(blue));
         assert_eq!(Widget::<()>::anim_size(&w), Some(Size::new(200.0, 100.0)));
-        assert_eq!(Widget::<()>::anim_radius(&w), Some(BorderRadius::from(12.0)));
+        assert_eq!(
+            Widget::<()>::anim_radius(&w),
+            Some(BorderRadius::from(12.0))
+        );
         assert_eq!(Widget::<()>::anim_target(&w), Some(0.5)); // opacité animée
         assert_eq!(Widget::<()>::opacity_group(&w), Some(0.5));
         assert_eq!(Widget::<()>::anim_duration(&w), 0.25);
@@ -225,7 +246,11 @@ mod tests {
         let w: Opacity<()> = Opacity::new(0.4, crate::Container::new().width(10.0).height(10.0));
         assert_eq!(Widget::<()>::opacity_group(&w), Some(0.4));
         assert_eq!(Widget::<()>::anim_target(&w), None);
-        assert_eq!(Widget::<()>::children(&w).len(), 1, "l'enfant est un nœud séparé");
+        assert_eq!(
+            Widget::<()>::children(&w).len(),
+            1,
+            "l'enfant est un nœud séparé"
+        );
     }
 
     /// `AnimatedOpacity` déclare une opacité animée (le runtime la tween).

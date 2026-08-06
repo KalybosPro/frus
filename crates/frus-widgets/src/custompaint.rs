@@ -30,7 +30,11 @@ pub struct CustomPaint<Msg> {
 
 impl<Msg> CustomPaint<Msg> {
     /// Une toile `width×height` peinte par `painter`.
-    pub fn new(width: f32, height: f32, painter: impl Fn(&mut Scene, Rect, &Theme) + 'static) -> Self {
+    pub fn new(
+        width: f32,
+        height: f32,
+        painter: impl Fn(&mut Scene, Rect, &Theme) + 'static,
+    ) -> Self {
         Self {
             width,
             height,
@@ -89,7 +93,11 @@ mod tests {
 
         assert_eq!(scene.len(), 1);
         match &scene.primitives()[0] {
-            Primitive::Path { path, fill: Some(_), .. } => {
+            Primitive::Path {
+                path,
+                fill: Some(_),
+                ..
+            } => {
                 // Le premier sommet suit la boîte passée (x=10, y=20).
                 assert_eq!(
                     path.verbs().first(),

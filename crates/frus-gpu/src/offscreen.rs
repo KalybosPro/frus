@@ -80,8 +80,9 @@ pub fn render_offscreen(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frus.offscreen.copy") });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("frus.offscreen.copy"),
+    });
     encoder.copy_texture_to_buffer(
         wgpu::ImageCopyTexture {
             texture: &texture,
@@ -298,7 +299,10 @@ mod tests {
                 g > 20 && g < 235
             })
         });
-        assert!(found_partial, "un bord oblique lissé a des pixels de vert intermédiaire");
+        assert!(
+            found_partial,
+            "un bord oblique lissé a des pixels de vert intermédiaire"
+        );
         // Loin dans le triangle → plein vert ; loin dehors → fond noir.
         assert_eq!(px(4, 4), [0, 255, 0], "intérieur → vert plein");
         assert_eq!(px(60, 60), [0, 0, 0], "extérieur → fond");
@@ -326,9 +330,16 @@ mod tests {
         };
         let single = px(8, 8); // couvert par le 1er rectangle seulement
         let overlap = px(32, 32); // couvert par les deux
-        assert_eq!(single, overlap, "l'alpha de groupe est uniforme sur le chevauchement");
+        assert_eq!(
+            single, overlap,
+            "l'alpha de groupe est uniforme sur le chevauchement"
+        );
         // ~50 % rouge sur noir : ni plein rouge (255) ni fond (0).
-        assert!(single[0] > 120 && single[0] < 215, "≈ moitié rouge (R={})", single[0]);
+        assert!(
+            single[0] > 120 && single[0] < 215,
+            "≈ moitié rouge (R={})",
+            single[0]
+        );
         assert_eq!(single[1], 0, "pas de vert");
         assert_eq!(single[2], 0, "pas de bleu");
         // Hors des deux rectangles : fond noir.

@@ -66,7 +66,8 @@ mod tests {
         assert_eq!(Widget::<()>::children(&empty).len(), 0);
 
         // Résultat chaînable + rangées imbriquées.
-        let nested: Flex<()> = column![text("titre"), row![text("a"), spacer(), text("b")]].gap(8.0);
+        let nested: Flex<()> =
+            column![text("titre"), row![text("a"), spacer(), text("b")]].gap(8.0);
         assert_eq!(Widget::<()>::children(&nested).len(), 2);
     }
 

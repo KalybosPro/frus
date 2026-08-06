@@ -273,7 +273,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 Action::Labeled { label, message } => {
                     if labeled_seen < kept_labeled {
                         row = row.child(
-                            button(label, message).variant(Variant::Secondary).size(action_size),
+                            button(label, message)
+                                .variant(Variant::Secondary)
+                                .size(action_size),
                         );
                     } else {
                         folded.push((label, message));
@@ -288,7 +290,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 // Menu overflow contrôlé : le `⋯` ouvre, les items émettent les actions.
                 Some((open, toggle)) => {
                     let mut menu = Menu::new(
-                        button("⋯", toggle.clone()).variant(Variant::Secondary).size(action_size),
+                        button("⋯", toggle.clone())
+                            .variant(Variant::Secondary)
+                            .size(action_size),
                         open,
                         toggle,
                     );
@@ -301,7 +305,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 None => {
                     for (label, message) in folded {
                         row = row.child(
-                            button(label, message).variant(Variant::Secondary).size(action_size),
+                            button(label, message)
+                                .variant(Variant::Secondary)
+                                .size(action_size),
                         );
                     }
                 }
@@ -343,7 +349,12 @@ mod tests {
             .action("Action Two", Msg::B)
             .action("Action Three", Msg::C)
             .build();
-        let ui = build_ui(bar.as_ref(), Size::new(width, 80.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(width, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Chaque bouton dessine une ombre (un `Rect` flouté, `blur > 0`) : on les compte.
         ui.scene()
             .primitives()
@@ -362,7 +373,10 @@ mod tests {
     fn narrow_bar_collapses_into_overflow() {
         // Étroit : au plus une ou deux actions en ligne + le bouton `⋯`.
         let n = inline_buttons(300.0, false);
-        assert!(n < 3, "attendu un repli en overflow, obtenu {n} boutons en ligne");
+        assert!(
+            n < 3,
+            "attendu un repli en overflow, obtenu {n} boutons en ligne"
+        );
         assert!(n >= 1, "le bouton overflow doit être présent");
     }
 
@@ -377,21 +391,39 @@ mod tests {
             .overflow(false, Msg::Menu)
             .action("One", Msg::A)
             .build();
-        let ui = build_ui(bar.as_ref(), Size::new(W, 80.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(W, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Bornes horizontales des **textes** (titre + libellés) : sans ombre,
         // ils reflètent la position réelle du contenu (le flou des ombres, lui,
         // déborde légitimement).
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
         for p in ui.scene().primitives() {
-            if let frus_core::Primitive::Text { position, size, text, .. } = p {
+            if let frus_core::Primitive::Text {
+                position,
+                size,
+                text,
+                ..
+            } = p
+            {
                 min_x = min_x.min(position.x);
                 // Largeur approchée du texte (borne haute suffisante ici).
                 max_x = max_x.max(position.x + text.chars().count() as f32 * size * 0.7);
             }
         }
-        assert!(min_x >= H_PAD - 0.5, "contenu collé au bord gauche ({min_x})");
-        assert!(max_x <= W - H_PAD + 0.5, "contenu débordant à droite ({max_x} > {})", W - H_PAD);
+        assert!(
+            min_x >= H_PAD - 0.5,
+            "contenu collé au bord gauche ({min_x})"
+        );
+        assert!(
+            max_x <= W - H_PAD + 0.5,
+            "contenu débordant à droite ({max_x} > {})",
+            W - H_PAD
+        );
     }
 
     #[test]
@@ -400,7 +432,12 @@ mod tests {
         let bar = AppBar::<Msg>::new("Title")
             .title_style(TextStyle::new(24.0).weight(FontWeight::Bold))
             .build();
-        let ui = build_ui(bar.as_ref(), Size::new(800.0, 80.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(800.0, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let styled = ui.scene().primitives().iter().any(|p| {
             matches!(
                 p,
@@ -416,7 +453,12 @@ mod tests {
         let bar = AppBar::<Msg>::new("ignored")
             .title_widget(Text::new("Logo").size(18.0))
             .build();
-        let ui = build_ui(bar.as_ref(), Size::new(800.0, 80.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(800.0, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let texts: Vec<_> = ui
             .scene()
             .primitives()
@@ -426,8 +468,14 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(texts.contains(&"Logo".to_string()), "le widget-titre est rendu");
-        assert!(!texts.contains(&"ignored".to_string()), "le titre texte est remplacé");
+        assert!(
+            texts.contains(&"Logo".to_string()),
+            "le widget-titre est rendu"
+        );
+        assert!(
+            !texts.contains(&"ignored".to_string()),
+            "le titre texte est remplacé"
+        );
     }
 
     #[test]
@@ -441,10 +489,17 @@ mod tests {
             .action_widget(Text::new("★badge★").size(14.0))
             .action("Another long action", Msg::B)
             .build();
-        let ui = build_ui(bar.as_ref(), Size::new(260.0, 80.0), &Runtime::default(), &Theme::default());
-        let has_badge = ui.scene().primitives().iter().any(|p| {
-            matches!(p, frus_core::Primitive::Text { text, .. } if text == "★badge★")
-        });
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(260.0, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let has_badge = ui
+            .scene()
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "★badge★"));
         assert!(has_badge, "l'action-widget reste en ligne même à l'étroit");
     }
 }

@@ -24,7 +24,11 @@ pub struct NavScaffold<Msg> {
 impl<Msg: Clone + 'static> NavScaffold<Msg> {
     /// Crée une ossature : `class` détermine la présentation, `selected` la
     /// destination active, `on_select(i)` est émis au choix d'une destination.
-    pub fn new(class: SizeClass, selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn new(
+        class: SizeClass,
+        selected: usize,
+        on_select: impl Fn(usize) -> Msg + 'static,
+    ) -> Self {
         Self {
             compact: class == SizeClass::Compact,
             selected,
@@ -133,7 +137,10 @@ mod tests {
     #[test]
     fn compact_puts_body_first_then_bottom_bar_in_a_column() {
         let s = scaffold(SizeClass::Compact);
-        assert_eq!(Widget::<Msg>::style(&s).flex_direction, FlexDirection::Column);
+        assert_eq!(
+            Widget::<Msg>::style(&s).flex_direction,
+            FlexDirection::Column
+        );
         // [corps, barre] : la navigation est le dernier enfant (en bas).
         assert_eq!(Widget::<Msg>::children(&s).len(), 2);
     }

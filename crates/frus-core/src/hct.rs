@@ -176,7 +176,11 @@ fn cam16_hue_chroma(color: Color) -> (f64, f64) {
     let u = (20.0 * r_a + 20.0 * g_a + 21.0 * b_a) / 20.0;
     let p2 = (40.0 * r_a + 20.0 * g_a + b_a) / 20.0;
     let atan_deg = b_axis.atan2(a).to_degrees();
-    let hue = if atan_deg < 0.0 { atan_deg + 360.0 } else { atan_deg };
+    let hue = if atan_deg < 0.0 {
+        atan_deg + 360.0
+    } else {
+        atan_deg
+    };
 
     // Clarté J puis chroma.
     let ac = p2 * vc.nbb;
@@ -231,8 +235,7 @@ fn find_result_by_j(hue_radians: f64, chroma: f64, y_target: f64) -> Option<Colo
         let t = (alpha * t_inner_coeff).powf(1.0 / 0.9);
         let ac = vc.aw * j_normalized.powf(1.0 / (vc.c * vc.z));
         let p2 = ac / vc.nbb;
-        let gamma =
-            23.0 * (p2 + 0.305) * t / (23.0 * p1 + 11.0 * t * h_cos + 108.0 * t * h_sin);
+        let gamma = 23.0 * (p2 + 0.305) * t / (23.0 * p1 + 11.0 * t * h_cos + 108.0 * t * h_sin);
         let a = gamma * h_cos;
         let b = gamma * h_sin;
         let r_a = (460.0 * p2 + 451.0 * a + 288.0 * b) / 1403.0;
@@ -384,9 +387,12 @@ mod tests {
     fn solve_round_trips_in_gamut_colors() {
         // Des cibles bien dans le gamut : la teinte et le ton doivent se
         // retrouver quasi exactement, le chroma à la précision du solveur.
-        for &(hue, chroma, tone) in
-            &[(27.0, 16.0, 50.0), (120.0, 24.0, 70.0), (282.0, 40.0, 40.0), (200.0, 8.0, 90.0)]
-        {
+        for &(hue, chroma, tone) in &[
+            (27.0, 16.0, 50.0),
+            (120.0, 24.0, 70.0),
+            (282.0, 40.0, 40.0),
+            (200.0, 8.0, 90.0),
+        ] {
             let color = Hct::solve(hue, chroma, tone);
             let round = Hct::from_color(color);
             assert_close(round.hue, hue, 4.0, "teinte round-trip");
@@ -403,7 +409,11 @@ mod tests {
         let round = Hct::from_color(color);
         assert_close(round.tone, 30.0, 1.0, "ton préservé hors gamut");
         assert_close(round.hue, 265.0, 4.0, "teinte préservée hors gamut");
-        assert!(round.chroma > 20.0, "chroma maximal atteint ({})", round.chroma);
+        assert!(
+            round.chroma > 20.0,
+            "chroma maximal atteint ({})",
+            round.chroma
+        );
     }
 
     #[test]

@@ -399,7 +399,10 @@ mod tests {
         // La position tend vers la limite finie sans la dépasser.
         assert!(sim.x(0.0).abs() < 1e-4);
         assert!(sim.x(10.0) <= limit + 1e-3);
-        assert!((sim.x(10.0) - limit).abs() < 1.0, "proche de la limite après 10 s");
+        assert!(
+            (sim.x(10.0) - limit).abs() < 1.0,
+            "proche de la limite après 10 s"
+        );
         // La vitesse décroît vers 0.
         assert!(sim.dx(0.0) > sim.dx(1.0));
         assert!(sim.dx(5.0).abs() < sim.dx(0.0).abs());
@@ -411,7 +414,11 @@ mod tests {
         // Doit passer par x=0 à v=1000 et finir à x=200 à v≈0.
         let sim = FrictionSimulation::through(0.0, 200.0, 1000.0, 0.0, Tolerance::PIXELS);
         assert!((sim.x(0.0)).abs() < 1e-3);
-        assert!((sim.final_x() - 200.0).abs() < 1e-1, "final = {}", sim.final_x());
+        assert!(
+            (sim.final_x() - 200.0).abs() < 1e-1,
+            "final = {}",
+            sim.final_x()
+        );
     }
 
     #[test]

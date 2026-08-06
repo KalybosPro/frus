@@ -76,7 +76,9 @@ pub struct Timeline<Msg> {
 impl<Msg> Timeline<Msg> {
     /// Crée une chronologie vide.
     pub fn new() -> Self {
-        Self { children: Vec::new() }
+        Self {
+            children: Vec::new(),
+        }
     }
 
     /// Ajoute un événement (titre + détail), du plus ancien au plus récent.
@@ -127,7 +129,12 @@ mod tests {
             .event("Jalon 2", "layout");
         assert_eq!(Widget::<()>::children(&timeline).len(), 2);
 
-        let ui = build_ui(&timeline, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &timeline,
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let has = |t: &str| {
             ui.scene()
                 .primitives()

@@ -36,7 +36,10 @@ impl<Msg> ClipRRect<Msg> {
 
     /// Découpe l'enfant à un rectangle arrondi **par coin** (rayons distincts).
     pub fn rounded(radius: BorderRadius) -> Self {
-        Self { radius, children: Vec::new() }
+        Self {
+            radius,
+            children: Vec::new(),
+        }
     }
 
     /// Définit l'enfant découpé.
@@ -86,7 +89,9 @@ pub struct ClipOval<Msg> {
 impl<Msg> ClipOval<Msg> {
     /// Découpe l'enfant à l'ellipse inscrite dans la boîte.
     pub fn new() -> Self {
-        Self { children: Vec::new() }
+        Self {
+            children: Vec::new(),
+        }
     }
 
     /// Définit l'enfant découpé.
@@ -150,7 +155,10 @@ pub struct ClipPath<Msg> {
 impl<Msg> ClipPath<Msg> {
     /// Découpe l'enfant au `path` (coordonnées locales à la boîte).
     pub fn new(path: Path) -> Self {
-        Self { path, children: Vec::new() }
+        Self {
+            path,
+            children: Vec::new(),
+        }
     }
 
     /// Définit l'enfant découpé.
@@ -192,9 +200,9 @@ mod tests {
     #[test]
     fn clip_rrect_wraps_child_in_a_rounded_layer() {
         let red = Color::rgb(1.0, 0.0, 0.0);
-        let root = crate::Flex::<()>::column().width(100.0).child(
-            ClipRRect::new(8.0).child(Container::new().width(40.0).height(40.0).color(red)),
-        );
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .child(ClipRRect::new(8.0).child(Container::new().width(40.0).height(40.0).color(red)));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
@@ -203,13 +211,24 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { clip_shape, primitives, .. } => Some((clip_shape.clone(), primitives.clone())),
+                Primitive::Layer {
+                    clip_shape,
+                    primitives,
+                    ..
+                } => Some((clip_shape.clone(), primitives.clone())),
                 _ => None,
             })
             .expect("un calque de découpe");
-        assert_eq!(layer.0, ClipShape::RRect(BorderRadius::uniform(8.0)), "forme arrondie de rayon 8");
+        assert_eq!(
+            layer.0,
+            ClipShape::RRect(BorderRadius::uniform(8.0)),
+            "forme arrondie de rayon 8"
+        );
         assert!(
-            layer.1.iter().any(|p| matches!(p, Primitive::Rect { color, .. } if color.r > 0.5)),
+            layer
+                .1
+                .iter()
+                .any(|p| matches!(p, Primitive::Rect { color, .. } if color.r > 0.5)),
             "le fond rouge de l'enfant est peint dans le calque"
         );
     }
@@ -218,9 +237,9 @@ mod tests {
     #[test]
     fn clip_oval_emits_an_oval_layer() {
         let blue = Color::rgb(0.0, 0.0, 1.0);
-        let root = crate::Flex::<()>::column().width(100.0).child(
-            ClipOval::new().child(Container::new().width(40.0).height(40.0).color(blue)),
-        );
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .child(ClipOval::new().child(Container::new().width(40.0).height(40.0).color(blue)));
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
@@ -242,14 +261,25 @@ mod tests {
             .line_to(Point::new(20.0, 40.0))
             .line_to(Point::new(0.0, 20.0))
             .close();
-        let root = crate::Flex::<()>::column().width(100.0).padding(10.0).child(
-            ClipPath::new(diamond).child(Container::new().width(40.0).height(40.0).color(Color::rgb(1.0, 0.0, 0.0))),
-        );
+        let root = crate::Flex::<()>::column()
+            .width(100.0)
+            .padding(10.0)
+            .child(
+                ClipPath::new(diamond).child(
+                    Container::new()
+                        .width(40.0)
+                        .height(40.0)
+                        .color(Color::rgb(1.0, 0.0, 0.0)),
+                ),
+            );
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
         let shape = ui.scene().primitives().iter().find_map(|p| match p {
-            Primitive::Layer { clip_shape: ClipShape::Path(path), .. } => Some(path.clone()),
+            Primitive::Layer {
+                clip_shape: ClipShape::Path(path),
+                ..
+            } => Some(path.clone()),
             _ => None,
         });
         let path = shape.expect("un calque de découpe par chemin");
@@ -288,10 +318,15 @@ mod tests {
                 other => vec![other.clone()],
             })
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(rect.y),
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => {
+                    Some(rect.y)
+                }
                 _ => None,
             })
             .expect("le fond vert du 2e enfant");
-        assert!((green_y - 20.0).abs() < 0.5, "frère à sa place layout : y = {green_y}");
+        assert!(
+            (green_y - 20.0).abs() < 0.5,
+            "frère à sa place layout : y = {green_y}"
+        );
     }
 }

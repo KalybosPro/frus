@@ -76,7 +76,13 @@ impl PaintCache {
 
     /// Mémorise (ou remplace) la sortie peinte d'une frontière sous la
     /// génération courante.
-    pub(crate) fn put(&mut self, key: WidgetId, fingerprint: u64, rect_count: usize, data: Box<dyn Any>) {
+    pub(crate) fn put(
+        &mut self,
+        key: WidgetId,
+        fingerprint: u64,
+        rect_count: usize,
+        data: Box<dyn Any>,
+    ) {
         self.entries.insert(
             key,
             Slot {
@@ -146,7 +152,10 @@ mod tests {
         c.get(A, 1);
         c.end_frame();
         assert!(c.entries.contains_key(&A));
-        assert!(!c.entries.contains_key(&A.child(0)), "frontière disparue évincée");
+        assert!(
+            !c.entries.contains_key(&A.child(0)),
+            "frontière disparue évincée"
+        );
     }
 
     #[test]

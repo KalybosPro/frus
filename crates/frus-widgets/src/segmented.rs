@@ -141,7 +141,12 @@ mod tests {
             .segment("Un")
             .segment("Deux")
             .segment("Trois");
-        let ui = build_ui(&seg, Size::new(400.0, 60.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &seg,
+            Size::new(400.0, 60.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Les remplissages des boutons (rectangles nets, non floutés, opaques),
         // dans l'ordre : premier, milieu, dernier.
         let fills: Vec<BorderRadius> = ui
@@ -149,17 +154,24 @@ mod tests {
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                frus_core::Primitive::Rect { radius, blur, color, .. }
-                    if *blur == 0.0 && color.a > 0.9 =>
-                {
-                    Some(*radius)
-                }
+                frus_core::Primitive::Rect {
+                    radius,
+                    blur,
+                    color,
+                    ..
+                } if *blur == 0.0 && color.a > 0.9 => Some(*radius),
                 _ => None,
             })
             .collect();
         assert_eq!(fills.len(), 3, "trois remplissages de segments");
-        assert!(fills[0].top_left > 0.0 && fills[0].top_right == 0.0, "1er : gauche arrondi");
+        assert!(
+            fills[0].top_left > 0.0 && fills[0].top_right == 0.0,
+            "1er : gauche arrondi"
+        );
         assert_eq!(fills[1], BorderRadius::ZERO, "milieu : droit");
-        assert!(fills[2].top_right > 0.0 && fills[2].top_left == 0.0, "dernier : droite arrondie");
+        assert!(
+            fills[2].top_right > 0.0 && fills[2].top_left == 0.0,
+            "dernier : droite arrondie"
+        );
     }
 }

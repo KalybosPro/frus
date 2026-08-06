@@ -44,7 +44,10 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
         let (bg, fg) = if self.selected {
             (theme.primary, theme.on_primary)
         } else {
-            (theme.state_layer(theme.surface, theme.on_surface, &status), theme.on_surface)
+            (
+                theme.state_layer(theme.surface, theme.on_surface, &status),
+                theme.on_surface,
+            )
         };
         scene.draw_rect(bounds, bg.fade(o), CELL * 0.5, 0.0, Color::TRANSPARENT);
         let w = frus_text::measure(&self.label, SIZE).width;
@@ -181,7 +184,10 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                     message: Some((self.on_hour)(h)),
                 });
             }
-            Flex::column().gap(6.0).child(Text::new("Hour").size(13.0)).child(grid)
+            Flex::column()
+                .gap(6.0)
+                .child(Text::new("Hour").size(13.0))
+                .child(grid)
         };
 
         // Section des minutes (pas réglable). La sélection ne s'allume que si la minute
@@ -196,11 +202,16 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             });
             m += self.minute_step;
         }
-        let minutes_section =
-            Flex::column().gap(6.0).child(Text::new("Minute").size(13.0)).child(minutes);
+        let minutes_section = Flex::column()
+            .gap(6.0)
+            .child(Text::new("Minute").size(13.0))
+            .child(minutes);
 
-        self.children =
-            vec![Box::new(preview), Box::new(hours_section), Box::new(minutes_section)];
+        self.children = vec![
+            Box::new(preview),
+            Box::new(hours_section),
+            Box::new(minutes_section),
+        ];
     }
 }
 
@@ -388,21 +399,36 @@ mod tests {
         let hours_grid = &hours_section.children()[2];
         assert_eq!(hours_grid.children().len(), 12);
 
-        let ui = build_ui(&tp, Size::new(240.0, 360.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tp,
+            Size::new(240.0, 360.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert_eq!(preview_text(&ui).as_deref(), Some("3:05 PM"));
     }
 
     #[test]
     fn twentyfour_hour_preview() {
         let tp = TimePicker::new(9, 30, Msg::Hour, Msg::Minute);
-        let ui = build_ui(&tp, Size::new(240.0, 320.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tp,
+            Size::new(240.0, 320.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert_eq!(preview_text(&ui).as_deref(), Some("09:30"));
     }
 
     #[test]
     fn clicking_a_cell_emits_a_message() {
         let tp = TimePicker::new(0, 0, Msg::Hour, Msg::Minute);
-        let ui = build_ui(&tp, Size::new(240.0, 320.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tp,
+            Size::new(240.0, 320.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         let msg = (0..320)
             .step_by(4)

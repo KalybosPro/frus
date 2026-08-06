@@ -40,7 +40,13 @@ impl<Msg> Widget<Msg> for Badge {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         // Pastille (pilule) d'accent.
-        scene.draw_rect(bounds, theme.primary.fade(o), bounds.height * 0.5, 0.0, Color::TRANSPARENT);
+        scene.draw_rect(
+            bounds,
+            theme.primary.fade(o),
+            bounds.height * 0.5,
+            0.0,
+            Color::TRANSPARENT,
+        );
         scene.text(
             Point::new(bounds.x + PAD_X, bounds.y + PAD_Y),
             self.text.clone(),

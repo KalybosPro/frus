@@ -185,7 +185,9 @@ mod tests {
 
     #[test]
     fn text_paints_a_text_primitive() {
-        let text = Text::new("Salut").size(20.0).color(Color::rgb(1.0, 0.0, 0.0));
+        let text = Text::new("Salut")
+            .size(20.0)
+            .color(Color::rgb(1.0, 0.0, 0.0));
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &text,
@@ -250,7 +252,13 @@ mod tests {
             &mut scene,
         );
         match &scene.primitives()[0] {
-            Primitive::Text { size, weight, italic, color, .. } => {
+            Primitive::Text {
+                size,
+                weight,
+                italic,
+                color,
+                ..
+            } => {
                 assert_eq!(*size, 16.0);
                 assert_eq!(*weight, FontWeight::Medium);
                 assert!(*italic);

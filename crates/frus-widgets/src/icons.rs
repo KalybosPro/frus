@@ -147,7 +147,11 @@ fn polygon(points: &[(f32, f32)]) -> Path {
     let mut path = Path::new();
     for (i, &(x, y)) in points.iter().enumerate() {
         let p = Point::new(x, y);
-        path = if i == 0 { path.move_to(p) } else { path.line_to(p) };
+        path = if i == 0 {
+            path.move_to(p)
+        } else {
+            path.line_to(p)
+        };
     }
     path.close()
 }
@@ -209,7 +213,11 @@ fn star(center: Point, outer: f32, inner: f32, points: usize) -> Path {
         let r = if i % 2 == 0 { outer } else { inner };
         let a = -FRAC_PI_2 + step * i as f32;
         let p = Point::new(center.x + r * a.cos(), center.y + r * a.sin());
-        path = if i == 0 { path.move_to(p) } else { path.line_to(p) };
+        path = if i == 0 {
+            path.move_to(p)
+        } else {
+            path.line_to(p)
+        };
     }
     path.close()
 }
@@ -218,12 +226,36 @@ fn star(center: Point, outer: f32, inner: f32, points: usize) -> Path {
 fn heart() -> Path {
     Path::new()
         .move_to(Point::new(12.0, 20.0))
-        .cubic_to(Point::new(7.0, 16.0), Point::new(3.0, 12.5), Point::new(3.0, 8.5))
-        .cubic_to(Point::new(3.0, 6.0), Point::new(5.0, 4.0), Point::new(7.5, 4.0))
-        .cubic_to(Point::new(9.5, 4.0), Point::new(11.2, 5.3), Point::new(12.0, 7.0))
-        .cubic_to(Point::new(12.8, 5.3), Point::new(14.5, 4.0), Point::new(16.5, 4.0))
-        .cubic_to(Point::new(19.0, 4.0), Point::new(21.0, 6.0), Point::new(21.0, 8.5))
-        .cubic_to(Point::new(21.0, 12.5), Point::new(17.0, 16.0), Point::new(12.0, 20.0))
+        .cubic_to(
+            Point::new(7.0, 16.0),
+            Point::new(3.0, 12.5),
+            Point::new(3.0, 8.5),
+        )
+        .cubic_to(
+            Point::new(3.0, 6.0),
+            Point::new(5.0, 4.0),
+            Point::new(7.5, 4.0),
+        )
+        .cubic_to(
+            Point::new(9.5, 4.0),
+            Point::new(11.2, 5.3),
+            Point::new(12.0, 7.0),
+        )
+        .cubic_to(
+            Point::new(12.8, 5.3),
+            Point::new(14.5, 4.0),
+            Point::new(16.5, 4.0),
+        )
+        .cubic_to(
+            Point::new(19.0, 4.0),
+            Point::new(21.0, 6.0),
+            Point::new(21.0, 8.5),
+        )
+        .cubic_to(
+            Point::new(21.0, 12.5),
+            Point::new(17.0, 16.0),
+            Point::new(12.0, 20.0),
+        )
         .close()
 }
 
@@ -262,7 +294,11 @@ mod tests {
     fn eye_is_a_ring_with_a_pupil_and_off_adds_a_slash() {
         // Œil = contour externe + contour interne (opposé) + pupille = 3 sous-chemins fermés.
         let subpaths = |name: IconName| {
-            name.path().verbs().iter().filter(|v| matches!(v, PathVerb::Close)).count()
+            name.path()
+                .verbs()
+                .iter()
+                .filter(|v| matches!(v, PathVerb::Close))
+                .count()
         };
         assert_eq!(subpaths(IconName::Eye), 3, "anneau (2 amandes) + pupille");
         // L'œil barré ajoute la diagonale.

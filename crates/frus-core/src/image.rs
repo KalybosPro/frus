@@ -210,7 +210,8 @@ mod tests {
     #[test]
     fn contain_letterboxes_preserving_aspect() {
         // Source carrée dans une boîte large → hauteur pleine, centrée en largeur.
-        let (dst, uv) = BoxFit::Contain.apply(Size::new(10.0, 10.0), Rect::new(0.0, 0.0, 100.0, 40.0));
+        let (dst, uv) =
+            BoxFit::Contain.apply(Size::new(10.0, 10.0), Rect::new(0.0, 0.0, 100.0, 40.0));
         assert_eq!(dst, Rect::new(30.0, 0.0, 40.0, 40.0));
         assert_eq!(uv, Rect::new(0.0, 0.0, 1.0, 1.0));
     }
@@ -232,7 +233,10 @@ mod tests {
         assert_eq!(BoxFit::None.scale(src, dst), (1.0, 1.0));
         assert_eq!(BoxFit::ScaleDown.scale(src, dst), (1.0, 1.0));
         // ScaleDown réduit bien quand la boîte est plus petite.
-        assert_eq!(BoxFit::ScaleDown.scale(src, Size::new(20.0, 20.0)), (0.5, 0.5));
+        assert_eq!(
+            BoxFit::ScaleDown.scale(src, Size::new(20.0, 20.0)),
+            (0.5, 0.5)
+        );
         // Source dégénérée → neutre.
         assert_eq!(BoxFit::Cover.scale(Size::new(0.0, 10.0), dst), (1.0, 1.0));
     }
@@ -240,7 +244,8 @@ mod tests {
     #[test]
     fn cover_fills_the_box_and_crops_uv() {
         // Source carrée dans une boîte large → couvre tout, rogne en hauteur (UV).
-        let (dst, uv) = BoxFit::Cover.apply(Size::new(10.0, 10.0), Rect::new(0.0, 0.0, 100.0, 40.0));
+        let (dst, uv) =
+            BoxFit::Cover.apply(Size::new(10.0, 10.0), Rect::new(0.0, 0.0, 100.0, 40.0));
         assert_eq!(dst, Rect::new(0.0, 0.0, 100.0, 40.0));
         // scale = max(10, 4) = 10 → image 100×100 ; visible = 40/100 = 0.4 de hauteur.
         assert_eq!(uv.width, 1.0);

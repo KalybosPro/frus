@@ -25,23 +25,31 @@ impl Default for Affine {
 
 impl Affine {
     /// L'identité (aucune transformation).
-    pub const IDENTITY: Affine = Affine { m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] };
+    pub const IDENTITY: Affine = Affine {
+        m: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    };
 
     /// Une translation pure de `(tx, ty)`.
     pub const fn translation(tx: f32, ty: f32) -> Affine {
-        Affine { m: [1.0, 0.0, 0.0, 1.0, tx, ty] }
+        Affine {
+            m: [1.0, 0.0, 0.0, 1.0, tx, ty],
+        }
     }
 
     /// Une mise à l'échelle par axe (autour de l'origine).
     pub const fn scale(sx: f32, sy: f32) -> Affine {
-        Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] }
+        Affine {
+            m: [sx, 0.0, 0.0, sy, 0.0, 0.0],
+        }
     }
 
     /// Une rotation d'`angle` radians (sens horaire, y vers le bas), autour de
     /// l'origine.
     pub fn rotation(angle: f32) -> Affine {
         let (s, c) = angle.sin_cos();
-        Affine { m: [c, s, -s, c, 0.0, 0.0] }
+        Affine {
+            m: [c, s, -s, c, 0.0, 0.0],
+        }
     }
 
     /// Composition : `self.then(next)` = appliquer `self` **puis** `next`.
@@ -89,7 +97,12 @@ impl Affine {
     pub fn apply_rect(self, r: Rect) -> Rect {
         let a = self.apply(Point::new(r.x, r.y));
         let b = self.apply(Point::new(r.x + r.width, r.y + r.height));
-        Rect::new(a.x.min(b.x), a.y.min(b.y), (a.x - b.x).abs(), (a.y - b.y).abs())
+        Rect::new(
+            a.x.min(b.x),
+            a.y.min(b.y),
+            (a.x - b.x).abs(),
+            (a.y - b.y).abs(),
+        )
     }
 
     /// La transformation inverse (l'identité si la matrice est dégénérée).
@@ -170,7 +183,12 @@ impl Insets {
     pub const ZERO: Self = Self::new(0.0, 0.0, 0.0, 0.0);
 
     pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Self {
-        Self { top, right, bottom, left }
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
 
     /// La même marge sur les quatre côtés.
@@ -194,7 +212,12 @@ impl InsetsDirectional {
     pub const ZERO: Self = Self::new(0.0, 0.0, 0.0, 0.0);
 
     pub const fn new(top: f32, end: f32, bottom: f32, start: f32) -> Self {
-        Self { top, end, bottom, start }
+        Self {
+            top,
+            end,
+            bottom,
+            start,
+        }
     }
 
     /// Marge `start`/`end` symétrique horizontale (façon `symmetric`).
@@ -302,7 +325,11 @@ impl AlignmentDirectional {
     /// Résout en ancrage **physique** : en RTL, début ↔ droite (x inversé) ; en
     /// LTR, début = gauche (x inchangé). Le `y` ne dépend pas de la direction.
     pub fn resolve(self, direction: TextDirection) -> Alignment {
-        let x = if direction.is_rtl() { -self.x_start } else { self.x_start };
+        let x = if direction.is_rtl() {
+            -self.x_start
+        } else {
+            self.x_start
+        };
         Alignment::new(x, self.y)
     }
 }
@@ -422,7 +449,12 @@ impl Rect {
 
     /// Crée un rectangle depuis sa position (coin haut-gauche) et sa taille.
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Décale le rectangle de `(dx, dy)`.
@@ -522,7 +554,10 @@ mod tests {
             .then(Affine::rotation(FRAC_PI_2).about(pivot));
         // Le pivot est fixe.
         let c = m.apply(pivot);
-        assert!((c.x - 10.0).abs() < 1e-3 && (c.y - 10.0).abs() < 1e-3, "pivot fixe : {c:?}");
+        assert!(
+            (c.x - 10.0).abs() < 1e-3 && (c.y - 10.0).abs() < 1e-3,
+            "pivot fixe : {c:?}"
+        );
         // Partie linéaire = rotation(90°) ∘ échelle(2) = [0, 2, -2, 0].
         assert!(m.m[0].abs() < 1e-3 && (m.m[1] - 2.0).abs() < 1e-3);
         assert!((m.m[2] + 2.0).abs() < 1e-3 && m.m[3].abs() < 1e-3);
@@ -536,9 +571,16 @@ mod tests {
             .then(Affine::rotation(FRAC_PI_3).about(Point::new(2.0, 3.0)))
             .then(Affine::translation(5.0, -2.0));
         let inv = m.inverse();
-        for p in [Point::new(0.0, 0.0), Point::new(12.0, -3.0), Point::new(-5.0, 8.0)] {
+        for p in [
+            Point::new(0.0, 0.0),
+            Point::new(12.0, -3.0),
+            Point::new(-5.0, 8.0),
+        ] {
             let back = inv.apply(m.apply(p));
-            assert!((back.x - p.x).abs() < 1e-2 && (back.y - p.y).abs() < 1e-2, "{p:?} -> {back:?}");
+            assert!(
+                (back.x - p.x).abs() < 1e-2 && (back.y - p.y).abs() < 1e-2,
+                "{p:?} -> {back:?}"
+            );
         }
     }
 
@@ -569,9 +611,16 @@ mod tests {
         // start=10, end=4 : en LTR start→gauche ; en RTL start→droite.
         let d = InsetsDirectional::new(1.0, 4.0, 2.0, 10.0);
         let ltr = d.resolve(TextDirection::Ltr);
-        assert_eq!((ltr.left, ltr.right, ltr.top, ltr.bottom), (10.0, 4.0, 1.0, 2.0));
+        assert_eq!(
+            (ltr.left, ltr.right, ltr.top, ltr.bottom),
+            (10.0, 4.0, 1.0, 2.0)
+        );
         let rtl = d.resolve(TextDirection::Rtl);
-        assert_eq!((rtl.left, rtl.right), (4.0, 10.0), "start passe à droite en RTL");
+        assert_eq!(
+            (rtl.left, rtl.right),
+            (4.0, 10.0),
+            "start passe à droite en RTL"
+        );
         // Le vertical ne bouge jamais.
         assert_eq!((rtl.top, rtl.bottom), (1.0, 2.0));
     }

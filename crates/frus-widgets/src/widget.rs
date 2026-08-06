@@ -73,7 +73,13 @@ pub trait Widget<Msg> {
     /// [`on_click`](Self::on_click). Sert aux sous-régions cliquables — p. ex. l'icône **suffixe**
     /// d'un [`crate::TextInput`] (effacer / révéler) ou un **point** de graphique (jalon 221).
     /// `None` (défaut) = aucune sous-région ; le shell retombe alors sur `on_click`.
-    fn positional_click(&self, _local_x: f32, _local_y: f32, _width: f32, _height: f32) -> Option<Msg> {
+    fn positional_click(
+        &self,
+        _local_x: f32,
+        _local_y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Option<Msg> {
         None
     }
 
@@ -81,7 +87,13 @@ pub trait Widget<Msg> {
     /// boîte `width × height` du widget (jalon 205) : `Some(Cursor::Pointer)` sur une sous-région
     /// cliquable (icône suffixe…), `None` (défaut) = pas d'avis, le shell garde le curseur par
     /// défaut. N'affecte pas le clic ; c'est purement l'apparence du pointeur au survol.
-    fn cursor_icon(&self, _local_x: f32, _local_y: f32, _width: f32, _height: f32) -> Option<Cursor> {
+    fn cursor_icon(
+        &self,
+        _local_x: f32,
+        _local_y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Option<Cursor> {
         None
     }
 

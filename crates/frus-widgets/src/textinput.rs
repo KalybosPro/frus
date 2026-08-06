@@ -285,7 +285,13 @@ impl<Msg> TextInput<Msg> {
     /// — géométrie cohérente (kerning). `wrap_width` = largeur de repli doux
     /// (multi-lignes) ou `None` (mono-ligne : seuls les `\n` explicites coupent).
     fn layout(&self, wrap_width: Option<f32>) -> TextLayout {
-        TextLayout::wrapped(&self.display(), self.size, FontWeight::Regular, false, wrap_width)
+        TextLayout::wrapped(
+            &self.display(),
+            self.size,
+            FontWeight::Regular,
+            false,
+            wrap_width,
+        )
     }
 
     /// Largeur réservée à l'icône de préfixe (0 si aucune).
@@ -338,7 +344,11 @@ impl<Msg> TextInput<Msg> {
     /// Hauteur de la boîte de saisie elle-même (hors décoration) : une ligne en
     /// simple, `rows` lignes en multi-lignes.
     fn field_height(&self) -> f32 {
-        let lines = if self.multiline { self.rows.max(1) as f32 } else { 1.0 };
+        let lines = if self.multiline {
+            self.rows.max(1) as f32
+        } else {
+            1.0
+        };
         (frus_text::line_height(self.size) * lines + PAD_Y * 2.0).ceil()
     }
 }
@@ -385,7 +395,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let label_geom = self.label.as_ref().map(|label| {
             let rest = Point::new(content_left, field.y + PAD_Y);
             let (fx, fy) = if self.outlined {
-                (field.x + PAD_X, field.y - frus_text::line_height(LABEL_SIZE) * 0.5)
+                (
+                    field.x + PAD_X,
+                    field.y - frus_text::line_height(LABEL_SIZE) * 0.5,
+                )
             } else {
                 (bounds.x, bounds.y)
             };
@@ -427,7 +440,13 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
         .fade(o);
         let border_width = 1.0 + fp;
-        scene.draw_rect(field, theme.surface.fade(o), theme.radius, border_width, border_color);
+        scene.draw_rect(
+            field,
+            theme.surface.fade(o),
+            theme.radius,
+            border_width,
+            border_color,
+        );
 
         // Contour : **encoche** du label. On masque le segment de bordure derrière le
         // label flottant par un aplat couleur surface, puis on peint le label par-dessus.
@@ -453,7 +472,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let icon_y = field.y + (field.height - ICON_SIZE) * 0.5;
         let icon_scale = ICON_SIZE / 24.0;
         if let Some(prefix) = self.prefix {
-            let path = prefix.path().scaled(icon_scale).translated(field.x + ICON_PAD, icon_y);
+            let path = prefix
+                .path()
+                .scaled(icon_scale)
+                .translated(field.x + ICON_PAD, icon_y);
             scene.fill_path(&path, icon_color);
         }
         if let Some(suffix) = self.suffix {
@@ -463,7 +485,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             if self.suffix_action.is_some() {
                 if let Some(hc) = status.hover_cursor {
                     if self.suffix_hit(hc.x - bounds.x, hc.y - bounds.y, bounds.width) {
-                        let halo = Rect::new(x - 4.0, icon_y - 4.0, ICON_SIZE + 8.0, ICON_SIZE + 8.0);
+                        let halo =
+                            Rect::new(x - 4.0, icon_y - 4.0, ICON_SIZE + 8.0, ICON_SIZE + 8.0);
                         scene.draw_rect(
                             halo,
                             theme.muted.fade(o * 0.18),
@@ -486,7 +509,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let text_y = field.y + PAD_Y;
         // Multi-lignes : le texte se **replie** à la largeur de contenu — même
         // `max_width` pour la mesure (caret/hit) et pour le rendu → replis identiques.
-        let wrap = if self.multiline { Some(content_w) } else { None };
+        let wrap = if self.multiline {
+            Some(content_w)
+        } else {
+            None
+        };
         let layout = self.layout(wrap);
 
         // Indice (placeholder) : affiché quand le champ est vide. S'il y a aussi un
@@ -510,7 +537,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // (multi-lignes). Recalculé depuis le curseur, comme au clic (`cursor_at`).
         let cursor = status.cursor.unwrap_or(len).min(len);
         let caret = layout.caret_rect(cursor);
-        let scroll = if status.focused { (caret.x - content_w).max(0.0) } else { 0.0 };
+        let scroll = if status.focused {
+            (caret.x - content_w).max(0.0)
+        } else {
+            0.0
+        };
         let text_x = content_x - scroll;
         // Défilement vertical **retenu** (molette/barre, suivi du caret par le shell) ;
         // borné au dépassement du contenu sur la boîte.
@@ -524,9 +555,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let text_top = text_y - vscroll;
 
         // Découpe au cadre de contenu (sinon le texte déborde sur les voisins).
-        let content_clip = scene
-            .current_clip()
-            .intersect(Rect::new(content_x, field.y, content_w, field.height));
+        let content_clip =
+            scene
+                .current_clip()
+                .intersect(Rect::new(content_x, field.y, content_w, field.height));
         scene.set_clip(content_clip);
 
         // Surbrillance de sélection (sous le texte).
@@ -546,9 +578,13 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             let color = theme.on_surface.fade(o);
             match wrap {
                 // Multi-lignes : le rendu se replie comme la mesure.
-                Some(max_w) => {
-                    scene.text_wrapped(pos, self.display(), &TextStyle::new(self.size), color, max_w)
-                }
+                Some(max_w) => scene.text_wrapped(
+                    pos,
+                    self.display(),
+                    &TextStyle::new(self.size),
+                    color,
+                    max_w,
+                ),
                 None => scene.text(pos, self.display(), self.size, color),
             }
         }
@@ -560,12 +596,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 let (start, end) = (start.min(len), end.min(len));
                 for r in layout.selection_rects(start, end) {
                     scene.fill_rect(
-                        Rect::new(
-                            text_x + r.x,
-                            text_top + r.y + r.height - 1.5,
-                            r.width,
-                            1.5,
-                        ),
+                        Rect::new(text_x + r.x, text_top + r.y + r.height - 1.5, r.width, 1.5),
                         theme.on_surface.fade(o * 0.7),
                     );
                 }
@@ -585,7 +616,13 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         None
     }
 
-    fn positional_click(&self, local_x: f32, local_y: f32, width: f32, _height: f32) -> Option<Msg> {
+    fn positional_click(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        _height: f32,
+    ) -> Option<Msg> {
         if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
             self.suffix_action.clone()
         } else {
@@ -730,7 +767,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // **défilement vertical retenu** est déjà intégré à `local_y` par le shell.
         let left = PAD_X + self.prefix_w();
         let content_w = self.content_width(width);
-        let layout = self.layout(if self.multiline { Some(content_w) } else { None });
+        let layout = self.layout(if self.multiline {
+            Some(content_w)
+        } else {
+            None
+        });
         let scroll = (layout.caret_rect(scroll_cursor).x - content_w).max(0.0);
         // `local_*` sont relatifs au coin haut-gauche du **widget** (label compris) :
         // on retire la bande du label et le padding pour tomber dans le texte.
@@ -754,7 +795,12 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             return None;
         }
         // La boîte de saisie : sous le label, de la hauteur des `rows`.
-        Some(Rect::new(rect.x, rect.y + self.label_block(), rect.width, self.field_height()))
+        Some(Rect::new(
+            rect.x,
+            rect.y + self.label_block(),
+            rect.width,
+            self.field_height(),
+        ))
     }
 
     fn caret_vertical(
@@ -893,7 +939,10 @@ mod tests {
                 _ => None,
             })
             .expect("primitive de texte");
-        assert!((clip.width - (100.0 - PAD_X * 2.0)).abs() < 0.5, "découpe = {clip:?}");
+        assert!(
+            (clip.width - (100.0 - PAD_X * 2.0)).abs() < 0.5,
+            "découpe = {clip:?}"
+        );
     }
 
     #[test]
@@ -901,12 +950,25 @@ mod tests {
         // La région composée ajoute des rectangles fins (soulignement) sous le
         // texte, absents quand aucune composition n'est en cours.
         let inp = input("konnichiwa");
-        let base = Status { focused: true, cursor: Some(5), ..Default::default() };
-        let composing = Status { composing: Some((0, 5)), ..base };
+        let base = Status {
+            focused: true,
+            cursor: Some(5),
+            ..Default::default()
+        };
+        let composing = Status {
+            composing: Some((0, 5)),
+            ..base
+        };
 
         let count_thin_rects = |status: Status| {
             let mut scene = Scene::new();
-            Widget::<Msg>::paint(&inp, Rect::new(0.0, 0.0, 220.0, 30.0), status, &Theme::default(), &mut scene);
+            Widget::<Msg>::paint(
+                &inp,
+                Rect::new(0.0, 0.0, 220.0, 30.0),
+                status,
+                &Theme::default(),
+                &mut scene,
+            );
             scene
                 .primitives()
                 .iter()
@@ -915,7 +977,10 @@ mod tests {
         };
         let plain = count_thin_rects(base);
         let underlined = count_thin_rects(composing);
-        assert!(underlined > plain, "la composition doit souligner ({plain} → {underlined})");
+        assert!(
+            underlined > plain,
+            "la composition doit souligner ({plain} → {underlined})"
+        );
     }
 
     #[test]
@@ -946,7 +1011,11 @@ mod tests {
     #[test]
     fn insert_at_cursor() {
         let inp = input("ac");
-        let mut edit = Edit { cursor: 1, anchor: None, composing: None };
+        let mut edit = Edit {
+            cursor: 1,
+            anchor: None,
+            composing: None,
+        };
         assert_eq!(
             inp.on_edit(&mut edit, &Key::Text("b".to_string())),
             Some(Msg::Changed("abc".to_string()))
@@ -958,9 +1027,25 @@ mod tests {
     fn shift_arrow_selects_then_delete() {
         let inp = input("hello");
         // Curseur en fin, Shift+Left deux fois -> sélectionne "lo".
-        let mut edit = Edit { cursor: 5, anchor: None, composing: None };
-        inp.on_edit(&mut edit, &Key::Left { shift: true, word: false });
-        inp.on_edit(&mut edit, &Key::Left { shift: true, word: false });
+        let mut edit = Edit {
+            cursor: 5,
+            anchor: None,
+            composing: None,
+        };
+        inp.on_edit(
+            &mut edit,
+            &Key::Left {
+                shift: true,
+                word: false,
+            },
+        );
+        inp.on_edit(
+            &mut edit,
+            &Key::Left {
+                shift: true,
+                word: false,
+            },
+        );
         assert_eq!(edit.selection_range(), Some((3, 5)));
         // Backspace supprime la sélection.
         assert_eq!(
@@ -974,10 +1059,26 @@ mod tests {
     #[test]
     fn home_end_bounds() {
         let inp = input("abc");
-        let mut edit = Edit { cursor: 1, anchor: None, composing: None };
-        inp.on_edit(&mut edit, &Key::End { shift: false, doc: false });
+        let mut edit = Edit {
+            cursor: 1,
+            anchor: None,
+            composing: None,
+        };
+        inp.on_edit(
+            &mut edit,
+            &Key::End {
+                shift: false,
+                doc: false,
+            },
+        );
         assert_eq!(edit.cursor, 3);
-        inp.on_edit(&mut edit, &Key::Home { shift: false, doc: false });
+        inp.on_edit(
+            &mut edit,
+            &Key::Home {
+                shift: false,
+                doc: false,
+            },
+        );
         assert_eq!(edit.cursor, 0);
     }
 
@@ -985,47 +1086,113 @@ mod tests {
     fn ctrl_arrow_jumps_by_word() {
         let inp = input("foo bar baz");
         // Depuis la fin, Ctrl+Left saute au début de "baz", puis "bar", puis "foo".
-        let mut edit = Edit { cursor: 11, anchor: None, composing: None };
-        inp.on_edit(&mut edit, &Key::Left { shift: false, word: true });
+        let mut edit = Edit {
+            cursor: 11,
+            anchor: None,
+            composing: None,
+        };
+        inp.on_edit(
+            &mut edit,
+            &Key::Left {
+                shift: false,
+                word: true,
+            },
+        );
         assert_eq!(edit.cursor, 8, "début de \"baz\"");
-        inp.on_edit(&mut edit, &Key::Left { shift: false, word: true });
+        inp.on_edit(
+            &mut edit,
+            &Key::Left {
+                shift: false,
+                word: true,
+            },
+        );
         assert_eq!(edit.cursor, 4, "début de \"bar\"");
         // Ctrl+Right saute à la fin de "bar", puis "baz".
-        inp.on_edit(&mut edit, &Key::Right { shift: false, word: true });
+        inp.on_edit(
+            &mut edit,
+            &Key::Right {
+                shift: false,
+                word: true,
+            },
+        );
         assert_eq!(edit.cursor, 7, "fin de \"bar\"");
-        inp.on_edit(&mut edit, &Key::Right { shift: false, word: true });
+        inp.on_edit(
+            &mut edit,
+            &Key::Right {
+                shift: false,
+                word: true,
+            },
+        );
         assert_eq!(edit.cursor, 11, "fin de \"baz\"");
     }
 
     #[test]
     fn home_end_are_line_relative_but_ctrl_spans_the_field() {
         // "ab\ncd\nef" : curseur au milieu de la 2e ligne (index 4, entre c et d).
-        let inp = TextInput::<Msg>::new("ab\ncd\nef").on_input(Msg::Changed).rows(3);
-        let mut edit = Edit { cursor: 4, anchor: None, composing: None };
+        let inp = TextInput::<Msg>::new("ab\ncd\nef")
+            .on_input(Msg::Changed)
+            .rows(3);
+        let mut edit = Edit {
+            cursor: 4,
+            anchor: None,
+            composing: None,
+        };
         // Home simple → début de la ligne courante (index 3), pas du champ.
-        inp.on_edit(&mut edit, &Key::Home { shift: false, doc: false });
+        inp.on_edit(
+            &mut edit,
+            &Key::Home {
+                shift: false,
+                doc: false,
+            },
+        );
         assert_eq!(edit.cursor, 3, "début de la 2e ligne");
         // End simple → fin de la ligne courante (index 5).
-        inp.on_edit(&mut edit, &Key::End { shift: false, doc: false });
+        inp.on_edit(
+            &mut edit,
+            &Key::End {
+                shift: false,
+                doc: false,
+            },
+        );
         assert_eq!(edit.cursor, 5, "fin de la 2e ligne");
         // Ctrl+Home / Ctrl+End → bornes du champ entier.
-        inp.on_edit(&mut edit, &Key::Home { shift: false, doc: true });
+        inp.on_edit(
+            &mut edit,
+            &Key::Home {
+                shift: false,
+                doc: true,
+            },
+        );
         assert_eq!(edit.cursor, 0, "début du champ");
-        inp.on_edit(&mut edit, &Key::End { shift: false, doc: true });
+        inp.on_edit(
+            &mut edit,
+            &Key::End {
+                shift: false,
+                doc: true,
+            },
+        );
         assert_eq!(edit.cursor, 8, "fin du champ");
     }
 
     #[test]
     fn selected_text_reads_range() {
         let inp = input("hello");
-        let edit = Edit { cursor: 5, anchor: Some(2), composing: None };
+        let edit = Edit {
+            cursor: 5,
+            anchor: Some(2),
+            composing: None,
+        };
         assert_eq!(inp.selected_text(&edit), Some("llo".to_string()));
     }
 
     #[test]
     fn enter_submits_without_changing_value() {
         let inp = input("acheter du lait").on_submit(Msg::Submitted);
-        let mut edit = Edit { cursor: 3, anchor: None, composing: None };
+        let mut edit = Edit {
+            cursor: 3,
+            anchor: None,
+            composing: None,
+        };
         // Entrée : émet la soumission, ne renvoie pas de changement de valeur.
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
         assert_eq!(edit.cursor, 3); // curseur inchangé
@@ -1034,7 +1201,11 @@ mod tests {
     #[test]
     fn enter_without_submit_is_noop() {
         let inp = input("x");
-        let mut edit = Edit { cursor: 1, anchor: None, composing: None };
+        let mut edit = Edit {
+            cursor: 1,
+            anchor: None,
+            composing: None,
+        };
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
     }
 
@@ -1045,8 +1216,18 @@ mod tests {
         let theme = Theme::default();
         let field = TextInput::<Msg>::new("secret").obscure(true);
         let mut scene = Scene::new();
-        let status = Status { focused: true, cursor: Some(6), ..Default::default() };
-        Widget::<Msg>::paint(&field, Rect::new(0.0, 0.0, 220.0, 30.0), status, &theme, &mut scene);
+        let status = Status {
+            focused: true,
+            cursor: Some(6),
+            ..Default::default()
+        };
+        Widget::<Msg>::paint(
+            &field,
+            Rect::new(0.0, 0.0, 220.0, 30.0),
+            status,
+            &theme,
+            &mut scene,
+        );
         let drawn: Vec<&str> = scene
             .primitives()
             .iter()
@@ -1055,8 +1236,14 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(drawn.iter().all(|t| !t.contains("secret")), "la valeur ne doit pas fuiter");
-        assert!(drawn.iter().any(|t| t.chars().all(|c| c == '•')), "des points sont dessinés");
+        assert!(
+            drawn.iter().all(|t| !t.contains("secret")),
+            "la valeur ne doit pas fuiter"
+        );
+        assert!(
+            drawn.iter().any(|t| t.chars().all(|c| c == '•')),
+            "des points sont dessinés"
+        );
         // La vraie valeur reste exposée au contexte de saisie.
         assert_eq!(Widget::<Msg>::text_value(&field), Some("secret"));
     }
@@ -1068,22 +1255,40 @@ mod tests {
         let theme = Theme::default();
         let with_icon = input("hello world").prefix_icon(IconName::Star);
         let mut scene = Scene::new();
-        Widget::<Msg>::paint(&with_icon, Rect::new(0.0, 0.0, 220.0, 30.0), Status::default(), &theme, &mut scene);
+        Widget::<Msg>::paint(
+            &with_icon,
+            Rect::new(0.0, 0.0, 220.0, 30.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
         assert!(
-            scene.primitives().iter().any(|p| matches!(p, frus_core::Primitive::Path { .. })),
+            scene
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, frus_core::Primitive::Path { .. })),
             "l'icône de préfixe dessine un chemin"
         );
         let plain = input("hello world");
         let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, PAD_Y, 220.0, 0).unwrap();
         let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, PAD_Y, 220.0, 0).unwrap();
-        assert!(at_icon < at_plain, "le préfixe décale le contenu ({at_plain} → {at_icon})");
+        assert!(
+            at_icon < at_plain,
+            "le préfixe décale le contenu ({at_plain} → {at_icon})"
+        );
     }
 
     #[test]
     fn multiline_enter_inserts_a_newline_instead_of_submitting() {
         // En multi-lignes, Entrée insère « \n » (et n'émet pas la soumission).
-        let inp = TextInput::<Msg>::new("ab").on_input(Msg::Changed).multiline();
-        let mut edit = Edit { cursor: 2, anchor: None, composing: None };
+        let inp = TextInput::<Msg>::new("ab")
+            .on_input(Msg::Changed)
+            .multiline();
+        let mut edit = Edit {
+            cursor: 2,
+            anchor: None,
+            composing: None,
+        };
         assert_eq!(
             inp.on_edit(&mut edit, &Key::Enter),
             Some(Msg::Changed("ab\n".to_string()))
@@ -1091,7 +1296,11 @@ mod tests {
         assert_eq!(edit.cursor, 3);
         // Simple ligne : Entrée soumet (comportement inchangé).
         let single = input("ab").on_submit(Msg::Submitted);
-        let mut edit = Edit { cursor: 2, anchor: None, composing: None };
+        let mut edit = Edit {
+            cursor: 2,
+            anchor: None,
+            composing: None,
+        };
         assert_eq!(single.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
     }
 
@@ -1101,28 +1310,52 @@ mod tests {
         // un clic bien plus bas que la 1re ligne place le curseur plus loin dans le
         // texte (une ligne repliée sous la première), pas à l'index 0.
         let long = "word ".repeat(30); // 150 caractères, aucune coupure explicite
-        let inp = TextInput::<Msg>::new(long.trim_end()).on_input(Msg::Changed).rows(4).width(160.0);
+        let inp = TextInput::<Msg>::new(long.trim_end())
+            .on_input(Msg::Changed)
+            .rows(4)
+            .width(160.0);
         let line_h = frus_text::line_height(inp.size);
         let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + 1.0, 160.0, 0).unwrap();
         let wrapped =
-            Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + line_h * 2.0 + 1.0, 160.0, 0).unwrap();
+            Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + line_h * 2.0 + 1.0, 160.0, 0)
+                .unwrap();
         assert!(top < 10, "1re ligne : {top}");
-        assert!(wrapped > top, "une ligne repliée plus bas → index plus loin ({top} → {wrapped})");
+        assert!(
+            wrapped > top,
+            "une ligne repliée plus bas → index plus loin ({top} → {wrapped})"
+        );
     }
 
     #[test]
     fn multiline_reports_overflow_and_scrolls_content() {
         // Cinq lignes dans une boîte de deux : le contenu déborde…
-        let inp = TextInput::<Msg>::new("l1\nl2\nl3\nl4\nl5").on_input(Msg::Changed).rows(2).width(200.0);
+        let inp = TextInput::<Msg>::new("l1\nl2\nl3\nl4\nl5")
+            .on_input(Msg::Changed)
+            .rows(2)
+            .width(200.0);
         let (content_h, visible_h, _, _) =
             Widget::<Msg>::text_metrics(&inp, 200.0, 0).expect("champ multi-lignes");
-        assert!(content_h > visible_h + 1.0, "5 lignes > boîte de 2 ({content_h} vs {visible_h})");
+        assert!(
+            content_h > visible_h + 1.0,
+            "5 lignes > boîte de 2 ({content_h} vs {visible_h})"
+        );
 
         // …et un défilement retenu décale le texte vers le haut (position.y plus petite).
         let text_top = |scroll: f32| {
             let mut scene = Scene::new();
-            let status = Status { focused: true, cursor: Some(0), scroll_y: scroll, ..Default::default() };
-            Widget::<Msg>::paint(&inp, Rect::new(0.0, 0.0, 200.0, 80.0), status, &Theme::default(), &mut scene);
+            let status = Status {
+                focused: true,
+                cursor: Some(0),
+                scroll_y: scroll,
+                ..Default::default()
+            };
+            Widget::<Msg>::paint(
+                &inp,
+                Rect::new(0.0, 0.0, 200.0, 80.0),
+                status,
+                &Theme::default(),
+                &mut scene,
+            );
             scene
                 .primitives()
                 .iter()
@@ -1140,19 +1373,31 @@ mod tests {
     #[test]
     fn multiline_arrows_move_the_caret_between_lines() {
         // "abc\ndefg\nhi" : ligne 0 = indices 0..3, ligne 1 = 4..8, ligne 2 = 9..11.
-        let inp = TextInput::<Msg>::new("abc\ndefg\nhi").on_input(Msg::Changed).rows(3).width(200.0);
+        let inp = TextInput::<Msg>::new("abc\ndefg\nhi")
+            .on_input(Msg::Changed)
+            .rows(3)
+            .width(200.0);
         // Depuis la 1re ligne (index 1), descendre tombe sur la 2e ligne.
         let (down, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 1, true, false, None).unwrap();
         assert!((4..=8).contains(&down), "descend sur la 2e ligne : {down}");
         // 1re ligne, monter → impossible (le shell navigue le focus).
-        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false, false, None), None);
+        assert_eq!(
+            Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false, false, None),
+            None
+        );
         // Dernière ligne (index 10), descendre → impossible.
-        assert_eq!(Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true, false, None), None);
+        assert_eq!(
+            Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true, false, None),
+            None
+        );
         // 2e ligne (index 5), monter tombe sur la 1re.
         let (up, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, false, false, None).unwrap();
         assert!(up <= 3, "monte sur la 1re ligne : {up}");
         // Champ mono-ligne : jamais de mouvement vertical.
-        assert_eq!(Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true, false, None), None);
+        assert_eq!(
+            Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true, false, None),
+            None
+        );
     }
 
     #[test]
@@ -1161,24 +1406,34 @@ mod tests {
         // Partant de la colonne 5 (fin de "hello"), on descend : la 2e ligne "hi" est
         // trop courte (bornée à sa fin), mais la colonne cible rendue reste ~celle de
         // départ, si bien qu'on retombe sur la colonne 5 en descendant encore.
-        let inp =
-            TextInput::<Msg>::new("hello\nhi\nworld").on_input(Msg::Changed).rows(3).width(200.0);
+        let inp = TextInput::<Msg>::new("hello\nhi\nworld")
+            .on_input(Msg::Changed)
+            .rows(3)
+            .width(200.0);
         let (mid, goal) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, true, false, None).unwrap();
-        assert!((6..=8).contains(&mid), "ligne courte, bornée à sa fin : {mid}");
+        assert!(
+            (6..=8).contains(&mid),
+            "ligne courte, bornée à sa fin : {mid}"
+        );
         // Deuxième saut en réutilisant la colonne cible : sans mémoire on serait resté
         // borné à la fin de "hi" (col. ~2) ; ici on retombe loin dans "world" (col. ~5),
         // preuve que la colonne d'origine est préservée par-dessus la ligne courte.
         let (low, _) =
             Widget::<Msg>::caret_vertical(&inp, 200.0, mid, true, false, Some(goal)).unwrap();
-        assert!((12..=14).contains(&low), "colonne cible préservée dans \"world\" : {low}");
+        assert!(
+            (12..=14).contains(&low),
+            "colonne cible préservée dans \"world\" : {low}"
+        );
     }
 
     #[test]
     fn multiline_page_jump_is_clamped_to_the_field() {
         // Page haut/bas ne quittent jamais le champ multi-lignes : aux bornes, le
         // curseur se cale au début / à la fin et rend `Some` (pas `None` → on reste).
-        let inp =
-            TextInput::<Msg>::new("a\nb\nc\nd\ne").on_input(Msg::Changed).rows(2).width(200.0);
+        let inp = TextInput::<Msg>::new("a\nb\nc\nd\ne")
+            .on_input(Msg::Changed)
+            .rows(2)
+            .width(200.0);
         // Depuis la dernière ligne, PgDn se cale en bas (on ne quitte pas le champ).
         let (bottom, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 8, true, true, None).unwrap();
         assert!(bottom >= 7, "PgDn borné au bas du champ : {bottom}");
@@ -1198,14 +1453,19 @@ mod tests {
             Dimension::Length(h) => h,
             _ => panic!("hauteur fixe"),
         };
-        assert!(four > one * 2.0, "4 lignes bien plus hautes qu'une ({one} → {four})");
+        assert!(
+            four > one * 2.0,
+            "4 lignes bien plus hautes qu'une ({one} → {four})"
+        );
     }
 
     #[test]
     fn multiline_hit_test_uses_the_click_line() {
         // Un clic sur la 2e ligne place le curseur dans « cd » (indices ≥ 3), pas
         // dans « ab » de la 1re ligne.
-        let inp = TextInput::<Msg>::new("ab\ncd").on_input(Msg::Changed).rows(3);
+        let inp = TextInput::<Msg>::new("ab\ncd")
+            .on_input(Msg::Changed)
+            .rows(3);
         let line_h = frus_text::line_height(inp.size);
         // Clic haut-gauche → 1re ligne (indice ≤ 2).
         let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + 1.0, 220.0, 0).unwrap();
@@ -1224,22 +1484,41 @@ mod tests {
         let field = TextInput::<Msg>::new("").label("Name");
         let label_geo = |status: Status| -> (f32, f32) {
             let mut scene = Scene::new();
-            Widget::<Msg>::paint(&field, Rect::new(0.0, 30.0, 220.0, 60.0), status, &theme, &mut scene);
+            Widget::<Msg>::paint(
+                &field,
+                Rect::new(0.0, 30.0, 220.0, 60.0),
+                status,
+                &theme,
+                &mut scene,
+            );
             scene
                 .primitives()
                 .iter()
                 .find_map(|p| match p {
-                    frus_core::Primitive::Text { text, size, position, .. } if text == "Name" => {
-                        Some((*size, position.y))
-                    }
+                    frus_core::Primitive::Text {
+                        text,
+                        size,
+                        position,
+                        ..
+                    } if text == "Name" => Some((*size, position.y)),
                     _ => None,
                 })
                 .expect("label dessiné")
         };
         let (rest_size, rest_y) = label_geo(Status::default());
-        let (float_size, float_y) = label_geo(Status { focused: true, focus_progress: 1.0, ..Default::default() });
-        assert!(rest_size > float_size, "au repos le label est plus grand ({rest_size} → {float_size})");
-        assert!(float_y < rest_y, "focalisé le label monte ({rest_y} → {float_y})");
+        let (float_size, float_y) = label_geo(Status {
+            focused: true,
+            focus_progress: 1.0,
+            ..Default::default()
+        });
+        assert!(
+            rest_size > float_size,
+            "au repos le label est plus grand ({rest_size} → {float_size})"
+        );
+        assert!(
+            float_y < rest_y,
+            "focalisé le label monte ({rest_y} → {float_y})"
+        );
     }
 
     #[test]
@@ -1255,7 +1534,10 @@ mod tests {
             Dimension::Length(h) => h,
             _ => panic!("hauteur fixe attendue"),
         };
-        assert!(deco_h > bare_h, "label + erreur agrandissent le champ ({bare_h} → {deco_h})");
+        assert!(
+            deco_h > bare_h,
+            "label + erreur agrandissent le champ ({bare_h} → {deco_h})"
+        );
     }
 
     #[test]
@@ -1264,12 +1546,20 @@ mod tests {
         let theme = Theme::default();
         let field = input("x").error("bad");
         let mut scene = Scene::new();
-        Widget::<Msg>::paint(&field, Rect::new(0.0, 0.0, 220.0, 60.0), Status::default(), &theme, &mut scene);
-        let has_error_border = scene.primitives().iter().any(|p| matches!(
-            p,
-            frus_core::Primitive::Rect { border_color, border_width, .. }
-                if *border_width > 0.0 && *border_color == theme.error
-        ));
+        Widget::<Msg>::paint(
+            &field,
+            Rect::new(0.0, 0.0, 220.0, 60.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        let has_error_border = scene.primitives().iter().any(|p| {
+            matches!(
+                p,
+                frus_core::Primitive::Rect { border_color, border_width, .. }
+                    if *border_width > 0.0 && *border_color == theme.error
+            )
+        });
         assert!(has_error_border, "la bordure doit être en couleur d'erreur");
     }
 
@@ -1280,11 +1570,19 @@ mod tests {
         let count_texts = |value: &str| {
             let field = TextInput::<Msg>::new(value).placeholder("Type here");
             let mut scene = Scene::new();
-            Widget::<Msg>::paint(&field, Rect::new(0.0, 0.0, 220.0, 30.0), Status::default(), &theme, &mut scene);
+            Widget::<Msg>::paint(
+                &field,
+                Rect::new(0.0, 0.0, 220.0, 30.0),
+                Status::default(),
+                &theme,
+                &mut scene,
+            );
             scene
                 .primitives()
                 .iter()
-                .filter(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "Type here"))
+                .filter(
+                    |p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "Type here"),
+                )
                 .count()
         };
         assert_eq!(count_texts(""), 1, "vide : l'indice s'affiche");
@@ -1299,18 +1597,26 @@ mod tests {
             .width(220.0);
         let (w, y) = (220.0, 12.0);
         let x_suffix = w - 8.0; // près du bord droit (zone du suffixe)
-        // Clic sur le suffixe : émet le message, et ne place PAS de caret.
+                                // Clic sur le suffixe : émet le message, et ne place PAS de caret.
         assert_eq!(
             Widget::<Msg>::positional_click(&field, x_suffix, y, w, 40.0),
             Some(Msg::Submitted)
         );
         assert_eq!(Widget::<Msg>::cursor_at(&field, x_suffix, y, w, 0), None);
         // Clic dans le corps : pas de suffixe, un caret est placé.
-        assert_eq!(Widget::<Msg>::positional_click(&field, 20.0, y, w, 40.0), None);
+        assert_eq!(
+            Widget::<Msg>::positional_click(&field, 20.0, y, w, 40.0),
+            None
+        );
         assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
         // Sans `on_suffix`, l'icône reste décorative (aucun clic positionnel).
-        let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
-        assert_eq!(Widget::<Msg>::positional_click(&deco, x_suffix, y, w, 40.0), None);
+        let deco = TextInput::<Msg>::new("hello")
+            .suffix_icon(IconName::Close)
+            .width(220.0);
+        assert_eq!(
+            Widget::<Msg>::positional_click(&deco, x_suffix, y, w, 40.0),
+            None
+        );
     }
 
     #[test]
@@ -1337,8 +1643,14 @@ mod tests {
                 .count()
         };
         // Pointeur sur le suffixe → un halo ; ailleurs (corps) ou sans survol → aucun.
-        let over_suffix = Status { hover_cursor: Some(Point::new(212.0, 20.0)), ..Default::default() };
-        let over_body = Status { hover_cursor: Some(Point::new(20.0, 20.0)), ..Default::default() };
+        let over_suffix = Status {
+            hover_cursor: Some(Point::new(212.0, 20.0)),
+            ..Default::default()
+        };
+        let over_body = Status {
+            hover_cursor: Some(Point::new(20.0, 20.0)),
+            ..Default::default()
+        };
         assert_eq!(halos(over_suffix), 1, "halo sur le suffixe survolé");
         assert_eq!(halos(over_body), 0, "pas de halo dans le corps");
         assert_eq!(halos(Status::default()), 0, "pas de halo sans survol");
@@ -1353,10 +1665,15 @@ mod tests {
             .width(220.0);
         let (w, h, y) = (220.0, 40.0, 12.0);
         // Main sur le suffixe, rien dans le corps.
-        assert_eq!(Widget::<Msg>::cursor_icon(&field, w - 8.0, y, w, h), Some(Cursor::Pointer));
+        assert_eq!(
+            Widget::<Msg>::cursor_icon(&field, w - 8.0, y, w, h),
+            Some(Cursor::Pointer)
+        );
         assert_eq!(Widget::<Msg>::cursor_icon(&field, 20.0, y, w, h), None);
         // Suffixe décoratif (sans on_suffix) : pas de main.
-        let deco = TextInput::<Msg>::new("hello").suffix_icon(IconName::Close).width(220.0);
+        let deco = TextInput::<Msg>::new("hello")
+            .suffix_icon(IconName::Close)
+            .width(220.0);
         assert_eq!(Widget::<Msg>::cursor_icon(&deco, w - 8.0, y, w, h), None);
     }
 

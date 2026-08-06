@@ -4,8 +4,8 @@
 use frus_core::{Rect, Scene};
 use frus_layout::{FlexDirection, Style};
 
-use crate::portal::Placement;
 use crate::interaction::Status;
+use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::widget::Widget;
 

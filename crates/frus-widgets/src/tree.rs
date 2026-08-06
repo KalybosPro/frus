@@ -97,10 +97,21 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
                 theme.muted.fade(o),
             );
         }
-        scene.text(Point::new(x + INDENT, ty), self.label.clone(), SIZE, theme.on_surface.fade(o));
+        scene.text(
+            Point::new(x + INDENT, ty),
+            self.label.clone(),
+            SIZE,
+            theme.on_surface.fade(o),
+        );
     }
 
-    fn positional_click(&self, local_x: f32, _local_y: f32, _width: f32, _height: f32) -> Option<Msg> {
+    fn positional_click(
+        &self,
+        local_x: f32,
+        _local_y: f32,
+        _width: f32,
+        _height: f32,
+    ) -> Option<Msg> {
         // Le chevron (dé)plie ; le reste de la ligne sélectionne (à défaut, bascule).
         let start = self.chevron_start();
         if self.expandable && local_x >= start && local_x < start + INDENT {
@@ -165,7 +176,8 @@ impl<Msg: Clone + 'static> Tree<Msg> {
         expandable: bool,
         expanded: bool,
     ) -> Self {
-        self.nodes.push((id, depth, label.into(), expandable, expanded));
+        self.nodes
+            .push((id, depth, label.into(), expandable, expanded));
         self.rebuild();
         self
     }
@@ -241,10 +253,19 @@ mod tests {
             .node(2, 1, "fichier.txt", false, false);
         let rows = Widget::<Msg>::children(&tree);
         // Nœud pliable (depth 0) : chevron dans [0, INDENT) → bascule ; au-delà → sélection.
-        assert_eq!(rows[0].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H), Some(Msg::Toggle(1)));
-        assert_eq!(rows[0].positional_click(INDENT * 3.0, 0.0, 200.0, ROW_H), Some(Msg::Select(1)));
+        assert_eq!(
+            rows[0].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H),
+            Some(Msg::Toggle(1))
+        );
+        assert_eq!(
+            rows[0].positional_click(INDENT * 3.0, 0.0, 200.0, ROW_H),
+            Some(Msg::Select(1))
+        );
         // Feuille (depth 1) : aucune zone chevron → tout sélectionne (même sous le cran d'indentation).
-        assert_eq!(rows[1].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H), Some(Msg::Select(2)));
+        assert_eq!(
+            rows[1].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H),
+            Some(Msg::Select(2))
+        );
         // Clavier (on_click) : action principale = sélection.
         assert_eq!(rows[0].on_click(), Some(Msg::Select(1)));
     }

@@ -55,7 +55,12 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
 
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
-        scene.text(Point::new(bounds.x + PAD_X, ty), self.label.clone(), SIZE, theme.on_surface.fade(o));
+        scene.text(
+            Point::new(bounds.x + PAD_X, ty),
+            self.label.clone(),
+            SIZE,
+            theme.on_surface.fade(o),
+        );
 
         if self.is_header {
             // Chevron « ▾ » vectoriel (triangle pointant vers le bas), à droite.
@@ -133,7 +138,12 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
 
     /// Définit les options ; si `open`, elles flottent sous l'en-tête. `on_select` mappe
     /// l'index choisi vers un message.
-    pub fn options(mut self, open: bool, labels: &[&str], on_select: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn options(
+        mut self,
+        open: bool,
+        labels: &[&str],
+        on_select: impl Fn(usize) -> Msg + 'static,
+    ) -> Self {
         self.open = open;
         self.labels = labels.iter().map(|s| s.to_string()).collect();
         self.on_select = Some(Box::new(on_select));
@@ -188,7 +198,9 @@ impl<Msg: Clone> Widget<Msg> for Dropdown<Msg> {
     }
 
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
-        self.children.get(1).map(|menu| (menu.as_ref(), Placement::Below))
+        self.children
+            .get(1)
+            .map(|menu| (menu.as_ref(), Placement::Below))
     }
 }
 
@@ -206,11 +218,18 @@ mod tests {
 
     #[test]
     fn closed_has_no_overlay_open_floats_options() {
-        let closed = Dropdown::new("Pick one", Msg::Toggle).options(false, &["A", "B"], Msg::Select);
-        assert!(Widget::<Msg>::overlay(&closed).is_none(), "fermée : pas d'overlay");
+        let closed =
+            Dropdown::new("Pick one", Msg::Toggle).options(false, &["A", "B"], Msg::Select);
+        assert!(
+            Widget::<Msg>::overlay(&closed).is_none(),
+            "fermée : pas d'overlay"
+        );
 
         let open = Dropdown::new("Pick one", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
-        assert!(Widget::<Msg>::overlay(&open).is_some(), "ouverte : menu flottant");
+        assert!(
+            Widget::<Msg>::overlay(&open).is_some(),
+            "ouverte : menu flottant"
+        );
         let menu = &Widget::<Msg>::children(&open)[1];
         assert_eq!(menu.children().len(), 2);
         assert_eq!(menu.children()[1].on_click(), Some(Msg::Select(1)));
@@ -233,7 +252,12 @@ mod tests {
             .width(200.0);
         // Le menu est un overlay : on le rend seul pour lire ses primitives.
         let (menu, _) = Widget::<Msg>::overlay(&open).unwrap();
-        let ui = build_ui(menu, Size::new(220.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            menu,
+            Size::new(220.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let theme = Theme::default();
         // Coche de l'option sélectionnée (chemin rempli).
         let has_check = ui
@@ -244,10 +268,12 @@ mod tests {
         assert!(has_check, "l'option sélectionnée est cochée");
         // Fond teinté primary de l'option sélectionnée.
         let sel = theme.surface.lerp(theme.primary, 0.14);
-        let has_tint = ui.scene().primitives().iter().any(|p| matches!(
-            p,
-            Primitive::Rect { color, .. } if color.fade(1.0) == sel.fade(1.0)
-        ));
+        let has_tint = ui.scene().primitives().iter().any(|p| {
+            matches!(
+                p,
+                Primitive::Rect { color, .. } if color.fade(1.0) == sel.fade(1.0)
+            )
+        });
         assert!(has_tint, "l'option sélectionnée est surlignée");
     }
 }

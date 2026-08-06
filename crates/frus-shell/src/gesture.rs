@@ -159,8 +159,14 @@ mod tests {
         // Momentum : destination = position + v / ln(1/drag) (forme close).
         let dest = fling_destination(0.0, 2000.0).expect("fling");
         let expected = 2000.0 / (1.0f32 / FLING_DRAG).ln();
-        assert!((dest - expected).abs() < 1.0, "dest = {dest}, attendu ≈ {expected}");
-        assert!(dest > 900.0 && dest < 1100.0, "≈ 1000 px de course : {dest}");
+        assert!(
+            (dest - expected).abs() < 1.0,
+            "dest = {dest}, attendu ≈ {expected}"
+        );
+        assert!(
+            dest > 900.0 && dest < 1100.0,
+            "≈ 1000 px de course : {dest}"
+        );
 
         // Symétrique vers l'arrière.
         let back = fling_destination(500.0, -2000.0).expect("fling arrière");

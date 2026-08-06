@@ -52,14 +52,22 @@ struct Ctor {
 impl FillVertexConstructor<PathVertex> for Ctor {
     fn new_vertex(&mut self, vertex: FillVertex) -> PathVertex {
         let p = vertex.position();
-        PathVertex { pos: [p.x, p.y], color: self.color, clip: self.clip }
+        PathVertex {
+            pos: [p.x, p.y],
+            color: self.color,
+            clip: self.clip,
+        }
     }
 }
 
 impl StrokeVertexConstructor<PathVertex> for Ctor {
     fn new_vertex(&mut self, vertex: StrokeVertex) -> PathVertex {
         let p = vertex.position();
-        PathVertex { pos: [p.x, p.y], color: self.color, clip: self.clip }
+        PathVertex {
+            pos: [p.x, p.y],
+            color: self.color,
+            clip: self.clip,
+        }
     }
 }
 
@@ -92,7 +100,11 @@ pub(crate) struct PathPainter {
 impl PathPainter {
     /// Construit le painter pour un format de cible donné.
     /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, sample_count: u32) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("frus.path.shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/path.wgsl").into()),
@@ -169,7 +181,8 @@ impl PathPainter {
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frus.path.vertex_buffer"),
-            size: (INITIAL_VERTEX_CAPACITY * std::mem::size_of::<PathVertex>()) as wgpu::BufferAddress,
+            size: (INITIAL_VERTEX_CAPACITY * std::mem::size_of::<PathVertex>())
+                as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -215,11 +228,21 @@ impl PathPainter {
         self.geometry.indices.clear();
 
         for primitive in scene.primitives() {
-            if let Primitive::Path { path, fill, stroke, clip, .. } = primitive {
+            if let Primitive::Path {
+                path,
+                fill,
+                stroke,
+                clip,
+                ..
+            } = primitive
+            {
                 let lyon_path = to_lyon(path);
                 let clip = clip.to_array();
                 if let Some(color) = fill {
-                    let ctor = Ctor { color: color.to_array(), clip };
+                    let ctor = Ctor {
+                        color: color.to_array(),
+                        clip,
+                    };
                     let _ = self.fill_tess.tessellate_path(
                         &lyon_path,
                         &FillOptions::default(),
@@ -227,7 +250,10 @@ impl PathPainter {
                     );
                 }
                 if let Some(s) = stroke {
-                    let ctor = Ctor { color: s.color.to_array(), clip };
+                    let ctor = Ctor {
+                        color: s.color.to_array(),
+                        clip,
+                    };
                     let options = StrokeOptions::default().with_line_width(s.width);
                     let _ = self.stroke_tess.tessellate_path(
                         &lyon_path,
@@ -265,8 +291,16 @@ impl PathPainter {
             self.index_capacity = new_capacity;
         }
 
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.geometry.vertices));
-        queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&self.geometry.indices));
+        queue.write_buffer(
+            &self.vertex_buffer,
+            0,
+            bytemuck::cast_slice(&self.geometry.vertices),
+        );
+        queue.write_buffer(
+            &self.index_buffer,
+            0,
+            bytemuck::cast_slice(&self.geometry.indices),
+        );
         index_count as u32
     }
 

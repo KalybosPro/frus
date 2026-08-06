@@ -107,7 +107,9 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     }
 
     fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
-        self.inner.as_ref().and_then(|w| w.positional_click(local_x, local_y, width, height))
+        self.inner
+            .as_ref()
+            .and_then(|w| w.positional_click(local_x, local_y, width, height))
     }
 
     fn cursor_icon(
@@ -117,7 +119,9 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         width: f32,
         height: f32,
     ) -> Option<crate::interaction::Cursor> {
-        self.inner.as_ref().and_then(|w| w.cursor_icon(local_x, local_y, width, height))
+        self.inner
+            .as_ref()
+            .and_then(|w| w.cursor_icon(local_x, local_y, width, height))
     }
 
     fn key(&self) -> Option<u64> {
@@ -141,7 +145,9 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     }
 
     fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
-        self.inner.as_ref().and_then(|w| w.text_metrics(width, cursor))
+        self.inner
+            .as_ref()
+            .and_then(|w| w.text_metrics(width, cursor))
     }
 
     fn text_viewport(&self, rect: frus_core::Rect) -> Option<frus_core::Rect> {
@@ -156,7 +162,9 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         page: bool,
         goal_x: Option<f32>,
     ) -> Option<(usize, f32)> {
-        self.inner.as_ref().and_then(|w| w.caret_vertical(width, cursor, down, page, goal_x))
+        self.inner
+            .as_ref()
+            .and_then(|w| w.caret_vertical(width, cursor, down, page, goal_x))
     }
 
     fn selected_text(&self, edit: &Edit) -> Option<String> {
@@ -370,7 +378,10 @@ mod tests {
     fn falls_back_to_nearest_when_missing() {
         // Seul `expanded` fourni → utilisé pour toutes les largeurs.
         let only_expanded = |w: f32| responsive::<()>(w).expanded(Container::new().width(300.0));
-        assert_eq!(chosen_width(&only_expanded(300.0)), Dimension::Length(300.0));
+        assert_eq!(
+            chosen_width(&only_expanded(300.0)),
+            Dimension::Length(300.0)
+        );
 
         // compact + expanded, largeur medium (rang 1) : compact (rang 0, écart 1,
         // en-dessous) préféré à expanded (rang 2, écart 1, au-dessus).

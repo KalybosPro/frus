@@ -216,7 +216,11 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// Ajoute un **sélecteur de taille de page** (un `SegmentedControl` des `sizes` proposées) dans
     /// le pied. `on_page_size(taille)` au changement (l'app met à jour la taille et, en général,
     /// revient à la page 1). Sans effet si le tableau n'est pas paginé.
-    pub fn page_sizes(mut self, sizes: &[usize], on_page_size: impl Fn(usize) -> Msg + 'static) -> Self {
+    pub fn page_sizes(
+        mut self,
+        sizes: &[usize],
+        on_page_size: impl Fn(usize) -> Msg + 'static,
+    ) -> Self {
         self.page_sizes = sizes.iter().copied().filter(|&s| s > 0).collect();
         self.on_page_size = Some(Rc::new(on_page_size));
         self.rebuild();
@@ -246,7 +250,11 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// position affichée), `on_check_all` bascule la case de tête. L'état coché reflète
     /// [`selected`](Self::selected). Se combine avec [`on_select_row`](Self::on_select_row) : la case
     /// gère la sélection groupée, un clic sur le corps de la ligne reste un clic de ligne.
-    pub fn checkboxes(mut self, on_check: impl Fn(usize) -> Msg + 'static, on_check_all: Msg) -> Self {
+    pub fn checkboxes(
+        mut self,
+        on_check: impl Fn(usize) -> Msg + 'static,
+        on_check_all: Msg,
+    ) -> Self {
         self.on_check = Some(Rc::new(on_check));
         self.on_check_all = Some(on_check_all);
         self.rebuild();
@@ -258,7 +266,11 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
     /// toutes les colonnes) avant tri/pagination. `on_query(texte)` à chaque frappe (l'application met
     /// à jour `query`, et en général revient à la page 1). Le filtre agit en amont du tri, de la page
     /// **et** de la sélection : cases et surlignage restent en index source, sur le sous-ensemble visible.
-    pub fn searchable(mut self, query: impl Into<String>, on_query: impl Fn(String) -> Msg + 'static) -> Self {
+    pub fn searchable(
+        mut self,
+        query: impl Into<String>,
+        on_query: impl Fn(String) -> Msg + 'static,
+    ) -> Self {
         self.query = Some(query.into());
         self.on_query = Some(Rc::new(on_query));
         self.rebuild();
@@ -313,7 +325,10 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
             let empty = String::new();
             let custom = self.comparators.get(col).and_then(|c| c.as_ref());
             order.sort_by(|&a, &b| {
-                let (x, y) = (self.rows[a].get(col).unwrap_or(&empty), self.rows[b].get(col).unwrap_or(&empty));
+                let (x, y) = (
+                    self.rows[a].get(col).unwrap_or(&empty),
+                    self.rows[b].get(col).unwrap_or(&empty),
+                );
                 let ord = match custom {
                     Some(cmp) => cmp(x, y),
                     None => compare_cells(x, y),
@@ -392,33 +407,41 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         // (un pager « 0 of 0 » sous un corps vide n'apporte rien). Le message est surchargeable.
         let block: Box<dyn Widget<Msg>> = if total == 0 {
             let message = Text::new(self.empty_text.clone()).size(15.0);
-            let empty = Flex::column().align(Align::Center).padding(24.0).child(message);
+            let empty = Flex::column()
+                .align(Align::Center)
+                .padding(24.0)
+                .child(message);
             Box::new(Flex::column().gap(8.0).child(t).child(empty))
         } else {
             match (self.page, &self.on_page) {
-            (Some((current, per)), Some(on_page)) => {
-                let pages = page_count(total, per);
-                let current = current.clamp(1, pages);
-                // Libellé « N–M of T » de la tranche courante (jalon 236).
-                let label = Text::new(page_range_label(current, per, total)).size(13.0);
-                let on_page = on_page.clone();
-                let pager = Pagination::new(current, pages, move |p| on_page(p));
-                let mut footer =
-                    Flex::row().align(Align::Center).gap(12.0).child(label).child(Flex::row().flex(1.0)).child(pager);
-                // Sélecteur de taille de page, si proposé (jalon 236).
-                if let (Some(on_size), false) = (&self.on_page_size, self.page_sizes.is_empty()) {
-                    let sizes = self.page_sizes.clone();
-                    let sel = sizes.iter().position(|&s| s == per).unwrap_or(0);
-                    let on_size = on_size.clone();
-                    let mut seg = SegmentedControl::new(sel, move |i| on_size(sizes[i]));
-                    for s in &self.page_sizes {
-                        seg = seg.segment(s.to_string());
+                (Some((current, per)), Some(on_page)) => {
+                    let pages = page_count(total, per);
+                    let current = current.clamp(1, pages);
+                    // Libellé « N–M of T » de la tranche courante (jalon 236).
+                    let label = Text::new(page_range_label(current, per, total)).size(13.0);
+                    let on_page = on_page.clone();
+                    let pager = Pagination::new(current, pages, move |p| on_page(p));
+                    let mut footer = Flex::row()
+                        .align(Align::Center)
+                        .gap(12.0)
+                        .child(label)
+                        .child(Flex::row().flex(1.0))
+                        .child(pager);
+                    // Sélecteur de taille de page, si proposé (jalon 236).
+                    if let (Some(on_size), false) = (&self.on_page_size, self.page_sizes.is_empty())
+                    {
+                        let sizes = self.page_sizes.clone();
+                        let sel = sizes.iter().position(|&s| s == per).unwrap_or(0);
+                        let on_size = on_size.clone();
+                        let mut seg = SegmentedControl::new(sel, move |i| on_size(sizes[i]));
+                        for s in &self.page_sizes {
+                            seg = seg.segment(s.to_string());
+                        }
+                        footer = footer.child(seg);
                     }
-                    footer = footer.child(seg);
+                    Box::new(Flex::column().gap(12.0).child(t).child(footer))
                 }
-                Box::new(Flex::column().gap(12.0).child(t).child(footer))
-            }
-            _ => Box::new(t),
+                _ => Box::new(t),
             }
         };
         // Actions groupées : une barre au-dessus du tableau, uniquement si une sélection existe.
@@ -426,8 +449,11 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         if let Some(make) = &self.bulk_actions {
             if !self.selected.is_empty() {
                 let label = Text::new(format!("{} selected", self.selected.len())).size(14.0);
-                let mut bar =
-                    Flex::row().align(Align::Center).gap(8.0).child(label).child(Flex::row().flex(1.0));
+                let mut bar = Flex::row()
+                    .align(Align::Center)
+                    .gap(8.0)
+                    .child(label)
+                    .child(Flex::row().flex(1.0));
                 for w in make() {
                     bar = bar.child(w);
                 }
@@ -485,19 +511,36 @@ mod tests {
         let rows = sample();
         // Colonne 1 **numérique** : 2 < 9 < 10 (et non le tri lexical "10" < "2" < "9").
         let by_num = sort_rows(&rows, 1, true);
-        assert_eq!(by_num.iter().map(|r| r[1].as_str()).collect::<Vec<_>>(), ["2", "9", "10"]);
+        assert_eq!(
+            by_num.iter().map(|r| r[1].as_str()).collect::<Vec<_>>(),
+            ["2", "9", "10"]
+        );
         // Colonne 0 **texte**, insensible à la casse : alice < Bob < Carol.
         let by_name = sort_rows(&rows, 0, true);
-        assert_eq!(by_name.iter().map(|r| r[0].as_str()).collect::<Vec<_>>(), ["alice", "Bob", "Carol"]);
+        assert_eq!(
+            by_name.iter().map(|r| r[0].as_str()).collect::<Vec<_>>(),
+            ["alice", "Bob", "Carol"]
+        );
         // Sens **décroissant** : ordre inversé.
         let desc = sort_rows(&rows, 1, false);
-        assert_eq!(desc.iter().map(|r| r[1].as_str()).collect::<Vec<_>>(), ["10", "9", "2"]);
+        assert_eq!(
+            desc.iter().map(|r| r[1].as_str()).collect::<Vec<_>>(),
+            ["10", "9", "2"]
+        );
     }
 
     #[test]
     fn compare_cells_prefers_numbers_then_text() {
-        assert_eq!(compare_cells("2", "10"), Ordering::Less, "numérique : 2 < 10");
-        assert_eq!(compare_cells("Bob", "alice"), Ordering::Greater, "texte : b > a (insensible casse)");
+        assert_eq!(
+            compare_cells("2", "10"),
+            Ordering::Less,
+            "numérique : 2 < 10"
+        );
+        assert_eq!(
+            compare_cells("Bob", "alice"),
+            Ordering::Greater,
+            "texte : b > a (insensible casse)"
+        );
     }
 
     #[test]
@@ -507,7 +550,10 @@ mod tests {
             .sorted(1, true)
             .on_sort(|_| ());
         // En-tête + lignes → arbre de rendu non vide.
-        assert!(!Widget::<()>::children(&dt).is_empty(), "le DataTable produit un arbre");
+        assert!(
+            !Widget::<()>::children(&dt).is_empty(),
+            "le DataTable produit un arbre"
+        );
     }
 
     #[test]
@@ -525,22 +571,35 @@ mod tests {
 
     #[test]
     fn data_table_with_pagination_builds_table_and_pager() {
-        let rows: Vec<Vec<String>> =
-            (1..=10).map(|i| vec![format!("R{i}"), i.to_string()]).collect();
+        let rows: Vec<Vec<String>> = (1..=10)
+            .map(|i| vec![format!("R{i}"), i.to_string()])
+            .collect();
         let dt = DataTable::<()>::new(["Name", "Score"], rows)
             .sorted(1, true)
             .paginated(1, 4, |_| ());
         // inner = colonne [table, pied] → deux enfants.
-        assert_eq!(Widget::<()>::children(&dt).len(), 2, "table + pied de pagination");
+        assert_eq!(
+            Widget::<()>::children(&dt).len(),
+            2,
+            "table + pied de pagination"
+        );
     }
 
     #[test]
     fn page_range_label_describes_the_slice() {
         assert_eq!(page_range_label(1, 3, 7), "1\u{2013}3 of 7");
         assert_eq!(page_range_label(2, 3, 7), "4\u{2013}6 of 7");
-        assert_eq!(page_range_label(3, 3, 7), "7\u{2013}7 of 7", "dernière page partielle");
+        assert_eq!(
+            page_range_label(3, 3, 7),
+            "7\u{2013}7 of 7",
+            "dernière page partielle"
+        );
         assert_eq!(page_range_label(1, 3, 0), "0 of 0", "vide");
-        assert_eq!(page_range_label(99, 3, 7), "7\u{2013}7 of 7", "page hors bornes ramenée");
+        assert_eq!(
+            page_range_label(99, 3, 7),
+            "7\u{2013}7 of 7",
+            "page hors bornes ramenée"
+        );
     }
 
     /// Collecte, en ordre d'arbre, tous les messages `on_click` non nuls d'un sous-arbre.
@@ -562,7 +621,10 @@ mod tests {
             vec!["C".to_string(), "2".to_string()],
         ];
         let make = |page: usize| -> DataTable<usize> {
-            DataTable::new(["N", "K"], rows.clone()).sorted(1, true).paginated(page, 2, |_| 0).on_select_row(|i| i)
+            DataTable::new(["N", "K"], rows.clone())
+                .sorted(1, true)
+                .paginated(page, 2, |_| 0)
+                .on_select_row(|i| i)
         };
         // `children()[0]` = le Table ; `[1]` = le pied (pager) qu'on ignore.
         let clicks_of = |dt: &DataTable<usize>| {
@@ -572,9 +634,17 @@ mod tests {
             v
         };
         // Page 1 (taille 2) des lignes triées [1, 2, 0] : le clic renvoie l'index **source** 1 puis 2.
-        assert_eq!(clicks_of(&make(1)), vec![1, 2], "le clic renvoie l'index de la ligne source");
+        assert_eq!(
+            clicks_of(&make(1)),
+            vec![1, 2],
+            "le clic renvoie l'index de la ligne source"
+        );
         // Page 2 : la dernière ligne triée, index source 0 — la pagination n'altère pas l'identité.
-        assert_eq!(clicks_of(&make(2)), vec![0], "la traduction survit à la pagination");
+        assert_eq!(
+            clicks_of(&make(2)),
+            vec![0],
+            "la traduction survit à la pagination"
+        );
     }
 
     #[test]
@@ -582,15 +652,23 @@ mod tests {
         // Deux lignes, filtre « zzz » qui ne matche rien → état vide : aucune ligne cliquable, et le
         // **pied de pagination est retiré** (sinon son unique bouton de page émettrait `0`).
         let rows = vec![vec!["Ada".to_string()], vec!["Bob".to_string()]];
-        let dt: DataTable<usize> =
-            DataTable::new(["N"], rows).searchable("zzz", |_| 0).paginated(1, 5, |_| 0).on_select_row(|i| i);
+        let dt: DataTable<usize> = DataTable::new(["N"], rows)
+            .searchable("zzz", |_| 0)
+            .paginated(1, 5, |_| 0)
+            .on_select_row(|i| i);
         let mut clicks = Vec::new();
         for c in Widget::<usize>::children(&dt) {
             collect_clicks(c.as_ref(), &mut clicks);
         }
-        assert!(clicks.is_empty(), "ni ligne cliquable ni pager quand le filtre ne matche rien");
+        assert!(
+            clicks.is_empty(),
+            "ni ligne cliquable ni pager quand le filtre ne matche rien"
+        );
         // L'arbre reste non vide : en-tête + message d'état vide.
-        assert!(!Widget::<usize>::children(&dt).is_empty(), "en-tête + message rendus");
+        assert!(
+            !Widget::<usize>::children(&dt).is_empty(),
+            "en-tête + message rendus"
+        );
     }
 
     #[test]
@@ -612,7 +690,10 @@ mod tests {
             v.contains(&777)
         };
         assert!(!has_action(&make(&[])), "aucune barre sans sélection");
-        assert!(has_action(&make(&[0])), "barre d'actions présente dès qu'une ligne est sélectionnée");
+        assert!(
+            has_action(&make(&[0])),
+            "barre d'actions présente dès qu'une ligne est sélectionnée"
+        );
     }
 
     #[test]
@@ -620,7 +701,10 @@ mod tests {
         let row = vec!["Ada Lovelace".to_string(), "Engineer".to_string()];
         assert!(row_matches(&row, ""), "requête vide = tout passe");
         assert!(row_matches(&row, "  "), "requête blanche = tout passe");
-        assert!(row_matches(&row, "ENGIN"), "insensible à la casse, sous-chaîne");
+        assert!(
+            row_matches(&row, "ENGIN"),
+            "insensible à la casse, sous-chaîne"
+        );
         assert!(row_matches(&row, "love"), "autre colonne");
         assert!(!row_matches(&row, "zzz"), "aucune correspondance");
     }
@@ -635,8 +719,10 @@ mod tests {
             vec!["Eve".to_string(), "4".to_string()],
         ];
         // Tri croissant par clé parmi {Ada(3), Cal(2)} → Cal(2), Ada(3) = index source [2, 0].
-        let dt: DataTable<usize> =
-            DataTable::new(["N", "K"], rows).searchable("a", |_| 0).sorted(1, true).on_select_row(|i| i);
+        let dt: DataTable<usize> = DataTable::new(["N", "K"], rows)
+            .searchable("a", |_| 0)
+            .sorted(1, true)
+            .on_select_row(|i| i);
         let mut clicks = Vec::new();
         for c in Widget::<usize>::children(&dt) {
             collect_clicks(c.as_ref(), &mut clicks);
@@ -654,15 +740,21 @@ mod tests {
             vec!["C".to_string(), "2".to_string()],
         ];
         // `999` = message de la case « tout cocher » (sentinelle, filtrée).
-        let dt: DataTable<usize> =
-            DataTable::new(["N", "K"], rows).sorted(1, true).paginated(2, 2, |_| 0).checkboxes(|i| i, 999);
+        let dt: DataTable<usize> = DataTable::new(["N", "K"], rows)
+            .sorted(1, true)
+            .paginated(2, 2, |_| 0)
+            .checkboxes(|i| i, 999);
         let mut v = Vec::new();
         // `children()[0]` = le Table ; `[1]` = le pied (pager) ignoré.
         collect_clicks(Widget::<usize>::children(&dt)[0].as_ref(), &mut v);
         v.retain(|&m| m != 999); // enlève la case de tête
         v.dedup();
         // Page 2 (taille 2) des lignes triées [1, 2, 0] → la case renvoie l'index **source** 0.
-        assert_eq!(v, vec![0], "la case renvoie l'index de la ligne source, page comprise");
+        assert_eq!(
+            v,
+            vec![0],
+            "la case renvoie l'index de la ligne source, page comprise"
+        );
     }
 
     #[test]
@@ -691,7 +783,11 @@ mod tests {
         clicks.dedup();
         // Croissant sémantique Low(1) < Medium(2) < High(0) → index source [1, 2, 0], pas l'ordre
         // alphabétique [High(0), Low(1), Medium(2)] du tri par défaut.
-        assert_eq!(clicks, vec![1, 2, 0], "le comparateur personnalisé ordonne par priorité");
+        assert_eq!(
+            clicks,
+            vec![1, 2, 0],
+            "le comparateur personnalisé ordonne par priorité"
+        );
     }
 
     #[test]
@@ -700,7 +796,9 @@ mod tests {
         // inner = [table, pied] ; le pied est une Flex row [libellé, spacer, pager, (sélecteur)].
         let footer_len = |dt: &DataTable<()>| Widget::<()>::children(dt)[1].children().len();
         let base = DataTable::<()>::new(["N"], rows.clone()).paginated(1, 3, |_| ());
-        let sized = DataTable::<()>::new(["N"], rows).paginated(1, 3, |_| ()).page_sizes(&[3, 5], |_| ());
+        let sized = DataTable::<()>::new(["N"], rows)
+            .paginated(1, 3, |_| ())
+            .page_sizes(&[3, 5], |_| ());
         assert_eq!(footer_len(&base), 3, "libellé + spacer + pager");
         assert_eq!(footer_len(&sized), 4, "+ sélecteur de taille");
     }

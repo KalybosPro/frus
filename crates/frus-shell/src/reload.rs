@@ -90,7 +90,10 @@ impl ReloadWatcher {
             }
         }
         match command.spawn() {
-            Ok(_) => eprintln!("[frus] binaire recompilé : relance ({})", self.exe.display()),
+            Ok(_) => eprintln!(
+                "[frus] binaire recompilé : relance ({})",
+                self.exe.display()
+            ),
             Err(err) => eprintln!("[frus] relance impossible : {err}"),
         }
         std::process::exit(0);

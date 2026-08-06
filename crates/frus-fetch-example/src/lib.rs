@@ -63,7 +63,9 @@ impl Application for FetchDemo {
                 });
             }
             // Le `Result` de l'effet devient directement un `RemoteData` (corps rogné au passage).
-            Msg::Got(res) => self.joke = RemoteData::from_result(res.map(|body| body.trim().to_string())),
+            Msg::Got(res) => {
+                self.joke = RemoteData::from_result(res.map(|body| body.trim().to_string()))
+            }
         }
         Command::none()
     }
@@ -82,9 +84,11 @@ impl Application for FetchDemo {
             RemoteData::NotAsked => Box::new(text("Press the button to fetch a joke.").size(18.0)),
             RemoteData::Loading => Box::new(text("Loading…").size(18.0)),
             RemoteData::Success(body) => Box::new(text(body.clone()).size(22.0)),
-            RemoteData::Failure(err) => {
-                Box::new(text(format!("Failed: {err}")).size(18.0).color(Color::rgb(0.85, 0.2, 0.2)))
-            }
+            RemoteData::Failure(err) => Box::new(
+                text(format!("Failed: {err}"))
+                    .size(18.0)
+                    .color(Color::rgb(0.85, 0.2, 0.2)),
+            ),
         };
 
         let content = column![
@@ -143,6 +147,9 @@ mod tests {
         assert_eq!(app.joke.value().map(String::as_str), Some("a good joke"));
 
         app.update(Msg::Got(Err("HTTP status 500".to_string())));
-        assert_eq!(app.joke.error().map(String::as_str), Some("HTTP status 500"));
+        assert_eq!(
+            app.joke.error().map(String::as_str),
+            Some("HTTP status 500")
+        );
     }
 }

@@ -113,7 +113,12 @@ mod tests {
             .cell(tile(b))
             .cell(tile(c))
             .cell(tile(d));
-        let ui = build_ui(&grid, Size::new(220.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &grid,
+            Size::new(220.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         let rect_of = |col: Color| {
             ui.scene()

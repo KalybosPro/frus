@@ -65,7 +65,8 @@ impl<Msg> Widget<Msg> for Spinner {
         // Tête lumineuse qui progresse dans le temps ; les points en arrière fondent.
         let head = (status.time * SPEED).fract() * DOTS as f32;
         for i in 0..DOTS {
-            let angle = (i as f32 / DOTS as f32) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+            let angle =
+                (i as f32 / DOTS as f32) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
             let px = cx + ring * angle.cos();
             let py = cy + ring * angle.sin();
             // Distance angulaire derrière la tête (0 = tête, ~1 = queue).
@@ -96,7 +97,13 @@ mod tests {
         let mut status = Status::default();
         status.time = time;
         let mut scene = Scene::new();
-        Widget::<()>::paint(&spinner, Rect::new(0.0, 0.0, 40.0, 40.0), status, &Theme::default(), &mut scene);
+        Widget::<()>::paint(
+            &spinner,
+            Rect::new(0.0, 0.0, 40.0, 40.0),
+            status,
+            &Theme::default(),
+            &mut scene,
+        );
         scene
             .primitives()
             .iter()

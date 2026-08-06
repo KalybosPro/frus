@@ -29,5 +29,7 @@ fn main() {
     image::DynamicImage::ImageRgba8(img)
         .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
         .expect("encodage PNG");
-    std::io::stdout().write_all(&bytes).expect("écriture stdout");
+    std::io::stdout()
+        .write_all(&bytes)
+        .expect("écriture stdout");
 }

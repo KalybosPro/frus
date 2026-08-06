@@ -21,7 +21,9 @@ use frus_widgets::{
     WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent};
+use winit::event::{
+    ElementState, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent,
+};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
@@ -97,7 +99,10 @@ mod web_timer {
                     ms.max(1),
                 )
                 .ok()?;
-            Some(Self { id, _closure: closure })
+            Some(Self {
+                id,
+                _closure: closure,
+            })
         }
     }
 
@@ -167,15 +172,27 @@ enum Drag {
         max: f32,
     },
     /// Sélection de texte dans un champ (avec ses bornes, pour le placement).
-    TextSelect { id: WidgetId, rect: frus_widgets::Rect },
+    TextSelect {
+        id: WidgetId,
+        rect: frus_widgets::Rect,
+    },
     /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
     /// `last_x` = dernière abscisse du curseur, pour livrer le **delta** aux
     /// poignées qui accumulent (redimensionnement de colonne).
-    Widget { id: WidgetId, rect: frus_widgets::Rect, last_x: f32 },
+    Widget {
+        id: WidgetId,
+        rect: frus_widgets::Rect,
+        last_x: f32,
+    },
     /// Réordonnancement d'une **colonne** : on saisit un en-tête (`id`, colonne
     /// `from`) et on le dépose sur une autre. `moved` distingue le glissement d'un
     /// simple tap (qui reste un tri) — sous le seuil `TOUCH_SLOP` depuis `start`.
-    Reorder { id: WidgetId, from: usize, start: Point, moved: bool },
+    Reorder {
+        id: WidgetId,
+        from: usize,
+        start: Point,
+        moved: bool,
+    },
     /// Déplacement (pan) d'une fenêtre interactive (`InteractiveViewer`) : le
     /// curseur pousse le contenu. `last` = dernière position (pour le delta) ;
     /// `moved` distingue un vrai pan d'un simple tap (sous le seuil `TOUCH_SLOP`),
@@ -509,13 +526,22 @@ impl<A: Application> App<A> {
                     let n = text.chars().count();
                     self.ime_composing = n;
                     // Position AVANT insertion = début de la région composée.
-                    let start = self.runtime.edits.get(&focused).map(|e| e.cursor).unwrap_or(0);
+                    let start = self
+                        .runtime
+                        .edits
+                        .get(&focused)
+                        .map(|e| e.cursor)
+                        .unwrap_or(0);
                     if !text.is_empty() {
                         self.apply_key(focused, Key::Text(text));
                     }
                     // Enregistre la plage soulignée (curseur désormais en fin).
                     if let Some(edit) = self.runtime.edits.get_mut(&focused) {
-                        edit.composing = if n > 0 { Some((start, start + n)) } else { None };
+                        edit.composing = if n > 0 {
+                            Some((start, start + n))
+                        } else {
+                            None
+                        };
                     }
                 }
                 ImeEvent::FinishComposing => {
@@ -740,8 +766,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// reconnaisseur **accepte avidement** — le message est émis et le
     /// relâchement à venir sera avalé (l'appui long évince le tap).
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
-        if matches!(cause, StartCause::ResumeTimeReached { .. })
-            && self.press.poll(Instant::now())
+        if matches!(cause, StartCause::ResumeTimeReached { .. }) && self.press.poll(Instant::now())
         {
             if let Some(message) = self.long_press_msg.take() {
                 self.dispatch(message);
@@ -788,7 +813,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // `Paused`/`Detached` (arrière-plan/fermeture) — décidés par `suspended`/`exiting`.
             WindowEvent::Focused(focused) => {
                 if !matches!(self.lifecycle, Lifecycle::Paused | Lifecycle::Detached) {
-                    self.set_lifecycle(if focused { Lifecycle::Resumed } else { Lifecycle::Inactive });
+                    self.set_lifecycle(if focused {
+                        Lifecycle::Resumed
+                    } else {
+                        Lifecycle::Inactive
+                    });
                 }
             }
 
@@ -829,21 +858,34 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let position = Point::new(position.x as f32 / scale, position.y as f32 / scale);
                 self.pointer(
                     event_loop,
-                    PointerEvent { kind: PointerKind::Move, position, touch: false },
+                    PointerEvent {
+                        kind: PointerKind::Move,
+                        position,
+                        touch: false,
+                    },
                 );
             }
 
             WindowEvent::Touch(touch) => {
                 let scale = self.total_scale();
-                let position =
-                    Point::new(touch.location.x as f32 / scale, touch.location.y as f32 / scale);
+                let position = Point::new(
+                    touch.location.x as f32 / scale,
+                    touch.location.y as f32 / scale,
+                );
                 let kind = match touch.phase {
                     TouchPhase::Started => PointerKind::Down,
                     TouchPhase::Moved => PointerKind::Move,
                     TouchPhase::Ended => PointerKind::Up,
                     TouchPhase::Cancelled => PointerKind::Cancel,
                 };
-                self.pointer(event_loop, PointerEvent { kind, position, touch: true });
+                self.pointer(
+                    event_loop,
+                    PointerEvent {
+                        kind,
+                        position,
+                        touch: true,
+                    },
+                );
             }
 
             WindowEvent::ModifiersChanged(modifiers) => {
@@ -858,7 +900,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 ..
             } => self.pointer(
                 event_loop,
-                PointerEvent { kind: PointerKind::Down, position: self.cursor, touch: false },
+                PointerEvent {
+                    kind: PointerKind::Down,
+                    position: self.cursor,
+                    touch: false,
+                },
             ),
 
             WindowEvent::MouseInput {
@@ -867,12 +913,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 ..
             } => self.pointer(
                 event_loop,
-                PointerEvent { kind: PointerKind::Up, position: self.cursor, touch: false },
+                PointerEvent {
+                    kind: PointerKind::Up,
+                    position: self.cursor,
+                    touch: false,
+                },
             ),
 
-            WindowEvent::KeyboardInput { event, .. }
-                if event.state == ElementState::Pressed =>
-            {
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 // Interaction clavier : l'anneau de focus (re)devient visible.
                 if !self.runtime.focus_visible {
                     self.runtime.focus_visible = true;
@@ -969,9 +1017,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // navigue pas le focus.
                     if matches!(direction, FocusDirection::Left | FocusDirection::Right) {
                         let key = if matches!(direction, FocusDirection::Left) {
-                            Key::Left { shift: self.shift, word: self.ctrl }
+                            Key::Left {
+                                shift: self.shift,
+                                word: self.ctrl,
+                            }
                         } else {
-                            Key::Right { shift: self.shift, word: self.ctrl }
+                            Key::Right {
+                                shift: self.shift,
+                                word: self.ctrl,
+                            }
                         };
                         let widget = self
                             .tree
@@ -992,7 +1046,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                                 } else {
                                     from + 1
                                 };
-                                self.set_announcement(format!("Column moved to position {}", to + 1));
+                                self.set_announcement(format!(
+                                    "Column moved to position {}",
+                                    to + 1
+                                ));
                             }
                             self.request_redraw();
                             return;
@@ -1005,8 +1062,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .and_then(|tree| find_widget(tree.as_ref(), focused))
                         .and_then(|widget| widget.cursor_at(0.0, 0.0, 1.0, 0))
                         .is_some();
-                    let navigates = !is_text
-                        || matches!(direction, FocusDirection::Up | FocusDirection::Down);
+                    let navigates =
+                        !is_text || matches!(direction, FocusDirection::Up | FocusDirection::Down);
                     if navigates {
                         if let Some(next) = self
                             .ui
@@ -1028,9 +1085,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     WinitKey::Named(NamedKey::Home) | WinitKey::Named(NamedKey::End)
                 ) {
                     let key = if matches!(event.logical_key, WinitKey::Named(NamedKey::Home)) {
-                        Key::Home { shift: self.shift, doc: self.ctrl }
+                        Key::Home {
+                            shift: self.shift,
+                            doc: self.ctrl,
+                        }
                     } else {
-                        Key::End { shift: self.shift, doc: self.ctrl }
+                        Key::End {
+                            shift: self.shift,
+                            doc: self.ctrl,
+                        }
                     };
                     let handled = self
                         .tree
@@ -1130,14 +1193,22 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
                     WinitKey::Named(NamedKey::Enter) => None,
                     // Ctrl : Gauche/Droite sautent un mot, Début/Fin bornent le champ.
-                    WinitKey::Named(NamedKey::ArrowLeft) => {
-                        Some(Key::Left { shift, word: self.ctrl })
-                    }
-                    WinitKey::Named(NamedKey::ArrowRight) => {
-                        Some(Key::Right { shift, word: self.ctrl })
-                    }
-                    WinitKey::Named(NamedKey::Home) => Some(Key::Home { shift, doc: self.ctrl }),
-                    WinitKey::Named(NamedKey::End) => Some(Key::End { shift, doc: self.ctrl }),
+                    WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left {
+                        shift,
+                        word: self.ctrl,
+                    }),
+                    WinitKey::Named(NamedKey::ArrowRight) => Some(Key::Right {
+                        shift,
+                        word: self.ctrl,
+                    }),
+                    WinitKey::Named(NamedKey::Home) => Some(Key::Home {
+                        shift,
+                        doc: self.ctrl,
+                    }),
+                    WinitKey::Named(NamedKey::End) => Some(Key::End {
+                        shift,
+                        doc: self.ctrl,
+                    }),
                     WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
                     // Android livre Entrée en `Character("\n")` (KeyCharacterMap),
                     // pas en `Named(Enter)` : même soumission, sans insérer de
@@ -1174,7 +1245,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
                 // Fenêtre interactive sous le curseur : la molette **zoome** (ancré au
                 // curseur), bornée par les échelles min/max du widget.
-                if let Some((id, viewport)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
+                if let Some((id, viewport)) = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.interactive_at(self.cursor))
+                {
                     let (min, max) = self
                         .tree
                         .as_ref()
@@ -1187,7 +1262,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.runtime.interactive_velocity.remove(&id);
                     let view = self.runtime.interactive.entry(id).or_default();
                     // Zoom ancré au curseur, puis bornage au cadre.
-                    *view = view.zoom_at(factor, self.cursor, min, max).clamped(viewport);
+                    *view = view
+                        .zoom_at(factor, self.cursor, min, max)
+                        .clamped(viewport);
                     self.request_redraw();
                     return;
                 }
@@ -1316,7 +1393,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                                 .cloned()
                                 .collect();
                             if !captured.is_empty() {
-                                self.runtime.leaving.insert(self.leaving_counter, (captured, 1.0));
+                                self.runtime
+                                    .leaving
+                                    .insert(self.leaving_counter, (captured, 1.0));
                                 self.leaving_counter = self.leaving_counter.wrapping_add(1);
                             }
                         }
@@ -1363,7 +1442,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // changée) ; la peinture par le cache de repaint (jalon 88 : un
                 // sous-arbre `RepaintBoundary` statique est rejoué sans repeindre
                 // tant que sa géométrie et l'état d'interaction sont stables).
-                let tree = self.tree.as_deref().expect("view construite au moins une fois");
+                let tree = self
+                    .tree
+                    .as_deref()
+                    .expect("view construite au moins une fois");
 
                 // Inertie de défilement et de pan (bornes/fenêtres issues de la frame
                 // précédente).
@@ -1542,7 +1624,9 @@ impl<A: Application> App<A> {
                 // défilement tactile pas encore en mouvement reste candidat.
                 let free = matches!(self.drag, None | Some(Drag::Scroll { moved: false, .. }));
                 self.long_press_msg = if free {
-                    self.ui.as_ref().and_then(|ui| ui.long_press_at(self.cursor))
+                    self.ui
+                        .as_ref()
+                        .and_then(|ui| ui.long_press_at(self.cursor))
                 } else {
                     None
                 };
@@ -1686,7 +1770,11 @@ impl<A: Application> App<A> {
 
         // 1 bis) Glissement d'un widget draggable (ex. Slider) ?
         if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
-            self.drag = Some(Drag::Widget { id, rect, last_x: self.cursor.x });
+            self.drag = Some(Drag::Widget {
+                id,
+                rect,
+                last_x: self.cursor.x,
+            });
             // Delta nul à l'appui : seul un curseur (fraction) saute au clic.
             self.apply_widget_drag(id, rect, 0.0);
             self.request_redraw();
@@ -1697,7 +1785,12 @@ impl<A: Application> App<A> {
         // On ne `return` pas — le focus et `pressed` (tap = tri) se règlent ci-dessous ;
         // le glissement ne s'engage qu'au-delà du seuil (sinon le relâchement trie).
         if let Some((id, from)) = self.reorderable_at(self.cursor) {
-            self.drag = Some(Drag::Reorder { id, from, start: self.cursor, moved: false });
+            self.drag = Some(Drag::Reorder {
+                id,
+                from,
+                start: self.cursor,
+                moved: false,
+            });
             self.reorder_x = self.cursor.x; // départ collé au curseur (pas de ressaut)
             self.reorder_y = self.cursor.y; // idem pour la ligne d'insertion verticale
         }
@@ -1732,7 +1825,14 @@ impl<A: Application> App<A> {
             if let Some(cursor) = cursor {
                 // Placer le caret à la souris oublie la colonne cible verticale.
                 self.goal_x = None;
-                self.runtime.edits.insert(id, Edit { cursor, anchor: None, composing: None });
+                self.runtime.edits.insert(
+                    id,
+                    Edit {
+                        cursor,
+                        anchor: None,
+                        composing: None,
+                    },
+                );
                 self.drag = Some(Drag::TextSelect { id, rect });
                 // Taper dans un champ **rouvre** le clavier — même s'il était déjà « montré » côté app
                 // mais fermé par le retour système (voir `request_soft_input`).
@@ -1785,7 +1885,11 @@ impl<A: Application> App<A> {
         // **pan** (souris ou doigt). Comme le défilement tactile, il ne s'engage
         // qu'au-delà du seuil — un tap passe alors à l'enfant (bouton, etc.).
         if self.drag.is_none() {
-            if let Some((id, viewport)) = self.ui.as_ref().and_then(|ui| ui.interactive_at(self.cursor)) {
+            if let Some((id, viewport)) = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.interactive_at(self.cursor))
+            {
                 // L'appui stoppe un fling en cours (on reprend la main sur le contenu).
                 self.runtime.interactive_velocity.remove(&id);
                 self.drag = Some(Drag::Pan {
@@ -1822,8 +1926,17 @@ impl<A: Application> App<A> {
         );
         // Réordonnancement : au dépôt, la colonne cible est l'en-tête réordonnable
         // sous le curseur ; on route `on_reorder(from, to)` de l'en-tête saisi.
-        if let Some(Drag::Reorder { id, from, moved: true, .. }) = &ended {
-            let target = self.ui.as_ref().and_then(|ui| ui.reorderable_at(self.cursor));
+        if let Some(Drag::Reorder {
+            id,
+            from,
+            moved: true,
+            ..
+        }) = &ended
+        {
+            let target = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.reorderable_at(self.cursor));
             let tree = self.tree.as_ref();
             let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
@@ -1872,12 +1985,24 @@ impl<A: Application> App<A> {
         }
         // Fling : l'élan du doigt projette une destination balistique (friction),
         // le ressort de défilement existant y glisse (rebond aux bornes compris).
-        if let Some(Drag::Scroll { id, moved: true, velocity, .. }) = &ended {
+        if let Some(Drag::Scroll {
+            id,
+            moved: true,
+            velocity,
+            ..
+        }) = &ended
+        {
             self.fling(*id, *velocity);
         }
         // Fling de pan : l'élan lance le contenu, décéléré et borné par
         // `advance_interactive` (frame par frame).
-        if let Some(Drag::Pan { id, moved: true, velocity, .. }) = &ended {
+        if let Some(Drag::Pan {
+            id,
+            moved: true,
+            velocity,
+            ..
+        }) = &ended
+        {
             if velocity.0.hypot(velocity.1) > PAN_FLING_MIN {
                 self.runtime.interactive_velocity.insert(*id, *velocity);
             }
@@ -1953,7 +2078,12 @@ impl<A: Application> App<A> {
             None => return,
         };
         let before = self.runtime.input.focused;
-        let after = resolve_focus(before, &present, &mut self.focus_history, &mut self.prev_focus);
+        let after = resolve_focus(
+            before,
+            &present,
+            &mut self.focus_history,
+            &mut self.prev_focus,
+        );
         if after != before {
             self.runtime.input.focused = after;
             self.request_redraw();
@@ -2093,7 +2223,11 @@ impl<A: Application> App<A> {
                 thumb_len,
                 max,
             } => {
-                let along = if *vertical { self.cursor.y } else { self.cursor.x };
+                let along = if *vertical {
+                    self.cursor.y
+                } else {
+                    self.cursor.x
+                };
                 let travel = (*track_len - *thumb_len).max(1.0);
                 let thumb_start = (along - *grab).clamp(*track_start, *track_start + travel);
                 let offset = ((thumb_start - *track_start) / travel * *max).clamp(0.0, *max);
@@ -2110,15 +2244,17 @@ impl<A: Application> App<A> {
             }
             Drag::TextSelect { id, rect } => {
                 let local_x = self.cursor.x - rect.x;
-                let local_y =
-                    self.cursor.y - rect.y + self.runtime.scroll.get(id).map(|s| s.1).unwrap_or(0.0);
+                let local_y = self.cursor.y - rect.y
+                    + self.runtime.scroll.get(id).map(|s| s.1).unwrap_or(0.0);
                 // Le champ est focalisé pendant le drag : défilement depuis le curseur courant.
                 let scroll_cursor = self.runtime.edits.get(id).map(|e| e.cursor).unwrap_or(0);
                 let cursor = self
                     .tree
                     .as_ref()
                     .and_then(|tree| find_widget(tree.as_ref(), *id))
-                    .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
+                    .and_then(|widget| {
+                        widget.cursor_at(local_x, local_y, rect.width, scroll_cursor)
+                    });
                 if let Some(cursor) = cursor {
                     let edit = self.runtime.edits.entry(*id).or_default();
                     if edit.anchor.is_none() {
@@ -2144,7 +2280,14 @@ impl<A: Application> App<A> {
                     self.request_redraw();
                 }
             }
-            Drag::Pan { id, last, moved, velocity, last_t, viewport } => {
+            Drag::Pan {
+                id,
+                last,
+                moved,
+                velocity,
+                last_t,
+                viewport,
+            } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
                 if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
@@ -2165,7 +2308,13 @@ impl<A: Application> App<A> {
                     *last = self.cursor;
                 }
             }
-            Drag::Scroll { id, last, moved, velocity, last_t } => {
+            Drag::Scroll {
+                id,
+                last,
+                moved,
+                velocity,
+                last_t,
+            } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
                 // Sous le seuil, on ne défile pas encore (le geste peut être un tap).
@@ -2260,9 +2409,10 @@ impl<A: Application> App<A> {
         if dest_x.is_none() && dest_y.is_none() {
             return; // relâchement lent : pas d'entraînement.
         }
-        self.runtime
-            .scroll_target
-            .insert(id, (dest_x.unwrap_or(current.0), dest_y.unwrap_or(current.1)));
+        self.runtime.scroll_target.insert(
+            id,
+            (dest_x.unwrap_or(current.0), dest_y.unwrap_or(current.1)),
+        );
         self.runtime.scroll_velocity.insert(id, velocity);
     }
 
@@ -2272,7 +2422,10 @@ impl<A: Application> App<A> {
     /// des réordonnables (indépendant du clic) — donc aussi les cartes/zones Kanban, non cliquables.
     fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize)> {
         let id = self.ui.as_ref()?.reorderable_at(point)?;
-        let widget = self.tree.as_ref().and_then(|tree| find_widget(tree.as_ref(), id))?;
+        let widget = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))?;
         // Cible **seule** (zone de dépôt) : réordonnable mais non saisissable — on ne démarre pas de
         // glisser dessus (le dépôt, lui, continue de la viser via `ui.reorderable_at`).
         if !widget.reorder_draggable() {
@@ -2289,7 +2442,10 @@ impl<A: Application> App<A> {
         let Some(Drag::Reorder { id, .. }) = self.drag else {
             return None;
         };
-        self.tree.as_ref().and_then(|t| find_widget(t.as_ref(), id)).map(|w| w.reorder_axis())
+        self.tree
+            .as_ref()
+            .and_then(|t| find_widget(t.as_ref(), id))
+            .map(|w| w.reorder_axis())
     }
 
     /// Peint l'**aperçu de réordonnancement** par-dessus la scène (non découpée) :
@@ -2297,7 +2453,13 @@ impl<A: Application> App<A> {
     /// colonne cible, et **carte soulevée** (ombre + bord `primary`) suivant le
     /// curseur. Sans effet hors d'un glissement d'en-tête engagé.
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
-        let Some(Drag::Reorder { id, from: _, start, moved: true }) = self.drag else {
+        let Some(Drag::Reorder {
+            id,
+            from: _,
+            start,
+            moved: true,
+        }) = self.drag
+        else {
             return;
         };
         let Some(src) = ui.widget_rect(id) else {
@@ -2334,7 +2496,8 @@ impl<A: Application> App<A> {
                 // Réagence les colonnes voisines : le trou de la source se referme et la place de
                 // dépôt s'ouvre, selon l'abscisse **lissée** (ressort) du curseur — coulissement à
                 // inertie douce, tandis que le fantôme colle au curseur réel.
-                let reflowed = reflow_reorder_columns(scene.primitives(), src, self.reorder_x, id.as_u64());
+                let reflowed =
+                    reflow_reorder_columns(scene.primitives(), src, self.reorder_x, id.as_u64());
                 scene.clear();
                 for primitive in reflowed {
                     scene.push_primitive(primitive);
@@ -2350,7 +2513,10 @@ impl<A: Application> App<A> {
                 // *et* le trou glissent entre cartes (inertie verticale) au lieu de sauter d'un cran.
                 let line = self
                     .reorder_drop_line(drag_preview::INSERT_THICKNESS)
-                    .map(|r| Rect { y: self.reorder_y, ..r });
+                    .map(|r| Rect {
+                        y: self.reorder_y,
+                        ..r
+                    });
                 let reflowed = reflow_reorder_cards(scene.primitives(), src, line, &owners);
                 scene.clear();
                 for primitive in reflowed {
@@ -2358,7 +2524,13 @@ impl<A: Application> App<A> {
                 }
                 if let Some(line) = line {
                     scene.set_clip(Rect::UNBOUNDED);
-                    scene.draw_rect(line, theme.primary, theme.radius.min(line.height * 0.5), 0.0, Color::TRANSPARENT);
+                    scene.draw_rect(
+                        line,
+                        theme.primary,
+                        theme.radius.min(line.height * 0.5),
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
                 }
             }
         }
@@ -2386,7 +2558,11 @@ impl<A: Application> App<A> {
         // Emplacement réordonnable (carte/zone de dépôt) sous le curseur, via le registre dédié.
         let target = self.ui.as_ref()?.reorderable_at(self.cursor)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
-        Some(drop_insertion_line(rect, thickness, self.reorder_insert_after(target, rect)))
+        Some(drop_insertion_line(
+            rect,
+            thickness,
+            self.reorder_insert_after(target, rect),
+        ))
     }
 
     /// Pour un emplacement à réordonnancement **vertical**, indique si le curseur est dans sa moitié
@@ -2414,7 +2590,11 @@ impl<A: Application> App<A> {
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))
-            .and_then(|widget| widget.on_drag_delta(dx).or_else(|| widget.on_drag(fraction)));
+            .and_then(|widget| {
+                widget
+                    .on_drag_delta(dx)
+                    .or_else(|| widget.on_drag(fraction))
+            });
         if let Some(message) = message {
             self.dispatch(message);
         }
@@ -2450,19 +2630,18 @@ impl<A: Application> App<A> {
     fn escape(&mut self) {
         // 1) Montée le long du chemin de focus. `Some(None)` = consommé sans
         // message ; `None` extérieur = tout le chemin a ignoré → repli.
-        let outcome: Option<Option<A::Message>> =
-            self.runtime.input.focused.and_then(|focused| {
-                let tree = self.tree.as_ref()?;
-                let path = find_path(tree.as_ref(), focused);
-                for widget in path.iter().rev() {
-                    match widget.on_key(&Key::Escape) {
-                        KeyResponse::Handled(message) => return Some(message),
-                        KeyResponse::Skip => return Some(None),
-                        KeyResponse::Ignored => {}
-                    }
+        let outcome: Option<Option<A::Message>> = self.runtime.input.focused.and_then(|focused| {
+            let tree = self.tree.as_ref()?;
+            let path = find_path(tree.as_ref(), focused);
+            for widget in path.iter().rev() {
+                match widget.on_key(&Key::Escape) {
+                    KeyResponse::Handled(message) => return Some(message),
+                    KeyResponse::Skip => return Some(None),
+                    KeyResponse::Ignored => {}
                 }
-                None
-            });
+            }
+            None
+        });
 
         match outcome {
             Some(message) => {
@@ -2647,7 +2826,12 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
     // Couleur d'ombre **du thème** (surchargeable) — même rôle que l'ombre de `Button` ; seule la
     // géométrie (décalage, flou, opacité) est en constantes locales.
     let shadow = theme.scheme.shadow.with_alpha(SHADOW_ALPHA);
-    scene.shadow(card.translate(0.0, SHADOW_OFFSET_Y), shadow, theme.radius, SHADOW_BLUR);
+    scene.shadow(
+        card.translate(0.0, SHADOW_OFFSET_Y),
+        shadow,
+        theme.radius,
+        SHADOW_BLUR,
+    );
     let border = theme.primary.fade(BORDER_ALPHA);
     if ghost.is_empty() {
         scene.draw_rect(card, theme.surface, theme.radius, BORDER_WIDTH, border);
@@ -2665,13 +2849,19 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
 /// **supérieur** (insertion avant, moitié haute survolée) ou **inférieur** (insertion après,
 /// `after = true`, moitié basse survolée), sur toute la largeur. Fonction pure — testable sans GPU.
 fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
-    let edge = if after { target.y + target.height } else { target.y };
+    let edge = if after {
+        target.y + target.height
+    } else {
+        target.y
+    };
     Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_ghost_card, drop_insertion_line, resolve_focus, spring_toward, Rect, Scene, Theme};
+    use super::{
+        draw_ghost_card, drop_insertion_line, resolve_focus, spring_toward, Rect, Scene, Theme,
+    };
     use frus_widgets::WidgetId;
     use std::collections::HashSet;
 
@@ -2704,7 +2894,12 @@ mod tests {
         let (mut history, mut prev) = (Vec::new(), None);
 
         // Frame 1 : focus sur l'ancre (présente).
-        let f = resolve_focus(Some(anchor), &HashSet::from([anchor]), &mut history, &mut prev);
+        let f = resolve_focus(
+            Some(anchor),
+            &HashSet::from([anchor]),
+            &mut history,
+            &mut prev,
+        );
         assert_eq!(f, Some(anchor));
         assert!(history.is_empty());
 
@@ -2715,7 +2910,12 @@ mod tests {
         assert_eq!(history, vec![anchor]);
 
         // Frame 3 : menu fermé, l'item a disparu → retour au déclencheur, historique consommé.
-        let f = resolve_focus(Some(item), &HashSet::from([anchor]), &mut history, &mut prev);
+        let f = resolve_focus(
+            Some(item),
+            &HashSet::from([anchor]),
+            &mut history,
+            &mut prev,
+        );
         assert_eq!(f, Some(anchor), "le focus revient au déclencheur");
         assert!(history.is_empty());
     }

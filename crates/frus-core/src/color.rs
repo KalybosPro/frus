@@ -59,11 +59,7 @@ impl Color {
         // Développe les formes courtes (#RGB / #RGBA) en dupliquant chaque quartet.
         let expand = |c: u8| (c << 4) | c;
         let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
-        let nib = |i: usize| {
-            u8::from_str_radix(&s[i..i + 1], 16)
-                .ok()
-                .map(|c| expand(c))
-        };
+        let nib = |i: usize| u8::from_str_radix(&s[i..i + 1], 16).ok().map(|c| expand(c));
         match s.len() {
             3 => Some(Self::rgb8(nib(0)?, nib(1)?, nib(2)?)),
             4 => Some(Self::rgba8(nib(0)?, nib(1)?, nib(2)?, nib(3)?)),
@@ -181,12 +177,19 @@ mod tests {
     #[test]
     fn srgb_linear_roundtrip_and_values() {
         // Points fixes.
-        assert_eq!(Color::rgb(0.0, 0.0, 0.0).to_linear(), Color::rgb(0.0, 0.0, 0.0));
+        assert_eq!(
+            Color::rgb(0.0, 0.0, 0.0).to_linear(),
+            Color::rgb(0.0, 0.0, 0.0)
+        );
         let white = Color::rgb(1.0, 1.0, 1.0).to_linear();
         assert!((white.r - 1.0).abs() < 1e-4);
         // Milieu sRGB 0.5 → ~0.214 linéaire.
         let mid = Color::rgb(0.5, 0.5, 0.5).to_linear();
-        assert!((mid.r - 0.214).abs() < 0.005, "0.5 sRGB → linéaire = {}", mid.r);
+        assert!(
+            (mid.r - 0.214).abs() < 0.005,
+            "0.5 sRGB → linéaire = {}",
+            mid.r
+        );
         // Aller-retour.
         let c = Color::rgba(0.2, 0.6, 0.9, 0.5);
         let round = c.to_linear().to_srgb();

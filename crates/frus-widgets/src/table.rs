@@ -14,9 +14,9 @@ use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
 use crate::icons::IconName;
+use crate::interaction::{Key, KeyResponse, Status};
 use crate::list::List;
 use crate::scroll::{Axis, Scroll};
-use crate::interaction::{Key, KeyResponse, Status};
 use crate::stack::Stack;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -34,7 +34,13 @@ const BOX: f32 = 18.0;
 const HANDLE_W: f32 = 8.0;
 
 /// Fond commun d'une cellule selon son rôle et l'interaction (facteur partagé).
-fn cell_background(header: bool, selected: bool, clickable: bool, theme: &Theme, status: &Status) -> Color {
+fn cell_background(
+    header: bool,
+    selected: bool,
+    clickable: bool,
+    theme: &Theme,
+    status: &Status,
+) -> Color {
     let base = if header {
         theme.surface.lerp(theme.on_surface, 0.06)
     } else if selected {
@@ -53,7 +59,11 @@ fn cell_background(header: bool, selected: bool, clickable: bool, theme: &Theme,
 /// — un plancher `ROW_H` (confort minimal) qui grandit avec le contenu. Comme la rangée
 /// aligne ses cellules en `Stretch`, toutes suivent la plus haute (aucun rognage).
 fn cell_style(width: Dimension) -> Style {
-    let flex_grow = if matches!(width, Dimension::Length(_)) { 0.0 } else { 1.0 };
+    let flex_grow = if matches!(width, Dimension::Length(_)) {
+        0.0
+    } else {
+        1.0
+    };
     Style {
         width,
         height: Dimension::Auto,
@@ -121,7 +131,11 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
             scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
         }
 
-        let color = if self.header { theme.muted } else { theme.on_surface };
+        let color = if self.header {
+            theme.muted
+        } else {
+            theme.on_surface
+        };
         let ty = bounds.y + (bounds.height - frus_text::line_height(SIZE)) * 0.5;
 
         // Icône de tête (en-tête) : peinte à gauche, le libellé décalé à sa suite.
@@ -132,7 +146,12 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
             scene.fill_path(&path, color.fade(o));
             text_x += ICON + ICON_GAP;
         }
-        scene.text(Point::new(text_x, ty), self.label.clone(), SIZE, color.fade(o));
+        scene.text(
+            Point::new(text_x, ty),
+            self.label.clone(),
+            SIZE,
+            color.fade(o),
+        );
 
         if let (true, Some(ascending)) = (self.header, self.sort) {
             let lw = frus_text::measure(&self.label, SIZE).width;
@@ -184,7 +203,11 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         }
         // Cellule de donnée sélectionnable : énonce l'état **résultant** de la ligne.
         if let (false, Some(row), true) = (self.header, self.row, self.message.is_some()) {
-            let verb = if self.selected { "deselected" } else { "selected" };
+            let verb = if self.selected {
+                "deselected"
+            } else {
+                "selected"
+            };
             return Some(format!("Row {} {}", row + 1, verb));
         }
         None
@@ -253,15 +276,30 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
         let by = bounds.y + (bounds.height - BOX) * 0.5;
         let box_rect = Rect::new(bx, by, BOX, BOX);
         if self.checked {
-            scene.draw_rect(box_rect, theme.primary.fade(o), 4.0, 0.0, Color::TRANSPARENT);
+            scene.draw_rect(
+                box_rect,
+                theme.primary.fade(o),
+                4.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
             // Coche : l'icône Check remplie, centrée dans la case.
             let scale = (BOX - 4.0) / 24.0;
             let inset = (BOX - 24.0 * scale) * 0.5;
-            let path = IconName::Check.path().scaled(scale).translated(bx + inset, by + inset);
+            let path = IconName::Check
+                .path()
+                .scaled(scale)
+                .translated(bx + inset, by + inset);
             scene.fill_path(&path, theme.on_primary.fade(o));
         } else if self.indeterminate {
             // Indéterminé : case pleine barrée d'un tiret (façon Material).
-            scene.draw_rect(box_rect, theme.primary.fade(o), 4.0, 0.0, Color::TRANSPARENT);
+            scene.draw_rect(
+                box_rect,
+                theme.primary.fade(o),
+                4.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
             let dash = Rect::new(bx + 4.0, by + BOX * 0.5 - 1.0, BOX - 8.0, 2.0);
             scene.draw_rect(dash, theme.on_primary.fade(o), 1.0, 0.0, Color::TRANSPARENT);
         } else {
@@ -353,7 +391,11 @@ impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
     fn announce(&self) -> Option<String> {
         // Ligne-widget sélectionnable : énonce l'état **résultant** de la sélection.
         self.message.as_ref()?;
-        let verb = if self.selected { "deselected" } else { "selected" };
+        let verb = if self.selected {
+            "deselected"
+        } else {
+            "selected"
+        };
         Some(format!("Row {} {}", self.row + 1, verb))
     }
 }
@@ -404,7 +446,12 @@ impl<Msg: Clone> Widget<Msg> for FrozenShadow {
         }
         if let Some(x) = self.right {
             scene.gradient_rect(
-                Rect::new(bounds.x + x - FROZEN_SHADOW_W, bounds.y, FROZEN_SHADOW_W, bounds.height),
+                Rect::new(
+                    bounds.x + x - FROZEN_SHADOW_W,
+                    bounds.y,
+                    FROZEN_SHADOW_W,
+                    bounds.height,
+                ),
                 clear,
                 dark,
                 [1.0, 0.0],
@@ -620,7 +667,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// l'en-tête (l'overlay est collecté à n'importe quelle profondeur), atteignable au
     /// **Tab** et piloté flèches/Entrée, et fermé par Échap / clic extérieur — sans code
     /// spécifique côté tableau (l'application pilote l'état ouvert/fermé du menu).
-    pub fn header_action(mut self, col: usize, make: impl Fn() -> Box<dyn Widget<Msg>> + 'static) -> Self {
+    pub fn header_action(
+        mut self,
+        col: usize,
+        make: impl Fn() -> Box<dyn Widget<Msg>> + 'static,
+    ) -> Self {
         if col < self.columns {
             if self.header_actions.len() <= col {
                 self.header_actions.resize_with(col + 1, || None);
@@ -633,7 +684,8 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Ajoute une ligne de données (une valeur **texte** par colonne).
     pub fn row(mut self, cells: &[&str]) -> Self {
-        self.rows.push(RowKind::Text(cells.iter().map(|s| s.to_string()).collect()));
+        self.rows
+            .push(RowKind::Text(cells.iter().map(|s| s.to_string()).collect()));
         self.rebuild();
         self
     }
@@ -647,7 +699,9 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// clé : au message de tri, elle ordonne ses données par le champ correspondant à la
     /// colonne (p.ex. le nom derrière un avatar), puis repasse les lignes déjà triées.
     pub fn widget_row(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
-        self.rows.push(RowKind::Widgets(cells.into_iter().map(std::rc::Rc::from).collect()));
+        self.rows.push(RowKind::Widgets(
+            cells.into_iter().map(std::rc::Rc::from).collect(),
+        ));
         self.rebuild();
         self
     }
@@ -694,7 +748,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Active la **sélection multiple** : une colonne de cases à cocher (à gauche) coiffée
     /// d'une case « tout cocher ». `on_check(ligne)` bascule une ligne, `on_check_all`
     /// bascule toutes les lignes. L'état coché reflète [`selected`](Self::selected).
-    pub fn checkboxes(mut self, on_check: impl Fn(usize) -> Msg + 'static, on_check_all: Msg) -> Self {
+    pub fn checkboxes(
+        mut self,
+        on_check: impl Fn(usize) -> Msg + 'static,
+        on_check_all: Msg,
+    ) -> Self {
         self.on_check = Some(Rc::new(on_check));
         self.on_check_all = Some(on_check_all);
         self.rebuild();
@@ -755,7 +813,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
         viewport_height: f32,
         build: impl Fn(usize) -> Vec<Box<dyn Widget<Msg>>> + 'static,
     ) -> Self {
-        self.virtual_data = Some((count, viewport_height, VirtualBuild::Widgets(Rc::new(build))));
+        self.virtual_data = Some((
+            count,
+            viewport_height,
+            VirtualBuild::Widgets(Rc::new(build)),
+        ));
         self.rows.clear();
         self.rebuild();
         self
@@ -807,7 +869,10 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Nombre de lignes de données : le compte **virtualisé** s'il est défini, sinon les
     /// lignes matérialisées. (En virtualisé, `rows` est vide.)
     fn row_count(&self) -> usize {
-        self.virtual_data.as_ref().map(|(count, _, _)| *count).unwrap_or(self.rows.len())
+        self.virtual_data
+            .as_ref()
+            .map(|(count, _, _)| *count)
+            .unwrap_or(self.rows.len())
     }
 
     /// Nombre de lignes sélectionnées **dans la plage** (indices `< row_count`). Suppose des
@@ -841,7 +906,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
         if !(0..self.columns).all(|c| self.widths.get(c).copied().unwrap_or(0.0) > 0.0) {
             return None;
         }
-        let base = if self.on_check.is_some() { CHECK_W + ROW_GAP } else { 0.0 };
+        let base = if self.on_check.is_some() {
+            CHECK_W + ROW_GAP
+        } else {
+            0.0
+        };
         // Rangée à gap nul : les écarts sont matérialisés par des cales.
         let mut row = Flex::row();
         let mut consumed = 0.0f32;
@@ -887,7 +956,12 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
     /// Construit un **bloc de colonnes** (en-tête + rangées texte) pour les colonnes `cols`,
     /// à la largeur `w`. Suppose des rangées **texte** (validé en amont).
-    fn frozen_block(&self, cols: std::ops::Range<usize>, w: f32, header_present: bool) -> Flex<Msg> {
+    fn frozen_block(
+        &self,
+        cols: std::ops::Range<usize>,
+        w: f32,
+        header_present: bool,
+    ) -> Flex<Msg> {
         let mut col = Flex::column().gap(ROW_GAP).width(w);
         if header_present {
             let mut hr = Flex::row().gap(ROW_GAP).width(w);
@@ -949,7 +1023,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
             cols + ROW_GAP * ((b - a) - 1) as f32
         };
         let mid_end = self.columns - right;
-        let (left_w, mid_w, right_w) = (span(0, left), span(left, mid_end), span(mid_end, self.columns));
+        let (left_w, mid_w, right_w) = (
+            span(0, left),
+            span(left, mid_end),
+            span(mid_end, self.columns),
+        );
 
         let header_present = !self.headers.is_empty();
         let n_rows = header_present as usize + self.rows.len();
@@ -986,7 +1064,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
             right: (right > 0).then_some(total_width - right_w),
         };
         Some(Box::new(
-            Stack::new().width(total_width).height(total_h).layer(row).layer(shadow),
+            Stack::new()
+                .width(total_width)
+                .height(total_h)
+                .layer(row)
+                .layer(shadow),
         ))
     }
 
@@ -1030,7 +1112,10 @@ impl<Msg: Clone + 'static> Table<Msg> {
                 for (c, label) in self.headers.iter().enumerate() {
                     let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
                     let message = self.on_sort.as_ref().map(|f| f(c));
-                    let reorder = self.on_reorder.as_ref().map(|cb| (c, self.columns, cb.clone()));
+                    let reorder = self
+                        .on_reorder
+                        .as_ref()
+                        .map(|cb| (c, self.columns, cb.clone()));
                     let action = self
                         .header_actions
                         .get(c)
@@ -1242,7 +1327,12 @@ mod tests {
         // Chaque rangée a 2 cellules.
         assert_eq!(Widget::<()>::children(&table)[0].children().len(), 2);
 
-        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let has = |t: &str| {
             ui.scene()
                 .primitives()
@@ -1272,7 +1362,12 @@ mod tests {
             .on_select_row(Msg::Select)
             .row(&["Ada", "5"])
             .row(&["Bob", "3"]);
-        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         assert_eq!(click(180.0, ROW_H * 0.5), Some(Msg::Sort(1)));
         assert_eq!(click(30.0, ROW_H * 2.5), Some(Msg::Select(1)));
@@ -1290,7 +1385,12 @@ mod tests {
         // Chaque rangée a 3 cellules : case + 2 colonnes.
         assert_eq!(Widget::<Msg>::children(&table)[0].children().len(), 3);
 
-        let ui = build_ui(&table, Size::new(280.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(280.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         // Case « tout cocher » dans l'en-tête (colonne de gauche).
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 0.5), Some(Msg::CheckAll));
@@ -1327,7 +1427,12 @@ mod tests {
             .on_sort(Msg::Sort)
             .on_select_row(Msg::Select)
             .row(&["Ada", "5"]);
-        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Deux en-têtes triables sont focusables ; les cellules de données ne le sont pas.
         // On compte les focusables en parcourant le cycle Tab.
         let first = ui.focus_next(None, true);
@@ -1341,7 +1446,10 @@ mod tests {
             }
             cur = next;
         }
-        assert_eq!(count, 2, "seuls les 2 en-têtes prennent le focus (got {count})");
+        assert_eq!(
+            count, 2,
+            "seuls les 2 en-têtes prennent le focus (got {count})"
+        );
     }
 
     #[test]
@@ -1365,14 +1473,31 @@ mod tests {
         assert_eq!(handle.on_drag_delta(0.0), None);
 
         // La poignée est atteignable comme draggable au bord de la 1re colonne (x≈100).
-        let ui = build_ui(&table, Size::new(220.0, 120.0), &Runtime::default(), &Theme::default());
-        assert!(ui.draggable_at(Point::new(100.0, 20.0)).is_some(), "poignée saisissable au bord");
-        // Hors des colonnes fixes, pas d'overlay : une largeur flexible le désactive.
-        let flex = Table::<Msg>::new(2).header(&["A", "B"]).on_resize(Msg::Resize).row(&["x", "y"]);
-        // Grille nue (en-tête + 1 rangée), aucun calque de poignées superposé.
-        assert_eq!(Widget::<Msg>::children(&flex).len(), 2, "colonnes flexibles : pas de calque de poignées");
+        let ui = build_ui(
+            &table,
+            Size::new(220.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert!(
-            Widget::<Msg>::children(&flex).iter().all(|r| r.children().iter().all(|c| !c.draggable())),
+            ui.draggable_at(Point::new(100.0, 20.0)).is_some(),
+            "poignée saisissable au bord"
+        );
+        // Hors des colonnes fixes, pas d'overlay : une largeur flexible le désactive.
+        let flex = Table::<Msg>::new(2)
+            .header(&["A", "B"])
+            .on_resize(Msg::Resize)
+            .row(&["x", "y"]);
+        // Grille nue (en-tête + 1 rangée), aucun calque de poignées superposé.
+        assert_eq!(
+            Widget::<Msg>::children(&flex).len(),
+            2,
+            "colonnes flexibles : pas de calque de poignées"
+        );
+        assert!(
+            Widget::<Msg>::children(&flex)
+                .iter()
+                .all(|r| r.children().iter().all(|c| !c.draggable())),
             "aucune poignée sans largeurs fixes",
         );
     }
@@ -1408,16 +1533,34 @@ mod tests {
             .on_reorder(Msg::Reorder)
             .row(&["x", "y", "z"]);
         let cells = Widget::<Msg>::children(&table)[0].children();
-        let ctrl_left = Key::Left { shift: false, word: true };
-        let ctrl_right = Key::Right { shift: false, word: true };
+        let ctrl_left = Key::Left {
+            shift: false,
+            word: true,
+        };
+        let ctrl_right = Key::Right {
+            shift: false,
+            word: true,
+        };
         // Colonne du milieu (1) : Ctrl+Gauche → 0, Ctrl+Droite → 2.
-        assert_eq!(cells[1].on_key(&ctrl_left), KeyResponse::Handled(Some(Msg::Reorder(1, 0))));
-        assert_eq!(cells[1].on_key(&ctrl_right), KeyResponse::Handled(Some(Msg::Reorder(1, 2))));
+        assert_eq!(
+            cells[1].on_key(&ctrl_left),
+            KeyResponse::Handled(Some(Msg::Reorder(1, 0)))
+        );
+        assert_eq!(
+            cells[1].on_key(&ctrl_right),
+            KeyResponse::Handled(Some(Msg::Reorder(1, 2)))
+        );
         // Aux bords : ignoré (le focus navigue). Col 0 à gauche, col 2 à droite.
         assert_eq!(cells[0].on_key(&ctrl_left), KeyResponse::Ignored);
         assert_eq!(cells[2].on_key(&ctrl_right), KeyResponse::Ignored);
         // Flèche nue (sans Ctrl) : ignorée → navigation de focus.
-        assert_eq!(cells[1].on_key(&Key::Left { shift: false, word: false }), KeyResponse::Ignored);
+        assert_eq!(
+            cells[1].on_key(&Key::Left {
+                shift: false,
+                word: false
+            }),
+            KeyResponse::Ignored
+        );
     }
 
     #[test]
@@ -1434,7 +1577,9 @@ mod tests {
         assert_eq!(sem.label.as_deref(), Some("B"));
         assert_eq!(sem.value.as_deref(), Some("column 2 of 3"));
         // Les cellules de données ne portent pas de sémantique d'en-tête.
-        assert!(Widget::<Msg>::children(&table)[1].children()[0].semantics().is_none());
+        assert!(Widget::<Msg>::children(&table)[1].children()[0]
+            .semantics()
+            .is_none());
     }
 
     #[test]
@@ -1453,18 +1598,33 @@ mod tests {
         assert_eq!(rows.len(), 2);
         let drow = &rows[1];
         assert_eq!(drow.children().len(), 2);
-        assert_eq!(drow.children()[0].children().len(), 1, "la cellule contient un widget");
+        assert_eq!(
+            drow.children()[0].children().len(),
+            1,
+            "la cellule contient un widget"
+        );
 
         // Le contenu (« admin ») est bien rendu, et la ligne reste sélectionnable.
-        let ui = build_ui(&table, Size::new(240.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let has_admin = ui
             .scene()
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "admin"));
         assert!(has_admin, "le widget de cellule est peint");
-        let click = ui.hit(Point::new(30.0, ROW_H * 1.5)).and_then(|id| ui.msg_for(id));
-        assert_eq!(click, Some(Msg::Select(0)), "la ligne-widget est sélectionnable");
+        let click = ui
+            .hit(Point::new(30.0, ROW_H * 1.5))
+            .and_then(|id| ui.msg_for(id));
+        assert_eq!(
+            click,
+            Some(Msg::Select(0)),
+            "la ligne-widget est sélectionnable"
+        );
     }
 
     #[test]
@@ -1475,7 +1635,12 @@ mod tests {
             if icons {
                 t = t.header_icons(&[Some(IconName::Star), None]);
             }
-            let ui = build_ui(&t, Size::new(240.0, 100.0), &Runtime::default(), &Theme::default());
+            let ui = build_ui(
+                &t,
+                Size::new(240.0, 100.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
             ui.scene()
                 .primitives()
                 .iter()
@@ -1486,18 +1651,30 @@ mod tests {
                 .unwrap()
         };
         let (plain, iconed) = (name_x(false), name_x(true));
-        assert!(iconed >= plain + ICON, "libellé décalé derrière l'icône : {iconed} vs {plain}");
+        assert!(
+            iconed >= plain + ICON,
+            "libellé décalé derrière l'icône : {iconed} vs {plain}"
+        );
         // La colonne sans icône (« Score ») n'est pas décalée.
     }
 
     #[test]
     fn sort_and_selection_are_announced() {
         // En-tête triable : le tri résultant énonce le sens basculé.
-        let unsorted = Table::<Msg>::new(2).header(&["Name", "Score"]).on_sort(Msg::Sort);
-        let head = |t: &Table<Msg>, c: usize| Widget::<Msg>::children(t)[0].children()[c].announce();
-        assert_eq!(head(&unsorted, 0).as_deref(), Some("Sorted by Name ascending"));
+        let unsorted = Table::<Msg>::new(2)
+            .header(&["Name", "Score"])
+            .on_sort(Msg::Sort);
+        let head =
+            |t: &Table<Msg>, c: usize| Widget::<Msg>::children(t)[0].children()[c].announce();
+        assert_eq!(
+            head(&unsorted, 0).as_deref(),
+            Some("Sorted by Name ascending")
+        );
         // Déjà croissant → un clic passe en décroissant.
-        let asc = Table::<Msg>::new(2).header(&["Name", "Score"]).on_sort(Msg::Sort).sorted(0, true);
+        let asc = Table::<Msg>::new(2)
+            .header(&["Name", "Score"])
+            .on_sort(Msg::Sort)
+            .sorted(0, true);
         assert_eq!(head(&asc, 0).as_deref(), Some("Sorted by Name descending"));
 
         // Cases à cocher : l'état résultant de la bascule.
@@ -1547,15 +1724,29 @@ mod tests {
             .header_action(1, || Box::new(Btn));
         // La cellule d'en-tête de la colonne 1 porte le widget d'action.
         assert_eq!(
-            Widget::<Msg>::children(&table)[0].children()[1].children().len(),
+            Widget::<Msg>::children(&table)[0].children()[1]
+                .children()
+                .len(),
             1,
             "l'en-tête colonne 1 porte l'action",
         );
-        let ui = build_ui(&table, Size::new(240.0, 100.0), &Runtime::default(), &Theme::default());
-        let click = |x: f32| ui.hit(Point::new(x, ROW_H * 0.5)).and_then(|id| ui.msg_for(id));
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let click = |x: f32| {
+            ui.hit(Point::new(x, ROW_H * 0.5))
+                .and_then(|id| ui.msg_for(id))
+        };
         // Clic à droite (sur le bouton, centré ~218) → action ; ailleurs → tri.
         assert_eq!(click(218.0), Some(Msg::Filter), "le bouton capte son clic");
-        assert_eq!(click(130.0), Some(Msg::Sort(1)), "le reste de l'en-tête trie");
+        assert_eq!(
+            click(130.0),
+            Some(Msg::Sort(1)),
+            "le reste de l'en-tête trie"
+        );
     }
 
     #[test]
@@ -1572,12 +1763,21 @@ mod tests {
             ]);
         let rows = Widget::<Msg>::children(&table);
         // Ligne texte 0 (non sélectionnée) → « selected » ; cellule quelconque de la ligne.
-        assert_eq!(rows[1].children()[0].announce().as_deref(), Some("Row 1 selected"));
+        assert_eq!(
+            rows[1].children()[0].announce().as_deref(),
+            Some("Row 1 selected")
+        );
         // Ligne widget 1 (sélectionnée) → « deselected ».
-        assert_eq!(rows[2].children()[0].announce().as_deref(), Some("Row 2 deselected"));
+        assert_eq!(
+            rows[2].children()[0].announce().as_deref(),
+            Some("Row 2 deselected")
+        );
         // Sans sélection possible, aucune annonce.
         let plain = Table::<Msg>::new(1).header(&["N"]).row(&["x"]);
-        assert_eq!(Widget::<Msg>::children(&plain)[1].children()[0].announce(), None);
+        assert_eq!(
+            Widget::<Msg>::children(&plain)[1].children()[0].announce(),
+            None
+        );
     }
 
     #[test]
@@ -1604,19 +1804,35 @@ mod tests {
             }
         }
         let tall = 60.0;
-        let table = Table::<Msg>::new(2).width(240.0).header(&["A", "B"]).widget_row(vec![
-            Box::new(move || Box::new(Tall(tall))),
-            Box::new(|| Box::new(crate::Text::new("x"))),
-        ]);
-        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .header(&["A", "B"])
+            .widget_row(vec![
+                Box::new(move || Box::new(Tall(tall))),
+                Box::new(|| Box::new(crate::Text::new("x"))),
+            ]);
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // La barre rouge (le widget haut) est peinte à sa pleine hauteur : la cellule,
         // et donc la rangée, l'ont suivie (pas de rognage à ROW_H).
         let bar_h = ui.scene().primitives().iter().find_map(|p| match p {
-            Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => Some(rect.height),
+            Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => {
+                Some(rect.height)
+            }
             _ => None,
         });
-        assert!(bar_h.unwrap_or(0.0) >= tall - 1.0, "la rangée suit le contenu haut: {bar_h:?}");
-        assert!(tall - 1.0 > ROW_H, "le contenu dépasse bien la hauteur nominale");
+        assert!(
+            bar_h.unwrap_or(0.0) >= tall - 1.0,
+            "la rangée suit le contenu haut: {bar_h:?}"
+        );
+        assert!(
+            tall - 1.0 > ROW_H,
+            "le contenu dépasse bien la hauteur nominale"
+        );
     }
 
     #[test]
@@ -1631,14 +1847,27 @@ mod tests {
             .on_sort(Msg::Sort)
             .header_action(1, || {
                 Box::new(
-                    Menu::new(Button::new("...").on_press(Msg::Filter), true, Msg::CheckAll)
-                        .item("Sort ascending", Msg::Sort(1))
-                        .item("Sort descending", Msg::Sort(1)),
+                    Menu::new(
+                        Button::new("...").on_press(Msg::Filter),
+                        true,
+                        Msg::CheckAll,
+                    )
+                    .item("Sort ascending", Msg::Sort(1))
+                    .item("Sort descending", Msg::Sort(1)),
                 )
             });
-        let ui = build_ui(&table, Size::new(240.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // L'overlay du menu (imbriqué) est bien collecté → fermable.
-        assert_eq!(ui.top_dismiss(), Some(Msg::CheckAll), "l'overlay du menu de colonne est collecté");
+        assert_eq!(
+            ui.top_dismiss(),
+            Some(Msg::CheckAll),
+            "l'overlay du menu de colonne est collecté"
+        );
         // Le menu flotte et se peint (ses items sont rendus par-dessus la grille).
         let painted = |t: &str| {
             ui.scene()
@@ -1646,22 +1875,37 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        assert!(painted("Sort ascending"), "le menu de colonne flotte et se peint");
+        assert!(
+            painted("Sort ascending"),
+            "le menu de colonne flotte et se peint"
+        );
     }
 
     #[test]
     fn widget_header_hosts_arbitrary_header_widgets() {
         use crate::{Button, Text};
-        let table = Table::<Msg>::new(2).width(240.0).widget_header(vec![
-            Box::new(|| Box::new(Text::new("Name"))),
-            Box::new(|| Box::new(Button::new("Sort").on_press(Msg::Sort(1)))),
-        ]).row(&["Ada", "5"]);
+        let table = Table::<Msg>::new(2)
+            .width(240.0)
+            .widget_header(vec![
+                Box::new(|| Box::new(Text::new("Name"))),
+                Box::new(|| Box::new(Button::new("Sort").on_press(Msg::Sort(1)))),
+            ])
+            .row(&["Ada", "5"]);
         // En-tête = 1re rangée : 2 cellules-widgets, chacune hébergeant son widget.
         let rows = Widget::<Msg>::children(&table);
         assert_eq!(rows[0].children().len(), 2);
-        assert_eq!(rows[0].children()[0].children().len(), 1, "l'en-tête widget contient son widget");
+        assert_eq!(
+            rows[0].children()[0].children().len(),
+            1,
+            "l'en-tête widget contient son widget"
+        );
 
-        let ui = build_ui(&table, Size::new(240.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Le libellé « Name » (widget d'en-tête) est peint.
         let painted = |t: &str| {
             ui.scene()
@@ -1669,10 +1913,19 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        assert!(painted("Name") && painted("Sort"), "les widgets d'en-tête sont peints");
+        assert!(
+            painted("Name") && painted("Sort"),
+            "les widgets d'en-tête sont peints"
+        );
         // Le bouton d'en-tête maison émet **son** message (pas de tri automatique).
-        let click = ui.hit(Point::new(180.0, ROW_H * 0.5)).and_then(|id| ui.msg_for(id));
-        assert_eq!(click, Some(Msg::Sort(1)), "l'app câble le tri dans son widget d'en-tête");
+        let click = ui
+            .hit(Point::new(180.0, ROW_H * 0.5))
+            .and_then(|id| ui.msg_for(id));
+        assert_eq!(
+            click,
+            Some(Msg::Sort(1)),
+            "l'app câble le tri dans son widget d'en-tête"
+        );
     }
 
     #[test]
@@ -1689,10 +1942,23 @@ mod tests {
                 counter.set(counter.get() + 1);
                 vec![format!("R{i}"), format!("{i}")]
             });
-        let ui = build_ui(&table, Size::new(200.0, 260.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(200.0, 260.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Viewport 200 / ROW_H ≈ 6 lignes visibles (+ marge) — jamais 5000.
-        assert!(built.get() < 20, "seules les lignes visibles sont construites : {}", built.get());
-        assert!(built.get() >= 5, "au moins la fenêtre visible : {}", built.get());
+        assert!(
+            built.get() < 20,
+            "seules les lignes visibles sont construites : {}",
+            built.get()
+        );
+        assert!(
+            built.get() >= 5,
+            "au moins la fenêtre visible : {}",
+            built.get()
+        );
         // En-tête **épinglé** + première ligne visible peints.
         let has = |t: &str| {
             ui.scene()
@@ -1705,10 +1971,19 @@ mod tests {
         // Le défilement couvre tout le contenu (5000 × ROW_H − viewport).
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1, "un viewport défilable");
-        assert_eq!(maxes[0].2, 5000.0 * ROW_H - 200.0, "borne de défilement = contenu total");
+        assert_eq!(
+            maxes[0].2,
+            5000.0 * ROW_H - 200.0,
+            "borne de défilement = contenu total"
+        );
         // Une ligne visible reste cliquable (sélection).
-        let click = ui.hit(Point::new(20.0, ROW_H + 15.0)).and_then(|id| ui.msg_for(id));
-        assert!(matches!(click, Some(Msg::Select(_))), "ligne virtualisée cliquable : {click:?}");
+        let click = ui
+            .hit(Point::new(20.0, ROW_H + 15.0))
+            .and_then(|id| ui.msg_for(id));
+        assert!(
+            matches!(click, Some(Msg::Select(_))),
+            "ligne virtualisée cliquable : {click:?}"
+        );
     }
 
     #[test]
@@ -1723,7 +1998,12 @@ mod tests {
             .row(&["Ada", "1", "2"])
             .row(&["Bob", "3", "4"]);
         // Racine = pile [rangée de blocs, ombre] ; la rangée porte bloc figé + défilant.
-        let ui = build_ui(&table, Size::new(240.0, 160.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 160.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Défilement **horizontal** : contenu (120+120) plus large que le viewport restant.
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1, "une zone défilable");
@@ -1731,8 +2011,16 @@ mod tests {
         // Cellule **gelée** cliquable (sélection) ; en-tête **défilant** triable — l'ombre au
         // bord du gel ne bloque pas les clics.
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
-        assert_eq!(click(40.0, ROW_H * 1.5), Some(Msg::Select(0)), "cellule gelée sélectionne");
-        assert_eq!(click(90.0, ROW_H * 0.5), Some(Msg::Sort(1)), "en-tête défilant trie");
+        assert_eq!(
+            click(40.0, ROW_H * 1.5),
+            Some(Msg::Select(0)),
+            "cellule gelée sélectionne"
+        );
+        assert_eq!(
+            click(90.0, ROW_H * 0.5),
+            Some(Msg::Sort(1)),
+            "en-tête défilant trie"
+        );
     }
 
     #[test]
@@ -1747,7 +2035,12 @@ mod tests {
             .frozen_columns(1)
             .frozen_columns_right(1)
             .row(&["Ada", "1", "2", "x"]);
-        let ui = build_ui(&table, Size::new(260.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(260.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Le milieu (A + B = 240) déborde du viewport restant → défilement horizontal.
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1);
@@ -1755,9 +2048,17 @@ mod tests {
         // En-tête figé à droite (« Act », colonne 3) triable, tout à droite du tableau.
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         let right = click(225.0, ROW_H * 0.5);
-        assert_eq!(right, Some(Msg::Sort(3)), "colonne gelée à droite : {right:?}");
+        assert_eq!(
+            right,
+            Some(Msg::Sort(3)),
+            "colonne gelée à droite : {right:?}"
+        );
         // En-tête figé à gauche (« Name », colonne 0) triable.
-        assert_eq!(click(30.0, ROW_H * 0.5), Some(Msg::Sort(0)), "colonne gelée à gauche");
+        assert_eq!(
+            click(30.0, ROW_H * 0.5),
+            Some(Msg::Sort(0)),
+            "colonne gelée à gauche"
+        );
     }
 
     #[test]
@@ -1768,13 +2069,21 @@ mod tests {
             .checkboxes(Msg::Check, Msg::CheckAll)
             .selected(&[0])
             .virtual_rows(1000, 200.0, |i| vec![format!("R{i}"), format!("{i}")]);
-        let ui = build_ui(&table, Size::new(240.0, 260.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(240.0, 260.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         // « Tout cocher » dans l'en-tête épinglé.
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 0.5), Some(Msg::CheckAll));
         // Case de la première ligne visible (colonne de gauche, sous l'en-tête).
         let row_check = click(CHECK_W * 0.5, ROW_H + 15.0);
-        assert!(matches!(row_check, Some(Msg::Check(_))), "case de ligne virtualisée : {row_check:?}");
+        assert!(
+            matches!(row_check, Some(Msg::Check(_))),
+            "case de ligne virtualisée : {row_check:?}"
+        );
     }
 
     #[test]
@@ -1792,8 +2101,17 @@ mod tests {
                 counter.set(counter.get() + 1);
                 vec![Box::new(Text::new(format!("W{i}"))) as Box<dyn Widget<Msg>>]
             });
-        let ui = build_ui(&table, Size::new(200.0, 260.0), &Runtime::default(), &Theme::default());
-        assert!(built.get() < 20 && built.get() >= 5, "seules les visibles : {}", built.get());
+        let ui = build_ui(
+            &table,
+            Size::new(200.0, 260.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert!(
+            built.get() < 20 && built.get() >= 5,
+            "seules les visibles : {}",
+            built.get()
+        );
         let has = |t: &str| {
             ui.scene()
                 .primitives()
@@ -1803,8 +2121,13 @@ mod tests {
         assert!(has("Item"), "en-tête épinglé");
         assert!(has("W0"), "widget de la première ligne construit");
         // La ligne-widget virtualisée reste sélectionnable (la cellule capte le clic).
-        let click = ui.hit(Point::new(20.0, ROW_H + 15.0)).and_then(|id| ui.msg_for(id));
-        assert!(matches!(click, Some(Msg::Select(_))), "ligne-widget cliquable : {click:?}");
+        let click = ui
+            .hit(Point::new(20.0, ROW_H + 15.0))
+            .and_then(|id| ui.msg_for(id));
+        assert!(
+            matches!(click, Some(Msg::Select(_))),
+            "ligne-widget cliquable : {click:?}"
+        );
     }
 
     #[test]
@@ -1814,7 +2137,12 @@ mod tests {
             .column_widths(&[80.0]) // 1re colonne fixe à 80, 2e flexible
             .header(&["A", "B"])
             .row(&["x", "y"]);
-        let ui = build_ui(&table, Size::new(300.0, 100.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &table,
+            Size::new(300.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // La 1re colonne d'en-tête ("A") occupe 80 px : "B" démarre au-delà de 80 + gap.
         let text_x = |t: &str| {
             ui.scene().primitives().iter().find_map(|p| match p {

@@ -69,7 +69,13 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         let box_rect = Rect::new(bounds.x, box_y, BOX, BOX);
 
         if self.checked {
-            scene.draw_rect(box_rect, theme.primary.fade(o), 5.0, 0.0, Color::TRANSPARENT);
+            scene.draw_rect(
+                box_rect,
+                theme.primary.fade(o),
+                5.0,
+                0.0,
+                Color::TRANSPARENT,
+            );
             scene.text(
                 Point::new(box_rect.x + 3.0, box_rect.y + 1.0),
                 "✓".to_string(),
@@ -77,7 +83,13 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
                 theme.on_primary.fade(o),
             );
         } else {
-            scene.draw_rect(box_rect, theme.surface.fade(o), 5.0, 2.0, theme.border.fade(o));
+            scene.draw_rect(
+                box_rect,
+                theme.surface.fade(o),
+                5.0,
+                2.0,
+                theme.border.fade(o),
+            );
         }
 
         if let Some(label) = &self.label {

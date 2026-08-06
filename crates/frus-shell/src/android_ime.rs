@@ -118,11 +118,15 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
     let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
 
     // 1. Charge le dex embarqué dans un class loader en mémoire.
-    let buffer = unsafe {
-        env.new_direct_byte_buffer(BRIDGE_DEX.as_ptr() as *mut u8, BRIDGE_DEX.len())
-    }?;
+    let buffer =
+        unsafe { env.new_direct_byte_buffer(BRIDGE_DEX.as_ptr() as *mut u8, BRIDGE_DEX.len()) }?;
     let parent = env
-        .call_method(&activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?
+        .call_method(
+            &activity,
+            "getClassLoader",
+            "()Ljava/lang/ClassLoader;",
+            &[],
+        )?
         .l()?;
     let loader = env.new_object(
         "dalvik/system/InMemoryDexClassLoader",
@@ -150,9 +154,21 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
     env.register_native_methods(
         &class,
         &[
-            method("nativeCommit", "(Ljava/lang/String;)V", native_commit as *mut _),
-            method("nativeSetComposing", "(Ljava/lang/String;)V", native_set_composing as *mut _),
-            method("nativeFinishComposing", "()V", native_finish_composing as *mut _),
+            method(
+                "nativeCommit",
+                "(Ljava/lang/String;)V",
+                native_commit as *mut _,
+            ),
+            method(
+                "nativeSetComposing",
+                "(Ljava/lang/String;)V",
+                native_set_composing as *mut _,
+            ),
+            method(
+                "nativeFinishComposing",
+                "()V",
+                native_finish_composing as *mut _,
+            ),
             method("nativeDelete", "(II)V", native_delete as *mut _),
             method("nativeEditorAction", "(I)V", native_editor_action as *mut _),
             method("nativeKey", "(IZII)Z", native_key as *mut _),
@@ -210,16 +226,19 @@ fn call_bridge(method: &str) {
     let Some(bridge) = BRIDGE.get() else {
         return;
     };
-    let result = bridge.vm.attach_current_thread_permanently().and_then(|mut env| {
-        let class: &JClass = bridge.class.as_obj().into();
-        env.call_static_method(
-            class,
-            method,
-            "(Landroid/app/Activity;)V",
-            &[JValue::Object(bridge.activity.as_obj())],
-        )
-        .map(|_| ())
-    });
+    let result = bridge
+        .vm
+        .attach_current_thread_permanently()
+        .and_then(|mut env| {
+            let class: &JClass = bridge.class.as_obj().into();
+            env.call_static_method(
+                class,
+                method,
+                "(Landroid/app/Activity;)V",
+                &[JValue::Object(bridge.activity.as_obj())],
+            )
+            .map(|_| ())
+        });
     if let Err(err) = result {
         log::warn!("pont de saisie : {method} a échoué ({err})");
     }
@@ -282,8 +301,7 @@ extern "system" fn native_key(
     const KEYCODE_DEL: jint = 67;
     if down != JNI_TRUE {
         // Les relâchements des touches consommées le sont aussi (symétrie).
-        return matches!(code, KEYCODE_ENTER | KEYCODE_DEL) as jboolean
-            | (unicode > 0) as jboolean;
+        return matches!(code, KEYCODE_ENTER | KEYCODE_DEL) as jboolean | (unicode > 0) as jboolean;
     }
     let handled = matches!(code, KEYCODE_ENTER | KEYCODE_DEL) || unicode > 0;
     if handled {
@@ -304,11 +322,7 @@ fn to_jstring(env: &JNIEnv, text: &str) -> jni::sys::jstring {
         .unwrap_or(std::ptr::null_mut())
 }
 
-extern "system" fn native_text_before(
-    env: JNIEnv,
-    _class: JClass,
-    n: jint,
-) -> jni::sys::jstring {
+extern "system" fn native_text_before(env: JNIEnv, _class: JClass, n: jint) -> jni::sys::jstring {
     let guard = EDITOR.lock().unwrap();
     let text = guard
         .as_ref()
@@ -320,11 +334,7 @@ extern "system" fn native_text_before(
     to_jstring(&env, &text)
 }
 
-extern "system" fn native_text_after(
-    env: JNIEnv,
-    _class: JClass,
-    n: jint,
-) -> jni::sys::jstring {
+extern "system" fn native_text_after(env: JNIEnv, _class: JClass, n: jint) -> jni::sys::jstring {
     let guard = EDITOR.lock().unwrap();
     let text = guard
         .as_ref()

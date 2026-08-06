@@ -99,7 +99,12 @@ mod tests {
             .height(100.0)
             .layer(Container::<()>::new().width(100.0).height(100.0).color(red))
             .layer(Container::<()>::new().width(40.0).height(40.0).color(blue));
-        let ui = build_ui(&stack, Size::new(100.0, 100.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &stack,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         let rect_of = |c: Color| {
             ui.scene()

@@ -201,8 +201,9 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
             match self.max_visible {
                 Some(n) if self.labels.len() > n => {
                     let viewport = n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP;
-                    self.children
-                        .push(Box::new(Scroll::new().width(self.width).height(viewport).child(list)));
+                    self.children.push(Box::new(
+                        Scroll::new().width(self.width).height(viewport).child(list),
+                    ));
                 }
                 _ => self.children.push(Box::new(list)),
             }
@@ -262,7 +263,10 @@ mod tests {
         // La liste contient les deux suggestions ; la 1ʳᵉ émet Pick("apple").
         let list = &Widget::<Msg>::children(&ac)[1];
         assert_eq!(list.children().len(), 2);
-        assert_eq!(list.children()[0].on_click(), Some(Msg::Pick("apple".to_string())));
+        assert_eq!(
+            list.children()[0].on_click(),
+            Some(Msg::Pick("apple".to_string()))
+        );
     }
 
     #[test]
@@ -278,7 +282,12 @@ mod tests {
         // Requête "ap" sur "apricot" → segments "ap" (mis en avant) + "ricot".
         let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick).suggestion("apricot");
         let (list, _) = Widget::<Msg>::overlay(&ac).unwrap();
-        let ui = build_ui(list, Size::new(280.0, 80.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            list,
+            Size::new(280.0, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let texts: Vec<String> = ui
             .scene()
             .primitives()
@@ -288,8 +297,14 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(texts.contains(&"ap".to_string()), "portion correspondante isolée : {texts:?}");
-        assert!(texts.contains(&"ricot".to_string()), "reste isolé : {texts:?}");
+        assert!(
+            texts.contains(&"ap".to_string()),
+            "portion correspondante isolée : {texts:?}"
+        );
+        assert!(
+            texts.contains(&"ricot".to_string()),
+            "reste isolé : {texts:?}"
+        );
     }
 
     #[test]
@@ -299,13 +314,20 @@ mod tests {
             .suggestion("apricot")
             .active(1);
         let (list, _) = Widget::<Msg>::overlay(&ac).unwrap();
-        let ui = build_ui(list, Size::new(280.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            list,
+            Size::new(280.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let theme = Theme::default();
         let tint = theme.surface.lerp(theme.primary, 0.14);
-        let has_tint = ui.scene().primitives().iter().any(|p| matches!(
-            p,
-            Primitive::Rect { color, .. } if color.fade(1.0) == tint.fade(1.0)
-        ));
+        let has_tint = ui.scene().primitives().iter().any(|p| {
+            matches!(
+                p,
+                Primitive::Rect { color, .. } if color.fade(1.0) == tint.fade(1.0)
+            )
+        });
         assert!(has_tint, "la suggestion active est surlignée");
     }
 
@@ -338,7 +360,10 @@ mod tests {
         let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
         // Liste directe : ses enfants sont les 2 suggestions (pas un Scroll d'un cran).
         assert_eq!(overlay.children().len(), 2);
-        assert_eq!(overlay.children()[0].on_click(), Some(Msg::Pick("a1".to_string())));
+        assert_eq!(
+            overlay.children()[0].on_click(),
+            Some(Msg::Pick("a1".to_string()))
+        );
     }
 
     #[test]
@@ -349,10 +374,18 @@ mod tests {
         let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick)
             .suggestion("apple")
             .suggestion("apricot");
-        let ui = build_ui(&ac, Size::new(280.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &ac,
+            Size::new(280.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let first = ui.focus_next(None, true);
         assert!(first.is_some(), "le champ est focusable");
         let second = ui.focus_next(first, true);
-        assert!(second.is_some() && second != first, "une suggestion suit le champ dans le cycle");
+        assert!(
+            second.is_some() && second != first,
+            "une suggestion suit le champ dans le cycle"
+        );
     }
 }

@@ -92,7 +92,10 @@ impl<Msg: Clone + 'static> Steps<Msg> {
     pub fn on_tap(mut self, on_tap: impl Fn(usize) -> Msg) -> Self {
         let mut row: Flex<Msg> = Flex::row().justify(Justify::SpaceBetween);
         for (i, label) in self.labels.iter().enumerate() {
-            row = row.child(Hotspot { label: label.clone(), message: on_tap(i) });
+            row = row.child(Hotspot {
+                label: label.clone(),
+                message: on_tap(i),
+            });
         }
         self.children = vec![Box::new(row)];
         self
@@ -149,7 +152,11 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
         for i in 0..n.saturating_sub(1) {
             let x0 = self.center_x(bounds, i) + R;
             let x1 = self.center_x(bounds, i + 1) - R;
-            let col = if self.is_done(i) { accent } else { theme.border };
+            let col = if self.is_done(i) {
+                accent
+            } else {
+                theme.border
+            };
             let rect = Rect::new(x0, cy - 1.0, (x1 - x0).max(0.0), 2.0);
             scene.draw_rect(rect, col.fade(o), 0.0, 0.0, Color::TRANSPARENT);
         }
@@ -172,12 +179,19 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
 
             if completed {
                 // Coche (icône 16 px centrée) sur fond accent.
-                let path = IconName::Check.path().scaled(16.0 / 24.0).translated(cx - 8.0, cy - 8.0);
+                let path = IconName::Check
+                    .path()
+                    .scaled(16.0 / 24.0)
+                    .translated(cx - 8.0, cy - 8.0);
                 scene.fill_path(&path, theme.on_primary.fade(o));
             } else {
                 let num = (i + 1).to_string();
                 let m = frus_text::measure(&num, NUM_SIZE);
-                let color = if current { theme.on_primary } else { theme.on_surface };
+                let color = if current {
+                    theme.on_primary
+                } else {
+                    theme.on_surface
+                };
                 let p = Point::new(cx - m.width * 0.5, cy - m.height * 0.5);
                 scene.text(p, num, NUM_SIZE, color.fade(o));
             }
@@ -228,7 +242,11 @@ impl<Msg: Clone> Widget<Msg> for Hotspot<Msg> {
     }
 
     fn semantics(&self) -> Option<Semantics> {
-        Some(Semantics::new(Role::Button).label(self.label.clone()).clickable())
+        Some(
+            Semantics::new(Role::Button)
+                .label(self.label.clone())
+                .clickable(),
+        )
     }
 }
 
@@ -261,13 +279,24 @@ mod tests {
         // 4 étapes, la 3e (index 2) courante : 0,1 terminées ; 2 courante ; 3 à venir.
         let prims = paint_steps(&Steps::<()>::new(["A", "B", "C", "D"]).current(2));
         let has_text = |t: &str| {
-            prims.iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
+            prims
+                .iter()
+                .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
         // Terminées → coches (pas de numéro) ; courante → « 3 » ; à venir → « 4 ».
-        assert!(has_text("3") && has_text("4"), "numéros de l'étape courante et à venir");
-        assert!(!has_text("1") && !has_text("2"), "les étapes terminées montrent une coche");
+        assert!(
+            has_text("3") && has_text("4"),
+            "numéros de l'étape courante et à venir"
+        );
+        assert!(
+            !has_text("1") && !has_text("2"),
+            "les étapes terminées montrent une coche"
+        );
         // Une coche (chemin rempli) par étape terminée.
-        let checks = prims.iter().filter(|p| matches!(p, Primitive::Path { fill: Some(_), .. })).count();
+        let checks = prims
+            .iter()
+            .filter(|p| matches!(p, Primitive::Path { fill: Some(_), .. }))
+            .count();
         assert_eq!(checks, 2, "deux coches pour les deux étapes terminées");
         // Tous les libellés sont dessinés.
         assert!(has_text("A") && has_text("B") && has_text("C") && has_text("D"));
@@ -278,11 +307,22 @@ mod tests {
         // Sans masque : « terminé » = position (i < current).
         let default = Steps::<()>::new(["A", "B", "C"]).current(2);
         assert!(default.is_done(0) && default.is_done(1));
-        assert!(!default.is_done(2), "l'étape courante n'est pas terminée par défaut");
+        assert!(
+            !default.is_done(2),
+            "l'étape courante n'est pas terminée par défaut"
+        );
         // Avec masque (validité) : indépendant de la position.
-        let masked = Steps::<()>::new(["A", "B", "C"]).current(1).completed([false, false, true]);
-        assert!(!masked.is_done(0), "étape 0 invalide → non terminée malgré i < current");
-        assert!(masked.is_done(2), "étape 2 valide → terminée bien que i > current");
+        let masked = Steps::<()>::new(["A", "B", "C"])
+            .current(1)
+            .completed([false, false, true]);
+        assert!(
+            !masked.is_done(0),
+            "étape 0 invalide → non terminée malgré i < current"
+        );
+        assert!(
+            masked.is_done(2),
+            "étape 2 valide → terminée bien que i > current"
+        );
         // Masque plus court que le nombre d'étapes : les manquants sont non terminés.
         let short = Steps::<()>::new(["A", "B", "C"]).completed([true]);
         assert!(short.is_done(0) && !short.is_done(1) && !short.is_done(2));

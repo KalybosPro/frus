@@ -205,7 +205,10 @@ mod tests {
             inner: Box::new(Curve::Linear),
         };
         assert_eq!(staggered.transform(0.25), 0.0, "immobile avant begin");
-        assert!((staggered.transform(0.75) - 0.5).abs() < 1e-4, "à moitié à mi-fenêtre");
+        assert!(
+            (staggered.transform(0.75) - 0.5).abs() < 1e-4,
+            "à moitié à mi-fenêtre"
+        );
         assert_eq!(staggered.transform(1.0), 1.0);
     }
 

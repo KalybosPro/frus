@@ -34,7 +34,11 @@ pub struct InteractiveView {
 
 impl Default for InteractiveView {
     fn default() -> Self {
-        Self { scale: 1.0, tx: 0.0, ty: 0.0 }
+        Self {
+            scale: 1.0,
+            tx: 0.0,
+            ty: 0.0,
+        }
     }
 }
 
@@ -47,7 +51,11 @@ impl InteractiveView {
     /// **Déplace** (pan) le contenu de `(dx, dy)` px écran : le doigt/curseur pousse
     /// le contenu du même delta.
     pub fn pan(self, dx: f32, dy: f32) -> Self {
-        Self { tx: self.tx + dx, ty: self.ty + dy, ..self }
+        Self {
+            tx: self.tx + dx,
+            ty: self.ty + dy,
+            ..self
+        }
     }
 
     /// **Borne** la translation pour que le contenu (à l'échelle courante) **couvre**
@@ -203,7 +211,10 @@ mod tests {
     fn default_is_identity() {
         let m = InteractiveView::default().matrix();
         let p = m.apply(Point::new(30.0, 40.0));
-        assert!((p.x - 30.0).abs() < 1e-4 && (p.y - 40.0).abs() < 1e-4, "identité : {p:?}");
+        assert!(
+            (p.x - 30.0).abs() < 1e-4 && (p.y - 40.0).abs() < 1e-4,
+            "identité : {p:?}"
+        );
     }
 
     /// Le pan décale le contenu du delta exact.
@@ -211,7 +222,10 @@ mod tests {
     fn pan_shifts_the_content() {
         let v = InteractiveView::default().pan(12.0, -5.0);
         let p = v.matrix().apply(Point::new(0.0, 0.0));
-        assert!((p.x - 12.0).abs() < 1e-4 && (p.y + 5.0).abs() < 1e-4, "décalé : {p:?}");
+        assert!(
+            (p.x - 12.0).abs() < 1e-4 && (p.y + 5.0).abs() < 1e-4,
+            "décalé : {p:?}"
+        );
     }
 
     /// Le zoom garde **fixe le point sous le curseur** : ce point écran reçoit le
@@ -240,10 +254,17 @@ mod tests {
     #[test]
     fn zoom_clamps_to_max() {
         let cursor = Point::new(50.0, 50.0);
-        let v = InteractiveView { scale: 4.0, tx: 10.0, ty: 20.0 };
+        let v = InteractiveView {
+            scale: 4.0,
+            tx: 10.0,
+            ty: 20.0,
+        };
         let z = v.zoom_at(2.0, cursor, 0.5, 4.0);
         assert!((z.scale - 4.0).abs() < 1e-4, "saturé à max : {}", z.scale);
-        assert!((z.tx - 10.0).abs() < 1e-4 && (z.ty - 20.0).abs() < 1e-4, "inchangé au bord");
+        assert!(
+            (z.tx - 10.0).abs() < 1e-4 && (z.ty - 20.0).abs() < 1e-4,
+            "inchangé au bord"
+        );
     }
 
     /// À l'échelle 1, le pan est **annulé** par le bornage (le contenu remplit
@@ -252,7 +273,10 @@ mod tests {
     fn clamp_pins_pan_at_scale_one() {
         let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
         let c = InteractiveView::default().pan(50.0, -30.0).clamped(vp);
-        assert!(c.tx.abs() < 1e-4 && c.ty.abs() < 1e-4, "pan annulé à l'échelle 1 : {c:?}");
+        assert!(
+            c.tx.abs() < 1e-4 && c.ty.abs() < 1e-4,
+            "pan annulé à l'échelle 1 : {c:?}"
+        );
     }
 
     /// Zoomé ×2, le pan est borné pour que le contenu **couvre** la fenêtre : un pan
@@ -262,23 +286,53 @@ mod tests {
     fn clamp_keeps_zoomed_content_covering() {
         let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
         // Pan trop à droite (t positif) → ramené à 0 (bord gauche du contenu = 0).
-        let a = InteractiveView { scale: 2.0, tx: 500.0, ty: 0.0 }.clamped(vp);
+        let a = InteractiveView {
+            scale: 2.0,
+            tx: 500.0,
+            ty: 0.0,
+        }
+        .clamped(vp);
         assert!((a.tx - 0.0).abs() < 1e-4, "borné au bord gauche : {}", a.tx);
         // Pan trop à gauche → ramené à -200 (bord droit du contenu = 200).
-        let b = InteractiveView { scale: 2.0, tx: -900.0, ty: 0.0 }.clamped(vp);
-        assert!((b.tx + 200.0).abs() < 1e-4, "borné au bord droit : {}", b.tx);
+        let b = InteractiveView {
+            scale: 2.0,
+            tx: -900.0,
+            ty: 0.0,
+        }
+        .clamped(vp);
+        assert!(
+            (b.tx + 200.0).abs() < 1e-4,
+            "borné au bord droit : {}",
+            b.tx
+        );
         // Un pan modéré passe inchangé.
-        let c = InteractiveView { scale: 2.0, tx: -100.0, ty: -50.0 }.clamped(vp);
-        assert!((c.tx + 100.0).abs() < 1e-4 && (c.ty + 50.0).abs() < 1e-4, "pan valide conservé");
+        let c = InteractiveView {
+            scale: 2.0,
+            tx: -100.0,
+            ty: -50.0,
+        }
+        .clamped(vp);
+        assert!(
+            (c.tx + 100.0).abs() < 1e-4 && (c.ty + 50.0).abs() < 1e-4,
+            "pan valide conservé"
+        );
     }
 
     /// Dézoomé (< 1), le contenu plus petit que la fenêtre est **centré**.
     #[test]
     fn clamp_centers_shrunken_content() {
         let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
-        let c = InteractiveView { scale: 0.5, tx: 999.0, ty: -999.0 }.clamped(vp);
+        let c = InteractiveView {
+            scale: 0.5,
+            tx: 999.0,
+            ty: -999.0,
+        }
+        .clamped(vp);
         // Centre : t = (1 − 0.5)·(o + len/2) = 0.5·100 = 50 sur chaque axe.
-        assert!((c.tx - 50.0).abs() < 1e-4 && (c.ty - 50.0).abs() < 1e-4, "centré : {c:?}");
+        assert!(
+            (c.tx - 50.0).abs() < 1e-4 && (c.ty - 50.0).abs() < 1e-4,
+            "centré : {c:?}"
+        );
     }
 
     /// La marche enveloppe l'enfant dans **un calque transformé et découpé à la
@@ -299,7 +353,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { transform, clip, .. } => Some((transform.is_some(), *clip)),
+                Primitive::Layer {
+                    transform, clip, ..
+                } => Some((transform.is_some(), *clip)),
                 _ => None,
             })
             .expect("un calque interactif");
@@ -336,7 +392,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(rect.y),
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => {
+                    Some(rect.y)
+                }
                 _ => None,
             })
             .expect("le marqueur vert");
@@ -350,25 +408,42 @@ mod tests {
     /// à la position déplacée atteint l'enfant, et son ancienne position le rate.
     #[test]
     fn walk_pan_shifts_the_hit_test() {
+        use crate::interaction::WidgetId;
         use crate::Container;
         use frus_core::{Color, Size};
-        use crate::interaction::WidgetId;
-        let root = InteractiveViewer::<i32>::new().width(200.0).height(200.0).child(
-            Container::new().width(200.0).height(200.0).color(Color::rgb(1.0, 0.0, 0.0)).on_click(9),
-        );
+        let root = InteractiveViewer::<i32>::new()
+            .width(200.0)
+            .height(200.0)
+            .child(
+                Container::new()
+                    .width(200.0)
+                    .height(200.0)
+                    .color(Color::rgb(1.0, 0.0, 0.0))
+                    .on_click(9),
+            );
         let theme = crate::Theme::dark();
 
         // Identité : le bord gauche (x = 10) atteint l'enfant.
         let rt = crate::runtime::Runtime::default();
         let ui = crate::ui::build_ui(&root, Size::new(200.0, 200.0), &rt, &theme);
-        assert!(ui.hit(Point::new(10.0, 100.0)).is_some(), "identité : bord gauche atteint");
+        assert!(
+            ui.hit(Point::new(10.0, 100.0)).is_some(),
+            "identité : bord gauche atteint"
+        );
 
         // Après pan +50 en x : le contenu est poussé à droite ; x = 10 tombe hors du
         // contenu (M⁻¹ = -40), mais x = 60 y retombe (M⁻¹ = 10).
         let mut rt = crate::runtime::Runtime::default();
-        rt.interactive.insert(WidgetId::ROOT, InteractiveView::default().pan(50.0, 0.0));
+        rt.interactive
+            .insert(WidgetId::ROOT, InteractiveView::default().pan(50.0, 0.0));
         let ui = crate::ui::build_ui(&root, Size::new(200.0, 200.0), &rt, &theme);
-        assert!(ui.hit(Point::new(10.0, 100.0)).is_none(), "pan : ancienne position ratée");
-        assert!(ui.hit(Point::new(60.0, 100.0)).is_some(), "pan : position déplacée atteinte");
+        assert!(
+            ui.hit(Point::new(10.0, 100.0)).is_none(),
+            "pan : ancienne position ratée"
+        );
+        assert!(
+            ui.hit(Point::new(60.0, 100.0)).is_some(),
+            "pan : position déplacée atteinte"
+        );
     }
 }

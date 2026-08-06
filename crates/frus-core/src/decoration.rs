@@ -327,7 +327,12 @@ mod tests {
         let mut scene = Scene::new();
         let deco = BoxDecoration::filled(Color::WHITE)
             .radius(6.0)
-            .shadow(BoxShadow::new(0.0, 4.0, 8.0, Color::rgba(0.0, 0.0, 0.0, 0.5)));
+            .shadow(BoxShadow::new(
+                0.0,
+                4.0,
+                8.0,
+                Color::rgba(0.0, 0.0, 0.0, 0.5),
+            ));
         deco.paint_into(&mut scene, rect(), 1.0);
         // Deux primitives : l'ombre d'abord, puis le fond.
         assert_eq!(scene.len(), 2);
@@ -351,7 +356,11 @@ mod tests {
             .border(Border::new(2.0, Color::rgb(0.0, 1.0, 0.0)))
             .paint_into(&mut scene, rect(), 0.5);
         match scene.primitives()[0] {
-            Primitive::Rect { color, border_color, .. } => {
+            Primitive::Rect {
+                color,
+                border_color,
+                ..
+            } => {
                 assert_eq!(color.a, 0.5);
                 assert_eq!(border_color.a, 0.5);
             }
@@ -367,7 +376,11 @@ mod tests {
             .paint_into(&mut scene, rect(), 1.0);
         assert_eq!(scene.len(), 1);
         match scene.primitives()[0] {
-            Primitive::Rect { color, border_width, .. } => {
+            Primitive::Rect {
+                color,
+                border_width,
+                ..
+            } => {
                 assert_eq!(color, Color::TRANSPARENT);
                 assert_eq!(border_width, 1.0);
             }

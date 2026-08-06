@@ -18,8 +18,8 @@ use std::time::Duration;
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
     Align, Alignment, AspectRatio, BoxFit, Button, ClipOval, ClipPath, ClipRRect, Color, Container,
-    Curve, FittedBox, Flex, FractionallySizedBox, InteractiveViewer, Justify, Path, Point, RotatedBox,
-    Scroll, Slider, Text, Theme, Transform, Tween, Variant, Widget,
+    Curve, FittedBox, Flex, FractionallySizedBox, InteractiveViewer, Justify, Path, Point,
+    RotatedBox, Scroll, Slider, Text, Theme, Transform, Tween, Variant, Widget,
 };
 
 /// Un chemin **en étoile** à 5 branches inscrit dans une boîte `size × size`
@@ -56,7 +56,12 @@ struct Showcase {
 impl Default for Showcase {
     fn default() -> Self {
         // `scale_knob = 1/3` correspond à une échelle manuelle de 1.0 (voir `view`).
-        Self { time: 0.0, running: true, scale_knob: 1.0 / 3.0, taps: 0 }
+        Self {
+            time: 0.0,
+            running: true,
+            scale_knob: 1.0 / 3.0,
+            taps: 0,
+        }
     }
 }
 
@@ -125,7 +130,11 @@ impl Application for Showcase {
 
         // Petit carré arrondi de couleur.
         let square = |color: Color| {
-            Container::<Msg>::new().width(64.0).height(64.0).color(color).radius(14.0)
+            Container::<Msg>::new()
+                .width(64.0)
+                .height(64.0)
+                .color(color)
+                .radius(14.0)
         };
         // Un carré dégradé (pour le héros composé).
         let gradient_square = || {
@@ -168,7 +177,11 @@ impl Application for Showcase {
                 "scale_xy",
             ))
             .child(tile(
-                Box::new(Transform::rotate(angle).and_scale(scale).child(gradient_square())),
+                Box::new(
+                    Transform::rotate(angle)
+                        .and_scale(scale)
+                        .child(gradient_square()),
+                ),
                 "rotate + scale",
             ));
 
@@ -205,20 +218,32 @@ impl Application for Showcase {
         let gallery3 = Flex::row()
             .gap(16.0)
             .align(Align::Center)
-            .child(tile(Box::new(ClipRRect::new(24.0).child(sharp())), "ClipRRect(24)"))
+            .child(tile(
+                Box::new(ClipRRect::new(24.0).child(sharp())),
+                "ClipRRect(24)",
+            ))
             .child(tile(Box::new(ClipOval::new().child(sharp())), "ClipOval"))
-            .child(tile(Box::new(ClipPath::new(star_path(96.0)).child(sharp())), "ClipPath (star)"));
+            .child(tile(
+                Box::new(ClipPath::new(star_path(96.0)).child(sharp())),
+                "ClipPath (star)",
+            ));
 
         // Galerie 4 : transformations qui **affectent la mise en page**. `RotatedBox`
         // tourne un texte d'un quart (sa boîte devient haute et étroite) ; `FittedBox`
         // met un grand texte à l'échelle pour **tenir** (Contain) dans un cadre.
-        let rotated = RotatedBox::new(3).child(Text::new("ROTATED").size(16.0).color(theme.on_surface));
-        let fitted = Container::new().width(120.0).height(80.0).color(theme.surface).radius(8.0).child(
-            FittedBox::new(BoxFit::Contain)
-                .width(120.0)
-                .height(80.0)
-                .child(Text::new("Fit").size(48.0).color(theme.primary)),
-        );
+        let rotated =
+            RotatedBox::new(3).child(Text::new("ROTATED").size(16.0).color(theme.on_surface));
+        let fitted = Container::new()
+            .width(120.0)
+            .height(80.0)
+            .color(theme.surface)
+            .radius(8.0)
+            .child(
+                FittedBox::new(BoxFit::Contain)
+                    .width(120.0)
+                    .height(80.0)
+                    .child(Text::new("Fit").size(48.0).color(theme.primary)),
+            );
         let gallery4 = Flex::row()
             .gap(16.0)
             .align(Align::Center)
@@ -277,7 +302,11 @@ impl Application for Showcase {
             .gap(8.0)
             .align(Align::Center)
             .child(tap_stage)
-            .child(Text::new(format!("taps: {}", self.taps)).size(14.0).color(theme.on_surface));
+            .child(
+                Text::new(format!("taps: {}", self.taps))
+                    .size(14.0)
+                    .color(theme.on_surface),
+            );
 
         let knob_stage = Flex::column()
             .width(200.0)
@@ -289,7 +318,11 @@ impl Application for Showcase {
             .gap(8.0)
             .align(Align::Center)
             .child(knob_stage)
-            .child(Slider::new(self.scale_knob).width(200.0).on_change(|v| Msg::SetKnob(v)))
+            .child(
+                Slider::new(self.scale_knob)
+                    .width(200.0)
+                    .on_change(|v| Msg::SetKnob(v)),
+            )
             .child(
                 Text::new(format!("scale: {manual_scale:.2}"))
                     .size(12.0)
@@ -299,7 +332,13 @@ impl Application for Showcase {
         let interactive = Flex::column()
             .gap(14.0)
             .align(Align::Center)
-            .child(Flex::row().gap(28.0).align(Align::Center).child(tap_col).child(knob_col))
+            .child(
+                Flex::row()
+                    .gap(28.0)
+                    .align(Align::Center)
+                    .child(tap_col)
+                    .child(knob_col),
+            )
             .child(
                 Button::new(if self.running { "pause" } else { "play" })
                     .variant(Variant::Secondary)
@@ -324,12 +363,9 @@ impl Application for Showcase {
             .color(theme.surface)
             .radius(9.0)
             .child(
-                FractionallySizedBox::new().width_factor(width_factor).child(
-                    Container::new()
-                    .flex(1.0)
-                    .color(theme.primary)
-                    .radius(9.0),
-                ),
+                FractionallySizedBox::new()
+                    .width_factor(width_factor)
+                    .child(Container::new().flex(1.0).color(theme.primary).radius(9.0)),
             );
 
         // Colonne complète, centrée, avec un peu de marge.
@@ -345,17 +381,41 @@ impl Application for Showcase {
             )
             .child(gallery1)
             .child(gallery2)
-            .child(Text::new("ClipRRect · ClipOval · ClipPath — clipped to shape").size(13.0).color(theme.on_surface))
+            .child(
+                Text::new("ClipRRect · ClipOval · ClipPath — clipped to shape")
+                    .size(13.0)
+                    .color(theme.on_surface),
+            )
             .child(gallery3)
-            .child(Text::new("RotatedBox · FittedBox — transforms that change layout").size(13.0).color(theme.on_surface))
+            .child(
+                Text::new("RotatedBox · FittedBox — transforms that change layout")
+                    .size(13.0)
+                    .color(theme.on_surface),
+            )
             .child(gallery4)
-            .child(Text::new("InteractiveViewer — drag to pan, wheel to zoom").size(13.0).color(theme.on_surface))
+            .child(
+                Text::new("InteractiveViewer — drag to pan, wheel to zoom")
+                    .size(13.0)
+                    .color(theme.on_surface),
+            )
             .child(viewer)
-            .child(Text::new("Interactive — the button below is inside a rotated Transform").size(13.0).color(theme.on_surface))
+            .child(
+                Text::new("Interactive — the button below is inside a rotated Transform")
+                    .size(13.0)
+                    .color(theme.on_surface),
+            )
             .child(interactive)
-            .child(Text::new("AspectRatio 16:9").size(13.0).color(theme.on_surface))
+            .child(
+                Text::new("AspectRatio 16:9")
+                    .size(13.0)
+                    .color(theme.on_surface),
+            )
             .child(aspect)
-            .child(Text::new("FractionallySizedBox").size(13.0).color(theme.on_surface))
+            .child(
+                Text::new("FractionallySizedBox")
+                    .size(13.0)
+                    .color(theme.on_surface),
+            )
             .child(bar);
 
         // Défilable : le viewport remplit la fenêtre (largeur/hauteur explicites — un
@@ -389,18 +449,28 @@ mod tests {
         let mut app = Showcase::default();
         app.update(Msg::Frame);
         app.update(Msg::Frame);
-        assert!((app.time - 2.0 * FRAME_DT).abs() < 1e-6, "temps = {}", app.time);
+        assert!(
+            (app.time - 2.0 * FRAME_DT).abs() < 1e-6,
+            "temps = {}",
+            app.time
+        );
     }
 
     /// En **pause**, l'horloge ne bouge plus et la souscription se tait.
     #[test]
     fn pause_stops_the_clock_and_the_subscription() {
         let mut app = Showcase::default();
-        assert!(!app.subscription().is_empty(), "en marche : souscription active");
+        assert!(
+            !app.subscription().is_empty(),
+            "en marche : souscription active"
+        );
         app.update(Msg::ToggleRunning);
         app.update(Msg::Frame);
         assert_eq!(app.time, 0.0, "en pause : l'horloge est figée");
-        assert!(app.subscription().is_empty(), "en pause : plus de souscription");
+        assert!(
+            app.subscription().is_empty(),
+            "en pause : plus de souscription"
+        );
     }
 
     /// Le curseur pilote l'échelle manuelle (`0..1 → 0.5..2.0`).
@@ -429,17 +499,27 @@ mod tests {
     fn renders_a_transformed_layer() {
         use frus_core::Primitive;
         use frus_widgets::{build_ui, Runtime, Size};
-        let app = Showcase { time: 0.5, ..Default::default() };
+        let app = Showcase {
+            time: 0.5,
+            ..Default::default()
+        };
         let theme = Theme::dark();
         let view = app.view(&theme, 400.0, 640.0);
         let rt = Runtime::default();
         let ui = build_ui(view.as_ref(), Size::new(400.0, 640.0), &rt, &theme);
-        let transformed = ui
-            .scene()
-            .primitives()
-            .iter()
-            .any(|p| matches!(p, Primitive::Layer { transform: Some(_), .. }));
-        assert!(transformed, "un Transform de la scène émet un calque transformé");
+        let transformed = ui.scene().primitives().iter().any(|p| {
+            matches!(
+                p,
+                Primitive::Layer {
+                    transform: Some(_),
+                    ..
+                }
+            )
+        });
+        assert!(
+            transformed,
+            "un Transform de la scène émet un calque transformé"
+        );
     }
 
     /// La `view` émet des calques **découpés en forme** : la galerie clip produit un
@@ -457,7 +537,12 @@ mod tests {
         // Collecte récursive des formes de découpe (les calques peuvent être imbriqués).
         fn shapes(prims: &[Primitive], out: &mut Vec<ClipShape>) {
             for p in prims {
-                if let Primitive::Layer { clip_shape, primitives, .. } = p {
+                if let Primitive::Layer {
+                    clip_shape,
+                    primitives,
+                    ..
+                } = p
+                {
                     out.push(clip_shape.clone());
                     shapes(primitives, out);
                 }
@@ -465,8 +550,14 @@ mod tests {
         }
         let mut found = Vec::new();
         shapes(ui.scene().primitives(), &mut found);
-        assert!(found.contains(&ClipShape::RRect(BorderRadius::uniform(24.0))), "ClipRRect(24) rendu : {found:?}");
-        assert!(found.contains(&ClipShape::Oval), "ClipOval rendu : {found:?}");
+        assert!(
+            found.contains(&ClipShape::RRect(BorderRadius::uniform(24.0))),
+            "ClipRRect(24) rendu : {found:?}"
+        );
+        assert!(
+            found.contains(&ClipShape::Oval),
+            "ClipOval rendu : {found:?}"
+        );
         assert!(
             found.iter().any(|s| matches!(s, ClipShape::Path(_))),
             "ClipPath (étoile) rendu : {found:?}"
@@ -491,6 +582,9 @@ mod tests {
             }
             _ => false,
         });
-        assert!(wide_on_screen, "aucun contenu large visible : viewport effondré ?");
+        assert!(
+            wide_on_screen,
+            "aucun contenu large visible : viewport effondré ?"
+        );
     }
 }

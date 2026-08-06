@@ -30,8 +30,15 @@ impl PathVerb {
         match self {
             PathVerb::MoveTo(p) => PathVerb::MoveTo(s(p)),
             PathVerb::LineTo(p) => PathVerb::LineTo(s(p)),
-            PathVerb::QuadTo { ctrl, to } => PathVerb::QuadTo { ctrl: s(ctrl), to: s(to) },
-            PathVerb::CubicTo { c1, c2, to } => PathVerb::CubicTo { c1: s(c1), c2: s(c2), to: s(to) },
+            PathVerb::QuadTo { ctrl, to } => PathVerb::QuadTo {
+                ctrl: s(ctrl),
+                to: s(to),
+            },
+            PathVerb::CubicTo { c1, c2, to } => PathVerb::CubicTo {
+                c1: s(c1),
+                c2: s(c2),
+                to: s(to),
+            },
             PathVerb::Close => PathVerb::Close,
         }
     }
@@ -41,8 +48,15 @@ impl PathVerb {
         match self {
             PathVerb::MoveTo(p) => PathVerb::MoveTo(t(p)),
             PathVerb::LineTo(p) => PathVerb::LineTo(t(p)),
-            PathVerb::QuadTo { ctrl, to } => PathVerb::QuadTo { ctrl: t(ctrl), to: t(to) },
-            PathVerb::CubicTo { c1, c2, to } => PathVerb::CubicTo { c1: t(c1), c2: t(c2), to: t(to) },
+            PathVerb::QuadTo { ctrl, to } => PathVerb::QuadTo {
+                ctrl: t(ctrl),
+                to: t(to),
+            },
+            PathVerb::CubicTo { c1, c2, to } => PathVerb::CubicTo {
+                c1: t(c1),
+                c2: t(c2),
+                to: t(to),
+            },
             PathVerb::Close => PathVerb::Close,
         }
     }
@@ -143,10 +157,26 @@ impl Path {
         let k = r * K;
         Self::new()
             .move_to(Point::new(cx, cy - r))
-            .cubic_to(Point::new(cx + k, cy - r), Point::new(cx + r, cy - k), Point::new(cx + r, cy))
-            .cubic_to(Point::new(cx + r, cy + k), Point::new(cx + k, cy + r), Point::new(cx, cy + r))
-            .cubic_to(Point::new(cx - k, cy + r), Point::new(cx - r, cy + k), Point::new(cx - r, cy))
-            .cubic_to(Point::new(cx - r, cy - k), Point::new(cx - k, cy - r), Point::new(cx, cy - r))
+            .cubic_to(
+                Point::new(cx + k, cy - r),
+                Point::new(cx + r, cy - k),
+                Point::new(cx + r, cy),
+            )
+            .cubic_to(
+                Point::new(cx + r, cy + k),
+                Point::new(cx + k, cy + r),
+                Point::new(cx, cy + r),
+            )
+            .cubic_to(
+                Point::new(cx - k, cy + r),
+                Point::new(cx - r, cy + k),
+                Point::new(cx - r, cy),
+            )
+            .cubic_to(
+                Point::new(cx - r, cy - k),
+                Point::new(cx - k, cy - r),
+                Point::new(cx, cy - r),
+            )
             .close()
     }
 
@@ -182,7 +212,10 @@ mod tests {
             &[
                 PathVerb::MoveTo(Point::new(1.0, 2.0)),
                 PathVerb::LineTo(Point::new(3.0, 4.0)),
-                PathVerb::QuadTo { ctrl: Point::new(5.0, 6.0), to: Point::new(7.0, 8.0) },
+                PathVerb::QuadTo {
+                    ctrl: Point::new(5.0, 6.0),
+                    to: Point::new(7.0, 8.0)
+                },
                 PathVerb::Close,
             ]
         );
@@ -198,7 +231,9 @@ mod tests {
 
     #[test]
     fn scaled_and_translated_transform_points() {
-        let p = Path::new().move_to(Point::new(2.0, 3.0)).line_to(Point::new(4.0, 5.0));
+        let p = Path::new()
+            .move_to(Point::new(2.0, 3.0))
+            .line_to(Point::new(4.0, 5.0));
         let s = p.scaled(2.0);
         assert_eq!(s.verbs()[0], PathVerb::MoveTo(Point::new(4.0, 6.0)));
         let t = p.translated(10.0, 100.0);

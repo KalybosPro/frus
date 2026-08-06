@@ -403,13 +403,20 @@ mod tests {
         // rouge hérite taille/graisse.
         let span = TextSpan::new("Hello ")
             .child(TextSpan::new("bold").bold())
-            .child(TextSpan::new("red italic").italic().color(Color::rgb(1.0, 0.0, 0.0)));
+            .child(
+                TextSpan::new("red italic")
+                    .italic()
+                    .color(Color::rgb(1.0, 0.0, 0.0)),
+            );
         let base = TextStyle::new(20.0).color(Color::WHITE);
         let runs = span.flatten(base);
 
         assert_eq!(runs.len(), 3);
         let (t0, s0) = &runs[0];
-        assert_eq!((t0.as_str(), s0.size, s0.weight), ("Hello ", 20.0, FontWeight::Regular));
+        assert_eq!(
+            (t0.as_str(), s0.size, s0.weight),
+            ("Hello ", 20.0, FontWeight::Regular)
+        );
         let (t1, s1) = &runs[1];
         assert_eq!((t1.as_str(), s1.weight), ("bold", FontWeight::Bold));
         assert_eq!(s1.size, 20.0, "le gras hérite la taille");
@@ -417,20 +424,31 @@ mod tests {
         let (t2, s2) = &runs[2];
         assert_eq!(t2, "red italic");
         assert!(s2.italic);
-        assert_eq!(s2.weight, FontWeight::Regular, "l'italique hérite la graisse");
+        assert_eq!(
+            s2.weight,
+            FontWeight::Regular,
+            "l'italique hérite la graisse"
+        );
         assert_eq!(s2.color, Some(Color::rgb(1.0, 0.0, 0.0)));
     }
 
     #[test]
     fn nested_spans_cascade_depth_first() {
         // Un sous-arbre gras dont un petit-enfant repasse la taille à 12.
-        let span = TextSpan::new("a")
-            .child(TextSpan::new("b").bold().child(TextSpan::new("c").size(12.0)));
+        let span = TextSpan::new("a").child(
+            TextSpan::new("b")
+                .bold()
+                .child(TextSpan::new("c").size(12.0)),
+        );
         let runs = span.flatten(TextStyle::new(16.0));
         assert_eq!(runs.len(), 3);
         assert_eq!(runs[2].0, "c");
         assert_eq!(runs[2].1.size, 12.0);
-        assert_eq!(runs[2].1.weight, FontWeight::Bold, "hérite le gras du parent");
+        assert_eq!(
+            runs[2].1.weight,
+            FontWeight::Bold,
+            "hérite le gras du parent"
+        );
     }
 
     #[test]
@@ -451,7 +469,10 @@ mod tests {
             .child(TextSpan::new("c").decoration(TextDecoration::NONE));
         let runs = span.flatten(TextStyle::new(16.0));
         assert!(runs[0].1.decoration.underline);
-        assert!(runs[1].1.decoration.underline, "l'enfant hérite le soulignement");
+        assert!(
+            runs[1].1.decoration.underline,
+            "l'enfant hérite le soulignement"
+        );
         assert_eq!(
             runs[1].1.decoration_color,
             Some(Color::rgb(1.0, 0.0, 0.0)),
@@ -461,7 +482,9 @@ mod tests {
 
         // merge : la décoration est un attribut de type (celle de `over` gagne),
         // sa couleur hérite comme la couleur du texte.
-        let base = TextStyle::new(16.0).underline().decoration_color(Color::BLACK);
+        let base = TextStyle::new(16.0)
+            .underline()
+            .decoration_color(Color::BLACK);
         let merged = base.merge(TextStyle::new(20.0).strikethrough());
         assert!(merged.decoration.strikethrough && !merged.decoration.underline);
         assert_eq!(merged.decoration_color, Some(Color::BLACK));

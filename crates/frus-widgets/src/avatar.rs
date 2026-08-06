@@ -69,7 +69,13 @@ impl<Msg> Widget<Msg> for Avatar {
         let o = status.opacity;
         let bg = self.color.unwrap_or(theme.primary);
         // Cercle (rectangle entièrement arrondi).
-        scene.draw_rect(bounds, bg.fade(o), bounds.height * 0.5, 0.0, Color::TRANSPARENT);
+        scene.draw_rect(
+            bounds,
+            bg.fade(o),
+            bounds.height * 0.5,
+            0.0,
+            Color::TRANSPARENT,
+        );
         let fsize = self.size * 0.4;
         let measured = frus_text::measure(&self.initials, fsize);
         scene.text(
@@ -105,8 +111,20 @@ mod tests {
     fn paints_circle_and_initials() {
         let a = Avatar::new("Zoé");
         let mut scene = Scene::new();
-        Widget::<()>::paint(&a, Rect::new(0.0, 0.0, 36.0, 36.0), Status::default(), &Theme::default(), &mut scene);
-        assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Rect { .. })));
-        assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "Z")));
+        Widget::<()>::paint(
+            &a,
+            Rect::new(0.0, 0.0, 36.0, 36.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Rect { .. })));
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Z")));
     }
 }

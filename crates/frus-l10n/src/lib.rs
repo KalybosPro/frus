@@ -139,7 +139,9 @@ impl Localizer {
                 .find(|id| id.language == requested.language)
                 .cloned()
         };
-        self.current = exact.or_else(by_lang).unwrap_or_else(|| self.default.clone());
+        self.current = exact
+            .or_else(by_lang)
+            .unwrap_or_else(|| self.default.clone());
         self.current.clone()
     }
 

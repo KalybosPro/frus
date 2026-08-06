@@ -124,7 +124,8 @@ impl TextPainter {
         width: u32,
         height: u32,
     ) -> Vec<DecorationQuad> {
-        self.viewport.update(queue, glyphon::Resolution { width, height });
+        self.viewport
+            .update(queue, glyphon::Resolution { width, height });
         let mut decorations = Vec::new();
 
         // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter le
@@ -183,7 +184,12 @@ impl TextPainter {
                         } else {
                             glyphon::Style::Normal
                         });
-                    buffer.set_text(&mut self.font_system, text, attrs, glyphon::Shaping::Advanced);
+                    buffer.set_text(
+                        &mut self.font_system,
+                        text,
+                        attrs,
+                        glyphon::Shaping::Advanced,
+                    );
                     buffer.shape_until_scroll(&mut self.font_system, false);
 
                     // Décorations : une ligne par run de mise en forme, de la
@@ -209,7 +215,13 @@ impl TextPainter {
                         }
                     }
 
-                    buffers.push((buffer, position.x, position.y, to_glyphon(color), to_bounds(clip)));
+                    buffers.push((
+                        buffer,
+                        position.x,
+                        position.y,
+                        to_glyphon(color),
+                        to_bounds(clip),
+                    ));
                 }
                 Primitive::RichText {
                     position,
@@ -295,7 +307,13 @@ impl TextPainter {
                     // Chaque run porte sa couleur par attrs ; le défaut ne sert
                     // qu'aux glyphes sans couleur (il n'y en a pas).
                     let default_color = to_glyphon(&runs[0].color);
-                    buffers.push((buffer, position.x, position.y, default_color, to_bounds(clip)));
+                    buffers.push((
+                        buffer,
+                        position.x,
+                        position.y,
+                        default_color,
+                        to_bounds(clip),
+                    ));
                 }
                 // Rectangles, chemins, images et calques ne concernent pas le texte.
                 Primitive::Rect { .. }
@@ -359,7 +377,10 @@ mod tests {
         match lit_pixels_for(&scene) {
             None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
             Some(lit) => {
-                assert!(lit > 0, "le texte devrait produire des pixels non-noirs ({lit})")
+                assert!(
+                    lit > 0,
+                    "le texte devrait produire des pixels non-noirs ({lit})"
+                )
             }
         }
     }
@@ -396,12 +417,18 @@ mod tests {
         let mut scene = Scene::new();
         scene.rich_text(
             Point::new(4.0, 4.0),
-            vec![run("Ri", 40.0, FontWeight::Regular), run("ch", 24.0, FontWeight::Bold)],
+            vec![
+                run("Ri", 40.0, FontWeight::Regular),
+                run("ch", 24.0, FontWeight::Bold),
+            ],
         );
         match lit_pixels_for(&scene) {
             None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
             Some(lit) => {
-                assert!(lit > 0, "le texte riche devrait produire des pixels non-noirs ({lit})")
+                assert!(
+                    lit > 0,
+                    "le texte riche devrait produire des pixels non-noirs ({lit})"
+                )
             }
         }
     }
@@ -414,7 +441,12 @@ mod tests {
         use frus_core::TextStyle;
         let plain = {
             let mut scene = Scene::new();
-            scene.text_styled(Point::new(4.0, 4.0), "Hello", &TextStyle::new(40.0), Color::WHITE);
+            scene.text_styled(
+                Point::new(4.0, 4.0),
+                "Hello",
+                &TextStyle::new(40.0),
+                Color::WHITE,
+            );
             scene
         };
         let underlined = {
@@ -456,7 +488,10 @@ mod tests {
             let mut scene = Scene::new();
             scene.rich_text(
                 Point::new(4.0, 4.0),
-                vec![run("ab", TextDecoration::NONE), run("cd", TextDecoration::NONE)],
+                vec![
+                    run("ab", TextDecoration::NONE),
+                    run("cd", TextDecoration::NONE),
+                ],
             );
             scene
         };
@@ -464,7 +499,10 @@ mod tests {
             let mut scene = Scene::new();
             scene.rich_text(
                 Point::new(4.0, 4.0),
-                vec![run("ab", TextDecoration::NONE), run("cd", TextDecoration::STRIKETHROUGH)],
+                vec![
+                    run("ab", TextDecoration::NONE),
+                    run("cd", TextDecoration::STRIKETHROUGH),
+                ],
             );
             scene
         };

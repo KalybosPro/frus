@@ -120,7 +120,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
     /// Tiroir latéral (bord droit), modal : `panel` = contenu, `open` = déployé,
     /// `toggle` = message de bascule (bouton + clic sur le voile).
-    pub fn end_drawer(mut self, panel: impl Widget<Msg> + 'static, open: bool, toggle: Msg) -> Self {
+    pub fn end_drawer(
+        mut self,
+        panel: impl Widget<Msg> + 'static,
+        open: bool,
+        toggle: Msg,
+    ) -> Self {
         self.end_drawer = Some((Box::new(panel), open, toggle));
         self
     }
@@ -171,7 +176,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
         // Navigation : barre basse (étroit) ou rail latéral (large).
         let nav: Option<Box<dyn Widget<Msg>>> = if has_nav {
-            let on_select = on_select.expect("nav(selected, on_select) requis avec des destinations");
+            let on_select =
+                on_select.expect("nav(selected, on_select) requis avec des destinations");
             if compact {
                 let mut bar = BottomBar::new(selected, on_select);
                 for (icon, label, badge) in &destinations {
@@ -196,8 +202,13 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         };
 
         // Corps défilant, insets latéraux appliqués à son contenu.
-        let scroll_body =
-            Scroll::new().flex(1.0).child(inset_pad(body_widget, 0.0, insets.right, 0.0, insets.left));
+        let scroll_body = Scroll::new().flex(1.0).child(inset_pad(
+            body_widget,
+            0.0,
+            insets.right,
+            0.0,
+            insets.left,
+        ));
 
         // Ossature épinglée : barre haute · corps · (barre basse | rail).
         let main: Box<dyn Widget<Msg>> = if compact {
@@ -229,32 +240,53 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         if let Some(fab) = fab {
             let nav_h = if compact && has_nav { BAR_HEIGHT } else { 0.0 };
             let fab_bottom = insets.bottom + nav_h + FAB_MARGIN;
-            let fab_layer = Flex::column().width(width).height(height).justify(Justify::End).child(
-                Flex::row().justify(Justify::End).child(
-                    Container::new()
-                        .padding_each(0.0, insets.right + FAB_MARGIN, fab_bottom, 0.0)
-                        .child(fab),
-                ),
-            );
+            let fab_layer = Flex::column()
+                .width(width)
+                .height(height)
+                .justify(Justify::End)
+                .child(
+                    Flex::row().justify(Justify::End).child(
+                        Container::new()
+                            .padding_each(0.0, insets.right + FAB_MARGIN, fab_bottom, 0.0)
+                            .child(fab),
+                    ),
+                );
             content = Box::new(
-                Stack::new().width(width).height(height).layer(content).layer(fab_layer),
+                Stack::new()
+                    .width(width)
+                    .height(height)
+                    .layer(content)
+                    .layer(fab_layer),
             );
         }
 
         // Tiroir (modal) puis feuille modale enveloppent l'ossature (overlays).
         if let Some((panel, open, toggle)) = end_drawer {
             content = Box::new(
-                crate::Drawer::new(open).on_dismiss(toggle).right().panel(panel).body(content),
+                crate::Drawer::new(open)
+                    .on_dismiss(toggle)
+                    .right()
+                    .panel(panel)
+                    .body(content),
             );
         }
         if let Some((panel, open, toggle)) = bottom_sheet {
             content = Box::new(
-                crate::BottomSheet::new(open).on_dismiss(toggle).sheet(panel).body(content),
+                crate::BottomSheet::new(open)
+                    .on_dismiss(toggle)
+                    .sheet(panel)
+                    .body(content),
             );
         }
 
         // Fond plein-fenêtre (bord à bord) donnant une taille définie aux slots.
-        Box::new(Container::new().width(width).height(height).color(bg).child(content))
+        Box::new(
+            Container::new()
+                .width(width)
+                .height(height)
+                .color(bg)
+                .child(content),
+        )
     }
 }
 
@@ -271,14 +303,24 @@ fn inset_pad<Msg: Clone + 'static>(
     if top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0 {
         widget
     } else {
-        Box::new(Container::new().padding_each(top, right, bottom, left).child(widget))
+        Box::new(
+            Container::new()
+                .padding_each(top, right, bottom, left)
+                .child(widget),
+        )
     }
 }
 
 /// Un bouton d'action flottant conventionnel (rond, accent), à passer à
 /// [`Scaffold::fab`]. Sucre pour `button(label, msg)` stylé en primaire.
-pub fn fab_button<Msg: Clone + 'static>(label: impl Into<String>, message: Msg) -> crate::Button<Msg> {
-    crate::Button::new(label).variant(Variant::Primary).size(24.0).on_press(message)
+pub fn fab_button<Msg: Clone + 'static>(
+    label: impl Into<String>,
+    message: Msg,
+) -> crate::Button<Msg> {
+    crate::Button::new(label)
+        .variant(Variant::Primary)
+        .size(24.0)
+        .on_press(message)
 }
 
 #[cfg(test)]
@@ -311,8 +353,16 @@ mod tests {
     fn assembles_at_compact_and_expanded_without_panic() {
         for w in [400.0_f32, 1000.0_f32] {
             let s = scaffold(w, 800.0);
-            let ui = build_ui(s.as_ref(), Size::new(w, 800.0), &Runtime::default(), &Theme::default());
-            assert!(!ui.scene().primitives().is_empty(), "scène vide pour width={w}");
+            let ui = build_ui(
+                s.as_ref(),
+                Size::new(w, 800.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            assert!(
+                !ui.scene().primitives().is_empty(),
+                "scène vide pour width={w}"
+            );
         }
     }
 
@@ -321,7 +371,12 @@ mod tests {
         // La barre basse est épinglée en bas : des primitives sont peintes dans la
         // bande basse (y ≥ 700), au-dessus de l'inset bas (30), pas au milieu.
         let s = scaffold(400.0, 800.0);
-        let ui = build_ui(s.as_ref(), Size::new(400.0, 800.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            s.as_ref(),
+            Size::new(400.0, 800.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let pinned_low = ui.scene().primitives().iter().any(|p| match p {
             frus_core::Primitive::Rect { rect, .. } => rect.y >= 700.0 && rect.height < 100.0,
             frus_core::Primitive::Text { position, .. }
@@ -330,6 +385,9 @@ mod tests {
             | frus_core::Primitive::Image { .. }
             | frus_core::Primitive::Layer { .. } => false,
         });
-        assert!(pinned_low, "la barre basse doit être épinglée dans la bande basse");
+        assert!(
+            pinned_low,
+            "la barre basse doit être épinglée dans la bande basse"
+        );
     }
 }

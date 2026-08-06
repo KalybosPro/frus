@@ -16,8 +16,18 @@ use crate::timepicker::TimePicker;
 use crate::widget::Widget;
 
 const MONTHS: [&str; 12] = [
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 
 /// Un sélecteur date + heure.
@@ -50,8 +60,10 @@ impl<Msg: Clone + 'static> DateTimePicker<Msg> {
 
         let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::new();
         if let Some(day) = day {
-            let summary =
-                format!("{} {day}, {year}  {hour:02}:{minute:02}", MONTHS[(month - 1) as usize]);
+            let summary = format!(
+                "{} {day}, {year}  {hour:02}:{minute:02}",
+                MONTHS[(month - 1) as usize]
+            );
             children.push(Box::new(Text::new(summary).size(16.0)));
         }
         children.push(Box::new(date));
@@ -99,8 +111,17 @@ mod tests {
     #[test]
     fn summary_appears_only_when_a_day_is_picked() {
         // Sans jour : [date, heure]. Avec jour : [récap, date, heure].
-        let without =
-            DateTimePicker::new(2026, 7, None, 9, 30, Msg::Day, Msg::Nav, Msg::Hour, Msg::Minute);
+        let without = DateTimePicker::new(
+            2026,
+            7,
+            None,
+            9,
+            30,
+            Msg::Day,
+            Msg::Nav,
+            Msg::Hour,
+            Msg::Minute,
+        );
         assert_eq!(Widget::<Msg>::children(&without).len(), 2);
 
         let with = DateTimePicker::new(
@@ -130,12 +151,16 @@ mod tests {
             Msg::Hour,
             Msg::Minute,
         );
-        let ui = build_ui(&dt, Size::new(280.0, 520.0), &Runtime::default(), &Theme::default());
-        let has_summary = ui
-            .scene()
-            .primitives()
-            .iter()
-            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "July 11, 2026  09:30"));
+        let ui = build_ui(
+            &dt,
+            Size::new(280.0, 520.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let has_summary =
+            ui.scene().primitives().iter().any(
+                |p| matches!(p, Primitive::Text { text, .. } if text == "July 11, 2026  09:30"),
+            );
         assert!(has_summary, "le récapitulatif date + heure est affiché");
     }
 }

@@ -117,9 +117,12 @@ mod tests {
     #[test]
     fn center_overlay_draws_scrim_and_content() {
         // Un overlay Center dessine un voile plein-écran + le contenu par-dessus.
-        let portal: Portal<()> =
-            Portal::new(Container::<()>::new().width(20.0).height(20.0)).overlay(
-                Container::<()>::new().width(100.0).height(60.0).color(frus_core::Color::WHITE),
+        let portal: Portal<()> = Portal::new(Container::<()>::new().width(20.0).height(20.0))
+            .overlay(
+                Container::<()>::new()
+                    .width(100.0)
+                    .height(60.0)
+                    .color(frus_core::Color::WHITE),
                 Placement::Center,
             );
         let ui = crate::build_ui(
@@ -129,11 +132,10 @@ mod tests {
             &crate::Theme::default(),
         );
         // Au moins : le voile (plein écran) + le contenu de l'overlay.
-        let full_screen = ui
-            .scene()
-            .primitives()
-            .iter()
-            .any(|p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 400.0));
+        let full_screen =
+            ui.scene().primitives().iter().any(
+                |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 400.0),
+            );
         assert!(full_screen, "le voile plein écran doit être présent");
     }
 }

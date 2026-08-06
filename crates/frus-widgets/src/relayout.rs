@@ -152,13 +152,22 @@ fn compute_rects<Msg>(
 /// en suivant **exactement** le branchement de [`build_layout`] (défilable/
 /// navigateur/liste/pile = feuille ; portail = ancre seule). Couleurs, textes et
 /// messages en sont exclus (ils ne touchent que la peinture).
-pub(crate) fn layout_signature<Msg>(root: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime) -> u64 {
+pub(crate) fn layout_signature<Msg>(
+    root: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hash_node(root, id, runtime, &mut hasher);
     hasher.finish()
 }
 
-fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, hasher: &mut H) {
+fn hash_node<Msg, H: Hasher>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+    hasher: &mut H,
+) {
     // Ces branches doivent rester alignées sur `build_layout` : la forme de
     // l'arbre taffy (donc le nombre et l'ordre des rectangles) en dépend.
     // On hache le style **effectif** (taille animée injectée) — même source que
@@ -171,7 +180,12 @@ fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &R
         q.hash(hasher);
         effective_style(widget, id, runtime).layout_hash(hasher);
         if let Some(child) = widget.children().first() {
-            hash_node(child.as_ref(), child_id(id, 0, child.as_ref()), runtime, hasher);
+            hash_node(
+                child.as_ref(),
+                child_id(id, 0, child.as_ref()),
+                runtime,
+                hasher,
+            );
         }
         return;
     }
@@ -203,7 +217,12 @@ fn hash_node<Msg, H: Hasher>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &R
     widget.measure_key().hash(hasher);
     children.len().hash(hasher);
     for (i, child) in children.iter().enumerate() {
-        hash_node(child.as_ref(), child_id(id, i, child.as_ref()), runtime, hasher);
+        hash_node(
+            child.as_ref(),
+            child_id(id, i, child.as_ref()),
+            runtime,
+            hasher,
+        );
     }
 }
 
@@ -258,9 +277,23 @@ mod tests {
         let rt = Runtime::default();
         let key = WidgetId::ROOT;
         let tree: Container<()> = Container::new();
-        cache.rects(key, &tree, &rt, Constraints::definite(Size::new(200.0, 100.0)));
-        cache.rects(key, &tree, &rt, Constraints::definite(Size::new(300.0, 100.0)));
-        assert_eq!((cache.hits, cache.misses), (0, 2), "taille changée → recalcul");
+        cache.rects(
+            key,
+            &tree,
+            &rt,
+            Constraints::definite(Size::new(200.0, 100.0)),
+        );
+        cache.rects(
+            key,
+            &tree,
+            &rt,
+            Constraints::definite(Size::new(300.0, 100.0)),
+        );
+        assert_eq!(
+            (cache.hits, cache.misses),
+            (0, 2),
+            "taille changée → recalcul"
+        );
     }
 
     #[test]

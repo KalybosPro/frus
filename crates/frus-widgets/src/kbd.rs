@@ -19,7 +19,9 @@ pub struct Kbd {
 impl Kbd {
     /// Crée un capuchon avec le libellé donné.
     pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into() }
+        Self {
+            label: label.into(),
+        }
     }
 }
 
@@ -39,7 +41,13 @@ impl<Msg> Widget<Msg> for Kbd {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        scene.draw_rect(bounds, theme.surface.fade(o), 5.0, 1.0, theme.border.fade(o));
+        scene.draw_rect(
+            bounds,
+            theme.surface.fade(o),
+            5.0,
+            1.0,
+            theme.border.fade(o),
+        );
         scene.text(
             Point::new(bounds.x + PAD_X, bounds.y + PAD_Y),
             self.label.clone(),
@@ -62,8 +70,20 @@ mod tests {
     fn paints_cap_and_label() {
         let kbd = Kbd::new("Ctrl");
         let mut scene = Scene::new();
-        Widget::<()>::paint(&kbd, Rect::new(0.0, 0.0, 40.0, 20.0), Status::default(), &Theme::default(), &mut scene);
-        assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Rect { border_width, .. } if *border_width > 0.0)));
-        assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "Ctrl")));
+        Widget::<()>::paint(
+            &kbd,
+            Rect::new(0.0, 0.0, 40.0, 20.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Rect { border_width, .. } if *border_width > 0.0)));
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Ctrl")));
     }
 }

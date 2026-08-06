@@ -61,10 +61,30 @@ pub fn dump_tree(nodes: &[InspectorNode]) -> String {
 
 /// Nuancier des contours, par profondeur (cycle).
 const OUTLINE_COLORS: [Color; 4] = [
-    Color { r: 0.35, g: 0.65, b: 1.0, a: 0.55 },  // bleu
-    Color { r: 0.45, g: 0.85, b: 0.55, a: 0.55 }, // vert
-    Color { r: 1.0, g: 0.75, b: 0.35, a: 0.55 },  // orange
-    Color { r: 0.85, g: 0.55, b: 0.95, a: 0.55 }, // violet
+    Color {
+        r: 0.35,
+        g: 0.65,
+        b: 1.0,
+        a: 0.55,
+    }, // bleu
+    Color {
+        r: 0.45,
+        g: 0.85,
+        b: 0.55,
+        a: 0.55,
+    }, // vert
+    Color {
+        r: 1.0,
+        g: 0.75,
+        b: 0.35,
+        a: 0.55,
+    }, // orange
+    Color {
+        r: 0.85,
+        g: 0.55,
+        b: 0.95,
+        a: 0.55,
+    }, // violet
 ];
 
 /// Peint le calque inspecteur **par-dessus** une scène déjà construite :
@@ -128,7 +148,13 @@ pub fn paint_overlay(
     };
 
     let card = Rect::new(x, y, card_w, card_h);
-    scene.draw_rect(card, theme.scheme.inverse_surface, 6.0, 0.0, Color::TRANSPARENT);
+    scene.draw_rect(
+        card,
+        theme.scheme.inverse_surface,
+        6.0,
+        0.0,
+        Color::TRANSPARENT,
+    );
     let on = theme.scheme.on_inverse_surface;
     scene.text_styled(Point::new(x + PAD, y + PAD), title, &title_style, on);
     scene.text_styled(
@@ -156,14 +182,21 @@ mod tests {
         );
         let runtime = Runtime::default();
         let theme = Theme::default();
-        let (_, nodes) =
-            build_ui_inspected(&root, Size::new(200.0, 100.0), &runtime, &theme);
+        let (_, nodes) = build_ui_inspected(&root, Size::new(200.0, 100.0), &runtime, &theme);
 
         let names: Vec<&str> = nodes.iter().map(|n| n.name).collect();
-        assert_eq!(names, ["Container", "Flex", "Text", "Text"], "Keyed est transparent");
+        assert_eq!(
+            names,
+            ["Container", "Flex", "Text", "Text"],
+            "Keyed est transparent"
+        );
         let depths: Vec<usize> = nodes.iter().map(|n| n.depth).collect();
         assert_eq!(depths, [0, 1, 2, 2]);
-        assert_eq!(nodes[0].rect, Rect::new(0.0, 0.0, 200.0, 100.0), "racine = sa boîte");
+        assert_eq!(
+            nodes[0].rect,
+            Rect::new(0.0, 0.0, 200.0, 100.0),
+            "racine = sa boîte"
+        );
         // Sans inspection : build_ui ne collecte rien (chemin normal inchangé).
         let ui = crate::build_ui(&root, Size::new(200.0, 100.0), &runtime, &theme);
         assert!(!ui.scene().is_empty());
@@ -178,41 +211,55 @@ mod tests {
             .child(Container::new().width(50.0).height(40.0));
         let runtime = Runtime::default();
         let theme = Theme::default();
-        let (_, nodes) =
-            build_ui_inspected(&root, Size::new(200.0, 100.0), &runtime, &theme);
+        let (_, nodes) = build_ui_inspected(&root, Size::new(200.0, 100.0), &runtime, &theme);
 
         let inner = node_at(&nodes, Point::new(10.0, 10.0)).expect("un widget sous le point");
         assert_eq!(inner.depth, 1, "l'enfant, pas la racine");
         let outer = node_at(&nodes, Point::new(150.0, 80.0)).expect("la racine seule ici");
         assert_eq!(outer.depth, 0);
-        assert!(node_at(&nodes, Point::new(500.0, 500.0)).is_none(), "hors de tout");
+        assert!(
+            node_at(&nodes, Point::new(500.0, 500.0)).is_none(),
+            "hors de tout"
+        );
     }
 
     /// Le dump est indenté par profondeur et nomme chaque widget.
     #[test]
     fn dump_tree_indents_by_depth() {
-        let root: Container<()> =
-            Container::new().width(80.0).height(40.0).child(Text::new("x"));
+        let root: Container<()> = Container::new()
+            .width(80.0)
+            .height(40.0)
+            .child(Text::new("x"));
         let runtime = Runtime::default();
         let theme = Theme::default();
         let (_, nodes) = build_ui_inspected(&root, Size::new(80.0, 40.0), &runtime, &theme);
         let dump = dump_tree(&nodes);
         let lines: Vec<&str> = dump.lines().collect();
-        assert!(lines[0].starts_with("Container"), "racine sans indentation : {dump}");
-        assert!(lines[1].starts_with("  Text"), "enfant indenté de 2 : {dump}");
-        assert!(lines[0].contains("80×40"), "géométrie dans le dump : {dump}");
+        assert!(
+            lines[0].starts_with("Container"),
+            "racine sans indentation : {dump}"
+        );
+        assert!(
+            lines[1].starts_with("  Text"),
+            "enfant indenté de 2 : {dump}"
+        );
+        assert!(
+            lines[0].contains("80×40"),
+            "géométrie dans le dump : {dump}"
+        );
     }
 
     /// Le calque se peint par-dessus une scène : contours pour chaque widget,
     /// surlignage + fiche quand un point est désigné.
     #[test]
     fn overlay_paints_outlines_and_hover_card() {
-        let root: Container<()> =
-            Container::new().width(120.0).height(60.0).child(Text::new("x"));
+        let root: Container<()> = Container::new()
+            .width(120.0)
+            .height(60.0)
+            .child(Text::new("x"));
         let runtime = Runtime::default();
         let theme = Theme::default();
-        let (ui, nodes) =
-            build_ui_inspected(&root, Size::new(120.0, 60.0), &runtime, &theme);
+        let (ui, nodes) = build_ui_inspected(&root, Size::new(120.0, 60.0), &runtime, &theme);
 
         let base = ui.scene().len();
         let mut scene = ui.scene().clone();
@@ -241,6 +288,10 @@ mod tests {
         let boxed: Box<dyn Widget<()>> = Box::new(Text::new("x"));
         assert_eq!(boxed.debug_name(), "Text", "Box délègue au contenu");
         let container: Container<()> = Container::new();
-        assert_eq!(Widget::<()>::debug_name(&container), "Container", "génériques retirés");
+        assert_eq!(
+            Widget::<()>::debug_name(&container),
+            "Container",
+            "génériques retirés"
+        );
     }
 }

@@ -44,7 +44,9 @@ fn every_id(interval: Duration) -> u64 {
 impl<Msg: Send + 'static> Subscription<Msg> {
     /// Aucune souscription.
     pub fn none() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     /// Regroupe plusieurs souscriptions.

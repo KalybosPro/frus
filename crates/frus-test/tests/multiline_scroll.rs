@@ -30,5 +30,8 @@ fn scrolled_multiline_matches_golden() {
         return;
     };
     // Défilé de ~2 lignes : « Line three/four/five » visibles, clippées à la boîte.
-    snap.assert_golden(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/goldens/multiline_scrolled.png"));
+    snap.assert_golden(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/goldens/multiline_scrolled.png"
+    ));
 }

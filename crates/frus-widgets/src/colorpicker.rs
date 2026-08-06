@@ -36,7 +36,12 @@ impl<Msg: Clone> Widget<Msg> for Swatch<Msg> {
         scene.draw_rect(bounds, self.color.fade(o), 8.0, 0.0, Color::TRANSPARENT);
         if self.selected {
             // Anneau de sélection (légèrement débordant).
-            let ring = Rect::new(bounds.x - 2.0, bounds.y - 2.0, bounds.width + 4.0, bounds.height + 4.0);
+            let ring = Rect::new(
+                bounds.x - 2.0,
+                bounds.y - 2.0,
+                bounds.width + 4.0,
+                bounds.height + 4.0,
+            );
             scene.draw_rect(ring, Color::TRANSPARENT, 10.0, 2.0, theme.focus.fade(o));
         }
     }
@@ -121,7 +126,12 @@ mod tests {
             .swatch(blue);
         assert_eq!(Widget::<Msg>::children(&picker).len(), 2);
 
-        let ui = build_ui(&picker, Size::new(200.0, 60.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &picker,
+            Size::new(200.0, 60.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // La sélection (rouge) ajoute un anneau (bordure focus).
         let focus = Theme::default().focus;
         let has_ring = ui.scene().primitives().iter().any(|p| {

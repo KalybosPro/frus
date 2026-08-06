@@ -103,7 +103,12 @@ mod tests {
         .width(320.0)
         .height(48.0);
 
-        let _ui = build_ui(&lb, Size::new(800.0, 600.0), &Runtime::default(), &Theme::default());
+        let _ui = build_ui(
+            &lb,
+            Size::new(800.0, 600.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // La fabrique reçoit la boîte du LayoutBuilder, pas la fenêtre.
         assert_eq!(seen.get(), Size::new(320.0, 48.0));
     }
@@ -120,16 +125,28 @@ mod tests {
                 };
                 let mut row = crate::Flex::<()>::row();
                 for _ in 0..tiles {
-                    row = row
-                        .child(Container::<()>::new().width(10.0).height(10.0).color(Color::WHITE));
+                    row = row.child(
+                        Container::<()>::new()
+                            .width(10.0)
+                            .height(10.0)
+                            .color(Color::WHITE),
+                    );
                 }
                 row
             })
             .height(20.0);
             // Colonne racine dimensionnée : le stretch donne au LayoutBuilder la
             // largeur de la fenêtre, sa boîte reflète donc la largeur disponible.
-            let root = crate::Flex::<()>::column().width(window_w).height(200.0).child(lb);
-            let ui = build_ui(&root, Size::new(window_w, 200.0), &Runtime::default(), &Theme::default());
+            let root = crate::Flex::<()>::column()
+                .width(window_w)
+                .height(200.0)
+                .child(lb);
+            let ui = build_ui(
+                &root,
+                Size::new(window_w, 200.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
             ui.scene()
                 .primitives()
                 .iter()

@@ -58,15 +58,29 @@ fn rotation_turns_a_horizontal_bar_vertical() {
     // Barre horizontale : x ∈ [8,56], y ∈ [28,36].
     let bar = Rect::new(8.0, 28.0, 48.0, 8.0);
     let m = LayerTransform::rotation(FRAC_PI_2, Point::new(32.0, 32.0));
-    let Some(frame) = render(&transformed_layer(bar, red, m)) else { return };
+    let Some(frame) = render(&transformed_layer(bar, red, m)) else {
+        return;
+    };
 
     // Après +90° la barre est verticale : x ∈ [28,36], y ∈ [8,56].
-    assert!(is_red(frame.pixel(32, 12)), "haut de la barre verticale → rouge");
-    assert!(is_red(frame.pixel(32, 52)), "bas de la barre verticale → rouge");
+    assert!(
+        is_red(frame.pixel(32, 12)),
+        "haut de la barre verticale → rouge"
+    );
+    assert!(
+        is_red(frame.pixel(32, 52)),
+        "bas de la barre verticale → rouge"
+    );
     assert!(is_red(frame.pixel(32, 32)), "centre → rouge");
     // Là où était la barre horizontale (mais plus la verticale) → fond.
-    assert!(is_clear(frame.pixel(12, 32)), "ancien bord gauche → fond (a tourné)");
-    assert!(is_clear(frame.pixel(52, 32)), "ancien bord droit → fond (a tourné)");
+    assert!(
+        is_clear(frame.pixel(12, 32)),
+        "ancien bord gauche → fond (a tourné)"
+    );
+    assert!(
+        is_clear(frame.pixel(52, 32)),
+        "ancien bord droit → fond (a tourné)"
+    );
 }
 
 /// **Échelle uniforme.** Un petit carré ×2 autour du centre couvre une aire quatre
@@ -77,10 +91,15 @@ fn uniform_scale_enlarges_about_center() {
     // Carré 16×16 centré : x,y ∈ [24,40].
     let sq = Rect::new(24.0, 24.0, 16.0, 16.0);
     let m = LayerTransform::new(Affine::scale(2.0, 2.0).about(Point::new(32.0, 32.0)));
-    let Some(frame) = render(&transformed_layer(sq, red, m)) else { return };
+    let Some(frame) = render(&transformed_layer(sq, red, m)) else {
+        return;
+    };
 
     // Image ×2 : x,y ∈ [16,48].
-    assert!(is_red(frame.pixel(20, 20)), "dans l'image agrandie (hors carré d'origine) → rouge");
+    assert!(
+        is_red(frame.pixel(20, 20)),
+        "dans l'image agrandie (hors carré d'origine) → rouge"
+    );
     assert!(is_red(frame.pixel(32, 32)), "centre → rouge");
     assert!(is_clear(frame.pixel(6, 6)), "hors de l'image → fond");
 }
@@ -92,12 +111,20 @@ fn non_uniform_scale_widens_x_only() {
     let red = Color::rgb(1.0, 0.0, 0.0);
     let sq = Rect::new(24.0, 24.0, 16.0, 16.0); // x,y ∈ [24,40]
     let m = LayerTransform::new(Affine::scale(3.0, 1.0).about(Point::new(32.0, 32.0)));
-    let Some(frame) = render(&transformed_layer(sq, red, m)) else { return };
+    let Some(frame) = render(&transformed_layer(sq, red, m)) else {
+        return;
+    };
 
     // Image : x ∈ [8,56] (×3), y ∈ [24,40] (inchangé).
     assert!(is_red(frame.pixel(12, 32)), "élargi en x → rouge");
-    assert!(is_clear(frame.pixel(32, 12)), "y non mis à l'échelle → fond au-dessus");
-    assert!(is_clear(frame.pixel(4, 32)), "au-delà de l'élargissement → fond");
+    assert!(
+        is_clear(frame.pixel(32, 12)),
+        "y non mis à l'échelle → fond au-dessus"
+    );
+    assert!(
+        is_clear(frame.pixel(4, 32)),
+        "au-delà de l'élargissement → fond"
+    );
 }
 
 /// **Composition.** `scale ×2` **puis** rotation +90° (une seule matrice) : le carré
@@ -114,12 +141,26 @@ fn scale_then_rotate_composes() {
             .about(pivot)
             .then(Affine::rotation(FRAC_PI_2).about(pivot)),
     );
-    let Some(frame) = render(&transformed_layer(sq, red, m)) else { return };
+    let Some(frame) = render(&transformed_layer(sq, red, m)) else {
+        return;
+    };
 
     // Après ×2 : x ∈ [16,48], y ∈ [24,40]. Après +90° autour du centre :
     // x ∈ [24,40], y ∈ [16,48] — haut et étroit.
-    assert!(is_red(frame.pixel(32, 20)), "haut de l'image composée → rouge");
-    assert!(is_red(frame.pixel(32, 44)), "bas de l'image composée → rouge");
-    assert!(is_clear(frame.pixel(12, 32)), "hors de l'image étroite → fond");
-    assert!(is_clear(frame.pixel(52, 32)), "hors de l'image étroite → fond");
+    assert!(
+        is_red(frame.pixel(32, 20)),
+        "haut de l'image composée → rouge"
+    );
+    assert!(
+        is_red(frame.pixel(32, 44)),
+        "bas de l'image composée → rouge"
+    );
+    assert!(
+        is_clear(frame.pixel(12, 32)),
+        "hors de l'image étroite → fond"
+    );
+    assert!(
+        is_clear(frame.pixel(52, 32)),
+        "hors de l'image étroite → fond"
+    );
 }

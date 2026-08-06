@@ -42,7 +42,10 @@ pub fn reflow_reorder_columns(
     let mut bounds: HashMap<u64, Rect> = HashMap::new();
     for p in prims {
         let b = p.bounds();
-        bounds.entry(p.owner()).and_modify(|r| *r = r.union(b)).or_insert(b);
+        bounds
+            .entry(p.owner())
+            .and_modify(|r| *r = r.union(b))
+            .or_insert(b);
     }
 
     // Décalage d'un propriétaire : `None` = retiré (colonne source), `Some(dx)` = translaté.
@@ -151,7 +154,9 @@ mod tests {
 
     fn rect_x_of_owner(prims: &[Primitive], owner: u64) -> Option<f32> {
         prims.iter().find_map(|p| match p {
-            Primitive::Rect { rect, owner: o, .. } if *o == owner && rect.width < 150.0 => Some(rect.x),
+            Primitive::Rect { rect, owner: o, .. } if *o == owner && rect.width < 150.0 => {
+                Some(rect.x)
+            }
             _ => None,
         })
     }
@@ -160,20 +165,46 @@ mod tests {
     fn dragging_far_right_lifts_source_and_slides_middle_fully() {
         let base = scene();
         // Source = colonne 0 (owner 1) ; curseur loin à droite → voisines pleinement coulissées.
-        let out = reflow_reorder_columns(base.primitives(), Rect::new(0.0, 0.0, 100.0, 40.0), 1000.0, 1);
+        let out = reflow_reorder_columns(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 100.0, 40.0),
+            1000.0,
+            1,
+        );
         assert_eq!(rect_x_of_owner(&out, 1), None, "colonne source retirée");
-        assert!(out.iter().any(|p| matches!(p, Primitive::Rect { rect, .. } if rect.width > 150.0)), "fond conservé");
-        assert_eq!(rect_x_of_owner(&out, 2), Some(0.0), "col 1 → 0 (coulissée d'un cran)");
-        assert_eq!(rect_x_of_owner(&out, 3), Some(100.0), "col 2 → 100 (place ouverte à droite)");
+        assert!(
+            out.iter()
+                .any(|p| matches!(p, Primitive::Rect { rect, .. } if rect.width > 150.0)),
+            "fond conservé"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 2),
+            Some(0.0),
+            "col 1 → 0 (coulissée d'un cran)"
+        );
+        assert_eq!(
+            rect_x_of_owner(&out, 3),
+            Some(100.0),
+            "col 2 → 100 (place ouverte à droite)"
+        );
     }
 
     #[test]
     fn slide_is_partial_and_follows_the_cursor() {
         let base = scene();
         // Curseur au **centre** de la colonne 1 (owner 2, [100,200], centre 150).
-        let out = reflow_reorder_columns(base.primitives(), Rect::new(0.0, 0.0, 100.0, 40.0), 150.0, 1);
+        let out = reflow_reorder_columns(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 100.0, 40.0),
+            150.0,
+            1,
+        );
         // t = clamp((150 - (150 - 50)) / 100) = 0.5 → coulissement à mi-course (−50).
-        assert_eq!(rect_x_of_owner(&out, 2), Some(50.0), "col 1 à mi-coulissement");
+        assert_eq!(
+            rect_x_of_owner(&out, 2),
+            Some(50.0),
+            "col 1 à mi-coulissement"
+        );
         // Colonne 2 pas encore atteinte par le curseur → immobile.
         assert_eq!(rect_x_of_owner(&out, 3), Some(200.0), "col 2 immobile");
     }
@@ -182,7 +213,12 @@ mod tests {
     fn dragging_left_slides_middle_right() {
         let base = scene();
         // Source = colonne 2 (owner 3) ; curseur loin à gauche → voisines coulissées de +1 cran.
-        let out = reflow_reorder_columns(base.primitives(), Rect::new(200.0, 0.0, 100.0, 40.0), -500.0, 3);
+        let out = reflow_reorder_columns(
+            base.primitives(),
+            Rect::new(200.0, 0.0, 100.0, 40.0),
+            -500.0,
+            3,
+        );
         assert_eq!(rect_x_of_owner(&out, 3), None, "colonne source retirée");
         assert_eq!(rect_x_of_owner(&out, 1), Some(100.0), "col 0 → 100");
         assert_eq!(rect_x_of_owner(&out, 2), Some(200.0), "col 1 → 200");
@@ -208,7 +244,9 @@ mod tests {
 
     fn rect_y_of_owner(prims: &[Primitive], owner: u64) -> Option<f32> {
         prims.iter().find_map(|p| match p {
-            Primitive::Rect { rect, owner: o, .. } if *o == owner && rect.height < 100.0 => Some(rect.y),
+            Primitive::Rect { rect, owner: o, .. } if *o == owner && rect.height < 100.0 => {
+                Some(rect.y)
+            }
             _ => None,
         })
     }
@@ -218,11 +256,28 @@ mod tests {
         let base = board();
         // Carte soulevée = col A, carte du haut (owner 1) ; pas de cible (line = None).
         let lifted = HashSet::from([1]);
-        let out = reflow_reorder_cards(base.primitives(), Rect::new(0.0, 0.0, 100.0, 44.0), None, &lifted);
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 100.0, 44.0),
+            None,
+            &lifted,
+        );
         assert_eq!(rect_y_of_owner(&out, 1), None, "carte soulevée retirée");
-        assert_eq!(rect_y_of_owner(&out, 2), Some(8.0), "carte suivante remonte d'un cran (52 − 44)");
-        assert_eq!(rect_y_of_owner(&out, 3), Some(60.0), "et la dernière aussi (104 − 44)");
-        assert_eq!(rect_y_of_owner(&out, 4), Some(0.0), "colonne voisine intacte");
+        assert_eq!(
+            rect_y_of_owner(&out, 2),
+            Some(8.0),
+            "carte suivante remonte d'un cran (52 − 44)"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 3),
+            Some(60.0),
+            "et la dernière aussi (104 − 44)"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 4),
+            Some(0.0),
+            "colonne voisine intacte"
+        );
     }
 
     #[test]
@@ -232,16 +287,40 @@ mod tests {
         // carte (ligne au bord supérieur y=52 de owner 2).
         let lifted = HashSet::from([4]);
         let line = Rect::new(0.0, 52.0, 100.0, 3.0);
-        let out =
-            reflow_reorder_cards(base.primitives(), Rect::new(120.0, 0.0, 100.0, 44.0), Some(line), &lifted);
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(120.0, 0.0, 100.0, 44.0),
+            Some(line),
+            &lifted,
+        );
         // Colonne source (B) : le trou se referme.
         assert_eq!(rect_y_of_owner(&out, 4), None, "carte soulevée retirée");
-        assert_eq!(rect_y_of_owner(&out, 5), Some(8.0), "col source : carte suivante remonte");
-        assert_eq!(rect_y_of_owner(&out, 6), Some(60.0), "col source : dernière remonte");
+        assert_eq!(
+            rect_y_of_owner(&out, 5),
+            Some(8.0),
+            "col source : carte suivante remonte"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 6),
+            Some(60.0),
+            "col source : dernière remonte"
+        );
         // Colonne cible (A) : la place s'ouvre sous la ligne.
-        assert_eq!(rect_y_of_owner(&out, 1), Some(0.0), "au-dessus de la ligne : immobile");
-        assert_eq!(rect_y_of_owner(&out, 2), Some(96.0), "sous la ligne : descend d'un cran (52 + 44)");
-        assert_eq!(rect_y_of_owner(&out, 3), Some(148.0), "et la suivante aussi (104 + 44)");
+        assert_eq!(
+            rect_y_of_owner(&out, 1),
+            Some(0.0),
+            "au-dessus de la ligne : immobile"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 2),
+            Some(96.0),
+            "sous la ligne : descend d'un cran (52 + 44)"
+        );
+        assert_eq!(
+            rect_y_of_owner(&out, 3),
+            Some(148.0),
+            "et la suivante aussi (104 + 44)"
+        );
     }
 
     #[test]
@@ -251,14 +330,26 @@ mod tests {
         let base = board();
         let lifted = HashSet::from([1]);
         let line = Rect::new(0.0, 104.0, 100.0, 3.0);
-        let out =
-            reflow_reorder_cards(base.primitives(), Rect::new(0.0, 0.0, 100.0, 44.0), Some(line), &lifted);
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 100.0, 44.0),
+            Some(line),
+            &lifted,
+        );
         assert_eq!(rect_y_of_owner(&out, 1), None, "carte soulevée retirée");
         // owner 2 (centre 74) : sous la source (−cran), au-dessus de la ligne → **remonte** d'un cran.
-        assert_eq!(rect_y_of_owner(&out, 2), Some(8.0), "la carte au-dessus de la ligne comble le trou");
+        assert_eq!(
+            rect_y_of_owner(&out, 2),
+            Some(8.0),
+            "la carte au-dessus de la ligne comble le trou"
+        );
         // owner 3 (centre 126) : sous la source (−cran) **et** sous la ligne (+cran) → net **nul** :
         // il reste en place, la place de dépôt s'ouvrant juste au-dessus de lui.
-        assert_eq!(rect_y_of_owner(&out, 3), Some(104.0), "la carte sous la ligne reste (décalage net nul)");
+        assert_eq!(
+            rect_y_of_owner(&out, 3),
+            Some(104.0),
+            "la carte sous la ligne reste (décalage net nul)"
+        );
         // Colonne voisine intacte.
         assert_eq!(rect_y_of_owner(&out, 4), Some(0.0), "colonne B non touchée");
     }
@@ -268,8 +359,12 @@ mod tests {
         let base = board();
         let lifted = HashSet::from([1]);
         let line = Rect::new(0.0, 52.0, 100.0, 3.0);
-        let out =
-            reflow_reorder_cards(base.primitives(), Rect::new(0.0, 0.0, 100.0, 44.0), Some(line), &lifted);
+        let out = reflow_reorder_cards(
+            base.primitives(),
+            Rect::new(0.0, 0.0, 100.0, 44.0),
+            Some(line),
+            &lifted,
+        );
         // Les deux fonds de colonne (hauteur 300 > 1.5×44) restent à y = 0.
         let bgs: Vec<f32> = out
             .iter()

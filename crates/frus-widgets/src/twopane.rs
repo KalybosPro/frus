@@ -58,7 +58,10 @@ impl<Msg: Clone + 'static> TwoPane<Msg> {
         let detail: Box<dyn Widget<Msg>> = Box::new(detail);
         if self.class == SizeClass::Expanded {
             // Côte à côte : largeurs proportionnelles via flex_grow.
-            let list = self.list.take().expect("list() avant detail() en mode côte à côte");
+            let list = self
+                .list
+                .take()
+                .expect("list() avant detail() en mode côte à côte");
             self.children = vec![
                 Box::new(Flex::column().flex(self.ratio).child(list)),
                 Box::new(Flex::column().flex(1.0 - self.ratio).child(detail)),
@@ -69,7 +72,9 @@ impl<Msg: Clone + 'static> TwoPane<Msg> {
             let single = if self.show_detail {
                 detail
             } else {
-                self.list.take().expect("list() ou show_detail requis en panneau unique")
+                self.list
+                    .take()
+                    .expect("list() ou show_detail requis en panneau unique")
             };
             self.children = vec![Box::new(Flex::column().flex(1.0).child(single))];
             self.row = false;
@@ -127,7 +132,10 @@ mod tests {
         let list_only = TwoPane::<()>::new(SizeClass::Compact)
             .list(Container::new())
             .detail(Container::new());
-        assert_eq!(Widget::<()>::style(&list_only).flex_direction, FlexDirection::Column);
+        assert_eq!(
+            Widget::<()>::style(&list_only).flex_direction,
+            FlexDirection::Column
+        );
         assert_eq!(Widget::<()>::children(&list_only).len(), 1);
 
         // Avec show_detail, c'est le détail qui occupe l'unique panneau.

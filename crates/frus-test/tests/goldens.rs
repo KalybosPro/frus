@@ -88,7 +88,10 @@ fn decorated_form_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "labels, champs et textes dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "labels, champs et textes dessinés"
+    );
     snapshot.assert_golden(golden("decorated_form"));
 }
 
@@ -119,7 +122,10 @@ fn outlined_field_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "bordures, labels et texte dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "bordures, labels et texte dessinés"
+    );
     snapshot.assert_golden(golden("outlined_field"));
 }
 
@@ -142,7 +148,10 @@ fn data_table_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête, lignes et textes dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête, lignes et textes dessinés"
+    );
     snapshot.assert_golden(golden("data_table"));
 }
 
@@ -166,7 +175,10 @@ fn data_table_multiselect_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "cases, en-tête et lignes dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "cases, en-tête et lignes dessinés"
+    );
     snapshot.assert_golden(golden("data_table_multiselect"));
 }
 
@@ -189,7 +201,12 @@ fn table_reorder_preview_matches_golden() {
         .row(&["Bob", "Designer", "3"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let (w, h) = (420u32, 150u32);
-    let ui = build_ui(&root, Size::new(w as f32, h as f32), &Runtime::default(), &theme);
+    let ui = build_ui(
+        &root,
+        Size::new(w as f32, h as f32),
+        &Runtime::default(),
+        &theme,
+    );
 
     // En-tête « Role » (colonne 1) glissé vers la droite, curseur au-delà de « Score »
     // (qui a donc pleinement coulissé pour combler la place de « Role »).
@@ -210,7 +227,12 @@ fn table_reorder_preview_matches_golden() {
     // dé-découpées) + bord accentué.
     scene.set_clip(Rect::UNBOUNDED);
     let card = src.translate(dx, -2.0);
-    scene.shadow(card.translate(0.0, 4.0), Color::BLACK.fade(0.28), theme.radius, 12.0);
+    scene.shadow(
+        card.translate(0.0, 4.0),
+        Color::BLACK.fade(0.28),
+        theme.radius,
+        12.0,
+    );
     scene.draw_rect(card, theme.surface, theme.radius, 0.0, Color::TRANSPARENT);
     let ghost: Vec<Primitive> = ui
         .scene()
@@ -222,14 +244,26 @@ fn table_reorder_preview_matches_golden() {
     for primitive in &ghost {
         scene.push_primitive(primitive.clone());
     }
-    scene.draw_rect(card, Color::TRANSPARENT, theme.radius, 1.5, theme.primary.fade(0.9));
+    scene.draw_rect(
+        card,
+        Color::TRANSPARENT,
+        theme.radius,
+        1.5,
+        theme.primary.fade(0.9),
+    );
 
     let Some(snapshot) = render_scene(&scene, w, h, theme.background) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(!ghost.is_empty(), "la face fidèle capture les primitives de l'en-tête");
-    assert!(snapshot.lit_pixels(40) > 100, "tableau réagencé + carte fantôme dessinés");
+    assert!(
+        !ghost.is_empty(),
+        "la face fidèle capture les primitives de l'en-tête"
+    );
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "tableau réagencé + carte fantôme dessinés"
+    );
     snapshot.assert_golden(golden("table_reorder_preview"));
 }
 
@@ -255,7 +289,10 @@ fn table_widget_cells_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête, avatars et puces dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête, avatars et puces dessinés"
+    );
     snapshot.assert_golden(golden("table_widget_cells"));
 }
 
@@ -279,7 +316,10 @@ fn table_adaptive_rows_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "grande rangée et rangée texte dessinées");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "grande rangée et rangée texte dessinées"
+    );
     snapshot.assert_golden(golden("table_adaptive_rows"));
 }
 
@@ -300,7 +340,10 @@ fn table_header_icons_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-têtes à icônes et données dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-têtes à icônes et données dessinés"
+    );
     snapshot.assert_golden(golden("table_header_icons"));
 }
 
@@ -316,7 +359,12 @@ fn table_header_action_matches_golden() {
         .on_sort(|_| ())
         .sorted(0, true)
         .header_action(1, || {
-            Box::new(Button::new("Filter").size(12.0).variant(Variant::Secondary).on_press(()))
+            Box::new(
+                Button::new("Filter")
+                    .size(12.0)
+                    .variant(Variant::Secondary)
+                    .on_press(()),
+            )
         })
         .row(&["Ada", "Active"])
         .row(&["Bob", "Away"]);
@@ -325,7 +373,10 @@ fn table_header_action_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête, bouton d'action et données dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête, bouton d'action et données dessinés"
+    );
     snapshot.assert_golden(golden("table_header_action"));
 }
 
@@ -340,7 +391,14 @@ fn table_widget_header_matches_golden() {
         .column_widths(&[110.0])
         .widget_header(vec![
             Box::new(|| Box::new(Chip::<()>::new("User"))),
-            Box::new(|| Box::new(Button::new("Sort").size(12.0).variant(Variant::Secondary).on_press(()))),
+            Box::new(|| {
+                Box::new(
+                    Button::new("Sort")
+                        .size(12.0)
+                        .variant(Variant::Secondary)
+                        .on_press(()),
+                )
+            }),
         ])
         .row(&["Ada", "Active"])
         .row(&["Bob", "Away"]);
@@ -349,7 +407,10 @@ fn table_widget_header_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-têtes widget et données dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-têtes widget et données dessinés"
+    );
     snapshot.assert_golden(golden("table_widget_header"));
 }
 
@@ -366,10 +427,17 @@ fn table_column_menu_matches_golden() {
         .on_sort(|_| ())
         .header_action(0, || {
             Box::new(
-                Menu::new(Button::new("...").size(12.0).variant(Variant::Secondary).on_press(()), true, ())
-                    .item("Sort ascending", ())
-                    .item("Sort descending", ())
-                    .item("Hide column", ()),
+                Menu::new(
+                    Button::new("...")
+                        .size(12.0)
+                        .variant(Variant::Secondary)
+                        .on_press(()),
+                    true,
+                    (),
+                )
+                .item("Sort ascending", ())
+                .item("Sort descending", ())
+                .item("Hide column", ()),
             )
         })
         .row(&["Ada", "5"])
@@ -379,7 +447,10 @@ fn table_column_menu_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête et menu de colonne flottant dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête et menu de colonne flottant dessinés"
+    );
     snapshot.assert_golden(golden("table_column_menu"));
 }
 
@@ -393,13 +464,18 @@ fn table_virtualized_matches_golden() {
         .width(260.0)
         .column_widths(&[60.0])
         .header(&["#", "Item"])
-        .virtual_rows(1000, 120.0, |i| vec![format!("{}", i + 1), format!("Item {}", i + 1)]);
+        .virtual_rows(1000, 120.0, |i| {
+            vec![format!("{}", i + 1), format!("Item {}", i + 1)]
+        });
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 300, 190, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête épinglé et lignes visibles dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête épinglé et lignes visibles dessinés"
+    );
     snapshot.assert_golden(golden("table_virtualized"));
 }
 
@@ -414,7 +490,8 @@ fn table_virtual_widgets_matches_golden() {
         .header(&["User", "Tag"])
         .virtual_widget_rows(500, 130.0, |i| {
             vec![
-                Box::new(Avatar::new(format!("U{i}")).size(26.0)) as Box<dyn frus_widgets::Widget<()>>,
+                Box::new(Avatar::new(format!("U{i}")).size(26.0))
+                    as Box<dyn frus_widgets::Widget<()>>,
                 Box::new(Chip::<()>::new(format!("tag {}", i + 1))),
             ]
         });
@@ -423,7 +500,10 @@ fn table_virtual_widgets_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête, avatars et puces virtualisés dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête, avatars et puces virtualisés dessinés"
+    );
     snapshot.assert_golden(golden("table_virtual_widgets"));
 }
 
@@ -438,13 +518,18 @@ fn table_virtual_checkboxes_matches_golden() {
         .header(&["Name", "Role"])
         .checkboxes(|_| (), ())
         .selected(&[1, 2])
-        .virtual_rows(1000, 130.0, |i| vec![format!("User {}", i + 1), "member".to_string()]);
+        .virtual_rows(1000, 130.0, |i| {
+            vec![format!("User {}", i + 1), "member".to_string()]
+        });
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 320, 200, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "cases, en-tête et lignes virtualisées dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "cases, en-tête et lignes virtualisées dessinés"
+    );
     snapshot.assert_golden(golden("table_virtual_checkboxes"));
 }
 
@@ -468,7 +553,10 @@ fn table_frozen_columns_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "colonne gelée et colonnes défilantes dessinées");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "colonne gelée et colonnes défilantes dessinées"
+    );
     snapshot.assert_golden(golden("table_frozen_columns"));
 }
 
@@ -491,7 +579,10 @@ fn table_frozen_both_edges_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "colonnes gelées des deux bords dessinées");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "colonnes gelées des deux bords dessinées"
+    );
     snapshot.assert_golden(golden("table_frozen_both_edges"));
 }
 
@@ -505,8 +596,9 @@ fn form_error_summary_matches_golden() {
     let report = Form::new()
         .field("email", "nope", Rule::email("Enter a valid email address"))
         .field("password", "x", Rule::min_len(8, "At least 8 characters"));
-    let summary =
-        frus_widgets::ErrorSummary::<()>::new(report.errors().into_iter().map(|(_, m)| m.to_string()));
+    let summary = frus_widgets::ErrorSummary::<()>::new(
+        report.errors().into_iter().map(|(_, m)| m.to_string()),
+    );
     let root: Container<()> = Container::new().padding(20.0).child(
         Flex::column().gap(16.0).child(summary).child(
             TextInput::<()>::new("nope")
@@ -519,7 +611,10 @@ fn form_error_summary_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "récapitulatif d'erreurs et champ dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "récapitulatif d'erreurs et champ dessinés"
+    );
     snapshot.assert_golden(golden("form_error_summary"));
 }
 
@@ -535,7 +630,11 @@ fn form_wizard_matches_golden() {
             .gap(18.0)
             .child(Steps::new(["Account", "Profile", "Review"]).current(1))
             .child(Text::styled("Profile", theme.text.title_medium))
-            .child(TextInput::<()>::new("Ada Lovelace").width(340.0).label("Full name"))
+            .child(
+                TextInput::<()>::new("Ada Lovelace")
+                    .width(340.0)
+                    .label("Full name"),
+            )
             .child(
                 Flex::row()
                     .gap(12.0)
@@ -547,7 +646,10 @@ fn form_wizard_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "indicateur d'étapes, champ et boutons dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "indicateur d'étapes, champ et boutons dessinés"
+    );
     snapshot.assert_golden(golden("form_wizard"));
 }
 
@@ -608,7 +710,13 @@ fn date_range_bounded_matches_golden() {
 fn date_blackout_matches_golden() {
     use frus_widgets::DatePicker;
     let theme = Theme::dark();
-    let blackout = [(2026, 7, 4), (2026, 7, 5), (2026, 7, 14), (2026, 7, 15), (2026, 7, 27)];
+    let blackout = [
+        (2026, 7, 4),
+        (2026, 7, 5),
+        (2026, 7, 14),
+        (2026, 7, 15),
+        (2026, 7, 27),
+    ];
     let picker = DatePicker::filtered(
         2026,
         7,
@@ -622,7 +730,10 @@ fn date_blackout_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "calendrier avec jours blackout dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "calendrier avec jours blackout dessiné"
+    );
     snapshot.assert_golden(golden("date_blackout"));
 }
 
@@ -645,7 +756,10 @@ fn date_range_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "calendrier et plage dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "calendrier et plage dessinés"
+    );
     snapshot.assert_golden(golden("date_range"));
 }
 
@@ -684,7 +798,10 @@ fn time_range_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 200, "deux sélecteurs d'heure dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 200,
+        "deux sélecteurs d'heure dessinés"
+    );
     snapshot.assert_golden(golden("time_range"));
 }
 
@@ -727,7 +844,10 @@ fn datetime_range_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 300, "calendrier double, heures et récap dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 300,
+        "calendrier double, heures et récap dessinés"
+    );
     snapshot.assert_golden(golden("datetime_range"));
 }
 
@@ -745,7 +865,11 @@ fn wizard_review_errors_matches_golden() {
     let root: Container<()> = Container::new().padding(24.0).child(
         Flex::column()
             .gap(24.0)
-            .child(Steps::new(["Account", "Security", "Review"]).current(2).on_tap(|_| ()))
+            .child(
+                Steps::new(["Account", "Security", "Review"])
+                    .current(2)
+                    .on_tap(|_| ()),
+            )
             .child(summary)
             .child(Text::new("Creating account for Ada <not-an-email>").size(16.0))
             .child(
@@ -759,7 +883,10 @@ fn wizard_review_errors_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "assistant (étape Review, erreurs) dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "assistant (étape Review, erreurs) dessiné"
+    );
     snapshot.assert_golden(golden("wizard_review_errors"));
 }
 
@@ -778,7 +905,10 @@ fn button_disabled_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 40, "les deux boutons sont dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 40,
+        "les deux boutons sont dessinés"
+    );
     snapshot.assert_golden(golden("button_disabled"));
 }
 
@@ -796,7 +926,12 @@ fn wizard_password_step_matches_golden() {
             .child(
                 Flex::column()
                     .gap(14.0)
-                    .child(TextInput::<()>::new("secret12").width(340.0).label("Password").obscure(true))
+                    .child(
+                        TextInput::<()>::new("secret12")
+                            .width(340.0)
+                            .label("Password")
+                            .obscure(true),
+                    )
                     .child(
                         TextInput::<()>::new("secr")
                             .width(340.0)
@@ -837,8 +972,16 @@ fn wizard_password_revealed_matches_golden() {
             .child(
                 Flex::column()
                     .gap(14.0)
-                    .child(TextInput::<()>::new("secret12").width(340.0).label("Password"))
-                    .child(TextInput::<()>::new("secret12").width(340.0).label("Confirm password"))
+                    .child(
+                        TextInput::<()>::new("secret12")
+                            .width(340.0)
+                            .label("Password"),
+                    )
+                    .child(
+                        TextInput::<()>::new("secret12")
+                            .width(340.0)
+                            .label("Confirm password"),
+                    )
                     .child(Button::new("Hide password").variant(Variant::Secondary)),
             )
             .child(
@@ -887,9 +1030,21 @@ fn table_editable_matches_golden() {
     let table = Table::new(3)
         .header(&["Name", "Role", "Email"])
         .column_widths(&[150.0, 150.0, 200.0])
-        .widget_row(vec![cell("Ada Lovelace"), cell("Engineer"), cell("ada@example.com")])
-        .widget_row(vec![cell("Alan Turing"), editing("Cryptographer"), cell("alan@example.com")])
-        .widget_row(vec![cell("Grace Hopper"), cell("Admiral"), cell("grace@example.com")]);
+        .widget_row(vec![
+            cell("Ada Lovelace"),
+            cell("Engineer"),
+            cell("ada@example.com"),
+        ])
+        .widget_row(vec![
+            cell("Alan Turing"),
+            editing("Cryptographer"),
+            cell("alan@example.com"),
+        ])
+        .widget_row(vec![
+            cell("Grace Hopper"),
+            cell("Admiral"),
+            cell("grace@example.com"),
+        ]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 560, 220, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
@@ -984,7 +1139,10 @@ fn data_table_selected_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable avec ligne sélectionnée dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "DataTable avec ligne sélectionnée dessiné"
+    );
     snapshot.assert_golden(golden("data_table_selected"));
 }
 
@@ -1018,7 +1176,10 @@ fn data_table_custom_sort_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable à tri personnalisé dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "DataTable à tri personnalisé dessiné"
+    );
     snapshot.assert_golden(golden("data_table_custom_sort"));
 }
 
@@ -1047,7 +1208,10 @@ fn data_table_checkboxes_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable à cases à cocher dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "DataTable à cases à cocher dessiné"
+    );
     snapshot.assert_golden(golden("data_table_checkboxes"));
 }
 
@@ -1074,7 +1238,10 @@ fn data_table_search_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable cherchable dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "DataTable cherchable dessiné"
+    );
     snapshot.assert_golden(golden("data_table_search"));
 }
 
@@ -1106,7 +1273,10 @@ fn data_table_bulk_actions_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable à barre d'actions dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "DataTable à barre d'actions dessiné"
+    );
     snapshot.assert_golden(golden("data_table_bulk_actions"));
 }
 
@@ -1208,7 +1378,10 @@ fn kanban_rich_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "Kanban à cartes riches dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "Kanban à cartes riches dessiné"
+    );
     snapshot.assert_golden(golden("kanban_rich"));
 }
 
@@ -1227,7 +1400,11 @@ fn bar_chart_matches_golden() {
     ])
     .height(200.0);
     // `BarChart` remplit la largeur (Percent) : le parent doit avoir une largeur **définie**.
-    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(240.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1252,9 +1429,17 @@ fn bar_chart_grouped_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("This year")
-    .series("Last year", Color::rgb8(220, 120, 80), [2.0, 5.0, 6.0, 4.0, 3.0])
+    .series(
+        "Last year",
+        Color::rgb8(220, 120, 80),
+        [2.0, 5.0, 6.0, 4.0, 3.0],
+    )
     .legend(true);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1279,10 +1464,18 @@ fn bar_chart_stacked_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("This year")
-    .series("Last year", Color::rgb8(220, 120, 80), [2.0, 5.0, 6.0, 4.0, 3.0])
+    .series(
+        "Last year",
+        Color::rgb8(220, 120, 80),
+        [2.0, 5.0, 6.0, 4.0, 3.0],
+    )
     .legend(true)
     .stacked(true);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1306,7 +1499,11 @@ fn line_chart_matches_golden() {
     ])
     .height(200.0);
     // `LineChart` remplit la largeur (Percent) : le parent doit avoir une largeur **définie**.
-    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(240.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1330,7 +1527,11 @@ fn line_chart_axis_matches_golden() {
     ])
     .height(200.0)
     .grid(4);
-    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(240.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1354,7 +1555,11 @@ fn line_chart_area_matches_golden() {
     .height(200.0)
     .grid(4)
     .area(true);
-    let root: Container<()> = Container::new().width(360.0).height(240.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(240.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1379,14 +1584,25 @@ fn line_chart_multi_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "graphique multi-séries dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "graphique multi-séries dessiné"
+    );
     snapshot.assert_golden(golden("line_chart_multi"));
 }
 
@@ -1406,10 +1622,18 @@ fn line_chart_stacked_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true)
     .stacked(true);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1434,15 +1658,26 @@ fn line_chart_hidden_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true)
     .hidden([1]);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "série masquée : une seule courbe");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "série masquée : une seule courbe"
+    );
     snapshot.assert_golden(golden("line_chart_hidden"));
 }
 
@@ -1462,15 +1697,26 @@ fn line_chart_selected_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true)
     .selected(Some((3, 0)));
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "point épinglé mis en évidence");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "point épinglé mis en évidence"
+    );
     snapshot.assert_golden(golden("line_chart_selected"));
 }
 
@@ -1490,15 +1736,26 @@ fn bar_chart_selected_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true)
     .selected(Some((3, 0)));
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "barre épinglée mise en évidence");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "barre épinglée mise en évidence"
+    );
     snapshot.assert_golden(golden("bar_chart_selected"));
 }
 
@@ -1518,11 +1775,19 @@ fn bar_chart_normalized_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true)
     .stacked(true)
     .normalized(true);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1547,11 +1812,19 @@ fn line_chart_normalized_matches_golden() {
     .height(200.0)
     .grid(4)
     .name("Sales")
-    .series("Costs", Color::rgb8(220, 120, 80), [2.0, 4.0, 3.0, 5.0, 2.0])
+    .series(
+        "Costs",
+        Color::rgb8(220, 120, 80),
+        [2.0, 4.0, 3.0, 5.0, 2.0],
+    )
     .legend(true)
     .stacked(true)
     .normalized(true);
-    let root: Container<()> = Container::new().width(360.0).height(260.0).padding(20.0).child(chart);
+    let root: Container<()> = Container::new()
+        .width(360.0)
+        .height(260.0)
+        .padding(20.0)
+        .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1611,7 +1884,10 @@ fn snackbar_action_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 60, "carte, texte et action dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 60,
+        "carte, texte et action dessinés"
+    );
     snapshot.assert_golden(golden("snackbar_action"));
 }
 
@@ -1635,7 +1911,10 @@ fn data_table_resizable_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "en-tête, lignes et poignées dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "en-tête, lignes et poignées dessinés"
+    );
     snapshot.assert_golden(golden("data_table_resizable"));
 }
 
@@ -1644,14 +1923,18 @@ fn data_table_resizable_matches_golden() {
 #[test]
 fn time_picker_matches_golden() {
     let theme = Theme::dark();
-    let root: Container<()> = Container::new()
-        .padding(20.0)
-        .child(TimePicker::<()>::new(9, 30, |_| (), |_| ()));
+    let root: Container<()> =
+        Container::new()
+            .padding(20.0)
+            .child(TimePicker::<()>::new(9, 30, |_| (), |_| ()));
     let Some(snapshot) = render_widget(&root, 280, 400, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "aperçu, grilles et cases dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "aperçu, grilles et cases dessinés"
+    );
     snapshot.assert_golden(golden("time_picker"));
 }
 
@@ -1666,7 +1949,10 @@ fn time_picker_12h_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "aperçu, AM/PM et grilles dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "aperçu, AM/PM et grilles dessinés"
+    );
     snapshot.assert_golden(golden("time_picker_12h"));
 }
 
@@ -1675,22 +1961,27 @@ fn time_picker_12h_matches_golden() {
 #[test]
 fn date_time_picker_matches_golden() {
     let theme = Theme::dark();
-    let root: Container<()> = Container::new().padding(20.0).child(DateTimePicker::<()>::new(
-        2026,
-        7,
-        Some(11),
-        9,
-        30,
-        |_| (),
-        |_| (),
-        |_| (),
-        |_| (),
-    ));
+    let root: Container<()> = Container::new()
+        .padding(20.0)
+        .child(DateTimePicker::<()>::new(
+            2026,
+            7,
+            Some(11),
+            9,
+            30,
+            |_| (),
+            |_| (),
+            |_| (),
+            |_| (),
+        ));
     let Some(snapshot) = render_widget(&root, 320, 640, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 200, "récap, calendrier et heure dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 200,
+        "récap, calendrier et heure dessinés"
+    );
     snapshot.assert_golden(golden("date_time_picker"));
 }
 
@@ -1709,7 +2000,10 @@ fn dropdown_menu_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 80, "en-tête, options, surlignage et coche dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 80,
+        "en-tête, options, surlignage et coche dessinés"
+    );
     snapshot.assert_golden(golden("dropdown_menu"));
 }
 
@@ -1731,7 +2025,10 @@ fn autocomplete_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 80, "champ, suggestions, surlignage et mise en avant dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 80,
+        "champ, suggestions, surlignage et mise en avant dessinés"
+    );
     snapshot.assert_golden(golden("autocomplete"));
 }
 
@@ -1747,7 +2044,10 @@ fn range_slider_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 40, "piste, segment actif et deux poignées dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 40,
+        "piste, segment actif et deux poignées dessinés"
+    );
     snapshot.assert_golden(golden("range_slider"));
 }
 
@@ -1767,8 +2067,16 @@ fn range_slider_labels_matches_golden() {
     let (w, h) = (300u32, 110u32);
     // Poignée basse : centre x = 24 + 0.3·240 = 96, dans la bande piste basse.
     let probe = Point::new(96.0, 62.0);
-    let base = build_ui(&root, Size::new(w as f32, h as f32), &Runtime::default(), &theme);
-    let id = base.draggable_at(probe).map(|(id, _)| id).expect("poignée basse saisissable");
+    let base = build_ui(
+        &root,
+        Size::new(w as f32, h as f32),
+        &Runtime::default(),
+        &theme,
+    );
+    let id = base
+        .draggable_at(probe)
+        .map(|(id, _)| id)
+        .expect("poignée basse saisissable");
     // Reconstruit avec la poignée basse **focalisée** (révèle la bulle + l'anneau).
     let mut runtime = Runtime::default();
     runtime.input.focused = Some(id);
@@ -1778,7 +2086,10 @@ fn range_slider_labels_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 60, "piste, poignées et infobulle focalisée dessinées");
+    assert!(
+        snapshot.lit_pixels(40) > 60,
+        "piste, poignées et infobulle focalisée dessinées"
+    );
     snapshot.assert_golden(golden("range_slider_labels"));
 }
 
@@ -1803,7 +2114,10 @@ fn autocomplete_scroll_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 80, "champ et liste bornée dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 80,
+        "champ et liste bornée dessinés"
+    );
     snapshot.assert_golden(golden("autocomplete_scroll"));
 }
 
@@ -1827,7 +2141,10 @@ fn password_field_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 80, "points, icônes et textes dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 80,
+        "points, icônes et textes dessinés"
+    );
     snapshot.assert_golden(golden("password_field"));
 }
 
@@ -1844,31 +2161,47 @@ fn validated_signup_form_matches_golden() {
         .field(
             "email",
             email,
-            Rule::all([Rule::required("Required"), Rule::email("Enter a valid email address")]),
+            Rule::all([
+                Rule::required("Required"),
+                Rule::email("Enter a valid email address"),
+            ]),
         )
-        .field("password", password, Rule::min_len(8, "At least 8 characters"));
+        .field(
+            "password",
+            password,
+            Rule::min_len(8, "At least 8 characters"),
+        );
 
     // Les erreurs du rapport alimentent directement les champs.
     let mut email_field = TextInput::<()>::new(email).width(280.0).label("Email");
     if let Some(e) = report.error("email") {
         email_field = email_field.error(e);
     }
-    let mut password_field =
-        TextInput::<()>::new(password).width(280.0).label("Password").obscure(true);
+    let mut password_field = TextInput::<()>::new(password)
+        .width(280.0)
+        .label("Password")
+        .obscure(true);
     if let Some(e) = report.error("password") {
         password_field = password_field.error(e);
     }
 
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(20.0).child(
-        Flex::column().gap(14.0).child(email_field).child(password_field),
+        Flex::column()
+            .gap(14.0)
+            .child(email_field)
+            .child(password_field),
     );
     let Some(snapshot) = render_widget(&root, 340, 210, &theme) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
     assert!(!report.is_valid(), "les deux champs sont invalides");
-    assert_eq!(report.first_invalid(), Some("email"), "le premier à focaliser");
+    assert_eq!(
+        report.first_invalid(),
+        Some("email"),
+        "le premier à focaliser"
+    );
     snapshot.assert_golden(golden("validated_signup_form"));
 }
 
@@ -1889,7 +2222,10 @@ fn multiline_field_matches_golden() {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 120, "label et trois lignes de texte dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 120,
+        "label et trois lignes de texte dessinés"
+    );
     snapshot.assert_golden(golden("multiline_field"));
 }
 
@@ -1910,11 +2246,21 @@ fn inspector_overlay_matches_golden() {
     let runtime = Runtime::default();
     let size = Size::new(180.0, 120.0);
     let (ui, nodes) = build_ui_inspected(&root, size, &runtime, &theme);
-    assert!(nodes.len() >= 4, "l'arbre entier est observé ({})", nodes.len());
+    assert!(
+        nodes.len() >= 4,
+        "l'arbre entier est observé ({})",
+        nodes.len()
+    );
 
     let mut scene = ui.scene().clone();
     // Le curseur désigne le premier texte : surlignage + fiche.
-    paint_inspector_overlay(&nodes, Some(Point::new(20.0, 18.0)), size, &theme, &mut scene);
+    paint_inspector_overlay(
+        &nodes,
+        Some(Point::new(20.0, 18.0)),
+        size,
+        &theme,
+        &mut scene,
+    );
     let Some(snapshot) = frus_test::render_scene(&scene, 180, 120, theme.background) else {
         eprintln!("aucun adaptateur GPU disponible : test ignoré");
         return;
@@ -1934,7 +2280,12 @@ fn rtl_mirrors_the_row() {
             .width(150.0)
             .height(40.0)
             .child(Container::new().width(50.0).height(40.0).color(red))
-            .child(Container::new().width(50.0).height(40.0).color(Color::rgb(0.2, 0.8, 0.4)))
+            .child(
+                Container::new()
+                    .width(50.0)
+                    .height(40.0)
+                    .color(Color::rgb(0.2, 0.8, 0.4)),
+            )
             .child(Container::new().width(50.0).height(40.0).color(blue))
     };
     // LTR : rouge à gauche, bleu à droite.
@@ -1950,9 +2301,15 @@ fn rtl_mirrors_the_row() {
     let is_red = |px: [u8; 4]| px[0] > 180 && px[1] < 120;
     let is_blue = |px: [u8; 4]| px[2] > 180 && px[0] < 120;
     // LTR : rouge au bord gauche, bleu au bord droit.
-    assert!(is_red(ltr.pixel(10, 20)) && is_blue(ltr.pixel(140, 20)), "LTR normal");
+    assert!(
+        is_red(ltr.pixel(10, 20)) && is_blue(ltr.pixel(140, 20)),
+        "LTR normal"
+    );
     // RTL : miroir — rouge à droite, bleu à gauche.
-    assert!(is_red(rtl.pixel(140, 20)) && is_blue(rtl.pixel(10, 20)), "RTL retourné");
+    assert!(
+        is_red(rtl.pixel(140, 20)) && is_blue(rtl.pixel(10, 20)),
+        "RTL retourné"
+    );
     rtl.assert_golden(golden("rtl_row"));
 }
 
@@ -1964,9 +2321,17 @@ fn rtl_flips_the_drawer_side() {
     let drawer_color = Color::rgb(0.9, 0.3, 0.3);
     let make = || {
         Scaffold::<()>::new(200.0, 120.0)
-            .body(Container::new().width(200.0).height(120.0).color(Color::rgb(0.1, 0.1, 0.12)))
+            .body(
+                Container::new()
+                    .width(200.0)
+                    .height(120.0)
+                    .color(Color::rgb(0.1, 0.1, 0.12)),
+            )
             .end_drawer(
-                Container::new().width(90.0).height(120.0).color(drawer_color),
+                Container::new()
+                    .width(90.0)
+                    .height(120.0)
+                    .color(drawer_color),
                 true,
                 (),
             )

@@ -117,15 +117,31 @@ mod tests {
         let counter = built.clone();
         let list = List::<()>::new(5000, 40.0, move |_i| {
             counter.set(counter.get() + 1);
-            Container::<()>::new().width(180.0).height(40.0).color(Color::rgb(1.0, 0.0, 0.0))
+            Container::<()>::new()
+                .width(180.0)
+                .height(40.0)
+                .color(Color::rgb(1.0, 0.0, 0.0))
         })
         .width(200.0)
         .height(200.0);
 
-        let _ui = build_ui(&list, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let _ui = build_ui(
+            &list,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Viewport 200 / item 40 = 5 visibles (+ éventuellement 1 de marge) — jamais 5000.
-        assert!(built.get() <= 8, "seuls les éléments visibles sont construits : {}", built.get());
-        assert!(built.get() >= 5, "au moins la fenêtre visible : {}", built.get());
+        assert!(
+            built.get() <= 8,
+            "seuls les éléments visibles sont construits : {}",
+            built.get()
+        );
+        assert!(
+            built.get() >= 5,
+            "au moins la fenêtre visible : {}",
+            built.get()
+        );
     }
 
     #[test]
@@ -133,7 +149,12 @@ mod tests {
         let list = List::<()>::new(100, 40.0, |_i| Container::<()>::new().height(40.0))
             .width(200.0)
             .height(200.0);
-        let ui = build_ui(&list, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &list,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Contenu = 100×40 = 4000 ; viewport 200 → max défilement vertical 3800.
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1);
@@ -151,7 +172,12 @@ mod tests {
         })
         .width(200.0)
         .height(120.0);
-        let ui = build_ui(&list, Size::new(200.0, 120.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &list,
+            Size::new(200.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let rects = ui
             .scene()
             .primitives()

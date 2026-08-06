@@ -64,7 +64,11 @@ pub struct ToastHost<Msg> {
 impl<Msg: Clone + 'static> ToastHost<Msg> {
     /// Une couche vide ancrée à `position`.
     pub fn new(position: ToastPosition) -> Self {
-        Self { position, padding: HOST_PAD, children: Vec::new() }
+        Self {
+            position,
+            padding: HOST_PAD,
+            children: Vec::new(),
+        }
     }
 
     /// Marge entre les toasts et les bords (défaut 16 px).
@@ -98,8 +102,12 @@ impl<Msg: Clone + 'static> ToastHost<Msg> {
             .children
             .into_iter()
             .map(|child| {
-                Box::new(AnimatedOpacity::new(target, duration, Curve::ease_in_out(), child))
-                    as Box<dyn Widget<Msg>>
+                Box::new(AnimatedOpacity::new(
+                    target,
+                    duration,
+                    Curve::ease_in_out(),
+                    child,
+                )) as Box<dyn Widget<Msg>>
             })
             .collect();
         self
@@ -161,7 +169,11 @@ mod tests {
             .toast(Text::new("a"))
             .toast(Text::new("b"))
             .fade_in(0.2);
-        assert_eq!(Widget::<()>::children(&host).len(), 2, "deux toasts, enveloppés en fondu");
+        assert_eq!(
+            Widget::<()>::children(&host).len(),
+            2,
+            "deux toasts, enveloppés en fondu"
+        );
     }
 
     #[test]
@@ -169,6 +181,10 @@ mod tests {
         let host = ToastHost::<()>::new(ToastPosition::BottomCenter)
             .toast(Text::new("bye"))
             .fade_out(0.3);
-        assert_eq!(Widget::<()>::children(&host).len(), 1, "toast enveloppé en fondu de sortie");
+        assert_eq!(
+            Widget::<()>::children(&host).len(),
+            1,
+            "toast enveloppé en fondu de sortie"
+        );
     }
 }

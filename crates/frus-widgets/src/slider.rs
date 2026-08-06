@@ -190,8 +190,14 @@ impl<Msg> RangeThumb<Msg> {
     /// borné par l'autre (pas de croisement) et accroché.
     fn moved(&self, delta: f32) -> (f32, f32) {
         match self.side {
-            Side::Low => (self.snap((self.low + delta).clamp(0.0, self.high)), self.high),
-            Side::High => (self.low, self.snap((self.high + delta).clamp(self.low, 1.0))),
+            Side::Low => (
+                self.snap((self.low + delta).clamp(0.0, self.high)),
+                self.high,
+            ),
+            Side::High => (
+                self.low,
+                self.snap((self.high + delta).clamp(self.low, 1.0)),
+            ),
         }
     }
 
@@ -233,8 +239,19 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
         if let Some(label) = &self.label {
             let active = status.focused || status.hover_progress > 0.01;
             if active {
-                let reveal = if status.focused { o } else { status.hover_progress * o };
-                paint_tip(bounds.x + THUMB * 0.5, bounds.y, label(self.value()), theme, reveal, scene);
+                let reveal = if status.focused {
+                    o
+                } else {
+                    status.hover_progress * o
+                };
+                paint_tip(
+                    bounds.x + THUMB * 0.5,
+                    bounds.y,
+                    label(self.value()),
+                    theme,
+                    reveal,
+                    scene,
+                );
             }
         }
     }
@@ -354,13 +371,18 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
         let lo_gap = (self.low * self.width - THUMB * 0.5).max(0.0);
         let mid_gap = ((self.high - self.low) * self.width - THUMB).max(0.0);
         let row = Flex::row()
-            .child(Spacer { width: lo_gap, height })
+            .child(Spacer {
+                width: lo_gap,
+                height,
+            })
             .child(thumb(Side::Low))
-            .child(Spacer { width: mid_gap, height })
+            .child(Spacer {
+                width: mid_gap,
+                height,
+            })
             .child(thumb(Side::High));
         self.children = vec![Box::new(row)];
     }
-
 }
 
 /// Peint une infobulle de valeur centrée en `cx` (bord haut `top`) affichant `text`.
@@ -376,7 +398,12 @@ fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut
         Color::TRANSPARENT,
     );
     let ty = top + (TIP_H - frus_text::line_height(TIP_SIZE)) * 0.5;
-    scene.text(Point::new(bx + 6.0, ty), text, TIP_SIZE, theme.on_primary.fade(o));
+    scene.text(
+        Point::new(bx + 6.0, ty),
+        text,
+        TIP_SIZE,
+        theme.on_primary.fade(o),
+    );
 }
 
 impl<Msg> RangeSlider<Msg> {
@@ -442,8 +469,11 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
     fn semantics(&self) -> Option<frus_core::Semantics> {
         let pct = |v: f32| (v * 100.0).round();
         Some(
-            frus_core::Semantics::new(frus_core::Role::Slider)
-                .value(format!("{}%–{}%", pct(self.low), pct(self.high))),
+            frus_core::Semantics::new(frus_core::Role::Slider).value(format!(
+                "{}%–{}%",
+                pct(self.low),
+                pct(self.high)
+            )),
         )
     }
 
@@ -514,26 +544,49 @@ mod tests {
         assert_eq!(t.len(), 2, "deux poignées glissables");
         // Poignée basse : +22 px = +0.1 → bas 0.3 ; haute inchangée.
         let (lo, hi) = range_of(t[0].on_drag_delta(22.0));
-        assert!((lo - 0.3).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4, "bas bouge ({lo}, {hi})");
+        assert!(
+            (lo - 0.3).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
+            "bas bouge ({lo}, {hi})"
+        );
         // Poignée haute : −22 px = −0.1 → haut 0.7 ; bas inchangé.
         let (lo, hi) = range_of(t[1].on_drag_delta(-22.0));
-        assert!((lo - 0.2).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4, "haut bouge ({lo}, {hi})");
+        assert!(
+            (lo - 0.2).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
+            "haut bouge ({lo}, {hi})"
+        );
         // Collant : la poignée basse poussée à fond s'arrête au haut (0.8), sans le pousser.
         let (lo, hi) = range_of(t[0].on_drag_delta(10_000.0));
-        assert!((lo - 0.8).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4, "collant au haut ({lo}, {hi})");
+        assert!(
+            (lo - 0.8).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
+            "collant au haut ({lo}, {hi})"
+        );
         // Delta nul : aucun message.
         assert_eq!(t[0].on_drag_delta(0.0), None);
     }
 
     #[test]
     fn arrow_keys_move_focused_thumb_by_a_step() {
-        let rs = RangeSlider::new(0.4, 0.6).divisions(10).on_change(Msg::Range); // pas 0.1
+        let rs = RangeSlider::new(0.4, 0.6)
+            .divisions(10)
+            .on_change(Msg::Range); // pas 0.1
         let t = thumbs(&rs);
         // Poignée basse focalisée : flèche droite +0.1 → 0.5 ; flèche gauche −0.1 → 0.3.
-        let (lo, hi) = range_of_key(t[0].on_key(&Key::Right { shift: false, word: false }));
-        assert!((lo - 0.5).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4, "→ ({lo}, {hi})");
-        let (lo, hi) = range_of_key(t[0].on_key(&Key::Left { shift: false, word: false }));
-        assert!((lo - 0.3).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4, "← ({lo}, {hi})");
+        let (lo, hi) = range_of_key(t[0].on_key(&Key::Right {
+            shift: false,
+            word: false,
+        }));
+        assert!(
+            (lo - 0.5).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4,
+            "→ ({lo}, {hi})"
+        );
+        let (lo, hi) = range_of_key(t[0].on_key(&Key::Left {
+            shift: false,
+            word: false,
+        }));
+        assert!(
+            (lo - 0.3).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4,
+            "← ({lo}, {hi})"
+        );
         // Les poignées sont focusables (atteignables au clavier).
         assert!(t[0].focusable() && t[1].focusable());
     }
@@ -544,31 +597,54 @@ mod tests {
         // La piste (le slider) est glissable et vise la poignée la plus proche.
         assert!(Widget::<Msg>::draggable(&rs), "la piste répond au clic");
         let (lo, hi) = range_of(Widget::on_drag(&rs, 0.25));
-        assert!((lo - 0.25).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4, "près du bas ({lo}, {hi})");
+        assert!(
+            (lo - 0.25).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
+            "près du bas ({lo}, {hi})"
+        );
         let (lo, hi) = range_of(Widget::on_drag(&rs, 0.9));
-        assert!((lo - 0.2).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4, "près du haut ({lo}, {hi})");
+        assert!(
+            (lo - 0.2).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
+            "près du haut ({lo}, {hi})"
+        );
     }
 
     #[test]
     fn home_end_snap_thumb_to_bounds() {
         let rs = RangeSlider::new(0.3, 0.7).on_change(Msg::Range);
         let t = thumbs(&rs);
-        let home = Key::Home { shift: false, doc: false };
-        let end = Key::End { shift: false, doc: false };
+        let home = Key::Home {
+            shift: false,
+            doc: false,
+        };
+        let end = Key::End {
+            shift: false,
+            doc: false,
+        };
         // Poignée basse : Début → 0 ; Fin → butée haute (0.7).
         let (lo, hi) = range_of_key(t[0].on_key(&home));
-        assert!((lo - 0.0).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4, "bas Début ({lo}, {hi})");
+        assert!(
+            (lo - 0.0).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
+            "bas Début ({lo}, {hi})"
+        );
         let (lo, hi) = range_of_key(t[0].on_key(&end));
-        assert!((lo - 0.7).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4, "bas Fin ({lo}, {hi})");
+        assert!(
+            (lo - 0.7).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
+            "bas Fin ({lo}, {hi})"
+        );
         // Poignée haute : Fin → 1.
         let (lo, hi) = range_of_key(t[1].on_key(&end));
-        assert!((lo - 0.3).abs() < 1e-4 && (hi - 1.0).abs() < 1e-4, "haut Fin ({lo}, {hi})");
+        assert!(
+            (lo - 0.3).abs() < 1e-4 && (hi - 1.0).abs() < 1e-4,
+            "haut Fin ({lo}, {hi})"
+        );
     }
 
     #[test]
     fn value_label_reserves_height() {
         let plain = RangeSlider::new(0.2, 0.8).on_change(Msg::Range);
-        let tipped = RangeSlider::new(0.2, 0.8).on_change(Msg::Range).value_label(|v| format!("{}", v));
+        let tipped = RangeSlider::new(0.2, 0.8)
+            .on_change(Msg::Range)
+            .value_label(|v| format!("{}", v));
         let h = |rs: &RangeSlider<Msg>| match Widget::<Msg>::style(rs).height {
             Dimension::Length(v) => v,
             _ => 0.0,
@@ -579,9 +655,15 @@ mod tests {
     #[test]
     fn divisions_snap_to_steps() {
         // 10 paliers, piste 200 px : +25 px = +0.125 depuis 0.0 → accroché à 0.1.
-        let rs = RangeSlider::new(0.0, 1.0).width(200.0).divisions(10).on_change(Msg::Range);
+        let rs = RangeSlider::new(0.0, 1.0)
+            .width(200.0)
+            .divisions(10)
+            .on_change(Msg::Range);
         let (lo, _) = range_of(thumbs(&rs)[0].on_drag_delta(25.0));
-        assert!((lo - 0.1).abs() < 1e-4, "accroché au palier 0.1, obtenu {lo}");
+        assert!(
+            (lo - 0.1).abs() < 1e-4,
+            "accroché au palier 0.1, obtenu {lo}"
+        );
     }
 
     #[test]
@@ -590,6 +672,9 @@ mod tests {
         let rs = RangeSlider::new(0.9, 0.1).on_change(Msg::Range);
         // Depuis (0.1, 0.9), la poignée basse +0.05 → 0.15.
         let (lo, hi) = range_of(thumbs(&rs)[0].on_drag_delta(0.05 * 220.0));
-        assert!((lo - 0.15).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4, "réordonné ({lo}, {hi})");
+        assert!(
+            (lo - 0.15).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
+            "réordonné ({lo}, {hi})"
+        );
     }
 }

@@ -81,7 +81,6 @@ impl Alert {
             AlertKind::Error => "×",
         }
     }
-
 }
 
 impl<Msg> Widget<Msg> for Alert {
@@ -137,7 +136,13 @@ impl<Msg> Widget<Msg> for Alert {
         let o = status.opacity;
         let accent = self.accent(theme);
         // Fond teinté + bordure discrète.
-        scene.draw_rect(bounds, accent.fade(0.12 * o), theme.radius, 1.0, accent.fade(0.4 * o));
+        scene.draw_rect(
+            bounds,
+            accent.fade(0.12 * o),
+            theme.radius,
+            1.0,
+            accent.fade(0.4 * o),
+        );
         // Barre d'accent à gauche.
         scene.draw_rect(
             Rect::new(bounds.x, bounds.y, ACCENT, bounds.height),
@@ -167,7 +172,10 @@ impl<Msg> Widget<Msg> for Alert {
                     theme.on_surface.fade(o),
                 );
                 scene.text_wrapped(
-                    Point::new(text_x, bounds.y + PAD + frus_text::line_height(TITLE_SIZE) + 4.0),
+                    Point::new(
+                        text_x,
+                        bounds.y + PAD + frus_text::line_height(TITLE_SIZE) + 4.0,
+                    ),
                     self.text.clone(),
                     &body_style,
                     theme.muted.fade(o),
@@ -200,7 +208,13 @@ mod tests {
     fn paints_accent_and_text() {
         let alert = Alert::new("Attention !").title("Alerte").warning();
         let mut scene = Scene::new();
-        Widget::<()>::paint(&alert, Rect::new(0.0, 0.0, 240.0, 60.0), Status::default(), &Theme::default(), &mut scene);
+        Widget::<()>::paint(
+            &alert,
+            Rect::new(0.0, 0.0, 240.0, 60.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
         let warn = Color::rgb8(230, 170, 40);
         // Barre d'accent (couleur pleine de la variante) présente.
         assert!(scene
@@ -208,18 +222,22 @@ mod tests {
             .iter()
             .any(|p| matches!(p, Primitive::Rect { color, .. } if *color == warn)));
         // Titre + texte peints.
-        assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "Alerte")));
-        assert!(scene.primitives().iter().any(|p| matches!(p, Primitive::Text { text, .. } if text == "Attention !")));
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Alerte")));
+        assert!(scene
+            .primitives()
+            .iter()
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Attention !")));
     }
 
     /// Le message se **replie** à la largeur offerte : plus étroit → plus haut
     /// (et jamais plus large que l'offre) — fini l'encadré qui déborde.
     #[test]
     fn message_wraps_to_the_offered_width() {
-        let alert = Alert::new(
-            "Press Enter to add a task; swipe from the left edge to go back.",
-        )
-        .title("Tip");
+        let alert = Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
+            .title("Tip");
         let measure = Widget::<()>::measure(&alert).expect("closure de mesure");
         let free = measure(None, None);
         let narrow = measure(Some(280.0), None);

@@ -319,7 +319,11 @@ impl<Msg: Clone> Ui<Msg> {
         // est traité comme « aucun » : Tab entre dans le piège.
         match current.and_then(|c| pool.iter().position(|(id, _)| *id == c)) {
             Some(i) => {
-                let j = if forward { (i + 1) % n } else { (i + n - 1) % n };
+                let j = if forward {
+                    (i + 1) % n
+                } else {
+                    (i + n - 1) % n
+                };
                 Some(pool[j].0)
             }
             None => Some(pool[if forward { 0 } else { n - 1 }].0),
@@ -347,7 +351,10 @@ impl<Msg: Clone> Ui<Msg> {
             // ne trouve pas leurs bornes, et tout l'aperçu de glisser **vertical** (fantôme, ligne
             // d'insertion, réagencement) comme le routage *insert-after* restent lettre morte.
             .or_else(|| {
-                self.reorderables.iter().find(|(rid, _)| *rid == id).map(|(_, rect)| *rect)
+                self.reorderables
+                    .iter()
+                    .find(|(rid, _)| *rid == id)
+                    .map(|(_, rect)| *rect)
             })
     }
 
@@ -396,7 +403,11 @@ impl<Msg: Clone> Ui<Msg> {
     /// Widget **réordonnable** le plus au-dessus sous `point` : son id. Base du glisser-déposer de
     /// réordonnancement (source à l'appui, cible au dépôt) — indépendant de la cliquabilité.
     pub fn reorderable_at(&self, point: Point) -> Option<WidgetId> {
-        self.reorderables.iter().rev().find(|(_, rect)| rect.contains(point)).map(|(id, _)| *id)
+        self.reorderables
+            .iter()
+            .rev()
+            .find(|(_, rect)| rect.contains(point))
+            .map(|(id, _)| *id)
     }
 
     /// Fenêtre **interactive** (`InteractiveViewer`) la plus au-dessus sous `point` :
@@ -511,7 +522,12 @@ pub(crate) fn build_layout<Msg>(
             .iter()
             .enumerate()
             .map(|(i, child)| {
-                build_layout(child.as_ref(), child_id(id, i, child.as_ref()), runtime, layout)
+                build_layout(
+                    child.as_ref(),
+                    child_id(id, i, child.as_ref()),
+                    runtime,
+                    layout,
+                )
             })
             .collect();
         layout.container(effective_style(widget, id, runtime), &child_ids)
@@ -548,7 +564,15 @@ struct Builder<'a, Msg> {
     /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
     /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
     /// voile qui se fond) ; elle vaut `1.0` pour les overlays non animés.
-    overlays: Vec<(&'a dyn Widget<Msg>, WidgetId, Rect, Placement, Option<Msg>, f32, bool)>,
+    overlays: Vec<(
+        &'a dyn Widget<Msg>,
+        WidgetId,
+        Rect,
+        Placement,
+        Option<Msg>,
+        f32,
+        bool,
+    )>,
     /// Un widget demande une animation continue (pilotée par le temps).
     wants_animation: bool,
     available: Size,
@@ -661,7 +685,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// cachable** — si le sous-arbre a poussé un overlay ou touché le scope de
     /// focus modal (état global non capturable ici).
     fn capture_since(&self, snap: &Snapshot) -> Option<BoundaryData<Msg>> {
-        if self.overlays.len() != snap.overlays || self.focus_scope_start != snap.focus_scope_start {
+        if self.overlays.len() != snap.overlays || self.focus_scope_start != snap.focus_scope_start
+        {
             return None;
         }
         Some(BoundaryData {
@@ -874,7 +899,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let hit = {
                     let mut pc = self.runtime.paint_cache.borrow_mut();
                     pc.get(id, fp).and_then(|(rc, any)| {
-                        any.downcast_ref::<BoundaryData<Msg>>().map(|d| (rc, d.clone()))
+                        any.downcast_ref::<BoundaryData<Msg>>()
+                            .map(|d| (rc, d.clone()))
                     })
                 };
                 if let Some((rc, data)) = hit {
@@ -970,7 +996,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 });
             }
             if let Some(msg) = widget.on_long_press() {
-                self.long_presses.push(Hit { id, rect: visible, msg, xform: None });
+                self.long_presses.push(Hit {
+                    id,
+                    rect: visible,
+                    msg,
+                    xform: None,
+                });
             }
             if widget.focusable() {
                 self.focusables.push((id, visible));
@@ -989,12 +1020,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // (molette/inertie via la machinerie générique ; le shell suit le caret)
             // + une barre de défilement glissable (souris et tactile).
             if let Some(vp) = widget.text_viewport(draw_rect) {
-                if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0) {
+                if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0)
+                {
                     let max_y = (content_h - visible_h).max(0.0);
                     if max_y > 0.0 {
                         self.scrollables.push((id, vp, 0.0, max_y));
-                        let offset_y =
-                            self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0).clamp(0.0, max_y);
+                        let offset_y = self
+                            .runtime
+                            .scroll
+                            .get(&id)
+                            .map(|s| s.1)
+                            .unwrap_or(0.0)
+                            .clamp(0.0, max_y);
                         self.add_scrollbar(id, vp, true, offset_y, max_y);
                     }
                 }
@@ -1011,24 +1048,51 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let dir = if forward { 1.0 } else { -1.0 };
                 let raw = [-progress * w * dir, (1.0 - progress) * w * dir];
                 let off = [
-                    if raw[0] < 0.0 { raw[0] * NAV_PARALLAX } else { raw[0] },
-                    if raw[1] < 0.0 { raw[1] * NAV_PARALLAX } else { raw[1] },
+                    if raw[0] < 0.0 {
+                        raw[0] * NAV_PARALLAX
+                    } else {
+                        raw[0]
+                    },
+                    if raw[1] < 0.0 {
+                        raw[1] * NAV_PARALLAX
+                    } else {
+                        raw[1]
+                    },
                 ];
                 // Ordre de profondeur : le plus décalé à gauche (arrière) d'abord.
                 let (back, front) = if off[0] <= off[1] { (0, 1) } else { (1, 0) };
-                self.render_screen(children[back].as_ref(), child_id(id, back, children[back].as_ref()), bounds, off[back], clip);
+                self.render_screen(
+                    children[back].as_ref(),
+                    child_id(id, back, children[back].as_ref()),
+                    bounds,
+                    off[back],
+                    clip,
+                );
                 // Assombrit l'écran arrière proportionnellement à son recouvrement.
                 let coverage = (off[back].abs() / (w * NAV_PARALLAX)).min(1.0);
                 if coverage > 0.0 {
-                    let scrim = Rect::new(bounds.x + off[back], bounds.y, bounds.width, bounds.height);
+                    let scrim =
+                        Rect::new(bounds.x + off[back], bounds.y, bounds.width, bounds.height);
                     self.scene.set_owner(0);
                     self.scene.set_clip(clip);
                     self.scene
                         .fill_rect(scrim, self.theme.scheme.scrim.with_alpha(0.22 * coverage));
                 }
-                self.render_screen(children[front].as_ref(), child_id(id, front, children[front].as_ref()), bounds, off[front], clip);
+                self.render_screen(
+                    children[front].as_ref(),
+                    child_id(id, front, children[front].as_ref()),
+                    bounds,
+                    off[front],
+                    clip,
+                );
             } else if let Some(screen) = children.first() {
-                self.render_screen(screen.as_ref(), child_id(id, 0, screen.as_ref()), bounds, 0.0, clip);
+                self.render_screen(
+                    screen.as_ref(),
+                    child_id(id, 0, screen.as_ref()),
+                    bounds,
+                    0.0,
+                    clip,
+                );
             }
         } else if widget.interactive().is_some() {
             // Fenêtre **interactive** (`InteractiveViewer`) : l'enfant remplit la
@@ -1046,8 +1110,22 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     content,
                     Constraints::definite(Size::new(viewport.width, viewport.height)),
                 );
-                let matrix = self.runtime.interactive.get(&id).copied().unwrap_or_default().matrix();
-                self.emit_transformed_child(content, cid, (viewport.x, viewport.y), content_clip, &content_rects, matrix, id);
+                let matrix = self
+                    .runtime
+                    .interactive
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_default()
+                    .matrix();
+                self.emit_transformed_child(
+                    content,
+                    cid,
+                    (viewport.x, viewport.y),
+                    content_clip,
+                    &content_rects,
+                    matrix,
+                    id,
+                );
             }
         } else if let Some(q) = widget.rotated_quarter_turns() {
             // `RotatedBox` : l'enfant, mesuré à sa taille **naturelle**, est centré dans
@@ -1061,14 +1139,27 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let cid = child_id(id, 0, child);
                 let child_rects =
                     self.cached_rects(cid, child, Constraints::scroll(0.0, 0.0, true, true));
-                let nat = child_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
-                let center =
-                    Point::new(box_rect.x + box_rect.width / 2.0, box_rect.y + box_rect.height / 2.0);
+                let nat = child_rects
+                    .first()
+                    .copied()
+                    .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                let center = Point::new(
+                    box_rect.x + box_rect.width / 2.0,
+                    box_rect.y + box_rect.height / 2.0,
+                );
                 let translation = (center.x - nat.width / 2.0, center.y - nat.height / 2.0);
                 let angle = q.rem_euclid(4) as f32 * std::f32::consts::FRAC_PI_2;
                 let angle = if self.rtl { -angle } else { angle };
                 let matrix = Affine::rotation(angle).about(center);
-                self.emit_transformed_child(child, cid, translation, clip, &child_rects, matrix, id);
+                self.emit_transformed_child(
+                    child,
+                    cid,
+                    translation,
+                    clip,
+                    &child_rects,
+                    matrix,
+                    id,
+                );
             }
         } else if let Some(fit) = widget.fitted() {
             // `FittedBox` : l'enfant, mesuré à sa taille **naturelle**, est mis à
@@ -1081,16 +1172,29 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let cid = child_id(id, 0, child);
                 let child_rects =
                     self.cached_rects(cid, child, Constraints::scroll(0.0, 0.0, true, true));
-                let nat = child_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                let nat = child_rects
+                    .first()
+                    .copied()
+                    .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
                 let (sx, sy) = fit.scale(
                     Size::new(nat.width, nat.height),
                     Size::new(box_rect.width, box_rect.height),
                 );
-                let center =
-                    Point::new(box_rect.x + box_rect.width / 2.0, box_rect.y + box_rect.height / 2.0);
+                let center = Point::new(
+                    box_rect.x + box_rect.width / 2.0,
+                    box_rect.y + box_rect.height / 2.0,
+                );
                 let translation = (center.x - nat.width / 2.0, center.y - nat.height / 2.0);
                 let matrix = Affine::scale(sx, sy).about(center);
-                self.emit_transformed_child(child, cid, translation, content_clip, &child_rects, matrix, id);
+                self.emit_transformed_child(
+                    child,
+                    cid,
+                    translation,
+                    content_clip,
+                    &child_rects,
+                    matrix,
+                    id,
+                );
             }
         } else if let Some(content) = widget.scroll_content() {
             let axis = widget.scroll_axis();
@@ -1101,10 +1205,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let content_rects = self.cached_rects(
                 child_id(id, 0, content),
                 content,
-                Constraints::scroll(viewport.width, viewport.height, axis.free_x(), axis.free_y()),
+                Constraints::scroll(
+                    viewport.width,
+                    viewport.height,
+                    axis.free_x(),
+                    axis.free_y(),
+                ),
             );
 
-            let content_size = content_rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            let content_size = content_rects
+                .first()
+                .copied()
+                .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
             let max_x = (content_size.width - viewport.width).max(0.0);
             let max_y = (content_size.height - viewport.height).max(0.0);
             self.scrollables.push((id, viewport, max_x, max_y));
@@ -1410,10 +1522,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let visible = draw_rect.intersect(clip);
         if visible.width > 0.0 && visible.height > 0.0 {
             if let Some(msg) = widget.on_click() {
-                self.hits.push(Hit { id, rect: visible, msg, xform: None });
+                self.hits.push(Hit {
+                    id,
+                    rect: visible,
+                    msg,
+                    xform: None,
+                });
             }
             if let Some(msg) = widget.on_long_press() {
-                self.long_presses.push(Hit { id, rect: visible, msg, xform: None });
+                self.long_presses.push(Hit {
+                    id,
+                    rect: visible,
+                    msg,
+                    xform: None,
+                });
             }
             if widget.focusable() {
                 self.focusables.push((id, visible));
@@ -1479,7 +1601,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// d'autres overlays (portails imbriqués).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement, dismiss, progress, traps)) = self.overlays.pop() {
+        while let Some((content, oid, anchor, placement, dismiss, progress, traps)) =
+            self.overlays.pop()
+        {
             // Les tiroirs glissent selon une **courbe en ressort** (arrivée douce),
             // pas linéairement ; les autres overlays gardent leur progression brute.
             let progress = if matches!(
@@ -1505,7 +1629,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 content,
                 Constraints::scroll(self.available.width, self.available.height, free_x, free_y),
             );
-            let size = rects.first().copied().unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+            let size = rects
+                .first()
+                .copied()
+                .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
 
             // Glissements d'un tiroir depuis le bord gauche / droit.
             let from_left = -(1.0 - progress) * size.width;
@@ -1577,7 +1704,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // plus au-dessus).
             if let Some(msg) = dismiss {
                 self.dismisses.push(msg.clone());
-                self.hits.push(Hit { id: oid, rect: window, msg, xform: None });
+                self.hits.push(Hit {
+                    id: oid,
+                    rect: window,
+                    msg,
+                    xform: None,
+                });
             }
 
             // Overlay **modal** (voilé) ou **ancré piégeant** (menu) : ses focusables forment
@@ -1601,7 +1733,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 impl<Msg: Clone> Builder<'_, Msg> {
     /// Dessine une barre de défilement (piste + poignée) et l'enregistre pour
     /// le hit-test au glissement.
-    fn add_scrollbar(&mut self, id: WidgetId, viewport: Rect, vertical: bool, offset: f32, max: f32) {
+    fn add_scrollbar(
+        &mut self,
+        id: WidgetId,
+        viewport: Rect,
+        vertical: bool,
+        offset: f32,
+        max: f32,
+    ) {
         let (track_start, track_len, content_len) = if vertical {
             (viewport.y, viewport.height, viewport.height + max)
         } else {
@@ -1611,7 +1750,12 @@ impl<Msg: Clone> Builder<'_, Msg> {
             .max(MIN_THUMB)
             .min(track_len);
         let travel = track_len - thumb_len;
-        let thumb_pos = track_start + if max > 0.0 { offset / max * travel } else { 0.0 };
+        let thumb_pos = track_start
+            + if max > 0.0 {
+                offset / max * travel
+            } else {
+                0.0
+            };
 
         let (track, thumb) = if vertical {
             let x = viewport.x + viewport.width - BAR_SIZE;
@@ -1631,8 +1775,13 @@ impl<Msg: Clone> Builder<'_, Msg> {
         let thumb_color = self.theme.muted.fade(0.55);
         self.scene
             .draw_rect(track, track_color, BAR_SIZE * 0.5, 0.0, Color::TRANSPARENT);
-        self.scene
-            .draw_rect(thumb, thumb_color, (BAR_SIZE - 2.0) * 0.5, 0.0, Color::TRANSPARENT);
+        self.scene.draw_rect(
+            thumb,
+            thumb_color,
+            (BAR_SIZE - 2.0) * 0.5,
+            0.0,
+            Color::TRANSPARENT,
+        );
         self.scrollbars.push(Scrollbar {
             id,
             vertical,
@@ -1676,10 +1825,12 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     theme: &'a Theme,
     inspect: bool,
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
-    let mut rects = runtime
-        .layout_cache
-        .borrow_mut()
-        .rects(WidgetId::ROOT, root, runtime, Constraints::definite(available));
+    let mut rects = runtime.layout_cache.borrow_mut().rects(
+        WidgetId::ROOT,
+        root,
+        runtime,
+        Constraints::definite(available),
+    );
 
     let mut builder = Builder {
         scene: Scene::new(),
@@ -1706,7 +1857,14 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     // Racine mirroitée en RTL (comme toute racine de layout).
     builder.mirror(&mut rects);
     let mut index = 0;
-    builder.walk(root, WidgetId::ROOT, (0.0, 0.0), Rect::UNBOUNDED, &rects, &mut index);
+    builder.walk(
+        root,
+        WidgetId::ROOT,
+        (0.0, 0.0),
+        Rect::UNBOUNDED,
+        &rects,
+        &mut index,
+    );
 
     // Overlays (menus flottants, modales, tooltips) par-dessus tout le reste.
     // (Leur walk repart de la profondeur 0 : des racines pour l'inspecteur.)
@@ -1809,7 +1967,12 @@ pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widg
             return true;
         }
         for (index, child) in widget.children().iter().enumerate() {
-            if walk(child.as_ref(), child_id(id, index, child.as_ref()), target, path) {
+            if walk(
+                child.as_ref(),
+                child_id(id, index, child.as_ref()),
+                target,
+                path,
+            ) {
                 return true;
             }
         }
@@ -1823,10 +1986,7 @@ pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widg
     path
 }
 
-pub fn find_widget<Msg>(
-    root: &dyn Widget<Msg>,
-    target: WidgetId,
-) -> Option<&dyn Widget<Msg>> {
+pub fn find_widget<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Option<&dyn Widget<Msg>> {
     fn walk<Msg>(
         widget: &dyn Widget<Msg>,
         id: WidgetId,
@@ -1881,7 +2041,10 @@ mod tests {
         assert_eq!(button.2.label.as_deref(), Some("Valider"));
         assert!(button.2.clickable);
         // La case cochée reflète son état.
-        let check = sem.iter().find(|(_, _, s)| s.role == Role::CheckBox).unwrap();
+        let check = sem
+            .iter()
+            .find(|(_, _, s)| s.role == Role::CheckBox)
+            .unwrap();
         assert_eq!(check.2.toggled, crate::Toggled::True);
     }
 
@@ -1910,7 +2073,12 @@ mod tests {
     fn rtl_mirrors_row_horizontally() {
         let size = Size::new(400.0, 100.0);
         // A = bouton fixe 120 px (à gauche en LTR), B = reste flexible.
-        let ltr = build_ui(&clickable_sample(), size, &Runtime::default(), &Theme::default());
+        let ltr = build_ui(
+            &clickable_sample(),
+            size,
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let rtl = build_ui(
             &clickable_sample(),
             size,
@@ -1965,7 +2133,12 @@ mod tests {
 
         // MÊME structure/styles, contenu différent, MÊME runtime (cache chaud) :
         // la clé de mesure doit invalider le cache — sinon vieux rectangles.
-        let ui2 = build_ui(&tree("court"), Size::new(120.0, 600.0), &rt, &Theme::default());
+        let ui2 = build_ui(
+            &tree("court"),
+            Size::new(120.0, 600.0),
+            &rt,
+            &Theme::default(),
+        );
         let y_short = follower_y(&ui2);
         assert!(
             y_short < y_long,
@@ -1990,7 +2163,12 @@ mod tests {
         assert_eq!(misses2, 0, "2e frame : aucun recalcul");
 
         // Frame 3 : fenêtre redimensionnée → contraintes changées → recalcul.
-        let _ = build_ui(&clickable_sample(), Size::new(500.0, 100.0), &rt, &Theme::default());
+        let _ = build_ui(
+            &clickable_sample(),
+            Size::new(500.0, 100.0),
+            &rt,
+            &Theme::default(),
+        );
         let (hits3, misses3) = rt.layout_cache.borrow().last_frame_stats();
         assert_eq!((hits3, misses3), (0, 1), "redimensionnement → recalcul");
     }
@@ -2010,7 +2188,12 @@ mod tests {
                     .overlay(dialog, Placement::Center)
                     .dismiss(Msg::A),
             );
-        let ui = build_ui(&tree, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tree,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         // Tab entre dans le piège (premier focusable de la modale), et y boucle.
         let first = ui.focus_next(None, true).expect("premier du scope");
@@ -2018,22 +2201,36 @@ mod tests {
         let second = ui.focus_next(Some(first), true).expect("suivant");
         assert_eq!(ui.msg_for(second), Some(Msg::D));
         let wrapped = ui.focus_next(Some(second), true).expect("boucle");
-        assert_eq!(ui.msg_for(wrapped), Some(Msg::C), "Tab boucle dans la modale");
+        assert_eq!(
+            ui.msg_for(wrapped),
+            Some(Msg::C),
+            "Tab boucle dans la modale"
+        );
 
         // Les flèches restent dans le scope : rien au-dessus du dialogue.
         assert_eq!(ui.focus_directional(first, FocusDirection::Up), None);
-        let right = ui.focus_directional(first, FocusDirection::Right).expect("droite");
+        let right = ui
+            .focus_directional(first, FocusDirection::Right)
+            .expect("droite");
         assert_eq!(ui.msg_for(right), Some(Msg::D));
 
         // Le focus au pointeur ignore le fond (le bouton bg1 est en haut-gauche).
-        assert_eq!(ui.focus_hit(Point::new(10.0, 10.0)), None, "fond hors scope");
+        assert_eq!(
+            ui.focus_hit(Point::new(10.0, 10.0)),
+            None,
+            "fond hors scope"
+        );
 
         // Sans modale : pas de piège, Tab commence au fond.
         let open_less: Flex<Msg> = Flex::column()
             .child(Button::new("bg1").on_press(Msg::A))
             .child(Button::new("bg2").on_press(Msg::B));
-        let ui2 =
-            build_ui(&open_less, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let ui2 = build_ui(
+            &open_less,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let f = ui2.focus_next(None, true).expect("premier");
         assert_eq!(ui2.msg_for(f), Some(Msg::A));
     }
@@ -2045,8 +2242,15 @@ mod tests {
         let menu = Menu::new(Button::new("open").on_press(Msg::A), true, Msg::D)
             .item("one", Msg::B)
             .item("two", Msg::C);
-        let tree: Flex<Msg> = Flex::column().child(Button::new("bg").on_press(Msg::A)).child(menu);
-        let ui = build_ui(&tree, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let tree: Flex<Msg> = Flex::column()
+            .child(Button::new("bg").on_press(Msg::A))
+            .child(menu);
+        let ui = build_ui(
+            &tree,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         // Tab entre dans les items du menu et y **boucle** (fond et ancre hors scope).
         let first = ui.focus_next(None, true).expect("premier du scope");
@@ -2054,54 +2258,101 @@ mod tests {
         let second = ui.focus_next(Some(first), true).expect("suivant");
         assert_eq!(ui.msg_for(second), Some(Msg::C));
         let wrapped = ui.focus_next(Some(second), true).expect("boucle");
-        assert_eq!(ui.msg_for(wrapped), Some(Msg::B), "Tab boucle dans le menu ouvert");
+        assert_eq!(
+            ui.msg_for(wrapped),
+            Some(Msg::B),
+            "Tab boucle dans le menu ouvert"
+        );
         // Le fond (haut-gauche) est hors du scope pendant que le menu est ouvert.
-        assert_eq!(ui.focus_hit(Point::new(10.0, 10.0)), None, "fond hors scope");
+        assert_eq!(
+            ui.focus_hit(Point::new(10.0, 10.0)),
+            None,
+            "fond hors scope"
+        );
 
         // Menu **fermé** : aucun piège, Tab commence au fond.
-        let closed: Flex<Msg> =
-            Flex::column().child(Button::new("bg").on_press(Msg::A)).child(Menu::new(
+        let closed: Flex<Msg> = Flex::column()
+            .child(Button::new("bg").on_press(Msg::A))
+            .child(Menu::new(
                 Button::new("open").on_press(Msg::B),
                 false,
                 Msg::D,
             ));
-        let ui2 = build_ui(&closed, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let ui2 = build_ui(
+            &closed,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let f = ui2.focus_next(None, true).expect("premier");
-        assert_eq!(ui2.msg_for(f), Some(Msg::A), "sans menu ouvert, pas de piège");
+        assert_eq!(
+            ui2.msg_for(f),
+            Some(Msg::A),
+            "sans menu ouvert, pas de piège"
+        );
     }
 
     #[test]
     fn escape_infrastructure_finds_path_and_topmost_dismiss() {
         use crate::portal::{Placement, Portal};
         // Un portail ouvert (modale avec fermeture) autour d'un ancrage cliquable.
-        let anchor = Container::<Msg>::new().width(50.0).height(30.0).on_click(Msg::A);
-        let content = Container::<Msg>::new().width(80.0).height(40.0).on_click(Msg::B);
+        let anchor = Container::<Msg>::new()
+            .width(50.0)
+            .height(30.0)
+            .on_click(Msg::A);
+        let content = Container::<Msg>::new()
+            .width(80.0)
+            .height(40.0)
+            .on_click(Msg::B);
         let portal = Portal::new(anchor)
             .overlay(content, Placement::Center)
             .dismiss(Msg::C);
         let tree: Flex<Msg> = Flex::column().child(portal);
 
-        let ui = build_ui(&tree, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tree,
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // La fermeture du dessus est celle du portail.
         assert_eq!(ui.top_dismiss(), Some(Msg::C));
 
         // Focus « dans le dialogue » : le chemin racine→contenu passe par le
         // portail, qui consomme Échap en montée. (Le contenu Center 80×40 est
         // centré dans 300×200 → son centre est à (150, 100).)
-        let inner = ui.hit(Point::new(150.0, 100.0)).expect("contenu de la modale");
+        let inner = ui
+            .hit(Point::new(150.0, 100.0))
+            .expect("contenu de la modale");
         let path = find_path(&tree, inner);
         assert!(path.len() >= 3, "racine, portail, contenu : {}", path.len());
-        assert_eq!(path.last().unwrap().on_click(), Some(Msg::B), "la cible ferme le chemin");
-        let consumed = path.iter().rev().find_map(|w| match w.on_key(&crate::Key::Escape) {
-            crate::KeyResponse::Handled(msg) => Some(msg),
-            _ => None,
-        });
-        assert_eq!(consumed, Some(Some(Msg::C)), "le portail consomme Échap en montée");
+        assert_eq!(
+            path.last().unwrap().on_click(),
+            Some(Msg::B),
+            "la cible ferme le chemin"
+        );
+        let consumed = path
+            .iter()
+            .rev()
+            .find_map(|w| match w.on_key(&crate::Key::Escape) {
+                crate::KeyResponse::Handled(msg) => Some(msg),
+                _ => None,
+            });
+        assert_eq!(
+            consumed,
+            Some(Some(Msg::C)),
+            "le portail consomme Échap en montée"
+        );
 
         // Chemin introuvable → vide ; pas d'overlay → pas de fermeture.
         assert!(find_path(&tree, WidgetId::ROOT.child(99)).is_empty());
         let closed: Flex<Msg> = Flex::column().child(Container::new().on_click(Msg::A));
-        let ui2 = build_ui(&closed, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui2 = build_ui(
+            &closed,
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert_eq!(ui2.top_dismiss(), None);
     }
 
@@ -2114,9 +2365,17 @@ mod tests {
             .height(100.0)
             .on_long_press(Msg::A)
             .child(
-                Container::new().width(50.0).height(50.0).on_long_press(Msg::B),
+                Container::new()
+                    .width(50.0)
+                    .height(50.0)
+                    .on_long_press(Msg::B),
             );
-        let ui = build_ui(&tree, Size::new(200.0, 100.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tree,
+            Size::new(200.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert_eq!(ui.long_press_at(Point::new(25.0, 25.0)), Some(Msg::B));
         assert_eq!(ui.long_press_at(Point::new(150.0, 80.0)), Some(Msg::A));
         assert_eq!(ui.long_press_at(Point::new(500.0, 500.0)), None);
@@ -2125,7 +2384,12 @@ mod tests {
     #[test]
     fn hit_and_msg_for_route_correctly() {
         let rt = Runtime::default();
-        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt, &Theme::default());
+        let ui = build_ui(
+            &clickable_sample(),
+            Size::new(400.0, 100.0),
+            &rt,
+            &Theme::default(),
+        );
         let id_a = ui.hit(Point::new(50.0, 50.0)).expect("A");
         let id_b = ui.hit(Point::new(300.0, 50.0)).expect("B");
         assert_ne!(id_a, id_b);
@@ -2137,7 +2401,12 @@ mod tests {
     #[test]
     fn hover_progress_interpolates_color() {
         let rt = Runtime::default();
-        let base = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt, &Theme::default());
+        let base = build_ui(
+            &clickable_sample(),
+            Size::new(400.0, 100.0),
+            &rt,
+            &Theme::default(),
+        );
         let id_a = base.hit(Point::new(50.0, 50.0)).unwrap();
 
         // Sans progression : couleur de base (rouge).
@@ -2150,8 +2419,19 @@ mod tests {
         // Progression pleine : couleur de survol (vert).
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id_a);
-        rt.anims.insert(id_a, crate::Anim { hover: 1.0, ..Default::default() });
-        let ui = build_ui(&clickable_sample(), Size::new(400.0, 100.0), &rt, &Theme::default());
+        rt.anims.insert(
+            id_a,
+            crate::Anim {
+                hover: 1.0,
+                ..Default::default()
+            },
+        );
+        let ui = build_ui(
+            &clickable_sample(),
+            Size::new(400.0, 100.0),
+            &rt,
+            &Theme::default(),
+        );
         if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));
         } else {
@@ -2164,7 +2444,10 @@ mod tests {
         // Un champ multi-lignes dont le contenu dépasse `rows` s'enregistre comme
         // zone défilable (avec `max_y > 0`) — c'est ce que la molette et la barre
         // ciblent. Un champ court, lui, ne s'enregistre pas.
-        let tall = TextInput::<Msg>::new("a\nb\nc\nd\ne\nf").on_input(Msg::Edited).rows(2).width(200.0);
+        let tall = TextInput::<Msg>::new("a\nb\nc\nd\ne\nf")
+            .on_input(Msg::Edited)
+            .rows(2)
+            .width(200.0);
         let tree: Flex<Msg> = Flex::column().child(tall);
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(220.0, 240.0), &rt, &Theme::default());
@@ -2172,10 +2455,16 @@ mod tests {
         assert_eq!(maxes.len(), 1, "le champ débordant s'enregistre");
         assert!(maxes[0].2 > 0.0, "max_y > 0 (contenu débordant)");
 
-        let short = TextInput::<Msg>::new("a\nb").on_input(Msg::Edited).rows(4).width(200.0);
+        let short = TextInput::<Msg>::new("a\nb")
+            .on_input(Msg::Edited)
+            .rows(4)
+            .width(200.0);
         let tree: Flex<Msg> = Flex::column().child(short);
         let ui = build_ui(&tree, Size::new(220.0, 240.0), &rt, &Theme::default());
-        assert!(ui.scrollable_maxes().is_empty(), "un champ court ne défile pas");
+        assert!(
+            ui.scrollable_maxes().is_empty(),
+            "un champ court ne défile pas"
+        );
     }
 
     #[test]
@@ -2194,7 +2483,12 @@ mod tests {
         let tree = Flex::<Msg>::column()
             .child(Button::new("un").on_press(Msg::A))
             .child(Button::new("deux").on_press(Msg::B));
-        let ui = build_ui(&tree, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &tree,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert_eq!(ui.focusables.len(), 2, "les deux boutons sont focusables");
         let first = ui.focusables[0].0;
         let second = ui.focusables[1].0;
@@ -2221,7 +2515,9 @@ mod tests {
             ui.scene()
                 .primitives()
                 .iter()
-                .filter(|p| matches!(p, Primitive::Rect { border_color, .. } if *border_color == ring))
+                .filter(
+                    |p| matches!(p, Primitive::Rect { border_color, .. } if *border_color == ring),
+                )
                 .count()
         };
         let with_button = Flex::<Msg>::column().child(Button::new("x").on_press(Msg::A));
@@ -2237,7 +2533,11 @@ mod tests {
         );
 
         let with_input = Flex::<Msg>::column().child(TextInput::new("hi").on_input(Msg::Edited));
-        assert_eq!(count_ring(&with_input, true), 0, "le champ gère son propre focus");
+        assert_eq!(
+            count_ring(&with_input, true),
+            0,
+            "le champ gère son propre focus"
+        );
     }
 
     #[test]
@@ -2254,18 +2554,29 @@ mod tests {
                     .child(Button::new("c").on_press(Msg::C))
                     .child(Button::new("d").on_press(Msg::D)),
             );
-        let ui = build_ui(&grid, Size::new(300.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &grid,
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let top_left = ui.focus_next(None, true).expect("premier focusable");
         assert_eq!(ui.msg_for(top_left), Some(Msg::A));
 
         // Droite : a → b ; bas : a → c ; et rien à gauche de a.
-        let right = ui.focus_directional(top_left, FocusDirection::Right).expect("droite");
+        let right = ui
+            .focus_directional(top_left, FocusDirection::Right)
+            .expect("droite");
         assert_eq!(ui.msg_for(right), Some(Msg::B));
-        let down = ui.focus_directional(top_left, FocusDirection::Down).expect("bas");
+        let down = ui
+            .focus_directional(top_left, FocusDirection::Down)
+            .expect("bas");
         assert_eq!(ui.msg_for(down), Some(Msg::C));
         assert_eq!(ui.focus_directional(top_left, FocusDirection::Left), None);
         // Diagonale contrôlée : depuis b, bas → d (aligné), pas c.
-        let down_right = ui.focus_directional(right, FocusDirection::Down).expect("bas depuis b");
+        let down_right = ui
+            .focus_directional(right, FocusDirection::Down)
+            .expect("bas depuis b");
         assert_eq!(ui.msg_for(down_right), Some(Msg::D));
     }
 
@@ -2292,14 +2603,23 @@ mod tests {
             .child(Keyed::new(1u64, colored(red)))
             .child(Keyed::new(2u64, colored(green)))
             .child(Keyed::new(3u64, colored(blue)));
-        let ui_full = build_ui(&full, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui_full = build_ui(
+            &full,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         // Liste [rouge(1), bleu(3)] : le vert du milieu est retiré → bleu passe de l'indice 2 à 1.
         let removed = Flex::<Msg>::column()
             .child(Keyed::new(1u64, colored(red)))
             .child(Keyed::new(3u64, colored(blue)));
-        let ui_removed =
-            build_ui(&removed, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let ui_removed = build_ui(
+            &removed,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         // L'identité (owner) du bleu (clé 3) est INCHANGÉE malgré le décalage de position.
         assert_eq!(owner_of(&ui_full, blue), owner_of(&ui_removed, blue));
@@ -2309,9 +2629,21 @@ mod tests {
             .child(colored(red))
             .child(colored(green))
             .child(colored(blue));
-        let unkeyed_removed = Flex::<Msg>::column().child(colored(red)).child(colored(blue));
-        let u1 = build_ui(&unkeyed_full, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
-        let u2 = build_ui(&unkeyed_removed, Size::new(200.0, 200.0), &Runtime::default(), &Theme::default());
+        let unkeyed_removed = Flex::<Msg>::column()
+            .child(colored(red))
+            .child(colored(blue));
+        let u1 = build_ui(
+            &unkeyed_full,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let u2 = build_ui(
+            &unkeyed_removed,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         assert_ne!(owner_of(&u1, blue), owner_of(&u2, blue));
     }
 
@@ -2319,11 +2651,19 @@ mod tests {
     fn center_overlay_scrim_click_dismisses() {
         // Une modale Center avec `.dismiss` : cliquer le voile (hors contenu)
         // renvoie le message de fermeture ; cliquer le contenu ne le renvoie pas.
-        let modal = Container::<Msg>::new().width(100.0).height(60.0).color(Color::WHITE);
+        let modal = Container::<Msg>::new()
+            .width(100.0)
+            .height(60.0)
+            .color(Color::WHITE);
         let portal: Portal<Msg> = Portal::new(Container::<Msg>::new().width(20.0).height(20.0))
             .overlay(modal, Placement::Center)
             .dismiss(Msg::A);
-        let ui = build_ui(&portal, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &portal,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
 
         // Coin supérieur gauche : sur le voile → ferme.
         let corner = ui.hit(Point::new(5.0, 5.0)).expect("voile cliquable");
@@ -2341,7 +2681,11 @@ mod tests {
         let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ");
 
         let widget = find_widget(&tree, id).expect("widget trouvé");
-        let mut edit = Edit { cursor: 2, anchor: None, composing: None };
+        let mut edit = Edit {
+            cursor: 2,
+            anchor: None,
+            composing: None,
+        };
         assert_eq!(
             widget.on_edit(&mut edit, &Key::Text("!".to_string())),
             Some(Msg::Edited("hi!".to_string()))
@@ -2359,8 +2703,14 @@ mod tests {
             h.finish()
         }
         let tree: Flex<Msg> = Flex::column()
-            .child(Keyed::new("email", TextInput::new("").on_input(Msg::Edited)))
-            .child(Keyed::new("password", TextInput::new("").on_input(Msg::Edited)));
+            .child(Keyed::new(
+                "email",
+                TextInput::new("").on_input(Msg::Edited),
+            ))
+            .child(Keyed::new(
+                "password",
+                TextInput::new("").on_input(Msg::Edited),
+            ));
 
         let email = find_by_key(&tree, hash("email")).expect("email trouvé");
         let password = find_by_key(&tree, hash("password")).expect("password trouvé");
@@ -2368,13 +2718,18 @@ mod tests {
         // L'identité résolue est bien l'identité par clé (stable, indépendante de la
         // position).
         assert_eq!(email, WidgetId::ROOT.keyed(hash("email")));
-        assert!(find_by_key(&tree, hash("absent")).is_none(), "clé inconnue → None");
+        assert!(
+            find_by_key(&tree, hash("absent")).is_none(),
+            "clé inconnue → None"
+        );
 
         // Et surtout : c'est **exactement** l'identité que le hit-test de focus
         // attribuerait à ce champ — donc poser ce focus route bien vers lui.
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
-        let (hit_id, _) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ email sous le curseur");
+        let (hit_id, _) = ui
+            .focus_hit(Point::new(10.0, 10.0))
+            .expect("champ email sous le curseur");
         assert_eq!(email, hit_id, "find_by_key == identité de focus du champ");
     }
 
@@ -2382,9 +2737,21 @@ mod tests {
     fn scroll_translates_and_clips_content() {
         let content = Flex::<Msg>::column()
             .gap(0.0)
-            .child(Container::new().height(60.0).color(Color::rgb(1.0, 0.0, 0.0)))
-            .child(Container::new().height(60.0).color(Color::rgb(0.0, 1.0, 0.0)))
-            .child(Container::new().height(60.0).color(Color::rgb(0.0, 0.0, 1.0)));
+            .child(
+                Container::new()
+                    .height(60.0)
+                    .color(Color::rgb(1.0, 0.0, 0.0)),
+            )
+            .child(
+                Container::new()
+                    .height(60.0)
+                    .color(Color::rgb(0.0, 1.0, 0.0)),
+            )
+            .child(
+                Container::new()
+                    .height(60.0)
+                    .color(Color::rgb(0.0, 0.0, 1.0)),
+            );
         let tree = Scroll::new().width(200.0).height(100.0).child(content);
 
         let rt = Runtime::default();
@@ -2408,16 +2775,29 @@ mod tests {
         let rt = Runtime::default();
         let ui = build_ui(&board, Size::new(400.0, 300.0), &rt, &Theme::default());
         // La carte **et** la zone de dépôt sont enregistrées comme réordonnables.
-        assert!(ui.reorderables.len() >= 2, "carte + zone de dépôt dans le registre des réordonnables");
+        assert!(
+            ui.reorderables.len() >= 2,
+            "carte + zone de dépôt dans le registre des réordonnables"
+        );
         // Un point sur la carte est **saisissable** (réordonnable) mais **non cliquable** — c'est tout
         // l'intérêt du registre : sans lui, `ui.hit` seul ne trouverait pas la carte.
         let (card_id, card) = ui.reorderables[0];
         let p = Point::new(card.x + 5.0, card.y + 5.0);
-        assert!(ui.reorderable_at(p).is_some(), "la carte est saisissable au point");
-        assert!(ui.hit(p).is_none(), "…mais pas cliquable (absente du registre de hits)");
+        assert!(
+            ui.reorderable_at(p).is_some(),
+            "la carte est saisissable au point"
+        );
+        assert!(
+            ui.hit(p).is_none(),
+            "…mais pas cliquable (absente du registre de hits)"
+        );
         // `widget_rect` doit retrouver la carte **via le repli réordonnable** (elle n'est pas
         // focusable) : sinon l'aperçu de glisser vertical du shell ne démarre jamais.
-        assert_eq!(ui.widget_rect(card_id), Some(card), "widget_rect retombe sur le registre réordonnable");
+        assert_eq!(
+            ui.widget_rect(card_id),
+            Some(card),
+            "widget_rect retombe sur le registre réordonnable"
+        );
     }
 
     #[test]
@@ -2427,7 +2807,11 @@ mod tests {
         // ne s'engage plus dès que le board défile.
         use crate::{Axis, Kanban, Scroll};
         let board = Kanban::new(|_, _, _, _| Msg::A).column("To do", ["Card A"]);
-        let scrolled = Scroll::new().axis(Axis::Horizontal).width(400.0).height(300.0).child(board);
+        let scrolled = Scroll::new()
+            .axis(Axis::Horizontal)
+            .width(400.0)
+            .height(300.0)
+            .child(board);
         let rt = Runtime::default();
         let ui = build_ui(&scrolled, Size::new(400.0, 300.0), &rt, &Theme::default());
         assert!(
@@ -2444,7 +2828,7 @@ mod tests {
         // au jalon 263 (flex-scroll sans hauteur d'ancêtre définie → cartes découpées à zéro, plus
         // réordonnables). Avec une hauteur **définie**, les cartes visibles doivent rester
         // enregistrées comme réordonnables — garde-fou contre une régression du glisser par colonne.
-        use crate::{Kanban};
+        use crate::Kanban;
         let board = Kanban::new(|_, _, _, _| Msg::A)
             .card_area_height(220.0)
             .column("To do", ["Card A", "Card B"]);
@@ -2468,16 +2852,27 @@ mod tests {
         use crate::{Axis, Container, Flex, Kanban, Scroll};
         // Assez de cartes pour **déborder** le viewport rempli (sinon max_y = 0 : rien à défiler).
         let long: Vec<String> = (0..24).map(|i| format!("card {i}")).collect();
-        let board = Kanban::new(|_, _, _, _| Msg::A).scrollable_columns().column("To do", long);
+        let board = Kanban::new(|_, _, _, _| Msg::A)
+            .scrollable_columns()
+            .column("To do", long);
         // Imbrication de `board_screen` : le board dans un **simple `Container` à padding** (la marge
         // visuelle), lui-même dans un Scroll horizontal `flex(1)`, dans un écran (Flex colonne) à
         // hauteur bornée. Ce `Container` `Auto` **s'effondrait** au jalon 266 (d'où le contournement
         // `Flex` `flex(1)`) ; depuis que `compute_scroll` **remplit l'axe contraint**, il remplit la
         // hauteur du viewport et le board suit — plus besoin de conteneur « remplisseur ».
         let padded = Container::<Msg>::new().padding(24.0).child(board);
-        let scroll_h = Scroll::new().axis(Axis::Horizontal).width(360.0).flex(1.0).child(padded);
+        let scroll_h = Scroll::new()
+            .axis(Axis::Horizontal)
+            .width(360.0)
+            .flex(1.0)
+            .child(padded);
         let root: Flex<Msg> = Flex::column().width(400.0).height(600.0).child(scroll_h);
-        let ui = build_ui(&root, Size::new(400.0, 600.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &root,
+            Size::new(400.0, 600.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Un scroll **vertical** de colonne : viewport haut (remplit) et défilable.
         let filled = ui
             .scrollables
@@ -2494,8 +2889,11 @@ mod tests {
     fn subtree_ids_covers_a_widget_and_its_descendants() {
         use crate::Text;
         // Racine (Container) > Flex(colonne) > [Text, Text].
-        let tree: Container<Msg> =
-            Container::new().child(Flex::<Msg>::column().child(Text::new("a")).child(Text::new("b")));
+        let tree: Container<Msg> = Container::new().child(
+            Flex::<Msg>::column()
+                .child(Text::new("a"))
+                .child(Text::new("b")),
+        );
         let all = collect_ids(&tree);
         // Depuis la racine : identique à `collect_ids` (même parcours positionnel).
         assert_eq!(subtree_ids(&tree, WidgetId::ROOT), all);
@@ -2503,7 +2901,10 @@ mod tests {
         // **strict** de l'arbre (le fantôme d'une carte riche capte ainsi tout son contenu).
         let flex_id = all[1];
         let sub = subtree_ids(Widget::children(&tree)[0].as_ref(), flex_id);
-        assert_eq!(sub[0], flex_id, "le sous-arbre commence par l'identité fournie");
+        assert_eq!(
+            sub[0], flex_id,
+            "le sous-arbre commence par l'identité fournie"
+        );
         assert!(
             sub.len() < all.len() && sub.iter().all(|i| all.contains(i)),
             "sous-ensemble de l'arbre incluant les descendants"
@@ -2550,8 +2951,15 @@ mod tests {
         // Frame 2 : même génération + même état → la frontière est réutilisée.
         let ui2 = build_ui(&tree, size, &rt, &theme);
         let dbg2 = format!("{:?}", ui2.scene().primitives());
-        assert_eq!(rt.paint_cache.borrow().last_frame_stats(), (1, 0), "frontière réutilisée");
-        assert_eq!(dbg1, dbg2, "la scène rejouée est bit-à-bit identique au repaint complet");
+        assert_eq!(
+            rt.paint_cache.borrow().last_frame_stats(),
+            (1, 0),
+            "frontière réutilisée"
+        );
+        assert_eq!(
+            dbg1, dbg2,
+            "la scène rejouée est bit-à-bit identique au repaint complet"
+        );
         // Les cartes d'interaction sont aussi rejouées (le clic reste routable).
         assert_eq!(ui1.hits.len(), ui2.hits.len());
         assert!(!ui2.hits.is_empty(), "le hit du sous-arbre est bien rejoué");
@@ -2565,7 +2973,7 @@ mod tests {
         let rt = Runtime::default();
 
         build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
-        // Reconstruction de la `view` (config potentiellement changée).
+                                            // Reconstruction de la `view` (config potentiellement changée).
         rt.paint_cache.borrow_mut().bump_generation();
         build_ui(&tree, size, &rt, &theme); // frame 2
         assert_eq!(
@@ -2583,11 +2991,15 @@ mod tests {
         let mut rt = Runtime::default();
 
         build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
-        // Sans reconstruction, mais l'état d'interaction d'un descendant change
-        // (survol animé de la frontière) → l'empreinte diffère → repaint.
+                                            // Sans reconstruction, mais l'état d'interaction d'un descendant change
+                                            // (survol animé de la frontière) → l'empreinte diffère → repaint.
         rt.anims.insert(
             WidgetId::ROOT,
-            crate::Anim { hover: 0.5, focus: 0.0, opacity: 1.0 },
+            crate::Anim {
+                hover: 0.5,
+                focus: 0.0,
+                opacity: 1.0,
+            },
         );
         build_ui(&tree, size, &rt, &theme); // frame 2
         assert_eq!(

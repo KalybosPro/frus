@@ -36,7 +36,10 @@ const CARD_H: f32 = 44.0;
 pub fn kanban_slot(col: usize, pos: usize) -> usize {
     // Au-delà de STRIDE cartes dans une colonne, `pos` déborderait sur le champ colonne (l'index
     // plat viserait silencieusement la colonne suivante). Garde en debug ; STRIDE reste large.
-    debug_assert!(pos < STRIDE, "position {pos} hors borne (STRIDE = {STRIDE}) : débordement de colonne");
+    debug_assert!(
+        pos < STRIDE,
+        "position {pos} hors borne (STRIDE = {STRIDE}) : débordement de colonne"
+    );
     col * STRIDE + pos
 }
 
@@ -63,7 +66,11 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
     fn style(&self) -> Style {
         if self.content.is_empty() {
             // Carte texte : hauteur fixe, libellé peint par la carte.
-            Style { width: Dimension::Auto, height: Dimension::Length(CARD_H), ..Default::default() }
+            Style {
+                width: Dimension::Auto,
+                height: Dimension::Length(CARD_H),
+                ..Default::default()
+            }
         } else {
             // Carte riche : le contenu est un enfant, la carte s'adapte (plancher `CARD_H`), avec marge.
             Style {
@@ -86,11 +93,22 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
         // Tuile surélevée ; teintée au survol (repère de préhension).
         let base = theme.surface.lerp(theme.on_surface, 0.05);
         let fill = theme.state_layer(base, theme.on_surface, &status);
-        scene.draw_rect(bounds, fill.fade(o), theme.radius, 1.0, theme.border.fade(o));
+        scene.draw_rect(
+            bounds,
+            fill.fade(o),
+            theme.radius,
+            1.0,
+            theme.border.fade(o),
+        );
         // Libellé seulement pour une carte **texte** (une carte riche peint son propre contenu).
         if self.content.is_empty() {
             let ty = bounds.y + (bounds.height - frus_text::line_height(15.0)) * 0.5;
-            scene.text(Point::new(bounds.x + 12.0, ty), self.label.clone(), 15.0, theme.on_surface.fade(o));
+            scene.text(
+                Point::new(bounds.x + 12.0, ty),
+                self.label.clone(),
+                15.0,
+                theme.on_surface.fade(o),
+            );
         }
     }
 
@@ -105,7 +123,9 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
     fn on_reorder(&self, to: usize) -> Option<Msg> {
         // La cible `to` est l'index plat de l'emplacement survolé (autre carte ou zone de dépôt).
         let (to_col, to_pos) = decode(to);
-        self.on_move.as_ref().map(|f| f(self.from_col, self.from_pos, to_col, to_pos))
+        self.on_move
+            .as_ref()
+            .map(|f| f(self.from_col, self.from_pos, to_col, to_pos))
     }
 
     fn reorder_axis(&self) -> ReorderAxis {
@@ -134,7 +154,13 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         // Contour discret en pointillé simulé (bord estompé) : « déposer ici ».
-        scene.draw_rect(bounds, Color::TRANSPARENT, theme.radius, 1.0, theme.border.fade(status.opacity * 0.5));
+        scene.draw_rect(
+            bounds,
+            Color::TRANSPARENT,
+            theme.radius,
+            1.0,
+            theme.border.fade(status.opacity * 0.5),
+        );
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -182,7 +208,13 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         // Fond de panneau **thémé** (défaut surchargeable via le thème) : un voile discret.
         let bg = theme.surface.lerp(theme.on_surface, 0.04);
-        scene.draw_rect(bounds, bg.fade(status.opacity), theme.radius, 0.0, Color::TRANSPARENT);
+        scene.draw_rect(
+            bounds,
+            bg.fade(status.opacity),
+            theme.radius,
+            0.0,
+            Color::TRANSPARENT,
+        );
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -251,7 +283,11 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     }
 
     /// Ajoute une **colonne** titrée avec ses cartes (texte), dans l'ordre.
-    pub fn column(mut self, title: impl Into<String>, cards: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    pub fn column(
+        mut self,
+        title: impl Into<String>,
+        cards: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
         let cards = ColCards::Text(cards.into_iter().map(Into::into).collect());
         self.columns.push((title.into(), cards));
         self.rebuild();
@@ -342,7 +378,9 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             }
         }
         // Emplacement d'insertion en fin de colonne (et cible d'une colonne vide).
-        cards_v.push(Box::new(DropZone { slot: kanban_slot(col, cards.len()) }));
+        cards_v.push(Box::new(DropZone {
+            slot: kanban_slot(col, cards.len()),
+        }));
 
         let mut children: Vec<Box<dyn Widget<Msg>>> =
             vec![Box::new(Text::new(title.to_string()).size(16.0))];
@@ -350,19 +388,29 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         // défilable enveloppe les cartes dans un `Flex` vertical (une seule enfant pour le `Scroll`).
         let inner_w = COL_W - 2.0 * COL_PAD;
         let list = |cards: Vec<Box<dyn Widget<Msg>>>| {
-            cards.into_iter().fold(Flex::column().gap(8.0).width(inner_w), Flex::child_boxed)
+            cards
+                .into_iter()
+                .fold(Flex::column().gap(8.0).width(inner_w), Flex::child_boxed)
         };
         if self.fill_columns {
             // **Remplissage** (jalon 266) : la colonne remplit la hauteur du board (Row étirée) ;
             // la zone de cartes en `Scroll` `flex(1)` prend le reste (sous le titre, au-dessus du
             // bouton) puis défile. Pas de hauteur explicite : le flex fait le calcul.
             children.push(Box::new(
-                Scroll::new().axis(Axis::Vertical).width(inner_w).flex(1.0).child(list(cards_v)),
+                Scroll::new()
+                    .axis(Axis::Vertical)
+                    .width(inner_w)
+                    .flex(1.0)
+                    .child(list(cards_v)),
             ));
         } else if let Some(h) = self.card_area_height {
             // Hauteur **explicite** (jalon 264) : repli quand l'ancêtre n'est pas à hauteur définie.
             children.push(Box::new(
-                Scroll::new().axis(Axis::Vertical).width(inner_w).height(h).child(list(cards_v)),
+                Scroll::new()
+                    .axis(Axis::Vertical)
+                    .width(inner_w)
+                    .height(h)
+                    .child(list(cards_v)),
             ));
         } else {
             // Colonne qui s'étend à la hauteur de son contenu (comportement d'origine, cartes nues).
@@ -372,7 +420,10 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         if let Some(on_add) = &self.on_add {
             let on_add = on_add.clone();
             children.push(Box::new(
-                Button::new("+ Add card").variant(Variant::Secondary).size(13.0).on_press(on_add(col)),
+                Button::new("+ Add card")
+                    .variant(Variant::Secondary)
+                    .size(13.0)
+                    .on_press(on_add(col)),
             ));
         }
         Box::new(Column { children })
@@ -463,7 +514,11 @@ mod tests {
         let col0 = &Widget::<Msg>::children(&board)[0];
         let (idx, moved) = first_card(col0.as_ref(), kanban_slot(1, 0)).expect("une carte");
         assert_eq!(idx, kanban_slot(0, 0), "index plat de la carte source");
-        assert_eq!(moved, Some(Msg::Move(0, 0, 1, 0)), "dépôt en (1,0) : déplacement inter-colonnes");
+        assert_eq!(
+            moved,
+            Some(Msg::Move(0, 0, 1, 0)),
+            "dépôt en (1,0) : déplacement inter-colonnes"
+        );
     }
 
     #[test]
@@ -476,7 +531,11 @@ mod tests {
         }
         let board = Kanban::new(Msg::Move).column("A", ["x"]);
         let col0 = &Widget::<Msg>::children(&board)[0];
-        assert_eq!(first_axis(col0.as_ref()), Some(ReorderAxis::Vertical), "les cartes glissent verticalement");
+        assert_eq!(
+            first_axis(col0.as_ref()),
+            Some(ReorderAxis::Vertical),
+            "les cartes glissent verticalement"
+        );
     }
 
     #[test]
@@ -484,21 +543,38 @@ mod tests {
         // Colonne **riche** : chaque carte héberge un bouton × (suppression) ; + un bouton d'ajout.
         let cards: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..2)
             .map(|i| {
-                Box::new(move || Box::new(Button::new("x").on_press(Msg::Del(i))) as Box<dyn Widget<Msg>>)
-                    as Box<dyn Fn() -> Box<dyn Widget<Msg>>>
+                Box::new(move || {
+                    Box::new(Button::new("x").on_press(Msg::Del(i))) as Box<dyn Widget<Msg>>
+                }) as Box<dyn Fn() -> Box<dyn Widget<Msg>>>
             })
             .collect();
-        let board = Kanban::new(Msg::Move).on_add(Msg::Add).column_widgets("Col", cards);
+        let board = Kanban::new(Msg::Move)
+            .on_add(Msg::Add)
+            .column_widgets("Col", cards);
         let col0 = &Widget::<Msg>::children(&board)[0];
         // La carte riche reste **réordonnable** (glisser câblé) et route un Move.
         let (idx, moved) = first_card(col0.as_ref(), kanban_slot(0, 1)).expect("une carte");
-        assert_eq!(idx, kanban_slot(0, 0), "la carte riche garde son index plat");
-        assert_eq!(moved, Some(Msg::Move(0, 0, 0, 1)), "et route toujours le déplacement");
+        assert_eq!(
+            idx,
+            kanban_slot(0, 0),
+            "la carte riche garde son index plat"
+        );
+        assert_eq!(
+            moved,
+            Some(Msg::Move(0, 0, 0, 1)),
+            "et route toujours le déplacement"
+        );
         // Les clics accessibles incluent la suppression (× de chaque carte) et l'ajout (bouton colonne).
         let mut clicks = Vec::new();
         collect_clicks(col0.as_ref(), &mut clicks);
-        assert!(clicks.contains(&Msg::Del(0)) && clicks.contains(&Msg::Del(1)), "× de suppression par carte");
-        assert!(clicks.contains(&Msg::Add(0)), "bouton + Add card de la colonne");
+        assert!(
+            clicks.contains(&Msg::Del(0)) && clicks.contains(&Msg::Del(1)),
+            "× de suppression par carte"
+        );
+        assert!(
+            clicks.contains(&Msg::Add(0)),
+            "bouton + Add card de la colonne"
+        );
     }
 
     #[test]
@@ -518,13 +594,27 @@ mod tests {
         let mut flags = Vec::new();
         scan(col0.as_ref(), &mut flags);
         // Deux cartes saisissables + une zone de dépôt non saisissable.
-        assert_eq!(flags.iter().filter(|&&d| d).count(), 2, "les deux cartes sont saisissables");
-        assert_eq!(flags.iter().filter(|&&d| !d).count(), 1, "la zone de dépôt est cible seule");
+        assert_eq!(
+            flags.iter().filter(|&&d| d).count(),
+            2,
+            "les deux cartes sont saisissables"
+        );
+        assert_eq!(
+            flags.iter().filter(|&&d| !d).count(),
+            1,
+            "la zone de dépôt est cible seule"
+        );
     }
 
     #[test]
     fn board_lays_out_one_widget_per_column() {
-        let board = Kanban::new(Msg::Move).column("A", ["x"]).column("B", Vec::<String>::new());
-        assert_eq!(Widget::<Msg>::children(&board).len(), 2, "un widget par colonne");
+        let board = Kanban::new(Msg::Move)
+            .column("A", ["x"])
+            .column("B", Vec::<String>::new());
+        assert_eq!(
+            Widget::<Msg>::children(&board).len(),
+            2,
+            "un widget par colonne"
+        );
     }
 }

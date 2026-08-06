@@ -37,7 +37,11 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         // Panneau flottant = surface **élevée** (rôle `surface_container_high`).
-        let bg = theme.state_layer(theme.scheme.surface_container_high, theme.on_surface, &status);
+        let bg = theme.state_layer(
+            theme.scheme.surface_container_high,
+            theme.on_surface,
+            &status,
+        );
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(
@@ -171,7 +175,12 @@ mod tests {
         assert!(Widget::<Msg>::overlay(&menu).is_some());
         assert_eq!(Widget::<Msg>::overlay_dismiss(&menu), Some(Msg::Close));
 
-        let ui = build_ui(&menu, Size::new(400.0, 300.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &menu,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // Un clic loin de l'ancre (coin bas-droit) ferme le menu.
         let corner = ui.hit(P::new(390.0, 290.0)).expect("hit de fermeture");
         assert_eq!(ui.msg_for(corner), Some(Msg::Close));

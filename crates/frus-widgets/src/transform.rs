@@ -222,13 +222,18 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => Some(rect.y),
+                Primitive::Rect { rect, color, .. } if color.g > 0.5 && color.r < 0.5 => {
+                    Some(rect.y)
+                }
                 _ => None,
             })
             .expect("le fond vert du 2e enfant");
         // Le 1er enfant occupe 20px de haut en layout (son décalage de 50 est visuel) :
         // le 2e enfant suit à y = 20.
-        assert!((green_y - 20.0).abs() < 0.5, "frère à sa place layout : y = {green_y}");
+        assert!(
+            (green_y - 20.0).abs() < 0.5,
+            "frère à sa place layout : y = {green_y}"
+        );
     }
 
     /// Extrait l'[`Affine`] du calque transformé de la scène (le sous-arbre est peint
@@ -238,7 +243,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { transform: Some(t), .. } => Some(t.affine),
+                Primitive::Layer {
+                    transform: Some(t), ..
+                } => Some(t.affine),
                 _ => None,
             })
             .expect("un calque transformé")
@@ -257,9 +264,16 @@ mod tests {
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
         let m = layer_affine(&ui);
-        assert!((m.m[0] - 2.0).abs() < 1e-3 && (m.m[3] - 2.0).abs() < 1e-3, "×2 : {:?}", m.m);
+        assert!(
+            (m.m[0] - 2.0).abs() < 1e-3 && (m.m[3] - 2.0).abs() < 1e-3,
+            "×2 : {:?}",
+            m.m
+        );
         let c = m.apply(Point::new(10.0, 10.0));
-        assert!((c.x - 10.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5, "centre fixe : {c:?}");
+        assert!(
+            (c.x - 10.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5,
+            "centre fixe : {c:?}"
+        );
     }
 
     /// `scale_from(2.0, TOP_LEFT)` met à l'échelle autour du coin haut-gauche de
@@ -276,9 +290,16 @@ mod tests {
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
         let m = layer_affine(&ui);
-        assert!((m.m[0] - 2.0).abs() < 1e-3 && (m.m[3] - 2.0).abs() < 1e-3, "×2 : {:?}", m.m);
+        assert!(
+            (m.m[0] - 2.0).abs() < 1e-3 && (m.m[3] - 2.0).abs() < 1e-3,
+            "×2 : {:?}",
+            m.m
+        );
         let c = m.apply(Point::new(0.0, 0.0));
-        assert!(c.x.abs() < 0.5 && c.y.abs() < 0.5, "coin haut-gauche fixe : {c:?}");
+        assert!(
+            c.x.abs() < 0.5 && c.y.abs() < 0.5,
+            "coin haut-gauche fixe : {c:?}"
+        );
     }
 
     /// `Transform::scale_xy(3.0, 1.0)` porte une matrice d'échelle **par axe**
@@ -301,7 +322,10 @@ mod tests {
             m.m
         );
         let c = m.apply(Point::new(10.0, 10.0));
-        assert!((c.x - 10.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5, "centre fixe : {c:?}");
+        assert!(
+            (c.x - 10.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5,
+            "centre fixe : {c:?}"
+        );
     }
 
     /// `Transform::rotate(π/2)` porte une matrice de rotation pure (partie linéaire
@@ -328,7 +352,10 @@ mod tests {
             m.m
         );
         let c = m.apply(Point::new(20.0, 10.0));
-        assert!((c.x - 20.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5, "centre fixe : {c:?}");
+        assert!(
+            (c.x - 20.0).abs() < 0.5 && (c.y - 10.0).abs() < 0.5,
+            "centre fixe : {c:?}"
+        );
     }
 
     /// **Composition** : `scale(2.0).and_rotate(π/2)` fond les deux en **une seule**
@@ -373,16 +400,19 @@ mod tests {
             &rt,
             &theme,
         );
-        let flat = flat_ui.focus_hit(Point::new(2.0, 2.0)).expect("bouton focalisable").1;
+        let flat = flat_ui
+            .focus_hit(Point::new(2.0, 2.0))
+            .expect("bouton focalisable")
+            .1;
         let cy = flat.y + flat.height / 2.0;
         // Point juste à droite du bouton à plat (largeur 200) : hors de sa cible.
         let probe = Point::new(flat.x + flat.width + 2.0, cy);
         assert!(flat_ui.focus_hit(probe).is_none(), "hors du bouton à plat");
 
         let scaled_ui = crate::ui::build_ui(
-            &crate::Flex::<i32>::column().width(200.0).child(
-                Transform::scale(2.0).child(crate::Button::new("Ok").on_press(1)),
-            ),
+            &crate::Flex::<i32>::column()
+                .width(200.0)
+                .child(Transform::scale(2.0).child(crate::Button::new("Ok").on_press(1))),
             Size::new(200.0, 200.0),
             &rt,
             &theme,
@@ -409,15 +439,25 @@ mod tests {
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = crate::Flex::<i32>::column().width(100.0).child(
             Transform::rotate(FRAC_PI_2).child(
-                Container::new().width(40.0).height(20.0).color(red).on_click(7),
+                Container::new()
+                    .width(40.0)
+                    .height(20.0)
+                    .color(red)
+                    .on_click(7),
             ),
         );
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
         // À l'écran, le point interne (35, 10) est peint en (20, 25) après rotation.
-        assert!(ui.hit(Point::new(20.0, 25.0)).is_some(), "clic sur la position tournée");
+        assert!(
+            ui.hit(Point::new(20.0, 25.0)).is_some(),
+            "clic sur la position tournée"
+        );
         // La position d'origine (non tournée) ne recouvre plus l'enfant.
-        assert!(ui.hit(Point::new(35.0, 10.0)).is_none(), "l'ancienne position rate");
+        assert!(
+            ui.hit(Point::new(35.0, 10.0)).is_none(),
+            "l'ancienne position rate"
+        );
     }
 }

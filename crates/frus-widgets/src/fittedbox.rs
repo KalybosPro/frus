@@ -108,7 +108,12 @@ mod tests {
             FittedBox::new(BoxFit::Fill)
                 .width(200.0)
                 .height(100.0)
-                .child(Container::new().width(40.0).height(20.0).color(Color::rgb(0.3, 0.3, 0.3))),
+                .child(
+                    Container::new()
+                        .width(40.0)
+                        .height(20.0)
+                        .color(Color::rgb(0.3, 0.3, 0.3)),
+                ),
         );
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
@@ -118,7 +123,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { transform: Some(t), .. } => Some(t.affine),
+                Primitive::Layer {
+                    transform: Some(t), ..
+                } => Some(t.affine),
                 _ => None,
             })
             .expect("un calque ajusté");
@@ -137,7 +144,12 @@ mod tests {
             FittedBox::new(BoxFit::Contain)
                 .width(200.0)
                 .height(100.0)
-                .child(Container::new().width(40.0).height(40.0).color(Color::rgb(0.3, 0.3, 0.3))),
+                .child(
+                    Container::new()
+                        .width(40.0)
+                        .height(40.0)
+                        .color(Color::rgb(0.3, 0.3, 0.3)),
+                ),
         );
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
@@ -147,7 +159,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Layer { transform: Some(t), .. } => Some(t.affine),
+                Primitive::Layer {
+                    transform: Some(t), ..
+                } => Some(t.affine),
                 _ => None,
             })
             .expect("un calque ajusté");

@@ -9,8 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use frus_shell::{Application, Command, Lifecycle, Subscription};
 use frus_l10n::{args, Localizer};
+use frus_shell::{Application, Command, Lifecycle, Subscription};
 use std::sync::OnceLock;
 
 /// Le localiseur de la démo : anglais + français, chargés une seule fois depuis
@@ -47,18 +47,18 @@ fn tr_n(lang: usize, key: &str, n: usize) -> String {
     let loc = l10n();
     loc.format_for(&loc.langid(LANGS[lang].1), key, args![n: n])
 }
-use frus_widgets::{
-    button, column, keyed, row, spacer, text, AnimationController, Alert, Align, AppBar, BarChart, BoxFit,
-    Axis, FontWeight, SpringDescription, Autocomplete, Avatar, Breadcrumb, Card, Carousel, Checkbox, Chip, Collapsible, Color, ColorPicker,
-    Container, CustomPaint, DataTable, DatePicker, Divider, Dropdown, Flex, Grid, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kbd, LayoutBuilder, LineChart, List,
-    Kanban, NavBar, Navigator, Orientation, Pagination, Placement, Popover, Portal, ProgressBar,
-    RadioGroup, Rating, Rect, RichText, Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton,
-    Slider, Stack,
-    TextSpan, WindowInsets,
-    Stepper, Steps, Switch, Table, Tabs, TextInput, Theme, Timeline, Toast, ToastHost,
-    ToastPosition, Tree, TwoPane, Variant, Widget, ErrorSummary, SnackbarQueue,
-};
 use frus_widgets::form::{Form, Rule};
+use frus_widgets::{
+    button, column, keyed, row, spacer, text, Alert, Align, AnimationController, AppBar,
+    Autocomplete, Avatar, Axis, BarChart, BoxFit, Breadcrumb, Card, Carousel, Checkbox, Chip,
+    Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
+    Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
+    Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
+    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, RichText,
+    Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, SnackbarQueue,
+    SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs, TextInput, TextSpan, Theme,
+    Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant, Widget, WindowInsets,
+};
 
 /// Logo de démo **décodé** depuis un PNG embarqué (jalon 91), partagé pour tout
 /// le process via `OnceLock` — décodé une fois, mis en cache par identité côté
@@ -518,9 +518,10 @@ impl TodoApp {
     fn data_rows(&self) -> Vec<(String, String, u32, String)> {
         match &self.data_rows {
             Some(rows) => rows.clone(),
-            None => {
-                DATA_PEOPLE.iter().map(|(n, r, s, l)| (n.to_string(), r.to_string(), *s, l.to_string())).collect()
-            }
+            None => DATA_PEOPLE
+                .iter()
+                .map(|(n, r, s, l)| (n.to_string(), r.to_string(), *s, l.to_string()))
+                .collect(),
         }
     }
 
@@ -529,7 +530,10 @@ impl TodoApp {
     fn kanban_cols(&self) -> Vec<Vec<String>> {
         match &self.kanban {
             Some(cols) => cols.clone(),
-            None => KANBAN_SEED.iter().map(|col| col.iter().map(|s| s.to_string()).collect()).collect(),
+            None => KANBAN_SEED
+                .iter()
+                .map(|col| col.iter().map(|s| s.to_string()).collect())
+                .collect(),
         }
     }
 }
@@ -564,9 +568,33 @@ fn done_count(app: &TodoApp) -> usize {
 
 /// Graines de démonstration du thème dynamique (`from_seed`, HCT).
 const THEME_SEEDS: [(&str, Color); 3] = [
-    ("Blue", Color { r: 0x42 as f32 / 255.0, g: 0x85 as f32 / 255.0, b: 0xF4 as f32 / 255.0, a: 1.0 }),
-    ("Purple", Color { r: 0x9C as f32 / 255.0, g: 0x27 as f32 / 255.0, b: 0xB0 as f32 / 255.0, a: 1.0 }),
-    ("Orange", Color { r: 0xE8 as f32 / 255.0, g: 0x71 as f32 / 255.0, b: 0x0A as f32 / 255.0, a: 1.0 }),
+    (
+        "Blue",
+        Color {
+            r: 0x42 as f32 / 255.0,
+            g: 0x85 as f32 / 255.0,
+            b: 0xF4 as f32 / 255.0,
+            a: 1.0,
+        },
+    ),
+    (
+        "Purple",
+        Color {
+            r: 0x9C as f32 / 255.0,
+            g: 0x27 as f32 / 255.0,
+            b: 0xB0 as f32 / 255.0,
+            a: 1.0,
+        },
+    ),
+    (
+        "Orange",
+        Color {
+            r: 0xE8 as f32 / 255.0,
+            g: 0x71 as f32 / 255.0,
+            b: 0x0A as f32 / 255.0,
+            a: 1.0,
+        },
+    ),
 ];
 
 /// Libellé de l'action « graine » du menu (la **prochaine** graine du cycle).
@@ -580,7 +608,11 @@ fn seed_label(app: &TodoApp) -> String {
 /// Thème « cible » selon l'état (avant fondu) : schéma écrit main par défaut,
 /// ou généré depuis une graine (Material 3 `from_seed`, HCT).
 fn theme_of(app: &TodoApp) -> Theme {
-    let theme = match app.seed_index.checked_sub(1).and_then(|i| THEME_SEEDS.get(i)) {
+    let theme = match app
+        .seed_index
+        .checked_sub(1)
+        .and_then(|i| THEME_SEEDS.get(i))
+    {
         Some((_, seed)) => Theme::from_seed(*seed, !app.light),
         None => {
             if app.light {
@@ -915,7 +947,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::DataSelectRow(i) => {
             // Re-clic sur la ligne déjà sélectionnée = désélection (bascule).
-            app.data_selected = if app.data_selected == Some(i) { None } else { Some(i) };
+            app.data_selected = if app.data_selected == Some(i) {
+                None
+            } else {
+                Some(i)
+            };
             Command::none()
         }
         Msg::DataCheck(i) => {
@@ -931,7 +967,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::DataCheckAll => {
             // Tout coché → on vide ; sinon on coche toutes les lignes source courantes.
             let n = app.data_rows().len();
-            app.data_checked = if app.data_checked.len() == n { Vec::new() } else { (0..n).collect() };
+            app.data_checked = if app.data_checked.len() == n {
+                Vec::new()
+            } else {
+                (0..n).collect()
+            };
             Command::none()
         }
         Msg::DataSearch(q) => {
@@ -956,7 +996,12 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             // décaler les suivants), puis remet à zéro sélection, focus et modale.
             app.data_confirm_delete = false;
             let mut rows = app.data_rows();
-            let mut checked: Vec<usize> = app.data_checked.iter().copied().filter(|&i| i < rows.len()).collect();
+            let mut checked: Vec<usize> = app
+                .data_checked
+                .iter()
+                .copied()
+                .filter(|&i| i < rows.len())
+                .collect();
             checked.sort_unstable();
             checked.dedup();
             for &i in checked.iter().rev() {
@@ -977,7 +1022,9 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             if app.chart_sel == Some((cat, s)) {
                 app.chart_sel = None;
                 app.chart_pin = None;
-            } else if let (Some((name, vals)), Some(label)) = (CHART_SERIES.get(s), CHART_CATS.get(cat)) {
+            } else if let (Some((name, vals)), Some(label)) =
+                (CHART_SERIES.get(s), CHART_CATS.get(cat))
+            {
                 if let Some(v) = vals.get(cat) {
                     app.chart_pin = Some(format!("{name} · {label} = {}", *v as i64));
                     app.chart_sel = Some((cat, s));
@@ -993,9 +1040,16 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             };
             app.grid_sort = Some((c, asc));
             app.grid.sort_by(|a, b| {
-                let (x, y) = (a.get(c).map(String::as_str).unwrap_or(""), b.get(c).map(String::as_str).unwrap_or(""));
+                let (x, y) = (
+                    a.get(c).map(String::as_str).unwrap_or(""),
+                    b.get(c).map(String::as_str).unwrap_or(""),
+                );
                 let ord = x.to_lowercase().cmp(&y.to_lowercase());
-                if asc { ord } else { ord.reverse() }
+                if asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
             });
             Command::none()
         }
@@ -1028,7 +1082,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SelectNode(id) => {
             // Re-clic sur le nœud déjà sélectionné = désélection (bascule).
-            app.tree_selected = if app.tree_selected == Some(id) { None } else { Some(id) };
+            app.tree_selected = if app.tree_selected == Some(id) {
+                None
+            } else {
+                Some(id)
+            };
             Command::none()
         }
         Msg::KanbanMove(from_col, from_pos, to_col, to_pos) => {
@@ -1158,9 +1216,21 @@ impl Application for TodoApp {
         self.density = 1.0;
         // Données de démonstration de la grille éditable.
         self.grid = vec![
-            vec!["Ada Lovelace".into(), "Engineer".into(), "ada@example.com".into()],
-            vec!["Alan Turing".into(), "Cryptographer".into(), "alan@example.com".into()],
-            vec!["Grace Hopper".into(), "Admiral".into(), "grace@example.com".into()],
+            vec![
+                "Ada Lovelace".into(),
+                "Engineer".into(),
+                "ada@example.com".into(),
+            ],
+            vec![
+                "Alan Turing".into(),
+                "Cryptographer".into(),
+                "alan@example.com".into(),
+            ],
+            vec![
+                "Grace Hopper".into(),
+                "Admiral".into(),
+                "grace@example.com".into(),
+            ],
         ];
         if self.restored {
             // Live-reload : l'instantané fait foi, ne pas l'écraser du disque.
@@ -1450,7 +1520,13 @@ fn build_view(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Navigato
 }
 
 /// Construit l'écran correspondant à une route.
-fn screen(route: Route, app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+fn screen(
+    route: Route,
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     match route {
         Route::Home => todo_screen(app, theme, width, height),
         Route::Settings => Box::new(settings_screen(app, theme, width, height)),
@@ -1478,7 +1554,11 @@ fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
 /// Nombre total de cellules invalides dans la grille (jalon 204/207) — sert à jauger la soumission.
 fn grid_error_count(grid: &[Vec<String>]) -> usize {
     grid.iter()
-        .flat_map(|row| (0..3).filter(move |&c| grid_cell_error(c, row.get(c).map(String::as_str).unwrap_or("")).is_some()))
+        .flat_map(|row| {
+            (0..3).filter(move |&c| {
+                grid_cell_error(c, row.get(c).map(String::as_str).unwrap_or("")).is_some()
+            })
+        })
         .count()
 }
 
@@ -1507,7 +1587,11 @@ fn grid_next_error(grid: &[Vec<String>], after: Option<(usize, usize)>) -> Optio
     let faults = grid_faults(grid);
     match after {
         None => faults.first().copied(),
-        Some(cur) => faults.iter().copied().find(|&f| f > cur).or_else(|| faults.first().copied()),
+        Some(cur) => faults
+            .iter()
+            .copied()
+            .find(|&f| f > cur)
+            .or_else(|| faults.first().copied()),
     }
 }
 
@@ -1566,7 +1650,11 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let status = if errors == 0 {
         text("All cells valid").size(13.0).color(theme.primary)
     } else {
-        let label = if errors == 1 { "1 error".to_string() } else { format!("{errors} errors") };
+        let label = if errors == 1 {
+            "1 error".to_string()
+        } else {
+            format!("{errors} errors")
+        };
         text(label).size(13.0).color(theme.error)
     };
     let add = button("Add row", Msg::GridAddRow);
@@ -1580,11 +1668,20 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     actions = actions.child(status);
     // Table éditable (colonnes fixes ~644 px) : région **défilable** bornée (X colonnes, Y lignes).
     let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
-    let body = column![table_area, actions, hint].gap(16.0).padding(24.0).flex(1.0);
+    let body = column![table_area, actions, hint]
+        .gap(16.0)
+        .padding(24.0)
+        .flex(1.0);
     let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
-    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+    Box::new(
+        Container::new()
+            .width(width)
+            .height(height)
+            .color(theme.background)
+            .child(screen),
+    )
 }
 
 /// Jeu de données statique (nom, rôle, score) du tableau de données — jalon 237.
@@ -1620,10 +1717,16 @@ fn level_rank(s: &str) -> u8 {
 /// volontaire avec la grille éditable voisine). — jalon 237.
 fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let people = app.data_rows();
-    let rows: Vec<Vec<String>> =
-        people.iter().map(|(n, r, s, l)| vec![n.clone(), r.clone(), s.to_string(), l.clone()]).collect();
+    let rows: Vec<Vec<String>> = people
+        .iter()
+        .map(|(n, r, s, l)| vec![n.clone(), r.clone(), s.to_string(), l.clone()])
+        .collect();
     // `0` (défaut dérivé) = valeurs de départ raisonnables.
-    let per = if app.data_page_size == 0 { 5 } else { app.data_page_size };
+    let per = if app.data_page_size == 0 {
+        5
+    } else {
+        app.data_page_size
+    };
     let page = app.data_page.max(1);
     let mut table: DataTable<Msg> = DataTable::new(["Name", "Role", "Score", "Level"], rows)
         .column_widths(&[200.0, 170.0, 90.0, 110.0])
@@ -1643,9 +1746,16 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         // Barre d'actions groupées (jalon 243) : visible quand des lignes sont cochées.
         .bulk_actions(|| {
             vec![
-                Box::new(button("Clear", Msg::DataClearChecked).variant(Variant::Secondary).size(14.0))
-                    as Box<dyn Widget<Msg>>,
-                Box::new(button("Delete", Msg::DataAskDelete).variant(Variant::Danger).size(14.0)),
+                Box::new(
+                    button("Clear", Msg::DataClearChecked)
+                        .variant(Variant::Secondary)
+                        .size(14.0),
+                ) as Box<dyn Widget<Msg>>,
+                Box::new(
+                    button("Delete", Msg::DataAskDelete)
+                        .variant(Variant::Danger)
+                        .size(14.0),
+                ),
             ]
         })
         .paginated(page, per, Msg::DataPage)
@@ -1653,10 +1763,11 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     if let Some((col, asc)) = app.data_sort {
         table = table.sorted(col, asc);
     }
-    let hint = text("Check rows for bulk actions; click a row to focus it; click a header to sort.")
-        .size(13.0)
-        .color(theme.muted)
-        .wrap();
+    let hint =
+        text("Check rows for bulk actions; click a row to focus it; click a header to sort.")
+            .size(13.0)
+            .color(theme.muted)
+            .wrap();
     // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données courantes.
     let detail = match app.data_selected.and_then(|i| people.get(i)) {
         Some((n, r, s, l)) => text(format!("Focused: {n} — {r} (score {s}, {l} priority)"))
@@ -1666,23 +1777,35 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         None => text("No row focused.").size(15.0).color(theme.muted).wrap(),
     };
     // Résumé de la sélection **groupée** (cases cochées).
-    let summary = text(format!("{} checked", app.data_checked.len())).size(13.0).color(theme.muted);
+    let summary = text(format!("{} checked", app.data_checked.len()))
+        .size(13.0)
+        .color(theme.muted);
     // La table (colonnes fixes ~610 px) dépasse la largeur du téléphone : région **défilable**
     // bornée (colonnes en X, lignes en Y) — pas un pan de page, un tableau scrollable façon Flutter.
     let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
     // `flex(1.0)` : le corps remplit la hauteur sous la barre, pour que la région de table s'étende
     // (sinon elle retombe à sa taille de base et laisse un grand vide dessous).
-    let body = column![table_area, detail, summary, hint].gap(16.0).padding(24.0).flex(1.0);
+    let body = column![table_area, detail, summary, hint]
+        .gap(16.0)
+        .padding(24.0)
+        .flex(1.0);
     let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
-    let content = Container::new().width(width).height(height).color(theme.background).child(screen);
+    let content = Container::new()
+        .width(width)
+        .height(height)
+        .color(theme.background)
+        .child(screen);
     // Confirmation avant suppression groupée (jalon 245) : une modale centrée, fermable au clic
     // extérieur/Échap (`dismiss`), superposée à l'écran.
     if app.data_confirm_delete {
         Box::new(
             Portal::new(content)
-                .overlay(data_confirm_content(app.data_checked.len()), Placement::Center)
+                .overlay(
+                    data_confirm_content(app.data_checked.len()),
+                    Placement::Center,
+                )
                 .dismiss(Msg::DataCancelDelete),
         )
     } else {
@@ -1706,7 +1829,9 @@ fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<Msg>> {
         row![
             text(label).size(14.0),
             Flex::row().flex(1.0),
-            button("×", Msg::KanbanDelete(col, pos)).variant(Variant::Danger).size(12.0),
+            button("×", Msg::KanbanDelete(col, pos))
+                .variant(Variant::Danger)
+                .size(12.0),
         ]
         .align(Align::Center)
         .gap(8.0),
@@ -1722,7 +1847,9 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
     // colonnes remplissent la hauteur du board (posé dans un ancêtre à hauteur définie — ici l'écran
     // borné et le Scroll horizontal ci-dessous) et chaque colonne défile ses cartes en `flex(1)`.
     // Plus besoin de calculer une hauteur (l'ancien stopgap `card_area_height`, jalon 264).
-    let mut board = Kanban::new(Msg::KanbanMove).on_add(Msg::KanbanAdd).scrollable_columns();
+    let mut board = Kanban::new(Msg::KanbanMove)
+        .on_add(Msg::KanbanAdd)
+        .scrollable_columns();
     for (c, title) in KANBAN_TITLES.iter().enumerate() {
         let cards = cols.get(c).cloned().unwrap_or_default();
         let factories: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = cards
@@ -1755,10 +1882,20 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
         .flex(1.0)
         .child(Container::new().padding(24.0).child(board));
     let hint_bar = Container::new().width(width).padding(24.0).child(hint);
-    let screen = column![NavBar::new("Kanban board").on_back(Msg::Pop), board_area, hint_bar]
-        .width(width)
-        .height(height);
-    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+    let screen = column![
+        NavBar::new("Kanban board").on_back(Msg::Pop),
+        board_area,
+        hint_bar
+    ]
+    .width(width)
+    .height(height);
+    Box::new(
+        Container::new()
+            .width(width)
+            .height(height)
+            .color(theme.background)
+            .child(screen),
+    )
 }
 
 /// Catégories (axe des abscisses) du tableau de bord graphique.
@@ -1771,8 +1908,18 @@ const CHART_SERIES: [(&str, [f32; 5]); 3] = [
 ];
 /// Couleurs des séries **additionnelles** (1.. ; la série 0 prend l'accent du thème).
 const CHART_COLORS: [Color; 2] = [
-    Color { r: 220.0 / 255.0, g: 120.0 / 255.0, b: 80.0 / 255.0, a: 1.0 },
-    Color { r: 90.0 / 255.0, g: 158.0 / 255.0, b: 242.0 / 255.0, a: 1.0 },
+    Color {
+        r: 220.0 / 255.0,
+        g: 120.0 / 255.0,
+        b: 80.0 / 255.0,
+        a: 1.0,
+    },
+    Color {
+        r: 90.0 / 255.0,
+        g: 158.0 / 255.0,
+        b: 242.0 / 255.0,
+        a: 1.0,
+    },
 ];
 
 /// Construit le graphique du tableau de bord selon `app.chart_kind` (jalon 219) : lignes (0), aires
@@ -1858,10 +2005,12 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     // légende du principal la masque **aussi** ici (jalon 220).
     let companion_kind = if app.chart_kind < 2 { 2 } else { 0 };
     let companion = dashboard_chart(app, companion_kind, 150.0, false);
-    let hint = text("Click a legend entry to toggle a series; click a point to pin it, or again to unpin.")
-        .size(13.0)
-        .color(theme.muted)
-        .wrap();
+    let hint = text(
+        "Click a legend entry to toggle a series; click a point to pin it, or again to unpin.",
+    )
+    .size(13.0)
+    .color(theme.muted)
+    .wrap();
     // Détail épinglé du dernier point cliqué (jalon 221).
     let pinned: Box<dyn Widget<Msg>> = match &app.chart_pin {
         Some(detail) => Box::new(Chip::new(detail.clone())),
@@ -1883,14 +2032,24 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
-    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+    Box::new(
+        Container::new()
+            .width(width)
+            .height(height)
+            .color(theme.background)
+            .child(screen),
+    )
 }
 
 /// Le formulaire de l'assistant : validation **pure** de l'état courant (jalons 180–181).
 /// L'ordre déclare `password` avant `confirm` (validation croisée `matches`).
 fn wizard_form(app: &TodoApp) -> Form {
     Form::new()
-        .field("name", app.wizard_name.as_str(), Rule::required("Name is required"))
+        .field(
+            "name",
+            app.wizard_name.as_str(),
+            Rule::required("Name is required"),
+        )
         .field(
             "email",
             app.wizard_email.as_str(),
@@ -1904,7 +2063,12 @@ fn wizard_form(app: &TodoApp) -> Form {
             app.wizard_pass.as_str(),
             Rule::min_len(8, "Password must be at least 8 characters"),
         )
-        .matches("confirm", app.wizard_confirm.as_str(), "password", "Passwords do not match")
+        .matches(
+            "confirm",
+            app.wizard_confirm.as_str(),
+            "password",
+            "Passwords do not match",
+        )
 }
 
 /// À quelle étape (0 = Account, 1 = Security) vit le champ `key` — pour que cliquer une puce du
@@ -1956,7 +2120,11 @@ fn wizard_input(
         .on_input(move |s| Msg::WizardInput(field, s));
     // `eye = Some(revealed)` : une icône œil **dans le champ** bascule le masquage (jalon 198).
     if let Some(revealed) = eye {
-        let icon = if revealed { IconName::EyeOff } else { IconName::Eye };
+        let icon = if revealed {
+            IconName::EyeOff
+        } else {
+            IconName::Eye
+        };
         input = input.suffix_icon(icon).on_suffix(Msg::WizardToggleReveal);
     }
     if submitted {
@@ -1993,8 +2161,28 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         0 => Box::new(
             Flex::column()
                 .gap(14.0)
-                .child(wizard_input(&form, submitted, "Full name", &app.wizard_name, "name", 0, false, None, field_w))
-                .child(wizard_input(&form, submitted, "Email", &app.wizard_email, "email", 1, false, None, field_w)),
+                .child(wizard_input(
+                    &form,
+                    submitted,
+                    "Full name",
+                    &app.wizard_name,
+                    "name",
+                    0,
+                    false,
+                    None,
+                    field_w,
+                ))
+                .child(wizard_input(
+                    &form,
+                    submitted,
+                    "Email",
+                    &app.wizard_email,
+                    "email",
+                    1,
+                    false,
+                    None,
+                    field_w,
+                )),
         ),
         1 => {
             // Mots de passe masqués sauf révélation : l'icône œil **dans le champ** bascule (198).
@@ -2033,15 +2221,26 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
             // le focalise (jalons 181 + 183 + focus programmatique).
             if submitted && !form.is_valid() {
                 let links = form.errors().into_iter().map(|(key, message)| {
-                    (message.to_string(), Msg::WizardFocus(wizard_step_of(key), wizard_field_of(key)))
+                    (
+                        message.to_string(),
+                        Msg::WizardFocus(wizard_step_of(key), wizard_field_of(key)),
+                    )
                 });
                 review = review.child(ErrorSummary::links(links));
             }
             review = review.child(
                 text(format!(
                     "Creating account for {} <{}>",
-                    if app.wizard_name.is_empty() { "—" } else { app.wizard_name.as_str() },
-                    if app.wizard_email.is_empty() { "—" } else { app.wizard_email.as_str() },
+                    if app.wizard_name.is_empty() {
+                        "—"
+                    } else {
+                        app.wizard_name.as_str()
+                    },
+                    if app.wizard_email.is_empty() {
+                        "—"
+                    } else {
+                        app.wizard_email.as_str()
+                    },
                 ))
                 .size(16.0)
                 .wrap(),
@@ -2053,7 +2252,11 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     // Barre de navigation : Précédent / Suivant, ou Créer sur la dernière étape.
     let mut nav = Flex::row().gap(12.0);
     if app.wizard_step > 0 {
-        nav = nav.child(button("Back", Msg::WizardBack).variant(Variant::Secondary).size(16.0));
+        nav = nav.child(
+            button("Back", Msg::WizardBack)
+                .variant(Variant::Secondary)
+                .size(16.0),
+        );
     }
     if app.wizard_step < 2 {
         // « Next » n'est actif qu'une fois l'étape courante valide (jalon 191 : Button désactivé).
@@ -2065,7 +2268,9 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         );
     } else {
         nav = nav.child(
-            button("Create account", Msg::WizardSubmit).variant(Variant::Primary).size(16.0),
+            button("Create account", Msg::WizardSubmit)
+                .variant(Variant::Primary)
+                .size(16.0),
         );
     }
 
@@ -2075,7 +2280,13 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     let screen = column![NavBar::new("Sign-up wizard").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
-    Box::new(Container::new().width(width).height(height).color(theme.background).child(screen))
+    Box::new(
+        Container::new()
+            .width(width)
+            .height(height)
+            .color(theme.background)
+            .child(screen),
+    )
 }
 
 /// Écran « Journal » : une **liste virtualisée** de 5000 lignes.
@@ -2131,7 +2342,9 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
             .gap(12.0),
             row![
                 text(format!("Volume: {volume_pct}%")).size(18.0),
-                Slider::new(app.volume).width(220.0).on_change(Msg::SetVolume),
+                Slider::new(app.volume)
+                    .width(220.0)
+                    .on_change(Msg::SetVolume),
             ]
             .align(Align::Center)
             .gap(12.0),
@@ -2235,19 +2448,23 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
 
     // Popover d'info (contenu libre, fermeture au clic extérieur).
     let info = Popover::new(
-        button("Info", Msg::ToggleInfo).variant(Variant::Secondary).size(15.0),
+        button("Info", Msg::ToggleInfo)
+            .variant(Variant::Secondary)
+            .size(15.0),
         app.info_open,
         Msg::ToggleInfo,
     )
-    .content(Card::new().padding(16.0).child(
-        column![
-            text("Popover").size(16.0),
-            text("An arbitrary floating panel; closes on outside click.")
-                .size(14.0)
-                .color(theme.muted),
-        ]
-        .gap(6.0),
-    ));
+    .content(
+        Card::new().padding(16.0).child(
+            column![
+                text("Popover").size(16.0),
+                text("An arbitrary floating panel; closes on outside click.")
+                    .size(14.0)
+                    .color(theme.muted),
+            ]
+            .gap(6.0),
+        ),
+    );
 
     // Autocomplétion : suggestions filtrées par la saisie (contrôlé).
     const TAGS: [&str; 5] = ["apple", "apricot", "banana", "blueberry", "cherry"];
@@ -2303,7 +2520,9 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .tab("Controls", controls)
         .tab("About", about);
     let content = column![
-        Breadcrumb::new(|_| Msg::Pop).crumb("Home").crumb("Settings"),
+        Breadcrumb::new(|_| Msg::Pop)
+            .crumb("Home")
+            .crumb("Settings"),
         row![tabs].justify(Justify::Center),
     ]
     .padding(20.0)
@@ -2325,7 +2544,11 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
 /// et suppression.
 fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     let id = todo.id;
-    let label_color = if todo.done { theme.muted } else { theme.on_surface };
+    let label_color = if todo.done {
+        theme.muted
+    } else {
+        theme.on_surface
+    };
     let mut label = text(todo.text.clone()).size(18.0).color(label_color);
     if todo.done {
         label = label.strikethrough();
@@ -2335,7 +2558,9 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
         label,
         spacer(),
-        button("×", Msg::DeleteTodo(id)).variant(Variant::Danger).size(15.0),
+        button("×", Msg::DeleteTodo(id))
+            .variant(Variant::Danger)
+            .size(15.0),
     ]
     .align(Align::Center)
     .gap(12.0);
@@ -2353,7 +2578,9 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
 fn data_confirm_content(count: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         column![
-            text("Delete selected rows?").size(22.0).weight(FontWeight::Medium),
+            text("Delete selected rows?")
+                .size(22.0)
+                .weight(FontWeight::Medium),
             text(format!("{count} row(s) will be removed.")).size(16.0),
             row![
                 button("Cancel", Msg::DataCancelDelete).variant(Variant::Secondary),
@@ -2370,7 +2597,9 @@ fn data_confirm_content(count: usize) -> Card<Msg> {
 fn confirm_content(done: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         column![
-            text("Clear completed tasks?").size(22.0).weight(FontWeight::Medium),
+            text("Clear completed tasks?")
+                .size(22.0)
+                .weight(FontWeight::Medium),
             text(format!("{done} task(s) will be removed.")).size(16.0),
             row![
                 button("Cancel", Msg::CancelClear).variant(Variant::Secondary),
@@ -2414,7 +2643,11 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     };
     let header = AppBar::new(section_title)
         .width(width)
-        .leading(button("☰", Msg::ToggleDrawer).variant(Variant::Secondary).size(16.0))
+        .leading(
+            button("☰", Msg::ToggleDrawer)
+                .variant(Variant::Secondary)
+                .size(16.0),
+        )
         .overflow(app.actions_open, Msg::ToggleActions)
         .action(timer_label, Msg::ToggleTimer)
         .action(theme_label, Msg::ToggleTheme)
@@ -2439,9 +2672,13 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .on_input(Msg::DraftChanged)
         .on_submit(Msg::AddTodo);
     if !app.draft.is_empty() {
-        draft_input = draft_input.suffix_icon(IconName::Close).on_suffix(Msg::ClearDraft);
+        draft_input = draft_input
+            .suffix_icon(IconName::Close)
+            .on_suffix(Msg::ClearDraft);
     }
-    let input_row = row![draft_input, button("Add", Msg::AddTodo)].align(Align::Center).gap(10.0);
+    let input_row = row![draft_input, button("Add", Msg::AddTodo)]
+        .align(Align::Center)
+        .gap(10.0);
 
     // Filtres : un contrôle segmenté (sélection unique).
     let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
@@ -2453,7 +2690,11 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let mut filters = row![segmented].align(Align::Center).gap(8.0);
     // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
     if app.filter != Filter::All {
-        let name = if app.filter == Filter::Active { "Active" } else { "Done" };
+        let name = if app.filter == Filter::Active {
+            "Active"
+        } else {
+            "Done"
+        };
         filters = filters
             .child(spacer())
             .child(Chip::new(name).on_remove(Msg::SetFilter(Filter::All)));
@@ -2473,7 +2714,10 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         shown += 1;
     }
     if shown == 0 {
-        list = column![text("Nothing to show for this filter.").size(18.0).italic().color(theme.muted)];
+        list = column![text("Nothing to show for this filter.")
+            .size(18.0)
+            .italic()
+            .color(theme.muted)];
     }
     // Responsivité **verticale** (Lot C) : en fenêtre courte, l'astuce est masquée
     // pour préserver la hauteur utile. Le défilement est assuré par le Scaffold.
@@ -2515,15 +2759,20 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     .height(20.0);
     let footer = row![
         summary,
-        button("Load", Msg::Load).variant(Variant::Secondary).size(15.0),
-        button("Save", Msg::Save).variant(Variant::Secondary).size(15.0),
+        button("Load", Msg::Load)
+            .variant(Variant::Secondary)
+            .size(15.0),
+        button("Save", Msg::Save)
+            .variant(Variant::Secondary)
+            .size(15.0),
         clear,
     ]
     .align(Align::Center)
     .gap(8.0);
 
     // Barre de progression de complétion (terminées / total).
-    let progress = ProgressBar::new(done as f32 / total as f32).width((card_width - 40.0).max(200.0));
+    let progress =
+        ProgressBar::new(done as f32 / total as f32).width((card_width - 40.0).max(200.0));
 
     // Carte de l'app, largeur responsive (Lot A), centrée en haut de l'écran.
     // Le corps est bâti de façon incrémentale pour omettre l'astuce si court.
@@ -2561,8 +2810,13 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                     inner.fill_rect(Rect::new(bounds.x + 30.0, bounds.y + 8.0, 32.0, 32.0), c);
                 });
             }));
-        card_body =
-            card_body.child(Scroll::new().axis(Axis::Horizontal).width(card_width).height(52.0).child(showcase));
+        card_body = card_body.child(
+            Scroll::new()
+                .axis(Axis::Horizontal)
+                .width(card_width)
+                .height(52.0)
+                .child(showcase),
+        );
     }
     // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —
     // sans clés, sa disparition (clavier ouvert → écran court) décale les ids
@@ -2597,7 +2851,11 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .badge(active as u32)
         .destination("▦", "Stats")
         .destination("★", "About")
-        .end_drawer(drawer_menu(app, theme, active), app.drawer_open, Msg::ToggleDrawer)
+        .end_drawer(
+            drawer_menu(app, theme, active),
+            app.drawer_open,
+            Msg::ToggleDrawer,
+        )
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 
@@ -2613,7 +2871,13 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             } else {
                 host.fade_in(0.25)
             };
-            Box::new(Stack::new().width(width).height(height).layer(scaffold).layer(host))
+            Box::new(
+                Stack::new()
+                    .width(width)
+                    .height(height)
+                    .layer(scaffold)
+                    .layer(host),
+            )
         }
         None => scaffold,
     }
@@ -2625,20 +2889,32 @@ fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
         Flex::column()
             .gap(12.0)
             .child(text("Quick actions").size(20.0).color(theme.on_surface))
-            .child(button("💾  Save", Msg::Save).variant(Variant::Primary).size(16.0))
+            .child(
+                button("💾  Save", Msg::Save)
+                    .variant(Variant::Primary)
+                    .size(16.0),
+            )
             .child(
                 button("🗑  Clear completed", Msg::AskClearDone)
                     .variant(Variant::Secondary)
                     .size(16.0),
             )
-            .child(button("Close", Msg::ToggleSheet).variant(Variant::Secondary).size(16.0)),
+            .child(
+                button("Close", Msg::ToggleSheet)
+                    .variant(Variant::Secondary)
+                    .size(16.0),
+            ),
     )
 }
 
 /// Contenu du tiroir de navigation : en-tête + destinations + réglages.
 fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
     let entry = |icon: &str, label: &str, index: usize| {
-        let variant = if app.section == index { Variant::Primary } else { Variant::Secondary };
+        let variant = if app.section == index {
+            Variant::Primary
+        } else {
+            Variant::Secondary
+        };
         button(format!("{icon}  {label}"), Msg::SetSection(index))
             .variant(variant)
             .size(16.0)
@@ -2652,8 +2928,12 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
             entry("▦", "Stats", 1),
             entry("★", "About", 2),
             Divider::new(),
-            text(format!("{active} task(s) pending")).size(14.0).color(theme.muted),
-            button("Settings →", Msg::Push(Route::Settings)).variant(Variant::Secondary).size(15.0),
+            text(format!("{active} task(s) pending"))
+                .size(14.0)
+                .color(theme.muted),
+            button("Settings →", Msg::Push(Route::Settings))
+                .variant(Variant::Secondary)
+                .size(15.0),
             button("Sign-up wizard →", Msg::Push(Route::Wizard))
                 .variant(Variant::Secondary)
                 .size(15.0),
@@ -2699,7 +2979,13 @@ fn demo_calendar(app: &TodoApp) -> Box<dyn Widget<Msg>> {
             Msg::NavMonth,
         ))
     } else {
-        Box::new(DatePicker::new(app.year, app.month, app.selected_day, Msg::PickDay, Msg::NavMonth))
+        Box::new(DatePicker::new(
+            app.year,
+            app.month,
+            app.selected_day,
+            Msg::PickDay,
+            Msg::NavMonth,
+        ))
     }
 }
 
@@ -2716,8 +3002,16 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
     // Panneau maître : la liste des métriques (sélection).
     let mut cats = Flex::column().gap(6.0);
     for (i, (label, _)) in metrics.iter().enumerate() {
-        let variant = if app.stat_sel == i { Variant::Primary } else { Variant::Secondary };
-        cats = cats.child(button(*label, Msg::SelectStat(i)).variant(variant).size(15.0));
+        let variant = if app.stat_sel == i {
+            Variant::Primary
+        } else {
+            Variant::Secondary
+        };
+        cats = cats.child(
+            button(*label, Msg::SelectStat(i))
+                .variant(variant)
+                .size(15.0),
+        );
     }
     let list = Card::new().padding(12.0).child(cats);
 
@@ -2726,13 +3020,18 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
     let mut detail_col = column![
         text(label).size(22.0),
         text(value.to_string()).size(44.0).color(theme.primary),
-        text("Detail for the selected metric.").size(14.0).color(theme.muted),
+        text("Detail for the selected metric.")
+            .size(14.0)
+            .color(theme.muted),
     ]
     .gap(10.0);
     // En panneau unique, un retour vers la liste.
     if class != SizeClass::Expanded {
-        detail_col = detail_col
-            .child(button("← Back", Msg::CloseDetail).variant(Variant::Secondary).size(15.0));
+        detail_col = detail_col.child(
+            button("← Back", Msg::CloseDetail)
+                .variant(Variant::Secondary)
+                .size(15.0),
+        );
     }
     let detail = Card::new().padding(20.0).child(detail_col);
 
@@ -2864,7 +3163,12 @@ mod tests {
         // La vue se construit sans paniquer avec des insets non nuls (chemin d'enrobage).
         let theme = Theme::dark();
         let tree = Application::view(&app, &theme, 400.0, 800.0);
-        let ui = build_ui(tree.as_ref(), Size::new(400.0, 800.0), &Runtime::default(), &theme);
+        let ui = build_ui(
+            tree.as_ref(),
+            Size::new(400.0, 800.0),
+            &Runtime::default(),
+            &theme,
+        );
         assert!(!ui.scene().primitives().is_empty());
     }
 
@@ -2949,14 +3253,20 @@ mod tests {
         assert!(primitive_count(&app) > 0, "l'écran assistant se rend");
 
         // Étape Account invalide au départ (empêche « Next », jalon 191/192).
-        assert!(!wizard_step_valid(&wizard_form(&app), 0), "Account invalide au départ");
+        assert!(
+            !wizard_step_valid(&wizard_form(&app), 0),
+            "Account invalide au départ"
+        );
 
         // Soumission vide → erreurs révélées, saut à l'étape Review (récapitulatif).
         reduce(&mut app, Msg::WizardSubmit);
         assert!(app.wizard_submitted);
         assert_eq!(app.wizard_step, 2);
         assert!(app.snackbars.is_empty());
-        assert!(primitive_count(&app) > 0, "le récapitulatif d'erreurs se rend");
+        assert!(
+            primitive_count(&app) > 0,
+            "le récapitulatif d'erreurs se rend"
+        );
 
         // Une puce du récapitulatif saute à l'étape du champ **et** demande son focus.
         let cmd = reduce(&mut app, Msg::WizardFocus(0, 1));
@@ -2966,14 +3276,20 @@ mod tests {
         // Remplir Account → l'étape devient valide.
         reduce(&mut app, Msg::WizardInput(0, "Ada".to_string()));
         reduce(&mut app, Msg::WizardInput(1, "ada@example.com".to_string()));
-        assert!(wizard_step_valid(&wizard_form(&app), 0), "Account valide une fois rempli");
+        assert!(
+            wizard_step_valid(&wizard_form(&app), 0),
+            "Account valide une fois rempli"
+        );
         // Remplir Security (mots de passe concordants).
         reduce(&mut app, Msg::WizardInput(2, "secret12".to_string()));
         reduce(&mut app, Msg::WizardInput(3, "secret12".to_string()));
         assert!(wizard_step_valid(&wizard_form(&app), 1), "Security valide");
         reduce(&mut app, Msg::WizardSubmit);
         // Succès : notification + assistant réinitialisé.
-        assert_eq!(app.snackbars.current().map(String::as_str), Some("Account created"));
+        assert_eq!(
+            app.snackbars.current().map(String::as_str),
+            Some("Account created")
+        );
         assert_eq!(app.wizard_step, 0);
         assert!(!app.wizard_submitted);
         assert!(app.wizard_name.is_empty() && app.wizard_email.is_empty());
@@ -2993,8 +3309,16 @@ mod tests {
     fn grid_edit_navigate_and_resize() {
         let mut app = TodoApp::default();
         app.grid = vec![
-            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
-            vec!["Alan".to_string(), "Crypto".to_string(), "b@x.com".to_string()],
+            vec![
+                "Ada".to_string(),
+                "Engineer".to_string(),
+                "a@x.com".to_string(),
+            ],
+            vec![
+                "Alan".to_string(),
+                "Crypto".to_string(),
+                "b@x.com".to_string(),
+            ],
         ];
         reduce(&mut app, Msg::Push(Route::Grid));
         assert_eq!(current_route(&app), Route::Grid);
@@ -3010,13 +3334,21 @@ mod tests {
         let last = app.grid.len() - 1;
         let before_enter = app.grid.len();
         let cmd = reduce(&mut app, Msg::GridEnter(last, 1));
-        assert_eq!(app.grid.len(), before_enter + 1, "Entrée sur la dernière ligne en crée une");
+        assert_eq!(
+            app.grid.len(),
+            before_enter + 1,
+            "Entrée sur la dernière ligne en crée une"
+        );
         assert!(!cmd.is_empty(), "et y place le focus");
         // Ajouter une ligne : une ligne vide en fin, focus sur sa 1re cellule.
         let before = app.grid.len();
         let cmd = reduce(&mut app, Msg::GridAddRow);
         assert_eq!(app.grid.len(), before + 1);
-        assert_eq!(app.grid[before], vec!["", "", ""], "nouvelle ligne vide (3 colonnes)");
+        assert_eq!(
+            app.grid[before],
+            vec!["", "", ""],
+            "nouvelle ligne vide (3 colonnes)"
+        );
         assert!(!cmd.is_empty(), "AddRow focalise la nouvelle ligne");
         // Supprimer une ligne.
         reduce(&mut app, Msg::GridDeleteRow(0));
@@ -3027,8 +3359,16 @@ mod tests {
     fn grid_sort_toggles_and_validates() {
         let mut app = TodoApp::default();
         app.grid = vec![
-            vec!["Charlie".to_string(), "QA".to_string(), "c@x.com".to_string()],
-            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec![
+                "Charlie".to_string(),
+                "QA".to_string(),
+                "c@x.com".to_string(),
+            ],
+            vec![
+                "Ada".to_string(),
+                "Engineer".to_string(),
+                "a@x.com".to_string(),
+            ],
             vec!["Bob".to_string(), "PM".to_string(), "b@x.com".to_string()],
         ];
         // Tri colonne 0 croissant, puis bascule décroissant.
@@ -3044,7 +3384,10 @@ mod tests {
         assert!(grid_cell_error(0, "Ada").is_none());
         assert_eq!(grid_cell_error(2, "not-an-email"), Some("Invalid email"));
         assert!(grid_cell_error(2, "a@x.com").is_none());
-        assert!(grid_cell_error(2, "").is_none(), "email vide toléré (pas encore saisi)");
+        assert!(
+            grid_cell_error(2, "").is_none(),
+            "email vide toléré (pas encore saisi)"
+        );
     }
 
     #[test]
@@ -3052,7 +3395,11 @@ mod tests {
         let mut app = TodoApp::default();
         // Une ligne valide, une avec un Name vide et un email malformé (2 erreurs).
         app.grid = vec![
-            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec![
+                "Ada".to_string(),
+                "Engineer".to_string(),
+                "a@x.com".to_string(),
+            ],
             vec!["".to_string(), "PM".to_string(), "nope".to_string()],
         ];
         assert_eq!(grid_error_count(&app.grid), 2);
@@ -3066,9 +3413,15 @@ mod tests {
         app.grid[1][0] = "Bob".to_string();
         app.grid[1][2] = "b@x.com".to_string();
         assert_eq!(grid_error_count(&app.grid), 0);
-        let mut app2 = TodoApp { grid: app.grid.clone(), ..TodoApp::default() };
+        let mut app2 = TodoApp {
+            grid: app.grid.clone(),
+            ..TodoApp::default()
+        };
         reduce(&mut app2, Msg::GridSave);
-        assert_eq!(app2.snackbars.current().map(String::as_str), Some("Grid saved"));
+        assert_eq!(
+            app2.snackbars.current().map(String::as_str),
+            Some("Grid saved")
+        );
     }
 
     #[test]
@@ -3076,16 +3429,26 @@ mod tests {
         let mut app = TodoApp::default();
         // Ligne 0 valide, ligne 1 : Name vide (colonne 0) = première faute attendue.
         app.grid = vec![
-            vec!["Ada".to_string(), "Engineer".to_string(), "a@x.com".to_string()],
+            vec![
+                "Ada".to_string(),
+                "Engineer".to_string(),
+                "a@x.com".to_string(),
+            ],
             vec!["".to_string(), "PM".to_string(), "nope".to_string()],
         ];
         assert_eq!(grid_first_error(&app.grid), Some((1, 0)));
-        assert!(!reduce(&mut app, Msg::GridFocusError).is_empty(), "focalise la cellule fautive");
+        assert!(
+            !reduce(&mut app, Msg::GridFocusError).is_empty(),
+            "focalise la cellule fautive"
+        );
         // Tout valide : plus de cible, aucune commande.
         app.grid[1][0] = "Bob".to_string();
         app.grid[1][2] = "b@x.com".to_string();
         assert_eq!(grid_first_error(&app.grid), None);
-        assert!(reduce(&mut app, Msg::GridFocusError).is_empty(), "rien à focaliser");
+        assert!(
+            reduce(&mut app, Msg::GridFocusError).is_empty(),
+            "rien à focaliser"
+        );
     }
 
     #[test]
@@ -3141,10 +3504,17 @@ mod tests {
         reduce(&mut app, Msg::SelectNode(6));
         assert_eq!(app.tree_selected, Some(6), "clic = noeud selectionne");
         reduce(&mut app, Msg::SelectNode(1));
-        assert_eq!(app.tree_selected, Some(1), "clic ailleurs = deplace la selection");
+        assert_eq!(
+            app.tree_selected,
+            Some(1),
+            "clic ailleurs = deplace la selection"
+        );
         reduce(&mut app, Msg::SelectNode(1));
         assert_eq!(app.tree_selected, None, "re-clic = deselection");
-        assert!(primitive_count(&app) > 0, "la vitrine se rend avec selection");
+        assert!(
+            primitive_count(&app) > 0,
+            "la vitrine se rend avec selection"
+        );
     }
 
     #[test]
@@ -3157,23 +3527,53 @@ mod tests {
         // apparait en tete de la 1.
         reduce(&mut app, Msg::KanbanMove(0, 0, 1, 0));
         let after = app.kanban_cols();
-        assert_eq!(after[0].len(), start[0].len() - 1, "la carte quitte la colonne source");
-        assert_eq!(after[1][0], "Design API", "la carte arrive en tete de la colonne cible");
-        assert!(!after[0].contains(&"Design API".to_string()), "plus dans la source");
+        assert_eq!(
+            after[0].len(),
+            start[0].len() - 1,
+            "la carte quitte la colonne source"
+        );
+        assert_eq!(
+            after[1][0], "Design API",
+            "la carte arrive en tete de la colonne cible"
+        );
+        assert!(
+            !after[0].contains(&"Design API".to_string()),
+            "plus dans la source"
+        );
         // Deplacement dans la MEME colonne : (1,0) vers la fin — le decalage d'index est gere.
         let doing_len = after[1].len();
         reduce(&mut app, Msg::KanbanMove(1, 0, 1, doing_len));
         let end = app.kanban_cols();
-        assert_eq!(end[1].len(), doing_len, "meme nombre de cartes (reordonne, pas duplique)");
-        assert_eq!(end[1].last().unwrap(), "Design API", "carte deplacee en fin de colonne");
+        assert_eq!(
+            end[1].len(),
+            doing_len,
+            "meme nombre de cartes (reordonne, pas duplique)"
+        );
+        assert_eq!(
+            end[1].last().unwrap(),
+            "Design API",
+            "carte deplacee en fin de colonne"
+        );
         assert!(primitive_count(&app) > 0, "le tableau se rend");
         // Ajout / suppression (jalon 249) : + Add card ajoute au bas ; × supprime la carte visee.
         let col0_len = app.kanban_cols()[0].len();
         reduce(&mut app, Msg::KanbanAdd(0));
-        assert_eq!(app.kanban_cols()[0].len(), col0_len + 1, "Add ajoute une carte");
-        assert_eq!(app.kanban_cols()[0].last().unwrap(), "New card", "ajoutee au bas de la colonne");
+        assert_eq!(
+            app.kanban_cols()[0].len(),
+            col0_len + 1,
+            "Add ajoute une carte"
+        );
+        assert_eq!(
+            app.kanban_cols()[0].last().unwrap(),
+            "New card",
+            "ajoutee au bas de la colonne"
+        );
         reduce(&mut app, Msg::KanbanDelete(0, 0));
-        assert_eq!(app.kanban_cols()[0].len(), col0_len, "Delete retire une carte");
+        assert_eq!(
+            app.kanban_cols()[0].len(),
+            col0_len,
+            "Delete retire une carte"
+        );
         assert!(primitive_count(&app) > 0, "se rend apres ajout/suppression");
     }
 
@@ -3209,10 +3609,21 @@ mod tests {
         reduce(&mut app, Msg::Push(Route::Charts));
         assert_eq!(app.chart_sel, None, "rien de selectionne au depart");
         reduce(&mut app, Msg::ChartPoint(3, 0));
-        assert_eq!(app.chart_sel, Some((3, 0)), "le point cliqué devient la selection");
+        assert_eq!(
+            app.chart_sel,
+            Some((3, 0)),
+            "le point cliqué devient la selection"
+        );
         reduce(&mut app, Msg::ChartPoint(1, 1));
-        assert_eq!(app.chart_sel, Some((1, 1)), "la selection suit le dernier clic");
-        assert!(primitive_count(&app) > 0, "l'ecran avec point mis en evidence se rend");
+        assert_eq!(
+            app.chart_sel,
+            Some((1, 1)),
+            "la selection suit le dernier clic"
+        );
+        assert!(
+            primitive_count(&app) > 0,
+            "l'ecran avec point mis en evidence se rend"
+        );
     }
 
     #[test]
@@ -3225,7 +3636,10 @@ mod tests {
         // Les deux types empilés (aires empilées kind 1, barres empilées kind 3) se rendent en 100 %.
         for k in [1usize, 3] {
             reduce(&mut app, Msg::SetChartKind(k));
-            assert!(primitive_count(&app) > 0, "le type empile {k} se rend en 100%");
+            assert!(
+                primitive_count(&app) > 0,
+                "le type empile {k} se rend en 100%"
+            );
         }
         reduce(&mut app, Msg::SetChartNormalized(false));
         assert!(!app.chart_normalized, "bascule desactivee");
@@ -3270,15 +3684,25 @@ mod tests {
         // Sélection de ligne : un clic sélectionne la ligne **source**, re-clic désélectionne.
         assert_eq!(app.data_selected, None, "aucune ligne au depart");
         reduce(&mut app, Msg::DataSelectRow(3));
-        assert_eq!(app.data_selected, Some(3), "clic = ligne source selectionnee");
+        assert_eq!(
+            app.data_selected,
+            Some(3),
+            "clic = ligne source selectionnee"
+        );
         reduce(&mut app, Msg::DataSelectRow(7));
-        assert_eq!(app.data_selected, Some(7), "clic ailleurs = deplace la selection");
+        assert_eq!(
+            app.data_selected,
+            Some(7),
+            "clic ailleurs = deplace la selection"
+        );
         reduce(&mut app, Msg::DataSelectRow(7));
         assert_eq!(app.data_selected, None, "re-clic = deselection");
         assert!(primitive_count(&app) > 0, "se rend avec detail de ligne");
         // Tri personnalisé de la colonne Level (index 3) : ordre semantique, pas alphabetique.
         assert_eq!(level_rank("Low"), 0);
-        assert!(level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High"));
+        assert!(
+            level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High")
+        );
         reduce(&mut app, Msg::DataSort(3));
         assert_eq!(app.data_sort, Some((3, true)), "tri de la colonne Level");
         assert!(primitive_count(&app) > 0, "se rend trie par priorite");
@@ -3289,9 +3713,16 @@ mod tests {
         reduce(&mut app, Msg::DataCheck(2));
         assert!(app.data_checked.is_empty(), "re-check = decoche");
         reduce(&mut app, Msg::DataCheckAll);
-        assert_eq!(app.data_checked.len(), DATA_PEOPLE.len(), "tout cocher = 12 lignes");
+        assert_eq!(
+            app.data_checked.len(),
+            DATA_PEOPLE.len(),
+            "tout cocher = 12 lignes"
+        );
         reduce(&mut app, Msg::DataCheckAll);
-        assert!(app.data_checked.is_empty(), "re-tout-cocher = tout decocher");
+        assert!(
+            app.data_checked.is_empty(),
+            "re-tout-cocher = tout decocher"
+        );
         assert!(primitive_count(&app) > 0, "se rend avec cases a cocher");
         // Recherche : la frappe met a jour le filtre et ramene a la page 1.
         reduce(&mut app, Msg::DataPage(2));
@@ -3312,7 +3743,11 @@ mod tests {
         // Confirmation (jalon 245) : Delete ouvre la modale ; Cancel ferme sans supprimer.
         reduce(&mut app, Msg::DataAskDelete);
         assert!(app.data_confirm_delete, "Delete ouvre la confirmation");
-        assert_eq!(app.data_rows().len(), before, "rien de supprime tant qu'on n'a pas confirme");
+        assert_eq!(
+            app.data_rows().len(),
+            before,
+            "rien de supprime tant qu'on n'a pas confirme"
+        );
         assert!(primitive_count(&app) > 0, "se rend avec la modale");
         reduce(&mut app, Msg::DataCancelDelete);
         assert!(!app.data_confirm_delete, "Cancel ferme la modale");
@@ -3321,7 +3756,11 @@ mod tests {
         reduce(&mut app, Msg::DataAskDelete);
         reduce(&mut app, Msg::DataDeleteChecked);
         assert!(!app.data_confirm_delete, "confirmer ferme la modale");
-        assert_eq!(app.data_rows().len(), before - 1, "Delete confirme retire la ligne cochee");
+        assert_eq!(
+            app.data_rows().len(),
+            before - 1,
+            "Delete confirme retire la ligne cochee"
+        );
         assert!(app.data_checked.is_empty(), "Delete vide la selection");
         assert_eq!(app.data_selected, None, "Delete remet le focus a zero");
         assert!(primitive_count(&app) > 0, "se rend apres suppression");
@@ -3333,7 +3772,10 @@ mod tests {
     #[test]
     fn calendar_weekdays_only_filters_weekends() {
         // Juillet 2026 : 4-5 = samedi/dimanche ; 6 = lundi.
-        assert!(is_weekend(2026, 7, 4) && is_weekend(2026, 7, 5), "4-5 juillet = week-end");
+        assert!(
+            is_weekend(2026, 7, 4) && is_weekend(2026, 7, 5),
+            "4-5 juillet = week-end"
+        );
         assert!(!is_weekend(2026, 7, 6), "6 juillet = lundi (ouvre)");
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Settings));
@@ -3356,9 +3798,15 @@ mod tests {
         assert_eq!(app.chart_hidden, vec![1]);
         // Lignes (compagnon = barres) puis barres (compagnon = lignes) : l'écran se rend des deux.
         reduce(&mut app, Msg::SetChartKind(0));
-        assert!(primitive_count(&app) > 0, "principal lignes + compagnon barres");
+        assert!(
+            primitive_count(&app) > 0,
+            "principal lignes + compagnon barres"
+        );
         reduce(&mut app, Msg::SetChartKind(2));
-        assert!(primitive_count(&app) > 0, "principal barres + compagnon lignes");
+        assert!(
+            primitive_count(&app) > 0,
+            "principal barres + compagnon lignes"
+        );
     }
 
     #[test]
@@ -3384,7 +3832,10 @@ mod tests {
         show_toast(&mut app, "A");
         show_toast(&mut app, "B");
         assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
-        assert!(!app.snackbars.is_leaving(), "affichée, pas encore en sortie");
+        assert!(
+            !app.snackbars.is_leaving(),
+            "affichée, pas encore en sortie"
+        );
         // Expiration → la tête passe **en sortie** (fondu) sans disparaître.
         reduce(&mut app, Msg::ToastExpire);
         assert!(app.snackbars.is_leaving());

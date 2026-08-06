@@ -114,7 +114,12 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
         } else {
             self.width
         };
-        Style { width, height, flex_grow: self.flex_grow, ..Default::default() }
+        Style {
+            width,
+            height,
+            flex_grow: self.flex_grow,
+            ..Default::default()
+        }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {

@@ -322,7 +322,10 @@ mod tests {
         layout.compute(root, Size::new(100.0, 600.0));
         let rects = layout.absolute_rects(root);
         let (text_rect, _) = rects[1];
-        assert!(text_rect.width <= 100.0, "replié à la largeur offerte : {text_rect:?}");
+        assert!(
+            text_rect.width <= 100.0,
+            "replié à la largeur offerte : {text_rect:?}"
+        );
         assert!(
             text_rect.height >= 60.0,
             "3 lignes attendues (250/100 → 3 × 20) : {text_rect:?}"

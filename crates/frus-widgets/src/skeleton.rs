@@ -99,7 +99,13 @@ mod tests {
         let mut status = Status::default();
         status.time = time;
         let mut scene = Scene::new();
-        Widget::<()>::paint(&sk, Rect::new(0.0, 0.0, 120.0, 16.0), status, &Theme::default(), &mut scene);
+        Widget::<()>::paint(
+            &sk,
+            Rect::new(0.0, 0.0, 120.0, 16.0),
+            status,
+            &Theme::default(),
+            &mut scene,
+        );
         match scene.primitives()[0] {
             Primitive::Rect { color, .. } => color.a,
             _ => panic!("attendu un rectangle"),

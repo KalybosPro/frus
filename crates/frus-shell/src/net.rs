@@ -172,7 +172,8 @@ impl Request {
     pub fn json_body<B: serde::Serialize>(mut self, body: &B) -> Self {
         match serde_json::to_string(body) {
             Ok(json) => {
-                self.headers.push(("Content-Type".to_string(), "application/json".to_string()));
+                self.headers
+                    .push(("Content-Type".to_string(), "application/json".to_string()));
                 self.body = Some(json);
             }
             Err(err) => self.error = Some(FetchError::Decode(err.to_string())),
@@ -214,7 +215,9 @@ impl Request {
             None => req.call(),
         };
         match result {
-            Ok(resp) => resp.into_string().map_err(|e| FetchError::Decode(e.to_string())),
+            Ok(resp) => resp
+                .into_string()
+                .map_err(|e| FetchError::Decode(e.to_string())),
             Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
             Err(e) => Err(FetchError::Network(e.to_string())),
         }
@@ -256,8 +259,8 @@ impl Request {
         // Timeout : un AbortController dont le signal est passé à la requête ; un
         // setTimeout déclenche `abort()` au-delà du délai.
         let controller = if self.timeout.is_some() {
-            let c =
-                web_sys::AbortController::new().map_err(|e| FetchError::Network(format!("{e:?}")))?;
+            let c = web_sys::AbortController::new()
+                .map_err(|e| FetchError::Network(format!("{e:?}")))?;
             init.set_signal(Some(&c.signal()));
             Some(c)
         } else {
@@ -299,7 +302,9 @@ impl Request {
         if !resp.ok() {
             return Err(FetchError::Status(resp.status()));
         }
-        let text_promise = resp.text().map_err(|e| FetchError::Decode(format!("{e:?}")))?;
+        let text_promise = resp
+            .text()
+            .map_err(|e| FetchError::Decode(format!("{e:?}")))?;
         let text = JsFuture::from(text_promise)
             .await
             .map_err(|e| FetchError::Decode(format!("{e:?}")))?;
@@ -328,8 +333,12 @@ mod tests {
     #[test]
     fn error_display_is_readable() {
         assert_eq!(FetchError::Status(404).to_string(), "HTTP status 404");
-        assert!(FetchError::Network("dns".into()).to_string().contains("dns"));
-        assert!(FetchError::Decode("utf8".into()).to_string().contains("utf8"));
+        assert!(FetchError::Network("dns".into())
+            .to_string()
+            .contains("dns"));
+        assert!(FetchError::Decode("utf8".into())
+            .to_string()
+            .contains("utf8"));
     }
 
     #[test]
@@ -396,6 +405,9 @@ mod tests {
         assert_eq!(ok, Point { x: 3, y: 4 });
 
         let bad = decode_json::<Point>("not json");
-        assert!(matches!(bad, Err(FetchError::Decode(_))), "corps illisible -> Decode");
+        assert!(
+            matches!(bad, Err(FetchError::Decode(_))),
+            "corps illisible -> Decode"
+        );
     }
 }

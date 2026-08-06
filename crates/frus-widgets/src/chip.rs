@@ -123,7 +123,12 @@ mod tests {
     #[test]
     fn removable_chip_emits_message_on_cross() {
         let chip = Chip::new("filtre").on_remove(Msg::Remove);
-        let ui = build_ui(&chip, Size::new(200.0, 40.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &chip,
+            Size::new(200.0, 40.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         // La croix est peinte…
         assert!(ui
             .scene()
@@ -133,7 +138,10 @@ mod tests {
         // …et un point sur sa zone (balayage) émet la suppression.
         let found = (0..40)
             .flat_map(|y| (0..200).map(move |x| (x, y)))
-            .filter_map(|(x, y)| ui.hit(P::new(x as f32, y as f32)).and_then(|id| ui.msg_for(id)))
+            .filter_map(|(x, y)| {
+                ui.hit(P::new(x as f32, y as f32))
+                    .and_then(|id| ui.msg_for(id))
+            })
             .next();
         assert_eq!(found, Some(Msg::Remove));
     }

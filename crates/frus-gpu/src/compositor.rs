@@ -147,7 +147,8 @@ struct CompositePainter {
 impl CompositePainter {
     /// Une vue du masque neutre (blanc opaque) — liée aux calques sans chemin.
     fn white_mask_view(&self) -> wgpu::TextureView {
-        self.white_mask.create_view(&wgpu::TextureViewDescriptor::default())
+        self.white_mask
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 }
 
@@ -290,7 +291,11 @@ impl CompositePainter {
             queue,
             &wgpu::TextureDescriptor {
                 label: Some("frus.composite.white_mask"),
-                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -317,8 +322,18 @@ impl CompositePainter {
     }
 
     /// Prépare le compositing des `layers` (instances + groupes de liaison).
-    fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, layers: &[LayerComposite], w: f32, h: f32) {
-        let viewport = Viewport { size: [w.max(1.0), h.max(1.0)], _pad: [0.0, 0.0] };
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layers: &[LayerComposite],
+        w: f32,
+        h: f32,
+    ) {
+        let viewport = Viewport {
+            size: [w.max(1.0), h.max(1.0)],
+            _pad: [0.0, 0.0],
+        };
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
 
         self.bind_groups.clear();
@@ -351,24 +366,25 @@ impl CompositePainter {
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
         for layer in layers {
-            self.bind_groups.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("frus.composite.texture.bind_group"),
-                layout: &self.texture_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&layer.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&layer.mask),
-                    },
-                ],
-            }));
+            self.bind_groups
+                .push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("frus.composite.texture.bind_group"),
+                    layout: &self.texture_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&layer.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&layer.mask),
+                        },
+                    ],
+                }));
         }
     }
 
@@ -468,7 +484,11 @@ impl Painters {
         if stale {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("frus.msaa.scratch"),
-                size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width: w.max(1),
+                    height: h.max(1),
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: self.sample_count,
                 dimension: wgpu::TextureDimension::D2,
@@ -476,11 +496,17 @@ impl Painters {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-            self.msaa = Some(MsaaScratch { width: w, height: h, format, texture });
+            self.msaa = Some(MsaaScratch {
+                width: w,
+                height: h,
+                format,
+                texture,
+            });
         }
-        self.msaa
-            .as_ref()
-            .map(|s| s.texture.create_view(&wgpu::TextureViewDescriptor::default()))
+        self.msaa.as_ref().map(|s| {
+            s.texture
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        })
     }
 
     fn set_viewport(&self, queue: &wgpu::Queue, w: f32, h: f32) {
@@ -514,7 +540,15 @@ impl Painters {
         let mut layers: Vec<LayerComposite> = Vec::new();
         let mut layer_index = 0usize;
         for primitive in scene.primitives() {
-            if let Primitive::Layer { primitives, opacity, clip, clip_shape, transform, .. } = primitive {
+            if let Primitive::Layer {
+                primitives,
+                opacity,
+                clip,
+                clip_shape,
+                transform,
+                ..
+            } = primitive
+            {
                 let view = self.layer_texture(device, queue, format, layer_index, primitives, w, h);
                 // Le fragment échantillonne à la position **contre-transformée** :
                 // on passe l'inverse (écran → texture). Identité si pas de transform.
@@ -551,7 +585,8 @@ impl Painters {
         // Oublie les calques disparus (la scène en a moins qu'à la frame passée).
         self.layer_cache.truncate(layer_index);
 
-        self.composite.prepare(device, queue, &layers, w as f32, h as f32);
+        self.composite
+            .prepare(device, queue, &layers, w as f32, h as f32);
         let decorations = self.text.prepare_frame(device, queue, scene, w, h);
         let rect_count = self.rect.prepare_frame(device, queue, scene, &decorations);
         let image_count = self.image.prepare_frame(device, queue, scene);
@@ -561,8 +596,9 @@ impl Painters {
         // `target` ; sans MSAA on peint directement dans `target`.
         let msaa_view = self.ensure_msaa(device, format, w, h);
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frus.encoder") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("frus.encoder"),
+        });
         {
             let load = match clear {
                 Some(c) => wgpu::LoadOp::Clear(c),
@@ -577,7 +613,10 @@ impl Painters {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target,
-                    ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load,
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -613,7 +652,12 @@ impl Painters {
         );
         if !hit {
             let texture = self.render_group(device, queue, format, primitives, w, h);
-            let entry = CachedLayer { primitives: primitives.to_vec(), width: w, height: h, texture };
+            let entry = CachedLayer {
+                primitives: primitives.to_vec(),
+                width: w,
+                height: h,
+                texture,
+            };
             if index < self.layer_cache.len() {
                 self.layer_cache[index] = entry;
             } else {
@@ -668,7 +712,11 @@ impl Painters {
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frus.layer.texture"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -687,8 +735,9 @@ impl Painters {
         // mono-échantillon (celle échantillonnée ensuite par le compositeur).
         let msaa_view = self.ensure_msaa(device, format, w, h);
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frus.layer.encoder") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("frus.layer.encoder"),
+        });
         {
             let (attachment, resolve_target) = match &msaa_view {
                 Some(msaa) => (msaa, Some(&view)),
@@ -721,18 +770,29 @@ impl Painters {
     /// **Échauffe** tous les pipelines en rendant une petite scène qui exerce
     /// chaque chemin de rendu (rectangle, image, chemin, texte, calque →
     /// composite) — la première vraie frame ne compile alors plus rien.
-    pub(crate) fn warm_up(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) {
+    pub(crate) fn warm_up(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+    ) {
         let mut scene = Scene::new();
         scene.fill_rect(Rect::new(0.0, 0.0, 2.0, 2.0), Color::WHITE);
         scene.fill_path(&Path::rect(Rect::new(0.0, 0.0, 2.0, 2.0)), Color::WHITE);
         let img = ImageData::from_rgba(1, 1, vec![255, 255, 255, 255]).into_handle();
         scene.image(&img, Rect::new(0.0, 0.0, 2.0, 2.0), BoxFit::Fill);
         scene.text(Point::new(0.0, 0.0), "x", 8.0, Color::WHITE);
-        scene.layer(0.5, |inner| inner.fill_rect(Rect::new(0.0, 0.0, 2.0, 2.0), Color::WHITE));
+        scene.layer(0.5, |inner| {
+            inner.fill_rect(Rect::new(0.0, 0.0, 2.0, 2.0), Color::WHITE)
+        });
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frus.warmup.texture"),
-            size: wgpu::Extent3d { width: 4, height: 4, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -741,7 +801,16 @@ impl Painters {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.render(device, queue, format, &view, 4, 4, &scene, Some(wgpu::Color::BLACK));
+        self.render(
+            device,
+            queue,
+            format,
+            &view,
+            4,
+            4,
+            &scene,
+            Some(wgpu::Color::BLACK),
+        );
     }
 }
 
@@ -774,7 +843,11 @@ mod tests {
     fn target(device: &wgpu::Device, format: wgpu::TextureFormat, n: u32) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frus.compositor.test.target"),
-            size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: n,
+                height: n,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -800,24 +873,39 @@ mod tests {
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let clear = Some(wgpu::Color::BLACK);
 
-        let red = |s: &mut Scene| s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(1.0, 0.0, 0.0));
+        let red =
+            |s: &mut Scene| s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(1.0, 0.0, 0.0));
         let mut scene = Scene::new();
         scene.layer(0.5, red);
 
         painters.render(&device, &queue, format, &view, 16, 16, &scene, clear);
         assert_eq!(painters.layer_render_count(), 1, "1re frame : calque rendu");
         painters.render(&device, &queue, format, &view, 16, 16, &scene, clear);
-        assert_eq!(painters.layer_render_count(), 1, "calque inchangé : texture réutilisée");
+        assert_eq!(
+            painters.layer_render_count(),
+            1,
+            "calque inchangé : texture réutilisée"
+        );
 
         // Contenu changé → re-render.
         let mut scene2 = Scene::new();
-        scene2.layer(0.5, |s| s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(0.0, 1.0, 0.0)));
+        scene2.layer(0.5, |s| {
+            s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(0.0, 1.0, 0.0))
+        });
         painters.render(&device, &queue, format, &view, 16, 16, &scene2, clear);
-        assert_eq!(painters.layer_render_count(), 2, "contenu changé : re-render");
+        assert_eq!(
+            painters.layer_render_count(),
+            2,
+            "contenu changé : re-render"
+        );
 
         // Calque disparu → cache purgé (aucune pré-passe).
         painters.render(&device, &queue, format, &view, 16, 16, &Scene::new(), clear);
-        assert_eq!(painters.layer_render_count(), 2, "plus de calque : rien à rendre");
+        assert_eq!(
+            painters.layer_render_count(),
+            2,
+            "plus de calque : rien à rendre"
+        );
         assert!(painters.layer_cache.is_empty(), "cache purgé");
     }
 }
