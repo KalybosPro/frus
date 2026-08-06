@@ -22,9 +22,9 @@ type Task<Msg> = Box<dyn FnOnce() -> Option<Msg> + Send + 'static>;
 /// En **natif**, elle traverse un thread (`block_on`) : bornée `Send`. Sur le **Web**
 /// (mono-thread), les futures du navigateur (`JsFuture`/`fetch`) ne sont **pas** `Send`
 /// et n'en ont pas besoin — d'où la borne relâchée.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(web))]
 type AsyncTask<Msg> = Pin<Box<dyn Future<Output = Option<Msg>> + Send + 'static>>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(web)]
 type AsyncTask<Msg> = Pin<Box<dyn Future<Output = Option<Msg>> + 'static>>;
 
 /// Un lot d'effets à exécuter (éventuellement vide) : des **tâches** de fond
@@ -90,7 +90,7 @@ impl<Msg: Send + 'static> Command<Msg> {
     /// elle est menée à terme sur un thread de fond (`block_on`) : idéale pour une future
     /// **autonome** (calcul, canal, minuterie pilotée) ; une E/S réseau réelle demande le
     /// runtime async de l'application (voir la note plateforme du module).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     pub fn perform_async<F>(future: F) -> Self
     where
         F: Future<Output = Msg> + Send + 'static,
@@ -104,7 +104,7 @@ impl<Msg: Send + 'static> Command<Msg> {
 
     /// Exécute une **future** asynchrone ; sa valeur devient un message. Voir la version
     /// native pour la sémantique complète (bornes `Send` relâchées sur le Web).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web)]
     pub fn perform_async<F>(future: F) -> Self
     where
         F: Future<Output = Msg> + 'static,
@@ -118,7 +118,7 @@ impl<Msg: Send + 'static> Command<Msg> {
 
     /// Exécute une **future** asynchrone à effet de bord ; elle peut renvoyer un message
     /// (`None` = aucun). Pendant asynchrone de [`Command::run`].
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     pub fn run_async<F>(future: F) -> Self
     where
         F: Future<Output = Option<Msg>> + Send + 'static,
@@ -128,7 +128,7 @@ impl<Msg: Send + 'static> Command<Msg> {
 
     /// Exécute une **future** asynchrone à effet de bord (`None` = aucun message). Version
     /// Web (borne `Send` relâchée).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web)]
     pub fn run_async<F>(future: F) -> Self
     where
         F: Future<Output = Option<Msg>> + 'static,
@@ -202,7 +202,7 @@ mod tests {
         assert_eq!(focus, vec![focus_key("email")]);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     #[test]
     fn perform_async_yields_a_message() {
         // La future est menée à terme (natif : `block_on`) et sa valeur devient un message.
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(produced, Some(7));
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     #[test]
     fn run_async_may_produce_nothing() {
         let command = Command::run_async(async { None::<u32> });
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(pollster::block_on(asyncs.remove(0)), None);
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     #[test]
     fn batch_combines_sync_and_async_tasks() {
         let command = Command::batch([

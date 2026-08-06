@@ -13,6 +13,11 @@ license.workspace = true
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 
+# Alias de `cfg` (`desktop` / `android` / `ios` / `web`) — voir `build.rs`. Déjà dans
+# l'arbre (winit s'en sert), donc aucune dépendance supplémentaire à télécharger.
+[build-dependencies]
+cfg_aliases = "0.2"
+
 [dependencies]
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
@@ -35,10 +40,15 @@ pollster.workspace = true
 # le corps de la future asynchrone (sur son thread dédié). TLS via rustls (défaut ureq).
 ureq = { version = "2", optional = true }
 
-# Bureau uniquement (ni Android ni Web) : presse-papier, logger console et
+# Bureau uniquement (ni Android, ni iOS, ni Web) : presse-papier, logger console et
 # accessibilité. (AccessKit expose l'arbre sémantique aux lecteurs d'écran natifs —
 # UIA Windows, AT-SPI Linux, macOS ; les providers Android et Web sont distincts.)
-[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
+#
+# iOS est exclu explicitement : `arboard` (presse-papier de bureau) et
+# `accesskit_winit` n'ont pas de backend UIKit, et stderr n'est pas lisible sur
+# appareil. Cargo n'évalue pas les alias de `build.rs` ici — d'où la liste écrite
+# en toutes lettres.
+[target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 arboard.workspace = true
 env_logger.workspace = true
 accesskit = "0.24"

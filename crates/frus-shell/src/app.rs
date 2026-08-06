@@ -7,7 +7,7 @@
 //! et l'horloge d'animation. L'application ne fournit que `update`/`view`/… .
 
 use std::collections::HashMap;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(web))]
 use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::Arc;
 
@@ -29,14 +29,16 @@ use winit::window::{CursorIcon, Window, WindowId};
 use crate::application::{Application, Lifecycle};
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
-/// Presse-papier : `arboard` sur les plateformes de bureau, no-op sur Android et Web
-/// (pas de dépendance `arboard`, qui ne s'y compile pas). Une API uniforme pour
-/// que le corps du pilote reste sans `cfg`.
+/// Presse-papier : `arboard` sur les plateformes de bureau, no-op **partout ailleurs**
+/// (Android, iOS, Web — `arboard` ne s'y compile pas et n'y est pas dépendance). Le
+/// stub est gaté sur `not(desktop)`, et non sur la liste des autres plateformes :
+/// c'est ce qui fait qu'ajouter une cible ne laisse jamais ce type indéfini.
+/// Une API uniforme, pour que le corps du pilote reste sans `cfg`.
 mod clip {
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    #[cfg(desktop)]
     pub struct Clipboard(Option<arboard::Clipboard>);
 
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    #[cfg(desktop)]
     impl Clipboard {
         pub fn new() -> Self {
             Self(arboard::Clipboard::new().ok())
@@ -51,10 +53,10 @@ mod clip {
         }
     }
 
-    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    #[cfg(not(desktop))]
     pub struct Clipboard;
 
-    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    #[cfg(not(desktop))]
     impl Clipboard {
         pub fn new() -> Self {
             Self
@@ -70,7 +72,7 @@ mod clip {
 /// natives. Un `setInterval` **retenu** ; son **drop** appelle `clearInterval` (et
 /// libère la closure). C'est ainsi qu'une souscription `every` ticke sur le Web, où
 /// il n'y a pas de thread de fond.
-#[cfg(target_arch = "wasm32")]
+#[cfg(web)]
 mod web_timer {
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::JsCast;
@@ -111,9 +113,9 @@ mod web_timer {
 /// Poignée d'annulation d'une souscription active : son **drop** l'arrête.
 /// - Natif : un `Sender<()>` — le thread de la souscription sort à son prochain réveil.
 /// - Web : un `setInterval` retenu (`None` si l'installation a échoué).
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(web))]
 type SubHandle = Sender<()>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(web)]
 type SubHandle = Option<web_timer::Interval>;
 
 /// Vitesse de défilement (pixels par cran de molette).
@@ -218,10 +220,10 @@ pub struct App<A: Application> {
     /// Renderer en cours d'initialisation **asynchrone** (Web uniquement) : rempli par
     /// la future `spawn_local`, récupéré à la première frame (le Web ne peut pas
     /// bloquer sur l'init GPU).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web)]
     pending_renderer: std::rc::Rc<std::cell::RefCell<Option<Renderer>>>,
     /// Pont accessibilité (AccessKit) de la fenêtre — bureau uniquement.
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    #[cfg(desktop)]
     a11y: Option<crate::a11y::A11y>,
     /// Dernière interface construite (hit-test, focus, scroll).
     ui: Option<Ui<A::Message>>,
@@ -275,7 +277,7 @@ pub struct App<A: Application> {
     /// Dernier message d'**annonce** poussé à la région live AccessKit (lecteur
     /// d'écran). Persiste tel quel : il n'est re-énoncé qu'au changement, si bien
     /// qu'un même texte reconduit chaque frame ne se répète pas. Bureau uniquement.
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    #[cfg(desktop)]
     announce: String,
     /// Reconnaisseur tap-ou-appui-long (palier 1 des gestes).
     press: PressRecognizer,
@@ -309,14 +311,14 @@ pub struct App<A: Application> {
     /// Poignée de l'activité Android (pour interroger les insets, le clavier…).
     /// État du **cycle de vie** courant — pour ne notifier l'app qu'aux **transitions** réelles.
     lifecycle: Lifecycle,
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     android_app: Option<winit::platform::android::activity::AndroidApp>,
     /// Le clavier logiciel est-il demandé ? (suit le focus des champs texte).
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     soft_input_shown: bool,
     /// Longueur (en caractères) de la **composition** IME en cours dans le
     /// champ focalisé — remplacée à chaque mise à jour de l'IME.
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     ime_composing: usize,
 }
 
@@ -328,9 +330,9 @@ impl<A: Application> App<A> {
             proxy,
             window: None,
             renderer: None,
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(web)]
             pending_renderer: std::rc::Rc::new(std::cell::RefCell::new(None)),
-            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            #[cfg(desktop)]
             a11y: None,
             ui: None,
             tree: None,
@@ -351,7 +353,7 @@ impl<A: Application> App<A> {
             drag: None,
             reorder_x: 0.0,
             reorder_y: 0.0,
-            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            #[cfg(desktop)]
             announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
@@ -367,18 +369,18 @@ impl<A: Application> App<A> {
             inset_baseline: None,
             // L'app démarre « détachée » ; `resumed` la passera à `Resumed`.
             lifecycle: Lifecycle::Detached,
-            #[cfg(target_os = "android")]
+            #[cfg(android)]
             android_app: None,
-            #[cfg(target_os = "android")]
+            #[cfg(android)]
             soft_input_shown: false,
-            #[cfg(target_os = "android")]
+            #[cfg(android)]
             ime_composing: 0,
         }
     }
 
     /// Rejoue les actions demandées par une technologie d'assistance : un clic
     /// AT active le widget (comme un clic pointeur), un focus AT le focalise.
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    #[cfg(desktop)]
     fn drain_a11y_actions(&mut self) {
         use crate::a11y::A11yAction;
         let actions = match self.a11y.as_ref() {
@@ -406,7 +408,7 @@ impl<A: Application> App<A> {
     /// focus est dans un champ texte (`cursor_at` → `Some`), refermé sinon.
     /// Appelé en fin de frame (tout changement de focus redessine déjà).
     fn sync_soft_input(&mut self) {
-        #[cfg(target_os = "android")]
+        #[cfg(android)]
         {
             let editing = self
                 .runtime
@@ -461,7 +463,7 @@ impl<A: Application> App<A> {
     /// jamais le clavier. Ici on rouvre inconditionnellement — comportement natif : taper dans un
     /// champ montre le clavier.
     fn request_soft_input(&mut self) {
-        #[cfg(target_os = "android")]
+        #[cfg(android)]
         {
             self.soft_input_shown = true;
             self.ime_composing = 0;
@@ -480,7 +482,7 @@ impl<A: Application> App<A> {
     /// La composition est matérialisée **dans le champ** : chaque mise à jour
     /// efface la précédente (le modèle contrôlé n'a pas encore de région de
     /// composition stylée — voir docs/jalon-81.md).
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     fn drain_ime(&mut self) {
         use crate::android_ime::ImeEvent;
         let events = crate::android_ime::drain();
@@ -549,7 +551,7 @@ impl<A: Application> App<A> {
 
     /// Publie l'état d'édition du champ `id` vers le pont (texte + curseur +
     /// sélection) — le contexte que l'IME lit pour ses suggestions.
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     fn push_ime_context(&self, id: WidgetId) {
         let value = self
             .tree
@@ -564,7 +566,7 @@ impl<A: Application> App<A> {
 
     /// Efface la composition courante du champ (curseur en fin de composition)
     /// et remet la plage soulignée à zéro.
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     fn clear_composing(&mut self, focused: WidgetId) {
         for _ in 0..self.ime_composing {
             self.apply_key(focused, Key::Backspace);
@@ -576,7 +578,7 @@ impl<A: Application> App<A> {
     }
 
     /// Mémorise la poignée de l'activité Android (source des insets système).
-    #[cfg(target_os = "android")]
+    #[cfg(android)]
     pub(crate) fn set_android_app(
         &mut self,
         android_app: winit::platform::android::activity::AndroidApp,
@@ -587,7 +589,7 @@ impl<A: Application> App<A> {
     /// Insets système (zone de sécurité) en px **logiques**. Sur Android, dérivés
     /// de la zone de contenu de l'activité (hors barres système) ; ailleurs, zéro.
     fn compute_insets(&self, phys_w: u32, phys_h: u32, scale: f32) -> Insets {
-        #[cfg(target_os = "android")]
+        #[cfg(android)]
         if let Some(app) = &self.android_app {
             let r = app.content_rect();
             // Rectangle dégénéré (avant la première mise en page) → pas d'inset.
@@ -618,7 +620,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             .with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
         // L'adaptateur AccessKit doit être créé **avant** que la fenêtre soit
         // montrée : on la crée cachée puis on la révèle après (bureau).
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        #[cfg(desktop)]
         {
             attributes = attributes.with_visible(false);
         }
@@ -626,7 +628,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }
         // Web : winit crée et **ajoute un `<canvas>`** au corps du document.
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(web)]
         {
             use winit::platform::web::WindowAttributesExtWebSys;
             attributes = attributes.with_append(true);
@@ -643,7 +645,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         // Web : l'init GPU est **asynchrone** (impossible de bloquer). On lance la
         // future ; le renderer prêt est récupéré à la première frame (voir
         // `RedrawRequested`). `init` s'exécute tout de suite (il ne touche pas le GPU).
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(web)]
         {
             self.scale = window.scale_factor() as f32;
             self.window = Some(window.clone());
@@ -669,7 +671,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             return;
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(web))]
         {
             let size = window.inner_size();
             let renderer = pollster::block_on(Renderer::new(
@@ -683,7 +685,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.scale = window.scale_factor() as f32;
                     // Pont accessibilité (AccessKit) — créé pendant que la fenêtre
                     // est encore cachée, puis on la révèle. Inerte sans lecteur d'écran.
-                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                    #[cfg(desktop)]
                     {
                         self.a11y = Some(crate::a11y::A11y::new(event_loop, &window));
                         window.set_visible(true);
@@ -750,11 +752,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         }
 
         // Opérations IME en attente (pont de saisie Android).
-        #[cfg(target_os = "android")]
+        #[cfg(android)]
         self.drain_ime();
 
         // Actions demandées par une technologie d'assistance (AccessKit).
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        #[cfg(desktop)]
         self.drain_a11y_actions();
 
         // Live-reload (dev) : binaire remplacé par une recompilation →
@@ -774,7 +776,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         event: WindowEvent,
     ) {
         // L'adaptateur AccessKit observe les événements fenêtre (focus, taille…).
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        #[cfg(desktop)]
         if let (Some(a11y), Some(window)) = (self.a11y.as_mut(), self.window.as_ref()) {
             a11y.process_event(window, &event);
         }
@@ -1114,7 +1116,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // l'InputConnection (file IME) — la view pont reçoit aussi les
                 // touches matérielles. Sans cette garde, chaque frappe
                 // arriverait en double (file native winit + pont).
-                #[cfg(target_os = "android")]
+                #[cfg(android)]
                 if crate::android_ime::installed() {
                     return;
                 }
@@ -1206,7 +1208,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             WindowEvent::RedrawRequested => {
                 // Web : récupère le renderer initialisé de façon asynchrone dès qu'il
                 // est prêt ; tant qu'il ne l'est pas, on ne peint pas.
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(web)]
                 if self.renderer.is_none() {
                     match self.pending_renderer.borrow_mut().take() {
                         Some(renderer) => self.renderer = Some(renderer),
@@ -1475,7 +1477,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.reconcile_focus();
 
                 // Publie l'arbre sémantique de la frame à AccessKit.
-                #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                #[cfg(desktop)]
                 if let Some(a11y) = self.a11y.as_mut() {
                     let focus = self.runtime.input.focused;
                     let title = self.app.title();
@@ -1933,11 +1935,11 @@ impl<A: Application> App<A> {
     /// Énonce un message à voix haute via la **région live** du lecteur d'écran
     /// (réordonnancement de colonne…). Sans lecteur d'écran actif, sans coût. Le
     /// texte n'est re-énoncé qu'au changement. Bureau uniquement (no-op ailleurs).
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    #[cfg(desktop)]
     fn set_announcement(&mut self, message: String) {
         self.announce = message;
     }
-    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+    #[cfg(not(desktop))]
     fn set_announcement(&mut self, _message: String) {}
 
     /// Retour du focus à la fermeture d'un overlay : si le widget focalisé a **disparu**
@@ -1981,13 +1983,13 @@ impl<A: Application> App<A> {
         self.pending_focus.extend(focus);
         for task in tasks {
             let proxy = self.proxy.clone();
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(web))]
             std::thread::spawn(move || {
                 if let Some(message) = task() {
                     let _ = proxy.send_event(message);
                 }
             });
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(web)]
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(message) = task() {
                     let _ = proxy.send_event(message);
@@ -1999,7 +2001,7 @@ impl<A: Application> App<A> {
             // Natif : la future est menée à terme sur son propre thread (`block_on`) —
             // les futures autonomes n'ont pas besoin d'un réacteur ; une E/S réseau
             // réelle s'appuie sur le runtime async de l'application.
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(web))]
             std::thread::spawn(move || {
                 if let Some(message) = pollster::block_on(future) {
                     let _ = proxy.send_event(message);
@@ -2007,7 +2009,7 @@ impl<A: Application> App<A> {
             });
             // Web : le navigateur pilote la future (mono-thread) — `fetch` &co. `await`
             // réellement, sans bloquer la boucle.
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(web)]
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(message) = future.await {
                     let _ = proxy.send_event(message);
@@ -2037,7 +2039,7 @@ impl<A: Application> App<A> {
 
     /// Démarre une souscription sur un thread de fond ; renvoie sa poignée
     /// d'annulation (drop du `Sender` → le thread sort au prochain réveil).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
         let proxy = self.proxy.clone();
@@ -2063,7 +2065,7 @@ impl<A: Application> App<A> {
     /// Démarre une souscription sur le **Web** : un `setInterval` navigateur (pas de
     /// thread). Renvoie sa poignée d'annulation (`clearInterval` au drop). Le proxy
     /// réinjecte le message dans la boucle à chaque tick.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web)]
     fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
         let proxy = self.proxy.clone();
         match kind {

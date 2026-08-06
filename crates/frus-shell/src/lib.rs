@@ -4,10 +4,14 @@
 //! `frus-gpu` et pilote la boucle `événement → frame` pour n'importe quelle
 //! [`Application`]. C'est la seule couche dépendante de la plateforme.
 
-// Accessibilité (AccessKit) : bureau uniquement (ni Android ni Web).
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+// Les alias `desktop` / `android` / `ios` / `web` viennent de `build.rs`. Ils ne
+// valent que pour **ce** crate : la macro `main!`, plus bas, s'expanse chez
+// l'utilisateur et garde donc des prédicats `target_os` / `target_arch` explicites.
+
+// Accessibilité (AccessKit) : bureau uniquement (ni Android, ni iOS, ni Web).
+#[cfg(desktop)]
 mod a11y;
-#[cfg(target_os = "android")]
+#[cfg(android)]
 mod android_ime;
 mod app;
 mod application;
@@ -37,7 +41,7 @@ pub use frus_widgets::{Orientation, SizeClass};
 
 /// Ré-export du type d'entrée Android (fourni par `winit`/`android-activity`),
 /// pour typer le `android_main` côté application sans dépendre de winit.
-#[cfg(target_os = "android")]
+#[cfg(android)]
 pub use winit::platform::android::activity::AndroidApp;
 
 /// Ré-exports **pour la macro [`main!`]** : l'application déclare son point d'entrée
@@ -52,9 +56,14 @@ pub use log;
 /// bibliothèque de l'app), elle engendre les points d'entrée de **chaque plateforme**,
 /// tous délégant à la **même** application :
 ///
-/// - **bureau** : une fonction `run()` (que le mince binaire de l'app appelle) ;
+/// - **bureau et iOS** : une fonction `run()` (que le mince binaire de l'app appelle) ;
 /// - **Android** : le symbole natif `android_main` attendu par l'activité ;
 /// - **Web** : la fonction `#[wasm_bindgen(start)]`.
+///
+/// Les `cfg` ci-dessous sont écrits en `target_os` / `target_arch` **explicites**, et non
+/// avec les alias `desktop`/`android`/`web` de `build.rs` : le corps d'une `macro_rules!`
+/// s'expanse dans le crate de l'**application**, où ces alias ne sont pas définis. Un
+/// `#[cfg(desktop)]` y serait toujours faux, et l'app n'aurait aucun point d'entrée.
 ///
 /// L'argument est une **expression** qui construit l'application (rappelée par
 /// plateforme, jamais partagée) :
@@ -68,8 +77,9 @@ pub use log;
 #[macro_export]
 macro_rules! main {
     ($app:expr $(,)?) => {
-        /// Point d'entrée **bureau** : ouvre la fenêtre et pilote la boucle (appelé par
-        /// le binaire mince de l'application). Engendré par [`frus_shell::main!`].
+        /// Point d'entrée **bureau et iOS** : ouvre la fenêtre et pilote la boucle
+        /// (appelé par le binaire mince de l'application, ou par le `main` du bundle
+        /// `.app` sur iOS). Engendré par [`frus_shell::main!`].
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         pub fn run() -> $crate::anyhow::Result<()> {
             $crate::run($app)
@@ -109,7 +119,7 @@ macro_rules! main {
 /// # }
 /// frus_shell::run(MyApp).unwrap();
 /// ```
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(desktop)]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     // `RUST_LOG=info` pour voir les logs (adaptateur GPU, etc.).
     env_logger::init();
@@ -135,7 +145,28 @@ pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
 /// (pas de blocage possible sur le Web), et la boucle est confiée au navigateur via
 /// `spawn_app` (qui ne rend jamais la main). Appelé depuis le point d'entrée
 /// `#[wasm_bindgen(start)]` de l'application.
-#[cfg(target_arch = "wasm32")]
+/// Lance une application sur **iOS**. Même forme que [`run`] — winit assure lui-même
+/// l'`UIApplicationMain` et `wgpu` sort sur Metal —, mais sans les trois services de
+/// bureau qui n'ont pas de backend UIKit : pas d'`env_logger` (stderr n'est pas lisible
+/// sur appareil), pas de presse-papier `arboard`, pas d'AccessKit.
+///
+/// La macro [`main!`] engendre le même `run()` que sur bureau : c'est le binaire du
+/// bundle `.app` qui l'appelle depuis son `main`.
+///
+/// **État : amorçage.** Le cycle de vie, les safe-area insets, l'IME et le clavier
+/// logiciel ne sont pas encore câblés — voir la ROADMAP.
+#[cfg(ios)]
+pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
+    let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+
+    let proxy = event_loop.create_proxy();
+    let mut app = App::new(app, proxy);
+    event_loop.run_app(&mut app)?;
+    Ok(())
+}
+
+#[cfg(web)]
 pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
     use winit::platform::web::EventLoopExtWebSys;
 
@@ -156,7 +187,7 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 
 /// Lance une application sur **Android** : l'activité native fournit l'[`AndroidApp`],
 /// à transmettre à la boucle winit. Point d'entrée appelé depuis `android_main`.
-#[cfg(target_os = "android")]
+#[cfg(android)]
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 

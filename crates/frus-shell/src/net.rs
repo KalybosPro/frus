@@ -197,7 +197,7 @@ impl Request {
     /// Exécute la requête et renvoie le corps de la réponse en texte.
     ///
     /// **Natif** : client `ureq` bloquant, exécuté dans la future.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(web))]
     pub async fn send(self) -> Result<String, FetchError> {
         if let Some(err) = self.error {
             return Err(err);
@@ -224,7 +224,7 @@ impl Request {
     ///
     /// **Web** : `window.fetch` ; le timeout est armé par un `AbortController` +
     /// `setTimeout`, désarmé dès la réponse reçue.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(web)]
     pub async fn send(self) -> Result<String, FetchError> {
         if let Some(err) = self.error {
             return Err(err);

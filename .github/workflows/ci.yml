@@ -1,0 +1,230 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Logic tests — no GPU, no window. This is the bulk of the suite and the gate
+  # that must stay green on every platform.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxkbcommon-x11-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Test (headless — everything except the GPU-backed crates)
+        run: cargo test --workspace --exclude frus-gpu --exclude frus-test
+
+      - name: Test with optional features (net + json)
+        run: cargo test -p frus --features json
+
+  # ---------------------------------------------------------------------------
+  # Golden / GPU tests — need a working Vulkan device. On CI that is lavapipe
+  # (software Vulkan), whose rasterization differs subtly from real hardware, so
+  # this job is advisory for now.
+  #
+  # TODO: once goldens are confirmed stable under lavapipe, drop
+  # `continue-on-error` and make this a required check.
+  # ---------------------------------------------------------------------------
+  gpu-test:
+    name: GPU & golden tests (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Vulkan (lavapipe) and windowing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mesa-vulkan-drivers vulkan-tools libvulkan-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+          vulkaninfo --summary || true
+
+      - name: Test
+        env:
+          WGPU_BACKEND: vulkan
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: cargo test -p frus-gpu -p frus-test
+
+      - name: Upload failed golden diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-diffs
+          path: "**/*.actual.png"
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Web target — must keep compiling for wasm32.
+  # ---------------------------------------------------------------------------
+  wasm:
+    name: Build wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build frus-hello for the web
+        run: cargo build -p frus-hello --target wasm32-unknown-unknown
+
+      - name: Build the network example for the web
+        run: cargo build -p frus-fetch-example --target wasm32-unknown-unknown
+
+  # ---------------------------------------------------------------------------
+  # Android target — compiles the shared library against the NDK preinstalled on
+  # the runner. Advisory while the NDK setup settles.
+  # ---------------------------------------------------------------------------
+  android:
+    name: Build Android (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+
+      - name: Build
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          cargo install cargo-apk --locked
+          cargo apk build -p frus-hello
+
+  # ---------------------------------------------------------------------------
+  # iOS target — bootstrapping. `frus-shell` gained explicit platform cfg aliases
+  # (`desktop` / `android` / `ios` / `web`, see its build.rs) so that iOS no longer
+  # falls into the desktop branch and inherits arboard, env_logger and AccessKit.
+  #
+  # This job is the feedback loop for that work: it compiles for the simulator and
+  # for a device, without code signing (a plain `cargo build` needs none).
+  #
+  # TODO: drop `continue-on-error` once the iOS shell actually runs — lifecycle,
+  # safe-area insets, IME and soft keyboard are not wired yet. See ROADMAP.md.
+  # ---------------------------------------------------------------------------
+  ios:
+    name: Build iOS (advisory)
+    runs-on: macos-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-ios-sim, aarch64-apple-ios]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build frus-hello for ${{ matrix.target }}
+        run: cargo build -p frus-hello --target ${{ matrix.target }}
+
+  # ---------------------------------------------------------------------------
+  # Style. Both are advisory today because the tree carries a pre-existing
+  # backlog (see ROADMAP.md → Quality). Clearing it and flipping these to
+  # blocking is a welcome first contribution.
+  #
+  # TODO: after a `cargo fmt --all` pass, drop `continue-on-error` from fmt.
+  # TODO: after the clippy backlog is cleared, drop it from clippy and add
+  #       `-- -D warnings`.
+  # ---------------------------------------------------------------------------
+  fmt:
+    name: rustfmt (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev
+      - run: cargo clippy --workspace --all-targets
+
+  # ---------------------------------------------------------------------------
+  # Docs must build. The strict pass (broken intra-doc links as errors) is
+  # advisory until the existing ~11 link warnings are cleared — see ROADMAP.md.
+  #
+  # TODO: once clean, fold the strict step into the blocking one.
+  # ---------------------------------------------------------------------------
+  docs:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps --all-features
+
+      - name: Strict pass — broken intra-doc links (advisory)
+        continue-on-error: true
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --all-features
