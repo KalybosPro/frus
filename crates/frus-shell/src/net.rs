@@ -33,6 +33,10 @@
 //!   le timeout est armé par un `AbortController` + `setTimeout`.
 //! - **Natif** : le client bloquant `ureq`, mené à terme dans le corps de la future (sur
 //!   le thread dédié de `perform_async` — bloquer ce thread est sans risque). TLS inclus.
+//!
+//! **JSON** (feature `json`) : [`Request::json_body`] poste une valeur `Serialize`, et
+//! [`Request::send_json`] désérialise la réponse en un `T: DeserializeOwned` — de quoi
+//! remonter un `RemoteData<T>` typé plutôt qu'un `RemoteData<String>` à re-parser.
 
 use std::fmt;
 use std::time::Duration;
@@ -100,12 +104,23 @@ pub struct Request {
     headers: Vec<(String, String)>,
     body: Option<String>,
     timeout: Option<Duration>,
+    /// Erreur **différée** posée par un constructeur faillible (ex. [`json_body`](Request::json_body)
+    /// si la sérialisation échoue). Surfacée telle quelle par [`send`](Request::send), pour que
+    /// le chaînage reste fluide (motif du builder de `reqwest`).
+    error: Option<FetchError>,
 }
 
 impl Request {
     /// Une requête pour `method` vers `url` (sans en-tête, corps ni timeout).
     pub fn new(method: Method, url: impl Into<String>) -> Self {
-        Self { method, url: url.into(), headers: Vec::new(), body: None, timeout: None }
+        Self {
+            method,
+            url: url.into(),
+            headers: Vec::new(),
+            body: None,
+            timeout: None,
+            error: None,
+        }
     }
 
     /// Raccourci : requête `GET`.
@@ -144,11 +159,49 @@ impl Request {
         self
     }
 
+    /// Sérialise `body` en **JSON** comme corps de la requête, et pose l'en-tête
+    /// `Content-Type: application/json` (feature `json`).
+    ///
+    /// Le chaînage reste fluide : une erreur de sérialisation (rare) est **différée** et
+    /// ressort à [`send`](Request::send) plutôt que de rompre l'appel.
+    ///
+    /// ```ignore
+    /// Request::post(url).json_body(&payload).send().await
+    /// ```
+    #[cfg(feature = "json")]
+    pub fn json_body<B: serde::Serialize>(mut self, body: &B) -> Self {
+        match serde_json::to_string(body) {
+            Ok(json) => {
+                self.headers.push(("Content-Type".to_string(), "application/json".to_string()));
+                self.body = Some(json);
+            }
+            Err(err) => self.error = Some(FetchError::Decode(err.to_string())),
+        }
+        self
+    }
+
+    /// Envoie la requête et **désérialise** la réponse JSON en `T` (feature `json`).
+    ///
+    /// Équivaut à [`send`](Request::send) suivi de `serde_json::from_str` ; un corps
+    /// illisible ou non conforme à `T` donne un [`FetchError::Decode`].
+    ///
+    /// ```ignore
+    /// let user: User = Request::get(url).send_json().await?;
+    /// ```
+    #[cfg(feature = "json")]
+    pub async fn send_json<T: serde::de::DeserializeOwned>(self) -> Result<T, FetchError> {
+        let body = self.send().await?;
+        decode_json(&body)
+    }
+
     /// Exécute la requête et renvoie le corps de la réponse en texte.
     ///
     /// **Natif** : client `ureq` bloquant, exécuté dans la future.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn send(self) -> Result<String, FetchError> {
+        if let Some(err) = self.error {
+            return Err(err);
+        }
         let mut req = ureq::request(self.method.as_str(), &self.url);
         for (name, value) in &self.headers {
             req = req.set(name, value);
@@ -173,6 +226,9 @@ impl Request {
     /// `setTimeout`, désarmé dès la réponse reçue.
     #[cfg(target_arch = "wasm32")]
     pub async fn send(self) -> Result<String, FetchError> {
+        if let Some(err) = self.error {
+            return Err(err);
+        }
         use wasm_bindgen::closure::Closure;
         use wasm_bindgen::{JsCast, JsValue};
         use wasm_bindgen_futures::JsFuture;
@@ -258,6 +314,13 @@ pub async fn fetch(url: impl Into<String>) -> Result<String, FetchError> {
     Request::get(url).send().await
 }
 
+/// Désérialise un corps JSON en `T`, une erreur de parsing devenant [`FetchError::Decode`].
+/// Isolé (et testé) à part de l'E/S réseau. Voir [`Request::send_json`].
+#[cfg(feature = "json")]
+fn decode_json<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, FetchError> {
+    serde_json::from_str(body).map_err(|err| FetchError::Decode(err.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +368,34 @@ mod tests {
         assert!(r.headers.is_empty());
         assert!(r.body.is_none());
         assert!(r.timeout.is_none());
+    }
+
+    #[cfg(feature = "json")]
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn json_body_serializes_and_sets_content_type() {
+        let r = Request::post("https://example.com").json_body(&Point { x: 1, y: 2 });
+        assert_eq!(r.body.as_deref(), Some(r#"{"x":1,"y":2}"#));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Content-Type" && v == "application/json"));
+        assert!(r.error.is_none());
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn decode_json_maps_valid_and_invalid_bodies() {
+        let ok: Point = decode_json(r#"{"x":3,"y":4}"#).expect("corps JSON valide");
+        assert_eq!(ok, Point { x: 3, y: 4 });
+
+        let bad = decode_json::<Point>("not json");
+        assert!(matches!(bad, Err(FetchError::Decode(_))), "corps illisible -> Decode");
     }
 }

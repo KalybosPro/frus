@@ -6,8 +6,10 @@ version.workspace = true
 license.workspace = true
 
 # La feature `net` propage le helper HTTP `fetch` de la couche shell (voir `frus::fetch`).
+# `json` (implique `net`) propage `Request::json_body` / `send_json` (JSON typé).
 [features]
 net = ["frus-shell/net"]
+json = ["frus-shell/json"]
 
 # La façade ne fait que ré-exporter : pas de `cdylib` propre. L'app reste `rlib` + `cdylib`.
 [dependencies]

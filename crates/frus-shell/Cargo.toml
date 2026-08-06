@@ -8,8 +8,10 @@ license.workspace = true
 # La feature `net` active le helper HTTP `fetch` cross-plateforme (client `ureq` en natif,
 # `fetch` du navigateur sur le Web). Désactivée par défaut : une app qui ne réseau pas
 # n'embarque ni ureq ni sa pile TLS.
+# La feature `json` (implique `net`) ajoute `Request::json_body` / `send_json` via serde.
 [features]
 net = ["dep:ureq"]
+json = ["net", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 frus-gpu = { path = "../frus-gpu" }
@@ -17,6 +19,10 @@ frus-widgets = { path = "../frus-widgets" }
 winit.workspace = true
 anyhow.workspace = true
 log.workspace = true
+# JSON typé du helper `fetch` (feature `json`) : sérialisation/désérialisation. Pur Rust,
+# donc valable sur les trois cibles (contrairement à ureq, natif seulement).
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 # Horloge monotone portable : `std::time` en natif, `performance.now()` sur le Web
 # (où `std::time::Instant` panique). Une seule API pour les trois plateformes.
 web-time = "1"
