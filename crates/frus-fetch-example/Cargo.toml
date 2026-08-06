@@ -1,0 +1,31 @@
+[package]
+name = "frus-fetch-example"
+description = "frus — exemple réseau : charger une API avec Command::perform_async + fetch (états chargement/erreur/donnée)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# **Une seule dépendance** — la façade `frus`, avec la feature `net` pour le helper `fetch`
+# / le constructeur `Request`. Rien d'autre à déclarer (hors wasm-bindgen pour le Web).
+frus = { path = "../frus", features = ["net"] }
+
+# Web (wasm) : la macro `frus::main!` engendre l'entrée `#[wasm_bindgen(start)]`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
+# --- Empaquetage Android (cargo-apk) ---
+[package.metadata.android]
+package = "com.frus.fetch"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.application]
+label = "frus fetch"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 34
