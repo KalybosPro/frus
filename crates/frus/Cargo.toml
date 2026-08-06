@@ -5,6 +5,10 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+# La feature `net` propage le helper HTTP `fetch` de la couche shell (voir `frus::fetch`).
+[features]
+net = ["frus-shell/net"]
+
 # La façade ne fait que ré-exporter : pas de `cdylib` propre. L'app reste `rlib` + `cdylib`.
 [dependencies]
 frus-shell = { path = "../frus-shell" }

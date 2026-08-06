@@ -37,3 +37,7 @@ pub use frus_shell::{anyhow, log};
 // les nomme donc explicitement — d'où `frus::main!`, `frus::column!`, `frus::row!`.
 pub use frus_shell::main;
 pub use frus_widgets::{column, row};
+
+// GET HTTP cross-plateforme (feature `net`) : `frus::fetch(url).await` — voir [`frus::net`].
+#[cfg(feature = "net")]
+pub use frus_shell::{fetch, net, FetchError};

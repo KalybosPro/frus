@@ -13,6 +13,9 @@ mod app;
 mod application;
 mod command;
 mod gesture;
+/// Helper HTTP `fetch` cross-plateforme (derrière la feature `net`).
+#[cfg(feature = "net")]
+pub mod net;
 mod reload;
 mod subscription;
 
@@ -20,6 +23,10 @@ pub use app::App;
 pub use application::{Application, Lifecycle};
 pub use command::Command;
 pub use subscription::Subscription;
+
+/// GET HTTP cross-plateforme et son erreur (feature `net`) — voir [`net::fetch`].
+#[cfg(feature = "net")]
+pub use net::{fetch, FetchError};
 
 /// Ré-export : paliers de taille et orientation, pour piloter la responsivité
 /// côté app.

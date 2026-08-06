@@ -5,6 +5,12 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+# La feature `net` active le helper HTTP `fetch` cross-plateforme (client `ureq` en natif,
+# `fetch` du navigateur sur le Web). Désactivée par défaut : une app qui ne réseau pas
+# n'embarque ni ureq ni sa pile TLS.
+[features]
+net = ["dep:ureq"]
+
 [dependencies]
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
@@ -19,6 +25,9 @@ web-time = "1"
 # asynchrone (voir `run_web`).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster.workspace = true
+# Client HTTP natif du helper `fetch` (feature `net`) : bloquant, mené à terme dans
+# le corps de la future asynchrone (sur son thread dédié). TLS via rustls (défaut ureq).
+ureq = { version = "2", optional = true }
 
 # Bureau uniquement (ni Android ni Web) : presse-papier, logger console et
 # accessibilité. (AccessKit expose l'arbre sémantique aux lecteurs d'écran natifs —
@@ -35,7 +44,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
 console_log = "1"
-web-sys = { version = "0.3", features = ["Document", "Window", "Element"] }
+web-sys = { version = "0.3", features = ["Document", "Window", "Element", "Response"] }
 
 # Sur Android, winit passe par l'activité native (android-activity) et les logs
 # vont dans logcat.
