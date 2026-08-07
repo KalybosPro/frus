@@ -28,7 +28,7 @@ pub struct CustomPaint<Msg> {
 }
 
 impl<Msg> CustomPaint<Msg> {
-    /// Une toile `width×height` peinte par `painter`.
+    /// A `width×height` canvas painted by `painter`.
     pub fn new(
         width: f32,
         height: f32,

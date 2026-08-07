@@ -62,21 +62,21 @@ impl<Msg> Scroll<Msg> {
         self
     }
 
-    /// Fixe la largeur du viewport, en pixels logiques.
+    /// Sets the viewport width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self.width_explicit = true;
         self
     }
 
-    /// Fixe la hauteur du viewport, en pixels logiques.
+    /// Sets the viewport height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self.height_explicit = true;
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self

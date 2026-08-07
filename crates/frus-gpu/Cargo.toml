@@ -11,7 +11,7 @@ frus-text = { path = "../frus-text" }
 wgpu.workspace = true
 glyphon.workspace = true
 bytemuck.workspace = true
-# Tessellation des chemins vectoriels (fill/stroke) → triangles GPU.
+# Vector path tessellation (fill/stroke) → GPU triangles.
 lyon.workspace = true
 anyhow.workspace = true
 log.workspace = true

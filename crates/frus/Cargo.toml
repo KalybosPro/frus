@@ -1,17 +1,17 @@
 [package]
 name = "frus"
-description = "frus — la façade : une seule dépendance pour écrire une application (shell + widgets + point d'entrée unique)."
+description = "frus — the facade: a single dependency to write an application (shell + widgets + one entry point)."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-# La feature `net` propage le helper HTTP `fetch` de la couche shell (voir `frus::fetch`).
-# `json` (implique `net`) propage `Request::json_body` / `send_json` (JSON typé).
+# The `net` feature forwards the shell layer's HTTP `fetch` helper (see `frus::fetch`).
+# `json` (implies `net`) forwards `Request::json_body` / `send_json` (typed JSON).
 [features]
 net = ["frus-shell/net"]
 json = ["frus-shell/json"]
 
-# La façade ne fait que ré-exporter : pas de `cdylib` propre. L'app reste `rlib` + `cdylib`.
+# The facade only re-exports: no `cdylib` of its own. The app stays `rlib` + `cdylib`.
 [dependencies]
 frus-shell = { path = "../frus-shell" }
 frus-widgets = { path = "../frus-widgets" }

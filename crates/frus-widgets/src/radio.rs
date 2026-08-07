@@ -10,7 +10,7 @@ use crate::widget::Widget;
 const DOT: f32 = 20.0;
 const GAP: f32 = 10.0;
 
-/// Une option de radio (usage interne au groupe).
+/// One radio option, internal to the group.
 struct RadioOption<Msg> {
     label: String,
     selected: bool,
@@ -88,7 +88,7 @@ impl<Msg: Clone + 'static> RadioGroup<Msg> {
         }
     }
 
-    /// Ajoute une option (dans l'ordre).
+    /// Adds an option, in order.
     pub fn option(mut self, label: impl Into<String>) -> Self {
         let index = self.options.len();
         let message = (self.on_select)(index);

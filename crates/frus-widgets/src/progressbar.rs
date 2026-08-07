@@ -7,7 +7,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Hauteur de la barre, en pixels logiques.
+/// Bar height, in logical pixels.
 const HEIGHT: f32 = 8.0;
 
 /// A progress bar: a track plus a fill proportional to `value`.
@@ -25,7 +25,7 @@ impl ProgressBar {
         }
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
@@ -56,7 +56,7 @@ impl<Msg> Widget<Msg> for ProgressBar {
             0.0,
             Color::TRANSPARENT,
         );
-        // Remplissage (au moins un rond quand > 0, jamais plus large que la piste).
+        // Fill (at least a dot when > 0, never wider than the track).
         let fill_w = (bounds.width * self.value).clamp(0.0, bounds.width);
         if fill_w > 0.0 {
             let w = fill_w.max(bounds.height).min(bounds.width);
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn value_is_clamped() {
-        // value > 1 → remplissage plein (= largeur de piste), pas plus.
+        // value > 1 → a full fill (= the track width), no more.
         let (_track, fill) = fill_and_track(2.0);
         assert_eq!(fill, 100.0);
         // value 0 → pas de primitive de remplissage.

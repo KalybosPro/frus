@@ -13,7 +13,7 @@ const DOTS: usize = 8;
 /// Tours par seconde.
 const SPEED: f32 = 1.1;
 
-/// Un indicateur de chargement circulaire (couronne de points qui tourne).
+/// A circular loading indicator: a ring of dots that spins.
 pub struct Spinner {
     size: f32,
 }

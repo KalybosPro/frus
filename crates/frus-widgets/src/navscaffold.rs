@@ -12,7 +12,7 @@ use crate::navrail::{BottomBar, NavRail};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Ossature de navigation adaptative (rail ↔ barre basse selon la taille).
+/// Adaptive navigation shell: a rail ↔ a bottom bar, depending on the size.
 pub struct NavScaffold<Msg> {
     compact: bool,
     selected: usize,
@@ -142,7 +142,7 @@ mod tests {
             Widget::<Msg>::style(&s).flex_direction,
             FlexDirection::Column
         );
-        // [corps, barre] : la navigation est le dernier enfant (en bas).
+        // [body, bar]: navigation is the last child, at the bottom.
         assert_eq!(Widget::<Msg>::children(&s).len(), 2);
     }
 
@@ -150,7 +150,7 @@ mod tests {
     fn expanded_puts_rail_first_then_body_in_a_row() {
         let s = scaffold(SizeClass::Expanded);
         assert_eq!(Widget::<Msg>::style(&s).flex_direction, FlexDirection::Row);
-        // Le rail (1er enfant) a une largeur fixe ; le corps prend le reste.
+        // The rail (1st child) has a fixed width; the body takes the rest.
         let children = Widget::<Msg>::children(&s);
         assert_eq!(
             Widget::<Msg>::style(&*children[0]).width,

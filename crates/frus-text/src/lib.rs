@@ -405,7 +405,7 @@ impl TextLayout {
             .lines
             .iter()
             .find(|line| point.y < line.top + line.height)
-            .unwrap_or(self.lines.last().expect("au moins une ligne"));
+            .unwrap_or(self.lines.last().expect("at least one line"));
 
         let mut best = 0;
         let mut best_dist = f32::MAX;
@@ -458,8 +458,8 @@ mod tests {
     #[test]
     fn non_empty_text_has_positive_size() {
         let size = measure("Bonjour", 24.0);
-        assert!(size.width > 0.0, "largeur = {}", size.width);
-        assert!(size.height > 0.0, "hauteur = {}", size.height);
+        assert!(size.width > 0.0, "width = {}", size.width);
+        assert!(size.height > 0.0, "height = {}", size.height);
     }
 
     #[test]
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn wrapped_text_grows_taller_within_the_width() {
-        let text = "un texte assez long pour se replier sur plusieurs lignes";
+        let text = "a text that is long enough to wrap onto several lines";
         let free = measure_wrapped(text, 16.0, FontWeight::Regular, false, None);
         let narrow = measure_wrapped(text, 16.0, FontWeight::Regular, false, Some(120.0));
         assert!(
@@ -501,7 +501,7 @@ mod tests {
             "wrapped within the width: {}",
             narrow.width
         );
-        assert!(narrow.height > free.height, "le repli grandit la hauteur");
+        assert!(narrow.height > free.height, "wrapping grows the height");
     }
 
     #[test]
@@ -552,7 +552,7 @@ mod tests {
         let layout = TextLayout::new("ab\ncd", 18.0, FontWeight::Regular, false);
         let first = layout.caret_rect(0);
         let second = layout.caret_rect(3);
-        assert!(second.y > first.y, "la 2e ligne est plus bas");
+        assert!(second.y > first.y, "the 2nd line sits lower");
         assert_eq!(second.x, 0.0, "second line starts at x = 0");
         // A hit on the second line gives second-line indices.
         let hit = layout.hit_test(Point::new(0.0, second.y + 1.0));
@@ -568,7 +568,7 @@ mod tests {
         let layout = TextLayout::wrapped(text, 18.0, FontWeight::Regular, false, Some(60.0));
         assert!(
             layout.size().height > line_height(18.0) * 2.0,
-            "plusieurs lignes visuelles"
+            "several visual lines"
         );
 
         // Each word's start: "aaaa"@0, "bbbb"@5, "cccc"@10, "dddd"@15 — each at x
@@ -594,7 +594,7 @@ mod tests {
         let layout = TextLayout::new("", 18.0, FontWeight::Regular, false);
         let caret = layout.caret_rect(0);
         assert_eq!(caret.x, 0.0);
-        assert!(caret.height > 0.0, "hauteur de ligne de repli");
+        assert!(caret.height > 0.0, "wrapped line height");
         assert_eq!(layout.hit_test(Point::new(50.0, 0.0)), 0);
     }
 

@@ -90,7 +90,7 @@ impl<Msg> Flex<Msg> {
         self
     }
 
-    /// Espacement entre enfants, en pixels logiques.
+    /// Spacing between children, in logical pixels.
     pub fn gap(mut self, gap: f32) -> Self {
         self.gap = gap;
         self

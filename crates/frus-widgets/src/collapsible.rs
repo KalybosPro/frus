@@ -60,7 +60,7 @@ impl<Msg: Clone> Widget<Msg> for Header<Msg> {
     }
 }
 
-/// Une section repliable.
+/// A collapsible section.
 pub struct Collapsible<Msg> {
     open: bool,
     /// Either `[header]` or `[header, content]`.

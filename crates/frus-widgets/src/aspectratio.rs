@@ -12,8 +12,8 @@ use crate::widget::Widget;
 /// column 100 wide, `AspectRatio::new(2.0)` gives a 100×50 box and
 /// `AspectRatio::new(0.5)` a 100×200 one.
 ///
-/// Le rapport suit la convention de Flutter (et de taffy) : `largeur / hauteur`
-/// — `2.0` est deux fois plus large que haut, `0.5` deux fois plus haut que large.
+/// The ratio follows the usual convention (taffy's included): `width / height`
+/// — `2.0` is twice as wide as it is tall, `0.5` twice as tall as it is wide.
 ///
 /// The child inherits the box: it stretches in height, along the cross axis, and
 /// fills the width if it grows (`flex`) — typically an image or a solid background.

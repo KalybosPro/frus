@@ -1,8 +1,8 @@
 //! [`Grid`]: a **grid** container of equal columns. Cells place themselves
 //! automatically, row by row, and the height follows the content.
 //!
-//! Contrairement aux composites, `Grid` est un **conteneur normal** : la
-//! disposition est faite par le moteur de layout (CSS Grid de taffy), donc
+//! Unlike the composites, `Grid` is a **plain container**: the layout is
+//! done by the layout engine (taffy's CSS Grid), so
 //! `cell()` n'est qu'un ajout d'enfant.
 
 use frus_core::{Rect, Scene};
@@ -35,25 +35,25 @@ impl<Msg> Grid<Msg> {
         }
     }
 
-    /// Espacement entre cellules (lignes et colonnes), en pixels logiques.
+    /// Spacing between cells (rows and columns), in logical pixels.
     pub fn gap(mut self, gap: f32) -> Self {
         self.gap = gap;
         self
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la hauteur, en pixels logiques.
+    /// Sets the height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
@@ -105,7 +105,7 @@ mod tests {
         let b = Color::rgb(0.0, 1.0, 0.0);
         let c = Color::rgb(0.0, 0.0, 1.0);
         let d = Color::rgb(1.0, 1.0, 0.0);
-        // Grille 2 colonnes : [a b] / [c d].
+        // A 2-column grid: [a b] / [c d].
         let grid = Grid::<()>::new(2)
             .gap(10.0)
             .width(220.0)

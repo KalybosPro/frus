@@ -52,17 +52,17 @@ impl<Msg> Responsive<Msg> {
         self
     }
 
-    /// Variante pour le palier `Compact` (< 600 px).
+    /// Variant for the `Compact` breakpoint (< 600 px).
     pub fn compact(self, widget: impl Widget<Msg> + 'static) -> Self {
         self.consider(SizeClass::Compact.rank(), widget)
     }
 
-    /// Variante pour le palier `Medium` (600–840 px).
+    /// Variant for the `Medium` breakpoint (600–840 px).
     pub fn medium(self, widget: impl Widget<Msg> + 'static) -> Self {
         self.consider(SizeClass::Medium.rank(), widget)
     }
 
-    /// Variante pour le palier `Expanded` (≥ 840 px).
+    /// Variant for the `Expanded` breakpoint (≥ 840 px).
     pub fn expanded(self, widget: impl Widget<Msg> + 'static) -> Self {
         self.consider(SizeClass::Expanded.rank(), widget)
     }
@@ -354,8 +354,8 @@ mod tests {
     use crate::Container;
     use frus_layout::Dimension;
 
-    /// Largeur de style de la variante choisie (chaque palier a une largeur
-    /// distincte pour l'identifier).
+    /// Style width of the chosen variant (each breakpoint gets a distinct
+    /// width so it can be identified).
     fn chosen_width(r: &Responsive<()>) -> Dimension {
         Widget::<()>::style(r).width
     }

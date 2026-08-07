@@ -808,7 +808,7 @@ mod tests {
             [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]
         };
 
-        assert_eq!(px(4, 4), [255, 0, 0, 255], "dans le clip → rouge");
+        assert_eq!(px(4, 4), [255, 0, 0, 255], "inside the clip → red");
         assert_eq!(px(SIZE / 2, SIZE / 2), [0, 0, 0, 255], "hors clip → fond");
     }
 }

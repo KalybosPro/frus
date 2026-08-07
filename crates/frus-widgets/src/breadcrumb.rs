@@ -77,7 +77,7 @@ impl<Msg: Clone + 'static> Breadcrumb<Msg> {
         }
     }
 
-    /// Ajoute un segment (au bout du chemin).
+    /// Adds a segment (at the end of the trail).
     pub fn crumb(mut self, label: impl Into<String>) -> Self {
         self.labels.push(label.into());
         self.rebuild();

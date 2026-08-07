@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn paints_circle_and_initials() {
-        let a = Avatar::new("Zoé");
+        let a = Avatar::new("Zoe");
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &a,

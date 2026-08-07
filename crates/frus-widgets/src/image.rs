@@ -101,7 +101,7 @@ mod tests {
                 assert_eq!(rect, Rect::new(30.0, 0.0, 40.0, 40.0));
                 assert_eq!(uv, Rect::new(0.0, 0.0, 1.0, 1.0));
             }
-            _ => panic!("attendu une image"),
+            _ => panic!("expected an image"),
         }
     }
 
@@ -116,7 +116,7 @@ mod tests {
                 assert_eq!(tint.r, 1.0);
                 assert_eq!(tint.g, 0.0);
             }
-            _ => panic!("attendu une image"),
+            _ => panic!("expected an image"),
         }
     }
 

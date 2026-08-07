@@ -328,7 +328,7 @@ mod tests {
         );
         assert!(
             text_rect.height >= 60.0,
-            "3 lignes attendues (250/100 → 3 × 20) : {text_rect:?}"
+            "3 lines expected (250/100 → 3 × 20): {text_rect:?}"
         );
     }
 

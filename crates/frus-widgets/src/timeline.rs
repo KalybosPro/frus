@@ -68,7 +68,7 @@ impl<Msg> Widget<Msg> for Event {
     }
 }
 
-/// Une chronologie verticale.
+/// A vertical chronology.
 pub struct Timeline<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }

@@ -1,12 +1,12 @@
 [package]
 name = "frus-demo"
-description = "frus — application exemple (liste de tâches), consommateur du framework"
+description = "frus — example application (task list), a consumer of the framework"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
-# Le binaire bureau est découvert automatiquement dans `src/bin/`.
+# Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
+# The desktop binary is discovered automatically in `src/bin/`.
 [lib]
 crate-type = ["rlib", "cdylib"]
 

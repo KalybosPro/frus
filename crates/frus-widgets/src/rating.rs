@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn filled_stars_match_value() {
-        // On distingue pleines/vides par la couleur peinte.
+        // Full and empty stars are told apart by the painted color.
         let rating = Rating::new(3, 5, Msg::Rate);
         let count_color = |filled_expected: bool| {
             let theme = Theme::default();

@@ -18,7 +18,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Construit son enfant depuis la taille disponible (`taille → widget`).
+/// Builds its child from the available size (`size → widget`).
 pub struct LayoutBuilder<Msg> {
     width: Dimension,
     height: Dimension,
@@ -38,19 +38,19 @@ impl<Msg> LayoutBuilder<Msg> {
         }
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la hauteur, en pixels logiques.
+    /// Sets the height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self

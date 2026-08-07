@@ -28,19 +28,19 @@ impl Skeleton {
         }
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la hauteur, en pixels logiques.
+    /// Sets the height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = height;
         self
     }
 
-    /// Fixe le rayon des coins.
+    /// Sets the corner radius.
     pub fn radius(mut self, radius: f32) -> Self {
         self.radius = radius;
         self

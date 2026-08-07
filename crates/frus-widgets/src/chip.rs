@@ -88,7 +88,7 @@ impl<Msg: Clone> Widget<Msg> for Chip<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Pastille (pilule) de fond, sous le contenu.
+        // Background pill, under the content.
         scene.draw_rect(
             bounds,
             theme.muted.fade(0.2 * o),

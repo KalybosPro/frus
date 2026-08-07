@@ -236,7 +236,7 @@ impl<T> Animatable for TweenSequence<T> {
             }
             acc += *w;
         }
-        unreachable!("le dernier segment attrape toujours")
+        unreachable!("the last segment always catches")
     }
 }
 

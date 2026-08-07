@@ -1,4 +1,4 @@
-//! [`Kbd`] : un capuchon de **touche clavier** (indice de raccourci).
+//! [`Kbd`]: a **keyboard key** cap, used as a shortcut hint.
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, Style};

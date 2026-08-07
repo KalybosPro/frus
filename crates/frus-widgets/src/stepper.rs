@@ -50,7 +50,7 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
         self
     }
 
-    /// (Re)construit les trois enfants selon la valeur / les bornes.
+    /// (Re)builds the three children from the value and the bounds.
     fn rebuild(&mut self) {
         let dec = (self.value - self.step).clamp(self.min, self.max);
         let inc = (self.value + self.step).clamp(self.min, self.max);

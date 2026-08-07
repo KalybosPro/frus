@@ -109,8 +109,8 @@ mod tests {
     #[test]
     fn shows_header_and_selected_panel() {
         let tabs = Tabs::new(1, Msg::Select)
-            .tab("Un", Text::new("panneau un"))
-            .tab("Deux", Text::new("panneau deux"))
+            .tab("One", Text::new("panel one"))
+            .tab("Two", Text::new("panel two"))
             .tab("Three", Text::new("panel three"));
         // [header, panel] — the panel is the selected tab's content, tab 1.
         let children = Widget::<Msg>::children(&tabs);

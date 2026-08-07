@@ -11,7 +11,7 @@ use crate::widget::Widget;
 
 const SWATCH: f32 = 30.0;
 
-/// Une pastille de couleur cliquable.
+/// A clickable color swatch.
 struct Swatch<Msg> {
     color: Color,
     selected: bool,
@@ -77,7 +77,7 @@ impl<Msg: Clone + 'static> ColorPicker<Msg> {
         }
     }
 
-    /// Ajoute une pastille de couleur.
+    /// Adds a color swatch.
     pub fn swatch(mut self, color: Color) -> Self {
         let selected = self.selected == Some(color);
         let message = (self.on_pick)(color);

@@ -15,7 +15,7 @@ const ROW_H: f32 = 38.0;
 const PAD_X: f32 = 12.0;
 const SIZE: f32 = 16.0;
 
-/// Une action du menu (ligne cliquable).
+/// One menu action, a clickable row.
 struct Item<Msg> {
     label: String,
     message: Msg,
@@ -91,7 +91,7 @@ impl<Msg: Clone + 'static> Menu<Msg> {
         self
     }
 
-    /// (Re)construit la liste flottante (enfant 1) depuis les items.
+    /// (Re)builds the floating list (child 1) from the items.
     fn rebuild(&mut self) {
         let mut list = Flex::column().gap(2.0);
         for (label, message) in &self.items {

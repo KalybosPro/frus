@@ -9,7 +9,7 @@ use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un popover : une ancre + un panneau flottant optionnel.
+/// A popover: an anchor plus an optional floating panel.
 pub struct Popover<Msg> {
     open: bool,
     /// `[ancre]` ou `[ancre, contenu]`.

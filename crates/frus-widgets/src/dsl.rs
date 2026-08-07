@@ -10,17 +10,17 @@ use crate::keyed::Keyed;
 use crate::text::Text;
 use crate::widget::Widget;
 
-/// Raccourci : un widget de texte. `text("Bonjour")` = `Text::new("Bonjour")`.
+/// Shorthand: a text widget. `text("Hello")` = `Text::new("Hello")`.
 pub fn text(content: impl Into<String>) -> Text {
     Text::new(content)
 }
 
-/// Raccourci : un **espaceur** flexible qui pousse ses voisins (`flex: 1`).
+/// Shorthand: a flexible **spacer** that pushes its neighbours apart (`flex: 1`).
 pub fn spacer<Msg>() -> Flex<Msg> {
     Flex::row().flex(1.0)
 }
 
-/// Raccourci : un bouton avec son message au clic.
+/// Shorthand: a button with its click message.
 /// `button("Ajouter", Msg::Add)` = `Button::new("Ajouter").on_press(Msg::Add)`.
 pub fn button<Msg>(label: impl Into<String>, on_press: Msg) -> Button<Msg> {
     Button::new(label).on_press(on_press)

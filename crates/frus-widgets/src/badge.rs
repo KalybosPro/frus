@@ -11,7 +11,7 @@ const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 2.0;
 const SIZE: f32 = 13.0;
 
-/// Une pastille compacte affichant un court texte.
+/// A compact pill showing a short text.
 pub struct Badge {
     text: String,
 }
@@ -76,7 +76,7 @@ mod tests {
             &Theme::default(),
             &mut scene,
         );
-        // Une pastille (rect) + le texte.
+        // A pill (rect) + the text.
         assert!(scene
             .primitives()
             .iter()

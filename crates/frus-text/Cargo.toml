@@ -1,6 +1,6 @@
 [package]
 name = "frus-text"
-description = "frus — shaping et mesure de texte (cosmic-text)"
+description = "frus — text shaping and measurement (cosmic-text)"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

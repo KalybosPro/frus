@@ -2896,7 +2896,7 @@ mod tests {
         // centred on the top edge (y=100) of a target 200 wide.
         let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, false);
         assert_eq!(line.x, 20.0, "aligned to the target's left");
-        assert_eq!(line.width, 200.0, "toute la largeur de la cible");
+        assert_eq!(line.width, 200.0, "the target's full width");
         assert_eq!(line.y, 98.0, "centred on the top edge (100 - 4/2)");
         assert_eq!(line.height, 4.0);
     }
@@ -2907,7 +2907,7 @@ mod tests {
         // **bottom** edge (y = 100 + 44 = 144, centred → 142). Same width, same thickness.
         let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, true);
         assert_eq!(line.x, 20.0, "still aligned to the left");
-        assert_eq!(line.width, 200.0, "toute la largeur de la cible");
+        assert_eq!(line.width, 200.0, "the target's full width");
         assert_eq!(line.y, 142.0, "centred on the bottom edge (144 - 4/2)");
         assert_eq!(line.height, 4.0);
     }

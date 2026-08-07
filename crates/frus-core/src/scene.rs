@@ -1185,7 +1185,7 @@ mod tests {
                 assert_eq!(*size, 36.0);
                 assert_eq!(text, "hi"); // text unchanged
             }
-            _ => panic!("attendu du texte"),
+            _ => panic!("expected text"),
         }
     }
 
