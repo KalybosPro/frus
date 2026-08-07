@@ -1,29 +1,29 @@
-//! [`TextStyle`] : les attributs typographiques d'un texte (taille, graisse,
-//! italique, couleur), indépendants du widget et du thème.
+//! [`TextStyle`]: the typographic attributes of a piece of text (size, weight,
+//! italic, colour), independent of any widget or theme.
 //!
-//! Un `TextStyle` est une valeur pure `Copy`. Sa `color` est optionnelle — `None`
-//! signifie « hérite » (le widget résout vers la couleur du thème au paint). Les
-//! échelles typographiques nommées (façon `TextTheme` Material) se composent à
-//! partir de ce type.
+//! A `TextStyle` is a pure `Copy` value. Its `color` is optional, and `None`
+//! means "inherit" — the widget resolves it to the theme colour at paint time.
+//! Named typographic scales, in the style of a Material `TextTheme`, are built
+//! out of this type.
 
 use crate::Color;
 
-/// Graisse de police (sous-ensemble utile, mappé sur les poids CSS/OpenType).
+/// Font weight — a useful subset, mapped onto the CSS/OpenType weights.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FontWeight {
-    /// 400 — normal.
+    /// 400 — regular.
     #[default]
     Regular,
     /// 500.
     Medium,
     /// 600.
     SemiBold,
-    /// 700 — gras.
+    /// 700 — bold.
     Bold,
 }
 
 impl FontWeight {
-    /// Poids numérique OpenType (400/500/600/700).
+    /// The numeric OpenType weight (400/500/600/700).
     pub fn to_u16(self) -> u16 {
         match self {
             FontWeight::Regular => 400,
@@ -34,49 +34,48 @@ impl FontWeight {
     }
 }
 
-/// Lignes de **décoration** d'un texte (combinables, façon Flutter
-/// `TextDecoration.combine`). Sans effet sur la mesure : la géométrie du texte
-/// ne change pas, les lignes sont dessinées par le backend à partir des
-/// métriques de la ligne de base.
+/// A text's **decoration** lines, which combine with one another. They have no
+/// effect on measurement: the text's geometry does not change, and the lines are
+/// drawn by the backend from the baseline metrics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextDecoration {
-    /// Soulignement (sous la ligne de base).
+    /// Underline, below the baseline.
     pub underline: bool,
-    /// Ligne au-dessus du texte.
+    /// A line above the text.
     pub overline: bool,
-    /// Texte barré (au milieu de la hauteur d'x).
+    /// Struck through, at the middle of the x-height.
     pub strikethrough: bool,
 }
 
 impl TextDecoration {
-    /// Aucune décoration.
+    /// No decoration at all.
     pub const NONE: Self = Self {
         underline: false,
         overline: false,
         strikethrough: false,
     };
-    /// Soulignement seul.
+    /// Underline only.
     pub const UNDERLINE: Self = Self {
         underline: true,
         ..Self::NONE
     };
-    /// Ligne au-dessus seule.
+    /// Overline only.
     pub const OVERLINE: Self = Self {
         overline: true,
         ..Self::NONE
     };
-    /// Barré seul.
+    /// Strikethrough only.
     pub const STRIKETHROUGH: Self = Self {
         strikethrough: true,
         ..Self::NONE
     };
 
-    /// `true` si aucune ligne n'est demandée.
+    /// `true` when no line at all is asked for.
     pub const fn is_none(self) -> bool {
         !self.underline && !self.overline && !self.strikethrough
     }
 
-    /// Combine deux décorations (union des lignes).
+    /// Combines two decorations — the union of their lines.
     pub const fn combine(self, other: Self) -> Self {
         Self {
             underline: self.underline || other.underline,
@@ -86,25 +85,25 @@ impl TextDecoration {
     }
 }
 
-/// Les attributs typographiques d'un texte sur une ligne.
+/// The typographic attributes of a single line of text.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextStyle {
-    /// Taille de police, en pixels logiques.
+    /// Font size, in logical pixels.
     pub size: f32,
-    /// Graisse.
+    /// Weight.
     pub weight: FontWeight,
-    /// Italique.
+    /// Italic.
     pub italic: bool,
-    /// Couleur explicite ; `None` = héritée (résolue par le widget au paint).
+    /// Explicit colour; `None` means inherited, resolved by the widget at paint.
     pub color: Option<Color>,
-    /// Lignes de décoration (soulignement, barré…).
+    /// Decoration lines (underline, strikethrough, and so on).
     pub decoration: TextDecoration,
-    /// Couleur des décorations ; `None` = la couleur du texte.
+    /// Decoration colour; `None` means the text's own colour.
     pub decoration_color: Option<Color>,
 }
 
 impl TextStyle {
-    /// Un style de taille `size`, graisse normale, couleur héritée.
+    /// A style of size `size`, regular weight, inherited colour.
     pub const fn new(size: f32) -> Self {
         Self {
             size,
@@ -116,57 +115,57 @@ impl TextStyle {
         }
     }
 
-    /// Fixe la graisse.
+    /// Sets the weight.
     pub const fn weight(mut self, weight: FontWeight) -> Self {
         self.weight = weight;
         self
     }
 
-    /// Passe en italique.
+    /// Switches to italic.
     pub const fn italic(mut self) -> Self {
         self.italic = true;
         self
     }
 
-    /// Fixe la taille.
+    /// Sets the size.
     pub const fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
     }
 
-    /// Fixe la couleur.
+    /// Sets the colour.
     pub const fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Fixe les lignes de décoration.
+    /// Sets the decoration lines.
     pub const fn decoration(mut self, decoration: TextDecoration) -> Self {
         self.decoration = decoration;
         self
     }
 
-    /// Ajoute un soulignement (combinable avec les autres décorations).
+    /// Adds an underline, combining with any other decoration.
     pub const fn underline(mut self) -> Self {
         self.decoration = self.decoration.combine(TextDecoration::UNDERLINE);
         self
     }
 
-    /// Ajoute un barré (combinable avec les autres décorations).
+    /// Adds a strikethrough, combining with any other decoration.
     pub const fn strikethrough(mut self) -> Self {
         self.decoration = self.decoration.combine(TextDecoration::STRIKETHROUGH);
         self
     }
 
-    /// Fixe la couleur des décorations (sinon celle du texte).
+    /// Sets the decoration colour; otherwise the text's colour is used.
     pub const fn decoration_color(mut self, color: Color) -> Self {
         self.decoration_color = Some(color);
         self
     }
 
-    /// **Fusionne** `over` par-dessus `self` : les attributs typographiques de
-    /// `over` l'emportent, et sa couleur **hérite** de `self` si elle est absente
-    /// (`None`). C'est la cascade (style de span > style par défaut > thème).
+    /// **Merges** `over` on top of `self`: `over`'s typographic attributes win,
+    /// and its colour **inherits** from `self` when absent (`None`). This is the
+    /// cascade: span style > default style > theme.
     pub fn merge(self, over: TextStyle) -> TextStyle {
         TextStyle {
             size: over.size,
@@ -179,8 +178,8 @@ impl TextStyle {
     }
 }
 
-/// Surcharges **partielles** d'un style (chaque champ absent hérite du parent).
-/// Interne : on la compose via les builders de [`TextSpan`].
+/// **Partial** style overrides — every absent field inherits from the parent.
+/// Internal: it is assembled through [`TextSpan`]'s builders.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Overrides {
     size: Option<f32>,
@@ -192,7 +191,7 @@ struct Overrides {
 }
 
 impl Overrides {
-    /// Applique les surcharges sur un style **résolu** hérité.
+    /// Applies the overrides on top of an inherited, **resolved** style.
     fn apply(self, base: TextStyle) -> TextStyle {
         TextStyle {
             size: self.size.unwrap_or(base.size),
@@ -205,9 +204,9 @@ impl Overrides {
     }
 }
 
-/// Un **arbre de texte riche** : chaque nœud porte un fragment de texte, des
-/// surcharges de style *partielles* (ce qui n'est pas précisé **hérite** du
-/// parent — un enfant `.bold()` garde la taille de son parent), et des enfants.
+/// A **rich-text tree**: each node carries a fragment of text, *partial* style
+/// overrides — whatever is unspecified **inherits** from the parent, so a
+/// `.bold()` child keeps its parent's size — and children of its own.
 ///
 /// ```
 /// # use frus_core::{TextSpan, TextStyle};
@@ -216,7 +215,7 @@ impl Overrides {
 ///     .child(TextSpan::new(" world"));
 /// let runs = span.flatten(TextStyle::new(20.0));
 /// assert_eq!(runs.len(), 3);
-/// assert_eq!(runs[1].1.size, 20.0); // l'enfant gras hérite de la taille
+/// assert_eq!(runs[1].1.size, 20.0); // the bold child inherits the size
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TextSpan {
@@ -226,7 +225,7 @@ pub struct TextSpan {
 }
 
 impl TextSpan {
-    /// Un fragment de texte sans surcharge (hérite tout du parent).
+    /// A text fragment with no overrides — it inherits everything.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -235,65 +234,65 @@ impl TextSpan {
         }
     }
 
-    /// Passe ce sous-arbre en gras.
+    /// Makes this subtree bold.
     pub fn bold(mut self) -> Self {
         self.overrides.weight = Some(FontWeight::Bold);
         self
     }
 
-    /// Fixe la graisse de ce sous-arbre.
+    /// Sets this subtree's weight.
     pub fn weight(mut self, weight: FontWeight) -> Self {
         self.overrides.weight = Some(weight);
         self
     }
 
-    /// Passe ce sous-arbre en italique.
+    /// Makes this subtree italic.
     pub fn italic(mut self) -> Self {
         self.overrides.italic = Some(true);
         self
     }
 
-    /// Fixe la taille de ce sous-arbre.
+    /// Sets this subtree's size.
     pub fn size(mut self, size: f32) -> Self {
         self.overrides.size = Some(size);
         self
     }
 
-    /// Fixe la couleur de ce sous-arbre.
+    /// Sets this subtree's colour.
     pub fn color(mut self, color: Color) -> Self {
         self.overrides.color = Some(color);
         self
     }
 
-    /// Souligne ce sous-arbre (combinable avec la décoration héritée déjà posée
-    /// sur ce nœud, pas avec celle du parent — comme Flutter).
+    /// Underlines this subtree. It combines with the decoration already set on
+    /// this node, but not with the parent's.
     pub fn underline(mut self) -> Self {
         let current = self.overrides.decoration.unwrap_or(TextDecoration::NONE);
         self.overrides.decoration = Some(current.combine(TextDecoration::UNDERLINE));
         self
     }
 
-    /// Barre ce sous-arbre.
+    /// Strikes through this subtree.
     pub fn strikethrough(mut self) -> Self {
         let current = self.overrides.decoration.unwrap_or(TextDecoration::NONE);
         self.overrides.decoration = Some(current.combine(TextDecoration::STRIKETHROUGH));
         self
     }
 
-    /// Fixe les lignes de décoration de ce sous-arbre.
+    /// Sets this subtree's decoration lines.
     pub fn decoration(mut self, decoration: TextDecoration) -> Self {
         self.overrides.decoration = Some(decoration);
         self
     }
 
-    /// Fixe la couleur des décorations de ce sous-arbre.
+    /// Sets this subtree's decoration colour.
     pub fn decoration_color(mut self, color: Color) -> Self {
         self.overrides.decoration_color = Some(color);
         self
     }
 
-    /// Applique un [`TextStyle`] complet comme surcharge (sa couleur ne surcharge
-    /// que si elle est précisée).
+    /// Applies a complete [`TextStyle`] as an override; its colour only overrides
+    /// when it is actually specified.
     pub fn style(mut self, style: TextStyle) -> Self {
         self.overrides = Overrides {
             size: Some(style.size),
@@ -306,25 +305,25 @@ impl TextSpan {
         self
     }
 
-    /// Ajoute un enfant (rendu après le texte propre de ce nœud).
+    /// Adds a child, rendered after this node's own text.
     pub fn child(mut self, child: TextSpan) -> Self {
         self.children.push(child);
         self
     }
 
-    /// Aplati l'arbre en **runs résolus** `(texte, style)`, dans l'ordre de
-    /// lecture, en cascadant les surcharges depuis `base` (le style par défaut du
-    /// paragraphe). Les nœuds sans texte propre ne produisent pas de run vide.
+    /// Flattens the tree into **resolved runs** `(text, style)`, in reading order,
+    /// cascading the overrides down from `base`, the paragraph's default style.
+    /// Nodes with no text of their own produce no empty run.
     pub fn flatten(&self, base: TextStyle) -> Vec<(String, TextStyle)> {
         let mut runs = Vec::new();
         self.collect(base, &mut runs);
         runs
     }
 
-    /// Mêle dans `hasher` tout ce qui influe sur la **mesure** de l'arbre :
-    /// textes, tailles, graisses, italiques (les couleurs et **décorations**,
-    /// sans effet sur la géométrie, sont exclues). Sert d'empreinte de mesure
-    /// (`measure_key`) sans avoir à aplatir l'arbre.
+    /// Mixes into `hasher` everything that affects the tree's **measurement**:
+    /// text, sizes, weights and italics. Colours and **decorations** are excluded,
+    /// having no effect on geometry. This serves as the measurement fingerprint
+    /// (`measure_key`) without having to flatten the tree.
     pub fn measure_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         use std::hash::Hash;
         self.text.hash(hasher);
@@ -348,8 +347,8 @@ impl TextSpan {
     }
 }
 
-/// Un run de texte **prêt à rendre** : fragment + attributs typographiques et
-/// couleur **résolus** (plus aucune héritage à trancher).
+/// A text run **ready to render**: a fragment plus its typographic attributes and
+/// colour, all **resolved** — nothing left to inherit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextRun {
     pub text: String,
@@ -357,9 +356,9 @@ pub struct TextRun {
     pub weight: FontWeight,
     pub italic: bool,
     pub color: Color,
-    /// Lignes de décoration du run (sans effet sur la mesure).
+    /// The run's decoration lines (no effect on measurement).
     pub decoration: TextDecoration,
-    /// Couleur des décorations ; `None` = la couleur du run.
+    /// Decoration colour; `None` means the run's own colour.
     pub decoration_color: Option<Color>,
 }
 
@@ -385,22 +384,22 @@ mod tests {
     #[test]
     fn merge_overrides_type_but_inherits_missing_colour() {
         let base = TextStyle::new(16.0).color(Color::WHITE);
-        // `over` change la taille/graisse mais ne précise pas de couleur.
+        // `over` changes size and weight but specifies no colour.
         let over = TextStyle::new(24.0).weight(FontWeight::Bold);
         let merged = base.merge(over);
         assert_eq!(merged.size, 24.0);
         assert_eq!(merged.weight, FontWeight::Bold);
         assert_eq!(merged.color, Some(Color::WHITE), "couleur héritée");
 
-        // Si `over` précise une couleur, elle gagne.
+        // When `over` does specify a colour, it wins.
         let over2 = TextStyle::new(24.0).color(Color::BLACK);
         assert_eq!(base.merge(over2).color, Some(Color::BLACK));
     }
 
     #[test]
     fn span_children_inherit_unspecified_attributes() {
-        // « Hello **bold** _red italic_ » : le gras hérite taille/couleur, l'italique
-        // rouge hérite taille/graisse.
+        // "Hello **bold** _red italic_": the bold part inherits size and colour, the
+        // red italic inherits size and weight.
         let span = TextSpan::new("Hello ")
             .child(TextSpan::new("bold").bold())
             .child(
@@ -434,7 +433,7 @@ mod tests {
 
     #[test]
     fn nested_spans_cascade_depth_first() {
-        // Un sous-arbre gras dont un petit-enfant repasse la taille à 12.
+        // A bold subtree in which a grandchild puts the size back to 12.
         let span = TextSpan::new("a").child(
             TextSpan::new("b")
                 .bold()
@@ -453,15 +452,16 @@ mod tests {
 
     #[test]
     fn decorations_combine_and_cascade() {
-        // Combinaison : soulignement + barré sur le même style.
+        // Combining: underline plus strikethrough on the same style.
         let s = TextStyle::new(16.0).underline().strikethrough();
         assert!(s.decoration.underline && s.decoration.strikethrough);
         assert!(!s.decoration.overline);
         assert!(!TextDecoration::UNDERLINE.is_none());
         assert!(TextDecoration::NONE.is_none());
 
-        // Cascade : l'enfant hérite la décoration du parent s'il ne précise
-        // rien, et `decoration(NONE)` explicite l'annule (Some(NONE) ≠ absent).
+        // Cascade: the child inherits the parent's decoration when it specifies
+        // nothing, and an explicit `decoration(NONE)` cancels it (Some(NONE) is not
+        // the same as absent).
         let span = TextSpan::new("a")
             .underline()
             .decoration_color(Color::rgb(1.0, 0.0, 0.0))
@@ -480,8 +480,8 @@ mod tests {
         );
         assert!(runs[2].1.decoration.is_none(), "annulée explicitement");
 
-        // merge : la décoration est un attribut de type (celle de `over` gagne),
-        // sa couleur hérite comme la couleur du texte.
+        // merge: decoration is a typographic attribute, so `over`'s wins, while its
+        // colour inherits the way the text colour does.
         let base = TextStyle::new(16.0)
             .underline()
             .decoration_color(Color::BLACK);
@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     fn empty_nodes_produce_no_run() {
-        // Un nœud « groupe » sans texte propre sert seulement à styler ses enfants.
+        // A "group" node with no text of its own only exists to style its children.
         let span = TextSpan::new("").bold().child(TextSpan::new("x"));
         let runs = span.flatten(TextStyle::new(16.0));
         assert_eq!(runs.len(), 1);
