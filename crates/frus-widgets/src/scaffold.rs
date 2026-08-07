@@ -1,23 +1,23 @@
-//! [`Scaffold`] : l'**ossature d'écran** de frus, calquée sur le `Scaffold` de
-//! Flutter — le coordinateur central de la structure Material.
+//! [`Scaffold`]: the **screen shell** of frus — the central coordinator of a
+//! Material screen structure.
 //!
-//! Le développeur déclare des **slots** (barre haute, corps, navigation, tiroir,
-//! FAB, feuille modale) ; le Scaffold les assemble correctement — **barre haute
-//! épinglée** en haut, **corps défilant** au milieu, **navigation adaptative**
-//! (barre basse en étroit, rail latéral en large), le tout **respectant la zone
-//! de sécurité** (insets système). Un seul code, sans brancher sur mobile/desktop.
+//! The developer declares **slots** (app bar, body, navigation, drawer, FAB, modal
+//! sheet); the Scaffold assembles them correctly — the **app bar pinned** at the
+//! top, a **scrolling body** in the middle, **adaptive navigation** (a bottom bar
+//! when narrow, a side rail when wide), all of it **respecting the safe area**
+//! (system insets). One piece of code, with no branching on mobile vs desktop.
 //!
 //! ```ignore
 //! Scaffold::new(width, height)
 //!     .insets(app.insets)
 //!     .background(theme.background)
-//!     .app_bar(appbar)                       // épinglé en haut
-//!     .body(content)                         // défile
+//!     .app_bar(appbar)                       // pinned at the top
+//!     .body(content)                         // scrolls
 //!     .nav(app.section, Msg::SetSection)     // navigation adaptative
 //!     .destination("✔", "Tasks").badge(3)
 //!     .destination("▦", "Stats")
 //!     .end_drawer(menu, app.drawer_open, Msg::ToggleDrawer)
-//!     .fab(button("＋", Msg::AddTodo))        // bouton d'action flottant
+//!     .fab(button("＋", Msg::AddTodo))        // floating action button
 //!     .bottom_sheet(sheet, app.sheet_open, Msg::ToggleSheet)
 //!     .build()
 //! ```
@@ -33,10 +33,10 @@ use crate::scroll::Scroll;
 use crate::stack::Stack;
 use crate::widget::Widget;
 
-/// Marge du FAB par rapport au bord (et à la barre basse).
+/// The FAB's margin from the edge, and from the bottom bar.
 const FAB_MARGIN: f32 = 16.0;
 
-/// Ossature d'écran adaptative. Constructeur fluide terminé par [`Scaffold::build`].
+/// An adaptive screen shell. A fluent builder finished by [`Scaffold::build`].
 pub struct Scaffold<Msg> {
     width: f32,
     height: f32,
@@ -53,8 +53,8 @@ pub struct Scaffold<Msg> {
 }
 
 impl<Msg: Clone + 'static> Scaffold<Msg> {
-    /// Crée une ossature pour une surface de `width × height` px logiques. La
-    /// classe de taille (rail vs barre basse) est déduite de la largeur.
+    /// Creates a shell for a `width × height` surface, in logical pixels. The size
+    /// class (rail vs bottom bar) is derived from the width.
     pub fn new(width: f32, height: f32) -> Self {
         Self {
             width,
@@ -72,45 +72,45 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         }
     }
 
-    /// Zone de sécurité (barres système) : le Scaffold en écarte les slots.
+    /// The safe area (system bars): the Scaffold keeps the slots clear of it.
     pub fn insets(mut self, insets: Insets) -> Self {
         self.insets = insets;
         self
     }
 
-    /// Couleur de fond, étendue bord à bord (y compris sous les barres système).
+    /// Background color, spread edge to edge, including under the system bars.
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
         self
     }
 
-    /// Barre d'application, épinglée en haut.
+    /// The application bar, pinned at the top.
     pub fn app_bar(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.app_bar = Some(Box::new(widget));
         self
     }
 
-    /// Corps de l'écran : il **défile** dans l'espace entre les barres.
+    /// The screen's body: it **scrolls** in the space between the bars.
     pub fn body(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.body = Some(Box::new(widget));
         self
     }
 
-    /// Active la navigation adaptative : `selected` = destination active,
-    /// `on_select(i)` émis au choix. Ajouter ensuite des [`Scaffold::destination`].
+    /// Enables adaptive navigation: `selected` = the active destination,
+    /// `on_select(i)` emitted on choice. Then add [`Scaffold::destination`]s.
     pub fn nav(mut self, selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         self.selected = selected;
         self.on_select = Some(Box::new(on_select));
         self
     }
 
-    /// Ajoute une destination de navigation (glyphe + libellé).
+    /// Adds a navigation destination (glyph + label).
     pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
         self.destinations.push((icon.into(), label.into(), None));
         self
     }
 
-    /// Compteur de notifications sur la **dernière** destination.
+    /// A notification count on the **last** destination.
     pub fn badge(mut self, count: u32) -> Self {
         if let Some(last) = self.destinations.last_mut() {
             last.2 = Some(count);
@@ -118,8 +118,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Tiroir latéral (bord droit), modal : `panel` = contenu, `open` = déployé,
-    /// `toggle` = message de bascule (bouton + clic sur le voile).
+    /// A modal side drawer (right edge): `panel` = the content, `open` = expanded,
+    /// `toggle` = the toggle message (the button, and a click on the scrim).
     pub fn end_drawer(
         mut self,
         panel: impl Widget<Msg> + 'static,
@@ -130,18 +130,18 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Bouton d'action flottant, ancré en bas-droite (au-dessus de la barre basse).
+    /// A floating action button, anchored bottom-right, above the bottom bar.
     ///
-    /// ⚠ **Expérimental** : le FAB est superposé via une couche `Stack` plein
-    /// écran ; or une telle couche supérieure **intercepte les clics** de la
-    /// moitié basse de l'écran (limite du hit-test des `Stack`). À corriger (overlay
-    /// non bloquant) avant usage réel — voir jalon 52c.
+    /// ⚠ **Experimental**: the FAB is overlaid through a full-screen `Stack` layer,
+    /// and such a top layer **intercepts the clicks** of the bottom half of the
+    /// screen (a limitation of `Stack` hit-testing). To be fixed (a non-blocking
+    /// overlay) before real use — see milestone 52c.
     pub fn fab(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.fab = Some(Box::new(widget));
         self
     }
 
-    /// Feuille modale glissant depuis le bas.
+    /// A modal sheet sliding up from the bottom.
     pub fn bottom_sheet(
         mut self,
         panel: impl Widget<Msg> + 'static,
@@ -152,7 +152,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Assemble l'ossature en un widget prêt à afficher.
+    /// Assembles the shell into a widget ready to display.
     pub fn build(self) -> Box<dyn Widget<Msg>> {
         let Scaffold {
             width,
@@ -174,10 +174,10 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         let has_nav = !destinations.is_empty();
         let body_widget = body.unwrap_or_else(|| Box::new(Container::new()));
 
-        // Navigation : barre basse (étroit) ou rail latéral (large).
+        // Navigation: a bottom bar (narrow) or a side rail (wide).
         let nav: Option<Box<dyn Widget<Msg>>> = if has_nav {
             let on_select =
-                on_select.expect("nav(selected, on_select) requis avec des destinations");
+                on_select.expect("nav(selected, on_select) is required with destinations");
             if compact {
                 let mut bar = BottomBar::new(selected, on_select);
                 for (icon, label, badge) in &destinations {
@@ -201,7 +201,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             None
         };
 
-        // Corps défilant, insets latéraux appliqués à son contenu.
+        // A scrolling body, with the side insets applied to its content.
         let scroll_body = Scroll::new().flex(1.0).child(inset_pad(
             body_widget,
             0.0,
@@ -210,7 +210,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             insets.left,
         ));
 
-        // Ossature épinglée : barre haute · corps · (barre basse | rail).
+        // The pinned shell: app bar · body · (bottom bar | rail).
         let main: Box<dyn Widget<Msg>> = if compact {
             let mut col = Flex::column().width(width).height(height);
             if let Some(bar) = app_bar {
@@ -235,7 +235,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             Box::new(row)
         };
 
-        // FAB ancré en bas-droite, au-dessus de la barre basse et de l'inset.
+        // The FAB anchored bottom-right, above the bottom bar and the inset.
         let mut content: Box<dyn Widget<Msg>> = main;
         if let Some(fab) = fab {
             let nav_h = if compact && has_nav { BAR_HEIGHT } else { 0.0 };
@@ -260,7 +260,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             );
         }
 
-        // Tiroir (modal) puis feuille modale enveloppent l'ossature (overlays).
+        // The modal drawer, then the modal sheet, wrap the shell as overlays.
         if let Some((panel, open, toggle)) = end_drawer {
             content = Box::new(
                 crate::Drawer::new(open)
@@ -279,7 +279,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             );
         }
 
-        // Fond plein-fenêtre (bord à bord) donnant une taille définie aux slots.
+        // A full-window background (edge to edge) giving the slots a definite size.
         Box::new(
             Container::new()
                 .width(width)
@@ -290,9 +290,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     }
 }
 
-/// Écarte un slot des barres système, **sans wrapper superflu** : si tous les
-/// insets sont nuls, renvoie le widget tel quel (préserve l'étirement du parent) ;
-/// sinon l'enveloppe d'un `Container` de padding.
+/// Keeps a slot clear of the system bars, **without a superfluous wrapper**: if
+/// all the insets are zero, returns the widget as is (preserving the parent's
+/// stretch); otherwise wraps it in a padding `Container`.
 fn inset_pad<Msg: Clone + 'static>(
     widget: Box<dyn Widget<Msg>>,
     top: f32,
@@ -311,8 +311,8 @@ fn inset_pad<Msg: Clone + 'static>(
     }
 }
 
-/// Un bouton d'action flottant conventionnel (rond, accent), à passer à
-/// [`Scaffold::fab`]. Sucre pour `button(label, msg)` stylé en primaire.
+/// A conventional floating action button (round, accent), to be passed to
+/// [`Scaffold::fab`]. Sugar for `button(label, msg)` styled as primary.
 pub fn fab_button<Msg: Clone + 'static>(
     label: impl Into<String>,
     message: Msg,
@@ -361,15 +361,15 @@ mod tests {
             );
             assert!(
                 !ui.scene().primitives().is_empty(),
-                "scène vide pour width={w}"
+                "empty scene for width={w}"
             );
         }
     }
 
     #[test]
     fn compact_pins_bottom_bar_near_the_bottom() {
-        // La barre basse est épinglée en bas : des primitives sont peintes dans la
-        // bande basse (y ≥ 700), au-dessus de l'inset bas (30), pas au milieu.
+        // The bottom bar is pinned at the bottom: primitives are painted in the low
+        // band (y ≥ 700), above the bottom inset (30), not in the middle.
         let s = scaffold(400.0, 800.0);
         let ui = build_ui(
             s.as_ref(),
@@ -385,9 +385,6 @@ mod tests {
             | frus_core::Primitive::Image { .. }
             | frus_core::Primitive::Layer { .. } => false,
         });
-        assert!(
-            pinned_low,
-            "la barre basse doit être épinglée dans la bande basse"
-        );
+        assert!(pinned_low, "the bottom bar must be pinned in the low band");
     }
 }

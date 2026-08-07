@@ -1,20 +1,19 @@
-//! L'**inspecteur runtime** (§13) — l'équivalent du Widget Inspector Flutter,
-//! palier 1 : contours de tous les widgets, surlignage + fiche d'infos du
-//! widget sous le curseur, et **dump texte indenté** de l'arbre (le
-//! `dump_deep` du §2).
+//! The **runtime inspector** (§13), tier 1: outlines around every widget, a
+//! highlight plus an info card for the widget under the cursor, and an
+//! **indented text dump** of the tree (the `dump_deep` of §2).
 //!
-//! La matière vient de [`crate::build_ui_inspected`] : un [`InspectorNode`]
-//! par widget peint, dans l'ordre de peinture (préfixe). Le calque se peint
-//! **par-dessus** la scène de l'app ([`paint_overlay`]) — le shell l'active à
-//! la demande (F12) sans toucher à l'app.
+//! The material comes from [`crate::build_ui_inspected`]: one [`InspectorNode`]
+//! per painted widget, in paint (prefix) order. The layer paints **on top of**
+//! the app's scene ([`paint_overlay`]) — the shell turns it on on demand (F12)
+//! without touching the app.
 
 use frus_core::{Color, Point, Rect, Scene, Size, TextStyle};
 
 use crate::interaction::WidgetId;
 use crate::theme::Theme;
 
-/// Un widget observé : son identité, sa boîte peinte, son nom court
-/// (`debug_name`) et sa profondeur dans l'arbre.
+/// One observed widget: its identity, its painted box, its short name
+/// (`debug_name`) and its depth in the tree.
 #[derive(Clone, Copy, Debug)]
 pub struct InspectorNode {
     pub id: WidgetId,
@@ -23,8 +22,8 @@ pub struct InspectorNode {
     pub depth: usize,
 }
 
-/// Le nœud que le survol désigne : le **plus profond** contenant `point`
-/// (à profondeur égale, le dernier peint — celui du dessus).
+/// The node the hover designates: the **deepest** one containing `point`
+/// (at equal depth, the last painted — the one on top).
 pub fn node_at(nodes: &[InspectorNode], point: Point) -> Option<&InspectorNode> {
     nodes
         .iter()
@@ -32,14 +31,15 @@ pub fn node_at(nodes: &[InspectorNode], point: Point) -> Option<&InspectorNode> 
         .max_by_key(|n| n.depth)
 }
 
-/// Identité **abrégée** (32 bits bas, 8 hex) — assez pour corréler fiche et
-/// dump sans noyer l'affichage sous 16 caractères.
+/// An **abbreviated** identity (low 32 bits, 8 hex) — enough to correlate the
+/// card with the dump without drowning the display under 16 characters.
 fn short_id(id: WidgetId) -> String {
     format!("#{:08x}", id.as_u64() as u32)
 }
 
-/// Dump texte **indenté** de l'arbre observé : une ligne par widget —
-/// `Nom  x,y  l×h  #id`. L'outil n°1 pour déboguer identité/réordonnancement.
+/// An **indented** text dump of the observed tree: one line per widget —
+/// `Name  x,y  w×h  #id`. The first tool to reach for when debugging identity
+/// or reordering.
 pub fn dump_tree(nodes: &[InspectorNode]) -> String {
     let mut out = String::new();
     for node in nodes {
@@ -59,7 +59,7 @@ pub fn dump_tree(nodes: &[InspectorNode]) -> String {
     out
 }
 
-/// Nuancier des contours, par profondeur (cycle).
+/// The outline palette, by depth (it cycles).
 const OUTLINE_COLORS: [Color; 4] = [
     Color {
         r: 0.35,
@@ -87,10 +87,10 @@ const OUTLINE_COLORS: [Color; 4] = [
     }, // violet
 ];
 
-/// Peint le calque inspecteur **par-dessus** une scène déjà construite :
-/// contours de chaque widget (teinte par profondeur), et si `hover` désigne un
-/// widget, surlignage + fiche (nom, taille, position, id) près du curseur,
-/// maintenue dans la fenêtre.
+/// Paints the inspector layer **on top of** an already built scene: an outline
+/// around every widget (tinted by depth) and, if `hover` designates a widget, a
+/// highlight plus a card (name, size, position, id) near the cursor, kept inside
+/// the window.
 pub fn paint_overlay(
     nodes: &[InspectorNode],
     hover: Option<Point>,
@@ -110,7 +110,7 @@ pub fn paint_overlay(
         return;
     };
 
-    // Surlignage du widget désigné : voile primaire + contour appuyé.
+    // Highlight for the designated widget: a primary scrim + a heavier outline.
     scene.draw_rect(
         target.rect,
         theme.primary.with_alpha(0.18),
@@ -119,7 +119,7 @@ pub fn paint_overlay(
         theme.primary,
     );
 
-    // Fiche d'infos, près du widget, bornée à la fenêtre.
+    // The info card, near the widget, clamped to the window.
     let r = target.rect;
     let title = target.name.to_string();
     let details = format!(
@@ -138,7 +138,7 @@ pub fn paint_overlay(
     const PAD: f32 = 8.0;
     let card_w = title_size.width.max(detail_size.width) + PAD * 2.0;
     let card_h = title_size.height + detail_size.height + PAD * 2.0;
-    // Sous le widget si la place le permet, sinon au-dessus ; bornée en X.
+    // Below the widget if there is room, otherwise above; clamped in x.
     let x = r.x.clamp(0.0, (window.width - card_w).max(0.0));
     let below = r.y + r.height + 4.0;
     let y = if below + card_h <= window.height {
@@ -171,8 +171,8 @@ mod tests {
     use crate::widget::Widget;
     use crate::{build_ui_inspected, Container, Flex, Runtime, Text};
 
-    /// Un petit arbre : la collecte couvre chaque widget, avec les bons noms
-    /// (types concrets, wrappers transparents) et les bonnes profondeurs.
+    /// A small tree: collection covers every widget, with the right names
+    /// (concrete types, transparent wrappers) and the right depths.
     #[test]
     fn collects_names_rects_and_depths() {
         let root: Container<()> = Container::new().width(200.0).height(100.0).child(
@@ -195,14 +195,14 @@ mod tests {
         assert_eq!(
             nodes[0].rect,
             Rect::new(0.0, 0.0, 200.0, 100.0),
-            "racine = sa boîte"
+            "the root = its box"
         );
-        // Sans inspection : build_ui ne collecte rien (chemin normal inchangé).
+        // Without inspection: build_ui collects nothing (the normal path is unchanged).
         let ui = crate::build_ui(&root, Size::new(200.0, 100.0), &runtime, &theme);
         assert!(!ui.scene().is_empty());
     }
 
-    /// Le survol désigne le widget le **plus profond** sous le point.
+    /// Hovering designates the **deepest** widget under the point.
     #[test]
     fn node_at_picks_the_deepest() {
         let root: Container<()> = Container::new()
@@ -213,17 +213,17 @@ mod tests {
         let theme = Theme::default();
         let (_, nodes) = build_ui_inspected(&root, Size::new(200.0, 100.0), &runtime, &theme);
 
-        let inner = node_at(&nodes, Point::new(10.0, 10.0)).expect("un widget sous le point");
-        assert_eq!(inner.depth, 1, "l'enfant, pas la racine");
-        let outer = node_at(&nodes, Point::new(150.0, 80.0)).expect("la racine seule ici");
+        let inner = node_at(&nodes, Point::new(10.0, 10.0)).expect("a widget under the point");
+        assert_eq!(inner.depth, 1, "the child, not the root");
+        let outer = node_at(&nodes, Point::new(150.0, 80.0)).expect("the root alone here");
         assert_eq!(outer.depth, 0);
         assert!(
             node_at(&nodes, Point::new(500.0, 500.0)).is_none(),
-            "hors de tout"
+            "outside everything"
         );
     }
 
-    /// Le dump est indenté par profondeur et nomme chaque widget.
+    /// The dump is indented by depth and names every widget.
     #[test]
     fn dump_tree_indents_by_depth() {
         let root: Container<()> = Container::new()
@@ -241,16 +241,13 @@ mod tests {
         );
         assert!(
             lines[1].starts_with("  Text"),
-            "enfant indenté de 2 : {dump}"
+            "child indented by 2: {dump}"
         );
-        assert!(
-            lines[0].contains("80×40"),
-            "géométrie dans le dump : {dump}"
-        );
+        assert!(lines[0].contains("80×40"), "geometry in the dump: {dump}");
     }
 
-    /// Le calque se peint par-dessus une scène : contours pour chaque widget,
-    /// surlignage + fiche quand un point est désigné.
+    /// The layer paints on top of a scene: outlines for every widget, plus a
+    /// highlight and a card when a point is designated.
     #[test]
     fn overlay_paints_outlines_and_hover_card() {
         let root: Container<()> = Container::new()
@@ -276,22 +273,22 @@ mod tests {
         );
         assert!(
             scene.len() > base + nodes.len() + 2,
-            "surlignage + carte + 2 textes en plus des contours"
+            "highlight + card + 2 texts on top of the outlines"
         );
     }
 
-    /// `debug_name` : type concret, sans chemin ni génériques ; `Box` délègue.
+    /// `debug_name`: the concrete type, with no path and no generics; `Box` delegates.
     #[test]
     fn debug_names_are_short_and_delegated() {
         let text = Text::new("x");
         assert_eq!(Widget::<()>::debug_name(&text), "Text");
         let boxed: Box<dyn Widget<()>> = Box::new(Text::new("x"));
-        assert_eq!(boxed.debug_name(), "Text", "Box délègue au contenu");
+        assert_eq!(boxed.debug_name(), "Text", "Box delegates to its content");
         let container: Container<()> = Container::new();
         assert_eq!(
             Widget::<()>::debug_name(&container),
             "Container",
-            "génériques retirés"
+            "generics stripped"
         );
     }
 }

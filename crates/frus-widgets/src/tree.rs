@@ -1,11 +1,11 @@
-//! [`Tree`] : un arbre hiérarchique **contrôlé**. L'application tient la structure
-//! et les nœuds dépliés, et ne passe que les **lignes visibles**, à plat (avec
-//! leur profondeur). Le widget se contente de rendre.
+//! [`Tree`]: a **controlled** hierarchical tree. The application holds the structure
+//! and the expanded nodes, and passes only the **visible rows**, flat (with their
+//! depth). The widget does nothing but render.
 //!
-//! Deux gestes distincts, façon explorateur de fichiers : cliquer le **chevron**
-//! (dé)plie le nœud (`on_toggle`), cliquer **ailleurs** sur la ligne **sélectionne**
-//! le nœud (`on_select`, feuilles comprises). Des **lignes de guidage** verticales
-//! matérialisent les niveaux d'indentation, et la ligne sélectionnée est surlignée.
+//! Two distinct gestures, as in a file explorer: clicking the **chevron** expands or
+//! collapses the node (`on_toggle`), clicking **anywhere else** on the row **selects**
+//! it (`on_select`, leaves included). Vertical **guide lines** make the indentation
+//! levels visible, and the selected row is highlighted.
 
 use std::rc::Rc;
 
@@ -20,36 +20,38 @@ const ROW_H: f32 = 32.0;
 const INDENT: f32 = 20.0;
 const SIZE: f32 = 16.0;
 
-/// Une ligne d'arbre : indentée, chevron si le nœud a des enfants, **lignes de guidage** vers ses
-/// ancêtres, et fond de **sélection**. Le clic du chevron (dé)plie (`toggle`), le reste sélectionne
-/// (`select`) — distingués par [`positional_click`](Widget::positional_click).
+/// One tree row: indented, a chevron if the node has children, **guide lines** back to its
+/// ancestors, and a **selection** background. Clicking the chevron expands or collapses
+/// (`toggle`), the rest selects (`select`) — told apart by
+/// [`positional_click`](Widget::positional_click).
 struct Row<Msg> {
     depth: usize,
     label: String,
     expandable: bool,
     expanded: bool,
     selected: bool,
-    /// Message de bascule (nœuds pliables seulement).
+    /// Toggle message (collapsible nodes only).
     toggle: Option<Msg>,
-    /// Message de sélection (si l'arbre est sélectionnable).
+    /// Selection message (if the tree is selectable).
     select: Option<Msg>,
 }
 
 impl<Msg: Clone> Row<Msg> {
-    /// Abscisse locale de départ du chevron (dans la boîte de la ligne).
+    /// The chevron's local start x, within the row's box.
     fn chevron_start(&self) -> f32 {
         self.depth as f32 * INDENT
     }
 }
 
-/// Marge à droite du label (le fond de survol/sélection déborde un peu du texte).
+/// Margin right of the label (the hover/selection background overruns the text a little).
 const ROW_PAD_R: f32 = 12.0;
 
 impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn style(&self) -> Style {
-        // Largeur **intrinsèque** = indentation + chevron + label (+ marge) : sans elle, la ligne
-        // n'aurait aucune largeur (pas d'enfant à mesurer) et le fond de sélection serait invisible.
-        // Le `Tree` (colonne, align Stretch) étire ensuite toutes les lignes à la plus large.
+        // **Intrinsic** width = indentation + chevron + label (+ margin): without it the row
+        // would have no width at all (no child to measure) and the selection background
+        // would be invisible. The `Tree` (a column, align Stretch) then stretches every
+        // row out to the widest one.
         let text_w = frus_text::measure(&self.label, SIZE).width;
         let width = self.chevron_start() + INDENT + text_w + ROW_PAD_R;
         Style {
@@ -66,7 +68,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let clickable = self.toggle.is_some() || self.select.is_some();
-        // Fond : sélection (teinte primaire) prioritaire, sinon état de survol.
+        // Background: selection (a primary tint) wins, otherwise the hover state.
         if self.selected {
             let bg = theme.surface.lerp(theme.primary, 0.16);
             scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
@@ -75,7 +77,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
             scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
         }
 
-        // Lignes de guidage verticales : une par niveau d'ancêtre, centrées dans son cran d'indentation.
+        // Vertical guide lines: one per ancestor level, centred in its indentation step.
         for d in 0..self.depth {
             let gx = bounds.x + d as f32 * INDENT + INDENT * 0.5;
             scene.draw_rect(
@@ -112,7 +114,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         _width: f32,
         _height: f32,
     ) -> Option<Msg> {
-        // Le chevron (dé)plie ; le reste de la ligne sélectionne (à défaut, bascule).
+        // The chevron expands or collapses; the rest of the row selects, or toggles by default.
         let start = self.chevron_start();
         if self.expandable && local_x >= start && local_x < start + INDENT {
             return self.toggle.clone();
@@ -121,7 +123,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     }
 
     fn on_click(&self) -> Option<Msg> {
-        // Repli clavier (Entrée/Espace) : action principale = sélection, sinon bascule.
+        // Keyboard fallback (Enter/Space): the main action is selection, otherwise toggling.
         self.select.clone().or_else(|| self.toggle.clone())
     }
 
@@ -130,7 +132,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     }
 }
 
-/// Un arbre hiérarchique (lignes visibles à plat).
+/// A hierarchical tree (visible rows, flattened).
 pub struct Tree<Msg> {
     on_toggle: Box<dyn Fn(u64) -> Msg>,
     on_select: Option<Rc<dyn Fn(u64) -> Msg>>,
@@ -140,7 +142,7 @@ pub struct Tree<Msg> {
 }
 
 impl<Msg: Clone + 'static> Tree<Msg> {
-    /// Crée un arbre ; `on_toggle(id)` est émis au clic sur le **chevron** d'un nœud pliable.
+    /// Creates a tree; `on_toggle(id)` is emitted when a collapsible node's **chevron** is clicked.
     pub fn new(on_toggle: impl Fn(u64) -> Msg + 'static) -> Self {
         Self {
             on_toggle: Box::new(on_toggle),
@@ -151,23 +153,23 @@ impl<Msg: Clone + 'static> Tree<Msg> {
         }
     }
 
-    /// Rend les nœuds **sélectionnables** : `on_select(id)` au clic sur le corps de la ligne (hors
-    /// chevron), **feuilles comprises**. Sans cela, cliquer la ligne (dé)plie comme avant.
+    /// Makes the nodes **selectable**: `on_select(id)` when the row's body is clicked (outside
+    /// the chevron), **leaves included**. Without it, clicking the row expands or collapses.
     pub fn on_select(mut self, on_select: impl Fn(u64) -> Msg + 'static) -> Self {
         self.on_select = Some(Rc::new(on_select));
         self.rebuild();
         self
     }
 
-    /// Indique le nœud **sélectionné** (surligné). `None` = aucun.
+    /// Marks the **selected** node (highlighted). `None` = none.
     pub fn selected(mut self, id: Option<u64>) -> Self {
         self.selected = id;
         self.rebuild();
         self
     }
 
-    /// Ajoute une ligne visible : `id`, `depth` (indentation), `label`, si le nœud
-    /// a des enfants (`expandable`) et s'il est déplié (`expanded`).
+    /// Adds a visible row: `id`, `depth` (indentation), `label`, whether the node has
+    /// children (`expandable`) and whether it is expanded (`expanded`).
     pub fn node(
         mut self,
         id: u64,
@@ -233,26 +235,26 @@ mod tests {
 
     #[test]
     fn expandable_nodes_toggle_leaves_do_not() {
-        // Sans `on_select`, la ligne se comporte comme avant : le dossier bascule, la feuille non.
+        // Without `on_select`, the row behaves as before: the folder toggles, the leaf does not.
         let tree = Tree::new(Msg::Toggle)
-            .node(1, 0, "Dossier", true, true)
-            .node(2, 1, "fichier.txt", false, false);
+            .node(1, 0, "Folder", true, true)
+            .node(2, 1, "file.txt", false, false);
         let rows = Widget::<Msg>::children(&tree);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].on_click(), Some(Msg::Toggle(1))); // dossier pliable
-        assert_eq!(rows[1].on_click(), None); // feuille
+        assert_eq!(rows[0].on_click(), Some(Msg::Toggle(1))); // a collapsible folder
+        assert_eq!(rows[1].on_click(), None); // a leaf
     }
 
     #[test]
     fn chevron_toggles_body_selects() {
-        // Avec `on_select`, le chevron (dé)plie et le corps de la ligne sélectionne — feuilles comprises.
+        // With `on_select`, the chevron expands/collapses and the row body selects — leaves included.
         let tree = Tree::new(Msg::Toggle)
             .on_select(Msg::Select)
             .selected(Some(2))
-            .node(1, 0, "Dossier", true, true)
-            .node(2, 1, "fichier.txt", false, false);
+            .node(1, 0, "Folder", true, true)
+            .node(2, 1, "file.txt", false, false);
         let rows = Widget::<Msg>::children(&tree);
-        // Nœud pliable (depth 0) : chevron dans [0, INDENT) → bascule ; au-delà → sélection.
+        // A collapsible node (depth 0): chevron in [0, INDENT) → toggle; beyond that → selection.
         assert_eq!(
             rows[0].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H),
             Some(Msg::Toggle(1))
@@ -261,12 +263,12 @@ mod tests {
             rows[0].positional_click(INDENT * 3.0, 0.0, 200.0, ROW_H),
             Some(Msg::Select(1))
         );
-        // Feuille (depth 1) : aucune zone chevron → tout sélectionne (même sous le cran d'indentation).
+        // A leaf (depth 1): no chevron zone → everything selects (even under the indentation step).
         assert_eq!(
             rows[1].positional_click(INDENT * 0.5, 0.0, 200.0, ROW_H),
             Some(Msg::Select(2))
         );
-        // Clavier (on_click) : action principale = sélection.
+        // Keyboard (on_click): the main action is selection.
         assert_eq!(rows[0].on_click(), Some(Msg::Select(1)));
     }
 }

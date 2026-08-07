@@ -1,12 +1,10 @@
-//! Widgets **nommés** d'animation implicite, sucre ergonomique au-dessus de
-//! [`Container`] (façon `Opacity` / `AnimatedOpacity` / `AnimatedContainer` de
-//! Flutter).
+//! **Named** implicit-animation widgets: ergonomic sugar over [`Container`].
 //!
-//! Chacun **enveloppe un [`Container`]** configuré et lui délègue *tout*
-//! (wrapper transparent, comme [`crate::Keyed`]) : le `Container` interne est le
-//! nœud animé, son enfant reste un nœud **séparé** — aucune collision de la
-//! valeur animée par nœud. Les identités (`child_id`) et donc les animations
-//! s'alignent exactement sur la marche de peinture.
+//! Each one **wraps a configured [`Container`]** and delegates *everything* to it
+//! (a transparent wrapper, like [`crate::Keyed`]): the inner `Container` is the
+//! animated node, and its child stays a **separate** node — so the per-node
+//! animated values never collide. The identities (`child_id`), and therefore the
+//! animations, line up exactly with the paint walk.
 
 use frus_core::{BorderRadius, Color, Curve, Rect, Scene, Size};
 use frus_layout::Style;
@@ -16,16 +14,16 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Implémente `Widget` pour un wrapper `{ inner: Container<Msg> }` en déléguant
-/// exactement les méthodes que `Container` surcharge (le reste = défauts du
-/// trait, identiques à ceux de `Container`). `debug_name` n'est **pas** délégué :
-/// l'inspecteur affiche ainsi le nom du widget nommé.
+/// Implements `Widget` for a `{ inner: Container<Msg> }` wrapper by delegating
+/// exactly the methods `Container` overrides (the rest are trait defaults,
+/// identical to `Container`'s). `debug_name` is **not** delegated: that way the
+/// inspector shows the named widget's own name.
 macro_rules! forward_to_container {
     ($ty:ident) => {
-        // `Container` a des méthodes **inhérentes** (builders `on_click`,
-        // `repaint_boundary`…) de même nom que le trait ; on appelle donc le trait
-        // en syntaxe pleinement qualifiée (`Widget::…(&self.inner)`) pour lever
-        // l'ambiguïté.
+        // `Container` has **inherent** methods (the `on_click`, `repaint_boundary`…
+        // builders) sharing their names with the trait's, so the trait is called in
+        // fully qualified syntax (`Widget::…(&self.inner)`) to remove the
+        // ambiguity.
         impl<Msg: Clone + 'static> Widget<Msg> for $ty<Msg> {
             fn style(&self) -> Style {
                 Widget::style(&self.inner)
@@ -97,14 +95,14 @@ macro_rules! forward_to_container {
     };
 }
 
-/// Applique une **opacité de groupe** fixe `[0,1]` à son enfant, d'un bloc (façon
-/// `Opacity` de Flutter). Voir [`Container::opacity`].
+/// Applies a fixed **group opacity** `[0,1]` to its child, as one block. See
+/// [`Container::opacity`].
 pub struct Opacity<Msg> {
     inner: Container<Msg>,
 }
 
 impl<Msg: Clone + 'static> Opacity<Msg> {
-    /// Enveloppe `child` d'une opacité de groupe `opacity`.
+    /// Wraps `child` in a group opacity of `opacity`.
     pub fn new(opacity: f32, child: impl Widget<Msg> + 'static) -> Self {
         Self {
             inner: Container::new().opacity(opacity).child(child),
@@ -114,14 +112,14 @@ impl<Msg: Clone + 'static> Opacity<Msg> {
 
 forward_to_container!(Opacity);
 
-/// Fait **fondre** son enfant vers `opacity` à chaque changement (façon
-/// `AnimatedOpacity` de Flutter). Voir [`Container::animated_opacity`].
+/// **Fades** its child toward `opacity` on every change. See
+/// [`Container::animated_opacity`].
 pub struct AnimatedOpacity<Msg> {
     inner: Container<Msg>,
 }
 
 impl<Msg: Clone + 'static> AnimatedOpacity<Msg> {
-    /// Enveloppe `child` d'une opacité de groupe animée (`duration`, `curve`).
+    /// Wraps `child` in an animated group opacity (`duration`, `curve`).
     pub fn new(
         opacity: f32,
         duration: f32,
@@ -138,9 +136,9 @@ impl<Msg: Clone + 'static> AnimatedOpacity<Msg> {
 
 forward_to_container!(AnimatedOpacity);
 
-/// Boîte dont les propriétés **s'animent** à chaque changement (façon
-/// `AnimatedContainer` de Flutter) : couleur, taille, rayon, opacité — toutes
-/// avec la **même** `(durée, courbe)`. Construit un [`Container`] sous le capot.
+/// A box whose properties **animate** on every change: color, size, radius and
+/// opacity — all with the **same** `(duration, curve)`. Builds a [`Container`]
+/// under the hood.
 ///
 /// ```ignore
 /// AnimatedContainer::new(0.3, Curve::ease_in_out())
@@ -156,8 +154,8 @@ pub struct AnimatedContainer<Msg> {
 }
 
 impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
-    /// Nouvelle boîte animée : `duration` (secondes) et `curve` partagées par
-    /// toutes ses propriétés animées.
+    /// A new animated box: `duration` (seconds) and `curve` shared by all of its
+    /// animated properties.
     pub fn new(duration: f32, curve: Curve) -> Self {
         Self {
             inner: Container::new(),
@@ -166,7 +164,7 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
         }
     }
 
-    /// Fond dont la couleur s'anime vers `color`.
+    /// A background whose color animates toward `color`.
     pub fn color(mut self, color: Color) -> Self {
         self.inner = self
             .inner
@@ -174,7 +172,7 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
         self
     }
 
-    /// Taille animée `width×height` (interpolée au layout).
+    /// Animated `width×height` size (interpolated at layout time).
     pub fn size(mut self, width: f32, height: f32) -> Self {
         self.inner = self
             .inner
@@ -182,7 +180,7 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
         self
     }
 
-    /// Rayon de coin animé (uniforme via `f32` ou par coin via [`BorderRadius`]).
+    /// Animated corner radius (uniform via `f32`, or per corner via [`BorderRadius`]).
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.inner = self
             .inner
@@ -190,7 +188,7 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
         self
     }
 
-    /// Opacité de groupe animée `[0,1]`.
+    /// Animated group opacity `[0,1]`.
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.inner = self
             .inner
@@ -198,13 +196,13 @@ impl<Msg: Clone + 'static> AnimatedContainer<Msg> {
         self
     }
 
-    /// Marge intérieure (statique).
+    /// Inner padding (static).
     pub fn padding(mut self, padding: f32) -> Self {
         self.inner = self.inner.padding(padding);
         self
     }
 
-    /// Enfant de la boîte.
+    /// The box's child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.inner = self.inner.child(child);
         self
@@ -217,8 +215,8 @@ forward_to_container!(AnimatedContainer);
 mod tests {
     use super::*;
 
-    /// `AnimatedContainer` déclare bien les cibles animées de ses propriétés, avec
-    /// la durée et la courbe partagées.
+    /// `AnimatedContainer` does declare the animated targets of its properties, with
+    /// the shared duration and curve.
     #[test]
     fn animated_container_declares_all_targets() {
         let blue = Color::rgb(0.0, 0.0, 1.0);
@@ -233,14 +231,14 @@ mod tests {
             Widget::<()>::anim_radius(&w),
             Some(BorderRadius::from(12.0))
         );
-        assert_eq!(Widget::<()>::anim_target(&w), Some(0.5)); // opacité animée
+        assert_eq!(Widget::<()>::anim_target(&w), Some(0.5)); // animated opacity
         assert_eq!(Widget::<()>::opacity_group(&w), Some(0.5));
         assert_eq!(Widget::<()>::anim_duration(&w), 0.25);
         assert_eq!(Widget::<()>::anim_curve(&w), Curve::ease_out());
     }
 
-    /// `Opacity` est un groupe d'opacité fixe (pas de valeur animée) enveloppant
-    /// son enfant (un nœud séparé).
+    /// `Opacity` is a fixed opacity group (no animated value) wrapping its child
+    /// (a separate node).
     #[test]
     fn opacity_wraps_child_as_a_group() {
         let w: Opacity<()> = Opacity::new(0.4, crate::Container::new().width(10.0).height(10.0));
@@ -249,11 +247,11 @@ mod tests {
         assert_eq!(
             Widget::<()>::children(&w).len(),
             1,
-            "l'enfant est un nœud séparé"
+            "the child is a separate node"
         );
     }
 
-    /// `AnimatedOpacity` déclare une opacité animée (le runtime la tween).
+    /// `AnimatedOpacity` declares an animated opacity (the runtime tweens it).
     #[test]
     fn animated_opacity_declares_a_group_target() {
         let w: AnimatedOpacity<()> =
@@ -261,7 +259,7 @@ mod tests {
         assert_eq!(Widget::<()>::opacity_group(&w), Some(0.0));
         assert_eq!(Widget::<()>::anim_target(&w), Some(0.0));
         assert_eq!(Widget::<()>::anim_duration(&w), 0.2);
-        // Nom propre pour l'inspecteur (pas délégué au Container).
+        // Its own name for the inspector (not delegated to the Container).
         assert_eq!(Widget::<()>::debug_name(&w), "AnimatedOpacity");
     }
 }

@@ -1,16 +1,16 @@
-//! Un petit **jeu d'icônes vectorielles**, chacune définie comme un [`Path`]
-//! rempli (silhouette, façon Material Icons) sur une grille **24×24**. Le widget
-//! [`crate::Icon`] met le chemin à l'échelle de sa taille réelle et le colore au
-//! thème. Toutes les icônes sont pensées pour être *remplies* (règle non-zero).
+//! A small **set of vector icons**, each defined as a filled [`Path`] (a
+//! silhouette, Material Icons style) on a **24×24** grid. The [`crate::Icon`]
+//! widget scales the path to its real size and colors it from the theme. Every
+//! icon is meant to be *filled* (the non-zero rule).
 //!
-//! Ajouter une icône = ajouter une variante à [`IconName`] et son bras dans
-//! [`IconName::path`]. Les coordonnées sont en unités de la grille 24×24.
+//! Adding an icon = adding a variant to [`IconName`] and its arm in
+//! [`IconName::path`]. The coordinates are in units of the 24×24 grid.
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use frus_core::{Path, Point, Rect};
 
-/// Une icône du jeu embarqué. Chaque variante rend un [`Path`] normalisé `24×24`.
+/// One icon from the bundled set. Each variant returns a `24×24` normalised [`Path`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconName {
     /// Coche de validation.
@@ -19,30 +19,30 @@ pub enum IconName {
     Close,
     /// Signe plus (ajouter).
     Add,
-    /// Trois barres (menu « hamburger »).
+    /// Three bars (a "hamburger" menu).
     Menu,
-    /// Étoile pleine à cinq branches.
+    /// A solid five-pointed star.
     Star,
-    /// Cœur.
+    /// A heart.
     Heart,
     /// Disque plein.
     Circle,
-    /// Carré plein.
+    /// A solid square.
     Square,
-    /// Triangle « lecture » pointant à droite.
+    /// A "play" triangle pointing right.
     Play,
-    /// Chevron pointant à gauche.
+    /// A chevron pointing left.
     ChevronLeft,
-    /// Chevron pointant à droite.
+    /// A chevron pointing right.
     ChevronRight,
-    /// Œil (visible) : contour d'œil en anneau + pupille — révéler un mot de passe.
+    /// An eye (visible): a ring-shaped eye outline + a pupil — reveal a password.
     Eye,
-    /// Œil barré (masqué) : l'œil traversé d'une diagonale — masquer.
+    /// A crossed-out eye (hidden): the eye with a diagonal through it — hide.
     EyeOff,
 }
 
 impl IconName {
-    /// Le chemin vectoriel de l'icône, sur la grille `24×24` (à mettre à l'échelle).
+    /// The icon's vector path, on the `24×24` grid, ready to be scaled.
     pub fn path(self) -> Path {
         match self {
             IconName::Check => polygon(&[
@@ -83,17 +83,17 @@ impl IconName {
     }
 }
 
-/// L'icône « œil » : un **anneau** en forme d'amande (contour externe + contour interne de sens
-/// **opposé**, qui creuse l'ouverture par la règle non-zero) plus une **pupille** pleine au centre.
-/// Si `off`, une diagonale barre l'œil (masqué).
+/// The "eye" icon: an almond-shaped **ring** (an outer contour plus an inner contour of the
+/// **opposite** direction, which hollows out the opening by the non-zero rule) and a solid
+/// **pupil** at the centre. If `off`, a diagonal crosses the eye out (hidden).
 ///
-/// L'ouverture est garantie *quel que soit* le sens absolu de tracé : le contour interne est
-/// l'amande externe **parcourue à l'envers**, donc de winding opposé — leurs contributions
-/// s'annulent (0 = transparent) dans l'ouverture, tandis que la pupille y rajoute un winding non
-/// nul (pleine).
+/// The opening is guaranteed *whatever* the absolute drawing direction is: the inner contour
+/// is the outer almond **walked backwards**, so of opposite winding — their contributions
+/// cancel out (0 = transparent) inside the opening, while the pupil adds a non-zero winding
+/// there (solid).
 fn eye(off: bool) -> Path {
-    // Amande = deux courbes quadratiques (bombées haut puis bas) entre deux extrémités.
-    // `rev` inverse le sens de parcours (bas puis haut) pour obtenir le winding opposé.
+    // An almond = two quadratic curves (bulging up, then down) between two endpoints.
+    // `rev` flips the walking direction (down then up) to get the opposite winding.
     let almond = |hw: f32, top_ctrl: f32, bot_ctrl: f32, rev: bool| {
         let (l, r) = (Point::new(12.0 - hw, 12.0), Point::new(12.0 + hw, 12.0));
         let (top, bot) = (Point::new(12.0, top_ctrl), Point::new(12.0, bot_ctrl));
@@ -110,7 +110,7 @@ fn eye(off: bool) -> Path {
         .quad_to(c1a, r1)
         .quad_to(c1b, l1)
         .close();
-    // Contour interne (amande étroite), parcouru à l'envers → creuse l'ouverture.
+    // The inner contour (a narrow almond), walked backwards → hollows out the opening.
     let (l2, c2a, r2, c2b) = almond(7.5, 2.0, 22.0, true);
     path = path.move_to(l2).quad_to(c2a, r2).quad_to(c2b, l2).close();
     // Pupille pleine.
@@ -119,7 +119,7 @@ fn eye(off: bool) -> Path {
         path = push_verb(path, *v);
     }
     if off {
-        // Barre diagonale (rectangle fin) de bas-gauche à haut-droite.
+        // A diagonal bar (a thin rectangle) from bottom-left to top-right.
         path = path
             .move_to(Point::new(5.2, 19.3))
             .line_to(Point::new(20.2, 6.3))
@@ -130,7 +130,7 @@ fn eye(off: bool) -> Path {
     path
 }
 
-/// Réémet un [`PathVerb`] dans le *builder* [`Path`] (pour recopier un sous-chemin existant).
+/// Re-emits a [`PathVerb`] into the [`Path`] *builder*, to copy an existing subpath.
 fn push_verb(path: Path, verb: frus_core::PathVerb) -> Path {
     use frus_core::PathVerb::*;
     match verb {
@@ -142,7 +142,7 @@ fn push_verb(path: Path, verb: frus_core::PathVerb) -> Path {
     }
 }
 
-/// Construit un polygone fermé à partir d'une liste de sommets `(x, y)`.
+/// Builds a closed polygon from a list of `(x, y)` vertices.
 fn polygon(points: &[(f32, f32)]) -> Path {
     let mut path = Path::new();
     for (i, &(x, y)) in points.iter().enumerate() {
@@ -156,7 +156,7 @@ fn polygon(points: &[(f32, f32)]) -> Path {
     path.close()
 }
 
-/// Signe plus : un polygone en croix (bras d'épaisseur 4, centrés en 12).
+/// A plus sign: a cross-shaped polygon (arms 4 thick, centred on 12).
 fn plus() -> Path {
     polygon(&[
         (10.0, 4.0),
@@ -174,7 +174,7 @@ fn plus() -> Path {
     ])
 }
 
-/// Croix de fermeture : deux barres diagonales (deux sous-chemins remplis).
+/// A close cross: two diagonal bars, as two filled subpaths.
 fn cross_x() -> Path {
     Path::new()
         // Diagonale ↘
@@ -191,7 +191,7 @@ fn cross_x() -> Path {
         .close()
 }
 
-/// Menu « hamburger » : trois barres horizontales (trois sous-chemins).
+/// A "hamburger" menu: three horizontal bars, as three subpaths.
 fn bars() -> Path {
     let mut path = Path::new();
     for y in [5.0_f32, 11.0, 17.0] {
@@ -205,7 +205,7 @@ fn bars() -> Path {
     path
 }
 
-/// Une étoile à `points` branches (rayons externe/interne), sommet vers le haut.
+/// A star with `points` points (outer and inner radii), apex upwards.
 fn star(center: Point, outer: f32, inner: f32, points: usize) -> Path {
     let mut path = Path::new();
     let step = PI / points as f32;
@@ -222,7 +222,7 @@ fn star(center: Point, outer: f32, inner: f32, points: usize) -> Path {
     path.close()
 }
 
-/// Un cœur, tracé par courbes cubiques (deux lobes symétriques).
+/// A heart, drawn with cubic curves (two symmetric lobes).
 fn heart() -> Path {
     Path::new()
         .move_to(Point::new(12.0, 20.0))
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn eye_is_a_ring_with_a_pupil_and_off_adds_a_slash() {
-        // Œil = contour externe + contour interne (opposé) + pupille = 3 sous-chemins fermés.
+        // Eye = outer contour + inner contour (opposite) + pupil = 3 closed subpaths.
         let subpaths = |name: IconName| {
             name.path()
                 .verbs()
@@ -300,14 +300,14 @@ mod tests {
                 .filter(|v| matches!(v, PathVerb::Close))
                 .count()
         };
-        assert_eq!(subpaths(IconName::Eye), 3, "anneau (2 amandes) + pupille");
-        // L'œil barré ajoute la diagonale.
-        assert_eq!(subpaths(IconName::EyeOff), 4, "œil + barre diagonale");
+        assert_eq!(subpaths(IconName::Eye), 3, "ring (2 almonds) + pupil");
+        // The crossed-out eye adds the diagonal.
+        assert_eq!(subpaths(IconName::EyeOff), 4, "eye + diagonal bar");
     }
 
     #[test]
     fn star_has_ten_outline_points() {
-        // 5 branches → 10 sommets (externe/interne alternés) + move + close.
+        // 5 points → 10 vertices (outer/inner alternating) + move + close.
         let star = IconName::Star.path();
         let lines = star
             .verbs()
@@ -325,6 +325,6 @@ mod tests {
             .iter()
             .filter(|v| matches!(v, PathVerb::Close))
             .count();
-        assert_eq!(closes, 3, "trois barres = trois sous-chemins fermés");
+        assert_eq!(closes, 3, "three bars = three closed subpaths");
     }
 }

@@ -1,6 +1,6 @@
-//! [`RichText`] : un paragraphe de **texte riche** — un arbre [`TextSpan`]
-//! (styles mêlés, héritage en cascade) aplati en runs résolus et mis en forme
-//! d'un seul tenant.
+//! [`RichText`]: a **rich text** paragraph — a [`TextSpan`] tree (mixed styles,
+//! cascading inheritance) flattened into resolved runs and laid out in one
+//! piece.
 //!
 //! ```ignore
 //! RichText::new(
@@ -17,20 +17,19 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un paragraphe de texte riche. Taille naturelle par défaut (les `\n`
-/// explicites font les lignes) ; avec [`RichText::wrap`], il revient à la ligne
-/// à la largeur offerte par le parent.
+/// A rich text paragraph. Natural size by default (explicit `\n`s make the
+/// lines); with [`RichText::wrap`], it wraps at the width the parent offers.
 pub struct RichText {
     span: TextSpan,
-    /// Style de **base** du paragraphe : la racine de la cascade (ce dont les
-    /// spans héritent quand ils ne précisent rien).
+    /// The paragraph's **base** style: the root of the cascade (what the spans
+    /// inherit when they set nothing themselves).
     base: TextStyle,
-    /// Paragraphe replié à la largeur offerte.
+    /// A paragraph wrapped to the offered width.
     wrap: bool,
 }
 
 impl RichText {
-    /// Crée un paragraphe (base : 16 px, graisse normale, couleur du thème).
+    /// Creates a paragraph (base: 16 px, regular weight, the theme's color).
     pub fn new(span: TextSpan) -> Self {
         Self {
             span,
@@ -39,22 +38,22 @@ impl RichText {
         }
     }
 
-    /// Surcharge le style de base (racine de la cascade) — typiquement un cran de
-    /// l'échelle du thème (`.base_style(theme.text.body_large)`).
+    /// Overrides the base style (the root of the cascade) — typically one step of
+    /// the theme's scale (`.base_style(theme.text.body_large)`).
     pub fn base_style(mut self, style: TextStyle) -> Self {
         self.base = style;
         self
     }
 
-    /// Fait du paragraphe un texte **replié** : il revient à la ligne à la
-    /// largeur offerte par le parent (mesure sous contraintes via taffy).
+    /// Turns the paragraph into **wrapped** text: it wraps at the width the
+    /// parent offers (measured under constraints through taffy).
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
         self
     }
 
-    /// Runs résolus : la couleur héritée est tranchée contre `fallback` et
-    /// modulée par `opacity`. (Pour la mesure, la couleur est indifférente.)
+    /// Resolved runs: the inherited color is settled against `fallback` and
+    /// modulated by `opacity`. (For measuring, the color makes no difference.)
     fn runs(&self, fallback: Color, opacity: f32) -> Vec<TextRun> {
         self.span
             .flatten(self.base)
@@ -66,8 +65,8 @@ impl RichText {
                 italic: style.italic,
                 color: style.color.unwrap_or(fallback).fade(opacity),
                 decoration: style.decoration,
-                // Héritée = couleur du run : résolue ici pour que le fondu de
-                // sortie s'applique aussi aux décorations.
+                // Inherited = the run's color: resolved here so that the
+                // fade-out applies to the decorations too.
                 decoration_color: style.decoration_color.map(|c| c.fade(opacity)),
             })
             .collect()
@@ -76,7 +75,7 @@ impl RichText {
 
 impl<Msg> Widget<Msg> for RichText {
     fn style(&self) -> Style {
-        // Paragraphe replié : dimensions libres, la taille vient de `measure()`.
+        // A wrapped paragraph: free dimensions, the size comes from `measure()`.
         if self.wrap {
             return Style::default();
         }
@@ -158,17 +157,17 @@ mod tests {
             Primitive::RichText { position, runs, .. } => {
                 assert_eq!(*position, Point::new(2.0, 3.0));
                 assert_eq!(runs.len(), 3);
-                // Run 0 : hérite tout de la base (16 px, couleur du thème).
+                // Run 0: inherits everything from the base (16 px, the theme's color).
                 assert_eq!(runs[0].size, 16.0);
                 assert_eq!(runs[0].color, theme.on_surface);
-                // Run 1 : gras, taille/couleur héritées.
+                // Run 1: bold, size and color inherited.
                 assert_eq!(runs[1].weight, FontWeight::Bold);
                 assert_eq!(runs[1].size, 16.0);
                 assert_eq!(runs[1].color, theme.on_surface);
-                // Run 2 : couleur explicite.
+                // Run 2: an explicit color.
                 assert_eq!(runs[2].color, Color::rgb(1.0, 0.0, 0.0));
             }
-            _ => panic!("attendu du texte riche"),
+            _ => panic!("expected rich text"),
         }
     }
 
@@ -177,21 +176,21 @@ mod tests {
         let para = |text: &str| {
             RichText::new(TextSpan::new(text).child(TextSpan::new(" gras").bold())).wrap()
         };
-        let rich = para("un paragraphe riche assez long pour se replier sur plusieurs lignes");
-        // La mesure sous contraintes se replie : plus haut à 120 px qu'en libre.
-        let measure = Widget::<()>::measure(&rich).expect("closure de mesure");
+        let rich = para("a rich paragraph long enough to wrap onto several lines");
+        // Measuring under constraints wraps: taller at 120 px than when free.
+        let measure = Widget::<()>::measure(&rich).expect("measure closure");
         let free = measure(None, None);
         let narrow = measure(Some(120.0), None);
         assert!(narrow.width <= 120.0);
-        assert!(narrow.height > free.height, "replié → plus haut");
-        // La clé de mesure suit le contenu (correction du cache de relayout)…
+        assert!(narrow.height > free.height, "wrapped → taller");
+        // The measure key follows the content (the relayout cache fix)…
         assert_ne!(
             Widget::<()>::measure_key(&rich),
-            Widget::<()>::measure_key(&para("court"))
+            Widget::<()>::measure_key(&para("short"))
         );
-        // … mais pas la couleur (sans effet sur la géométrie).
+        // … but not the color (no effect on geometry).
         let recolored = RichText::new(
-            TextSpan::new("un paragraphe riche assez long pour se replier sur plusieurs lignes")
+            TextSpan::new("a rich paragraph long enough to wrap onto several lines")
                 .color(Color::rgb(1.0, 0.0, 0.0))
                 .child(TextSpan::new(" gras").bold()),
         )
@@ -199,9 +198,9 @@ mod tests {
         assert_eq!(
             Widget::<()>::measure_key(&rich),
             Widget::<()>::measure_key(&recolored),
-            "la couleur ne doit pas invalider la mise en page"
+            "the color must not invalidate the layout"
         );
-        // Sans `.wrap()` : ni mesure ni clé.
+        // Without `.wrap()`: neither a measure nor a key.
         let plain = RichText::new(TextSpan::new("x"));
         assert!(Widget::<()>::measure(&plain).is_none());
         assert!(Widget::<()>::measure_key(&plain).is_none());
@@ -209,15 +208,15 @@ mod tests {
 
     #[test]
     fn layout_accounts_for_the_largest_run() {
-        // Un run 28 px au milieu : la hauteur mesurée dépasse celle d'un 16 px.
+        // A 28 px run in the middle: the measured height exceeds that of a 16 px one.
         let small: Style = Widget::<()>::style(&RichText::new(TextSpan::new("plain")));
         let tall: Style = Widget::<()>::style(&RichText::new(
             TextSpan::new("plain").child(TextSpan::new("BIG").size(28.0)),
         ));
         let h = |s: &Style| match s.height {
             Dimension::Length(v) => v,
-            _ => panic!("hauteur mesurée attendue"),
+            _ => panic!("a measured height was expected"),
         };
-        assert!(h(&tall) > h(&small), "le grand run doit grandir la ligne");
+        assert!(h(&tall) > h(&small), "the large run must grow the line");
     }
 }

@@ -1,4 +1,4 @@
-//! [`Text`] : un widget affichant une ligne de texte.
+//! [`Text`]: a widget that displays a line of text.
 
 use frus_core::{Color, FontWeight, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
@@ -7,20 +7,20 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un widget de texte sur une ligne.
+/// A single-line text widget.
 ///
-/// Sa taille de mise en page est calculée par mesure **stylée** (`frus-text`,
-/// graisse/italique compris) ; il pousse une primitive de texte dans la scène lors
-/// de la peinture. La couleur du [`TextStyle`] est héritée du thème si absente.
+/// Its layout size comes from a **styled** measurement (`frus-text`, weight and
+/// italic included); it pushes a text primitive into the scene when painting. The
+/// [`TextStyle`]'s color is inherited from the theme when absent.
 pub struct Text {
     content: String,
     style: TextStyle,
-    /// Paragraphe : revient à la ligne à la largeur offerte par le parent.
+    /// Paragraph: wraps at the width the parent offers.
     wrap: bool,
 }
 
 impl Text {
-    /// Crée un texte (taille 16 px, graisse normale, couleur du thème par défaut).
+    /// Creates a text (16 px, regular weight, the theme's color by default).
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
@@ -29,8 +29,8 @@ impl Text {
         }
     }
 
-    /// Crée un texte à partir d'un [`TextStyle`] complet — typiquement un cran de
-    /// l'échelle du thème (`Text::styled("Titre", theme.text.title_large)`).
+    /// Creates a text from a full [`TextStyle`] — typically one step of the theme's
+    /// scale (`Text::styled("Title", theme.text.title_large)`).
     pub fn styled(content: impl Into<String>, style: TextStyle) -> Self {
         Self {
             content: content.into(),
@@ -39,15 +39,15 @@ impl Text {
         }
     }
 
-    /// Fait du texte un **paragraphe** : il revient à la ligne à la largeur
-    /// offerte par le parent (mesure sous contraintes via taffy) au lieu de
-    /// s'étendre sur une seule ligne.
+    /// Turns the text into a **paragraph**: it wraps at the width the parent
+    /// offers (measured under constraints through taffy) instead of stretching
+    /// out on a single line.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
         self
     }
 
-    /// Fixe la taille de police, en pixels.
+    /// Sets the font size, in pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.style.size = size;
         self
@@ -65,31 +65,31 @@ impl Text {
         self
     }
 
-    /// Fixe la couleur du texte (sinon celle du thème).
+    /// Sets the text color (otherwise the theme's).
     pub fn color(mut self, color: Color) -> Self {
         self.style.color = Some(color);
         self
     }
 
-    /// Souligne le texte.
+    /// Underlines the text.
     pub fn underline(mut self) -> Self {
         self.style = self.style.underline();
         self
     }
 
-    /// Barre le texte.
+    /// Strikes the text through.
     pub fn strikethrough(mut self) -> Self {
         self.style = self.style.strikethrough();
         self
     }
 
-    /// Fixe les lignes de décoration (combinaison libre, façon Flutter).
+    /// Sets the decoration lines (freely combined).
     pub fn decoration(mut self, decoration: frus_core::TextDecoration) -> Self {
         self.style.decoration = decoration;
         self
     }
 
-    /// Fixe la couleur des décorations (sinon celle du texte).
+    /// Sets the decoration color (otherwise the text's).
     pub fn decoration_color(mut self, color: Color) -> Self {
         self.style.decoration_color = Some(color);
         self
@@ -98,7 +98,7 @@ impl Text {
 
 impl<Msg> Widget<Msg> for Text {
     fn style(&self) -> Style {
-        // Paragraphe : dimensions libres, la taille vient de `measure()`.
+        // A paragraph: free dimensions, the size comes from `measure()`.
         if self.wrap {
             return Style::default();
         }
@@ -150,7 +150,7 @@ impl<Msg> Widget<Msg> for Text {
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
         if self.wrap {
-            // Le rendu se replie à la largeur donnée par la mise en page.
+            // Rendering wraps at the width the layout gives it.
             scene.text_wrapped(
                 Point::new(bounds.x, bounds.y),
                 self.content.clone(),
@@ -173,7 +173,7 @@ impl<Msg> Widget<Msg> for Text {
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        // Un texte porte son contenu comme libellé accessible.
+        // A text carries its content as its accessible label.
         Some(frus_core::Semantics::new(frus_core::Role::Label).label(self.content.clone()))
     }
 }
@@ -218,21 +218,21 @@ mod tests {
 
     #[test]
     fn wrapped_text_measures_to_the_offered_width() {
-        let long = "un paragraphe assez long pour se replier sur plusieurs lignes";
+        let long = "a paragraph long enough to wrap onto several lines";
         let text = Text::new(long).wrap();
-        // La mesure sous contraintes se replie : plus haut à 120 px qu'en libre.
-        let measure = Widget::<()>::measure(&text).expect("closure de mesure");
+        // Measuring under constraints wraps: taller at 120 px than when free.
+        let measure = Widget::<()>::measure(&text).expect("measure closure");
         let free = measure(None, None);
         let narrow = measure(Some(120.0), None);
         assert!(narrow.width <= 120.0);
-        assert!(narrow.height > free.height, "replié → plus haut");
-        // Et la clé de mesure change avec le contenu (correction du cache).
-        let other = Text::new("court").wrap();
+        assert!(narrow.height > free.height, "wrapped → taller");
+        // And the measure key changes with the content (the cache fix).
+        let other = Text::new("short").wrap();
         assert_ne!(
             Widget::<()>::measure_key(&text),
             Widget::<()>::measure_key(&other)
         );
-        // Un texte sans repli n'expose ni mesure ni clé.
+        // A text with no wrapping exposes neither a measure nor a key.
         let plain = Text::new(long);
         assert!(Widget::<()>::measure(&plain).is_none());
         assert!(Widget::<()>::measure_key(&plain).is_none());
@@ -241,8 +241,8 @@ mod tests {
     #[test]
     fn styled_text_carries_weight_and_italic() {
         let theme = Theme::default();
-        // Un cran de l'échelle du thème (title_medium = 16 px, graisse medium).
-        let text = Text::styled("Titre", theme.text.title_medium).italic();
+        // One step of the theme's scale (title_medium = 16 px, medium weight).
+        let text = Text::styled("Title", theme.text.title_medium).italic();
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &text,
@@ -262,21 +262,21 @@ mod tests {
                 assert_eq!(*size, 16.0);
                 assert_eq!(*weight, FontWeight::Medium);
                 assert!(*italic);
-                // Couleur héritée du thème (le style n'en précisait pas).
+                // Color inherited from the theme (the style did not set one).
                 assert_eq!(*color, theme.on_surface);
             }
-            _ => panic!("attendu du texte"),
+            _ => panic!("expected text"),
         }
     }
 
     #[test]
     fn bold_text_lays_out_wider() {
-        let regular: Style = Widget::<()>::style(&Text::new("Largeur"));
-        let bold: Style = Widget::<()>::style(&Text::new("Largeur").weight(FontWeight::Bold));
+        let regular: Style = Widget::<()>::style(&Text::new("Width"));
+        let bold: Style = Widget::<()>::style(&Text::new("Width").weight(FontWeight::Bold));
         let w = |s: &Style| match s.width {
             Dimension::Length(v) => v,
-            _ => panic!("largeur mesurée attendue"),
+            _ => panic!("a measured width was expected"),
         };
-        assert!(w(&bold) > w(&regular), "le gras doit être plus large");
+        assert!(w(&bold) > w(&regular), "bold must be wider");
     }
 }

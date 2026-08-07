@@ -1,17 +1,17 @@
-//! [`BottomSheet`] : une **feuille modale** qui glisse depuis le bas de la
-//! fenêtre — pour un lot d'actions contextuelles ou un formulaire court, sans
-//! quitter l'écran courant.
+//! [`BottomSheet`]: a **modal sheet** that slides up from the bottom of the
+//! window — for a set of contextual actions or a short form, without leaving
+//! the current screen.
 //!
-//! Le corps reste visible en fond ; quand la feuille est ouverte, un panneau
-//! pleine-largeur monte depuis le bord bas par-dessus, avec un voile qui la
-//! referme au clic. Le glissement est animé automatiquement (courbe en ressort,
-//! comme le tiroir — jalons 46/48), sans câblage côté application.
+//! The body stays visible behind; when the sheet is open, a full-width panel
+//! rises from the bottom edge over it, with a scrim that closes it on click.
+//! The slide is animated automatically (a spring curve, like the drawer —
+//! milestones 46/48), with no wiring on the application side.
 //!
 //! ```ignore
 //! BottomSheet::new(app.sheet_open)
 //!     .on_dismiss(Msg::CloseSheet)
-//!     .sheet(actions_column)  // contenu de la feuille
-//!     .body(main_screen)      // contenu de fond (toujours visible)
+//!     .sheet(actions_column)  // the sheet's content
+//!     .body(main_screen)      // the background content (always visible)
 //! ```
 
 use frus_core::{Color, Insets, Rect, Scene};
@@ -22,12 +22,12 @@ use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Poignée (« grabber ») en haut de la feuille : largeur / hauteur en px logiques.
+/// The grabber at the top of the sheet: width and height in logical pixels.
 const GRABBER_WIDTH: f32 = 36.0;
 const GRABBER_HEIGHT: f32 = 4.0;
 
-/// Panneau interne de la feuille : pleine-largeur, hauteur naturelle, fond
-/// thématisé, liseré + poignée en haut.
+/// The sheet's inner panel: full width, natural height, a themed background,
+/// a hairline and a grabber at the top.
 struct SheetPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -36,10 +36,10 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Percent(1.0),
-            // Hauteur naturelle : le contenu fixe la hauteur, la feuille s'y ajuste.
+            // Natural height: the content sets the height and the sheet adjusts to it.
             height: Dimension::Auto,
             flex_direction: FlexDirection::Column,
-            // Marge haute pour laisser respirer la poignée au-dessus du contenu.
+            // Top padding to let the grabber breathe above the content.
             padding: Insets::new(20.0, 0.0, 0.0, 0.0),
             ..Default::default()
         }
@@ -51,8 +51,8 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Surface opaque aux coins **hauts** arrondis (le bord bas est collé à la
-        // fenêtre) + fin liseré haut, en retrait des arrondis.
+        // An opaque surface with rounded **top** corners (the bottom edge is flush
+        // with the window) + a thin top hairline, inset from the rounding.
         let radius = theme.radius + 6.0;
         scene.draw_rect(
             bounds,
@@ -70,7 +70,7 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
             ),
             theme.border.fade(o),
         );
-        // Poignée arrondie centrée près du haut.
+        // A rounded grabber, centred near the top.
         let gx = bounds.x + (bounds.width - GRABBER_WIDTH) * 0.5;
         let gy = bounds.y + 8.0;
         scene.draw_rect(
@@ -87,20 +87,20 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
     }
 }
 
-/// Feuille modale glissant depuis le bas : corps de fond + panneau escamotable.
+/// A modal sheet sliding up from the bottom: a background body + a retractable panel.
 pub struct BottomSheet<Msg> {
     open: bool,
     on_dismiss: Option<Msg>,
-    /// Contenu de la feuille, fourni par l'appelant (avant enrobage `SheetPanel`).
+    /// The sheet's content, supplied by the caller (before `SheetPanel` wrapping).
     sheet_content: Option<Box<dyn Widget<Msg>>>,
-    /// Panneau modal enrobé, prêt pour l'overlay.
+    /// The wrapped modal panel, ready for the overlay.
     modal_panel: Option<Box<dyn Widget<Msg>>>,
-    /// Enfants dans le flux : `[corps]` (le panneau flotte en overlay).
+    /// Children in the flow: `[body]` (the panel floats as an overlay).
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> BottomSheet<Msg> {
-    /// Crée une feuille : `open` indique si elle est déployée.
+    /// Creates a sheet; `open` says whether it is expanded.
     pub fn new(open: bool) -> Self {
         Self {
             open,
@@ -111,19 +111,19 @@ impl<Msg: Clone + 'static> BottomSheet<Msg> {
         }
     }
 
-    /// Message émis au clic sur le voile (hors de la feuille) — pour refermer.
+    /// Message emitted on a click on the scrim (outside the sheet) — to close it.
     pub fn on_dismiss(mut self, message: Msg) -> Self {
         self.on_dismiss = Some(message);
         self
     }
 
-    /// Définit le **contenu de la feuille** (actions, formulaire court…).
+    /// Sets the **sheet's content** (actions, a short form…).
     pub fn sheet(mut self, content: impl Widget<Msg> + 'static) -> Self {
         self.sheet_content = Some(Box::new(content));
         self
     }
 
-    /// Définit le **corps de fond** (toujours visible) et finalise la feuille.
+    /// Sets the **background body** (always visible) and finalises the sheet.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
         self.modal_panel = self.sheet_content.take().map(|content| {
             Box::new(SheetPanel {
@@ -156,8 +156,8 @@ impl<Msg: Clone> Widget<Msg> for BottomSheet<Msg> {
     }
 
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
-        // C'est la **progression** animée (`anim_target`) qui décide de
-        // l'affichage et du glissement vers le haut.
+        // It is the animated **progress** (`anim_target`) that decides both the
+        // display and the upward slide.
         self.modal_panel
             .as_ref()
             .map(|p| (p.as_ref(), Placement::Bottom))
@@ -168,7 +168,7 @@ impl<Msg: Clone> Widget<Msg> for BottomSheet<Msg> {
     }
 
     fn anim_target(&self) -> Option<f32> {
-        // Cible d'ouverture `0↔1` interpolée par le runtime (glissement + fondu).
+        // The `0↔1` open target, interpolated by the runtime (slide + fade).
         Some(if self.open { 1.0 } else { 0.0 })
     }
 }
@@ -226,12 +226,12 @@ mod tests {
         let scrim = ui.scene().primitives().iter().any(
             |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0 && rect.height >= 400.0),
         );
-        assert!(!scrim, "une feuille fermée ne peint pas de voile");
+        assert!(!scrim, "a closed sheet paints no scrim");
     }
 
     #[test]
     fn open_sheet_draws_scrim_and_full_width_panel() {
-        // Un contenu de hauteur fixe pour que la feuille ait une hauteur mesurable.
+        // Fixed-height content, so the sheet has a measurable height.
         let sheet = BottomSheet::new(true)
             .on_dismiss(Msg::Close)
             .sheet(Container::<Msg>::new().height(120.0))
@@ -245,8 +245,8 @@ mod tests {
         let scrim = ui.scene().primitives().iter().any(
             |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0 && rect.height >= 399.0),
         );
-        assert!(scrim, "le voile doit couvrir la fenêtre");
-        // Panneau pleine-largeur (h ≈ 140, pas le voile), collé au bord bas (y+h ≈ 400).
+        assert!(scrim, "the scrim must cover the window");
+        // The full-width panel (h ≈ 140, not the scrim), flush with the bottom (y+h ≈ 400).
         let docked = ui.scene().primitives().iter().any(|p| {
             matches!(p, frus_core::Primitive::Rect { rect, .. }
                 if (rect.width - 500.0).abs() < 1.0 && rect.height < 300.0
@@ -254,7 +254,7 @@ mod tests {
         });
         assert!(
             docked,
-            "le panneau doit être pleine-largeur, accosté au bas"
+            "the panel must be full-width and docked at the bottom"
         );
     }
 
@@ -267,7 +267,7 @@ mod tests {
         let mut rt = Runtime::default();
         rt.set_value(crate::WidgetId::ROOT, 0.5);
         let ui = build_ui(&sheet, Size::new(500.0, 400.0), &rt, &Theme::default());
-        // Bord haut du panneau pleine-largeur (hauteur ≈ 140, pas le voile 500×400).
+        // The top edge of the full-width panel (height ≈ 140, not the 500×400 scrim).
         let top = ui.scene().primitives().iter().find_map(|p| match p {
             frus_core::Primitive::Rect { rect, .. }
                 if (rect.width - 500.0).abs() < 1.0 && rect.height < 300.0 =>
@@ -276,9 +276,9 @@ mod tests {
             }
             _ => None,
         });
-        let top = top.expect("le panneau de la feuille doit être présent");
-        // À t=0.5 linéaire, la feuille est remontée de `spring_ease(0.5)·hauteur`
-        // depuis le bas : bord haut ≈ 400 − spring_ease(0.5)·140 (120 + 20 padding).
+        let top = top.expect("the sheet's panel must be present");
+        // At linear t=0.5, the sheet has risen by `spring_ease(0.5)·height` from the
+        // bottom: top edge ≈ 400 − spring_ease(0.5)·140 (120 + 20 of padding).
         let progress = crate::spring_ease(0.5);
         let sheet_h = 140.0;
         let expected = 400.0 - progress * sheet_h;

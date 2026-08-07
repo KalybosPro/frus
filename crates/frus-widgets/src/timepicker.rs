@@ -1,8 +1,8 @@
-//! [`TimePicker`] : un sélecteur d'heure **contrôlé**, pendant de [`crate::DatePicker`].
-//! Deux grilles de cases cliquables (heures, minutes) et un aperçu ; en 24 h par défaut,
-//! ou 12 h avec bascule AM/PM ([`hour12`](TimePicker::hour12)). Le pas des minutes est
-//! réglable ([`minute_step`](TimePicker::minute_step)). L'heure vient de l'état
-//! applicatif ; le widget émet au clic, toujours en **heure 24 h**.
+//! [`TimePicker`]: a **controlled** time picker, the counterpart of [`crate::DatePicker`].
+//! Two grids of clickable cells (hours, minutes) plus a preview; 24-hour by default, or
+//! 12-hour with an AM/PM toggle ([`hour12`](TimePicker::hour12)). The minute step is
+//! adjustable ([`minute_step`](TimePicker::minute_step)). The time comes from the
+//! application state; the widget emits on click, always as a **24-hour** time.
 
 use std::rc::Rc;
 
@@ -19,7 +19,7 @@ use crate::widget::Widget;
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
 
-/// Une case-nombre cliquable (heure, minute ou AM/PM), surlignée si sélectionnée.
+/// A clickable number cell (hour, minute or AM/PM), highlighted when selected.
 struct TimeCell<Msg> {
     label: String,
     selected: bool,
@@ -71,7 +71,7 @@ impl<Msg: Clone> Widget<Msg> for TimeCell<Msg> {
     }
 }
 
-/// Un sélecteur d'heure.
+/// A time picker.
 pub struct TimePicker<Msg> {
     hour: u32,
     minute: u32,
@@ -82,7 +82,7 @@ pub struct TimePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-/// Chiffre d'horloge 12 h (1–12) d'une heure 24 h.
+/// The 12-hour clock digit (1–12) for a 24-hour hour.
 fn digit12(hour24: u32) -> u32 {
     if hour24 % 12 == 0 {
         12
@@ -92,9 +92,9 @@ fn digit12(hour24: u32) -> u32 {
 }
 
 impl<Msg: Clone + 'static> TimePicker<Msg> {
-    /// Crée un sélecteur pour `hour` (0–23) / `minute` (0–59). `on_hour(h)` est émis au
-    /// clic sur une heure (toujours en **24 h**), `on_minute(m)` sur une minute. Par
-    /// défaut : 24 h, minutes par pas de 5.
+    /// Creates a picker for `hour` (0–23) and `minute` (0–59). `on_hour(h)` is emitted
+    /// when an hour is clicked (always **24-hour**), `on_minute(m)` when a minute is.
+    /// Defaults: 24-hour, minutes in steps of 5.
     pub fn new(
         hour: u32,
         minute: u32,
@@ -114,27 +114,27 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
         picker
     }
 
-    /// Bascule en **12 h** : grille de 1 à 12 + bascule AM/PM ; l'aperçu s'affiche en 12 h.
-    /// Les messages émis restent en heure 24 h.
+    /// Switches to **12-hour**: a 1-to-12 grid + an AM/PM toggle; the preview shows
+    /// 12-hour time. The messages emitted stay in 24-hour time.
     pub fn hour12(mut self) -> Self {
         self.hour12 = true;
         self.rebuild();
         self
     }
 
-    /// Règle le **pas des minutes** proposées (1–60, borné). Par défaut 5.
+    /// Sets the **minute step** offered (1–60, clamped). Defaults to 5.
     pub fn minute_step(mut self, step: u32) -> Self {
         self.minute_step = step.clamp(1, 60);
         self.rebuild();
         self
     }
 
-    /// Assemble l'aperçu et les grilles à partir de l'état courant.
+    /// Assembles the preview and the grids from the current state.
     fn rebuild(&mut self) {
         let (hour, minute) = (self.hour, self.minute);
         let pm = hour >= 12;
 
-        // Aperçu HH:MM (+ AM/PM en 12 h).
+        // HH:MM preview (+ AM/PM in 12-hour mode).
         let preview = if self.hour12 {
             let suffix = if pm { "PM" } else { "AM" };
             Text::new(format!("{}:{minute:02} {suffix}", digit12(hour))).size(28.0)
@@ -142,9 +142,9 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
             Text::new(format!("{hour:02}:{minute:02}")).size(28.0)
         };
 
-        // Section des heures.
+        // The hours section.
         let hours_section = if self.hour12 {
-            // Bascule AM/PM : cliquer une moitié y bascule l'heure courante.
+            // AM/PM toggle: clicking a half moves the current hour into it.
             let am_target = if pm { hour - 12 } else { hour };
             let pm_target = if pm { hour } else { hour + 12 };
             let ampm = Flex::row()
@@ -159,7 +159,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                     selected: pm,
                     message: Some((self.on_hour)(pm_target)),
                 });
-            // Grille 1–12 ; chaque case vise l'heure 24 h de la moitié courante.
+            // A 1–12 grid; each cell targets the 24-hour hour of the current half.
             let current12 = digit12(hour);
             let mut grid = Grid::new(6).gap(4.0);
             for d in 1..=12u32 {
@@ -190,8 +190,8 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 .child(grid)
         };
 
-        // Section des minutes (pas réglable). La sélection ne s'allume que si la minute
-        // courante tombe sur un pas.
+        // The minutes section (adjustable step). The selection only lights up if the
+        // current minute falls on a step.
         let mut minutes = Grid::new(6).gap(4.0);
         let mut m = 0;
         while m < 60 {
@@ -236,26 +236,26 @@ impl<Msg: Clone> Widget<Msg> for TimePicker<Msg> {
     }
 }
 
-/// Quelle borne d'une plage horaire ([`TimeRange`]) est visée.
+/// Which endpoint of a time range ([`TimeRange`]) is targeted.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Endpoint {
-    /// Heure de début.
+    /// The start time.
     Start,
-    /// Heure de fin.
+    /// The end time.
     End,
 }
 
-/// Quel champ d'une heure ([`TimeRange`]) change.
+/// Which field of a time ([`TimeRange`]) is changing.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TimeField {
     Hour,
     Minute,
 }
 
-/// **Plage horaire** (créneau début → fin), pendant temporel du calendrier double
-/// ([`crate::DatePicker::range_dual`]) : deux [`TimePicker`] étiquetés « Start » et « End », côte
-/// à côte. Un **seul** rappel `on_change(borne, champ, valeur)` reçoit tous les changements
-/// (valeurs toujours en **24 h**) ; l'application décide comment mettre à jour son état.
+/// A **time range** (a start → end slot), the temporal counterpart of the dual calendar
+/// ([`crate::DatePicker::range_dual`]): two [`TimePicker`]s labelled "Start" and "End",
+/// side by side. A **single** `on_change(endpoint, field, value)` callback receives every
+/// change (values always **24-hour**); the application decides how to update its state.
 pub struct TimeRange<Msg> {
     start: (u32, u32),
     end: (u32, u32),
@@ -266,8 +266,8 @@ pub struct TimeRange<Msg> {
 }
 
 impl<Msg: Clone + 'static> TimeRange<Msg> {
-    /// Crée une plage `start`/`end` (chacune `(heure 0–23, minute 0–59)`). `on_change` est
-    /// appelé à chaque clic avec la **borne**, le **champ** et la nouvelle valeur (24 h).
+    /// Creates a `start`/`end` range (each `(hour 0–23, minute 0–59)`). `on_change` is
+    /// called on every click with the **endpoint**, the **field** and the new value (24-hour).
     pub fn new(
         start: (u32, u32),
         end: (u32, u32),
@@ -285,25 +285,25 @@ impl<Msg: Clone + 'static> TimeRange<Msg> {
         range
     }
 
-    /// Bascule les deux sélecteurs en **12 h** (AM/PM).
+    /// Switches both pickers to **12-hour** (AM/PM).
     pub fn hour12(mut self) -> Self {
         self.hour12 = true;
         self.rebuild();
         self
     }
 
-    /// Règle le **pas des minutes** des deux sélecteurs (1–60).
+    /// Sets the **minute step** of both pickers (1–60).
     pub fn minute_step(mut self, step: u32) -> Self {
         self.minute_step = step.clamp(1, 60);
         self.rebuild();
         self
     }
 
-    /// (Re)construit les deux colonnes étiquetées à partir de l'état courant.
+    /// (Re)builds the two labelled columns from the current state.
     fn rebuild(&mut self) {
         let (hour12, step) = (self.hour12, self.minute_step);
         let oc = self.on_change.clone();
-        // Un TimePicker dont les messages sont taggés par la borne visée.
+        // A TimePicker whose messages are tagged with the endpoint they target.
         let make = |ep: Endpoint, h: u32, m: u32| -> TimePicker<Msg> {
             let (oc_h, oc_m) = (oc.clone(), oc.clone());
             let mut tp = TimePicker::new(
@@ -433,7 +433,7 @@ mod tests {
         let msg = (0..320)
             .step_by(4)
             .find_map(|y| click(CELL * 0.5, y as f32))
-            .expect("une case cliquable existe");
+            .expect("a clickable cell exists");
         assert!(matches!(msg, Msg::Hour(_) | Msg::Minute(_)));
     }
 
@@ -445,15 +445,15 @@ mod tests {
     #[test]
     fn range_builds_start_and_end_pickers() {
         let tr = TimeRange::new((9, 0), (17, 30), RangeMsg::Set).minute_step(15);
-        // Deux colonnes étiquetées [label, TimePicker].
+        // Two labelled columns [label, TimePicker].
         let cols = Widget::<RangeMsg>::children(&tr);
         assert_eq!(cols.len(), 2);
         let start_tp = &cols[0].children()[1];
-        assert_eq!(start_tp.children().len(), 3, "aperçu + heures + minutes");
-        // Minutes par pas de 15 → 4 cases.
+        assert_eq!(start_tp.children().len(), 3, "preview + hours + minutes");
+        // Minutes in steps of 15 → 4 cells.
         let start_minutes = &start_tp.children()[2].children()[1];
         assert_eq!(start_minutes.children().len(), 4);
-        // Cliquer 09 h dans la borne End émet Set(End, Hour, 9).
+        // Clicking 09 h in the End endpoint emits Set(End, Hour, 9).
         let end_tp = &cols[1].children()[1];
         let end_hours = &end_tp.children()[1].children()[1];
         assert_eq!(
@@ -466,7 +466,7 @@ mod tests {
     fn hour12_applies_to_both_pickers() {
         let tr = TimeRange::new((15, 0), (20, 0), RangeMsg::Set).hour12();
         let cols = Widget::<RangeMsg>::children(&tr);
-        // Section heures en 12 h = [label, AM/PM, grille(12)] → 3 enfants, pour les deux bornes.
+        // A 12-hour hours section = [label, AM/PM, grid(12)] → 3 children, for both endpoints.
         for col in cols {
             let tp = &col.children()[1];
             assert_eq!(tp.children()[1].children().len(), 3);
