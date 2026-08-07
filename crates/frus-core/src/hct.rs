@@ -1,22 +1,22 @@
-//! **HCT** (Hue, Chroma, Tone) : l'espace couleur de Material 3, porté depuis
-//! `material-color-utilities` (Google). Il combine la teinte/chroma perceptifs
-//! de **CAM16** avec le ton **L\*** de CIELAB — le ton pilotant le contraste,
-//! deux couleurs de tons éloignés de 40+ garantissent un texte lisible.
+//! **HCT** (Hue, Chroma, Tone): the Material 3 colour space, ported from
+//! `material-color-utilities` (Google). It pairs the perceptual hue and chroma
+//! of **CAM16** with CIELAB's **L\*** tone. Tone is what drives contrast: two
+//! colours 40 or more tones apart are guaranteed to render legible text.
 //!
-//! Deux directions :
-//! - [`Hct::from_color`] : analyse (CAM16 avant + L\*) ;
-//! - [`Hct::solve`] : synthèse — trouve le sRGB affichable le plus proche de
-//!   `(teinte, chroma, ton)`. Le chroma demandé est un **plafond** : hors
-//!   gamut, il est réduit par dichotomie (teinte et ton sont préservés).
+//! Two directions:
+//! - [`Hct::from_color`]: analysis (forward CAM16 plus L\*);
+//! - [`Hct::solve`]: synthesis — finds the displayable sRGB colour closest to
+//!   `(hue, chroma, tone)`. The requested chroma is a **ceiling**: out of
+//!   gamut, it is reduced by bisection, while hue and tone are preserved.
 //!
-//! [`TonalPalette`] décline une teinte/chroma sur l'échelle des tons — la
-//! brique de `ColorScheme::from_seed`.
+//! [`TonalPalette`] spreads one hue and chroma across the tone scale — the
+//! building block of `ColorScheme::from_seed`.
 
 use crate::Color;
 
-// --- CIE : Y (luminance relative) ↔ L* (ton perceptif) ---------------------
+// --- CIE: Y (relative luminance) <-> L* (perceptual tone) ------------------
 
-/// `L*` (0..100) depuis la luminance relative `Y` (0..100).
+/// `L*` (0..100) from the relative luminance `Y` (0..100).
 fn lstar_from_y(y: f64) -> f64 {
     let e = 216.0 / 24389.0;
     let yn = y / 100.0;
@@ -27,7 +27,7 @@ fn lstar_from_y(y: f64) -> f64 {
     }
 }
 
-/// Luminance relative `Y` (0..100) depuis `L*` (0..100).
+/// Relative luminance `Y` (0..100) from `L*` (0..100).
 fn y_from_lstar(lstar: f64) -> f64 {
     let ft = (lstar + 16.0) / 116.0;
     let ft3 = ft * ft * ft;
@@ -38,10 +38,10 @@ fn y_from_lstar(lstar: f64) -> f64 {
     }
 }
 
-// --- sRGB (composantes 0..1) ↔ XYZ (échelle 0..100, D65) -------------------
+// --- sRGB (components 0..1) <-> XYZ (0..100 scale, D65) --------------------
 
 fn linearized(c: f64) -> f64 {
-    // sRGB → linéaire, sortie 0..100.
+    // sRGB -> linear, output on 0..100.
     if c <= 0.040449936 {
         c / 12.92 * 100.0
     } else {
@@ -50,7 +50,7 @@ fn linearized(c: f64) -> f64 {
 }
 
 fn delinearized(c: f64) -> f64 {
-    // linéaire 0..100 → sRGB 0..1 (borné au gamut).
+    // Linear 0..100 -> sRGB 0..1, clamped to the gamut.
     let normalized = (c / 100.0).clamp(0.0, 1.0);
     if normalized <= 0.0031308 {
         normalized * 12.92
@@ -59,7 +59,7 @@ fn delinearized(c: f64) -> f64 {
     }
 }
 
-/// sRGB → XYZ (D65), composantes XYZ sur 0..100.
+/// sRGB -> XYZ (D65), with XYZ components on 0..100.
 fn xyz_from_color(color: Color) -> [f64; 3] {
     let r = linearized(color.r as f64);
     let g = linearized(color.g as f64);
@@ -71,7 +71,7 @@ fn xyz_from_color(color: Color) -> [f64; 3] {
     ]
 }
 
-/// RGB **linéaire** (0..100) → [`Color`] sRGB (borné au gamut).
+/// **Linear** RGB (0..100) -> an sRGB [`Color`], clamped to the gamut.
 fn color_from_linrgb(rgb: [f64; 3]) -> Color {
     Color::rgb(
         delinearized(rgb[0]) as f32,
@@ -80,10 +80,10 @@ fn color_from_linrgb(rgb: [f64; 3]) -> Color {
     )
 }
 
-// --- CAM16 : conditions de vision standard (sRGB) ---------------------------
+// --- CAM16: the standard viewing conditions (sRGB) --------------------------
 
-/// Conditions de vision par défaut de `material-color-utilities` (blanc D65,
-/// luminance d'adaptation ≈ 11,73 cd/m², fond L\* 50, entourage moyen).
+/// The default viewing conditions of `material-color-utilities`: D65 white,
+/// adapting luminance about 11.73 cd/m2, an L\* 50 background, average surround.
 struct ViewingConditions {
     aw: f64,
     nbb: f64,
@@ -102,7 +102,7 @@ fn default_viewing_conditions() -> ViewingConditions {
     let background_lstar = 50.0;
     let surround = 2.0;
 
-    // Blanc dans l'espace des cônes (matrice CAT16).
+    // The white point in cone space (the CAT16 matrix).
     let r_w = white_point[0] * 0.401288 + white_point[1] * 0.650173 + white_point[2] * -0.051461;
     let g_w = white_point[0] * -0.250268 + white_point[1] * 1.204414 + white_point[2] * 0.045854;
     let b_w = white_point[0] * -0.002079 + white_point[1] * 0.048952 + white_point[2] * 0.953127;
@@ -152,12 +152,12 @@ fn default_viewing_conditions() -> ViewingConditions {
     }
 }
 
-/// Teinte (degrés) et chroma CAM16 d'une couleur, sous conditions standard.
+/// A colour's CAM16 hue (degrees) and chroma, under the standard conditions.
 fn cam16_hue_chroma(color: Color) -> (f64, f64) {
     let vc = default_viewing_conditions();
     let [x, y, z] = xyz_from_color(color);
 
-    // Cônes (CAT16), adaptation chromatique puis compression.
+    // Cones (CAT16): chromatic adaptation, then compression.
     let r_c = 0.401288 * x + 0.650173 * y - 0.051461 * z;
     let g_c = -0.250268 * x + 1.204414 * y + 0.045854 * z;
     let b_c = -0.002079 * x + 0.048952 * y + 0.953127 * z;
@@ -170,7 +170,7 @@ fn cam16_hue_chroma(color: Color) -> (f64, f64) {
     let g_a = adapt(g_c, vc.rgb_d[1]);
     let b_a = adapt(b_c, vc.rgb_d[2]);
 
-    // Axes opposés a (rouge-vert) / b (jaune-bleu) et teinte.
+    // The opponent axes a (red-green) and b (yellow-blue), and the hue.
     let a = (11.0 * r_a + -12.0 * g_a + b_a) / 11.0;
     let b_axis = (r_a + g_a - 2.0 * b_a) / 9.0;
     let u = (20.0 * r_a + 20.0 * g_a + 21.0 * b_a) / 20.0;
@@ -182,7 +182,7 @@ fn cam16_hue_chroma(color: Color) -> (f64, f64) {
         atan_deg
     };
 
-    // Clarté J puis chroma.
+    // Lightness J, then chroma.
     let ac = p2 * vc.nbb;
     let j = 100.0 * (ac / vc.aw).powf(vc.c * vc.z);
     let hue_prime = if hue < 20.14 { hue + 360.0 } else { hue };
@@ -194,10 +194,10 @@ fn cam16_hue_chroma(color: Color) -> (f64, f64) {
     (hue, chroma)
 }
 
-// --- Solveur : (teinte, chroma, ton) → sRGB ---------------------------------
+// --- Solver: (hue, chroma, tone) -> sRGB ------------------------------------
 
-/// Matrice « linéaire 0..100 » depuis les cônes adaptés remis à l'échelle
-/// (constantes du HctSolver de material-color-utilities).
+/// The "linear 0..100" matrix, from the rescaled adapted cones (constants taken
+/// from material-color-utilities' HctSolver).
 const LINRGB_FROM_SCALED_DISCOUNT: [[f64; 3]; 3] = [
     [1373.2198709594231, -1100.4251190754821, -7.278681089101213],
     [-271.815969077903, 559.6580465940733, -32.46047482791194],
@@ -205,16 +205,16 @@ const LINRGB_FROM_SCALED_DISCOUNT: [[f64; 3]; 3] = [
 ];
 const Y_FROM_LINRGB: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
-/// Gris neutre de ton `tone` (chroma nul).
+/// The neutral grey of tone `tone` (zero chroma).
 fn gray(tone: f64) -> Color {
     let y = y_from_lstar(tone);
-    // Y cible sur les trois composantes linéaires identiques.
+    // The target Y, applied to all three identical linear components.
     let component = delinearized(y) as f32;
     Color::rgb(component, component, component)
 }
 
-/// Tente de résoudre `(teinte, chroma, Y)` par itération sur la clarté `J`
-/// (5 pas de Newton sur Y). `None` si le résultat sort du gamut sRGB.
+/// Attempts to solve `(hue, chroma, Y)` by iterating on lightness `J` (five
+/// Newton steps on Y). `None` when the result falls outside the sRGB gamut.
 fn find_result_by_j(hue_radians: f64, chroma: f64, y_target: f64) -> Option<Color> {
     let vc = default_viewing_conditions();
     let mut j = y_target.sqrt() * 11.0;
@@ -242,7 +242,7 @@ fn find_result_by_j(hue_radians: f64, chroma: f64, y_target: f64) -> Option<Colo
         let g_a = (460.0 * p2 - 891.0 * a - 261.0 * b) / 1403.0;
         let b_a = (460.0 * p2 - 220.0 * a - 6300.0 * b) / 1403.0;
 
-        // Décompression des cônes adaptés (inverse de la compression 0,42).
+        // Decompress the adapted cones (the inverse of the 0.42 compression).
         let inverse_adapt = |adapted: f64| {
             let adapted_abs = adapted.abs();
             let base = (27.13 * adapted_abs / (400.0 - adapted_abs)).max(0.0);
@@ -271,35 +271,35 @@ fn find_result_by_j(hue_radians: f64, chroma: f64, y_target: f64) -> Option<Colo
             }
             return Some(color_from_linrgb(lin));
         }
-        // Pas de Newton sur Y (f(J) ≈ Y, dY/dJ ≈ 2Y/J).
+        // A Newton step on Y (f(J) ~ Y, dY/dJ ~ 2Y/J).
         j -= (fnj - y_target) * j / (2.0 * fnj);
     }
     None
 }
 
-/// Une couleur en **HCT** : teinte CAM16 (degrés), chroma CAM16, ton L\*.
+/// A colour in **HCT**: CAM16 hue (degrees), CAM16 chroma, and L\* tone.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Hct {
-    /// Teinte, en degrés (0..360).
+    /// Hue, in degrees (0..360).
     pub hue: f64,
-    /// Chroma (0 = gris ; le maximum dépend de la teinte et du ton).
+    /// Chroma (0 = grey; the maximum depends on the hue and the tone).
     pub chroma: f64,
-    /// Ton `L*` (0 = noir, 100 = blanc) — l'axe du contraste.
+    /// Tone `L*` (0 = black, 100 = white) — the contrast axis.
     pub tone: f64,
 }
 
 impl Hct {
-    /// Analyse une couleur sRGB en HCT.
+    /// Analyses an sRGB colour into HCT.
     pub fn from_color(color: Color) -> Self {
         let (hue, chroma) = cam16_hue_chroma(color);
         let tone = lstar_from_y(xyz_from_color(color)[1]);
         Self { hue, chroma, tone }
     }
 
-    /// Trouve la couleur sRGB affichable pour `(hue, chroma, tone)`. Le chroma
-    /// est réduit si nécessaire (teinte et ton préservés).
+    /// Finds the displayable sRGB colour for `(hue, chroma, tone)`. Chroma is
+    /// reduced where necessary; hue and tone are preserved.
     pub fn solve(hue: f64, chroma: f64, tone: f64) -> Color {
-        // Cas dégénérés : gris pur (le ton seul décide).
+        // Degenerate cases: pure grey, where tone alone decides.
         if chroma < 1e-4 || !(1e-4..=99.9999).contains(&tone) {
             return gray(tone.clamp(0.0, 100.0));
         }
@@ -310,8 +310,8 @@ impl Hct {
         if let Some(exact) = find_result_by_j(hue_radians, chroma, y) {
             return exact;
         }
-        // Hors gamut : dichotomie sur le chroma (précision 0,4 — celle du
-        // solveur historique de material-color-utilities).
+        // Out of gamut: bisect on chroma, to a precision of 0.4 — the same as
+        // the original material-color-utilities solver.
         let (mut low, mut high) = (0.0_f64, chroma);
         let mut answer = gray(tone);
         while high - low > 0.4 {
@@ -328,8 +328,8 @@ impl Hct {
     }
 }
 
-/// Une **palette tonale** : une teinte et un chroma déclinés sur l'échelle des
-/// tons. `tone(90)` = très clair, `tone(10)` = très sombre, même « couleur ».
+/// A **tonal palette**: one hue and chroma spread across the tone scale.
+/// `tone(90)` is very light, `tone(10)` very dark, and both read as one colour.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TonalPalette {
     pub hue: f64,
@@ -337,12 +337,12 @@ pub struct TonalPalette {
 }
 
 impl TonalPalette {
-    /// Palette de teinte `hue` (degrés) et chroma plafond `chroma`.
+    /// A palette of hue `hue` (degrees), with `chroma` as the chroma ceiling.
     pub fn new(hue: f64, chroma: f64) -> Self {
         Self { hue, chroma }
     }
 
-    /// La couleur de ton `tone` (0..100) de cette palette.
+    /// This palette's colour at tone `tone` (0..100).
     pub fn tone(&self, tone: f64) -> Color {
         Hct::solve(self.hue, self.chroma, tone)
     }
@@ -361,22 +361,22 @@ mod tests {
 
     #[test]
     fn tone_matches_lstar() {
-        // Blanc/noir/gris moyen : le ton est le L* CIELAB.
+        // White, black and mid grey: the tone is CIELAB's L*.
         assert_close(Hct::from_color(Color::WHITE).tone, 100.0, 0.1, "ton blanc");
         assert_close(Hct::from_color(Color::BLACK).tone, 0.0, 0.1, "ton noir");
-        // sRGB 0.5 → L* ≈ 53.59 (gris matériel : #808080 → 53.585).
+        // sRGB 0.5 -> L* about 53.59 (material grey: #808080 -> 53.585).
         let mid = Hct::from_color(Color::rgb8(0x80, 0x80, 0x80));
         assert_close(mid.tone, 53.585, 0.2, "ton gris moyen");
-        // CAM16 sous adaptation partielle laisse un chroma résiduel ≈ 1,9 aux
-        // gris (référence : materialyoucolor 1.896) — ce n'est pas un bug.
+        // Under partial adaptation CAM16 leaves a residual chroma of about 1.9 on
+        // greys (reference: materialyoucolor gives 1.896). This is not a bug.
         assert_close(mid.chroma, 1.896, 0.1, "chroma résiduel du gris");
     }
 
     #[test]
     fn google_blue_analyzes_to_known_hct() {
-        // #4285F4 : valeurs de référence material-color-utilities
-        // (hue 265.979°, chroma 62.269, tone 56.550 — vérifiées contre le
-        // port Python `materialyoucolor`).
+        // #4285F4: the material-color-utilities reference values (hue 265.979
+        // degrees, chroma 62.269, tone 56.550), checked against the Python port
+        // `materialyoucolor`.
         let hct = Hct::from_color(Color::rgb8(0x42, 0x85, 0xF4));
         assert_close(hct.hue, 265.979, 0.2, "teinte bleu Google");
         assert_close(hct.chroma, 62.269, 0.2, "chroma bleu Google");
@@ -385,8 +385,8 @@ mod tests {
 
     #[test]
     fn solve_round_trips_in_gamut_colors() {
-        // Des cibles bien dans le gamut : la teinte et le ton doivent se
-        // retrouver quasi exactement, le chroma à la précision du solveur.
+        // Targets well inside the gamut: hue and tone should come back almost
+        // exactly, chroma to the solver's precision.
         for &(hue, chroma, tone) in &[
             (27.0, 16.0, 50.0),
             (120.0, 24.0, 70.0),
@@ -403,8 +403,8 @@ mod tests {
 
     #[test]
     fn solve_clamps_impossible_chroma_but_keeps_hue_and_tone() {
-        // Chroma 200 n'existe pour aucune teinte : le solveur doit rendre la
-        // couleur la plus chromatique du gamut, teinte et ton préservés.
+        // No hue has a chroma of 200: the solver must return the most chromatic
+        // colour in the gamut, preserving hue and tone.
         let color = Hct::solve(265.0, 200.0, 30.0);
         let round = Hct::from_color(color);
         assert_close(round.tone, 30.0, 1.0, "ton préservé hors gamut");
@@ -418,15 +418,14 @@ mod tests {
 
     #[test]
     fn solve_matches_reference_implementation() {
-        // Sorties du port Python `materialyoucolor` (HctSolver Google), à
-        // ± 1/255 par canal près (arrondis d'implémentation).
-        // Tolérance : ±1 dans le gamut ; ±3 hors gamut (notre dichotomie sur le
-        // chroma a une précision de 0,4 là où Google bissecte la frontière
-        // exacte du gamut).
+        // Output of the Python port `materialyoucolor` (Google's HctSolver), to
+        // within 1/255 per channel (implementation rounding).
+        // Tolerance: +/-1 inside the gamut, +/-3 outside it — our chroma bisection
+        // has a precision of 0.4 where Google bisects the exact gamut boundary.
         let cases: [(f64, f64, f64, [u8; 3], i32); 3] = [
             (27.0, 16.0, 50.0, [0x92, 0x6F, 0x69], 1),
             (120.0, 24.0, 70.0, [0xA8, 0xB0, 0x7E], 1),
-            (265.0, 200.0, 30.0, [0x00, 0x44, 0x91], 3), // hors gamut → plafonné
+            (265.0, 200.0, 30.0, [0x00, 0x44, 0x91], 3), // out of gamut -> capped
         ];
         for (hue, chroma, tone, expected, tolerance) in cases {
             let color = Hct::solve(hue, chroma, tone);
@@ -456,7 +455,7 @@ mod tests {
             );
             previous = luminance;
         }
-        // Extrêmes : ton 0 = noir, ton 100 = blanc (chroma inatteignable).
+        // Extremes: tone 0 is black, tone 100 is white; chroma is unreachable.
         assert!(palette.tone(0.0).compute_luminance() < 1e-3);
         assert!(palette.tone(100.0).compute_luminance() > 0.99);
     }
@@ -465,7 +464,7 @@ mod tests {
     fn degenerate_inputs_do_not_produce_nan() {
         for color in [
             Hct::solve(0.0, 0.0, 50.0),
-            Hct::solve(-90.0, 30.0, 50.0), // teinte négative normalisée
+            Hct::solve(-90.0, 30.0, 50.0), // negative hue, normalised
             Hct::solve(400.0, 30.0, 101.0),
             Hct::solve(120.0, 30.0, -5.0),
         ] {

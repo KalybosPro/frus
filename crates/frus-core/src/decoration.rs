@@ -1,17 +1,18 @@
-//! Modèle de **décoration de boîte** : le vocabulaire de peinture d'un rectangle
-//! (fond, dégradé, bordure, coins arrondis, ombre), indépendant du widget et du
-//! thème.
+//! The **box decoration** model: the vocabulary for painting a rectangle
+//! (background, gradient, border, rounded corners, shadow), independent of any
+//! widget or theme.
 //!
-//! Une [`BoxDecoration`] est une valeur pure `Copy` qu'un widget compose au paint,
-//! puis **abaisse** en primitives de [`Scene`] via [`BoxDecoration::paint_into`],
-//! dans un **ordre fixe** : ombre → fond (couleur/dégradé) → bordure. Elle alimente
-//! aussi la mise en page : [`BoxDecoration::content_padding`] réserve la place de la
-//! bordure pour taffy.
+//! A [`BoxDecoration`] is a pure `Copy` value that a widget assembles at paint
+//! time, then **lowers** into [`Scene`] primitives through
+//! [`BoxDecoration::paint_into`], in a **fixed order**: shadow → background
+//! (colour or gradient) → border. It feeds layout too:
+//! [`BoxDecoration::content_padding`] reserves room for the border on taffy's
+//! behalf.
 
 use crate::{Color, Insets, Rect, Scene};
 
-/// Rayons d'arrondi **par coin** (px logiques). `From<f32>` fournit le cas
-/// uniforme : partout où un rayon est attendu, un simple `10.0` reste valide.
+/// Corner radii, **per corner** (logical px). `From<f32>` covers the uniform case:
+/// anywhere a radius is expected, a plain `10.0` still works.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BorderRadius {
     pub top_left: f32,
@@ -21,10 +22,10 @@ pub struct BorderRadius {
 }
 
 impl BorderRadius {
-    /// Aucun arrondi.
+    /// No rounding at all.
     pub const ZERO: Self = Self::uniform(0.0);
 
-    /// Le même rayon aux quatre coins.
+    /// The same radius on all four corners.
     pub const fn uniform(radius: f32) -> Self {
         Self {
             top_left: radius,
@@ -34,7 +35,7 @@ impl BorderRadius {
         }
     }
 
-    /// Seuls les coins **hauts** arrondis (en-têtes, feuilles montantes).
+    /// Only the **top** corners rounded (headers, rising sheets).
     pub const fn top(radius: f32) -> Self {
         Self {
             top_left: radius,
@@ -44,7 +45,7 @@ impl BorderRadius {
         }
     }
 
-    /// Seuls les coins **bas** arrondis.
+    /// Only the **bottom** corners rounded.
     pub const fn bottom(radius: f32) -> Self {
         Self {
             top_left: 0.0,
@@ -54,7 +55,7 @@ impl BorderRadius {
         }
     }
 
-    /// Rayons **bornés à zéro** (un rayon négatif n'a pas de sens au rendu).
+    /// Radii **clamped at zero** — a negative radius is meaningless when painting.
     pub fn clamped(self) -> Self {
         Self {
             top_left: self.top_left.max(0.0),
@@ -64,7 +65,7 @@ impl BorderRadius {
         }
     }
 
-    /// Chaque coin augmenté de `by` (l'enveloppe d'une ombre floutée).
+    /// Every corner grown by `by` — the envelope of a blurred shadow.
     pub fn inflate(self, by: f32) -> Self {
         Self {
             top_left: self.top_left + by,
@@ -74,7 +75,7 @@ impl BorderRadius {
         }
     }
 
-    /// Tous les rayons multipliés par `factor` (échelle DPI).
+    /// Every radius multiplied by `factor` (DPI scaling).
     pub fn scale(self, factor: f32) -> Self {
         Self {
             top_left: self.top_left * factor,
@@ -84,7 +85,7 @@ impl BorderRadius {
         }
     }
 
-    /// `[tl, tr, br, bl]`, prêt pour le GPU.
+    /// `[tl, tr, br, bl]`, ready for the GPU.
     pub fn to_array(self) -> [f32; 4] {
         [
             self.top_left,
@@ -101,60 +102,60 @@ impl From<f32> for BorderRadius {
     }
 }
 
-/// Une bordure uniforme (même épaisseur/couleur sur les quatre côtés).
+/// A uniform border — the same width and colour on all four sides.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
-    /// Épaisseur, en pixels logiques.
+    /// Width, in logical pixels.
     pub width: f32,
-    /// Couleur du trait.
+    /// The line's colour.
     pub color: Color,
 }
 
 impl Border {
-    /// Une bordure uniforme.
+    /// A uniform border.
     pub const fn new(width: f32, color: Color) -> Self {
         Self { width, color }
     }
 
-    /// `true` si la bordure est visible (épaisseur et alpha non nuls).
+    /// `true` when the border is visible — non-zero width and non-zero alpha.
     pub fn is_visible(&self) -> bool {
         self.width > 0.0 && self.color.a > 0.0
     }
 }
 
-/// Un dégradé **linéaire** : du fond (`BoxDecoration::color`) vers `end`, le long
-/// de `direction` exprimée en espace `[0,1]²` (`[0,1]` = haut→bas, `[1,0]` =
-/// gauche→droite).
+/// A **linear** gradient: from the background (`BoxDecoration::color`) to `end`,
+/// along `direction`, expressed in `[0,1]²` space (`[0,1]` = top→bottom, `[1,0]` =
+/// left→right).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LinearGradient {
-    /// Couleur d'arrivée (la couleur de départ est le fond de la décoration).
+    /// The end colour; the start colour is the decoration's background.
     pub end: Color,
-    /// Direction du dégradé en espace `[0,1]²`.
+    /// The gradient's direction, in `[0,1]²` space.
     pub direction: [f32; 2],
 }
 
 impl LinearGradient {
-    /// Un dégradé linéaire vers `end`, dans la direction donnée.
+    /// A linear gradient towards `end`, in the given direction.
     pub const fn new(end: Color, direction: [f32; 2]) -> Self {
         Self { end, direction }
     }
 }
 
-/// Une ombre portée douce.
+/// A soft drop shadow.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxShadow {
-    /// Couleur (l'alpha règle l'intensité).
+    /// Colour; its alpha sets the intensity.
     pub color: Color,
-    /// Décalage `(dx, dy)`, en pixels logiques.
+    /// Offset `(dx, dy)`, in logical pixels.
     pub offset: (f32, f32),
-    /// Rayon de flou.
+    /// Blur radius.
     pub blur: f32,
-    /// Élargissement de l'ombre au-delà de la boîte (avant flou).
+    /// How far the shadow grows beyond the box, before blurring.
     pub spread: f32,
 }
 
 impl BoxShadow {
-    /// Une ombre `(dx, dy)` de flou `blur`, sans élargissement.
+    /// A shadow offset by `(dx, dy)` with `blur`, and no spread.
     pub const fn new(dx: f32, dy: f32, blur: f32, color: Color) -> Self {
         Self {
             color,
@@ -164,13 +165,13 @@ impl BoxShadow {
         }
     }
 
-    /// Fixe l'élargissement (`spread`).
+    /// Sets the `spread`.
     pub const fn spread(mut self, spread: f32) -> Self {
         self.spread = spread;
         self
     }
 
-    /// Rectangle occupé par l'ombre autour de `rect` (décalage + flou + spread).
+    /// The rectangle the shadow occupies around `rect` (offset + blur + spread).
     pub fn bounds(&self, rect: Rect) -> Rect {
         let grow = self.blur + self.spread;
         Rect::new(
@@ -182,28 +183,28 @@ impl BoxShadow {
     }
 }
 
-/// La décoration complète d'une boîte rectangulaire.
+/// The complete decoration of a rectangular box.
 ///
-/// Ordre de peinture **fixe** (comme Flutter) : ombre → fond → bordure. Le fond est
-/// soit uni (`color`), soit dégradé (`color` → `gradient.end`). Une bordure sans
-/// fond peint un contour sur fond transparent ; une décoration entièrement vide ne
-/// peint rien.
+/// The paint order is **fixed**: shadow → background → border. The background is
+/// either flat (`color`) or a gradient (`color` → `gradient.end`). A border with no
+/// background paints an outline over transparency; a wholly empty decoration paints
+/// nothing at all.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct BoxDecoration {
-    /// Couleur de fond (aussi couleur de départ d'un éventuel dégradé).
+    /// Background colour, which doubles as the start colour of any gradient.
     pub color: Option<Color>,
-    /// Dégradé linéaire du fond.
+    /// A linear gradient for the background.
     pub gradient: Option<LinearGradient>,
-    /// Bordure uniforme.
+    /// A uniform border.
     pub border: Option<Border>,
-    /// Rayons des coins arrondis, par coin.
+    /// Corner radii, per corner.
     pub radius: BorderRadius,
-    /// Ombre portée.
+    /// Drop shadow.
     pub shadow: Option<BoxShadow>,
 }
 
 impl BoxDecoration {
-    /// Une décoration à fond uni.
+    /// A decoration with a flat background.
     pub fn filled(color: Color) -> Self {
         Self {
             color: Some(color),
@@ -211,33 +212,33 @@ impl BoxDecoration {
         }
     }
 
-    /// Fixe les rayons des coins (uniforme via `f32`, par coin via
-    /// [`BorderRadius`]).
+    /// Sets the corner radii — uniform through `f32`, per corner through
+    /// [`BorderRadius`].
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.radius = radius.into();
         self
     }
 
-    /// Ajoute une bordure uniforme.
+    /// Adds a uniform border.
     pub fn border(mut self, border: Border) -> Self {
         self.border = Some(border);
         self
     }
 
-    /// Ajoute une ombre.
+    /// Adds a shadow.
     pub fn shadow(mut self, shadow: BoxShadow) -> Self {
         self.shadow = Some(shadow);
         self
     }
 
-    /// Ajoute un dégradé linéaire du fond.
+    /// Adds a linear gradient to the background.
     pub fn gradient(mut self, gradient: LinearGradient) -> Self {
         self.gradient = Some(gradient);
         self
     }
 
-    /// Marge intérieure réservée à la bordure — à ajouter au padding pour que le
-    /// contenu ne soit pas mangé par le trait (alimente taffy).
+    /// The inner margin the border needs — add it to the padding so the content is
+    /// not eaten by the line. This is what feeds taffy.
     pub fn content_padding(&self) -> Insets {
         match self.border {
             Some(b) if b.is_visible() => Insets::uniform(b.width),
@@ -245,11 +246,11 @@ impl BoxDecoration {
         }
     }
 
-    /// Abaisse la décoration en primitives de `scene`, dans l'ordre fixe
-    /// ombre → fond → bordure. `opacity` (`0..=1`) module **toutes** les couleurs
-    /// (fondu d'apparition). `rect` est la boîte en coordonnées absolues.
+    /// Lowers the decoration into `scene` primitives, in the fixed order
+    /// shadow → background → border. `opacity` (`0..=1`) modulates **every** colour,
+    /// which is how a fade-in works. `rect` is the box in absolute coordinates.
     pub fn paint_into(&self, scene: &mut Scene, rect: Rect, opacity: f32) {
-        // 1) Ombre, derrière le reste.
+        // 1) The shadow, behind everything else.
         if let Some(shadow) = self.shadow {
             scene.shadow(
                 shadow.bounds(rect),
@@ -259,7 +260,7 @@ impl BoxDecoration {
             );
         }
 
-        // 2/3) Fond (uni ou dégradé) + bordure, en une primitive.
+        // 2/3) Background (flat or gradient) plus border, in a single primitive.
         let (border_width, border_color) = match self.border {
             Some(b) => (b.width, b.color.fade(opacity)),
             None => (0.0, Color::TRANSPARENT),
@@ -283,7 +284,7 @@ impl BoxDecoration {
                 border_width,
                 border_color,
             ),
-            // Bordure seule (sans fond) : contour sur fond transparent.
+            // Border only, with no background: an outline over transparency.
             (None, _) if has_border => scene.draw_rect(
                 rect,
                 Color::TRANSPARENT,
@@ -291,7 +292,7 @@ impl BoxDecoration {
                 border_width,
                 border_color,
             ),
-            // Rien à peindre.
+            // Nothing to paint.
             (None, _) => {}
         }
     }
@@ -310,7 +311,7 @@ mod tests {
     fn content_padding_reserves_the_border() {
         let deco = BoxDecoration::filled(Color::WHITE).border(Border::new(2.0, Color::BLACK));
         assert_eq!(deco.content_padding(), Insets::uniform(2.0));
-        // Bordure invisible (largeur nulle) → pas de padding.
+        // An invisible border (zero width) → no padding.
         let none = BoxDecoration::filled(Color::WHITE).border(Border::new(0.0, Color::BLACK));
         assert_eq!(none.content_padding(), Insets::ZERO);
     }
@@ -334,18 +335,20 @@ mod tests {
                 Color::rgba(0.0, 0.0, 0.0, 0.5),
             ));
         deco.paint_into(&mut scene, rect(), 1.0);
-        // Deux primitives : l'ombre d'abord, puis le fond.
+        // Two primitives: the shadow first, then the background.
         assert_eq!(scene.len(), 2);
         match scene.primitives()[0] {
-            Primitive::Rect { blur, .. } => assert!(blur > 0.0, "1re primitive = ombre floue"),
-            _ => panic!("attendu un rectangle"),
+            Primitive::Rect { blur, .. } => {
+                assert!(blur > 0.0, "first primitive = the blurred shadow")
+            }
+            _ => panic!("expected a rectangle"),
         }
         match scene.primitives()[1] {
             Primitive::Rect { blur, color, .. } => {
-                assert_eq!(blur, 0.0, "2e primitive = fond net");
+                assert_eq!(blur, 0.0, "second primitive = the crisp background");
                 assert_eq!(color, Color::WHITE);
             }
-            _ => panic!("attendu un rectangle"),
+            _ => panic!("expected a rectangle"),
         }
     }
 
@@ -364,7 +367,7 @@ mod tests {
                 assert_eq!(color.a, 0.5);
                 assert_eq!(border_color.a, 0.5);
             }
-            _ => panic!("attendu un rectangle"),
+            _ => panic!("expected a rectangle"),
         }
     }
 
@@ -384,7 +387,7 @@ mod tests {
                 assert_eq!(color, Color::TRANSPARENT);
                 assert_eq!(border_width, 1.0);
             }
-            _ => panic!("attendu un rectangle"),
+            _ => panic!("expected a rectangle"),
         }
     }
 
@@ -392,7 +395,7 @@ mod tests {
     fn shadow_bounds_grow_with_blur_and_spread() {
         let s = BoxShadow::new(0.0, 0.0, 4.0, Color::BLACK).spread(2.0);
         let b = s.bounds(Rect::new(0.0, 0.0, 10.0, 10.0));
-        // grow = blur + spread = 6 de chaque côté.
+        // grow = blur + spread = 6 on every side.
         assert_eq!(b, Rect::new(-6.0, -6.0, 22.0, 22.0));
     }
 }
