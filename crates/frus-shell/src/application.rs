@@ -1,129 +1,130 @@
-//! Le trait [`Application`] : le contrat entre une **application** et le
-//! framework. Le shell (fenêtre, renderer, entrées, runtime, animations) est
-//! générique sur ce trait ; l'application ne fournit que sa logique.
+//! The [`Application`] trait: the contract between an **application** and the
+//! framework. The shell — window, renderer, input, runtime, animations — is generic
+//! over this trait, and the application supplies only its logic.
 //!
-//! Une app minimale n'implémente que `update` et `view`. Les autres méthodes ont
-//! des valeurs par défaut (thème sombre fixe, pas d'animation, pas de navigation).
+//! A minimal app implements `update` and `view` and nothing else. Every other method
+//! has a default: a fixed dark theme, no animation, no navigation.
 
 use frus_widgets::{Theme, Widget, WindowInsets};
 
 use crate::command::Command;
 use crate::subscription::Subscription;
 
-/// État du **cycle de vie** de l'application, façon Flutter (`AppLifecycleState`). Le framework le
-/// transmet à [`Application::on_lifecycle`] à chaque transition, pour que l'app **réagisse** (mettre
-/// en pause un minuteur/une caméra en arrière-plan, écrire une sauvegarde avant destruction…).
+/// The application's **lifecycle** state. The framework hands it to
+/// [`Application::on_lifecycle`] at every transition so the app can **react**: pause a
+/// timer or a camera in the background, write a save before being destroyed, and so on.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Lifecycle {
-    /// Au **premier plan**, visible et **interactif**.
+    /// In the **foreground**, visible and **interactive**.
     Resumed,
-    /// Visible mais **non focalisé** (volet de notifications, dialogue système, multi-fenêtre…) —
-    /// l'app ne devrait pas réagir aux entrées mais reste affichée.
+    /// Visible but **not focused** — a notification shade, a system dialog, a
+    /// multi-window layout. The app should not react to input but stays on screen.
     Inactive,
-    /// En **arrière-plan**, **non visible** (la surface de rendu est perdue sur Android). Bon moment
-    /// pour relâcher les ressources et suspendre le travail non essentiel.
+    /// In the **background**, **not visible**; on Android the render surface is lost.
+    /// A good moment to release resources and suspend non-essential work.
     Paused,
-    /// En cours de **destruction** — dernière occasion de persister l'état (le processus peut être
-    /// tué ensuite sans autre notification).
+    /// Being **destroyed** — the last chance to persist state, since the process may
+    /// be killed afterwards with no further notice.
     Detached,
 }
 
-/// Ce qu'une application fournit au framework (modèle à messages, façon Elm).
+/// What an application supplies to the framework: an Elm-style message model.
 pub trait Application {
-    /// Type de message émis par l'interface et consommé par [`Application::update`].
+    /// The message type the interface emits and [`Application::update`] consumes.
     ///
-    /// `Send + 'static` car les effets ([`Command`]) traversent des threads.
+    /// `Send + 'static`, because effects ([`Command`]) cross threads.
     type Message: Clone + Send + 'static;
 
-    /// Fait évoluer l'état en réponse à un message, et renvoie les **effets** à
-    /// exécuter (I/O, tâches de fond…). Utiliser [`Command::none`] si aucun.
+    /// Advances the state in response to a message, and returns the **effects** to
+    /// run: I/O, background tasks and the like. Use [`Command::none`] for none.
     fn update(&mut self, message: Self::Message) -> Command<Self::Message>;
 
-    /// Effet à exécuter **au démarrage** (chargement initial, etc.).
+    /// The effect to run **at startup**, such as an initial load.
     fn init(&mut self) -> Command<Self::Message> {
         Command::none()
     }
 
-    /// Sources **continues** de messages (timers…), déclarées selon l'état. Le
-    /// framework les démarre/arrête par diff à chaque cycle.
+    /// **Continuous** sources of messages — timers and so on — declared from the
+    /// state. The framework starts and stops them by diffing every cycle.
     fn subscription(&self) -> Subscription<Self::Message> {
         Subscription::none()
     }
 
-    /// Construit l'arbre de widgets pour la taille et le thème courants.
+    /// Builds the widget tree for the current size and theme.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Self::Message>>;
 
-    /// Thème affiché (peut être un mélange animé) — sombre par défaut.
+    /// The theme on display, possibly an animated blend; dark by default.
     fn theme(&self) -> Theme {
         Theme::dark()
     }
 
-    /// Fait avancer les animations **propres à l'app** (fondu de thème, transitions
-    /// d'écran, détente de geste…) de `dt` secondes. Renvoie `true` si quelque
-    /// chose bouge encore (le framework redemandera alors une frame).
+    /// Advances the app's **own** animations — a theme fade, a screen transition, a
+    /// gesture settling — by `dt` seconds. Returns `true` while something is still
+    /// moving, in which case the framework asks for another frame.
     fn tick(&mut self, _dt: f32) -> bool {
         false
     }
 
-    /// Titre de la fenêtre.
+    /// The window's title.
     fn title(&self) -> String {
         "frus".to_string()
     }
 
-    /// Taille **logique** initiale souhaitée de la fenêtre (`None` = défaut système).
+    /// The window's desired initial **logical** size; `None` for the system default.
     fn window_size(&self) -> Option<(f32, f32)> {
         None
     }
 
-    /// **Densité** de l'interface : un facteur de zoom **applicatif** (défaut
-    /// `1.0`) appliqué par-dessus l'échelle DPI système. `1.2` agrandit toute
-    /// l'UI de 20 % ; `0.9` la resserre. Change à chaud via l'état.
+    /// The interface's **density**: an **application-level** zoom factor, `1.0` by
+    /// default, applied on top of the system DPI scale. `1.2` grows the whole UI by
+    /// 20%, `0.9` tightens it. It can change at runtime through the state.
     fn density(&self) -> f32 {
         1.0
     }
 
-    /// Appelé quand la taille **logique** de la surface change (redimensionnement
-    /// de la fenêtre **ou** changement de densité). Permet à l'app de réagir au
-    /// **changement de palier** dans sa logique (p. ex. fermer un tiroir en
-    /// rétrécissant), au-delà du simple rendu.
+    /// Called when the surface's **logical** size changes, whether the window was
+    /// resized **or** the density changed. It lets the app react to a **breakpoint
+    /// change** in its own logic — closing a drawer as things narrow, say — beyond
+    /// simply re-rendering.
     fn on_resize(&mut self, _width: f32, _height: f32) {}
 
-    /// Appelé à chaque **transition de cycle de vie** (voir [`Lifecycle`]) : `Resumed` au premier
-    /// plan, `Inactive` quand la fenêtre perd le focus, `Paused` en arrière-plan (surface perdue),
-    /// `Detached` juste avant la fermeture. Défaut : ne rien faire. L'app y suspend/reprend son
-    /// travail (minuteurs, capteurs) ou persiste son état — comme `didChangeAppLifecycleState` de
-    /// Flutter.
+    /// Called at every **lifecycle transition** (see [`Lifecycle`]): `Resumed` in the
+    /// foreground, `Inactive` when the window loses focus, `Paused` in the background
+    /// with the surface lost, `Detached` just before closing. The default does
+    /// nothing. This is where an app suspends and resumes its work — timers, sensors —
+    /// or persists its state.
     fn on_lifecycle(&mut self, _state: Lifecycle) {}
 
-    /// Appelé quand les **insets fenêtre** changent, séparés par nature :
-    /// `padding` = barres système/encoche (statique), `view_insets` = clavier
-    /// logiciel (dynamique — l'évitement du clavier consiste à écarter le contenu
-    /// de `insets.safe()`). En px **logiques**. Sur bureau : toujours zéro.
+    /// Called when the **window insets** change, split by nature: `padding` is the
+    /// system bars and the notch, which are static, while `view_insets` is the
+    /// software keyboard, which is dynamic — avoiding the keyboard means pushing the
+    /// content away by `insets.safe()`. In **logical** px. Always zero on desktop.
     fn on_insets(&mut self, _insets: WindowInsets) {}
 
-    /// **Live-reload** (dev) : instantané sérialisé de l'état, capturé juste
-    /// avant qu'un binaire recompilé relance l'application (`FRUS_WATCH=1`).
-    /// `None` (défaut) = l'app ne participe pas — le rechargement repart alors
-    /// d'un état neuf. Le format des octets appartient à l'app.
+    /// **Live reload**, in development: a serialised snapshot of the state, captured
+    /// just before a recompiled binary relaunches the application (`FRUS_WATCH=1`).
+    /// `None`, the default, means the app opts out, and a reload then starts from a
+    /// fresh state. The byte format belongs to the app.
     fn save_state(&self) -> Option<Vec<u8>> {
         None
     }
 
-    /// Réhydrate l'état depuis un instantané [`Application::save_state`] pris
-    /// par le binaire **précédent** (appelé avant [`Application::init`]). Les
-    /// octets viennent d'une autre version du code : tolérer les formats
-    /// inattendus (ignorer vaut mieux que paniquer).
+    /// Rehydrates the state from an [`Application::save_state`] snapshot taken by the
+    /// **previous** binary; called before [`Application::init`]. The bytes come from
+    /// another version of the code, so tolerate unexpected formats — ignoring beats
+    /// panicking.
     fn restore_state(&mut self, _bytes: &[u8]) {}
 
-    /// L'app peut-elle revenir en arrière ? (active le geste retour depuis le bord).
+    /// Can the app go back? This enables the edge back gesture.
     fn can_go_back(&self) -> bool {
         false
     }
 
-    /// Le geste retour progresse (`0 → 1`) — pour prévisualiser via `view`.
+    /// The back gesture is progressing (`0 → 1`), so `view` can preview it.
     fn back_gesture(&mut self, _progress: f32) {}
 
-    /// Le geste retour est relâché, avec la vélocité du doigt (fraction/s) — à
-    /// l'app de valider ou d'annuler (généralement via une détente animée en `tick`).
+    /// The back gesture was released, with the finger's velocity in fractions per
+    /// second. It is up to the app to commit or cancel, usually through an animated
+    /// settle in `tick`.
     fn back_gesture_end(&mut self, _velocity: f32) {}
 }

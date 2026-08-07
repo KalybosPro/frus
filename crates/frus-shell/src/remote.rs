@@ -1,14 +1,15 @@
-//! [`RemoteData`] — l'idiome Elm pour une donnée **chargée de façon asynchrone**.
+//! [`RemoteData`] — the Elm idiom for a value **loaded asynchronously**.
 //!
-//! Une valeur venue du réseau (ou de tout effet [`crate::Command`]) traverse quatre états
-//! bien distincts. Les mélanger dans un `Option<Result<T, E>>` (ou pire, deux booléens
-//! `loading`/`error` désynchronisables) est une source classique de bugs. `RemoteData` rend
-//! ces états **exclusifs** et force la `view` à traiter chacun :
+//! A value coming from the network, or from any [`crate::Command`] effect, goes
+//! through four clearly distinct states. Blending them into an `Option<Result<T, E>>`
+//! — or worse, two `loading`/`error` booleans that can drift apart — is a classic
+//! source of bugs. `RemoteData` makes the states **exclusive** and forces the `view`
+//! to handle each one:
 //!
 //! ```ignore
 //! use frus::{Command, RemoteData, Request};
 //!
-//! struct App { user: RemoteData<User> }         // E = String par défaut
+//! struct App { user: RemoteData<User> }         // E defaults to String
 //!
 //! fn update(&mut self, msg: Msg) -> Command<Msg> {
 //!     match msg {
@@ -19,36 +20,36 @@
 //!                 Msg::Loaded(res.map_err(|e| e.to_string()))
 //!             });
 //!         }
-//!         // Un `Result` d'effet devient directement un `RemoteData`.
+//!         // An effect's `Result` becomes a `RemoteData` directly.
 //!         Msg::Loaded(res) => self.user = RemoteData::from_result(res),
 //!     }
 //!     Command::none()
 //! }
 //! ```
 //!
-//! Dans la `view`, on **replie** les quatre cas — le compilateur garantit qu'aucun n'est
-//! oublié.
+//! In the `view` the four cases are **folded** over, and the compiler guarantees none
+//! is forgotten.
 
-/// Les quatre états d'une donnée chargée de façon asynchrone.
+/// The four states of an asynchronously loaded value.
 ///
-/// `E` (le type d'erreur) vaut `String` par défaut — le cas courant après
+/// `E`, the error type, defaults to `String` — the common case after
 /// `FetchError::to_string()`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RemoteData<T, E = String> {
-    /// Rien n'a encore été demandé (état initial).
+    /// Nothing has been asked for yet; the initial state.
     #[default]
     NotAsked,
-    /// Une requête est en vol.
+    /// A request is in flight.
     Loading,
-    /// La donnée est arrivée.
+    /// The value has arrived.
     Success(T),
-    /// La requête a échoué.
+    /// The request failed.
     Failure(E),
 }
 
 impl<T, E> RemoteData<T, E> {
-    /// Construit depuis le `Result` d'un effet : `Ok` → [`Success`](RemoteData::Success),
-    /// `Err` → [`Failure`](RemoteData::Failure). Le pont idéal dans `update`.
+    /// Builds from an effect's `Result`: `Ok` → [`Success`](RemoteData::Success),
+    /// `Err` → [`Failure`](RemoteData::Failure). The natural bridge inside `update`.
     pub fn from_result(res: Result<T, E>) -> Self {
         match res {
             Ok(value) => RemoteData::Success(value),
@@ -56,22 +57,22 @@ impl<T, E> RemoteData<T, E> {
         }
     }
 
-    /// Une requête est-elle en vol ?
+    /// Is a request in flight?
     pub fn is_loading(&self) -> bool {
         matches!(self, RemoteData::Loading)
     }
 
-    /// La donnée est-elle arrivée ?
+    /// Has the value arrived?
     pub fn is_success(&self) -> bool {
         matches!(self, RemoteData::Success(_))
     }
 
-    /// La requête a-t-elle échoué ?
+    /// Did the request fail?
     pub fn is_failure(&self) -> bool {
         matches!(self, RemoteData::Failure(_))
     }
 
-    /// La donnée, si elle est arrivée (sinon `None`).
+    /// The value if it has arrived, `None` otherwise.
     pub fn value(&self) -> Option<&T> {
         match self {
             RemoteData::Success(value) => Some(value),
@@ -79,7 +80,7 @@ impl<T, E> RemoteData<T, E> {
         }
     }
 
-    /// L'erreur, si la requête a échoué (sinon `None`).
+    /// The error if the request failed, `None` otherwise.
     pub fn error(&self) -> Option<&E> {
         match self {
             RemoteData::Failure(err) => Some(err),
@@ -87,8 +88,8 @@ impl<T, E> RemoteData<T, E> {
         }
     }
 
-    /// Emprunte l'intérieur : `RemoteData<T, E>` → `RemoteData<&T, &E>`, pour replier
-    /// dans une `view` sans consommer l'état.
+    /// Borrows the inside: `RemoteData<T, E>` → `RemoteData<&T, &E>`, so a `view` can
+    /// fold over it without consuming the state.
     pub fn as_ref(&self) -> RemoteData<&T, &E> {
         match self {
             RemoteData::NotAsked => RemoteData::NotAsked,
@@ -98,8 +99,8 @@ impl<T, E> RemoteData<T, E> {
         }
     }
 
-    /// Transforme la donnée en cas de succès, sans toucher aux autres états
-    /// (ex. décoder un corps JSON en type métier).
+    /// Transforms the value on success, leaving the other states untouched — decoding
+    /// a JSON body into a domain type, say.
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> RemoteData<U, E> {
         match self {
             RemoteData::NotAsked => RemoteData::NotAsked,
@@ -109,7 +110,7 @@ impl<T, E> RemoteData<T, E> {
         }
     }
 
-    /// Transforme l'erreur en cas d'échec, sans toucher aux autres états.
+    /// Transforms the error on failure, leaving the other states untouched.
     pub fn map_err<F>(self, f: impl FnOnce(E) -> F) -> RemoteData<T, F> {
         match self {
             RemoteData::NotAsked => RemoteData::NotAsked,
@@ -177,7 +178,7 @@ mod tests {
     fn as_ref_borrows_without_moving() {
         let ok: RemoteData<String> = RemoteData::Success("hi".to_string());
         assert_eq!(ok.as_ref().value().map(|s| s.as_str()), Some("hi"));
-        // `ok` est toujours utilisable ensuite.
+        // `ok` is still usable afterwards.
         assert!(ok.is_success());
     }
 }

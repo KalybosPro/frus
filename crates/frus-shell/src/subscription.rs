@@ -1,38 +1,39 @@
-//! [`Subscription`] : les **sources continues** de messages déclarées par
-//! l'application — le pendant « flux » de [`crate::Command`] (ponctuel).
+//! [`Subscription`]: the **continuous sources** of messages an application
+//! declares — the streaming counterpart to [`crate::Command`], which is one-shot.
 //!
-//! L'app déclare ses souscriptions **en fonction de son état** ; le framework les
-//! **diffe** à chaque cycle (démarre les nouvelles, arrête celles retirées),
-//! grâce à un **id** stable par souscription (hash de sa « recette »).
+//! An app declares its subscriptions **as a function of its state**, and the
+//! framework **diffs** them every cycle, starting the new ones and stopping those
+//! that were withdrawn. That works thanks to a stable **id** per subscription, the
+//! hash of its recipe.
 
 use std::time::Duration;
 
 use web_time::Instant;
 
-/// Fabrique de message d'un timer (appelée à chaque intervalle).
+/// A timer's message factory, called at every interval.
 type TimerFn<Msg> = Box<dyn Fn(Instant) -> Msg + Send>;
 
-/// La nature d'une souscription.
+/// What a subscription is.
 pub(crate) enum Kind<Msg> {
-    /// Émet un message à intervalle régulier.
+    /// Emits a message at a regular interval.
     Every {
         interval: Duration,
         make: TimerFn<Msg>,
     },
 }
 
-/// Une souscription unitaire : son id (pour le diff) et sa nature.
+/// A single subscription: its id, used by the diff, and its nature.
 pub(crate) struct Entry<Msg> {
     pub(crate) id: u64,
     pub(crate) kind: Kind<Msg>,
 }
 
-/// Un ensemble de sources continues de messages (éventuellement vide).
+/// A set of continuous message sources, possibly empty.
 pub struct Subscription<Msg> {
     entries: Vec<Entry<Msg>>,
 }
 
-/// Id stable d'un `every` : hash de sa recette (type + durée en ms).
+/// An `every`'s stable id: the hash of its recipe, the kind plus the duration in ms.
 fn every_id(interval: Duration) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -42,14 +43,14 @@ fn every_id(interval: Duration) -> u64 {
 }
 
 impl<Msg: Send + 'static> Subscription<Msg> {
-    /// Aucune souscription.
+    /// No subscription at all.
     pub fn none() -> Self {
         Self {
             entries: Vec::new(),
         }
     }
 
-    /// Regroupe plusieurs souscriptions.
+    /// Groups several subscriptions together.
     pub fn batch(subscriptions: impl IntoIterator<Item = Subscription<Msg>>) -> Self {
         let mut entries = Vec::new();
         for subscription in subscriptions {
@@ -58,7 +59,7 @@ impl<Msg: Send + 'static> Subscription<Msg> {
         Self { entries }
     }
 
-    /// Émet un message toutes les `interval` (le `Instant` du tick est fourni).
+    /// Emits a message every `interval`; the tick's `Instant` is passed along.
     pub fn every(interval: Duration, make: impl Fn(Instant) -> Msg + Send + 'static) -> Self {
         Self {
             entries: vec![Entry {
@@ -71,17 +72,17 @@ impl<Msg: Send + 'static> Subscription<Msg> {
         }
     }
 
-    /// `true` si aucune souscription.
+    /// `true` when there is no subscription.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Les ids des souscriptions (pour inspection / test).
+    /// The subscriptions' ids, for inspection and testing.
     pub fn ids(&self) -> Vec<u64> {
         self.entries.iter().map(|entry| entry.id).collect()
     }
 
-    /// Extrait les entrées (pour le diff par le framework).
+    /// Takes the entries out, for the framework to diff.
     pub(crate) fn into_entries(self) -> Vec<Entry<Msg>> {
         self.entries
     }
@@ -101,8 +102,8 @@ mod tests {
         let a = Subscription::every(Duration::from_secs(1), |_| 0u32);
         let b = Subscription::every(Duration::from_secs(1), |_| 0u32);
         let c = Subscription::every(Duration::from_secs(2), |_| 0u32);
-        assert_eq!(a.ids(), b.ids(), "même durée → même id");
-        assert_ne!(a.ids(), c.ids(), "durée différente → id différent");
+        assert_eq!(a.ids(), b.ids(), "same duration → same id");
+        assert_ne!(a.ids(), c.ids(), "different duration → different id");
     }
 
     #[test]

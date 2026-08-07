@@ -1,20 +1,21 @@
 [package]
 name = "frus-shell"
-description = "frus — couche plateforme : fenêtre + boucle d'événements (Jalon 0)"
+description = "frus — the platform layer: window + event loop (Milestone 0)"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-# La feature `net` active le helper HTTP `fetch` cross-plateforme (client `ureq` en natif,
-# `fetch` du navigateur sur le Web). Désactivée par défaut : une app qui ne réseau pas
-# n'embarque ni ureq ni sa pile TLS.
-# La feature `json` (implique `net`) ajoute `Request::json_body` / `send_json` via serde.
+# The `net` feature turns on the cross-platform `fetch` HTTP helper: the `ureq`
+# client natively, the browser's `fetch` on the Web. Off by default, so an app that
+# does no networking bundles neither ureq nor its TLS stack.
+# The `json` feature, which implies `net`, adds `Request::json_body` / `send_json`
+# through serde.
 [features]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
 
-# Alias de `cfg` (`desktop` / `android` / `ios` / `web`) — voir `build.rs`. Déjà dans
-# l'arbre (winit s'en sert), donc aucune dépendance supplémentaire à télécharger.
+# The `cfg` aliases (`desktop` / `android` / `ios` / `web`) — see `build.rs`. Already
+# in the tree, since winit uses it, so nothing extra is downloaded.
 [build-dependencies]
 cfg_aliases = "0.2"
 
@@ -24,43 +25,44 @@ frus-widgets = { path = "../frus-widgets" }
 winit.workspace = true
 anyhow.workspace = true
 log.workspace = true
-# JSON typé du helper `fetch` (feature `json`) : sérialisation/désérialisation. Pur Rust,
-# donc valable sur les trois cibles (contrairement à ureq, natif seulement).
+# Typed JSON for the `fetch` helper (the `json` feature): serialisation and
+# deserialisation. Pure Rust, so it holds on all three targets, unlike ureq, which is
+# native only.
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-# Horloge monotone portable : `std::time` en natif, `performance.now()` sur le Web
-# (où `std::time::Instant` panique). Une seule API pour les trois plateformes.
+# A portable monotonic clock: `std::time` natively, `performance.now()` on the Web,
+# where `std::time::Instant` panics. One API for all three platforms.
 web-time = "1"
 
-# Natif (bureau + Android) : attente bloquante de l'init GPU. Le Web, lui, est
-# asynchrone (voir `run_web`).
+# Native (desktop + Android): a blocking wait on GPU init. The Web is asynchronous
+# instead — see `run_web`.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster.workspace = true
-# Client HTTP natif du helper `fetch` (feature `net`) : bloquant, mené à terme dans
-# le corps de la future asynchrone (sur son thread dédié). TLS via rustls (défaut ureq).
+# The `fetch` helper's native HTTP client (the `net` feature): blocking, driven to
+# completion inside the async future's body, on its own thread. TLS through rustls,
+# ureq's default.
 ureq = { version = "2", optional = true }
 
-# Bureau uniquement (ni Android, ni iOS, ni Web) : presse-papier, logger console et
-# accessibilité. (AccessKit expose l'arbre sémantique aux lecteurs d'écran natifs —
-# UIA Windows, AT-SPI Linux, macOS ; les providers Android et Web sont distincts.)
+# Desktop only — not Android, not iOS, not the Web: clipboard, console logger and
+# accessibility. (AccessKit exposes the semantic tree to the native screen readers —
+# UIA on Windows, AT-SPI on Linux, macOS; the Android and Web providers are separate.)
 #
-# iOS est exclu explicitement : `arboard` (presse-papier de bureau) et
-# `accesskit_winit` n'ont pas de backend UIKit, et stderr n'est pas lisible sur
-# appareil. Cargo n'évalue pas les alias de `build.rs` ici — d'où la liste écrite
-# en toutes lettres.
+# iOS is excluded explicitly: `arboard`, a desktop clipboard, and `accesskit_winit`
+# have no UIKit backend, and stderr is not readable on a device. Cargo does not
+# evaluate `build.rs` aliases here, hence the list spelled out in full.
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
 arboard.workspace = true
 env_logger.workspace = true
 accesskit = "0.24"
 accesskit_winit = "0.33"
 
-# Web (wasm32 + WebGPU) : point d'entrée navigateur, futures JS, logs console.
+# Web (wasm32 + WebGPU): the browser entry point, JS futures, console logs.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
 console_log = "1"
-# `Request`/`RequestInit`/`Headers`/`Abort*` : helper HTTP `fetch` (feature `net`) sur le Web.
+# `Request`/`RequestInit`/`Headers`/`Abort*`: the `fetch` HTTP helper (`net`) on the Web.
 web-sys = { version = "0.3", features = [
     "Document",
     "Window",
@@ -73,10 +75,10 @@ web-sys = { version = "0.3", features = [
     "AbortSignal",
 ] }
 
-# Sur Android, winit passe par l'activité native (android-activity) et les logs
-# vont dans logcat.
+# On Android, winit goes through the native activity (android-activity) and the logs
+# land in logcat.
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
 android_logger = "0.14"
-# Pont de saisie (InputConnection) : chargement du dex embarqué + natives.
+# The input bridge (InputConnection): loading the bundled dex plus its natives.
 jni = "0.21"

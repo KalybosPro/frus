@@ -1,22 +1,21 @@
-//! **Live-reload préservant l'état** (§13, dev uniquement).
+//! **State-preserving live reload** (§13, development only).
 //!
-//! Le principe (celui du cahier d'idées) : l'état Elm est **une struct
-//! unique** — il suffit de la sérialiser pour survivre à un remplacement de
-//! binaire. Sous `FRUS_WATCH=1` (builds debug), le shell surveille le mtime de
-//! son propre exécutable ; quand `cargo build` (ou `cargo watch`) le remplace,
-//! il capture [`Application::save_state`], relance le **nouveau** binaire avec
-//! le chemin de l'instantané en environnement, et s'efface. Le nouveau
-//! processus réhydrate via [`Application::restore_state`] avant `init`.
+//! The principle: Elm state is **one single struct**, so serialising it is enough to
+//! survive a binary being replaced. Under `FRUS_WATCH=1`, in debug builds, the shell
+//! watches the mtime of its own executable; when `cargo build` — or `cargo watch` —
+//! replaces it, the shell captures [`Application::save_state`], relaunches the **new**
+//! binary with the snapshot's path in the environment, and steps aside. The new
+//! process rehydrates through [`Application::restore_state`] before `init`.
 //!
-//! Pur `cargo` : aucune ABI à stabiliser, aucun outillage propriétaire —
-//! `FRUS_WATCH=1 cargo run` dans un terminal, `cargo watch -x build` dans un
-//! autre, et l'itération ressemble à Flutter (l'état survit à l'édition).
+//! Pure `cargo`: no ABI to stabilise, no proprietary tooling — `FRUS_WATCH=1 cargo
+//! run` in one terminal, `cargo watch -x build` in another, and the edit-run loop
+//! keeps its state across a code change.
 //!
 //! [`Application::save_state`]: crate::Application::save_state
 //! [`Application::restore_state`]: crate::Application::restore_state
 
-// `Path` ne sert qu'à `restore_from_env` (bureau) ; `PathBuf` sert partout où le
-// module compile (via `state_file_path`).
+// `Path` only serves `restore_from_env`, which is desktop-only; `PathBuf` serves
+// everywhere the module compiles, through `state_file_path`.
 #[cfg(desktop)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -24,26 +23,26 @@ use std::time::{Duration, SystemTime};
 
 use web_time::Instant;
 
-/// Variable d'environnement qui **active** la surveillance (dev).
+/// The environment variable that **turns on** watching, in development.
 const WATCH_ENV: &str = "FRUS_WATCH";
-/// Variable d'environnement portant le chemin de l'instantané à réhydrater.
+/// The environment variable carrying the path of the snapshot to rehydrate.
 const STATE_ENV: &str = "FRUS_HOT_STATE";
-/// Cadence de vérification du mtime de l'exécutable.
+/// How often the executable's mtime is checked.
 const POLL_INTERVAL: Duration = Duration::from_millis(700);
 
-/// Surveille le binaire courant et orchestre la relance.
+/// Watches the current binary and orchestrates the relaunch.
 pub(crate) struct ReloadWatcher {
-    /// Chemin de l'exécutable **capturé au démarrage** : après remplacement,
-    /// `/proc/self/exe` pointerait sur l'inode supprimé (« (deleted) ») — le
-    /// chemin d'origine, lui, désigne le binaire fraîchement compilé.
+    /// The executable's path, **captured at startup**: after a replacement,
+    /// `/proc/self/exe` would point at the deleted inode ("(deleted)"), whereas the
+    /// original path names the freshly compiled binary.
     exe: PathBuf,
     mtime: SystemTime,
     next_poll: Instant,
 }
 
 impl ReloadWatcher {
-    /// `Some` seulement en build debug, sous `FRUS_WATCH=1`, si l'exécutable
-    /// est observable.
+    /// `Some` only in a debug build, under `FRUS_WATCH=1`, and only when the
+    /// executable can be observed.
     pub(crate) fn new() -> Option<Self> {
         if !cfg!(debug_assertions) || std::env::var_os(WATCH_ENV).map_or(true, |v| v != "1") {
             return None;
@@ -57,12 +56,12 @@ impl ReloadWatcher {
         })
     }
 
-    /// Prochaine échéance de vérification (pour `ControlFlow::WaitUntil`).
+    /// The next check's deadline, for `ControlFlow::WaitUntil`.
     pub(crate) fn deadline(&self) -> Instant {
         self.next_poll
     }
 
-    /// Vérifie (au plus une fois par cadence) si le binaire a été remplacé.
+    /// Checks whether the binary was replaced, at most once per interval.
     pub(crate) fn binary_changed(&mut self) -> bool {
         let now = Instant::now();
         if now < self.next_poll {
@@ -78,9 +77,9 @@ impl ReloadWatcher {
         }
     }
 
-    /// Relance le binaire recompilé et s'efface : écrit l'instantané éventuel,
-    /// le transmet par environnement, lance le nouveau processus puis termine
-    /// celui-ci. Sans instantané, la relance repart d'un état neuf.
+    /// Relaunches the recompiled binary and steps aside: writes the snapshot when
+    /// there is one, passes it along through the environment, spawns the new process
+    /// and ends this one. With no snapshot the relaunch starts from a fresh state.
     pub(crate) fn handoff(&self, state: Option<Vec<u8>>) -> ! {
         let mut command = std::process::Command::new(&self.exe);
         if let Some(bytes) = state {
@@ -91,24 +90,24 @@ impl ReloadWatcher {
         }
         match command.spawn() {
             Ok(_) => eprintln!(
-                "[frus] binaire recompilé : relance ({})",
+                "[frus] binary recompiled: relaunching ({})",
                 self.exe.display()
             ),
-            Err(err) => eprintln!("[frus] relance impossible : {err}"),
+            Err(err) => eprintln!("[frus] cannot relaunch: {err}"),
         }
         std::process::exit(0);
     }
 }
 
-/// Chemin de l'instantané d'état (unique par processus parent).
+/// The state snapshot's path, unique per parent process.
 fn state_file_path() -> PathBuf {
     std::env::temp_dir().join(format!("frus-hot-{}.state", std::process::id()))
 }
 
-/// À l'amorçage : réhydrate l'état depuis l'instantané laissé par le binaire
-/// précédent, s'il existe (le fichier est consommé). À appeler avant `init`.
-/// Bureau uniquement — le live-reload n'a pas de sens sur Android ni sur le Web,
-/// où `run` (son unique appelant) n'existe pas.
+/// At boot: rehydrates the state from the snapshot the previous binary left behind,
+/// if there is one; the file is consumed. Call this before `init`. Desktop only —
+/// live reload makes no sense on Android or the Web, where `run`, its only caller,
+/// does not exist.
 #[cfg(desktop)]
 pub(crate) fn restore_from_env<A: crate::Application>(app: &mut A) {
     let Some(path) = std::env::var_os(STATE_ENV) else {
@@ -117,7 +116,7 @@ pub(crate) fn restore_from_env<A: crate::Application>(app: &mut A) {
     let path = Path::new(&path);
     if let Ok(bytes) = std::fs::read(path) {
         app.restore_state(&bytes);
-        eprintln!("[frus] état réhydraté ({} octets)", bytes.len());
+        eprintln!("[frus] state rehydrated ({} bytes)", bytes.len());
     }
     let _ = std::fs::remove_file(path);
 }
@@ -137,15 +136,15 @@ mod tests {
             crate::Command::none()
         }
         fn view(&self, _: &Theme, _: f32, _: f32) -> Box<dyn Widget<()>> {
-            unimplemented!("jamais rendu dans ce test")
+            unimplemented!("never rendered in this test")
         }
         fn restore_state(&mut self, bytes: &[u8]) {
             self.restored = Some(bytes.to_vec());
         }
     }
 
-    /// L'instantané pointé par l'environnement est réhydraté puis consommé ;
-    /// sans variable, rien ne se passe.
+    /// The snapshot the environment points at is rehydrated then consumed; with no
+    /// variable set, nothing happens.
     #[test]
     fn restore_reads_and_consumes_the_snapshot() {
         let path = std::env::temp_dir().join("frus-hot-test.state");
@@ -155,31 +154,31 @@ mod tests {
         restore_from_env(&mut app);
         std::env::remove_var(STATE_ENV);
         assert_eq!(app.restored.as_deref(), Some(&b"snapshot"[..]));
-        assert!(!path.exists(), "l'instantané est consommé");
+        assert!(!path.exists(), "the snapshot is consumed");
 
         let mut fresh = Probe { restored: None };
         restore_from_env(&mut fresh);
-        assert!(fresh.restored.is_none(), "sans variable : démarrage neuf");
+        assert!(fresh.restored.is_none(), "no variable: a fresh start");
     }
 
-    /// Le watcher n'existe que sous `FRUS_WATCH=1`, et ne signale un
-    /// changement qu'après un vrai saut de mtime (cadence respectée).
+    /// The watcher exists only under `FRUS_WATCH=1`, and reports a change only after
+    /// a genuine mtime jump, once the interval has elapsed.
     #[test]
     fn watcher_requires_opt_in_and_tracks_mtime() {
         std::env::remove_var(WATCH_ENV);
-        assert!(ReloadWatcher::new().is_none(), "opt-in obligatoire");
+        assert!(ReloadWatcher::new().is_none(), "opting in is mandatory");
 
         std::env::set_var(WATCH_ENV, "1");
         let watcher = ReloadWatcher::new();
         std::env::remove_var(WATCH_ENV);
-        // En debug : le binaire de test est observable → Some.
+        // In debug the test binary can be observed → Some.
         let Some(mut watcher) = watcher else {
-            panic!("watcher attendu en debug sous FRUS_WATCH=1");
+            panic!("a watcher was expected in debug under FRUS_WATCH=1");
         };
-        // La première vérification est retenue par la cadence.
+        // The interval holds the first check back.
         assert!(!watcher.binary_changed());
-        // Une fois l'échéance passée, sans recompilation : toujours rien.
+        // Once the deadline has passed, with no recompilation: still nothing.
         watcher.next_poll = Instant::now() - Duration::from_millis(1);
-        assert!(!watcher.binary_changed(), "mtime inchangé → pas de relance");
+        assert!(!watcher.binary_changed(), "mtime unchanged → no relaunch");
     }
 }

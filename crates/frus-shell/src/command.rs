@@ -1,44 +1,44 @@
-//! [`Command`] : les **effets** renvoyés par `Application::update`.
+//! [`Command`]: the **effects** `Application::update` returns.
 //!
-//! Une commande décrit un travail à effectuer **hors** du cycle `update` — une
-//! écriture fichier, un chargement, un `fetch` réseau, un calcul long… — dont le
-//! résultat revient sous forme de **message** réinjecté dans `update`. Deux formes :
+//! A command describes work to be done **outside** the `update` cycle — a file
+//! write, a load, a network `fetch`, a long computation — whose result comes back as
+//! a **message** fed into `update`. There are two shapes:
 //!
-//! - **synchrone** ([`Command::perform`] / [`Command::run`]) : une closure exécutée
-//!   sur un thread de fond (natif) ou en microtâche (Web).
-//! - **asynchrone** ([`Command::perform_async`] / [`Command::run_async`]) : une
-//!   **future** qui peut `await`. Sur le **Web** (mono-thread), elle est pilotée par
-//!   le navigateur (`spawn_local`) — un vrai `fetch` peut ainsi s'attendre. En
-//!   **natif**, elle est menée à terme sur un thread (`block_on`).
+//! - **synchronous** ([`Command::perform`] / [`Command::run`]): a closure run on a
+//!   background thread natively, or as a microtask on the Web.
+//! - **asynchronous** ([`Command::perform_async`] / [`Command::run_async`]): a
+//!   **future** that can `await`. On the **Web**, which is single-threaded, the
+//!   browser drives it (`spawn_local`), so a real `fetch` can be awaited.
+//!   **Natively** it is driven to completion on a thread (`block_on`).
 
 use std::future::Future;
 use std::pin::Pin;
 
-/// Une tâche **synchrone** : un travail qui produit éventuellement un message.
+/// A **synchronous** task: work that may produce a message.
 type Task<Msg> = Box<dyn FnOnce() -> Option<Msg> + Send + 'static>;
 
-/// Une tâche **asynchrone** : une future qui produit éventuellement un message.
+/// An **asynchronous** task: a future that may produce a message.
 ///
-/// En **natif**, elle traverse un thread (`block_on`) : bornée `Send`. Sur le **Web**
-/// (mono-thread), les futures du navigateur (`JsFuture`/`fetch`) ne sont **pas** `Send`
-/// et n'en ont pas besoin — d'où la borne relâchée.
+/// **Natively** it crosses a thread (`block_on`), hence the `Send` bound. On the
+/// **Web**, which is single-threaded, the browser's futures (`JsFuture`/`fetch`) are
+/// **not** `Send` and do not need to be — hence the relaxed bound.
 #[cfg(not(web))]
 type AsyncTask<Msg> = Pin<Box<dyn Future<Output = Option<Msg>> + Send + 'static>>;
 #[cfg(web)]
 type AsyncTask<Msg> = Pin<Box<dyn Future<Output = Option<Msg>> + 'static>>;
 
-/// Un lot d'effets à exécuter (éventuellement vide) : des **tâches** de fond
-/// (synchrones et/ou asynchrones) et/ou des demandes de **focus** (par clé de widget).
+/// A batch of effects to run, possibly empty: background **tasks**, synchronous or
+/// asynchronous, and **focus** requests addressed by widget key.
 pub struct Command<Msg> {
     tasks: Vec<Task<Msg>>,
     async_tasks: Vec<AsyncTask<Msg>>,
-    /// Clés de widgets à focaliser (hash de la clé, comme [`crate::Subscription`] et
-    /// le `keyed(...)` des widgets). Le shell les résout après le prochain build.
+    /// The keys of widgets to focus — the key's hash, as in [`crate::Subscription`]
+    /// and the widgets' `keyed(...)`. The shell resolves them after the next build.
     focus: Vec<u64>,
 }
 
-/// Hash d'une clé de focus — **identique** au hachage du `keyed(key, …)` des widgets,
-/// pour que `Command::focus(k)` cible le widget `keyed(k, …)`.
+/// A focus key's hash — **identical** to the hash the widgets' `keyed(key, …)` uses,
+/// so that `Command::focus(k)` targets the `keyed(k, …)` widget.
 fn focus_key(key: impl std::hash::Hash) -> u64 {
     use std::hash::Hasher;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -47,7 +47,7 @@ fn focus_key(key: impl std::hash::Hash) -> u64 {
 }
 
 impl<Msg: Send + 'static> Command<Msg> {
-    /// Aucun effet.
+    /// No effect at all.
     pub fn none() -> Self {
         Self {
             tasks: Vec::new(),
@@ -56,7 +56,7 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Regroupe plusieurs commandes en une seule.
+    /// Groups several commands into one.
     pub fn batch(commands: impl IntoIterator<Item = Command<Msg>>) -> Self {
         let mut tasks = Vec::new();
         let mut async_tasks = Vec::new();
@@ -73,7 +73,7 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Exécute une tâche **synchrone** en arrière-plan ; son résultat devient un message.
+    /// Runs a **synchronous** task in the background; its result becomes a message.
     pub fn perform(task: impl FnOnce() -> Msg + Send + 'static) -> Self {
         Self {
             tasks: vec![Box::new(move || Some(task()))],
@@ -82,7 +82,7 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Exécute un effet de bord **synchrone** ; il peut renvoyer un message (`None` = aucun).
+    /// Runs a **synchronous** side effect; it may return a message (`None` for none).
     pub fn run(task: impl FnOnce() -> Option<Msg> + Send + 'static) -> Self {
         Self {
             tasks: vec![Box::new(task)],
@@ -91,13 +91,14 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Exécute une **future** asynchrone ; sa valeur devient un message.
+    /// Runs an asynchronous **future**; its value becomes a message.
     ///
-    /// Sur le **Web** (mono-thread), la future est pilotée par le navigateur
-    /// (`spawn_local`) — un vrai `fetch` peut ainsi `await` sans bloquer. En **natif**,
-    /// elle est menée à terme sur un thread de fond (`block_on`) : idéale pour une future
-    /// **autonome** (calcul, canal, minuterie pilotée) ; une E/S réseau réelle demande le
-    /// runtime async de l'application (voir la note plateforme du module).
+    /// On the **Web**, which is single-threaded, the browser drives the future
+    /// (`spawn_local`), so a real `fetch` can `await` without blocking. **Natively** it
+    /// is driven to completion on a background thread (`block_on`), which suits a
+    /// **self-contained** future — a computation, a channel, a driven timer; real
+    /// network I/O wants the application's own async runtime. See the module's
+    /// platform note.
     #[cfg(not(web))]
     pub fn perform_async<F>(future: F) -> Self
     where
@@ -110,8 +111,8 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Exécute une **future** asynchrone ; sa valeur devient un message. Voir la version
-    /// native pour la sémantique complète (bornes `Send` relâchées sur le Web).
+    /// Runs an asynchronous **future**; its value becomes a message. See the native
+    /// version for the full semantics; the `Send` bounds are relaxed on the Web.
     #[cfg(web)]
     pub fn perform_async<F>(future: F) -> Self
     where
@@ -124,8 +125,8 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Exécute une **future** asynchrone à effet de bord ; elle peut renvoyer un message
-    /// (`None` = aucun). Pendant asynchrone de [`Command::run`].
+    /// Runs an asynchronous **future** for its side effect; it may return a message
+    /// (`None` for none). The asynchronous counterpart of [`Command::run`].
     #[cfg(not(web))]
     pub fn run_async<F>(future: F) -> Self
     where
@@ -138,8 +139,8 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Exécute une **future** asynchrone à effet de bord (`None` = aucun message). Version
-    /// Web (borne `Send` relâchée).
+    /// Runs an asynchronous **future** for its side effect (`None` for no message).
+    /// The Web version, with the `Send` bound relaxed.
     #[cfg(web)]
     pub fn run_async<F>(future: F) -> Self
     where
@@ -152,10 +153,10 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// Demande le **focus** du widget portant la clé `key` (le champ enveloppé par
-    /// `keyed(key, …)`). Résolu par le shell après la prochaine construction de la
-    /// vue — typiquement renvoyé quand une soumission de formulaire échoue, pour
-    /// sauter au premier champ invalide (`Form::first_invalid`).
+    /// Requests **focus** for the widget carrying `key` — the field wrapped in
+    /// `keyed(key, …)`. The shell resolves it after the view is next built; it is
+    /// typically returned when a form submission fails, to jump to the first invalid
+    /// field (`Form::first_invalid`).
     pub fn focus(key: impl std::hash::Hash) -> Self {
         Self {
             tasks: Vec::new(),
@@ -164,13 +165,13 @@ impl<Msg: Send + 'static> Command<Msg> {
         }
     }
 
-    /// `true` si la commande n'a ni effet ni demande de focus.
+    /// `true` when the command has neither an effect nor a focus request.
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty() && self.async_tasks.is_empty() && self.focus.is_empty()
     }
 
-    /// Extrait tâches synchrones, tâches asynchrones et demandes de focus (pour
-    /// exécution par le framework).
+    /// Takes out the synchronous tasks, the asynchronous tasks and the focus
+    /// requests, for the framework to run.
     pub(crate) fn into_parts(self) -> (Vec<Task<Msg>>, Vec<AsyncTask<Msg>>, Vec<u64>) {
         (self.tasks, self.async_tasks, self.focus)
     }
@@ -213,7 +214,7 @@ mod tests {
 
     #[test]
     fn focus_carries_a_key_and_no_task() {
-        // Une commande de focus n'a pas de tâche mais n'est pas « vide ».
+        // A focus command carries no task, yet it is not "empty".
         let f = Command::<u32>::focus("email");
         assert!(!f.is_empty());
         let (tasks, asyncs, focus) = f.into_parts();
@@ -225,7 +226,7 @@ mod tests {
     #[cfg(not(web))]
     #[test]
     fn perform_async_yields_a_message() {
-        // La future est menée à terme (natif : `block_on`) et sa valeur devient un message.
+        // The future is driven to completion (`block_on`) and its value becomes a message.
         let command = Command::perform_async(async { 7u32 });
         let (tasks, mut asyncs, _) = command.into_parts();
         assert!(tasks.is_empty());
