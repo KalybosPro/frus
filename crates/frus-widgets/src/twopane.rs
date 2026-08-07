@@ -1,6 +1,6 @@
-//! [`TwoPane`] : le patron **maître-détail** responsive. En `Expanded`, la liste
-//! et le détail sont **côte à côte** ; sinon, un **seul panneau** est montré (la
-//! liste, ou le détail si `show_detail` — l'app décide en naviguant).
+//! [`TwoPane`]: the responsive **master-detail** pattern. In `Expanded`, the list
+//! and the detail sit **side by side**; otherwise a **single pane** is shown (the
+//! list, or the detail if `show_detail` — the app decides as it navigates).
 
 use frus_core::{Rect, Scene, SizeClass};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -10,7 +10,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un agencement maître-détail adaptatif.
+/// An adaptive master-detail layout.
 pub struct TwoPane<Msg> {
     class: SizeClass,
     ratio: f32,
@@ -21,7 +21,7 @@ pub struct TwoPane<Msg> {
 }
 
 impl<Msg: Clone + 'static> TwoPane<Msg> {
-    /// Crée un agencement pour la classe `class` (ratio liste par défaut 0.38).
+    /// Creates a layout for size class `class` (the list ratio defaults to 0.38).
     pub fn new(class: SizeClass) -> Self {
         Self {
             class,
@@ -33,48 +33,48 @@ impl<Msg: Clone + 'static> TwoPane<Msg> {
         }
     }
 
-    /// Fraction de largeur allouée à la liste en mode côte à côte (`0.1..=0.9`).
-    /// À définir **avant** [`detail`](TwoPane::detail).
+    /// Fraction of the width given to the list in side-by-side mode (`0.1..=0.9`).
+    /// Set this **before** [`detail`](TwoPane::detail).
     pub fn ratio(mut self, ratio: f32) -> Self {
         self.ratio = ratio.clamp(0.1, 0.9);
         self
     }
 
-    /// En panneau unique, montre le **détail** plutôt que la liste (l'app le met
-    /// à `true` quand elle navigue vers un élément).
+    /// In single-pane mode, shows the **detail** rather than the list (the app sets
+    /// this to `true` when it navigates to an item).
     pub fn show_detail(mut self, show: bool) -> Self {
         self.show_detail = show;
         self
     }
 
-    /// Définit la **liste** (panneau maître). À appeler avant [`detail`](TwoPane::detail).
+    /// Sets the **list** (the master pane). Call before [`detail`](TwoPane::detail).
     pub fn list(mut self, list: impl Widget<Msg> + 'static) -> Self {
         self.list = Some(Box::new(list));
         self
     }
 
-    /// Définit le **détail** et **finalise** l'agencement (appeler en dernier).
+    /// Sets the **detail** and **finalises** the layout (call this last).
     pub fn detail(mut self, detail: impl Widget<Msg> + 'static) -> Self {
         let detail: Box<dyn Widget<Msg>> = Box::new(detail);
         if self.class == SizeClass::Expanded {
-            // Côte à côte : largeurs proportionnelles via flex_grow.
+            // Side by side: proportional widths via flex_grow.
             let list = self
                 .list
                 .take()
-                .expect("list() avant detail() en mode côte à côte");
+                .expect("list() before detail() in side-by-side mode");
             self.children = vec![
                 Box::new(Flex::column().flex(self.ratio).child(list)),
                 Box::new(Flex::column().flex(1.0 - self.ratio).child(detail)),
             ];
             self.row = true;
         } else {
-            // Panneau unique : détail si demandé, sinon liste.
+            // A single pane: the detail if asked for, otherwise the list.
             let single = if self.show_detail {
                 detail
             } else {
                 self.list
                     .take()
-                    .expect("list() ou show_detail requis en panneau unique")
+                    .expect("single-pane mode needs list() or show_detail")
             };
             self.children = vec![Box::new(Flex::column().flex(1.0).child(single))];
             self.row = false;
@@ -121,7 +121,7 @@ mod tests {
             .detail(Container::new());
         assert_eq!(Widget::<()>::style(&tp).flex_direction, FlexDirection::Row);
         assert_eq!(Widget::<()>::children(&tp).len(), 2);
-        // Panneau liste = flex 0.4, détail = flex 0.6.
+        // List pane = flex 0.4, detail pane = flex 0.6.
         let panes = Widget::<()>::children(&tp);
         assert_eq!(Widget::<()>::style(&*panes[0]).flex_grow, 0.4);
         assert!((Widget::<()>::style(&*panes[1]).flex_grow - 0.6).abs() < 1e-6);
@@ -138,7 +138,7 @@ mod tests {
         );
         assert_eq!(Widget::<()>::children(&list_only).len(), 1);
 
-        // Avec show_detail, c'est le détail qui occupe l'unique panneau.
+        // With show_detail, it is the detail that occupies the single pane.
         let detail_shown = TwoPane::<()>::new(SizeClass::Compact)
             .show_detail(true)
             .list(Container::new())

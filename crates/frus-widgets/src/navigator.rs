@@ -1,8 +1,8 @@
-//! [`Navigator`] : affiche un **écran** plein-fenêtre, avec une transition
-//! glissée entre l'écran sortant et l'écran entrant lors d'un push/pop.
+//! [`Navigator`]: shows a full-window **screen**, with a slide transition
+//! between the outgoing and the incoming screen on a push or a pop.
 //!
-//! Le `Navigator` est **contrôlé** : l'application tient la pile de routes et
-//! l'avancement de la transition, et (re)construit les écrans à chaque frame.
+//! The `Navigator` is **controlled**: the application holds the route stack and
+//! the transition's progress, and (re)builds the screens on every frame.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -11,20 +11,20 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un conteneur d'écran avec transition glissée.
+/// A screen container with a slide transition.
 pub struct Navigator<Msg> {
     width: f32,
     height: f32,
-    /// Avancement de la transition (`1.0` = pas de transition en cours).
+    /// Transition progress (`1.0` = no transition in flight).
     progress: f32,
-    /// `true` = push (entrée par la droite), `false` = pop (entrée par la gauche).
+    /// `true` = push (entering from the right), `false` = pop (entering from the left).
     forward: bool,
-    /// `[écran]` ou `[sortant, entrant]`.
+    /// `[screen]` or `[outgoing, incoming]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> Navigator<Msg> {
-    /// Affiche un écran plein-fenêtre (pas de transition).
+    /// Shows a full-window screen (no transition).
     pub fn new(screen: impl Widget<Msg> + 'static, width: f32, height: f32) -> Self {
         Self {
             width,
@@ -35,7 +35,7 @@ impl<Msg> Navigator<Msg> {
         }
     }
 
-    /// Ajoute l'écran **sortant** et l'avancement d'une transition en cours.
+    /// Adds the **outgoing** screen and the progress of a transition in flight.
     pub fn from(
         mut self,
         previous: impl Widget<Msg> + 'static,
@@ -103,15 +103,15 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Rect { color, .. } if *color == c))
         };
-        assert!(has(red), "l'écran sortant est rendu");
-        assert!(has(blue), "l'écran entrant est rendu");
+        assert!(has(red), "the outgoing screen is rendered");
+        assert!(has(blue), "the incoming screen is rendered");
     }
 
     #[test]
     fn pop_parallaxes_and_orders_back_screen() {
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);
-        // Pop à mi-course : `red` = écran sortant (avant), `blue` = arrière révélé.
+        // A pop half-way through: `red` = outgoing screen (front), `blue` = revealed back.
         let nav = Navigator::new(screen(blue), 400.0, 300.0).from(screen(red), 0.5, false);
         let ui = build_ui(
             &nav,
@@ -127,15 +127,15 @@ mod tests {
                     Primitive::Rect { color, rect, .. } if *color == c => Some(rect.x),
                     _ => None,
                 })
-                .expect("écran présent")
+                .expect("screen present")
         };
         let front = x_of(red); // +0.5·400 = 200
         let back = x_of(blue); // parallaxe : -0.5·400·0.3 = -60
         assert!(
             front > back,
-            "l'avant ({front}) est à droite de l'arrière ({back})"
+            "the front ({front}) is to the right of the back ({back})"
         );
-        // Sans parallaxe l'arrière serait à -200 ; il est comprimé vers 0.
-        assert!(back > -200.0 && back < 0.0, "arrière parallaxé : {back}");
+        // Without parallax the back would sit at -200; it is compressed toward 0.
+        assert!(back > -200.0 && back < 0.0, "back parallaxed: {back}");
     }
 }

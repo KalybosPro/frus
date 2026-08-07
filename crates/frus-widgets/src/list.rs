@@ -1,12 +1,12 @@
-//! [`List`] : une liste **virtualisée** — seuls les éléments **visibles** sont
-//! construits, mis en page et peints. Indispensable pour de grandes listes
-//! (milliers de lignes) : coût par frame ∝ éléments visibles, pas au total.
+//! [`List`]: a **virtualised** list — only the **visible** items are built, laid
+//! out and painted. Essential for large lists (thousands of rows): the per-frame
+//! cost is proportional to the visible items, not to the total.
 //!
-//! Contrat (v1) : hauteur d'élément **fixe**, défilement **vertical**. Les
-//! éléments sont construits à la demande par une closure `index → widget` ; ils
-//! n'ont donc **pas d'état retenu** ni de focus clavier (on ne peut pas retenir
-//! l'état d'un élément qui n'existe pas hors écran) — parfait pour l'affichage
-//! (journaux, tableaux, longues listes), cliquables/survolables quand visibles.
+//! Contract (v1): **fixed** item height, **vertical** scrolling. Items are built
+//! on demand by an `index → widget` closure, so they have **no retained state**
+//! and take no keyboard focus (you cannot retain the state of an item that does
+//! not exist off screen) — perfect for display (logs, tables, long lists), and
+//! still clickable and hoverable while visible.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -15,17 +15,17 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Description d'une liste virtualisée, exposée au pilote de rendu.
+/// The description of a virtualised list, exposed to the render driver.
 pub struct VirtualList<'a, Msg> {
-    /// Nombre total d'éléments.
+    /// Total number of items.
     pub count: usize,
-    /// Hauteur (logique) d'un élément.
+    /// The (logical) height of one item.
     pub item_height: f32,
-    /// Fabrique un élément par index.
+    /// Builds one item per index.
     pub build: &'a dyn Fn(usize) -> Box<dyn Widget<Msg>>,
 }
 
-/// Une liste virtualisée à hauteur d'élément fixe.
+/// A virtualised list with a fixed item height.
 pub struct List<Msg> {
     count: usize,
     item_height: f32,
@@ -36,8 +36,8 @@ pub struct List<Msg> {
 }
 
 impl<Msg> List<Msg> {
-    /// Crée une liste de `count` éléments de hauteur `item_height`, chaque élément
-    /// étant construit à la demande par `build(index)`.
+    /// Creates a list of `count` items of height `item_height`, each item being
+    /// built on demand by `build(index)`.
     pub fn new<W: Widget<Msg> + 'static>(
         count: usize,
         item_height: f32,
@@ -53,19 +53,19 @@ impl<Msg> List<Msg> {
         }
     }
 
-    /// Fixe la largeur du viewport, en pixels logiques.
+    /// Sets the viewport width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la hauteur du viewport, en pixels logiques.
+    /// Sets the viewport height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
@@ -112,7 +112,7 @@ mod tests {
         use std::cell::Cell;
         use std::rc::Rc;
 
-        // Compte combien d'éléments la liste construit.
+        // Counts how many items the list builds.
         let built = Rc::new(Cell::new(0usize));
         let counter = built.clone();
         let list = List::<()>::new(5000, 40.0, move |_i| {
@@ -131,15 +131,15 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Viewport 200 / item 40 = 5 visibles (+ éventuellement 1 de marge) — jamais 5000.
+        // Viewport 200 / item 40 = 5 visible (+ maybe 1 of margin) — never 5000.
         assert!(
             built.get() <= 8,
-            "seuls les éléments visibles sont construits : {}",
+            "only the visible items are built: {}",
             built.get()
         );
         assert!(
             built.get() >= 5,
-            "au moins la fenêtre visible : {}",
+            "at least the visible window: {}",
             built.get()
         );
     }
@@ -155,7 +155,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Contenu = 100×40 = 4000 ; viewport 200 → max défilement vertical 3800.
+        // Content = 100×40 = 4000; viewport 200 → max vertical scroll 3800.
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1);
         assert_eq!(maxes[0].2, 3800.0);

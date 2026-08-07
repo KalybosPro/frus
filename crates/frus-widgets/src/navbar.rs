@@ -1,6 +1,6 @@
-//! [`NavBar`] : une barre de navigation persistante — titre centré, bouton
-//! retour optionnel à gauche. Placée en tête d'un écran, elle **glisse et fond
-//! avec lui** pendant les transitions du [`crate::Navigator`].
+//! [`NavBar`]: a persistent navigation bar — a centred title, an optional back
+//! button on the left. Placed at the head of a screen, it **slides and fades
+//! with it** during [`crate::Navigator`] transitions.
 
 use frus_core::{FontWeight, Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
@@ -10,27 +10,27 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Hauteur de la barre, en pixels logiques.
+/// Bar height, in logical pixels.
 const HEIGHT: f32 = 56.0;
-/// Marge gauche : au-delà de la zone de geste retour, pour que le bouton reste
-/// cliquable sans déclencher le swipe.
+/// Left margin: beyond the back-gesture zone, so the button stays clickable
+/// without triggering the swipe.
 const PAD_LEFT: f32 = 28.0;
-/// Taille du titre.
+/// Title size.
 const TITLE_SIZE: f32 = 20.0;
 
-/// Une barre de navigation : titre + bouton retour optionnel.
+/// A navigation bar: a title + an optional back button.
 pub struct NavBar<Msg> {
     title: String,
-    /// Style du titre (défaut : 20 px, graisse medium, couleur du thème).
+    /// Title style (default: 20 px, medium weight, the theme's color).
     title_style: TextStyle,
-    /// Hauteur de la barre (défaut : [`HEIGHT`]).
+    /// Bar height (default: [`HEIGHT`]).
     height: f32,
-    /// `[]` (racine) ou `[bouton retour]`.
+    /// `[]` (root) or `[back button]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> NavBar<Msg> {
-    /// Crée une barre racine (titre seul, sans retour).
+    /// Creates a root bar: the title alone, with no back button.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
@@ -40,19 +40,19 @@ impl<Msg: Clone + 'static> NavBar<Msg> {
         }
     }
 
-    /// Surcharge le style du titre (taille/graisse/italique/couleur).
+    /// Overrides the title style (size/weight/italic/color).
     pub fn title_style(mut self, style: TextStyle) -> Self {
         self.title_style = style;
         self
     }
 
-    /// Surcharge la hauteur de la barre (défaut : 56 px).
+    /// Overrides the bar height (56 px by default).
     pub fn height(mut self, height: f32) -> Self {
         self.height = height;
         self
     }
 
-    /// Ajoute un bouton retour émettant `message`.
+    /// Adds a back button that emits `message`.
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
             Button::new("←")
@@ -83,16 +83,16 @@ impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Fond + fin séparateur bas.
+        // Background + a thin bottom separator.
         scene.fill_rect(bounds, theme.background.fade(o));
         scene.fill_rect(
             Rect::new(bounds.x, bounds.y + bounds.height - 1.0, bounds.width, 1.0),
             theme.border.fade(o),
         );
 
-        // Titre centré horizontalement dans la barre, selon `title_style`
-        // (défaut : graisse medium — un titre de barre est un « title », pas un
-        // corps ; la couleur du style est héritée du thème si absente).
+        // The title is centred horizontally in the bar, following `title_style`
+        // (medium weight by default — a bar title is a "title", not body text;
+        // the style's color is inherited from the theme when absent).
         let style = self.title_style;
         let measured =
             frus_text::measure_styled(&self.title, style.size, style.weight, style.italic);
@@ -124,19 +124,19 @@ mod tests {
 
     #[test]
     fn root_bar_has_no_back_button() {
-        let bar: NavBar<Msg> = NavBar::new("Accueil");
+        let bar: NavBar<Msg> = NavBar::new("Home");
         assert!(Widget::children(&bar).is_empty());
     }
 
     #[test]
     fn title_style_and_height_are_customizable() {
-        // Style de titre et hauteur surchargés (défauts : medium 20, 56 px).
-        let bar: NavBar<Msg> = NavBar::new("Titre")
+        // Overridden title style and height (defaults: medium 20, 56 px).
+        let bar: NavBar<Msg> = NavBar::new("Title")
             .title_style(TextStyle::new(24.0).weight(FontWeight::Bold).italic())
             .height(72.0);
         match Widget::style(&bar).height {
             Dimension::Length(h) => assert_eq!(h, 72.0),
-            _ => panic!("hauteur imposée attendue"),
+            _ => panic!("an imposed height was expected"),
         }
         let ui = build_ui(
             &bar,
@@ -148,29 +148,29 @@ mod tests {
             matches!(
                 p,
                 Primitive::Text { text, size, weight, italic, .. }
-                    if text == "Titre" && *size == 24.0 && *weight == FontWeight::Bold && *italic
+                    if text == "Title" && *size == 24.0 && *weight == FontWeight::Bold && *italic
             )
         });
-        assert!(styled, "le titre doit porter le style surchargé");
+        assert!(styled, "the title must carry the overridden style");
     }
 
     #[test]
     fn back_button_emits_message() {
-        let bar: NavBar<Msg> = NavBar::new("Réglages").on_back(Msg::Back);
+        let bar: NavBar<Msg> = NavBar::new("Settings").on_back(Msg::Back);
         let ui = build_ui(
             &bar,
             Size::new(400.0, 56.0),
             &Runtime::default(),
             &Theme::default(),
         );
-        // Le bouton retour est à gauche ; un clic y renvoie le message de retour.
-        let id = ui.hit(Point::new(40.0, 28.0)).expect("bouton retour");
+        // The back button is on the left; a click there returns the back message.
+        let id = ui.hit(Point::new(40.0, 28.0)).expect("back button");
         assert_eq!(ui.msg_for(id), Some(Msg::Back));
     }
 
     #[test]
     fn bar_paints_title_and_divider() {
-        let bar: NavBar<Msg> = NavBar::new("Titre");
+        let bar: NavBar<Msg> = NavBar::new("Title");
         let ui = build_ui(
             &bar,
             Size::new(400.0, 56.0),
@@ -181,7 +181,7 @@ mod tests {
             .scene()
             .primitives()
             .iter()
-            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Titre"));
-        assert!(has_text, "le titre est peint");
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Title"));
+        assert!(has_text, "the title is painted");
     }
 }

@@ -1,5 +1,5 @@
-//! [`Portal`] : affiche un contenu **au-dessus** du reste (hors flux de layout,
-//! non découpé par les parents). Base des menus flottants, tooltips et modales.
+//! [`Portal`]: shows content **above** everything else (out of the layout flow,
+//! not clipped by parents). The basis for floating menus, tooltips and modals.
 
 use frus_core::{Rect, Scene};
 use frus_layout::Style;
@@ -8,37 +8,37 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Où placer l'overlay par rapport à son ancre / à la fenêtre.
+/// Where to place the overlay relative to its anchor, or to the window.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
-    /// Juste sous l'ancre (menu déroulant).
+    /// Just below the anchor (a dropdown menu).
     Below,
-    /// Centré dans la fenêtre, avec un voile (modale).
+    /// Centred in the window, with a scrim (a modal).
     Center,
-    /// Au-dessus de l'ancre, **uniquement si l'ancre est survolée** (tooltip).
+    /// Above the anchor, **only while the anchor is hovered** (a tooltip).
     Tooltip,
-    /// Panneau plein-hauteur accolé au bord **gauche** de la fenêtre, avec un
-    /// voile (tiroir latéral). Voir [`crate::Drawer`].
+    /// A full-height panel against the **left** edge of the window, with a
+    /// scrim (a side drawer). See [`crate::Drawer`].
     Left,
-    /// Panneau plein-hauteur accolé au bord **droit** de la fenêtre, avec un
-    /// voile (tiroir latéral). Voir [`crate::Drawer`].
+    /// A full-height panel against the **right** edge of the window, with a
+    /// scrim (a side drawer). See [`crate::Drawer`].
     Right,
-    /// Panneau pleine-largeur accolé au bord **bas** de la fenêtre, glissant vers
-    /// le haut, avec un voile (feuille modale). Voir [`crate::BottomSheet`].
+    /// A full-width panel against the **bottom** edge of the window, sliding up,
+    /// with a scrim (a modal sheet). See [`crate::BottomSheet`].
     Bottom,
 }
 
-/// Un portail : une **ancre** (dans le flux) et un **overlay** flottant optionnel.
+/// A portal: an **anchor** (in the flow) and an optional floating **overlay**.
 pub struct Portal<Msg> {
-    /// `[ancre]` ou `[ancre, overlay]`.
+    /// `[anchor]` or `[anchor, overlay]`.
     children: Vec<Box<dyn Widget<Msg>>>,
     placement: Placement,
-    /// Message émis au clic sur le voile (modale) pour fermer.
+    /// Message emitted when the scrim is clicked (a modal), to close it.
     on_dismiss: Option<Msg>,
 }
 
 impl<Msg> Portal<Msg> {
-    /// Crée un portail autour d'une ancre (rendue normalement).
+    /// Creates a portal around an anchor, which is rendered normally.
     pub fn new(anchor: impl Widget<Msg> + 'static) -> Self {
         Self {
             children: vec![Box::new(anchor)],
@@ -47,7 +47,7 @@ impl<Msg> Portal<Msg> {
         }
     }
 
-    /// Ajoute le contenu flottant et son placement.
+    /// Adds the floating content and its placement.
     pub fn overlay(mut self, content: impl Widget<Msg> + 'static, placement: Placement) -> Self {
         self.children.truncate(1);
         self.children.push(Box::new(content));
@@ -55,7 +55,7 @@ impl<Msg> Portal<Msg> {
         self
     }
 
-    /// Message émis au clic **hors** du contenu (sur le voile) — pour fermer.
+    /// Message emitted on a click **outside** the content (on the scrim) — to close.
     pub fn dismiss(mut self, message: Msg) -> Self {
         self.on_dismiss = Some(message);
         self
@@ -87,8 +87,8 @@ impl<Msg: Clone> Widget<Msg> for Portal<Msg> {
         self.on_dismiss.clone()
     }
 
-    /// `Escape` ferme le portail (si un message de fermeture est configuré) —
-    /// consommé pendant la montée feuille→racine quand le focus est à l'intérieur.
+    /// `Escape` closes the portal (if a dismiss message is configured) — consumed
+    /// while bubbling leaf→root when the focus is inside.
     fn on_key(&self, key: &crate::Key) -> crate::KeyResponse<Msg> {
         match (key, &self.on_dismiss) {
             (crate::Key::Escape, Some(message)) => {
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn center_overlay_draws_scrim_and_content() {
-        // Un overlay Center dessine un voile plein-écran + le contenu par-dessus.
+        // A Center overlay draws a full-screen scrim + the content on top.
         let portal: Portal<()> = Portal::new(Container::<()>::new().width(20.0).height(20.0))
             .overlay(
                 Container::<()>::new()
@@ -131,11 +131,11 @@ mod tests {
             &Runtime::default(),
             &crate::Theme::default(),
         );
-        // Au moins : le voile (plein écran) + le contenu de l'overlay.
+        // At least: the scrim (full screen) + the overlay's content.
         let full_screen =
             ui.scene().primitives().iter().any(
                 |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 400.0),
             );
-        assert!(full_screen, "le voile plein écran doit être présent");
+        assert!(full_screen, "the full-screen scrim must be present");
     }
 }

@@ -1,8 +1,7 @@
-//! [`NavRail`] et [`BottomBar`] : les deux présentations d'une **navigation
-//! principale** à sélection unique. Même API (`new(selected, on_select).item(
-//! icon, label)`) ; [`crate::NavScaffold`] choisit l'une ou l'autre selon la
-//! taille. L'« icône » est un glyphe texte (le framework n'a pas de police
-//! d'icônes) : emoji ou caractère Unicode.
+//! [`NavRail`] and [`BottomBar`]: the two presentations of a single-selection
+//! **main navigation**. Same API (`new(selected, on_select).item(icon, label)`);
+//! [`crate::NavScaffold`] picks one or the other by size. The "icon" is a text
+//! glyph (the framework has no icon font): an emoji, or a Unicode character.
 
 use frus_core::{Color, Insets, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
@@ -11,26 +10,26 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Largeur d'un rail vertical, en px logiques.
+/// Width of a vertical rail, in logical pixels.
 pub(crate) const RAIL_WIDTH: f32 = 76.0;
-/// Hauteur d'une barre de navigation basse, en px logiques.
+/// Height of a bottom navigation bar, in logical pixels.
 pub(crate) const BAR_HEIGHT: f32 = 60.0;
 const ITEM_HEIGHT: f32 = 58.0;
 const ICON_SIZE: f32 = 22.0;
 const LABEL_SIZE: f32 = 12.0;
 const BADGE_SIZE: f32 = 10.0;
-/// Rouge de notification (constant : une pastille d'alerte se lit rouge quel
-/// que soit le thème).
+/// Notification red (a constant: an alert dot reads as red whatever the
+/// theme).
 const BADGE_COLOR: Color = Color::rgb(0.90, 0.24, 0.24);
 
-/// Une destination de navigation (glyphe + libellé), peinte selon son état.
+/// One navigation destination (glyph + label), painted according to its state.
 struct NavItem<Msg> {
     icon: String,
     label: String,
     selected: bool,
-    /// Compteur de notifications (pastille sur l'icône). `0`/`None` = rien.
+    /// Notification count (a dot on the icon). `0`/`None` = nothing.
     badge: Option<u32>,
-    /// `true` = élément de rail (largeur fixe) ; `false` = élément de barre (flex).
+    /// `true` = a rail item (fixed width); `false` = a bar item (flex).
     rail: bool,
     message: Msg,
 }
@@ -44,7 +43,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
                 ..Default::default()
             }
         } else {
-            // Dans une barre, les éléments se partagent la largeur également.
+            // In a bar, the items share the width equally.
             Style {
                 flex_grow: 1.0,
                 height: Dimension::Length(BAR_HEIGHT),
@@ -65,7 +64,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
         let total_h = icon_m.height + gap + label_m.height;
         let top = bounds.y + ((bounds.height - total_h) * 0.5).max(0.0);
 
-        // Pastille de fond : pleine si sélectionné, discrète au survol.
+        // Background pill: solid when selected, discreet on hover.
         let pill_w = icon_m.width + 28.0;
         let pill_h = icon_m.height + 8.0;
         let pill = Rect::new(
@@ -114,7 +113,7 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
             color.fade(o),
         );
 
-        // Pastille de notification, ancrée au coin haut-droit du glyphe d'icône.
+        // Notification dot, anchored to the top-right corner of the icon glyph.
         if let Some(count) = self.badge.filter(|&n| n > 0) {
             let text = if count > 99 {
                 "99+".to_string()
@@ -147,10 +146,10 @@ impl<Msg: Clone> Widget<Msg> for NavItem<Msg> {
     }
 }
 
-/// Une destination déclarée : glyphe, libellé, compteur de badge éventuel.
+/// A declared destination: glyph, label, and an optional badge count.
 type Destination = (String, String, Option<u32>);
 
-/// Construit les éléments de navigation depuis les destinations déclarées.
+/// Builds the navigation items from the declared destinations.
 fn build_items<Msg: Clone + 'static>(
     items: &[Destination],
     selected: usize,
@@ -182,7 +181,7 @@ pub struct NavRail<Msg> {
 }
 
 impl<Msg: Clone + 'static> NavRail<Msg> {
-    /// Crée un rail : `selected` = index actif, `on_select(i)` au clic.
+    /// Creates a rail: `selected` = the active index, `on_select(i)` on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
             selected,
@@ -192,14 +191,14 @@ impl<Msg: Clone + 'static> NavRail<Msg> {
         }
     }
 
-    /// Ajoute une destination (glyphe + libellé).
+    /// Adds a destination (glyph + label).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
         self.items.push((icon.into(), label.into(), None));
         self.children = build_items(&self.items, self.selected, &*self.on_select, true);
         self
     }
 
-    /// Ajoute un compteur de notifications à la **dernière** destination.
+    /// Adds a notification count to the **last** destination.
     pub fn badge(mut self, count: u32) -> Self {
         if let Some(last) = self.items.last_mut() {
             last.2 = Some(count);
@@ -226,7 +225,7 @@ impl<Msg: Clone> Widget<Msg> for NavRail<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        // Séparateur vertical sur le bord droit.
+        // Vertical separator on the right edge.
         let x = bounds.x + bounds.width - 1.0;
         scene.fill_rect(
             Rect::new(x, bounds.y, 1.0, bounds.height),
@@ -239,7 +238,7 @@ impl<Msg: Clone> Widget<Msg> for NavRail<Msg> {
     }
 }
 
-/// Barre de navigation **horizontale** en bas (téléphone).
+/// A **horizontal** navigation bar at the bottom (phone).
 pub struct BottomBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
@@ -248,7 +247,7 @@ pub struct BottomBar<Msg> {
 }
 
 impl<Msg: Clone + 'static> BottomBar<Msg> {
-    /// Crée une barre : `selected` = index actif, `on_select(i)` au clic.
+    /// Creates a bar: `selected` = the active index, `on_select(i)` on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
             selected,
@@ -258,14 +257,14 @@ impl<Msg: Clone + 'static> BottomBar<Msg> {
         }
     }
 
-    /// Ajoute une destination (glyphe + libellé).
+    /// Adds a destination (glyph + label).
     pub fn item(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
         self.items.push((icon.into(), label.into(), None));
         self.children = build_items(&self.items, self.selected, &*self.on_select, false);
         self
     }
 
-    /// Ajoute un compteur de notifications à la **dernière** destination.
+    /// Adds a notification count to the **last** destination.
     pub fn badge(mut self, count: u32) -> Self {
         if let Some(last) = self.items.last_mut() {
             last.2 = Some(count);
@@ -291,7 +290,7 @@ impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        // Séparateur horizontal sur le bord haut.
+        // Horizontal separator on the top edge.
         scene.fill_rect(
             Rect::new(bounds.x, bounds.y, bounds.width, 1.0),
             theme.border.fade(status.opacity),
@@ -330,7 +329,7 @@ mod tests {
             .item("M", "Mail")
             .badge(5);
         let children = Widget::<Msg>::children(&rail);
-        // Le badge peint une pastille + le texte du compteur sur l'élément visé.
+        // The badge paints a dot + the count text on the targeted item.
         let mut scene = Scene::new();
         children[1].paint(
             Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
@@ -342,7 +341,7 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "5")));
-        // L'élément sans badge ne peint pas ce compteur.
+        // The item without a badge does not paint that count.
         let mut bare = Scene::new();
         children[0].paint(
             Rect::new(0.0, 0.0, RAIL_WIDTH, ITEM_HEIGHT),
@@ -380,7 +379,7 @@ mod tests {
             .item("S", "Search");
         let children = Widget::<Msg>::children(&bar);
         assert_eq!(children.len(), 2);
-        // Élément de barre : partage la largeur (flex_grow > 0), pas de largeur fixe.
+        // A bar item: shares the width (flex_grow > 0), no fixed width.
         assert_eq!(Widget::<Msg>::style(&*children[0]).flex_grow, 1.0);
         assert_eq!(children[1].on_click(), Some(Msg::Go(1)));
     }

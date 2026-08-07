@@ -1,4 +1,4 @@
-//! [`Button`] : un bouton themé avec libellé, variantes et états d'interaction.
+//! [`Button`]: a themed button with a label, variants and interaction states.
 
 use frus_core::{BorderRadius, Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -10,32 +10,32 @@ use crate::widget::Widget;
 const PAD_X: f32 = 20.0;
 const PAD_Y: f32 = 12.0;
 
-/// Variante visuelle d'un bouton.
+/// The visual variant of a button.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum Variant {
-    /// Accent principal du thème.
+    /// The theme's main accent.
     #[default]
     Primary,
-    /// Surface neutre bordée.
+    /// A neutral surface with a border.
     Secondary,
     /// Action destructive.
     Danger,
 }
 
-/// Un bouton cliquable.
+/// A clickable button.
 pub struct Button<Msg> {
     label: String,
     size: f32,
     variant: Variant,
-    /// Rayons surchargés ; `None` = rayon du thème (uniforme).
+    /// Overridden radii; `None` = the theme's radius (uniform).
     radius: Option<BorderRadius>,
     on_press: Option<Msg>,
-    /// Actif ? Désactivé (`false`) : grisé, sans ombre, ni clic ni focus.
+    /// Enabled? Disabled (`false`): greyed out, no shadow, no click, no focus.
     enabled: bool,
 }
 
 impl<Msg> Button<Msg> {
-    /// Crée un bouton avec un libellé.
+    /// Creates a button with a label.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -47,17 +47,17 @@ impl<Msg> Button<Msg> {
         }
     }
 
-    /// Active ou **désactive** le bouton : désactivé, il est grisé, sans ombre, et
-    /// n'émet plus rien (ni clic ni focus clavier) — le rendu d'un contrôle indisponible
-    /// (façon Material), p. ex. « Suivant » tant qu'une étape est invalide.
+    /// Enables or **disables** the button: disabled, it is greyed out, has no shadow
+    /// and emits nothing at all (neither click nor keyboard focus) — the rendering of
+    /// an unavailable control (Material style), e.g. "Next" while a step is invalid.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
-    /// Surcharge les rayons des coins (uniforme via `f32`, par coin via
-    /// [`BorderRadius`] — segments connectés, groupes de boutons…). Défaut :
-    /// rayon du thème.
+    /// Overrides the corner radii (uniform via `f32`, per corner via
+    /// [`BorderRadius`] — connected segments, button groups…). Defaults to
+    /// the theme's radius.
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.radius = Some(radius.into());
         self
@@ -69,19 +69,19 @@ impl<Msg> Button<Msg> {
         self
     }
 
-    /// Taille de police.
+    /// Font size.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
     }
 
-    /// Message émis au clic.
+    /// Message emitted on click.
     pub fn on_press(mut self, message: Msg) -> Self {
         self.on_press = Some(message);
         self
     }
 
-    /// (base, texte, bordure) selon la variante et le thème.
+    /// (base, text, border) according to the variant and the theme.
     fn palette(&self, theme: &Theme) -> (Color, Color, Option<Color>) {
         match self.variant {
             Variant::Primary => (theme.primary, theme.on_primary, None),
@@ -110,7 +110,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         let (base, on_color, border) = self.palette(theme);
         let radius = self.radius.unwrap_or_else(|| theme.radius.into());
 
-        // Désactivé : aplat neutre, texte discret, **sans ombre** — un contrôle indisponible.
+        // Disabled: flat neutral fill, discreet text, **no shadow** — an unavailable control.
         if !self.enabled {
             let fill = theme.surface.lerp(theme.muted, 0.12);
             scene.draw_rect(bounds, fill.fade(o), radius, 1.0, theme.border.fade(o));
@@ -123,7 +123,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
             return;
         }
 
-        // État survol/pression/focus via la state-layer bakée du thème.
+        // Hover/press/focus state through the theme's baked state layer.
         let color = theme.state_layer(base, on_color, &status);
 
         let blur = 10.0;
@@ -167,7 +167,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
     fn semantics(&self) -> Option<frus_core::Semantics> {
         let semantics =
             frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
-        // Un bouton désactivé n'annonce pas d'action cliquable.
+        // A disabled button does not announce a clickable action.
         Some(if self.enabled {
             semantics.clickable()
         } else {
@@ -194,15 +194,15 @@ mod tests {
     #[test]
     fn disabled_button_is_inert_and_unfocusable() {
         let button = Button::new("Next").on_press(Msg::Pressed).enabled(false);
-        assert_eq!(Widget::on_click(&button), None, "désactivé : aucun message");
+        assert_eq!(Widget::on_click(&button), None, "disabled: no message");
         assert!(
             !Widget::<Msg>::focusable(&button),
-            "désactivé : hors tabulation"
+            "disabled: out of the tab order"
         );
-        // Sémantique sans action cliquable.
-        let semantics = Widget::<Msg>::semantics(&button).expect("sémantique présente");
-        assert!(!semantics.clickable, "désactivé : non annoncé cliquable");
-        // Réactivé : le clic repasse.
+        // Semantics with no clickable action.
+        let semantics = Widget::<Msg>::semantics(&button).expect("semantics present");
+        assert!(!semantics.clickable, "disabled: not announced as clickable");
+        // Re-enabled: the click comes back.
         let enabled = Button::new("Next").on_press(Msg::Pressed).enabled(true);
         assert_eq!(Widget::on_click(&enabled), Some(Msg::Pressed));
     }
@@ -225,7 +225,7 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
         };
-        assert!(paint(true), "actif : une ombre est dessinée");
-        assert!(!paint(false), "désactivé : aucune ombre");
+        assert!(paint(true), "enabled: a shadow is drawn");
+        assert!(!paint(false), "disabled: no shadow");
     }
 }

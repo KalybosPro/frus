@@ -1,6 +1,6 @@
-//! [`FittedBox`] : met son enfant à l'échelle pour l'**ajuster** à sa boîte selon un
-//! [`BoxFit`] — et, à la différence de [`crate::Transform`], l'échelle découle de la
-//! **mise en page** (la taille de la boîte), façon `FittedBox` de Flutter.
+//! [`FittedBox`]: scales its child to **fit** its box according to a [`BoxFit`] —
+//! and, unlike [`crate::Transform`], the scale follows from the **layout** (the
+//! size of the box) instead of being set by hand.
 
 use frus_core::{BoxFit, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -9,14 +9,14 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Met son enfant à l'échelle pour l'**ajuster** à sa propre boîte selon un
-/// [`BoxFit`] (comme `object-fit` en CSS), puis le centre. L'enfant est mesuré à sa
-/// taille **naturelle** ; le facteur d'échelle en découle — d'où l'effet sur la mise
-/// en page (contrairement à `Transform`, où l'échelle est fixée à la main).
+/// Scales its child to **fit** its own box according to a [`BoxFit`] (like CSS
+/// `object-fit`), then centres it. The child is measured at its **natural** size;
+/// the scale factor follows from that — hence the effect on layout (unlike
+/// `Transform`, where the scale is set by hand).
 ///
-/// Idéal pour qu'un contenu de taille intrinsèque (texte, icône, dessin) **remplisse**
-/// ou **tienne** dans un cadre donné sans calcul manuel. La boîte a besoin d'une
-/// taille (comme [`crate::Scroll`]) : `width`/`height` fixes ou `flex`.
+/// Ideal for making intrinsically sized content (text, an icon, a drawing) **fill**
+/// or **fit** a given frame with no manual arithmetic. The box needs a size (as
+/// [`crate::Scroll`] does): a fixed `width`/`height`, or `flex`.
 ///
 /// ```ignore
 /// FittedBox::new(BoxFit::Contain).width(120.0).height(40.0).child(Text::new("Big"))
@@ -30,7 +30,7 @@ pub struct FittedBox<Msg> {
 }
 
 impl<Msg> FittedBox<Msg> {
-    /// Ajuste l'enfant selon `fit` (défaut usuel : [`BoxFit::Contain`]).
+    /// Fits the child according to `fit` (the usual default: [`BoxFit::Contain`]).
     pub fn new(fit: BoxFit) -> Self {
         Self {
             fit,
@@ -41,25 +41,25 @@ impl<Msg> FittedBox<Msg> {
         }
     }
 
-    /// Largeur fixe de la boîte (px logiques).
+    /// Fixed box width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Hauteur fixe de la boîte (px logiques).
+    /// Fixed box height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
     }
 
-    /// Définit l'enfant ajusté.
+    /// Sets the fitted child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
@@ -82,7 +82,7 @@ impl<Msg: Clone> Widget<Msg> for FittedBox<Msg> {
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
-        // Widget d'ajustement pur : aucune décoration propre.
+        // A pure fitting widget: no decoration of its own.
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -100,8 +100,8 @@ mod tests {
     use crate::{Container, Flex};
     use frus_core::{Color, Primitive, Size};
 
-    /// `BoxFit::Fill` étire l'enfant pour **remplir** la boîte : la matrice du calque
-    /// porte l'échelle par axe (200/40 = 5 en x, 100/20 = 5 en y ici → carré : 5,5).
+    /// `BoxFit::Fill` stretches the child to **fill** the box: the layer's matrix
+    /// carries the per-axis scale (200/40 = 5 in x, 100/20 = 5 in y here → square: 5,5).
     #[test]
     fn fill_scales_child_to_the_box() {
         let root = Flex::<()>::column().width(200.0).child(
@@ -128,16 +128,16 @@ mod tests {
                 } => Some(t.affine),
                 _ => None,
             })
-            .expect("un calque ajusté");
+            .expect("a fitted layer");
         assert!(
             (m.m[0] - 5.0).abs() < 1e-2 && (m.m[3] - 5.0).abs() < 1e-2,
-            "échelle Fill 5×5 : {:?}",
+            "Fill scale 5×5: {:?}",
             m.m
         );
     }
 
-    /// `BoxFit::Contain` conserve l'aspect : le plus petit facteur qui tient. Enfant
-    /// 40×20 dans 200×100 → min(5, 5) = 5 (carré), reste centré.
+    /// `BoxFit::Contain` preserves the aspect ratio: the smallest factor that fits.
+    /// A 40×20 child in 200×100 → min(5, 5) = 5 (square), and stays centred.
     #[test]
     fn contain_preserves_aspect() {
         let root = Flex::<()>::column().width(200.0).child(
@@ -164,11 +164,11 @@ mod tests {
                 } => Some(t.affine),
                 _ => None,
             })
-            .expect("un calque ajusté");
-        // Enfant carré 40×40 dans 200×100 → min(5, 2.5) = 2.5, uniforme.
+            .expect("a fitted layer");
+        // A square 40×40 child in 200×100 → min(5, 2.5) = 2.5, uniform.
         assert!(
             (m.m[0] - 2.5).abs() < 1e-2 && (m.m[3] - 2.5).abs() < 1e-2,
-            "échelle Contain 2.5×2.5 : {:?}",
+            "Contain scale 2.5×2.5: {:?}",
             m.m
         );
     }

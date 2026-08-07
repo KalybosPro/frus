@@ -1,13 +1,13 @@
-//! [`ToastHost`] : la **couche de notifications** — positionne et empile les [`crate::Toast`]
-//! dans un coin de l'écran, avec une **transition d'entrée** optionnelle.
+//! [`ToastHost`]: the **notification layer** — places and stacks [`crate::Toast`]s
+//! in a corner of the screen, with an optional **entry transition**.
 //!
-//! À poser en dernière couche d'un [`crate::Stack`] au-dessus de l'interface. Le widget remplit
-//! la surface disponible et aligne ses toasts dans le coin choisi ([`ToastPosition`]) ; plusieurs
-//! toasts s'**empilent** en colonne. `fade_in` enveloppe chaque toast d'une opacité animée
-//! (couche d'animation existante, [`crate::AnimatedOpacity`]) pour une apparition en fondu.
+//! Put it as the last layer of a [`crate::Stack`], above the interface. The widget fills
+//! the available surface and aligns its toasts in the chosen corner ([`ToastPosition`]);
+//! several toasts **stack** in a column. `fade_in` wraps each toast in an animated
+//! opacity (the existing animation layer, [`crate::AnimatedOpacity`]) for a fade-in.
 //!
-//! Le **contenu** (quel(s) toast(s) afficher, leur file d'attente/auto-fermeture) reste piloté
-//! par l'application via [`crate::SnackbarQueue`] : `ToastHost` ne fait que placer.
+//! The **content** (which toast(s) to show, their queue and auto-dismiss) stays driven
+//! by the application through [`crate::SnackbarQueue`]: `ToastHost` only places them.
 
 use frus_core::{Curve, Insets, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
@@ -17,12 +17,12 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Marge par défaut entre les toasts et les bords.
+/// Default margin between the toasts and the edges.
 const HOST_PAD: f32 = 16.0;
-/// Écart vertical entre toasts empilés.
+/// Vertical gap between stacked toasts.
 const STACK_GAP: f32 = 8.0;
 
-/// Coin d'ancrage des notifications.
+/// The corner the notifications are anchored to.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ToastPosition {
     TopStart,
@@ -34,7 +34,7 @@ pub enum ToastPosition {
 }
 
 impl ToastPosition {
-    /// Alignement vertical (axe principal de la colonne) : haut vs bas.
+    /// Vertical alignment (the column's main axis): top vs bottom.
     fn justify(self) -> Justify {
         match self {
             ToastPosition::TopStart | ToastPosition::TopCenter | ToastPosition::TopEnd => {
@@ -54,7 +54,7 @@ impl ToastPosition {
     }
 }
 
-/// Couche de notifications ancrée dans un coin.
+/// A notification layer anchored in a corner.
 pub struct ToastHost<Msg> {
     position: ToastPosition,
     padding: f32,
@@ -62,7 +62,7 @@ pub struct ToastHost<Msg> {
 }
 
 impl<Msg: Clone + 'static> ToastHost<Msg> {
-    /// Une couche vide ancrée à `position`.
+    /// An empty layer anchored at `position`.
     pub fn new(position: ToastPosition) -> Self {
         Self {
             position,
@@ -71,32 +71,33 @@ impl<Msg: Clone + 'static> ToastHost<Msg> {
         }
     }
 
-    /// Marge entre les toasts et les bords (défaut 16 px).
+    /// Margin between the toasts and the edges (16 px by default).
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = padding;
         self
     }
 
-    /// Ajoute un toast à empiler (appeler plusieurs fois pour en empiler plusieurs).
+    /// Adds a toast to the stack (call it several times to stack several).
     pub fn toast(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.children.push(Box::new(widget));
         self
     }
 
-    /// Enveloppe **chaque** toast d'une opacité animée (`duration` secondes) : apparition en
-    /// fondu à l'aide de la couche d'animation existante. À appeler après les `toast`.
+    /// Wraps **every** toast in an animated opacity (`duration` seconds): a fade-in
+    /// built on the existing animation layer. Call this after the `toast`s.
     pub fn fade_in(self, duration: f32) -> Self {
         self.wrap_opacity(1.0, duration)
     }
 
-    /// Symétrique de [`fade_in`](Self::fade_in) : anime l'opacité vers **0** — la transition de
-    /// **sortie** (le toast s'efface avant son retrait, façon Material). L'application la joue
-    /// quand la notification passe « en sortie » (voir [`crate::SnackbarQueue::is_leaving`]).
+    /// The mirror of [`fade_in`](Self::fade_in): animates the opacity toward **0** — the
+    /// **exit** transition (the toast fades out before it is removed, Material style).
+    /// The application plays it when the notification is leaving (see
+    /// [`crate::SnackbarQueue::is_leaving`]).
     pub fn fade_out(self, duration: f32) -> Self {
         self.wrap_opacity(0.0, duration)
     }
 
-    /// Enveloppe chaque toast d'une opacité animée vers `target`.
+    /// Wraps each toast in an opacity animated toward `target`.
     fn wrap_opacity(mut self, target: f32, duration: f32) -> Self {
         self.children = self
             .children
@@ -172,7 +173,7 @@ mod tests {
         assert_eq!(
             Widget::<()>::children(&host).len(),
             2,
-            "deux toasts, enveloppés en fondu"
+            "two toasts, wrapped in a fade"
         );
     }
 
@@ -184,7 +185,7 @@ mod tests {
         assert_eq!(
             Widget::<()>::children(&host).len(),
             1,
-            "toast enveloppé en fondu de sortie"
+            "toast wrapped in a fade-out"
         );
     }
 }

@@ -1,5 +1,5 @@
-//! [`Alert`] : un encadré de message **persistant** (contextuel), à distinguer du
-//! [`crate::Toast`] transitoire.
+//! [`Alert`]: a **persistent** (contextual) message box, as opposed to the
+//! transient [`crate::Toast`].
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::Style;
@@ -14,7 +14,7 @@ const ICON_W: f32 = 26.0;
 const TITLE_SIZE: f32 = 16.0;
 const TEXT_SIZE: f32 = 15.0;
 
-/// Nature d'un encadré.
+/// The nature of an alert box.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AlertKind {
     Info,
@@ -23,7 +23,7 @@ pub enum AlertKind {
     Error,
 }
 
-/// Un encadré de message.
+/// A message box.
 pub struct Alert {
     title: Option<String>,
     text: String,
@@ -31,7 +31,7 @@ pub struct Alert {
 }
 
 impl Alert {
-    /// Crée un encadré d'information.
+    /// Creates an informational box.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             title: None,
@@ -46,7 +46,7 @@ impl Alert {
         self
     }
 
-    /// Variante succès.
+    /// The success variant.
     pub fn success(mut self) -> Self {
         self.kind = AlertKind::Success;
         self
@@ -85,8 +85,8 @@ impl Alert {
 
 impl<Msg> Widget<Msg> for Alert {
     fn style(&self) -> Style {
-        // Paragraphe : dimensions libres, la taille vient de `measure()` —
-        // le message se replie à la largeur offerte par le parent.
+        // A paragraph: free dimensions, the size comes from `measure()` — the
+        // message wraps to the width the parent offers.
         Style::default()
     }
 
@@ -95,7 +95,7 @@ impl<Msg> Widget<Msg> for Alert {
         let title = self.title.clone();
         Some(Box::new(move |max_width, _| {
             use frus_core::FontWeight;
-            let chrome = ACCENT + ICON_W + PAD; // barre + icône + marge droite
+            let chrome = ACCENT + ICON_W + PAD; // bar + icon + right margin
             let text_avail = max_width.map(|w| (w - chrome).max(40.0));
             let body = frus_text::measure_wrapped(
                 &text,
@@ -135,7 +135,7 @@ impl<Msg> Widget<Msg> for Alert {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let accent = self.accent(theme);
-        // Fond teinté + bordure discrète.
+        // Tinted background + a discreet border.
         scene.draw_rect(
             bounds,
             accent.fade(0.12 * o),
@@ -143,7 +143,7 @@ impl<Msg> Widget<Msg> for Alert {
             1.0,
             accent.fade(0.4 * o),
         );
-        // Barre d'accent à gauche.
+        // Accent bar on the left.
         scene.draw_rect(
             Rect::new(bounds.x, bounds.y, ACCENT, bounds.height),
             accent.fade(o),
@@ -159,8 +159,8 @@ impl<Msg> Widget<Msg> for Alert {
             accent.fade(o),
         );
         let text_x = bounds.x + ACCENT + ICON_W;
-        // Le message se replie à la largeur réellement disponible (celle de la
-        // mise en page), en cohérence avec `measure()`.
+        // The message wraps to the width actually available (the laid-out one),
+        // to stay consistent with `measure()`.
         let wrap_w = (bounds.width - (ACCENT + ICON_W + PAD)).max(40.0);
         let body_style = frus_core::TextStyle::new(TEXT_SIZE);
         match &self.title {
@@ -216,12 +216,12 @@ mod tests {
             &mut scene,
         );
         let warn = Color::rgb8(230, 170, 40);
-        // Barre d'accent (couleur pleine de la variante) présente.
+        // The accent bar (the variant's solid color) is present.
         assert!(scene
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Rect { color, .. } if *color == warn)));
-        // Titre + texte peints.
+        // Title + text are painted.
         assert!(scene
             .primitives()
             .iter()
@@ -232,8 +232,8 @@ mod tests {
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Attention !")));
     }
 
-    /// Le message se **replie** à la largeur offerte : plus étroit → plus haut
-    /// (et jamais plus large que l'offre) — fini l'encadré qui déborde.
+    /// The message **wraps** to the offered width: narrower → taller (and never
+    /// wider than the offer) — no more box overflowing its parent.
     #[test]
     fn message_wraps_to_the_offered_width() {
         let alert = Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
@@ -241,10 +241,14 @@ mod tests {
         let measure = Widget::<()>::measure(&alert).expect("closure de mesure");
         let free = measure(None, None);
         let narrow = measure(Some(280.0), None);
-        assert!(narrow.width <= 280.0, "bornée à l'offre ({})", narrow.width);
-        assert!(narrow.height > free.height, "repliée → plus haute");
-        // La clé de mesure suit le contenu (cache de relayout).
-        let other = Alert::new("court");
+        assert!(
+            narrow.width <= 280.0,
+            "clamped to the offer ({})",
+            narrow.width
+        );
+        assert!(narrow.height > free.height, "wrapped → taller");
+        // The measure key follows the content (the relayout cache).
+        let other = Alert::new("short");
         assert_ne!(
             Widget::<()>::measure_key(&alert),
             Widget::<()>::measure_key(&other)

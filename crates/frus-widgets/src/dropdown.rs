@@ -1,9 +1,9 @@
-//! [`Dropdown`] : une liste déroulante **contrôlée** dont les options flottent
-//! au-dessus du reste (via le mécanisme d'overlay), sous l'en-tête.
+//! [`Dropdown`]: a **controlled** dropdown list whose options float above
+//! everything else (through the overlay mechanism), below the header.
 //!
-//! Largeur réglable ([`width`](Dropdown::width)), option **sélectionnée** surlignée et
-//! cochée ([`selected`](Dropdown::selected)), et navigation **clavier** : l'en-tête et
-//! les options prennent le focus (Entrée ouvre / choisit, les flèches parcourent).
+//! Adjustable width ([`width`](Dropdown::width)), the **selected** option highlighted
+//! and ticked ([`selected`](Dropdown::selected)), and **keyboard** navigation: the
+//! header and the options take focus (Enter opens or picks, the arrows move through).
 
 use frus_core::{Path, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -20,12 +20,12 @@ const ROW_H: f32 = 40.0;
 const PAD_X: f32 = 12.0;
 const SIZE: f32 = 18.0;
 
-/// Une ligne (en-tête ou option).
+/// One row: the header, or an option.
 struct Row<Msg> {
     label: String,
     width: f32,
     is_header: bool,
-    /// Option actuellement sélectionnée (surlignée + cochée). Ignoré pour l'en-tête.
+    /// The currently selected option (highlighted + ticked). Ignored for the header.
     selected: bool,
     on_click: Option<Msg>,
 }
@@ -45,7 +45,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Option sélectionnée : fond teinté primary ; survol par-dessus (couche d'état).
+        // Selected option: a primary-tinted background; hover on top (the state layer).
         let base = if self.selected {
             theme.surface.lerp(theme.primary, 0.14)
         } else {
@@ -63,7 +63,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         );
 
         if self.is_header {
-            // Chevron « ▾ » vectoriel (triangle pointant vers le bas), à droite.
+            // A vector "▾" chevron (a downward-pointing triangle), on the right.
             let cx = bounds.x + self.width - PAD_X - 4.0;
             let cy = bounds.y + ROW_H * 0.5;
             let (w, h) = (5.0, 3.0);
@@ -74,7 +74,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
                 .close();
             scene.fill_path(&tri, theme.muted.fade(o));
         } else if self.selected {
-            // Coche de l'option sélectionnée, à droite.
+            // The selected option's tick, on the right.
             let size = 18.0;
             let scale = size / 24.0;
             let x = bounds.x + self.width - PAD_X - size;
@@ -93,7 +93,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     }
 }
 
-/// Une liste déroulante à sélection unique (menu flottant).
+/// A single-selection dropdown list (a floating menu).
 pub struct Dropdown<Msg> {
     header_label: String,
     on_toggle: Msg,
@@ -106,7 +106,7 @@ pub struct Dropdown<Msg> {
 }
 
 impl<Msg: Clone + 'static> Dropdown<Msg> {
-    /// Crée une liste : libellé courant + message de bascule (ouvrir/fermer).
+    /// Creates a list: the current label + the toggle message (open/close).
     pub fn new(selected_label: impl Into<String>, on_toggle: Msg) -> Self {
         let mut dropdown = Self {
             header_label: selected_label.into(),
@@ -122,22 +122,22 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
         dropdown
     }
 
-    /// Largeur de l'en-tête et du menu, en pixels logiques (défaut 240).
+    /// Width of the header and the menu, in logical pixels (240 by default).
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self.rebuild();
         self
     }
 
-    /// Index de l'option **sélectionnée** (surlignée + cochée dans le menu).
+    /// Index of the **selected** option (highlighted + ticked in the menu).
     pub fn selected(mut self, index: usize) -> Self {
         self.selected = Some(index);
         self.rebuild();
         self
     }
 
-    /// Définit les options ; si `open`, elles flottent sous l'en-tête. `on_select` mappe
-    /// l'index choisi vers un message.
+    /// Sets the options; if `open`, they float below the header. `on_select` maps
+    /// the chosen index to a message.
     pub fn options(
         mut self,
         open: bool,
@@ -151,7 +151,7 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
         self
     }
 
-    /// Régénère l'en-tête (et le menu si ouvert) depuis l'état courant.
+    /// Rebuilds the header (and the menu if open) from the current state.
     fn rebuild(&mut self) {
         let header = Row {
             label: self.header_label.clone(),
@@ -222,7 +222,7 @@ mod tests {
             Dropdown::new("Pick one", Msg::Toggle).options(false, &["A", "B"], Msg::Select);
         assert!(
             Widget::<Msg>::overlay(&closed).is_none(),
-            "fermée : pas d'overlay"
+            "closed: no overlay"
         );
 
         let open = Dropdown::new("Pick one", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn header_and_options_are_keyboard_focusable() {
         let open = Dropdown::new("Pick", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
-        // En-tête focusable (ouvre au clavier) + 2 options.
+        // A focusable header (opens from the keyboard) + 2 options.
         assert!(Widget::<Msg>::children(&open)[0].focusable());
         let menu = &Widget::<Msg>::children(&open)[1];
         assert!(menu.children()[0].focusable() && menu.children()[1].focusable());
@@ -250,7 +250,7 @@ mod tests {
             .selected(1)
             .options(true, &["A", "B"], Msg::Select)
             .width(200.0);
-        // Le menu est un overlay : on le rend seul pour lire ses primitives.
+        // The menu is an overlay: render it on its own to read its primitives.
         let (menu, _) = Widget::<Msg>::overlay(&open).unwrap();
         let ui = build_ui(
             menu,
@@ -259,14 +259,14 @@ mod tests {
             &Theme::default(),
         );
         let theme = Theme::default();
-        // Coche de l'option sélectionnée (chemin rempli).
+        // The selected option's tick (a filled path).
         let has_check = ui
             .scene()
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Path { .. }));
-        assert!(has_check, "l'option sélectionnée est cochée");
-        // Fond teinté primary de l'option sélectionnée.
+        assert!(has_check, "the selected option is ticked");
+        // The selected option's primary-tinted background.
         let sel = theme.surface.lerp(theme.primary, 0.14);
         let has_tint = ui.scene().primitives().iter().any(|p| {
             matches!(
@@ -274,6 +274,6 @@ mod tests {
                 Primitive::Rect { color, .. } if color.fade(1.0) == sel.fade(1.0)
             )
         });
-        assert!(has_tint, "l'option sélectionnée est surlignée");
+        assert!(has_tint, "the selected option is highlighted");
     }
 }
