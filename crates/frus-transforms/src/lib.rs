@@ -1,17 +1,17 @@
-//! `frus-transforms` — une vitrine **animée et interactive** de l'arsenal de
-//! disposition/peinture : la palette [`Transform`] (translation, échelle non
-//! uniforme, rotation, pivot décalé, compositions), [`AspectRatio`] et
-//! [`FractionallySizedBox`], pilotées par un [`Tween`] au fil du temps **et** par
-//! l'utilisateur (curseur, boutons).
+//! `frus-transforms` — an **animated, interactive** showcase of the layout and
+//! painting arsenal: the [`Transform`] palette (translation, non-uniform scale,
+//! rotation, offset pivot, compositions), [`AspectRatio`] and
+//! [`FractionallySizedBox`], driven by a [`Tween`] over time **and** by the user,
+//! through a slider and buttons.
 //!
-//! Fait notable : un bouton **cliquable placé dans un `Transform` tourné** réagit
-//! quand même — preuve *visible* que le hit-test traverse les transformations (via la
-//! matrice inverse).
+//! Worth noting: a **clickable button placed inside a rotated `Transform`** still
+//! responds — *visible* proof that hit-testing goes through transforms, by way of
+//! the inverse matrix.
 //!
-//! Modèle Elm au complet : un petit état, un `update` pur, une souscription qui bat la
-//! mesure (~60 fps, en pause à l'arrêt), et une `view` pure.
+//! The full Elm model: a small state, a pure `update`, a subscription keeping time
+//! (about 60 fps, silent when paused), and a pure `view`.
 //!
-//! Lancer sur bureau : `cargo run -p frus-transforms`.
+//! Run on desktop with `cargo run -p frus-transforms`.
 
 use std::time::Duration;
 
@@ -22,8 +22,8 @@ use frus_widgets::{
     RotatedBox, Scroll, Slider, Text, Theme, Transform, Tween, Variant, Widget,
 };
 
-/// Un chemin **en étoile** à 5 branches inscrit dans une boîte `size × size`
-/// (coordonnées locales) — pour la tuile `ClipPath`.
+/// A five-pointed **star** path inscribed in a `size × size` box, in local
+/// coordinates — for the `ClipPath` tile.
 fn star_path(size: f32) -> Path {
     let c = size / 2.0;
     let (outer, inner) = (c * 0.98, c * 0.42);
@@ -37,15 +37,15 @@ fn star_path(size: f32) -> Path {
     p.close()
 }
 
-/// Pas de temps fixe par image (~60 fps) : garde `update` **déterministe** et
-/// testable, tout en suivant le rythme de la souscription.
+/// A fixed time step per frame (about 60 fps): it keeps `update` **deterministic**
+/// and testable while following the subscription's rhythm.
 const FRAME_DT: f32 = 1.0 / 60.0;
 
-/// Durée d'un cycle d'aller-retour (échelle, largeur fractionnaire), en secondes.
+/// The duration of one there-and-back cycle (scale, fractional width), in seconds.
 const CYCLE: f32 = 2.4;
 
-/// L'état : le temps écoulé, l'animation en cours ou non, la position du curseur
-/// d'échelle (`0..1`) et le nombre de clics sur le bouton transformé.
+/// The state: elapsed time, whether the animation is running, the scale slider's
+/// position (`0..1`), and the number of clicks on the transformed button.
 struct Showcase {
     time: f32,
     running: bool,
@@ -55,7 +55,7 @@ struct Showcase {
 
 impl Default for Showcase {
     fn default() -> Self {
-        // `scale_knob = 1/3` correspond à une échelle manuelle de 1.0 (voir `view`).
+        // `scale_knob = 1/3` corresponds to a manual scale of 1.0; see `view`.
         Self {
             time: 0.0,
             running: true,
@@ -65,20 +65,20 @@ impl Default for Showcase {
     }
 }
 
-/// Les messages : horloge, lecture/pause, curseur d'échelle, clic transformé.
+/// The messages: clock, play/pause, scale slider, transformed click.
 #[derive(Clone)]
 enum Msg {
-    /// Une image est passée : avance l'horloge.
+    /// A frame has passed: advance the clock.
     Frame,
-    /// Bascule lecture / pause de l'animation automatique.
+    /// Toggles play/pause on the automatic animation.
     ToggleRunning,
-    /// Nouvelle position du curseur d'échelle (`0..1`).
+    /// A new position for the scale slider (`0..1`).
     SetKnob(f32),
-    /// Clic sur le bouton placé dans un `Transform` tourné.
+    /// A click on the button placed inside a rotated `Transform`.
     Tap,
 }
 
-/// Échelle manuelle (`0.5 → 2.0`) dérivée de la position du curseur (`0..1`).
+/// The manual scale (`0.5 → 2.0`) derived from the slider position (`0..1`).
 fn knob_to_scale(knob: f32) -> f32 {
     0.5 + knob * 1.5
 }
@@ -86,7 +86,7 @@ fn knob_to_scale(knob: f32) -> f32 {
 impl Application for Showcase {
     type Message = Msg;
 
-    /// `update` est **pur** : il fait évoluer l'état, sans effet ni GPU.
+    /// `update` is **pure**: it advances the state, with no effects and no GPU.
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Frame => {
@@ -101,8 +101,8 @@ impl Application for Showcase {
         Command::none()
     }
 
-    /// Bat la mesure ~60 fps **tant que l'animation tourne** ; en pause, aucune
-    /// souscription (les interactions, elles, restent événementielles).
+    /// Keeps time at about 60 fps **while the animation runs**; when paused there is
+    /// no subscription at all, while interactions stay event-driven.
     fn subscription(&self) -> Subscription<Msg> {
         if self.running {
             Subscription::every(Duration::from_millis(16), |_| Msg::Frame)
@@ -111,24 +111,24 @@ impl Application for Showcase {
         }
     }
 
-    /// `view` est une fonction **pure** de l'état : elle recalcule les valeurs
-    /// animées puis reconstruit la scène.
+    /// `view` is a **pure** function of the state: it recomputes the animated values,
+    /// then rebuilds the scene.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-        // Phase d'aller-retour `0 → 1 → 0` sur un cycle, adoucie.
+        // A there-and-back phase `0 → 1 → 0` over one cycle, eased.
         let phase = (self.time % CYCLE) / CYCLE;
         let ping = 1.0 - (2.0 * phase - 1.0).abs();
         let eased = Curve::ease_in_out().transform(ping);
 
-        // Valeurs animées (Tween / sinusoïdes).
-        let angle = self.time * 0.9; // rotation continue (rad)
-        let scale = Tween::new(1.0, 1.4).eval(eased); // pulsation
-        let bob = (self.time * 2.2).sin() * 22.0; // va-et-vient vertical
-        let drift = (self.time * 1.6).sin() * 26.0; // dérive horizontale
-        let squash = (self.time * 2.6).sin() * 0.35; // écrasement/étirement
+        // The animated values (Tween and sinusoids).
+        let angle = self.time * 0.9; // continuous rotation, in radians
+        let scale = Tween::new(1.0, 1.4).eval(eased); // a pulse
+        let bob = (self.time * 2.2).sin() * 22.0; // vertical bobbing
+        let drift = (self.time * 1.6).sin() * 26.0; // horizontal drift
+        let squash = (self.time * 2.6).sin() * 0.35; // squash and stretch
         let width_factor = Tween::new(0.25, 1.0).eval(eased);
         let manual_scale = knob_to_scale(self.scale_knob);
 
-        // Petit carré arrondi de couleur.
+        // A small rounded colour square.
         let square = |color: Color| {
             Container::<Msg>::new()
                 .width(64.0)
@@ -136,7 +136,7 @@ impl Application for Showcase {
                 .color(color)
                 .radius(14.0)
         };
-        // Un carré dégradé (pour le héros composé).
+        // A gradient square, for the composed hero.
         let gradient_square = || {
             Container::<Msg>::new()
                 .width(64.0)
@@ -145,7 +145,7 @@ impl Application for Showcase {
                 .gradient(theme.scheme.secondary, [1.0, 1.0])
                 .radius(14.0)
         };
-        // Une tuile : contenu centré dans une scène fixe (marge pour déborder), légendé.
+        // A tile: content centred in a fixed stage (with room to overflow), captioned.
         let tile = |inner: Box<dyn Widget<Msg>>, label: &str| {
             Flex::column()
                 .gap(10.0)
@@ -161,7 +161,7 @@ impl Application for Showcase {
                 .child(Text::new(label).size(12.0).color(theme.on_surface))
         };
 
-        // Galerie 1 : translation, échelle non uniforme, composition rotation+échelle.
+        // Gallery 1: translation, non-uniform scale, and rotation+scale composed.
         let gallery1 = Flex::row()
             .gap(16.0)
             .align(Align::Center)
@@ -185,7 +185,7 @@ impl Application for Showcase {
                 "rotate + scale",
             ));
 
-        // Galerie 2 : rotation autour d'un **pivot décalé**, et translation+rotation.
+        // Gallery 2: rotation about an **offset pivot**, and translation+rotation.
         let gallery2 = Flex::row()
             .gap(16.0)
             .align(Align::Center)
@@ -205,9 +205,9 @@ impl Application for Showcase {
                 "translate + rotate",
             ));
 
-        // Galerie 3 : découpe **en forme** — un carré dégradé à coins **nets** rogné
-        // en rectangle arrondi (`ClipRRect`) puis en cercle (`ClipOval`). Le contraste
-        // avec les coins nets d'origine rend la découpe visible.
+        // Gallery 3: **shaped** clipping — a gradient square with **sharp** corners
+        // clipped to a rounded rectangle (`ClipRRect`), then to a circle (`ClipOval`).
+        // The contrast with the original sharp corners is what makes the clip visible.
         let sharp = || {
             Container::<Msg>::new()
                 .width(96.0)
@@ -228,9 +228,9 @@ impl Application for Showcase {
                 "ClipPath (star)",
             ));
 
-        // Galerie 4 : transformations qui **affectent la mise en page**. `RotatedBox`
-        // tourne un texte d'un quart (sa boîte devient haute et étroite) ; `FittedBox`
-        // met un grand texte à l'échelle pour **tenir** (Contain) dans un cadre.
+        // Gallery 4: transforms that **affect layout**. `RotatedBox` turns a text a
+        // quarter turn, so its box becomes tall and narrow; `FittedBox` scales a large
+        // text down to **fit** (Contain) inside a frame.
         let rotated =
             RotatedBox::new(3).child(Text::new("ROTATED").size(16.0).color(theme.on_surface));
         let fitted = Container::new()
@@ -250,9 +250,9 @@ impl Application for Showcase {
             .child(tile(Box::new(rotated), "RotatedBox(3)"))
             .child(tile(Box::new(fitted), "FittedBox·Contain"));
 
-        // Fenêtre **interactive** : une grille de pastilles sur fond dégradé, que
-        // l'utilisateur **déplace** (glisser) et **zoome** (molette, ancrée au curseur).
-        // Le contenu déborde la fenêtre à fort zoom — il est découpé au cadre.
+        // An **interactive** window: a grid of dots on a gradient background that the
+        // user can **pan** by dragging and **zoom** with the wheel, anchored at the
+        // cursor. At high zoom the content overflows and is clipped to the frame.
         let viewer_content = Container::new()
             .color(theme.surface)
             .gradient(theme.primary_container, [1.0, 1.0])
@@ -285,9 +285,9 @@ impl Application for Showcase {
                 .child(viewer_content),
         );
 
-        // Interactif : un bouton **cliquable dans un Transform tourné** (le hit-test
-        // traverse la transformation), un curseur qui pilote une échelle en direct, et
-        // un bouton lecture/pause.
+        // Interactive: a **button clickable inside a rotated Transform**, since
+        // hit-testing goes through the transform; a slider driving a scale live; and
+        // a play/pause button.
         let tap_stage = Flex::column()
             .width(240.0)
             .height(96.0)
@@ -345,7 +345,7 @@ impl Application for Showcase {
                     .on_press(Msg::ToggleRunning),
             );
 
-        // AspectRatio 16:9 : la boîte prend la largeur (240) et en dérive la hauteur.
+        // AspectRatio 16:9: the box takes the width (240) and derives its height.
         let aspect = Container::new().width(240.0).child(
             AspectRatio::new(16.0 / 9.0).child(
                 Container::new()
@@ -356,7 +356,7 @@ impl Application for Showcase {
             ),
         );
 
-        // FractionallySizedBox : une barre dont la largeur (fraction du parent) respire.
+        // FractionallySizedBox: a bar whose width, a fraction of the parent, breathes.
         let bar = Container::new()
             .width(240.0)
             .height(18.0)
@@ -368,7 +368,7 @@ impl Application for Showcase {
                     .child(Container::new().flex(1.0).color(theme.primary).radius(9.0)),
             );
 
-        // Colonne complète, centrée, avec un peu de marge.
+        // The whole column, centred, with a little margin.
         let content = Flex::column()
             .width(width)
             .gap(22.0)
@@ -418,9 +418,9 @@ impl Application for Showcase {
             )
             .child(bar);
 
-        // Défilable : le viewport remplit la fenêtre (largeur/hauteur explicites — un
-        // `Scroll` par défaut ne fait que 200 px et une largeur automatique) ; le
-        // contenu, plus grand, défile.
+        // Scrollable: the viewport fills the window through explicit width and height
+        // — a default `Scroll` is only 200px tall with an automatic width — and the
+        // larger content scrolls.
         Box::new(
             Container::new()
                 .width(width)
@@ -435,15 +435,15 @@ impl Application for Showcase {
     }
 }
 
-// Point d'entrée **unique** (façon Flutter) : une seule déclaration engendre les entrées
-// bureau (`run()`, appelée par le binaire) et Android (`android_main`). Voir `frus_shell::main!`.
+// The **single** entry point: one declaration generates the desktop entry (`run()`,
+// called by the binary) and the Android one (`android_main`). See `frus_shell::main!`.
 frus_shell::main!(Showcase::default());
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// `update` avance l'horloge d'un pas fixe par image — pur, sans GPU.
+    /// `update` advances the clock one fixed step per frame — pure, no GPU.
     #[test]
     fn frames_advance_the_clock() {
         let mut app = Showcase::default();
@@ -456,7 +456,7 @@ mod tests {
         );
     }
 
-    /// En **pause**, l'horloge ne bouge plus et la souscription se tait.
+    /// When **paused**, the clock stops and the subscription goes quiet.
     #[test]
     fn pause_stops_the_clock_and_the_subscription() {
         let mut app = Showcase::default();
@@ -466,14 +466,14 @@ mod tests {
         );
         app.update(Msg::ToggleRunning);
         app.update(Msg::Frame);
-        assert_eq!(app.time, 0.0, "en pause : l'horloge est figée");
+        assert_eq!(app.time, 0.0, "paused: the clock is frozen");
         assert!(
             app.subscription().is_empty(),
             "en pause : plus de souscription"
         );
     }
 
-    /// Le curseur pilote l'échelle manuelle (`0..1 → 0.5..2.0`).
+    /// The slider drives the manual scale (`0..1 → 0.5..2.0`).
     #[test]
     fn knob_drives_the_manual_scale() {
         let mut app = Showcase::default();
@@ -483,7 +483,7 @@ mod tests {
         assert!((knob_to_scale(app.scale_knob) - 0.5).abs() < 1e-6);
     }
 
-    /// Chaque clic sur le bouton transformé incrémente le compteur.
+    /// Every click on the transformed button increments the counter.
     #[test]
     fn taps_increment() {
         let mut app = Showcase::default();
@@ -492,9 +492,9 @@ mod tests {
         assert_eq!(app.taps, 2);
     }
 
-    /// Rendu **headless** d'une image : la `view` produit un calque **transformé**
-    /// (les `Transform` de la scène), preuve que la vitrine câble la pile de bout en
-    /// bout — sans GPU.
+    /// A **headless** render of one frame: the `view` produces a **transformed** layer
+    /// — the scene's `Transform`s — proving the showcase wires the stack end to end,
+    /// with no GPU.
     #[test]
     fn renders_a_transformed_layer() {
         use frus_core::Primitive;
@@ -518,13 +518,13 @@ mod tests {
         });
         assert!(
             transformed,
-            "un Transform de la scène émet un calque transformé"
+            "a Transform in the scene emits a transformed layer"
         );
     }
 
-    /// La `view` émet des calques **découpés en forme** : la galerie clip produit un
-    /// `ClipShape::RRect` **et** un `ClipShape::Oval` — preuve que la vitrine câble la
-    /// découpe de bout en bout.
+    /// The `view` emits **shape-clipped** layers: the clip gallery produces a
+    /// `ClipShape::RRect` **and** a `ClipShape::Oval`, proving the showcase wires
+    /// clipping end to end.
     #[test]
     fn renders_clip_shapes() {
         use frus_core::{BorderRadius, ClipShape, Primitive};
@@ -534,7 +534,7 @@ mod tests {
         let view = app.view(&theme, 500.0, 900.0);
         let rt = Runtime::default();
         let ui = build_ui(view.as_ref(), Size::new(500.0, 900.0), &rt, &theme);
-        // Collecte récursive des formes de découpe (les calques peuvent être imbriqués).
+        // Recursively collect the clip shapes, since layers can nest.
         fn shapes(prims: &[Primitive], out: &mut Vec<ClipShape>) {
             for p in prims {
                 if let Primitive::Layer {
@@ -560,13 +560,13 @@ mod tests {
         );
         assert!(
             found.iter().any(|s| matches!(s, ClipShape::Path(_))),
-            "ClipPath (étoile) rendu : {found:?}"
+            "ClipPath (star) rendered: {found:?}"
         );
     }
 
-    /// Garde-fou anti-page-blanche : le contenu doit être **réellement dimensionné**
-    /// et posé **dans** la fenêtre — au moins un rectangle large, à une position
-    /// visible (le viewport `Scroll` remplit bien la fenêtre, il ne s'effondre pas).
+    /// A blank-page guard: the content must be **genuinely sized** and placed
+    /// **inside** the window — at least one wide rectangle at a visible position,
+    /// which shows the `Scroll` viewport fills the window instead of collapsing.
     #[test]
     fn content_is_laid_out_within_the_window() {
         use frus_core::Primitive;
@@ -584,7 +584,7 @@ mod tests {
         });
         assert!(
             wide_on_screen,
-            "aucun contenu large visible : viewport effondré ?"
+            "no wide content visible: has the viewport collapsed?"
         );
     }
 }
