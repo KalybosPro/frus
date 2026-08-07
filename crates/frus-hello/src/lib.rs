@@ -1,45 +1,47 @@
-//! `frus-hello` — la plus petite application frus complète : un compteur.
+//! `frus-hello` — the smallest complete frus application: a counter.
 //!
-//! C'est le « Hello, world! » du framework et la source du template
-//! `cargo generate` (voir `templates/app/`). Il tient en une struct d'état,
-//! un `update` pur et une `view` — le modèle Elm au complet.
+//! This is the framework's "Hello, world!" and the source of the `cargo generate`
+//! template (see `templates/app/`). It fits in one state struct, a pure `update` and a
+//! `view` — the whole Elm model.
 //!
-//! Lancer sur bureau : `cargo run -p frus-hello`.
+//! Run it on the desktop with `cargo run -p frus-hello`.
 
 use std::time::Duration;
 
-// Une **seule** dépendance : la façade `frus` fournit tout (couche framework + widgets + DSL).
+// A **single** dependency: the `frus` facade supplies everything — framework layer,
+// widgets and DSL.
 use frus::{
     button, column, row, text, Align, Application, Command, Container, Justify, Subscription,
     Theme, Variant, Widget,
 };
 
-/// L'état de l'application : un simple compteur.
+/// The application's state: a plain counter.
 #[derive(Default)]
 struct Counter {
     count: i32,
-    /// Comptage automatique : quand actif, une **souscription** `every(1s)` incrémente
-    /// le compteur. La même source continue tourne sur bureau (thread), Android et Web
-    /// (`setInterval`) — l'app ne connaît que `Subscription::every`.
+    /// Automatic counting: when it is on, an `every(1s)` **subscription** increments
+    /// the counter. The same continuous source runs on the desktop (a thread), on
+    /// Android and on the Web (`setInterval`) — the app knows only
+    /// `Subscription::every`.
     auto: bool,
 }
 
-/// Les messages émis par l'interface.
+/// The messages the interface emits.
 #[derive(Clone)]
 enum Msg {
     Increment,
     Decrement,
-    /// (Dé)active le comptage automatique.
+    /// Turns automatic counting on or off.
     ToggleAuto,
-    /// Un tick de la souscription : incrémente.
+    /// A tick from the subscription: increment.
     Tick,
 }
 
 impl Application for Counter {
     type Message = Msg;
 
-    /// `update` est **pur** : il fait évoluer l'état et renvoie les effets
-    /// éventuels (ici aucun). Testable sans GPU ni fenêtre.
+    /// `update` is **pure**: it advances the state and returns whatever effects there
+    /// are — none here. Testable with neither GPU nor window.
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Increment | Msg::Tick => self.count += 1,
@@ -53,8 +55,8 @@ impl Application for Counter {
         Command::none()
     }
 
-    /// Souscriptions **selon l'état** : en mode auto, émet un `Tick` par seconde ;
-    /// sinon aucune. Le framework démarre/arrête la source par diff.
+    /// Subscriptions **from the state**: in automatic mode it emits one `Tick` a
+    /// second, otherwise none. The framework starts and stops the source by diffing.
     fn subscription(&self) -> Subscription<Msg> {
         if self.auto {
             Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
@@ -63,8 +65,8 @@ impl Application for Counter {
         }
     }
 
-    /// `view` décrit l'interface pour l'état courant — une fonction pure de
-    /// `(état, thème, taille)`. Le framework la (re)construit au besoin.
+    /// `view` describes the interface for the current state — a pure function of
+    /// `(state, theme, size)`. The framework (re)builds it as needed.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
         let content = column![
             text(format!("{}", self.count)).size(48.0),
@@ -86,8 +88,8 @@ impl Application for Counter {
         .gap(16.0)
         .align(Align::Center);
 
-        // Centré à l'écran : un Flex plein-fenêtre qui centre son unique enfant
-        // sur les deux axes, posé sur le fond du thème.
+        // Centred on screen: a full-window Flex that centres its only child on both
+        // axes, laid on the theme's background.
         let centered = column![content]
             .width(width)
             .height(height)
@@ -108,16 +110,16 @@ impl Application for Counter {
     }
 }
 
-// **Point d'entrée unique** — façon Flutter (`void main() => runApp(App())`) : une
-// seule déclaration engendre les entrées bureau / Android / Web (voir `frus::main!`).
-// Le mince binaire `src/bin/frus-hello.rs` appelle la `run()` ainsi produite pour le bureau.
+// **A single entry point**: one declaration generates the desktop, Android and Web
+// entry points (see `frus::main!`). The thin `src/bin/frus-hello.rs` binary calls the
+// `run()` it produces, for the desktop.
 frus::main!(Counter::default());
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// L'avantage Elm : `update` se teste sans GPU ni fenêtre.
+    /// The Elm advantage: `update` is tested with neither GPU nor window.
     #[test]
     fn counting_is_pure() {
         let mut app = Counter::default();
@@ -127,26 +129,23 @@ mod tests {
         assert_eq!(app.count, 1);
     }
 
-    /// Le mode auto pilote la souscription : absente au repos, présente une fois
-    /// activée (le framework la démarre/arrête par ce diff), et un `Tick` compte.
+    /// Automatic mode drives the subscription: absent at rest, present once turned on
+    /// — the framework starts and stops it from that diff — and a `Tick` counts.
     #[test]
     fn auto_mode_drives_the_subscription() {
         let mut app = Counter::default();
-        assert!(
-            app.subscription().is_empty(),
-            "au repos : aucune souscription"
-        );
+        assert!(app.subscription().is_empty(), "at rest: no subscription");
         app.update(Msg::ToggleAuto);
         assert!(
             !app.subscription().is_empty(),
-            "auto : une source every(1s)"
+            "automatic: one every(1s) source"
         );
         app.update(Msg::Tick);
-        assert_eq!(app.count, 1, "un tick incrémente");
+        assert_eq!(app.count, 1, "a tick increments");
         app.update(Msg::ToggleAuto);
         assert!(
             app.subscription().is_empty(),
-            "auto coupé : plus de souscription"
+            "automatic off: no subscription left"
         );
     }
 }

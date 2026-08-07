@@ -1,57 +1,64 @@
-//! `frus-fetch-example` — la **chaîne réseau de bout en bout** en une écran :
-//! un bouton lance un GET, l'écran passe par **chargement → donnée** (ou **erreur**).
+//! `frus-fetch-example` — the **end-to-end networking chain** in one screen: a button
+//! starts a GET and the screen moves through **loading → data**, or **error**.
 //!
-//! C'est le pendant frus du `FutureBuilder` de Flutter, et la démonstration de la pile
-//! ajoutée aux jalons 270–272 :
+//! It is the way frus renders an in-flight future, and the demonstration of the stack
+//! added in milestones 270–272:
 //!
-//! - [`frus::Command::perform_async`] mène une future à terme, sa valeur devient un message ;
-//! - [`frus::fetch`] / [`frus::Request`] font l'aller-retour HTTP (ici en-têtes + timeout).
+//! - [`frus::Command::perform_async`] drives a future to completion and its value
+//!   becomes a message;
+//! - [`frus::fetch`] and [`frus::Request`] make the HTTP round trip, here with headers
+//!   and a timeout.
 //!
-//! Tout tient dans le modèle Elm : un `update` **pur** (la seule impureté, le réseau, est
-//! reléguée dans une `Command`) et une `view` qui n'affiche que l'état courant.
+//! It all fits in the Elm model: a **pure** `update` — the one impurity, the network, is
+//! banished into a `Command` — and a `view` that displays nothing but the current state.
 //!
-//! Lancer sur bureau : `cargo run -p frus-fetch-example` (ajouter `RUST_LOG=info` pour les logs).
+//! Run it on the desktop with `cargo run -p frus-fetch-example`; add `RUST_LOG=info` for
+//! logs.
 
 use std::time::Duration;
 
-// Une **seule** dépendance : la façade `frus` (feature `net` pour `fetch` / `Request`).
+// A **single** dependency: the `frus` facade, with the `net` feature for `fetch` and
+// `Request`.
 use frus::{
     button, column, text, Align, Application, Color, Command, Container, Justify, RemoteData,
     Request, Theme, Variant, Widget,
 };
 
-/// L'API interrogée : une blague renvoyée en **texte simple** (en-tête `Accept: text/plain`).
-/// Elle autorise les requêtes navigateur (CORS), donc l'exemple marche aussi sur le Web.
+/// The API queried: a joke returned as **plain text**, through an `Accept: text/plain`
+/// header. It allows browser requests (CORS), so the example works on the Web too.
 const JOKE_URL: &str = "https://icanhazdadjoke.com/";
 
-/// L'état : le statut de la requête, exprimé par l'idiome [`RemoteData`] du framework
-/// (`NotAsked → Loading → Success | Failure`) plutôt qu'une machine à états maison.
+/// The state: the request's status, expressed through the framework's [`RemoteData`]
+/// idiom (`NotAsked → Loading → Success | Failure`) rather than a hand-rolled state
+/// machine.
 #[derive(Default)]
 struct FetchDemo {
     joke: RemoteData<String>,
 }
 
-/// Les messages émis par l'interface et par l'effet réseau.
+/// The messages the interface and the network effect emit.
 #[derive(Clone)]
 enum Msg {
-    /// L'utilisateur a demandé un chargement.
+    /// The user asked for a load.
     Fetch,
-    /// L'effet réseau a abouti : `Ok(corps)` ou `Err(message)`.
+    /// The network effect finished: `Ok(body)` or `Err(message)`.
     Got(Result<String, String>),
 }
 
 impl Application for FetchDemo {
     type Message = Msg;
 
-    /// `update` reste **pur** : il fait évoluer l'état et, pour `Fetch`, renvoie l'**effet**
-    /// réseau (l'unique impureté). Quand la future se résout, le shell rappelle `update`
-    /// avec `Got(...)`. Aucun `await` ni GPU ici — donc testable tel quel.
+    /// `update` stays **pure**: it advances the state and, for `Fetch`, returns the
+    /// network **effect**, the one impurity. When the future resolves, the shell calls
+    /// `update` again with `Got(...)`. No `await` and no GPU here, so it is testable as
+    /// it stands.
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Fetch => {
                 self.joke = RemoteData::Loading;
-                // Un GET avec en-tête (texte simple) et un timeout : si l'API ne répond
-                // pas en 5 s, on récolte un `FetchError::Network` → branche `Failure`.
+                // A GET with a header, asking for plain text, and a timeout: if the API
+                // does not answer within 5 s we get a `FetchError::Network`, which lands
+                // in the `Failure` branch.
                 return Command::perform_async(async {
                     let res = Request::get(JOKE_URL)
                         .header("Accept", "text/plain")
@@ -62,7 +69,7 @@ impl Application for FetchDemo {
                     Msg::Got(res.map_err(|err| err.to_string()))
                 });
             }
-            // Le `Result` de l'effet devient directement un `RemoteData` (corps rogné au passage).
+            // The effect's `Result` becomes a `RemoteData` directly, the body trimmed on the way.
             Msg::Got(res) => {
                 self.joke = RemoteData::from_result(res.map(|body| body.trim().to_string()))
             }
@@ -70,16 +77,16 @@ impl Application for FetchDemo {
         Command::none()
     }
 
-    /// `view` ne fait que peindre l'état : un bouton, puis le rendu du statut courant.
+    /// `view` does nothing but paint the state: a button, then the current status.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-        // Étiquette du bouton selon l'état (relance possible même après coup).
+        // The button's label follows the state; it can be fired again afterwards.
         let label = match self.joke {
             RemoteData::NotAsked => "Get a joke",
             RemoteData::Loading => "Loading…",
             _ => "Get another joke",
         };
 
-        // La zone de résultat : on **replie** les quatre cas de `RemoteData`.
+        // The result area: we **fold** over `RemoteData`'s four cases.
         let result: Box<dyn Widget<Msg>> = match self.joke.as_ref() {
             RemoteData::NotAsked => Box::new(text("Press the button to fetch a joke.").size(18.0)),
             RemoteData::Loading => Box::new(text("Loading…").size(18.0)),
@@ -99,7 +106,7 @@ impl Application for FetchDemo {
         .gap(20.0)
         .align(Align::Center);
 
-        // Centré plein écran, sur le fond du thème.
+        // Centred full-screen, on the theme's background.
         let centered = column![content]
             .width(width)
             .height(height)
@@ -120,25 +127,25 @@ impl Application for FetchDemo {
     }
 }
 
-// **Point d'entrée unique** (façon Flutter) : engendre les entrées bureau / Android / Web.
+// **A single entry point**: it generates the desktop, Android and Web entries.
 frus::main!(FetchDemo::default());
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// `Fetch` bascule en chargement **et** renvoie un effet (la future réseau) — sans
-    /// réseau ni GPU dans le test, on n'observe que l'intention.
+    /// `Fetch` switches to loading **and** returns an effect, the network future. With
+    /// neither network nor GPU in the test, only the intent is observed.
     #[test]
     fn fetch_enters_loading_and_emits_an_effect() {
         let mut app = FetchDemo::default();
         assert_eq!(app.joke, RemoteData::NotAsked);
         let cmd = app.update(Msg::Fetch);
         assert!(app.joke.is_loading());
-        assert!(!cmd.is_empty(), "Fetch doit produire un effet réseau");
+        assert!(!cmd.is_empty(), "Fetch must produce a network effect");
     }
 
-    /// La résolution de l'effet peint l'état : succès → donnée (rognée), échec → erreur.
+    /// Resolving the effect paints the state: success → the trimmed data, failure → the error.
     #[test]
     fn result_messages_drive_the_state() {
         let mut app = FetchDemo::default();

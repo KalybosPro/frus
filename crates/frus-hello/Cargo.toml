@@ -1,24 +1,25 @@
 [package]
 name = "frus-hello"
-description = "frus — la plus petite application (compteur) : le point de départ canonique"
+description = "frus — the smallest application, a counter: the canonical starting point"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+# Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-# **Une seule dépendance** : la façade `frus` ré-exporte shell + widgets + `main!` (et
-# anyhow/log). L'app n'a rien d'autre à déclarer (hors wasm-bindgen pour le Web).
+# **A single dependency**: the `frus` facade re-exports the shell, the widgets and
+# `main!` — plus anyhow and log. An app declares nothing else, wasm-bindgen for the Web
+# aside.
 frus = { path = "../frus" }
 
-# Web (wasm) : la macro `frus::main!` engendre l'entrée `#[wasm_bindgen(start)]`.
+# Web (wasm): the `frus::main!` macro generates the `#[wasm_bindgen(start)]` entry point.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 
-# --- Empaquetage Android (cargo-apk) ---
+# --- Android packaging (cargo-apk) ---
 [package.metadata.android]
 package = "com.frus.hello"
 build_targets = ["aarch64-linux-android"]
