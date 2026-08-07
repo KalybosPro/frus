@@ -1,9 +1,9 @@
-//! `frus-core` — types fondamentaux partagés par tout le framework.
+//! `frus-core` — the fundamental types shared by the whole framework.
 //!
-//! Ce crate ne contient **aucune logique** : uniquement des types de données
-//! (géométrie, couleur) sans dépendance au rendu ni à la plateforme. Il sert de
-//! socle commun à `frus-gpu`, `frus-layout`, etc., pour éviter la duplication et
-//! le couplage entre les couches.
+//! This crate holds **no logic**: only data types (geometry, colour) with no
+//! dependency on rendering or on any platform. It is the common foundation for
+//! `frus-gpu`, `frus-layout` and the rest, which keeps those layers from
+//! duplicating types or coupling to one another.
 
 pub mod animation;
 mod color;

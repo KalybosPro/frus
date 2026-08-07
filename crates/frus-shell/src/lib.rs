@@ -1,14 +1,14 @@
-//! `frus-shell` — la **couche framework** de frus.
+//! `frus-shell` — frus's **framework layer**.
 //!
-//! Crée une fenêtre native (via `winit`), initialise le [`Renderer`] de
-//! `frus-gpu` et pilote la boucle `événement → frame` pour n'importe quelle
-//! [`Application`]. C'est la seule couche dépendante de la plateforme.
+//! Creates a native window (through `winit`), initialises the `frus-gpu`
+//! [`Renderer`] and drives the `event → frame` loop for any [`Application`]. This
+//! is the only platform-dependent layer.
 
-// Les alias `desktop` / `android` / `ios` / `web` viennent de `build.rs`. Ils ne
-// valent que pour **ce** crate : la macro `main!`, plus bas, s'expanse chez
-// l'utilisateur et garde donc des prédicats `target_os` / `target_arch` explicites.
+// The `desktop` / `android` / `ios` / `web` aliases come from `build.rs`. They hold
+// for **this** crate only: the `main!` macro below expands in the user's crate, so
+// it keeps explicit `target_os` / `target_arch` predicates.
 
-// Accessibilité (AccessKit) : bureau uniquement (ni Android, ni iOS, ni Web).
+// Accessibility (AccessKit): desktop only — not Android, not iOS, not web.
 #[cfg(desktop)]
 mod a11y;
 #[cfg(android)]
@@ -17,7 +17,7 @@ mod app;
 mod application;
 mod command;
 mod gesture;
-/// Helper HTTP `fetch` cross-plateforme (derrière la feature `net`).
+/// Cross-platform `fetch` HTTP helper (behind the `net` feature).
 #[cfg(feature = "net")]
 pub mod net;
 mod reload;
@@ -30,62 +30,63 @@ pub use command::Command;
 pub use remote::RemoteData;
 pub use subscription::Subscription;
 
-/// HTTP cross-plateforme (feature `net`) — le raccourci [`fetch`], le constructeur
-/// [`Request`] (méthode/en-têtes/corps/timeout) et l'erreur [`FetchError`].
+/// Cross-platform HTTP (`net` feature) — the [`fetch`] shorthand, the [`Request`]
+/// builder (method / headers / body / timeout) and the [`FetchError`] error type.
 #[cfg(feature = "net")]
 pub use net::{fetch, FetchError, Method, Request};
 
-/// Ré-export : paliers de taille et orientation, pour piloter la responsivité
-/// côté app.
+/// Re-export: size classes and orientation, so the application can drive its own
+/// responsive behaviour.
 pub use frus_widgets::{Orientation, SizeClass};
 
-/// Ré-export du type d'entrée Android (fourni par `winit`/`android-activity`),
-/// pour typer le `android_main` côté application sans dépendre de winit.
+/// Re-export of the Android entry type (supplied by `winit` / `android-activity`),
+/// so an application can type its `android_main` without depending on winit.
 #[cfg(android)]
 pub use winit::platform::android::activity::AndroidApp;
 
-/// Ré-exports **pour la macro [`main!`]** : l'application déclare son point d'entrée
-/// unique sans dépendre directement de ces crates.
+/// Re-exports **for the [`main!`] macro**: the application declares its single entry
+/// point without depending on these crates directly.
 #[doc(hidden)]
 pub use anyhow;
 #[doc(hidden)]
 pub use log;
 
-/// Déclare le **point d'entrée unique** d'une application frus — l'équivalent du
-/// `void main() => runApp(App())` de Flutter. Invoquée **une seule fois** (dans la
-/// bibliothèque de l'app), elle engendre les points d'entrée de **chaque plateforme**,
-/// tous délégant à la **même** application :
+/// Declares a frus application's **single entry point**. Invoked **exactly once** (in
+/// the application's library), it generates the entry point of **every platform**, all
+/// delegating to the **same** application:
 ///
-/// - **bureau et iOS** : une fonction `run()` (que le mince binaire de l'app appelle) ;
-/// - **Android** : le symbole natif `android_main` attendu par l'activité ;
-/// - **Web** : la fonction `#[wasm_bindgen(start)]`.
+/// - **desktop and iOS**: a `run()` function, which the app's thin binary calls;
+/// - **Android**: the native `android_main` symbol the activity expects;
+/// - **web**: the `#[wasm_bindgen(start)]` function.
 ///
-/// Les `cfg` ci-dessous sont écrits en `target_os` / `target_arch` **explicites**, et non
-/// avec les alias `desktop`/`android`/`web` de `build.rs` : le corps d'une `macro_rules!`
-/// s'expanse dans le crate de l'**application**, où ces alias ne sont pas définis. Un
-/// `#[cfg(desktop)]` y serait toujours faux, et l'app n'aurait aucun point d'entrée.
+/// The `cfg`s below are written with **explicit** `target_os` / `target_arch`
+/// predicates rather than the `desktop` / `android` / `web` aliases from `build.rs`:
+/// the body of a `macro_rules!` expands in the **application's** crate, where those
+/// aliases are not defined. A `#[cfg(desktop)]` there would always be false, and the
+/// application would end up with no entry point at all.
 ///
-/// L'argument est une **expression** qui construit l'application (rappelée par
-/// plateforme, jamais partagée) :
+/// The argument is an **expression** building the application (re-evaluated per
+/// platform, never shared):
 ///
 /// ```ignore
 /// frus_shell::main!(App::default());
 /// ```
 ///
-/// La plateforme Web garde sa dépendance `wasm-bindgen` (ciblée `wasm32`), comme une
-/// app Flutter garde `flutter` dans son `pubspec` : la macro y renvoie via `::wasm_bindgen`.
+/// The web platform keeps its own `wasm-bindgen` dependency (targeted at `wasm32`),
+/// which the generated `#[wasm_bindgen(start)]` entry point refers to via
+/// `::wasm_bindgen`.
 #[macro_export]
 macro_rules! main {
     ($app:expr $(,)?) => {
-        /// Point d'entrée **bureau et iOS** : ouvre la fenêtre et pilote la boucle
-        /// (appelé par le binaire mince de l'application, ou par le `main` du bundle
-        /// `.app` sur iOS). Engendré par [`frus_shell::main!`].
+        /// **Desktop and iOS** entry point: opens the window and drives the loop
+        /// (called by the application's thin binary, or by the `.app` bundle's `main`
+        /// on iOS). Generated by [`frus_shell::main!`].
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         pub fn run() -> $crate::anyhow::Result<()> {
             $crate::run($app)
         }
 
-        /// Point d'entrée **Android** : appelé par l'activité native. Engendré par
+        /// **Android** entry point: called by the native activity. Generated by
         /// [`frus_shell::main!`].
         #[cfg(target_os = "android")]
         #[no_mangle]
@@ -95,7 +96,7 @@ macro_rules! main {
             }
         }
 
-        /// Point d'entrée **Web** : appelé au chargement du module wasm. Engendré par
+        /// **Web** entry point: called when the wasm module loads. Generated by
         /// [`frus_shell::main!`].
         #[cfg(target_arch = "wasm32")]
         #[::wasm_bindgen::prelude::wasm_bindgen(start)]
@@ -107,7 +108,7 @@ macro_rules! main {
     };
 }
 
-/// Lance une application : ouvre la fenêtre et pilote la boucle d'événements.
+/// Runs an application: opens the window and drives the event loop.
 ///
 /// ```no_run
 /// # struct MyApp;
@@ -121,17 +122,17 @@ macro_rules! main {
 /// ```
 #[cfg(desktop)]
 pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
-    // `RUST_LOG=info` pour voir les logs (adaptateur GPU, etc.).
+    // `RUST_LOG=info` to see the logs (GPU adapter, and so on).
     env_logger::init();
 
-    // Live-reload (dev) : réhydrate l'état laissé par le binaire précédent,
-    // avant `init` — voir [`Application::restore_state`].
+    // Live-reload (dev): rehydrate the state left behind by the previous binary,
+    // before `init` — see [`Application::restore_state`].
     reload::restore_from_env(&mut app);
 
-    // Boucle avec **événements utilisateur** = messages : les effets asynchrones
-    // renvoient leur résultat via un `EventLoopProxy<Message>`.
+    // A loop whose **user events** are messages: asynchronous effects deliver their
+    // result through an `EventLoopProxy<Message>`.
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
-    // On redemande une frame tant qu'une animation tourne ; sinon on attend.
+    // Keep asking for frames while an animation runs; otherwise wait.
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
     let proxy = event_loop.create_proxy();
@@ -140,21 +141,16 @@ pub fn run<A: Application>(mut app: A) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Lance une application dans le **navigateur** (wasm + WebGPU) : winit crée et
-/// **ajoute un `<canvas>`** au document, le renderer s'initialise de façon asynchrone
-/// (pas de blocage possible sur le Web), et la boucle est confiée au navigateur via
-/// `spawn_app` (qui ne rend jamais la main). Appelé depuis le point d'entrée
-/// `#[wasm_bindgen(start)]` de l'application.
-/// Lance une application sur **iOS**. Même forme que [`run`] — winit assure lui-même
-/// l'`UIApplicationMain` et `wgpu` sort sur Metal —, mais sans les trois services de
-/// bureau qui n'ont pas de backend UIKit : pas d'`env_logger` (stderr n'est pas lisible
-/// sur appareil), pas de presse-papier `arboard`, pas d'AccessKit.
+/// Runs an application on **iOS**. Same shape as [`run`] — winit takes care of
+/// `UIApplicationMain` itself and `wgpu` renders through Metal — but without the
+/// three desktop services that have no UIKit backend: no `env_logger` (stderr is
+/// not readable on a device), no `arboard` clipboard, no AccessKit.
 ///
-/// La macro [`main!`] engendre le même `run()` que sur bureau : c'est le binaire du
-/// bundle `.app` qui l'appelle depuis son `main`.
+/// The [`main!`] macro generates the same `run()` as on desktop: it is the `.app`
+/// bundle's binary that calls it from its `main`.
 ///
-/// **État : amorçage.** Le cycle de vie, les safe-area insets, l'IME et le clavier
-/// logiciel ne sont pas encore câblés — voir la ROADMAP.
+/// **Status: bootstrapping.** Lifecycle, safe-area insets, IME and the soft
+/// keyboard are not wired yet — see the ROADMAP.
 #[cfg(ios)]
 pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
     let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event().build()?;
@@ -166,11 +162,16 @@ pub fn run<A: Application>(app: A) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Runs an application in the **browser** (wasm + WebGPU): winit creates a
+/// `<canvas>` and **appends it** to the document, the renderer initialises
+/// asynchronously (nothing may block on the web), and the loop is handed to the
+/// browser through `spawn_app`, which never returns. Called from the application's
+/// `#[wasm_bindgen(start)]` entry point.
 #[cfg(web)]
 pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
     use winit::platform::web::EventLoopExtWebSys;
 
-    // Panics → console du navigateur (au lieu d'un « unreachable » opaque).
+    // Panics → the browser console, instead of an opaque "unreachable".
     console_error_panic_hook::set_once();
     let _ = console_log::init_with_level(log::Level::Info);
 
@@ -179,19 +180,20 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 
     let proxy = event_loop.create_proxy();
     let app = App::new(app, proxy);
-    // Sur le Web, la boucle est pilotée par le navigateur (requestAnimationFrame) et
-    // `spawn_app` ne revient pas — d'où le retour immédiat `Ok`.
+    // On the web the loop is driven by the browser (requestAnimationFrame) and
+    // `spawn_app` does not come back — hence returning `Ok` immediately.
     event_loop.spawn_app(app);
     Ok(())
 }
 
-/// Lance une application sur **Android** : l'activité native fournit l'[`AndroidApp`],
-/// à transmettre à la boucle winit. Point d'entrée appelé depuis `android_main`.
+/// Runs an application on **Android**: the native activity supplies the
+/// [`AndroidApp`], which is handed to the winit loop. Entry point called from
+/// `android_main`.
 #[cfg(android)]
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
-    // Les logs partent dans logcat (`adb logcat`).
+    // Logs go to logcat (`adb logcat`).
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
@@ -203,17 +205,16 @@ pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::R
 
     let proxy = event_loop.create_proxy();
     let mut app = App::new(app, proxy);
-    // Pont de saisie (InputConnection réelle) : composition/swipe/CJK. En cas
-    // d'échec, le shell retombe sur le mode touches (TYPE_NULL).
+    // Input bridge (a real InputConnection): composition, swipe, CJK. On failure the
+    // shell falls back to key mode (TYPE_NULL).
     android_ime::install(&android_app);
-    // Conserve la poignée d'activité pour interroger les insets système.
+    // Keep the activity handle around to query the system insets.
     app.set_android_app(android_app);
     event_loop.run_app(&mut app)?;
 
-    // Android garde le **processus** en cache après la fin de l'activité, mais
-    // winit n'autorise qu'une seule `EventLoop` par processus : un relancement
-    // dans le même processus échouerait aussitôt (l'icône ne « répond » plus
-    // jusqu'à ce qu'Android tue le cache). On termine donc le processus pour
-    // que le prochain lancement reparte propre.
+    // Android keeps the **process** cached after the activity ends, but winit allows
+    // only one `EventLoop` per process: relaunching within the same process would
+    // fail immediately (the icon stops "responding" until Android reaps the cache).
+    // So we end the process, and the next launch starts clean.
     std::process::exit(0);
 }

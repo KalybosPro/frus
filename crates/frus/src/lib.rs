@@ -1,6 +1,6 @@
-//! `frus` — la **façade** du framework : **une seule dépendance** (`frus`) suffit pour
-//! écrire une application. Elle ré-exporte la couche framework (`frus-shell`) et les
-//! widgets (`frus-widgets`), plus le **point d'entrée unique** [`main!`].
+//! `frus` — the framework's **facade**: a **single dependency** (`frus`) is all an
+//! application needs. It re-exports the framework layer (`frus-shell`) and the widgets
+//! (`frus-widgets`), plus the **single entry point** [`main!`].
 //!
 //! ```ignore
 //! use frus::{Application, Command, Widget, Theme, button, column};
@@ -14,31 +14,31 @@
 //!     fn view(&self, _t: &Theme, _w: f32, _h: f32) -> Box<dyn Widget<Msg>> { todo!() }
 //! }
 //!
-//! // Un seul point d'entrée — façon Flutter (`void main() => runApp(App())`).
+//! // One entry point, for every platform.
 //! frus::main!(App::default());
 //! ```
 //!
-//! Le mince binaire bureau appelle la `run()` engendrée : `fn main() -> frus::anyhow::Result<()>
-//! { my_app::run() }`. Pour le Web, l'app garde une dépendance `wasm-bindgen` (ciblée `wasm32`),
-//! comme une app Flutter garde `flutter` dans son `pubspec`.
+//! The thin desktop binary calls the generated `run()`: `fn main() -> frus::anyhow::Result<()>
+//! { my_app::run() }`. On the web, the application keeps a `wasm-bindgen` dependency (targeted
+//! at `wasm32`), which the generated `#[wasm_bindgen(start)]` entry point needs.
 
-// Widgets, thème, layout, et le DSL (`row!` / `column!`) — tout `frus-widgets`.
+// Widgets, theming, layout, and the DSL (`row!` / `column!`) — all of `frus-widgets`.
 pub use frus_widgets::*;
 
-// Couche framework : le trait [`Application`] et ses compagnons (effets, souscriptions,
-// cycle de vie).
+// Framework layer: the [`Application`] trait and its companions (effects, subscriptions,
+// lifecycle).
 pub use frus_shell::{Application, Command, Lifecycle, RemoteData, Subscription};
 
-// Ré-exports utilitaires pour le binaire mince et pour la macro d'entrée (l'app n'a pas à
-// déclarer `anyhow` / `log`).
+// Utility re-exports for the thin binary and for the entry-point macro (so the application
+// does not have to declare `anyhow` / `log` itself).
 pub use frus_shell::{anyhow, log};
 
-// Macros : un glob (`frus_widgets::*`) ne ré-exporte **pas** les macros `#[macro_export]`, on
-// les nomme donc explicitement — d'où `frus::main!`, `frus::column!`, `frus::row!`.
+// Macros: a glob (`frus_widgets::*`) does **not** re-export `#[macro_export]` macros, so we
+// name them explicitly — hence `frus::main!`, `frus::column!`, `frus::row!`.
 pub use frus_shell::main;
 pub use frus_widgets::{column, row};
 
-// HTTP cross-plateforme (feature `net`) : le raccourci `frus::fetch(url).await` et le
-// constructeur `frus::Request` (méthode/en-têtes/corps/timeout) — voir [`frus::net`].
+// Cross-platform HTTP (feature `net`): the `frus::fetch(url).await` shorthand and the
+// `frus::Request` builder (method / headers / body / timeout) — see [`frus::net`].
 #[cfg(feature = "net")]
 pub use frus_shell::{fetch, net, FetchError, Method, Request};

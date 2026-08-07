@@ -1,40 +1,38 @@
-//! Alias de `cfg` pour les plateformes de frus.
+//! Platform `cfg` aliases for frus.
 //!
-//! `frus-shell` est la seule couche dépendante de la plateforme, et jusqu'ici
-//! « bureau » s'y écrivait **par la négative** :
-//! `not(any(target_os = "android", target_arch = "wasm32"))`. Cette formulation
-//! a un défaut fatal dès qu'on ajoute une 4e plateforme : **iOS y tomberait
-//! silencieusement**, héritant du presse-papier `arboard`, d'`env_logger` et
-//! d'AccessKit — trois choses qui n'ont pas de sens (ni de backend) sur iOS.
-//! Le code compilerait peut-être, et il serait faux.
+//! `frus-shell` is the only platform-dependent layer, and until now "desktop" was
+//! written here **by negation**: `not(any(target_os = "android", target_arch =
+//! "wasm32"))`. That spelling has a fatal flaw the moment a fourth platform
+//! arrives: **iOS falls into it silently**, inheriting the `arboard` clipboard,
+//! `env_logger` and AccessKit — three things with no UIKit backend. The code might
+//! even compile, and it would be wrong.
 //!
-//! On nomme donc les plateformes explicitement, une bonne fois. Ajouter une
-//! cible ne touche plus que ce fichier.
+//! So we name the platforms explicitly, once. Adding a target now touches only
+//! this file.
 //!
-//! Deux limites à connaître :
+//! Two limits worth knowing:
 //!
-//! 1. Ces alias sont des `--cfg` passés à **ce crate seulement**. Ils ne sont
-//!    pas visibles dans le crate de l'application — d'où les prédicats
-//!    `target_os` / `target_arch` **explicites**, conservés tels quels, dans le
-//!    corps de la macro `frus_shell::main!` (qui, elle, s'expanse chez
-//!    l'utilisateur).
-//! 2. Cargo n'évalue pas ces alias dans les tables
-//!    `[target.'cfg(…)'.dependencies]` du `Cargo.toml` : la sélection des
-//!    dépendances y reste écrite en `target_os` / `target_arch`.
+//! 1. These aliases are `--cfg` flags passed to **this crate only**. They are not
+//!    visible in the application's crate — which is why the body of the
+//!    `frus_shell::main!` macro (which expands at the user's side) keeps explicit
+//!    `target_os` / `target_arch` predicates.
+//! 2. Cargo does not evaluate these aliases in `[target.'cfg(…)'.dependencies]`
+//!    tables in `Cargo.toml`: dependency selection there stays written in
+//!    `target_os` / `target_arch`.
 
 fn main() {
     cfg_aliases::cfg_aliases! {
-        // Les trois plateformes en service.
+        // The three platforms in service.
         web: { target_arch = "wasm32" },
         android: { target_os = "android" },
-        // La cible en cours d'amorçage (jalon 276 et suivants).
+        // The target currently being bootstrapped (milestone 276 onwards).
         ios: { target_os = "ios" },
-        // « Bureau » = Windows / macOS / Linux : winit avec fenêtre, presse-papier
-        // système, AccessKit et logs sur stderr. Toujours défini en excluant les
-        // autres, mais **iOS en est désormais exclu** — c'est tout l'objet du jalon.
+        // "Desktop" = Windows / macOS / Linux: winit with a window, a system
+        // clipboard, AccessKit and logs on stderr. Still defined by excluding the
+        // others, but **iOS is now excluded too** — that is the whole point.
         //
-        // Écrit en réutilisant les alias ci-dessus : `cfg_aliases` sature sa limite
-        // de récursion si on lui donne la liste `target_os`/`target_arch` en entier.
+        // Written by reusing the aliases above: `cfg_aliases` blows its recursion
+        // limit if handed the full `target_os` / `target_arch` list.
         desktop: { not(any(web, android, ios)) },
     }
 }
