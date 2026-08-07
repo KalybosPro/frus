@@ -1,14 +1,14 @@
-//! `frus-gpu` — contexte GPU et moteur de rendu 2D.
+//! `frus-gpu` — the GPU context and the 2D rendering engine.
 //!
-//! Ce crate ne dépend d'aucune bibliothèque de fenêtrage : il reçoit une
-//! [`wgpu::SurfaceTarget`] (fournie par la couche plateforme, p. ex. `frus-shell`)
-//! et se charge de tout le reste (device, queue, pipeline, présentation).
+//! This crate depends on no windowing library: it is handed a
+//! [`wgpu::SurfaceTarget`] by the platform layer — `frus-shell`, say — and takes
+//! care of everything else: device, queue, pipeline, presentation.
 //!
-//! On décrit ce qu'on veut dessiner dans une [`Scene`] (des [`Rect`] colorés),
-//! puis on la remet à [`Renderer::render`].
+//! What is to be drawn is described in a [`Scene`] — coloured [`Rect`]s and the
+//! rest — which is then handed to [`Renderer::render`].
 
-// Ré-export pour que les couches supérieures manipulent les types wgpu
-// (ex. `SurfaceError`) sans avoir à dépendre directement de `wgpu`.
+// Re-exported so the layers above can handle wgpu types (`SurfaceError`, for one)
+// without depending on `wgpu` directly.
 pub use wgpu;
 
 mod compositor;
@@ -19,7 +19,7 @@ mod path;
 mod renderer;
 mod text;
 
-// Types de données (géométrie, couleur, scène) proviennent du socle partagé.
+// The data types — geometry, colour, scene — come from the shared foundation.
 pub use frus_core::{Color, Rect, Scene};
 pub use offscreen::{render_offscreen, OffscreenFrame};
 pub use renderer::Renderer;

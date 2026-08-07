@@ -1,52 +1,51 @@
-//! `frus-text` — mesure (et, à terme, shaping) de texte, au-dessus de
+//! `frus-text` — text measurement, and in time shaping, on top of
 //! [`cosmic_text`](https://docs.rs/cosmic-text).
 //!
-//! Pour ce jalon, l'API se limite à [`measure`] : la taille naturelle d'une
-//! ligne de texte, dont le moteur de layout a besoin pour dimensionner un
-//! widget `Text`.
+//! At this milestone the API is limited to [`measure`]: the natural size of a line
+//! of text, which the layout engine needs in order to size a `Text` widget.
 //!
-//! Le `FontSystem` (chargement des polices) est coûteux : on l'initialise
-//! **paresseusement** et on le partage derrière un `Mutex`. C'est un choix v1
-//! pragmatique ; l'unification avec le `FontSystem` du renderer viendra plus tard.
+//! The `FontSystem`, which loads the fonts, is expensive: it is initialised
+//! **lazily** and shared behind a `Mutex`. That is a pragmatic v1 choice;
+//! unifying it with the renderer's own `FontSystem` will come later.
 
 use std::sync::{Mutex, OnceLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
 use frus_core::{FontWeight, Point, Rect, Size, TextRun};
 
-/// Rapport interligne / taille de police par défaut.
+/// The default line-height to font-size ratio.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
 
-/// Police de repli **embarquée** (sans-serif) et sa variante monospace. Les
-/// embarquer garantit un rendu de texte déterministe sur **toutes** les
-/// plateformes — notamment Android, où l'alias système « sans-serif » (défini
-/// dans `fonts.xml`, non lu par fontdb) ne résout aucune police par défaut.
+/// The **bundled** fallback font (sans-serif) and its monospace variant. Bundling
+/// them guarantees deterministic text rendering on **every** platform — Android
+/// above all, where the system "sans-serif" alias, defined in `fonts.xml` and not
+/// read by fontdb, resolves to no font at all.
 const DEJAVU_SANS: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
-/// Faces **grasse, oblique et grasse-oblique** embarquées : cosmic-text exige une
-/// correspondance **exacte** de style sur la famille primaire — sans face
-/// oblique, un simple `.italic()` **panique** (« no default font found ») partout
-/// où seules les polices embarquées existent (attrapé sur l'appareil Android).
-/// La matrice complète {400, 700} × {droit, italique} rend tous les styles
-/// atteignables par l'API sûrs et déterministes.
+/// The **bold, oblique and bold-oblique** faces are bundled too: cosmic-text demands
+/// an **exact** style match on the primary family, so without an oblique face a
+/// plain `.italic()` **panics** ("no default font found") anywhere only the bundled
+/// fonts exist — caught on the Android device.
+/// The full {400, 700} × {upright, italic} matrix makes every style the API can
+/// reach safe and deterministic.
 const DEJAVU_SANS_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
 const DEJAVU_SANS_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
 const DEJAVU_SANS_BOLD_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
 const DEJAVU_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
-/// **Arabe** (Noto Naskh) : DejaVu ne couvre pas l'écriture arabe (pas de formes
-/// de jonction contextuelles) ; cette face fournit le repli pour les runs
-/// arabes, embarquée pour un rendu déterministe partout (y compris Android, où
-/// aucune police système n'est chargée).
+/// **Arabic** (Noto Naskh): DejaVu does not cover the Arabic script — it has no
+/// contextual joining forms — so this face provides the fallback for Arabic runs.
+/// It is bundled for deterministic rendering everywhere, Android included, where no
+/// system font is loaded at all.
 const NOTO_ARABIC: &[u8] = include_bytes!("../assets/NotoNaskhArabic-Regular.ttf");
 const NOTO_ARABIC_BOLD: &[u8] = include_bytes!("../assets/NotoNaskhArabic-Bold.ttf");
 
-/// Nom de famille interne des polices embarquées (doit correspondre aux TTF).
+/// The bundled fonts' internal family name; it must match the TTFs.
 const SANS_FAMILY: &str = "DejaVu Sans";
 const MONO_FAMILY: &str = "DejaVu Sans Mono";
-/// Famille de la face arabe embarquée (Noto Naskh).
+/// The bundled Arabic face's family (Noto Naskh).
 const ARABIC_FAMILY: &str = "Noto Naskh Arabic";
 
-/// `true` si `text` contient au moins un caractère de l'écriture **arabe**
-/// (blocs Arabic, Supplement, Extended-A, Presentation Forms A/B).
+/// `true` when `text` holds at least one character of the **Arabic** script
+/// (the Arabic, Supplement, Extended-A and Presentation Forms A/B blocks).
 fn contains_arabic(text: &str) -> bool {
     text.chars().any(|c| {
         matches!(c as u32,
@@ -54,13 +53,13 @@ fn contains_arabic(text: &str) -> bool {
     })
 }
 
-/// La **famille de police** à employer pour `text` : la face arabe embarquée si
-/// le texte contient de l'arabe, sinon la sans-serif par défaut.
+/// The **font family** to use for `text`: the bundled Arabic face when the text
+/// contains Arabic, otherwise the default sans-serif.
 ///
-/// Indispensable car cosmic-text ne fait **pas** de repli cross-famille sur
-/// Android (listes de fallback plateforme vides) : sans assignation explicite,
-/// un run arabe ne rendrait rien. On choisit donc la famille par script à la
-/// source (mesure **et** rendu partagent cette règle).
+/// This is essential because cosmic-text does **not** fall back across families on
+/// Android, where the platform fallback lists are empty: without an explicit
+/// assignment an Arabic run would render nothing. So the family is chosen by script
+/// at the source, and measurement **and** rendering share the rule.
 pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
     if contains_arabic(text) {
         cosmic_text::Family::Name(ARABIC_FAMILY)
@@ -69,11 +68,11 @@ pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
     }
 }
 
-/// Construit un `FontSystem` prêt à l'emploi : polices système (repli emoji /
-/// scripts) **plus** la police embarquée, fixée comme famille par défaut. À
-/// utiliser partout où un `FontSystem` est créé (mesure ici, rendu dans
-/// `frus-gpu`) pour un rendu de texte cohérent et sans dépendance aux polices
-/// système, qui peuvent manquer un défaut résoluble (cas Android).
+/// Builds a ready-to-use `FontSystem`: the system fonts, which provide the emoji
+/// and script fallbacks, **plus** the bundled font, set as the default family. Use
+/// it everywhere a `FontSystem` is created — measurement here, rendering in
+/// `frus-gpu` — for consistent text rendering that does not depend on system fonts,
+/// which may have no resolvable default at all, as on Android.
 pub fn new_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
@@ -84,7 +83,7 @@ pub fn new_font_system() -> FontSystem {
     db.load_font_data(DEJAVU_MONO.to_vec());
     db.load_font_data(NOTO_ARABIC.to_vec());
     db.load_font_data(NOTO_ARABIC_BOLD.to_vec());
-    // Fait résoudre chaque famille générique vers une police réellement présente.
+    // Makes every generic family resolve to a font that is actually present.
     db.set_sans_serif_family(SANS_FAMILY);
     db.set_serif_family(SANS_FAMILY);
     db.set_cursive_family(SANS_FAMILY);
@@ -98,12 +97,12 @@ fn font_system() -> &'static Mutex<FontSystem> {
     FONT_SYSTEM.get_or_init(|| Mutex::new(new_font_system()))
 }
 
-/// Poids **réellement disponible** dans les faces embarquées (400 ou 700) le
-/// plus proche du poids demandé. Indispensable : cosmic-text exige une
-/// correspondance **exacte** de poids sur la famille primaire — un poids absent
-/// (Medium 500 sur DejaVu) le fait basculer sur des listes de repli plateforme…
-/// inexistantes sur Android (panique « no default font found », attrapée sur
-/// l'appareil). Router tous les `Attrs` par ici garantit un rendu déterministe.
+/// The weight **actually available** among the bundled faces (400 or 700) closest to
+/// the one requested. This is essential: cosmic-text demands an **exact** weight
+/// match on the primary family, and a missing weight (Medium 500 on DejaVu) sends it
+/// off to the platform fallback lists — which do not exist on Android ("no default
+/// font found", a panic caught on the device). Routing every `Attrs` through here
+/// is what makes rendering deterministic.
 pub fn available_weight(weight: FontWeight) -> u16 {
     if weight.to_u16() < 550 {
         400
@@ -112,27 +111,26 @@ pub fn available_weight(weight: FontWeight) -> u16 {
     }
 }
 
-/// Interligne pour une taille de police donnée (en pixels).
+/// The line height for a given font size, in pixels.
 pub fn line_height(size_px: f32) -> f32 {
     size_px * LINE_HEIGHT_FACTOR
 }
 
-/// Mesure la taille naturelle d'un texte (multi-lignes autorisé), en pixels,
-/// en graisse normale. Voir [`measure_styled`] pour la graisse/l'italique.
+/// Measures a text's natural size (multiple lines allowed), in pixels, at regular
+/// weight. See [`measure_styled`] for weight and italics.
 pub fn measure(text: &str, size_px: f32) -> Size {
     measure_styled(text, size_px, FontWeight::Regular, false)
 }
 
-/// Mesure la taille naturelle d'un texte **stylé** (graisse/italique comptent :
-/// un gras est plus large qu'un normal — la mise en page doit le savoir).
+/// Measures a **styled** text's natural size; weight and italics count, since bold
+/// is wider than regular and the layout has to know.
 pub fn measure_styled(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Size {
     measure_wrapped(text, size_px, weight, italic, None)
 }
 
-/// Mesure un texte stylé **sous contrainte de largeur** : au-delà de
-/// `max_width`, le texte se replie à la ligne (la hauteur grandit). `None` =
-/// non contraint (taille naturelle). C'est la mesure branchée sur la closure de
-/// mesure de taffy pour les paragraphes.
+/// Measures a styled text **under a width constraint**: beyond `max_width` the text
+/// wraps and the height grows. `None` means unconstrained, giving the natural size.
+/// This is the measurement wired into taffy's measure closure for paragraphs.
 pub fn measure_wrapped(
     text: &str,
     size_px: f32,
@@ -148,7 +146,7 @@ pub fn measure_wrapped(
     let mut font_system = font_system().lock().expect("FontSystem lock");
     let metrics = Metrics::new(size_px, line_h);
     let mut buffer = Buffer::new(&mut font_system, metrics);
-    // Largeur contrainte (repli) ou libre ; hauteur toujours libre.
+    // A constrained width (wrapping) or a free one; the height is always free.
     buffer.set_size(&mut font_system, max_width, None);
     let attrs = Attrs::new()
         .family(family_for(text))
@@ -167,14 +165,14 @@ pub fn measure_wrapped(
     Size::new(width, lines.max(1.0) * line_h)
 }
 
-/// Mesure la taille naturelle d'un **texte riche** (runs résolus, styles/tailles
-/// mêlés) : largeur de la plus longue ligne, hauteur réelle des lignes shapées.
+/// Measures a **rich text**'s natural size — resolved runs with mixed styles and
+/// sizes: the longest line's width, and the shaped lines' real height.
 pub fn measure_runs(runs: &[TextRun]) -> Size {
     measure_runs_wrapped(runs, None)
 }
 
-/// Mesure un texte riche **sous contrainte de largeur** : au-delà de
-/// `max_width`, les runs reviennent à la ligne. `None` = non contraint.
+/// Measures a rich text **under a width constraint**: beyond `max_width` the runs
+/// wrap. `None` means unconstrained.
 pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     if runs.iter().all(|r| r.text.is_empty()) {
         return Size::new(0.0, 0.0);
@@ -211,50 +209,50 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     Size::new(width, height)
 }
 
-/// Une ligne shapée d'un [`TextLayout`] : les offsets `x` de chaque **frontière
-/// de caractère**, extraits des glyphes réels (kerning/ligatures compris).
+/// One shaped line of a [`TextLayout`]: the `x` offsets of every **character
+/// boundary**, taken from the real glyphs, kerning and ligatures included.
 struct LayoutLine {
-    /// Index (en caractères, global au texte) de la première frontière de la ligne.
+    /// The line's first boundary, as a character index global to the text.
     start_char: usize,
-    /// `x` de chaque frontière de caractère de la ligne (`chars + 1` entrées).
+    /// The `x` of every character boundary on the line (`chars + 1` entries).
     offsets: Vec<f32>,
-    /// Bord haut de la ligne.
+    /// The line's top edge.
     top: f32,
-    /// Hauteur de la ligne.
+    /// The line's height.
     height: f32,
 }
 
-/// La mise en forme **shapée** d'un texte (une seule passe cosmic-text), exposant
-/// la géométrie dont un widget d'édition a besoin : position de caret par index
-/// de caractère, hit-test inverse, rectangles de sélection. Les coordonnées sont
-/// **locales** au texte (origine à son coin haut-gauche). Les indices sont en
-/// **caractères** (la convention d'édition de frus), frontières `0..=len`.
+/// A text's **shaped** layout — a single cosmic-text pass — exposing the geometry an
+/// editing widget needs: caret position by character index, reverse hit-testing, and
+/// selection rectangles. Coordinates are **local** to the text, with the origin at
+/// its top-left corner. Indices are in **characters** — frus's editing convention —
+/// with boundaries `0..=len`.
 ///
-/// Contrairement à une mesure de préfixe re-shapée sous-chaîne par sous-chaîne,
-/// les offsets viennent de la ligne shapée **entière** : cohérents entre eux
-/// (kerning), et calculés en une passe au lieu de `n`.
+/// Unlike a prefix measurement re-shaped substring by substring, the offsets come
+/// from the **whole** shaped line: consistent with one another (kerning), and
+/// computed in one pass instead of `n`.
 pub struct TextLayout {
     lines: Vec<LayoutLine>,
     size: Size,
-    /// Nombre total de caractères (la dernière frontière valide).
+    /// The total character count — the last valid boundary.
     chars: usize,
 }
 
 impl TextLayout {
-    /// Shape `text` (multi-lignes autorisé, non contraint en largeur) au style
-    /// donné et en extrait la géométrie.
+    /// Shapes `text` (multiple lines allowed, width unconstrained) in the given style
+    /// and extracts its geometry.
     pub fn new(text: &str, size_px: f32, weight: FontWeight, italic: bool) -> Self {
         Self::wrapped(text, size_px, weight, italic, None)
     }
 
-    /// Comme [`TextLayout::new`], mais **replie** le texte à `max_width` (repli doux,
-    /// façon champ multi-lignes). `None` = non contraint (seuls les `\n` coupent).
+    /// Like [`TextLayout::new`], but **wraps** the text at `max_width` — a soft wrap,
+    /// as in a multi-line field. `None` is unconstrained, where only `\n` breaks.
     ///
-    /// Chaque **ligne visuelle** (un `LayoutRun` cosmic-text) est délimitée par les
-    /// **octets de ses glyphes**, pas par `run.text` (qui est la ligne *dure*
-    /// entière, répétée pour chaque repli) : un repli doux ne fabrique donc aucun
-    /// caractère fantôme, et le `start_char` de chaque ligne vient du décalage
-    /// d'octet de sa ligne dure — indexage exact à travers les replis.
+    /// Every **visual line** (one cosmic-text `LayoutRun`) is delimited by **its
+    /// glyphs' bytes**, not by `run.text` — which is the whole *hard* line, repeated
+    /// for each wrap. A soft wrap therefore fabricates no phantom character, and each
+    /// line's `start_char` comes from its hard line's byte offset — exact indexing
+    /// straight through the wraps.
     pub fn wrapped(
         text: &str,
         size_px: f32,
@@ -268,14 +266,14 @@ impl TextLayout {
         let mut height = 0.0_f32;
 
         if !text.is_empty() {
-            // Décalage d'octet du début de chaque ligne **dure** (séparée par `\n`).
+            // The byte offset of every **hard** line's start (those split by `\n`).
             let hard: Vec<&str> = text.split('\n').collect();
             let mut line_byte_start = Vec::with_capacity(hard.len());
             {
                 let mut b = 0usize;
                 for l in &hard {
                     line_byte_start.push(b);
-                    b += l.len() + 1; // +1 : le `\n`
+                    b += l.len() + 1; // +1 for the `\n`
                 }
             }
 
@@ -290,15 +288,15 @@ impl TextLayout {
             buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(&mut font_system, false);
 
-            // On collecte les runs pour regarder le suivant (fin du segment courant).
+            // Collect the runs so we can look at the next one, which ends this segment.
             let runs: Vec<_> = buffer.layout_runs().collect();
             for (idx, run) in runs.iter().enumerate() {
                 let line_text = hard[run.line_i];
                 let first_of_line = idx == 0 || runs[idx - 1].line_i != run.line_i;
-                // Segment [lo, hi) de la ligne dure (octets) que cette ligne visuelle
-                // porte : de son premier glyphe (0 si première visuelle) au premier
-                // glyphe de la visuelle suivante de la même ligne dure — sinon la fin
-                // (englobe ainsi l'espace de coupure, retiré des glyphes).
+                // The segment [lo, hi) of the hard line, in bytes, that this visual line
+                // carries: from its first glyph (0 if it is the first visual line) to the
+                // first glyph of the next visual line of the same hard line, or the end
+                // otherwise — which takes in the break space, absent from the glyphs.
                 let lo = if first_of_line {
                     0
                 } else {
@@ -310,15 +308,15 @@ impl TextLayout {
                     .and_then(|r| r.glyphs.iter().map(|g| g.start).min())
                     .unwrap_or(line_text.len());
 
-                // Frontières de caractères du segment (octets relatifs à la ligne dure).
+                // The segment's character boundaries, in bytes relative to the hard line.
                 let span = &line_text[lo..hi];
                 let char_bytes: Vec<usize> = span.char_indices().map(|(b, _)| lo + b).collect();
                 let n = char_bytes.len();
                 let mut offsets = vec![f32::NAN; n + 1];
                 offsets[0] = 0.0;
 
-                // Chaque glyphe couvre un cluster d'octets [start, end) sur [x, x+w)
-                // (x **local à la ligne visuelle**) ; frontières internes interpolées.
+                // Each glyph covers a byte cluster [start, end) over [x, x+w), where x is
+                // **local to the visual line**; interior boundaries are interpolated.
                 for glyph in run.glyphs.iter() {
                     let covered: Vec<usize> = (0..n)
                         .filter(|&i| char_bytes[i] >= glyph.start && char_bytes[i] < glyph.end)
@@ -338,7 +336,7 @@ impl TextLayout {
                         offsets[next] = glyph.x + glyph.w;
                     }
                 }
-                // Frontières restées sans glyphe (espace de coupure…) : continuité.
+                // Boundaries left without a glyph (the break space) keep continuity.
                 for i in 1..=n {
                     if offsets[i].is_nan() {
                         offsets[i] = offsets[i - 1];
@@ -357,8 +355,8 @@ impl TextLayout {
             }
         }
 
-        // Texte vide (ou aucune ligne shapée) : une ligne vide synthétique pour
-        // que caret/hit restent définis (caret à x = 0).
+        // Empty text, or no shaped line: a synthetic empty line keeps caret and hit
+        // defined, with the caret at x = 0.
         if lines.is_empty() {
             lines.push(LayoutLine {
                 start_char: 0,
@@ -377,12 +375,12 @@ impl TextLayout {
         }
     }
 
-    /// Taille naturelle du texte shapé.
+    /// The shaped text's natural size.
     pub fn size(&self) -> Size {
         self.size
     }
 
-    /// La ligne contenant la frontière de caractère `index`.
+    /// The line containing the character boundary `index`.
     fn line_of(&self, index: usize) -> &LayoutLine {
         self.lines
             .iter()
@@ -391,8 +389,8 @@ impl TextLayout {
             .unwrap_or(&self.lines[0])
     }
 
-    /// Rectangle du caret à la frontière `index` (largeur nulle : au widget de
-    /// choisir l'épaisseur du trait). `index` est borné au texte.
+    /// The caret's rectangle at boundary `index`, of zero width — it is up to the
+    /// widget to choose the stroke thickness. `index` is clamped to the text.
     pub fn caret_rect(&self, index: usize) -> Rect {
         let index = index.min(self.chars);
         let line = self.line_of(index);
@@ -400,8 +398,8 @@ impl TextLayout {
         Rect::new(line.offsets[local], line.top, 0.0, line.height)
     }
 
-    /// Frontière de caractère la **plus proche** de `point` (coordonnées locales
-    /// au texte). Le `y` choisit la ligne (borné), le `x` la frontière.
+    /// The character boundary **closest** to `point`, in text-local coordinates. The
+    /// `y` picks the line (clamped), the `x` picks the boundary.
     pub fn hit_test(&self, point: Point) -> usize {
         let line = self
             .lines
@@ -421,8 +419,8 @@ impl TextLayout {
         (line.start_char + best).min(self.chars)
     }
 
-    /// Rectangles couvrant la plage de caractères `[start, end)` (un par ligne
-    /// traversée ; vides omis).
+    /// The rectangles covering the character range `[start, end)`, one per line
+    /// crossed; empty ones are omitted.
     pub fn selection_rects(&self, start: usize, end: usize) -> Vec<Rect> {
         let (start, end) = (start.min(self.chars), end.min(self.chars));
         if start >= end {
@@ -476,19 +474,20 @@ mod tests {
             decoration: frus_core::TextDecoration::NONE,
             decoration_color: None,
         };
-        // « normal GRAS » : plus large que « normal » seul ; hauteur = du plus grand run.
+        // "normal BOLD" is wider than "normal" alone; the height comes from the
+        // largest run.
         let plain = measure_runs(&[run("normal", 16.0, FontWeight::Regular)]);
         let mixed = measure_runs(&[
             run("normal", 16.0, FontWeight::Regular),
-            run(" GRAS", 24.0, FontWeight::Bold),
+            run(" BOLD", 24.0, FontWeight::Bold),
         ]);
         assert!(mixed.width > plain.width);
         assert!(
             mixed.height >= line_height(24.0) - 1.0,
-            "hauteur pilotée par le run 24 px : {}",
+            "height driven by the 24px run: {}",
             mixed.height
         );
-        // Vide → taille nulle.
+        // Empty gives a zero size.
         assert_eq!(measure_runs(&[]), Size::new(0.0, 0.0));
     }
 
@@ -499,7 +498,7 @@ mod tests {
         let narrow = measure_wrapped(text, 16.0, FontWeight::Regular, false, Some(120.0));
         assert!(
             narrow.width <= 120.0,
-            "replié dans la largeur : {}",
+            "wrapped within the width: {}",
             narrow.width
         );
         assert!(narrow.height > free.height, "le repli grandit la hauteur");
@@ -511,12 +510,12 @@ mod tests {
         let mut prev = -1.0;
         for i in 0..=16 {
             let x = layout.caret_rect(i).x;
-            assert!(x >= prev, "offset décroissant à la frontière {i}");
+            assert!(x >= prev, "offset decreasing at boundary {i}");
             prev = x;
         }
-        // La dernière frontière atteint la largeur naturelle.
+        // The last boundary reaches the natural width.
         assert!((layout.caret_rect(16).x - layout.size().width).abs() < 0.5);
-        // Frontière au-delà du texte : bornée.
+        // A boundary past the end of the text is clamped.
         assert_eq!(layout.caret_rect(99).x, layout.caret_rect(16).x);
     }
 
@@ -526,9 +525,9 @@ mod tests {
         for i in 0..=7 {
             let caret = layout.caret_rect(i);
             let hit = layout.hit_test(Point::new(caret.x, caret.y + 1.0));
-            assert_eq!(hit, i, "aller-retour caret→hit à la frontière {i}");
+            assert_eq!(hit, i, "caret->hit round trip at boundary {i}");
         }
-        // Loin à gauche / à droite : bornes.
+        // Far to the left or right: the bounds.
         assert_eq!(layout.hit_test(Point::new(-100.0, 0.0)), 0);
         assert_eq!(layout.hit_test(Point::new(10_000.0, 0.0)), 7);
     }
@@ -542,50 +541,50 @@ mod tests {
         assert!((r.x - layout.caret_rect(2).x).abs() < 0.01);
         assert!((r.x + r.width - layout.caret_rect(5).x).abs() < 0.01);
         assert!(r.height > 0.0);
-        // Plage vide ou inversée : aucun rectangle.
+        // An empty or inverted range gives no rectangle.
         assert!(layout.selection_rects(3, 3).is_empty());
         assert!(layout.selection_rects(5, 2).is_empty());
     }
 
     #[test]
     fn multiline_layout_maps_lines_and_indices() {
-        // "ab\ncd" : frontières 0..=2 sur la ligne 1, 3..=5 sur la ligne 2.
+        // "ab\ncd": boundaries 0..=2 on line 1, 3..=5 on line 2.
         let layout = TextLayout::new("ab\ncd", 18.0, FontWeight::Regular, false);
         let first = layout.caret_rect(0);
         let second = layout.caret_rect(3);
         assert!(second.y > first.y, "la 2e ligne est plus bas");
-        assert_eq!(second.x, 0.0, "début de 2e ligne à x = 0");
-        // Hit dans la 2e ligne → indices de la 2e ligne.
+        assert_eq!(second.x, 0.0, "second line starts at x = 0");
+        // A hit on the second line gives second-line indices.
         let hit = layout.hit_test(Point::new(0.0, second.y + 1.0));
         assert_eq!(hit, 3);
     }
 
     #[test]
     fn soft_wrap_indexes_chars_correctly_across_lines() {
-        // Repli doux sans `\n` : chaque mot sur sa ligne visuelle. L'indexage doit
-        // rester exact — le caret d'un index tombe sur la bonne ligne, et les débuts
-        // de lignes sont contigus (aucun caractère fantôme au point de coupure).
-        let text = "aaaa bbbb cccc dddd"; // 19 caractères, un mot par ligne à 60 px
+        // A soft wrap with no `\n`: each word on its own visual line. Indexing must
+        // stay exact — an index's caret lands on the right line, and the line starts
+        // are contiguous, with no phantom character at the break.
+        let text = "aaaa bbbb cccc dddd"; // 19 characters, one word per line at 60px
         let layout = TextLayout::wrapped(text, 18.0, FontWeight::Regular, false, Some(60.0));
         assert!(
             layout.size().height > line_height(18.0) * 2.0,
             "plusieurs lignes visuelles"
         );
 
-        // Début de chaque mot : "aaaa"@0, "bbbb"@5, "cccc"@10, "dddd"@15 — chacun à
-        // x ≈ 0 (début de sa ligne), sur des lignes de y croissant.
+        // Each word's start: "aaaa"@0, "bbbb"@5, "cccc"@10, "dddd"@15 — each at x
+        // about 0, the start of its line, on lines of increasing y.
         let mut prev_y = -1.0;
         for &start in &[0usize, 5, 10, 15] {
             let c = layout.caret_rect(start);
-            assert!(c.x < 1.0, "début de mot {start} à x≈0 (x={})", c.x);
-            assert!(c.y > prev_y, "lignes de y croissant à {start}");
+            assert!(c.x < 1.0, "word start {start} at x about 0 (x={})", c.x);
+            assert!(c.y > prev_y, "lines of increasing y at {start}");
             prev_y = c.y;
         }
-        // Un point au **milieu** d'une ligne repliée fait l'aller-retour (index 11 =
-        // 2e 'c' de "cccc", clairement pas une frontière de coupure).
+        // A point in the **middle** of a wrapped line round-trips (index 11 is the
+        // second 'c' of "cccc", clearly not a break boundary).
         let c = layout.caret_rect(11);
         assert_eq!(layout.hit_test(Point::new(c.x, c.y + 1.0)), 11);
-        // La dernière frontière = 19 (aucun +1 parasite injecté par les 3 replis).
+        // The last boundary is 19: the three wraps inject no stray +1.
         assert_eq!(layout.caret_rect(19).x, layout.caret_rect(99).x);
         assert_eq!(layout.caret_rect(19).y, layout.caret_rect(99).y);
     }
@@ -599,12 +598,11 @@ mod tests {
         assert_eq!(layout.hit_test(Point::new(50.0, 0.0)), 0);
     }
 
-    /// Reproduit le pire cas Android (attrapé sur l'appareil) : **aucune**
-    /// police système exploitable, seules les faces embarquées existent. Le
-    /// shaping ne doit jamais paniquer (« no default font found ») — pour
-    /// **toute** combinaison poids × italique atteignable par l'API. cosmic-text
-    /// exige une correspondance *exacte* de style/poids sur la famille primaire :
-    /// sans face oblique embarquée, `.italic()` paniquait sur l'appareil.
+    /// Reproduces the Android worst case, caught on the device: **no** usable system
+    /// font at all, only the bundled faces. Shaping must never panic ("no default
+    /// font found") for **any** weight × italic combination the API can reach.
+    /// cosmic-text demands an *exact* style and weight match on the primary family:
+    /// without a bundled oblique face, `.italic()` panicked on the device.
     #[test]
     fn embedded_only_font_system_shapes_every_style() {
         let mut db = cosmic_text::fontdb::Database::new();
@@ -633,19 +631,19 @@ mod tests {
                 let mut buffer = Buffer::new(&mut fs, Metrics::new(20.0, 24.0));
                 buffer.set_size(&mut fs, None, None);
                 buffer.set_text(&mut fs, "Nothing to show", attrs, Shaping::Advanced);
-                buffer.shape_until_scroll(&mut fs, false); // panique ici si cassé
+                buffer.shape_until_scroll(&mut fs, false); // panics here if broken
                 let w: f32 = buffer.layout_runs().map(|r| r.line_w).fold(0.0, f32::max);
-                assert!(w > 0.0, "poids {weight:?} italique {italic} : rien shapé");
+                assert!(w > 0.0, "weight {weight:?} italic {italic}: nothing shaped");
             }
         }
     }
 
-    /// Reproduit **exactement** le cas Android pour l'arabe : db embarquée
-    /// seule (aucune police système, donc aucune liste de repli plateforme) —
-    /// avec la face Noto Naskh chargée. `family_for` doit router le run arabe
-    /// vers la famille Naskh, et le shaping doit produire de **vrais** glyphes
-    /// (identifiants non nuls), pas des `.notdef`. Si `Family::Name` ne résout
-    /// pas ici, on obtient des glyphes vides — le blanc observé sur l'appareil.
+    /// Reproduces the Android Arabic case **exactly**: the bundled db alone, with no
+    /// system font and therefore no platform fallback list, with the Noto Naskh face
+    /// loaded. `family_for` must route the Arabic run to the Naskh family, and shaping
+    /// must produce **real** glyphs (non-zero ids), not `.notdef`. If `Family::Name`
+    /// fails to resolve here, the glyphs come out empty — the blank seen on the
+    /// device.
     #[test]
     fn arabic_shapes_with_embedded_only_font_system() {
         let mut db = cosmic_text::fontdb::Database::new();
@@ -663,7 +661,7 @@ mod tests {
         buffer.shape_until_scroll(&mut fs, false);
 
         let mut glyphs = 0usize;
-        let mut real = 0usize; // glyphes dont le glyph_id != 0 (pas .notdef)
+        let mut real = 0usize; // glyphs whose glyph_id != 0, so not .notdef
         for run in buffer.layout_runs() {
             for g in run.glyphs.iter() {
                 glyphs += 1;
@@ -672,18 +670,18 @@ mod tests {
                 }
             }
         }
-        assert!(glyphs > 0, "aucun glyphe shapé pour l'arabe");
+        assert!(glyphs > 0, "no glyph shaped for Arabic");
         assert!(
             real > 0,
-            "seulement des .notdef ({glyphs} glyphes, 0 réel) : Family::Name(\"{ARABIC_FAMILY}\") n'a pas résolu la face Naskh"
+            "only .notdef ({glyphs} glyphs, 0 real): Family::Name(\"{ARABIC_FAMILY}\") did not resolve the Naskh face"
         );
     }
 
-    /// Diagnostic de position : un run RTL dans un buffer **large** (largeur =
-    /// surface) se fait **aligner à droite** par cosmic-text → les glyphes
-    /// atterrissent près du bord droit (x ≈ largeur), donc hors écran une fois
-    /// décalés par `position.x`. Sans contrainte de largeur (`None`), ils
-    /// commencent à x ≈ 0. C'est la cause du blanc arabe sur l'appareil.
+    /// A positioning diagnosis: an RTL run in a **wide** buffer (width = the surface)
+    /// gets **right-aligned** by cosmic-text, so the glyphs land near the right edge
+    /// (x about the width) and therefore off-screen once shifted by `position.x`.
+    /// With no width constraint (`None`) they start at x about 0. This is the cause
+    /// of the blank Arabic text on the device.
     #[test]
     fn rtl_right_aligns_to_buffer_width() {
         let mut db = cosmic_text::fontdb::Database::new();
@@ -707,51 +705,44 @@ mod tests {
 
         let wide = first_glyph_x(Some(1080.0));
         let free = first_glyph_x(None);
-        assert!(
-            wide > 500.0,
-            "RTL large devrait pousser à droite (x={wide})"
-        );
+        assert!(wide > 500.0, "a wide RTL run should push right (x={wide})");
         assert!(
             free < 50.0,
-            "RTL non contraint devrait commencer à gauche (x={free})"
+            "an unconstrained RTL run should start left (x={free})"
         );
     }
 
     #[test]
     fn arabic_falls_back_to_the_embedded_naskh_face() {
-        // DejaVu ne couvre pas l'arabe : le repli embarqué (Noto Naskh) doit
-        // prendre le relais et **façonner** les glyphes (largeur non nulle,
-        // sensible). Un repli manquant donnerait 0 ou des .notdef.
-        let hello = "مرحبا بالعالم"; // « bonjour le monde »
+        // DejaVu does not cover Arabic: the bundled fallback (Noto Naskh) has to take
+        // over and **shape** the glyphs, giving a non-zero, sensible width. A missing
+        // fallback would give 0, or .notdef glyphs.
+        let hello = "مرحبا بالعالم"; // "hello world"
         let m = measure(hello, 24.0);
-        assert!(
-            m.width > 60.0,
-            "l'arabe doit se façonner (largeur {})",
-            m.width
-        );
+        assert!(m.width > 60.0, "Arabic must shape (width {})", m.width);
         assert!(m.height > 0.0);
 
-        // Le repli n'écrase pas le latin : « Hello » garde une largeur cohérente.
+        // The fallback does not trample Latin: "Hello" keeps a coherent width.
         let latin = measure("Hello", 24.0);
         assert!(latin.width > 0.0);
 
-        // Bidi mixte (arabe + chiffres latins) : mesuré d'un seul tenant, sans
-        // panique (cosmic-text réordonne en interne).
+        // Mixed bidi (Arabic plus Latin digits) is measured as one piece, without
+        // panicking; cosmic-text reorders internally.
         let mixed = measure("قيمة 42 نقطة", 24.0);
-        assert!(mixed.width > 0.0, "texte bidi mixte non shapé");
+        assert!(mixed.width > 0.0, "mixed bidi text was not shaped");
     }
 
     #[test]
     fn weights_snap_to_embedded_faces() {
-        // Un poids sans face exacte (Medium 500) DOIT se rabattre sur une face
-        // embarquée — sinon cosmic-text bascule sur des listes de repli
-        // plateforme, inexistantes sur Android (panique sur l'appareil).
+        // A weight with no exact face (Medium 500) MUST fall back to a bundled face —
+        // otherwise cosmic-text switches to platform fallback lists, which do not
+        // exist on Android (a panic on the device).
         assert_eq!(available_weight(FontWeight::Regular), 400);
         assert_eq!(available_weight(FontWeight::Medium), 400);
         assert_eq!(available_weight(FontWeight::SemiBold), 700);
         assert_eq!(available_weight(FontWeight::Bold), 700);
-        // Et le shaping est déterministe : Medium mesure comme Regular (même
-        // face), SemiBold comme Bold.
+        // And shaping is deterministic: Medium measures like Regular (the same face),
+        // and SemiBold like Bold.
         let text = "Titre de section";
         let regular = measure_styled(text, 20.0, FontWeight::Regular, false);
         let medium = measure_styled(text, 20.0, FontWeight::Medium, false);
@@ -764,8 +755,8 @@ mod tests {
 
     #[test]
     fn bold_measures_wider_than_regular() {
-        // La face grasse embarquée doit réellement être choisie : un gras est
-        // plus large qu'un normal à taille égale.
+        // The bundled bold face must actually be chosen: bold is wider than regular
+        // at the same size.
         let regular = measure_styled("Bonjour le monde", 24.0, FontWeight::Regular, false);
         let bold = measure_styled("Bonjour le monde", 24.0, FontWeight::Bold, false);
         assert!(

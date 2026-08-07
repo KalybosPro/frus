@@ -1,11 +1,11 @@
-//! Renderer lié à une surface (fenêtre) : configure wgpu et délègue le dessin
-//! des primitives au [`Painter`].
+//! The renderer bound to a surface (a window): it configures wgpu and delegates
+//! primitive drawing to the [`Painter`].
 
 use frus_core::Scene;
 
 use crate::compositor::{preferred_sample_count, Painters};
 
-/// Couleur de fond (bleu nuit).
+/// The background colour, a midnight blue.
 const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     r: 0.05,
     g: 0.05,
@@ -13,7 +13,7 @@ const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
-/// Détient l'état GPU lié à une surface et présente les frames.
+/// Holds the GPU state bound to a surface and presents the frames.
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -23,10 +23,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Initialise le contexte GPU pour une surface donnée.
+    /// Initialises the GPU context for a given surface.
     ///
-    /// `target` est typiquement un `Arc<Window>` fourni par la couche plateforme.
-    /// `width`/`height` doivent être > 0.
+    /// `target` is typically an `Arc<Window>` supplied by the platform layer.
+    /// `width` and `height` must both be > 0.
     pub async fn new(
         target: impl Into<wgpu::SurfaceTarget<'static>>,
         width: u32,
@@ -46,13 +46,13 @@ impl Renderer {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or_else(|| anyhow::anyhow!("aucun adaptateur GPU compatible trouvé"))?;
+            .ok_or_else(|| anyhow::anyhow!("no compatible GPU adapter found"))?;
 
         log::info!("Adaptateur GPU : {:?}", adapter.get_info());
 
-        // Limites downlevel (compat GLES) mais avec la **résolution réelle** de
-        // l'adaptateur : sur mobile, l'écran (ex. 1080×2340) dépasse la texture
-        // max downlevel de 2048 — sans ça, `surface.configure` panique.
+        // Downlevel limits, for GLES compatibility, but with the adapter's **real**
+        // resolution: on mobile a screen of, say, 1080x2340 exceeds the downlevel
+        // maximum texture size of 2048, and without this `surface.configure` panics.
         let required_limits = wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits());
 
         let (device, queue) = adapter
@@ -87,12 +87,12 @@ impl Renderer {
         };
         surface.configure(&device, &config);
 
-        // MSAA si l'adaptateur le supporte pour ce format (sinon 1 = désactivé).
+        // MSAA when the adapter supports it for this format; otherwise 1, disabled.
         let sample_count = preferred_sample_count(&adapter, format);
         log::info!("MSAA : {sample_count}×");
 
         let mut painters = Painters::new(&device, &queue, format, sample_count);
-        // Échauffe tous les pipelines avant la première vraie frame (anti-jank).
+        // Warms every pipeline before the first real frame, to avoid jank.
         painters.warm_up(&device, &queue, format);
 
         Ok(Self {
@@ -104,8 +104,8 @@ impl Renderer {
         })
     }
 
-    /// Reconfigure la surface après un redimensionnement de la fenêtre. Les
-    /// viewports des painters sont réglés à chaque frame par [`Painters::render`].
+    /// Reconfigures the surface after the window is resized. The painters' viewports
+    /// are set every frame by [`Painters::render`].
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;
@@ -114,12 +114,12 @@ impl Renderer {
         }
     }
 
-    /// Réapplique la configuration courante (surface perdue/obsolète).
+    /// Reapplies the current configuration, after a lost or outdated surface.
     pub fn reconfigure(&mut self) {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// Dessine la scène (rectangles, images, chemins, texte, calques) et la présente.
+    /// Draws the scene — rectangles, images, paths, text, layers — and presents it.
     pub fn render(&mut self, scene: &Scene) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
         let view = frame
