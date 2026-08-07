@@ -89,7 +89,7 @@ impl Renderer {
 
         // MSAA when the adapter supports it for this format; otherwise 1, disabled.
         let sample_count = preferred_sample_count(&adapter, format);
-        log::info!("MSAA : {sample_count}×");
+        log::info!("MSAA: {sample_count}×");
 
         let mut painters = Painters::new(&device, &queue, format, sample_count);
         // Warms every pipeline before the first real frame, to avoid jank.

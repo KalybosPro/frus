@@ -1,6 +1,6 @@
-// Rendu d'images : quads instanciés échantillonnant une texture (une passe par
-// image, la texture étant liée en groupe 1). Chaque instance porte son rectangle
-// de destination, sa sous-région UV (rognage), sa teinte et sa découpe.
+// Image rendering: instanced quads sampling a texture — one pass per image, the
+// texture being bound in group 1. Each instance carries its destination rectangle,
+// its UV sub-region (the crop), its tint and its clip.
 
 struct Viewport {
     size: vec2<f32>,
@@ -21,7 +21,7 @@ struct VertexInput {
 struct InstanceInput {
     @location(1) rect: vec4<f32>, // x, y, width, height (px)
     @location(2) uv: vec4<f32>,   // x, y, width, height (0..1)
-    @location(3) tint: vec4<f32>, // sRGB, multiplicatif
+    @location(3) tint: vec4<f32>, // sRGB, multiplied in
     @location(4) clip: vec4<f32>, // x, y, width, height (px)
 };
 
@@ -63,8 +63,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         && in.frag_px.y >= in.clip.y
         && in.frag_px.y <= in.clip.y + in.clip.w
     );
-    // La texture est en format sRGB : l'échantillon est déjà linéaire. La teinte
-    // (couleur d'auteur sRGB) est linéarisée avant d'être multipliée.
+    // The texture is in an sRGB format, so the sample is already linear. The tint,
+    // an authored sRGB colour, is linearised before being multiplied in.
     let sample = textureSample(tex, samp, in.uv);
     let rgb = sample.rgb * srgb_to_linear(in.tint.rgb);
     let alpha = sample.a * in.tint.a * inside_clip;

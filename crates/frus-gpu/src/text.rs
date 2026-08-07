@@ -1,30 +1,30 @@
-//! Rendu de texte via [`glyphon`](https://docs.rs/glyphon) (cosmic-text + atlas
-//! de glyphes wgpu). Dessine les primitives [`Primitive::Text`] dans le render
-//! pass, par-dessus les rectangles.
+//! Text rendering through [`glyphon`](https://docs.rs/glyphon) — cosmic-text plus
+//! a wgpu glyph atlas. Draws the [`Primitive::Text`] primitives in the render pass,
+//! on top of the rectangles.
 
 use frus_core::{Color, Point, Primitive, Rect, Scene, TextDecoration};
 
-/// Rapport interligne / taille de police (cohérent avec `frus-text`).
+/// The line-height to font-size ratio, kept consistent with `frus-text`.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
 
-/// Un quad de **décoration de texte** (soulignement, barré…) calculé à partir
-/// des lignes mises en forme. Rendu par le pipeline des rectangles, *avant* les
-/// glyphes (même couleur → indiscernable ; le texte reste lisible sinon).
+/// A **text decoration** quad — underline, strikethrough and so on — computed from
+/// the laid-out lines. Rendered by the rectangle pipeline, *before* the glyphs: in
+/// the same colour it is indistinguishable, and otherwise the text stays readable.
 pub(crate) struct DecorationQuad {
     pub rect: Rect,
     pub color: Color,
     pub clip: Rect,
 }
 
-/// Position du soulignement sous la ligne de base (fraction de la taille).
+/// The underline's position below the baseline, as a fraction of the size.
 const UNDERLINE_OFFSET: f32 = 0.12;
-/// Position du barré au-dessus de la ligne de base (≈ mi-hauteur d'x).
+/// The strikethrough's position above the baseline, roughly half the x-height.
 const STRIKETHROUGH_OFFSET: f32 = 0.28;
-/// Position de la ligne au-dessus (≈ hauteur d'ascendante).
+/// The overline's position, roughly the ascender height.
 const OVERLINE_OFFSET: f32 = 0.90;
 
-/// Émet les quads d'une ligne décorée : `[x0, x1]` en avance depuis `origin`,
-/// `baseline` relative au haut du paragraphe, épaisseur dérivée de `size`.
+/// Emits the quads of one decorated line: `[x0, x1]` as advances from `origin`,
+/// `baseline` relative to the top of the paragraph, thickness derived from `size`.
 fn push_line_quads(
     quads: &mut Vec<DecorationQuad>,
     origin: Point,
@@ -67,7 +67,7 @@ fn to_u8(channel: f32) -> u8 {
     (channel.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// Détient l'état glyphon nécessaire au rendu de texte.
+/// Holds the glyphon state text rendering needs.
 pub(crate) struct TextPainter {
     font_system: glyphon::FontSystem,
     swash_cache: glyphon::SwashCache,
@@ -83,15 +83,16 @@ impl TextPainter {
         format: wgpu::TextureFormat,
         sample_count: u32,
     ) -> Self {
-        // Police embarquée + repli système : même politique que la mesure texte
-        // (`frus-text`), pour un rendu déterministe et un défaut résoluble partout.
+        // Bundled font plus system fallback — the same policy as text measurement
+        // in `frus-text`, for deterministic rendering and a default that resolves
+        // anywhere.
         let font_system = frus_text::new_font_system();
         let swash_cache = glyphon::SwashCache::new();
         let cache = glyphon::Cache::new(device);
         let viewport = glyphon::Viewport::new(device, &cache);
         let mut atlas = glyphon::TextAtlas::new(device, queue, &cache, format);
-        // Le renderer de glyphon doit être compilé au même `sample_count` que la
-        // passe (MSAA) sous peine de mismatch de pipeline.
+        // glyphon's renderer must be compiled with the same `sample_count` as the
+        // pass, or the pipeline mismatches under MSAA.
         let renderer = glyphon::TextRenderer::new(
             &mut atlas,
             device,
@@ -112,10 +113,9 @@ impl TextPainter {
         }
     }
 
-    /// Prépare le rendu du texte de la scène. À appeler avant le render pass.
-    /// Renvoie les **quads de décoration** (soulignement, barré…) calculés à
-    /// partir des lignes mises en forme — à dessiner par le pipeline des
-    /// rectangles.
+    /// Prepares the scene's text for rendering; call this before the render pass.
+    /// Returns the **decoration quads** — underline, strikethrough and so on —
+    /// computed from the laid-out lines, to be drawn by the rectangle pipeline.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
@@ -128,8 +128,8 @@ impl TextPainter {
             .update(queue, glyphon::Resolution { width, height });
         let mut decorations = Vec::new();
 
-        // Cible sRGB : on envoie du linéaire (comme les quads) pour éviter le
-        // double encodage (texte délavé). L'alpha reste tel quel.
+        // The target is sRGB, so we send linear values — as the quads do — to avoid
+        // encoding twice, which washes the text out. Alpha passes through as is.
         let to_glyphon = |color: &frus_core::Color| {
             let linear = color.to_linear();
             glyphon::Color::rgba(
@@ -139,7 +139,7 @@ impl TextPainter {
                 to_u8(color.a),
             )
         };
-        // Découpe = clip de la primitive, borné à la surface.
+        // The clip is the primitive's, bounded to the surface.
         let to_bounds = |clip: &frus_core::Rect| glyphon::TextBounds {
             left: clip.x.max(0.0) as i32,
             top: clip.y.max(0.0) as i32,
@@ -147,7 +147,7 @@ impl TextPainter {
             bottom: (clip.y + clip.height).min(height as f32) as i32,
         };
 
-        // Construit un buffer glyphon par primitive de texte (simple ou riche).
+        // One glyphon buffer per text primitive, plain or rich.
         let mut buffers = Vec::new();
         for primitive in scene.primitives() {
             match primitive {
@@ -166,17 +166,17 @@ impl TextPainter {
                 } => {
                     let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
                     let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    // Un paragraphe se replie à sa largeur de mise en page. Un
-                    // texte libre reste **non contraint** (`None`) — surtout pas
-                    // borné à la surface : en RTL, cosmic-text aligne à droite de
-                    // la largeur du buffer, ce qui pousserait les glyphes hors
-                    // écran (bord droit) une fois décalés par `position.x`.
+                    // A paragraph wraps at its layout width. Free text stays
+                    // **unconstrained** (`None`) — and above all is not bounded to
+                    // the surface: in RTL, cosmic-text right-aligns to the buffer's
+                    // width, which would push the glyphs off screen past the right
+                    // edge once `position.x` shifts them.
                     buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
-                    // Graisse + italique : cosmic-text choisit la face correspondante
-                    // de la famille (repli sur la plus proche si absente).
+                    // Weight and italic: cosmic-text picks the matching face of the
+                    // family, falling back to the closest one when it is missing.
                     let attrs = glyphon::Attrs::new()
-                        // Famille par script (arabe → Noto) : pas de repli
-                        // cross-famille sur Android, on choisit à la source.
+                        // Family by script (Arabic → Noto): Android has no
+                        // cross-family fallback, so we choose at the source.
                         .family(frus_text::family_for(text))
                         .weight(glyphon::Weight(frus_text::available_weight(*weight)))
                         .style(if *italic {
@@ -192,8 +192,8 @@ impl TextPainter {
                     );
                     buffer.shape_until_scroll(&mut self.font_system, false);
 
-                    // Décorations : une ligne par run de mise en forme, de la
-                    // première à la dernière avance de glyphe.
+                    // Decorations: one line per layout run, from the first glyph
+                    // advance to the last.
                     if !decoration.is_none() {
                         let deco_color = decoration_color.unwrap_or(*color);
                         for run in buffer.layout_runs() {
@@ -233,14 +233,14 @@ impl TextPainter {
                     if runs.is_empty() {
                         continue;
                     }
-                    // Métriques de base : le plus grand run (les runs plus petits
-                    // portent leurs propres métriques par-span).
+                    // Base metrics come from the largest run; smaller runs carry
+                    // their own per-span metrics.
                     let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
                     let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
                     let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    // Idem texte simple : un paragraphe riche se replie à sa
-                    // largeur de mise en page ; sinon non contraint (`None`),
-                    // jamais borné à la surface (alignement RTL hors écran).
+                    // As for plain text: a rich paragraph wraps at its layout
+                    // width, otherwise it is unconstrained (`None`) and never bounded
+                    // to the surface, which would push RTL alignment off screen.
                     buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
                     let spans = runs.iter().enumerate().map(|(index, run)| {
                         (
@@ -258,8 +258,8 @@ impl TextPainter {
                                     run.size * LINE_HEIGHT_FACTOR,
                                 ))
                                 .color(to_glyphon(&run.color))
-                                // Rattache chaque glyphe à son run source (pour
-                                // les décorations par-span).
+                                // Ties each glyph to its source run, for the
+                                // per-span decorations.
                                 .metadata(index),
                         )
                     });
@@ -271,8 +271,8 @@ impl TextPainter {
                     );
                     buffer.shape_until_scroll(&mut self.font_system, false);
 
-                    // Décorations par run : les glyphes consécutifs d'un même run
-                    // (métadonnée) forment un segment décoré d'un seul tenant.
+                    // Per-run decorations: consecutive glyphs sharing a run —
+                    // through the metadata — form one decorated segment.
                     if runs.iter().any(|r| !r.decoration.is_none()) {
                         for lrun in buffer.layout_runs() {
                             let glyphs = lrun.glyphs;
@@ -304,8 +304,8 @@ impl TextPainter {
                         }
                     }
 
-                    // Chaque run porte sa couleur par attrs ; le défaut ne sert
-                    // qu'aux glyphes sans couleur (il n'y en a pas).
+                    // Every run carries its colour through attrs; the default only
+                    // serves colourless glyphs, of which there are none.
                     let default_color = to_glyphon(&runs[0].color);
                     buffers.push((
                         buffer,
@@ -315,7 +315,7 @@ impl TextPainter {
                         to_bounds(clip),
                     ));
                 }
-                // Rectangles, chemins, images et calques ne concernent pas le texte.
+                // Rectangles, paths, images and layers are none of text's business.
                 Primitive::Rect { .. }
                 | Primitive::Path { .. }
                 | Primitive::Image { .. }
@@ -344,15 +344,15 @@ impl TextPainter {
             areas,
             &mut self.swash_cache,
         ) {
-            log::warn!("glyphon prepare a échoué : {err:?}");
+            log::warn!("glyphon prepare failed: {err:?}");
         }
         decorations
     }
 
-    /// Dessine le texte préparé dans un render pass ouvert.
+    /// Draws the prepared text into an open render pass.
     pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         if let Err(err) = self.renderer.render(&self.atlas, &self.viewport, pass) {
-            log::warn!("glyphon render a échoué : {err:?}");
+            log::warn!("glyphon render failed: {err:?}");
         }
     }
 }
@@ -362,46 +362,44 @@ mod tests {
     use super::*;
     use frus_core::{Color, Point, Scene};
 
-    /// Rend `scene` (sur fond noir) via le chemin hors écran partagé et compte
-    /// les pixels « allumés » (canal rouge > 16). `None` si aucun GPU dispo.
+    /// Renders `scene` on a black background through the shared offscreen path and
+    /// counts the "lit" pixels, those whose red channel is above 16. `None` when no
+    /// GPU is available.
     fn lit_pixels_for(scene: &Scene) -> Option<usize> {
         let frame = crate::offscreen::render_offscreen(scene, 128, 128, Color::BLACK)?;
         Some(frame.rgba.chunks_exact(4).filter(|px| px[0] > 16).count())
     }
 
-    /// Preuve de rasterisation : un texte blanc produit des pixels non-noirs.
+    /// Proof of rasterisation: white text produces non-black pixels.
     #[test]
     fn renders_text_to_non_background_pixels() {
         let mut scene = Scene::new();
         scene.text(Point::new(4.0, 4.0), "Hello", 48.0, Color::WHITE);
         match lit_pixels_for(&scene) {
-            None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
-                assert!(
-                    lit > 0,
-                    "le texte devrait produire des pixels non-noirs ({lit})"
-                )
+                assert!(lit > 0, "text should produce non-black pixels ({lit})")
             }
         }
     }
 
-    /// L'**arabe** rasterise via la face Naskh embarquée (`family_for` route le
-    /// script arabe vers "Noto Naskh Arabic"). Preuve que le chemin de rendu —
-    /// pas seulement la mesure — façonne bien les glyphes arabes.
+    /// **Arabic** rasterises through the bundled Naskh face — `family_for` routes
+    /// the Arabic script to "Noto Naskh Arabic". Proof that the render path, and not
+    /// only measurement, does shape Arabic glyphs.
     #[test]
     fn renders_arabic_to_non_background_pixels() {
         let mut scene = Scene::new();
         scene.text(Point::new(4.0, 40.0), "مهامي", 40.0, Color::WHITE);
         match lit_pixels_for(&scene) {
-            None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
-                assert!(lit > 20, "l'arabe devrait rasteriser des glyphes ({lit})")
+                assert!(lit > 20, "Arabic should rasterise glyphs ({lit})")
             }
         }
     }
 
-    /// Le texte **riche** (`set_rich_text`, runs mêlés tailles/graisses) rasterise
-    /// aussi — preuve de bout en bout du nouveau chemin GPU.
+    /// **Rich** text (`set_rich_text`, runs mixing sizes and weights) rasterises
+    /// too — end-to-end proof of the rich GPU path.
     #[test]
     fn renders_rich_text_to_non_background_pixels() {
         use frus_core::{FontWeight, TextRun};
@@ -423,19 +421,16 @@ mod tests {
             ],
         );
         match lit_pixels_for(&scene) {
-            None => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            None => eprintln!("no GPU adapter available: test skipped"),
             Some(lit) => {
-                assert!(
-                    lit > 0,
-                    "le texte riche devrait produire des pixels non-noirs ({lit})"
-                )
+                assert!(lit > 0, "rich text should produce non-black pixels ({lit})")
             }
         }
     }
 
-    /// Le **soulignement** ajoute des pixels par rapport au même texte nu —
-    /// preuve par readback que les quads de décoration traversent tout le
-    /// chemin (calcul depuis les lignes mises en forme + passe des rectangles).
+    /// An **underline** lights more pixels than the same text bare — readback proof
+    /// that the decoration quads travel the whole path: computed from the laid-out
+    /// lines, then drawn by the rectangle pass.
     #[test]
     fn underline_lights_more_pixels_than_plain_text() {
         use frus_core::TextStyle;
@@ -463,15 +458,15 @@ mod tests {
             (Some(bare), Some(deco)) => {
                 assert!(
                     deco > bare + 50,
-                    "le soulignement doit ajouter des pixels (nu {bare}, décoré {deco})"
+                    "the underline must add pixels (bare {bare}, decorated {deco})"
                 );
             }
-            _ => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            _ => eprintln!("no GPU adapter available: test skipped"),
         }
     }
 
-    /// Le **barré par-span** d'un texte riche n'ajoute des pixels que sur le run
-    /// décoré (chemin métadonnées → segments par run).
+    /// A rich text's **per-span strikethrough** adds pixels only on the decorated
+    /// run, through the metadata → per-run segments path.
     #[test]
     fn rich_text_strikethrough_is_per_run() {
         use frus_core::{FontWeight, TextRun};
@@ -510,10 +505,10 @@ mod tests {
             (Some(bare), Some(deco)) => {
                 assert!(
                     deco > bare,
-                    "le barré du second run doit ajouter des pixels (nu {bare}, décoré {deco})"
+                    "run 2's strikethrough must add pixels (bare {bare}, decorated {deco})"
                 );
             }
-            _ => eprintln!("aucun adaptateur GPU disponible : test ignoré"),
+            _ => eprintln!("no GPU adapter available: test skipped"),
         }
     }
 }

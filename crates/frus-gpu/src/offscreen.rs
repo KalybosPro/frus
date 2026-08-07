@@ -1,29 +1,30 @@
-//! Rendu **hors écran** : la scène dessinée dans une texture puis relue par le
-//! CPU — aucune fenêtre requise. C'est la brique des tests de rendu (goldens
-//! `frus-test`) et la seule façon d'observer le pipeline sous WSL/CI.
+//! **Offscreen** rendering: the scene is drawn into a texture then read back by
+//! the CPU, with no window required. This is what the render tests are built on —
+//! the `frus-test` goldens — and the only way to observe the pipeline under WSL or
+//! CI.
 //!
-//! Le pipeline est **le même** que celui de la fenêtre ([`crate::Renderer`]) :
-//! quads (+ quads de décoration de texte) puis glyphes, cible sRGB — les
-//! octets relus correspondent à ce qu'une capture d'écran donnerait.
+//! The pipeline is **the same** as the windowed one ([`crate::Renderer`]): quads,
+//! text decoration quads included, then glyphs, onto an sRGB target — the bytes
+//! read back match what a screenshot would give.
 
 use frus_core::{Color, Scene};
 
 use crate::compositor::Painters;
 
-/// Une frame rendue hors écran : octets RGBA **sRGB**, ligne par ligne.
+/// A frame rendered offscreen: **sRGB** RGBA bytes, row by row.
 pub struct OffscreenFrame {
     pub width: u32,
     pub height: u32,
-    /// `width * height * 4` octets, ordre RGBA, origine en haut-gauche.
+    /// `width * height * 4` bytes in RGBA order, origin at the top left.
     pub rgba: Vec<u8>,
-    /// Nombre d'échantillons MSAA effectivement employé (1 = pas de lissage,
-    /// GPU sans support MSAA). Informatif — utile aux tests d'anti-aliasing.
+    /// The MSAA sample count actually used; 1 means no smoothing, on a GPU without
+    /// MSAA support. Informative, and useful to the anti-aliasing tests.
     pub samples: u32,
 }
 
-/// Rend `scene` dans une texture `width`×`height` effacée à `clear`, et relit
-/// les pixels. `None` si aucun adaptateur GPU n'est disponible (machine sans
-/// GPU ni rasteriseur logiciel) — les appelants de test s'ignorent alors.
+/// Renders `scene` into a `width`×`height` texture cleared to `clear`, then reads
+/// the pixels back. `None` when no GPU adapter is available — a machine with neither
+/// GPU nor software rasteriser — in which case test callers skip themselves.
 pub fn render_offscreen(
     scene: &Scene,
     width: u32,
@@ -49,8 +50,8 @@ pub fn render_offscreen(
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-    // Même pipeline que `Renderer::render`, via le compositeur (calques compris).
-    // Le clear est en sRGB (couleur d'auteur) : la cible sRGB attend du linéaire.
+    // The same pipeline as `Renderer::render`, through the compositor, layers
+    // included. The clear colour is authored in sRGB, and an sRGB target wants linear.
     let clear_linear = clear.to_linear();
     let mut painters = Painters::new(&device, &queue, format, sample_count);
     painters.render(
@@ -69,8 +70,8 @@ pub fn render_offscreen(
         }),
     );
 
-    // Relecture : wgpu impose des lignes alignées sur 256 octets — on rembourre
-    // puis on retire le rembourrage côté CPU.
+    // Readback: wgpu requires rows aligned to 256 bytes, so we pad and then strip
+    // the padding on the CPU side.
     let unpadded_bytes_per_row = width * 4;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256
     let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
@@ -129,8 +130,8 @@ pub fn render_offscreen(
     })
 }
 
-/// Instancie un device wgpu sans surface, avec le nombre d'échantillons MSAA
-/// supporté pour la cible sRGB. `None` si aucun adaptateur.
+/// Creates a surfaceless wgpu device, along with the MSAA sample count supported
+/// for the sRGB target. `None` when there is no adapter.
 fn headless_device() -> Option<(wgpu::Device, wgpu::Queue, u32)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),
@@ -161,15 +162,15 @@ mod tests {
     use super::*;
     use frus_core::{Path, Point, Rect};
 
-    /// Le chemin hors écran rend la même chose que le pipeline fenêtré : un
-    /// rectangle rouge plein → pixel central rouge, hors du rect → clear.
+    /// The offscreen path renders what the windowed pipeline does: a solid red
+    /// rectangle gives a red pixel inside, and the clear colour outside.
     #[test]
     fn renders_rect_and_reads_back_srgb() {
         let mut scene = Scene::new();
         scene.fill_rect(Rect::new(0.0, 0.0, 20.0, 20.0), Color::rgb(1.0, 0.0, 0.0));
-        // Largeur non multiple de 64 : exerce le rembourrage de relecture.
+        // A width that is not a multiple of 64 exercises the readback padding.
         let Some(frame) = render_offscreen(&scene, 70, 40, Color::BLACK) else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         assert_eq!(frame.rgba.len(), 70 * 40 * 4);
@@ -177,17 +178,17 @@ mod tests {
             let i = ((y * frame.width + x) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        assert_eq!(px(10, 10), [255, 0, 0], "dans le rect → rouge");
-        assert_eq!(px(60, 30), [0, 0, 0], "hors du rect → clear");
+        assert_eq!(px(10, 10), [255, 0, 0], "inside the rect → red");
+        assert_eq!(px(60, 30), [0, 0, 0], "outside the rect → clear");
     }
 
-    /// Un **triangle vectoriel** rempli en vert : un point bien à l'intérieur est
-    /// vert, un coin hors du triangle reste au clear. Preuve que la tessellation
-    /// + le pipeline de chemins produisent bien des pixels.
+    /// A **vector triangle** filled with green: a point well inside is green, and a
+    /// corner outside the triangle keeps the clear colour. Proof that tessellation and
+    /// the path pipeline do produce pixels.
     #[test]
     fn fills_a_vector_triangle() {
-        // Triangle couvrant le bas de la surface : sommet en haut au centre,
-        // base sur toute la largeur en bas.
+        // A triangle covering the bottom of the surface: apex at the top centre,
+        // base spanning the full width along the bottom.
         let triangle = Path::new()
             .move_to(Point::new(32.0, 4.0))
             .line_to(Point::new(60.0, 60.0))
@@ -197,48 +198,48 @@ mod tests {
         scene.fill_path(&triangle, Color::rgb(0.0, 1.0, 0.0));
 
         let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         let px = |x: u32, y: u32| {
             let i = ((y * frame.width + x) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        // Près de la base, au centre : bien à l'intérieur → vert.
-        assert_eq!(px(32, 54), [0, 255, 0], "intérieur du triangle → vert");
-        // Coin haut-gauche : au-dessus/à côté du sommet → hors triangle → clear.
-        assert_eq!(px(4, 4), [0, 0, 0], "hors du triangle → clear");
+        // Near the base, centred: well inside → green.
+        assert_eq!(px(32, 54), [0, 255, 0], "inside the triangle → green");
+        // Top-left corner: above and beside the apex → outside → clear.
+        assert_eq!(px(4, 4), [0, 0, 0], "outside the triangle → clear");
     }
 
-    /// Le **contour** (stroke) d'un chemin peint des pixels sur le trait mais pas
-    /// au centre (chemin non rempli).
+    /// A path's **stroke** paints pixels on the outline but not in the middle, since
+    /// the path is not filled.
     #[test]
     fn strokes_a_path_outline_only() {
-        // Un carré tracé (non rempli) de 40×40 centré.
+        // A centred 40×40 square, stroked and not filled.
         let square = Path::rect(Rect::new(12.0, 12.0, 40.0, 40.0));
         let mut scene = Scene::new();
         scene.stroke_path(&square, Color::rgb(0.0, 0.0, 1.0), 4.0);
 
         let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         let px = |x: u32, y: u32| {
             let i = ((y * frame.width + x) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        // Sur le bord gauche du carré → bleu ; au centre → clear (pas de fill).
-        assert_eq!(px(12, 32), [0, 0, 255], "sur le contour → bleu");
-        assert_eq!(px(32, 32), [0, 0, 0], "au centre → clear (non rempli)");
+        // On the square's left edge → blue; in the middle → clear, since no fill.
+        assert_eq!(px(12, 32), [0, 0, 255], "on the outline → blue");
+        assert_eq!(px(32, 32), [0, 0, 0], "in the middle → clear, not filled");
     }
 
-    /// Échantillonnage de texture : une image 2×2 (rouge/vert/bleu/blanc) étirée
-    /// (`Fill`) sur toute la surface — chaque quadrant lit sa couleur. Preuve du
-    /// téléversement + de l'échantillonnage + du mapping UV.
+    /// Texture sampling: a 2×2 image — red, green, blue, white — stretched (`Fill`)
+    /// over the whole surface, so each quadrant reads its own colour. Proof of the
+    /// upload, the sampling and the UV mapping.
     #[test]
     fn samples_a_texture_by_quadrant() {
         use frus_core::{BoxFit, ImageData};
-        // 2×2 : (0,0) rouge, (1,0) vert, (0,1) bleu, (1,1) blanc.
+        // 2×2: (0,0) red, (1,0) green, (0,1) blue, (1,1) white.
         let pixels = vec![
             255, 0, 0, 255, /* R */ 0, 255, 0, 255, /* G */
             0, 0, 255, 255, /* B */ 255, 255, 255, 255, /* W */
@@ -248,27 +249,27 @@ mod tests {
         scene.image(&image, Rect::new(0.0, 0.0, 64.0, 64.0), BoxFit::Fill);
 
         let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         let px = |x: u32, y: u32| {
             let i = ((y * frame.width + x) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        // Un point bien au cœur de chaque quadrant (loin des bords interpolés).
-        assert_eq!(px(10, 10), [255, 0, 0], "haut-gauche → rouge");
-        assert_eq!(px(54, 10), [0, 255, 0], "haut-droit → vert");
-        assert_eq!(px(10, 54), [0, 0, 255], "bas-gauche → bleu");
-        assert_eq!(px(54, 54), [255, 255, 255], "bas-droit → blanc");
+        // A point well inside each quadrant, away from the interpolated edges.
+        assert_eq!(px(10, 10), [255, 0, 0], "top-left → red");
+        assert_eq!(px(54, 10), [0, 255, 0], "top-right → green");
+        assert_eq!(px(10, 54), [0, 0, 255], "bottom-left → blue");
+        assert_eq!(px(54, 54), [255, 255, 255], "bottom-right → white");
     }
 
-    /// **Anti-aliasing (MSAA)** : le bord **oblique** d'un triangle produit des
-    /// pixels **partiellement** couverts (mélange fond/forme) — signature du
-    /// multi-échantillon, impossible avec un rendu net. Si le GPU ne supporte pas
-    /// le MSAA (`samples == 1`), le test s'ignore.
+    /// **Anti-aliasing (MSAA)**: a triangle's **diagonal** edge produces
+    /// **partially** covered pixels, blending background and shape — the signature of
+    /// multisampling, impossible with hard-edged rendering. The test skips itself when
+    /// the GPU does not support MSAA (`samples == 1`).
     #[test]
     fn msaa_smooths_a_diagonal_edge() {
-        // Triangle rectangle : hypoténuse sur l'anti-diagonale x + y = 64.
+        // A right triangle whose hypotenuse lies on the anti-diagonal x + y = 64.
         let triangle = Path::new()
             .move_to(Point::new(0.0, 0.0))
             .line_to(Point::new(64.0, 0.0))
@@ -278,21 +279,21 @@ mod tests {
         scene.fill_path(&triangle, Color::rgb(0.0, 1.0, 0.0));
 
         let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         if frame.samples == 1 {
-            eprintln!("MSAA non supporté par ce GPU : test ignoré");
+            eprintln!("MSAA unsupported by this GPU: test skipped");
             return;
         }
         let px = |x: u32, y: u32| {
             let i = ((y * frame.width + x) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        // Le long du bord oblique, au moins un pixel doit être un vert
-        // **intermédiaire** (ni plein 255, ni fond 0) — preuve du lissage. Un
-        // rendu net ne produirait que du 0 ou du 255. On balaye toute la surface :
-        // seuls les pixels du bord partiellement couverts sont intermédiaires.
+        // Along the diagonal edge at least one pixel must be an **in-between**
+        // green, neither full 255 nor background 0 — the proof of smoothing. Hard-edged
+        // rendering would only produce 0 or 255. We sweep the whole surface: only the
+        // partially covered edge pixels come out in between.
         let found_partial = (0..frame.height).any(|y| {
             (0..frame.width).any(|x| {
                 let g = px(x, y)[1];
@@ -301,17 +302,17 @@ mod tests {
         });
         assert!(
             found_partial,
-            "un bord oblique lissé a des pixels de vert intermédiaire"
+            "a smoothed diagonal edge has in-between green pixels"
         );
-        // Loin dans le triangle → plein vert ; loin dehors → fond noir.
-        assert_eq!(px(4, 4), [0, 255, 0], "intérieur → vert plein");
-        assert_eq!(px(60, 60), [0, 0, 0], "extérieur → fond");
+        // Deep inside the triangle → full green; far outside → black background.
+        assert_eq!(px(4, 4), [0, 255, 0], "inside → full green");
+        assert_eq!(px(60, 60), [0, 0, 0], "outside → background");
     }
 
-    /// **Compositing de calque** : deux rectangles rouges **opaques** qui se
-    /// chevauchent, groupés dans un calque à opacité 0.5. L'alpha de groupe est
-    /// **uniforme** — le chevauchement a la même couleur qu'une simple couverture
-    /// (pas de double-superposition), et c'est bien ~moitié rouge sur fond noir.
+    /// **Layer compositing**: two **opaque** red rectangles that overlap, grouped in
+    /// a layer at opacity 0.5. The group alpha is **uniform** — the overlap has the
+    /// same colour as a single coverage, with no double-blending — and it does come
+    /// out at about half red over the black background.
     #[test]
     fn layer_group_opacity_is_uniform_over_overlap() {
         let mut scene = Scene::new();
@@ -321,28 +322,28 @@ mod tests {
         });
 
         let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         let px = |x: u32, y: u32| {
             let i = ((y * frame.width + x) * 4) as usize;
             [frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]]
         };
-        let single = px(8, 8); // couvert par le 1er rectangle seulement
-        let overlap = px(32, 32); // couvert par les deux
+        let single = px(8, 8); // covered by the first rectangle only
+        let overlap = px(32, 32); // covered by both
         assert_eq!(
             single, overlap,
-            "l'alpha de groupe est uniforme sur le chevauchement"
+            "the group alpha is uniform across the overlap"
         );
-        // ~50 % rouge sur noir : ni plein rouge (255) ni fond (0).
+        // About 50% red over black: neither full red (255) nor background (0).
         assert!(
             single[0] > 120 && single[0] < 215,
-            "≈ moitié rouge (R={})",
+            "about half red (R={})",
             single[0]
         );
-        assert_eq!(single[1], 0, "pas de vert");
-        assert_eq!(single[2], 0, "pas de bleu");
-        // Hors des deux rectangles : fond noir.
-        assert_eq!(px(60, 8), [0, 0, 0], "hors du calque → fond");
+        assert_eq!(single[1], 0, "no green");
+        assert_eq!(single[2], 0, "no blue");
+        // Outside both rectangles: black background.
+        assert_eq!(px(60, 8), [0, 0, 0], "outside the layer → background");
     }
 }

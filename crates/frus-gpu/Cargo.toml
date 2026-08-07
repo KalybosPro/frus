@@ -15,5 +15,5 @@ bytemuck.workspace = true
 lyon.workspace = true
 anyhow.workspace = true
 log.workspace = true
-# Attente bloquante de l'init device (rendu hors écran, sans boucle async).
+# Blocking wait on device init: offscreen rendering has no async loop.
 pollster.workspace = true

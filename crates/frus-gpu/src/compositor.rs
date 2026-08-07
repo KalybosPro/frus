@@ -1,15 +1,14 @@
-//! Orchestration du rendu : regroupe les painters de contenu (rectangles,
-//! images, chemins, texte) et gère les **calques** ([`Primitive::Layer`]).
+//! Render orchestration: gathers the content painters — rectangles, images,
+//! paths, text — and handles **layers** ([`Primitive::Layer`]).
 //!
-//! Un calque est rendu **à part** sur une texture pleine surface (pré-passe,
-//! *submit* séparé pour ne pas aliaser les buffers d'instances), puis composité
-//! d'un bloc à son opacité de groupe par le [`CompositePainter`]. L'alpha de
-//! groupe est ainsi correct (pas de double-superposition), façon `saveLayer` de
-//! Flutter.
+//! A layer is rendered **separately** into a full-surface texture (a pre-pass,
+//! submitted on its own so the instance buffers are not aliased), then composited
+//! as a single block at its group opacity by the [`CompositePainter`]. Group alpha
+//! is therefore correct, with no double-blending where children overlap.
 //!
-//! Tous les pipelines sont créés à la construction ([`Painters::new`]) puis
-//! **échauffés** ([`Painters::warm_up`]) : la première vraie frame ne paie aucune
-//! compilation de shader (pas de « shader jank » à la Flutter/Skia).
+//! Every pipeline is created up front ([`Painters::new`]) then **warmed up**
+//! ([`Painters::warm_up`]): the first real frame compiles no shader, so it never
+//! stutters.
 
 use bytemuck::{Pod, Zeroable};
 use frus_core::{BoxFit, Color, ImageData, Path, Point, Primitive, Rect, Scene};
@@ -20,7 +19,7 @@ use crate::painter::Painter;
 use crate::path::PathPainter;
 use crate::text::TextPainter;
 
-/// Sommet du quad unité (plein écran).
+/// A vertex of the unit quad, which covers the whole surface.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct QuadVertex {
@@ -48,19 +47,19 @@ const QUAD_VERTICES: &[QuadVertex] = &[
 ];
 const QUAD_VERTEX_COUNT: u32 = 6;
 
-/// Instance de composite : découpe, transformation **inverse** (écran → texture) et
-/// opacité de groupe.
+/// A composite instance: the clip, the **inverse** transform (screen → texture)
+/// and the group opacity.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct CompInstance {
     clip: [f32; 4],
-    /// Partie linéaire de l'inverse affine : `ia, ib, ic, id`.
+    /// The linear part of the affine inverse: `ia, ib, ic, id`.
     inv_lin: [f32; 4],
-    /// `ie, if, opacité, _` — translation de l'inverse + opacité de groupe.
+    /// `ie, if, opacity, _` — the inverse's translation plus the group opacity.
     inv_tr_opacity: [f32; 4],
-    /// Forme de découpe : `[kind, _, _, _]` (0 = rect, 1 = rrect, 2 = oval).
+    /// The clip shape: `[kind, _, _, _]` (0 = rect, 1 = rrect, 2 = oval).
     shape: [f32; 4],
-    /// Rayons de coin (rrect) : `[tl, tr, br, bl]`.
+    /// The corner radii of a rrect: `[tl, tr, br, bl]`.
     radii: [f32; 4],
 }
 
@@ -71,13 +70,13 @@ struct Viewport {
     _pad: [f32; 2],
 }
 
-/// Nombre d'échantillons MSAA visé : 4× est un bon compromis qualité/coût et le
-/// plus largement supporté (y compris le rasteriseur logiciel llvmpipe).
+/// The MSAA sample count we aim for: 4× is a good quality/cost trade-off and the
+/// most widely supported, including the llvmpipe software rasteriser.
 pub(crate) const MSAA_SAMPLES: u32 = 4;
 
-/// Renvoie le nombre d'échantillons MSAA à utiliser pour `format` sur cet
-/// adaptateur : [`MSAA_SAMPLES`] si supporté, sinon 1 (MSAA désactivé). Appelé
-/// une fois à l'init par le renderer fenêtré comme par le rendu hors écran.
+/// Returns the MSAA sample count to use for `format` on this adapter:
+/// [`MSAA_SAMPLES`] when supported, otherwise 1, which disables MSAA. Called once
+/// at init by the windowed renderer and by the offscreen path alike.
 pub(crate) fn preferred_sample_count(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> u32 {
     let flags = adapter.get_texture_format_features(format).flags;
     if flags.sample_count_supported(MSAA_SAMPLES) {
@@ -87,28 +86,28 @@ pub(crate) fn preferred_sample_count(adapter: &wgpu::Adapter, format: wgpu::Text
     }
 }
 
-/// Un calque prêt à composer : sa texture, son opacité, sa découpe et la
-/// transformation **inverse** (écran → texture) à appliquer à l'échantillonnage.
+/// A layer ready to be composited: its texture, opacity and clip, plus the
+/// **inverse** transform (screen → texture) to apply when sampling.
 struct LayerComposite {
     view: wgpu::TextureView,
-    /// Masque de couverture (`ClipShape::Path`) — le chemin rendu en blanc ; blanc
-    /// plein (1×1) pour les autres formes (multiplication neutre).
+    /// The coverage mask (`ClipShape::Path`): the path rendered in white. Other
+    /// shapes get a solid 1×1 white texture, a neutral multiplication.
     mask: wgpu::TextureView,
     opacity: f32,
     clip: [f32; 4],
-    /// Forme de découpe : `[kind, _, _, _]` — `kind` 0 = rect, 1 = rrect, 2 = oval,
-    /// 3 = chemin (masque).
+    /// The clip shape: `[kind, _, _, _]` — `kind` 0 = rect, 1 = rrect, 2 = oval,
+    /// 3 = path, meaning a mask.
     shape: [f32; 4],
-    /// Rayons de coin (rrect) : `[tl, tr, br, bl]`.
+    /// The corner radii of a rrect: `[tl, tr, br, bl]`.
     radii: [f32; 4],
-    /// Inverse affine `[ia, ib, ic, id, ie, if]` (identité = pas de transformation).
+    /// The affine inverse `[ia, ib, ic, id, ie, if]`; identity means no transform.
     inverse: [f32; 6],
 }
 
-/// Texture d'un calque **conservée entre frames** (frontière de repaint côté
-/// GPU), avec l'instantané de son contenu et ses dimensions : tant qu'ils ne
-/// changent pas, on réutilise la texture telle quelle — la pré-passe (submit +
-/// tessellation + dessin) est entièrement sautée.
+/// A layer texture **kept across frames** — a repaint boundary on the GPU side —
+/// together with a snapshot of its content and its dimensions: as long as those do
+/// not change the texture is reused as is, and the pre-pass (submit, tessellation
+/// and draw) is skipped entirely.
 struct CachedLayer {
     primitives: Vec<Primitive>,
     width: u32,
@@ -116,10 +115,10 @@ struct CachedLayer {
     texture: wgpu::Texture,
 }
 
-/// Texture MSAA intermédiaire réutilisée comme cible de rendu : on peint dedans
-/// (multi-échantillon) puis on **résout** vers la cible mono-échantillon. Une
-/// seule suffit — pré-passes de calques et passe principale, toutes pleine
-/// surface, l'emploient tour à tour (submits séquentiels).
+/// An intermediate MSAA texture reused as a render target: painting happens there,
+/// multisampled, then **resolves** to the single-sample target. One is enough — the
+/// layer pre-passes and the main pass are all full-surface and take turns using it,
+/// since their submits are sequential.
 struct MsaaScratch {
     width: u32,
     height: u32,
@@ -127,7 +126,7 @@ struct MsaaScratch {
     texture: wgpu::Texture,
 }
 
-/// Pipeline de compositing des calques.
+/// The layer compositing pipeline.
 struct CompositePainter {
     pipeline: wgpu::RenderPipeline,
     viewport_buffer: wgpu::Buffer,
@@ -137,15 +136,15 @@ struct CompositePainter {
     quad_vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
-    /// Groupes de liaison des textures de calques de la frame courante.
+    /// The bind groups for this frame's layer textures.
     bind_groups: Vec<wgpu::BindGroup>,
-    /// Masque **neutre** (1×1 blanc opaque) : lié quand un calque n'a pas de découpe
-    /// par chemin (multiplication d'alpha par 1 → sans effet).
+    /// The **neutral** mask, 1×1 opaque white: bound when a layer has no path clip,
+    /// so alpha is multiplied by 1 and nothing changes.
     white_mask: wgpu::Texture,
 }
 
 impl CompositePainter {
-    /// Une vue du masque neutre (blanc opaque) — liée aux calques sans chemin.
+    /// A view of the neutral mask, opaque white, bound to layers with no path clip.
     fn white_mask_view(&self) -> wgpu::TextureView {
         self.white_mask
             .create_view(&wgpu::TextureViewDescriptor::default())
@@ -175,7 +174,7 @@ impl CompositePainter {
             label: Some("frus.composite.viewport.bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                // Le fragment lit aussi `viewport.size` (contre-rotation d'un calque).
+                // The fragment also reads `viewport.size`, to counter-rotate a layer.
                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
@@ -214,7 +213,7 @@ impl CompositePainter {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // Masque de découpe (chemin), échantillonné au fragment.
+                // The path clip mask, sampled in the fragment shader.
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -286,7 +285,7 @@ impl CompositePainter {
             mapped_at_creation: false,
         });
 
-        // Masque neutre : 1×1 blanc opaque (alpha = 1 partout).
+        // The neutral mask: 1×1 opaque white, so alpha is 1 everywhere.
         let white = device.create_texture_with_data(
             queue,
             &wgpu::TextureDescriptor {
@@ -321,7 +320,7 @@ impl CompositePainter {
         }
     }
 
-    /// Prépare le compositing des `layers` (instances + groupes de liaison).
+    /// Prepares the compositing of `layers`: instances and bind groups.
     fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -419,20 +418,20 @@ fn comp_instance_layout() -> wgpu::VertexBufferLayout<'static> {
     }
 }
 
-/// L'ensemble des painters de contenu + le compositing des calques.
+/// The full set of content painters, plus layer compositing.
 pub(crate) struct Painters {
     rect: Painter,
     image: ImagePainter,
     path: PathPainter,
     text: TextPainter,
     composite: CompositePainter,
-    /// Nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    /// The MSAA sample count; 1 means no multisampling.
     sample_count: u32,
-    /// Texture MSAA intermédiaire (créée à la demande, recréée au resize).
+    /// The intermediate MSAA texture, created on demand and recreated on resize.
     msaa: Option<MsaaScratch>,
-    /// Textures de calques conservées entre frames, indexées par rang du calque.
+    /// Layer textures kept across frames, indexed by the layer's rank.
     layer_cache: Vec<CachedLayer>,
-    /// Compteur de pré-passes de calque réellement rendues (preuve du cache).
+    /// How many layer pre-passes were actually rendered — the cache's proof.
     #[allow(dead_code)]
     layer_renders: u64,
 }
@@ -457,16 +456,16 @@ impl Painters {
         }
     }
 
-    /// Nombre de pré-passes de calque rendues depuis la création (test du cache).
+    /// Layer pre-passes rendered since creation, for the cache test.
     #[cfg(test)]
     pub(crate) fn layer_render_count(&self) -> u64 {
         self.layer_renders
     }
 
-    /// Renvoie une vue neuve de la texture MSAA (recréée si taille/format
-    /// changent), ou `None` si le MSAA est désactivé (`sample_count == 1`). La vue
-    /// est créée à la volée (peu coûteux) et renvoyée par valeur : l'emprunt de
-    /// `self` est ainsi libéré avant l'ouverture du render pass.
+    /// Returns a fresh view of the MSAA texture, recreating it when the size or the
+    /// format changes, or `None` when MSAA is off (`sample_count == 1`). The view is
+    /// created on the fly — it is cheap — and returned by value, which releases the
+    /// borrow of `self` before the render pass opens.
     fn ensure_msaa(
         &mut self,
         device: &wgpu::Device,
@@ -515,13 +514,13 @@ impl Painters {
         self.path.set_viewport(queue, w, h);
     }
 
-    /// Rend `scene` (calques compris) dans `target` de taille `w×h`. `clear` :
-    /// `Some(couleur)` pour effacer la cible, `None` pour peindre par-dessus.
-    /// **Submise en interne** (une passe par calque, plus la passe principale).
+    /// Renders `scene`, layers included, into `target` of size `w×h`. `clear` is
+    /// `Some(colour)` to clear the target, `None` to paint over it. **Submitted
+    /// internally**: one pass per layer, plus the main pass.
     ///
-    /// Note : sous MSAA, `clear == None` (peindre par-dessus) n'est pas pris en
-    /// charge — la cible multi-échantillon ne contient pas le contenu existant de
-    /// `target`. Tous les appelants actuels passent `Some(_)`.
+    /// Note: under MSAA, `clear == None` — painting over — is not supported, since
+    /// the multisampled target does not hold `target`'s existing content. Every
+    /// current caller passes `Some(_)`.
     pub(crate) fn render(
         &mut self,
         device: &wgpu::Device,
@@ -535,8 +534,8 @@ impl Painters {
     ) {
         self.set_viewport(queue, w as f32, h as f32);
 
-        // Pré-passes : chaque calque sur sa propre texture pleine surface, mais
-        // **réutilisée** telle quelle si son contenu n'a pas changé (cache GPU).
+        // Pre-passes: each layer into its own full-surface texture — but **reused**
+        // as is when its content has not changed, which is the GPU-side cache.
         let mut layers: Vec<LayerComposite> = Vec::new();
         let mut layer_index = 0usize;
         for primitive in scene.primitives() {
@@ -550,14 +549,14 @@ impl Painters {
             } = primitive
             {
                 let view = self.layer_texture(device, queue, format, layer_index, primitives, w, h);
-                // Le fragment échantillonne à la position **contre-transformée** :
-                // on passe l'inverse (écran → texture). Identité si pas de transform.
+                // The fragment samples at the **counter-transformed** position, so
+                // we pass the inverse (screen → texture); identity when there is none.
                 let inverse = match transform {
                     Some(t) => t.affine.inverse().m,
                     None => frus_core::Affine::IDENTITY.m,
                 };
-                // Forme de découpe : (kind, rayons par coin) — SDF au fragment pour
-                // rect/rrect/oval ; un **masque** rendu pour un chemin arbitraire.
+                // The clip shape: (kind, per-corner radii) — an SDF in the fragment
+                // shader for rect/rrect/oval, a rendered **mask** for a free path.
                 let (shape, radii) = match clip_shape {
                     frus_core::ClipShape::Rect => ([0.0, 0.0, 0.0, 0.0], [0.0; 4]),
                     frus_core::ClipShape::RRect(br) => ([1.0, 0.0, 0.0, 0.0], br.to_array()),
@@ -582,7 +581,7 @@ impl Painters {
                 layer_index += 1;
             }
         }
-        // Oublie les calques disparus (la scène en a moins qu'à la frame passée).
+        // Forget vanished layers: the scene has fewer than it had last frame.
         self.layer_cache.truncate(layer_index);
 
         self.composite
@@ -592,8 +591,8 @@ impl Painters {
         let image_count = self.image.prepare_frame(device, queue, scene);
         let path_count = self.path.prepare_frame(device, queue, scene);
 
-        // MSAA : on peint dans la texture multi-échantillon puis on résout vers
-        // `target` ; sans MSAA on peint directement dans `target`.
+        // With MSAA we paint into the multisampled texture then resolve to `target`;
+        // without it we paint straight into `target`.
         let msaa_view = self.ensure_msaa(device, format, w, h);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -631,11 +630,11 @@ impl Painters {
         queue.submit(std::iter::once(encoder.finish()));
     }
 
-    /// Renvoie la vue de la texture d'un calque : **réutilisée** telle quelle si
-    /// son contenu et ses dimensions sont inchangés depuis la frame précédente,
-    /// sinon (re)rendue par [`Painters::render_group`]. `index` = rang du calque
-    /// dans la scène, clé stable du cache ; une clé qui « glisse » (calques
-    /// réordonnés) ne fait que rater le cache → re-render correct, jamais faux.
+    /// Returns the view of a layer's texture: **reused** as is when its content and
+    /// dimensions are unchanged since the previous frame, otherwise (re)rendered by
+    /// [`Painters::render_group`]. `index` is the layer's rank in the scene, a stable
+    /// cache key; a key that slips — because layers were reordered — only misses the
+    /// cache, which re-renders correctly and never wrongly.
     fn layer_texture(
         &mut self,
         device: &wgpu::Device,
@@ -669,9 +668,9 @@ impl Painters {
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
-    /// Rend un **masque de découpe** : le `path` (coordonnées écran absolues) rempli
-    /// en blanc opaque sur fond transparent, à la taille de la surface. La vue renvoyée
-    /// maintient la texture en vie (wgpu compte les références).
+    /// Renders a **clip mask**: `path`, in absolute screen coordinates, filled with
+    /// opaque white on a transparent background, at the surface's size. The returned
+    /// view keeps the texture alive, since wgpu counts references.
     fn render_mask(
         &mut self,
         device: &wgpu::Device,
@@ -692,9 +691,9 @@ impl Painters {
         tex.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
-    /// Rend un groupe de primitives sur une texture pleine surface (fond
-    /// transparent), pour compositing ultérieur. Les calques **imbriqués** ne
-    /// sont pas recompositionnés à ce niveau (limite assumée).
+    /// Renders a group of primitives into a full-surface texture with a transparent
+    /// background, for later compositing. **Nested** layers are not re-composited at
+    /// this level, an accepted limitation.
     fn render_group(
         &mut self,
         device: &wgpu::Device,
@@ -731,8 +730,8 @@ impl Painters {
         let image_count = self.image.prepare_frame(device, queue, &sub);
         let path_count = self.path.prepare_frame(device, queue, &sub);
 
-        // MSAA : le calque est peint multi-échantillon puis résolu vers sa texture
-        // mono-échantillon (celle échantillonnée ensuite par le compositeur).
+        // With MSAA the layer is painted multisampled then resolved to its
+        // single-sample texture, the one the compositor samples afterwards.
         let msaa_view = self.ensure_msaa(device, format, w, h);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -749,7 +748,7 @@ impl Painters {
                     view: attachment,
                     resolve_target,
                     ops: wgpu::Operations {
-                        // Fond transparent : le calque ne couvre que ses primitives.
+                        // Transparent background: a layer covers only its primitives.
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
@@ -767,9 +766,9 @@ impl Painters {
         texture
     }
 
-    /// **Échauffe** tous les pipelines en rendant une petite scène qui exerce
-    /// chaque chemin de rendu (rectangle, image, chemin, texte, calque →
-    /// composite) — la première vraie frame ne compile alors plus rien.
+    /// **Warms up** every pipeline by rendering a small scene that exercises each
+    /// render path — rectangle, image, path, text, layer → composite — so the first
+    /// real frame compiles nothing.
     pub(crate) fn warm_up(
         &mut self,
         device: &wgpu::Device,
@@ -857,17 +856,17 @@ mod tests {
         })
     }
 
-    /// Un calque **statique** n'est rendu qu'une fois : la 2ᵉ frame réutilise sa
-    /// texture (aucune nouvelle pré-passe). Changer son contenu force un
-    /// re-render ; le supprimer purge le cache.
+    /// A **static** layer is rendered once: the second frame reuses its texture, with
+    /// no new pre-pass. Changing its content forces a re-render; removing it purges
+    /// the cache.
     #[test]
     fn static_layer_texture_is_reused_across_frames() {
         let Some((device, queue)) = headless() else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        // sample_count 1 : le cache est indépendant du MSAA.
+        // sample_count 1: the cache does not depend on MSAA.
         let mut painters = Painters::new(&device, &queue, format, 1);
         let tex = target(&device, format, 16);
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -879,15 +878,19 @@ mod tests {
         scene.layer(0.5, red);
 
         painters.render(&device, &queue, format, &view, 16, 16, &scene, clear);
-        assert_eq!(painters.layer_render_count(), 1, "1re frame : calque rendu");
+        assert_eq!(
+            painters.layer_render_count(),
+            1,
+            "first frame: layer rendered"
+        );
         painters.render(&device, &queue, format, &view, 16, 16, &scene, clear);
         assert_eq!(
             painters.layer_render_count(),
             1,
-            "calque inchangé : texture réutilisée"
+            "layer unchanged: texture reused"
         );
 
-        // Contenu changé → re-render.
+        // Content changed → re-render.
         let mut scene2 = Scene::new();
         scene2.layer(0.5, |s| {
             s.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), Color::rgb(0.0, 1.0, 0.0))
@@ -896,16 +899,16 @@ mod tests {
         assert_eq!(
             painters.layer_render_count(),
             2,
-            "contenu changé : re-render"
+            "content changed: re-render"
         );
 
-        // Calque disparu → cache purgé (aucune pré-passe).
+        // Layer gone → the cache is purged, with no pre-pass.
         painters.render(&device, &queue, format, &view, 16, 16, &Scene::new(), clear);
         assert_eq!(
             painters.layer_render_count(),
             2,
-            "plus de calque : rien à rendre"
+            "no layer left: nothing to render"
         );
-        assert!(painters.layer_cache.is_empty(), "cache purgé");
+        assert!(painters.layer_cache.is_empty(), "cache purged");
     }
 }

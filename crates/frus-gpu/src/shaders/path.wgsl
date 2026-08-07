@@ -1,7 +1,6 @@
-// Rendu de chemins vectoriels tessellisés : triangles indexés, chaque sommet
-// portant sa couleur (sRGB) et son rectangle de découpe. La géométrie (fill /
-// stroke) est produite côté CPU par lyon ; ce shader ne fait que projeter et
-// découper.
+// Rendering of tessellated vector paths: indexed triangles, each vertex carrying
+// its colour (sRGB) and its clip rectangle. The geometry, fill or stroke, is
+// produced on the CPU by lyon; this shader only projects and clips.
 
 struct Viewport {
     size: vec2<f32>,
@@ -11,7 +10,7 @@ struct Viewport {
 var<uniform> viewport: Viewport;
 
 struct VertexInput {
-    @location(0) pos: vec2<f32>,   // pixels (espace logique mis à l'échelle DPI)
+    @location(0) pos: vec2<f32>,   // pixels: logical space scaled by the DPI
     @location(1) color: vec4<f32>, // sRGB
     @location(2) clip: vec4<f32>,  // x, y, width, height
 };
@@ -37,8 +36,8 @@ fn vs_main(v: VertexInput) -> VertexOutput {
     return out;
 }
 
-// sRGB → linéaire : la cible sRGB ré-encode à l'écriture, donc on envoie du
-// linéaire pour restituer exactement la couleur d'auteur (idem quad.wgsl).
+// sRGB → linear: an sRGB target re-encodes on write, so we send linear to
+// reproduce the authored colour exactly, as quad.wgsl does.
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let lower = c / 12.92;
     let higher = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));

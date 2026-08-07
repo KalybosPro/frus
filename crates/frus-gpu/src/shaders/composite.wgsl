@@ -1,6 +1,6 @@
-// Compositing d'un **calque** : un quad plein-écran échantillonne la texture du
-// calque (déjà rendue) et la recompose à l'opacité de groupe, avec découpe.
-// L'échantillon est déjà linéaire (texture sRGB) : pas de reconversion.
+// **Layer** compositing: a full-screen quad samples the layer's already-rendered
+// texture and recomposes it at the group opacity, with clipping. The sample is
+// already linear, the texture being sRGB, so nothing is converted back.
 
 struct Viewport {
     size: vec2<f32>,
@@ -13,7 +13,7 @@ var<uniform> viewport: Viewport;
 var tex: texture_2d<f32>;
 @group(1) @binding(1)
 var samp: sampler;
-// Masque de découpe (ClipPath) : chemin rendu en blanc ; blanc plein sinon.
+// The clip mask (ClipPath): the path rendered in white; solid white otherwise.
 @group(1) @binding(2)
 var mask: texture_2d<f32>;
 
@@ -23,10 +23,10 @@ struct VertexInput {
 
 struct InstanceInput {
     @location(1) clip: vec4<f32>,    // x, y, width, height (px)
-    @location(2) inv_lin: vec4<f32>, // inverse affine, partie lineaire : ia, ib, ic, id
-    @location(3) inv_tr_op: vec4<f32>, // ie, if, opacite, _
+    @location(2) inv_lin: vec4<f32>, // affine inverse, linear part: ia, ib, ic, id
+    @location(3) inv_tr_op: vec4<f32>, // ie, if, opacity, _
     @location(4) shape: vec4<f32>,   // kind (0=rect,1=rrect,2=oval), _, _, _
-    @location(5) radii: vec4<f32>,   // rayons rrect : tl, tr, br, bl
+    @location(5) radii: vec4<f32>,   // rrect radii: tl, tr, br, bl
 };
 
 struct VertexOutput {
@@ -43,8 +43,8 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
-    // Le quad unité couvre tout l'écran ; la texture du calque est à la taille de
-    // la surface, donc uv = position normalisée.
+    // The unit quad covers the whole screen, and the layer texture is the size of
+    // the surface, so uv is simply the normalised position.
     let ndc = vec2<f32>(vert.unit_pos.x * 2.0 - 1.0, 1.0 - vert.unit_pos.y * 2.0);
     var out: VertexOutput;
     out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
@@ -59,29 +59,30 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
     return out;
 }
 
-// Distance signee a un rectangle a coins arrondis centre a l'origine, demi-taille
-// `half`, rayon `r` : negative dedans, positive dehors. Base des coins arrondis.
+// Signed distance to a rounded rectangle centred at the origin, of half-size
+// `half` and radius `r`: negative inside, positive outside. The basis of rounded
+// corners.
 fn sd_rounded_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
     let q = abs(p) - half + vec2<f32>(r, r);
     return length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// Rayon du coin correspondant au quadrant de `p` (centre, y vers le bas).
+// The corner radius matching `p`'s quadrant (centred, y pointing down).
 // radii = (tl, tr, br, bl).
 fn corner_radius(p: vec2<f32>, radii: vec4<f32>) -> f32 {
     if (p.x < 0.0) {
-        return select(radii.w, radii.x, p.y < 0.0); // gauche : haut → tl, bas → bl
+        return select(radii.w, radii.x, p.y < 0.0); // left: top → tl, bottom → bl
     }
-    return select(radii.z, radii.y, p.y < 0.0);     // droite : haut → tr, bas → br
+    return select(radii.z, radii.y, p.y < 0.0);     // right: top → tr, bottom → br
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Transformation du calque : la texture contient le contenu **à plat** (non
-    // transformé) à sa position écran. Pour peindre le calque transformé par M, on
-    // échantillonne à la position **contre-transformée** M⁻¹(p) : le pixel écran p
-    // reçoit le contenu qui, transformé par M, atterrit en p. `inv_lin = ia,ib,ic,id`,
-    // `inv_tr = ie,if` : src = (ia·x + ic·y + ie, ib·x + id·y + if).
+    // The layer transform: the texture holds the content **flat** — untransformed —
+    // at its screen position. To paint the layer transformed by M we sample at the
+    // **counter-transformed** position M⁻¹(p), so screen pixel p receives the content
+    // that, transformed by M, lands on p. With `inv_lin = ia,ib,ic,id` and
+    // `inv_tr = ie,if`: src = (ia·x + ic·y + ie, ib·x + id·y + if).
     let p = in.frag_px;
     let src_px = vec2<f32>(
         in.inv_lin.x * p.x + in.inv_lin.z * p.y + in.inv_tr.x,
@@ -89,18 +90,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     let src_uv = src_px / viewport.size;
 
-    // Hors de la texture après contre-rotation : rien (bord transparent).
+    // Outside the texture after counter-rotation: nothing, a transparent edge.
     let in_bounds = f32(
         src_uv.x >= 0.0 && src_uv.x <= 1.0 && src_uv.y >= 0.0 && src_uv.y <= 1.0
     );
-    // Couverture de découpe, testée sur le pixel écran, **inscrite** dans `clip` :
-    // rectangle net (kind 0), coins arrondis (kind 1) ou ellipse (kind 2). Les
-    // formes courbes sont anticrénelées sur ~1 px via la distance signee.
+    // Clip coverage, tested on the screen pixel and **inscribed** in `clip`: a hard
+    // rectangle (kind 0), rounded corners (kind 1) or an ellipse (kind 2). The curved
+    // shapes are antialiased over roughly 1 px through the signed distance.
     let center = in.clip.xy + in.clip.zw * 0.5;
     let half = in.clip.zw * 0.5;
     let q = in.frag_px - center;
     let kind = in.shape.x;
-    // Test rectangulaire (borne commune : rect nu et **borne** d'un chemin).
+    // The rectangular test, shared by a bare rect and a path's **bounds**.
     let in_rect = f32(
         in.frag_px.x >= in.clip.x
         && in.frag_px.x <= in.clip.x + in.clip.z
@@ -109,27 +110,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     var clip_cov: f32;
     if (kind < 0.5) {
-        clip_cov = in_rect; // rectangle net (comportement d'origine)
+        clip_cov = in_rect; // a hard rectangle, the original behaviour
     } else if (kind < 1.5) {
-        // Coins arrondis **par coin** : rayon du quadrant, borne a la demi-plus-petite
-        // dimension.
+        // Rounded corners, **per corner**: the quadrant's radius, capped at half the
+        // smaller dimension.
         let r = min(corner_radius(q, in.radii), min(half.x, half.y));
         let d = sd_rounded_box(q, half, r);
         clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
     } else if (kind < 2.5) {
-        // Ellipse inscrite : distance approchee (gradient-normalise) au bord.
+        // The inscribed ellipse: an approximate, gradient-normalised edge distance.
         let e = q / max(half, vec2<f32>(1.0, 1.0));
         let g = length(e);
         let d = (g - 1.0) * min(half.x, half.y);
         clip_cov = 1.0 - smoothstep(-0.5, 0.5, d);
     } else {
-        clip_cov = in_rect; // chemin : borne rectangulaire ; la forme vient du masque
+        clip_cov = in_rect; // a path: rectangular bounds; the shape comes from the mask
     }
-    // Masque de couverture (blanc plein hors ClipPath → multiplication neutre).
+    // The coverage mask: solid white outside ClipPath → a neutral multiplication.
     let mask_a = textureSample(mask, samp, in.uv).a;
     let inside_clip = clip_cov * mask_a;
     let sample = textureSample(tex, samp, src_uv);
-    // Alpha droit ×  opacité de groupe : le blend (SrcAlpha, 1-SrcAlpha) réalise
-    // le « over » correct — pas de double-superposition interne au calque.
+    // Straight alpha × the group opacity: the (SrcAlpha, 1-SrcAlpha) blend performs
+    // the correct "over", with no double-blending inside the layer.
     return vec4<f32>(sample.rgb, sample.a * in.opacity * inside_clip * in_bounds);
 }
