@@ -1,10 +1,10 @@
-//! Le pilote générique : implémente [`winit::application::ApplicationHandler`]
-//! pour n'importe quelle [`Application`].
+//! The generic driver: implements [`winit::application::ApplicationHandler`] for
+//! any [`Application`].
 //!
-//! Le framework possède la fenêtre, le renderer, le [`Runtime`] (état
-//! d'interaction retenu : survol/focus/scroll/édition/animations), le routage des
-//! entrées par hit-test, le glissement (barres, sélection, poignées, geste retour)
-//! et l'horloge d'animation. L'application ne fournit que `update`/`view`/… .
+//! The framework owns the window, the renderer, the [`Runtime`] — the retained
+//! interaction state: hover, focus, scroll, editing, animations — input routing by
+//! hit test, dragging (scrollbars, selection, handles, the back gesture) and the
+//! animation clock. The application supplies only `update`, `view` and friends.
 
 use std::collections::HashMap;
 #[cfg(not(web))]
@@ -31,11 +31,11 @@ use winit::window::{CursorIcon, Window, WindowId};
 use crate::application::{Application, Lifecycle};
 use crate::gesture::{PointerEvent, PointerKind, PressRecognizer};
 
-/// Presse-papier : `arboard` sur les plateformes de bureau, no-op **partout ailleurs**
-/// (Android, iOS, Web — `arboard` ne s'y compile pas et n'y est pas dépendance). Le
-/// stub est gaté sur `not(desktop)`, et non sur la liste des autres plateformes :
-/// c'est ce qui fait qu'ajouter une cible ne laisse jamais ce type indéfini.
-/// Une API uniforme, pour que le corps du pilote reste sans `cfg`.
+/// The clipboard: `arboard` on the desktop platforms, a no-op **everywhere else**
+/// (Android, iOS, Web — `arboard` does not compile there and is not a dependency).
+/// The stub is gated on `not(desktop)` rather than on a list of the other platforms:
+/// that is what makes adding a target never leave this type undefined.
+/// One uniform API, so the driver's body stays free of `cfg`.
 mod clip {
     #[cfg(desktop)]
     pub struct Clipboard(Option<arboard::Clipboard>);
@@ -70,26 +70,26 @@ mod clip {
     }
 }
 
-/// Timers navigateur (Web) : le pendant du thread `recv_timeout` des souscriptions
-/// natives. Un `setInterval` **retenu** ; son **drop** appelle `clearInterval` (et
-/// libère la closure). C'est ainsi qu'une souscription `every` ticke sur le Web, où
-/// il n'y a pas de thread de fond.
+/// Browser timers, for the Web: the counterpart of the native subscriptions'
+/// `recv_timeout` thread. A **retained** `setInterval`, whose **drop** calls
+/// `clearInterval` and releases the closure. That is how an `every` subscription
+/// ticks on the Web, where there is no background thread.
 #[cfg(web)]
 mod web_timer {
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::JsCast;
 
-    /// Un `setInterval` actif : tant que cette poignée vit, la callback est rappelée
-    /// toutes les `ms` ; son drop l'annule.
+    /// An active `setInterval`: as long as this handle lives the callback is called
+    /// back every `ms`; dropping it cancels that.
     pub(crate) struct Interval {
         id: i32,
-        // La closure JS doit vivre aussi longtemps que l'intervalle.
+        // The JS closure must live as long as the interval does.
         _closure: Closure<dyn FnMut()>,
     }
 
     impl Interval {
-        /// Programme `f` toutes les `ms` millisecondes (minimum 1 ms). `None` s'il
-        /// n'y a pas de fenêtre (contexte sans DOM).
+        /// Schedules `f` every `ms` milliseconds, 1 ms at the least. `None` when there
+        /// is no window, that is, in a DOM-less context.
         pub(crate) fn new(ms: i32, f: impl FnMut() + 'static) -> Option<Self> {
             let window = web_sys::window()?;
             let closure = Closure::wrap(Box::new(f) as Box<dyn FnMut()>);
@@ -115,53 +115,54 @@ mod web_timer {
     }
 }
 
-/// Poignée d'annulation d'une souscription active : son **drop** l'arrête.
-/// - Natif : un `Sender<()>` — le thread de la souscription sort à son prochain réveil.
-/// - Web : un `setInterval` retenu (`None` si l'installation a échoué).
+/// An active subscription's cancellation handle: **dropping** it stops the
+/// subscription.
+/// - Native: a `Sender<()>` — the subscription's thread exits at its next wake-up.
+/// - Web: a retained `setInterval` (`None` when installing it failed).
 #[cfg(not(web))]
 type SubHandle = Sender<()>;
 #[cfg(web)]
 type SubHandle = Option<web_timer::Interval>;
 
-/// Vitesse de défilement (pixels par cran de molette).
+/// Scroll speed, in pixels per wheel notch.
 const SCROLL_SPEED: f32 = 40.0;
 
-/// Seuil de mouvement (px logiques) au-delà duquel un appui tactile devient un
-/// défilement plutôt qu'un tap.
+/// The movement threshold, in logical px, beyond which a touch press becomes a
+/// scroll rather than a tap.
 const TOUCH_SLOP: f32 = 8.0;
 
-/// Dépassement élastique autorisé au-delà des bornes de défilement (px) — rebond.
+/// The elastic overshoot allowed past the scroll bounds, in px — the rubber band.
 const SCROLL_OVER: f32 = 48.0;
 
-/// Vitesse minimale (px/s) au relâchement d'un pan pour amorcer un fling.
+/// The minimum velocity, in px/s, on releasing a pan that starts a fling.
 const PAN_FLING_MIN: f32 = 80.0;
 
-/// Largeur (px physiques) de la zone de bord activant le geste retour.
+/// The width, in physical px, of the edge zone that arms the back gesture.
 const BACK_EDGE: f32 = 24.0;
 
-/// Aperçu de **glisser-déposer** (réordonnancement) — géométrie de peinture. La *couleur* d'ombre
-/// vient du thème (`theme.scheme.shadow`, comme le fait `Button`) ; seule la géométrie est ici, en
-/// constantes nommées plutôt qu'en nombres magiques épars.
+/// The **drag-and-drop** (reorder) preview — paint geometry only. The shadow's
+/// *colour* comes from the theme (`theme.scheme.shadow`, as `Button` does); only the
+/// geometry lives here, as named constants rather than magic numbers scattered about.
 mod drag_preview {
-    /// Décalage vertical de l'ombre portée du fantôme (px).
+    /// The vertical offset of the ghost's drop shadow, in px.
     pub const SHADOW_OFFSET_Y: f32 = 4.0;
-    /// Flou de l'ombre portée du fantôme (px).
+    /// The blur of the ghost's drop shadow, in px.
     pub const SHADOW_BLUR: f32 = 12.0;
-    /// Opacité de l'ombre du fantôme.
+    /// The opacity of the ghost's shadow.
     pub const SHADOW_ALPHA: f32 = 0.28;
-    /// Opacité du bord `primary` du fantôme.
+    /// The opacity of the ghost's `primary` border.
     pub const BORDER_ALPHA: f32 = 0.9;
-    /// Épaisseur du bord `primary` du fantôme (px).
+    /// The thickness of the ghost's `primary` border, in px.
     pub const BORDER_WIDTH: f32 = 1.5;
-    /// Léger soulèvement vertical du fantôme lors d'un glisser **horizontal** (colonnes).
+    /// A slight vertical lift of the ghost during a **horizontal** drag, for columns.
     pub const LIFT_Y: f32 = -2.0;
-    /// Épaisseur de la **ligne d'insertion** (aperçu vertical) (px).
+    /// The thickness of the **insertion line** in the vertical preview, in px.
     pub const INSERT_THICKNESS: f32 = 3.0;
 }
 
-/// Glissement en cours à la souris.
+/// A drag currently under way with the mouse.
 enum Drag {
-    /// Poignée de barre de défilement.
+    /// A scrollbar's thumb.
     Scrollbar {
         id: WidgetId,
         vertical: bool,
@@ -171,33 +172,33 @@ enum Drag {
         thumb_len: f32,
         max: f32,
     },
-    /// Sélection de texte dans un champ (avec ses bornes, pour le placement).
+    /// A text selection inside a field, with its bounds, for placement.
     TextSelect {
         id: WidgetId,
         rect: frus_widgets::Rect,
     },
-    /// Glissement d'un widget draggable (curseur/poignée) sur son axe horizontal.
-    /// `last_x` = dernière abscisse du curseur, pour livrer le **delta** aux
-    /// poignées qui accumulent (redimensionnement de colonne).
+    /// A draggable widget — a slider or a handle — dragged along its horizontal axis.
+    /// `last_x` is the pointer's last abscissa, so the **delta** can be delivered to
+    /// the handles that accumulate, such as a column resize.
     Widget {
         id: WidgetId,
         rect: frus_widgets::Rect,
         last_x: f32,
     },
-    /// Réordonnancement d'une **colonne** : on saisit un en-tête (`id`, colonne
-    /// `from`) et on le dépose sur une autre. `moved` distingue le glissement d'un
-    /// simple tap (qui reste un tri) — sous le seuil `TOUCH_SLOP` depuis `start`.
+    /// Reordering a **column**: a header is grabbed (`id`, column `from`) and dropped
+    /// onto another. `moved` tells a drag from a plain tap — which stays a sort —
+    /// by the `TOUCH_SLOP` threshold measured from `start`.
     Reorder {
         id: WidgetId,
         from: usize,
         start: Point,
         moved: bool,
     },
-    /// Déplacement (pan) d'une fenêtre interactive (`InteractiveViewer`) : le
-    /// curseur pousse le contenu. `last` = dernière position (pour le delta) ;
-    /// `moved` distingue un vrai pan d'un simple tap (sous le seuil `TOUCH_SLOP`),
-    /// afin de laisser un clic sur un enfant passer. `velocity` (px/s, lissée) alimente
-    /// le fling au relâchement ; `viewport` borne le pan au cadre.
+    /// Panning an interactive viewport (`InteractiveViewer`): the pointer pushes the
+    /// content. `last` is the previous position, for the delta; `moved` tells a real
+    /// pan from a plain tap, by the `TOUCH_SLOP` threshold, so a click on a child can
+    /// still get through. `velocity`, in px/s and smoothed, feeds the fling on
+    /// release; `viewport` bounds the pan to the frame.
     Pan {
         id: WidgetId,
         last: Point,
@@ -206,9 +207,9 @@ enum Drag {
         last_t: Instant,
         viewport: frus_widgets::Rect,
     },
-    /// Défilement d'une zone scrollable au doigt (tactile). `moved` distingue un
-    /// vrai défilement d'un simple tap (mouvement sous le seuil `TOUCH_SLOP`).
-    /// La vitesse (en espace **défilement**, px/s, lissée) alimente le fling.
+    /// Scrolling a scrollable area with a finger. `moved` tells a real scroll from a
+    /// plain tap, movement staying under the `TOUCH_SLOP` threshold. The velocity — in
+    /// **scroll** space, px/s, smoothed — feeds the fling.
     Scroll {
         id: WidgetId,
         last: Point,
@@ -216,8 +217,8 @@ enum Drag {
         velocity: (f32, f32),
         last_t: Instant,
     },
-    /// Geste « retour » : le framework mesure la progression et la vélocité du
-    /// doigt et les transmet à l'application (qui décide de la navigation).
+    /// The "back" gesture: the framework measures the finger's progress and velocity
+    /// and passes them to the application, which decides on the navigation.
     Back {
         start_x: f32,
         last_x: f32,
@@ -226,121 +227,123 @@ enum Drag {
     },
 }
 
-/// Le pilote : boucle `événement → frame` autour d'une [`Application`].
+/// The driver: an `event → frame` loop around an [`Application`].
 pub struct App<A: Application> {
-    /// L'application pilotée (état + logique).
+    /// The application being driven: its state and logic.
     app: A,
-    /// Canal pour réinjecter les messages produits par les effets (threads).
+    /// The channel that feeds back the messages effects produce, from their threads.
     proxy: EventLoopProxy<A::Message>,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
-    /// Renderer en cours d'initialisation **asynchrone** (Web uniquement) : rempli par
-    /// la future `spawn_local`, récupéré à la première frame (le Web ne peut pas
-    /// bloquer sur l'init GPU).
+    /// A renderer being initialised **asynchronously**, on the Web only: filled in by
+    /// the `spawn_local` future and picked up on the first frame, the Web being unable
+    /// to block on GPU init.
     #[cfg(web)]
     pending_renderer: std::rc::Rc<std::cell::RefCell<Option<Renderer>>>,
-    /// Pont accessibilité (AccessKit) de la fenêtre — bureau uniquement.
+    /// The window's accessibility bridge (AccessKit) — desktop only.
     #[cfg(desktop)]
     a11y: Option<crate::a11y::A11y>,
-    /// Dernière interface construite (hit-test, focus, scroll).
+    /// The last interface built, used for hit testing, focus and scrolling.
     ui: Option<Ui<A::Message>>,
-    /// Dernier arbre de widgets construit (routage clavier/édition).
+    /// The last widget tree built, used for keyboard and editing routing.
     tree: Option<Box<dyn Widget<A::Message>>>,
-    /// Dernière position connue du curseur, en pixels **logiques**.
+    /// The pointer's last known position, in **logical** pixels.
     cursor: Point,
-    /// Facteur d'échelle DPI de l'écran (physique = logique × scale × densité).
+    /// The screen's DPI scale factor (physical = logical × scale × density).
     scale: f32,
-    /// Dernière taille **logique** transmise à l'app (pour détecter les paliers).
+    /// The last **logical** size handed to the app, to detect breakpoints.
     last_size: Option<(f32, f32)>,
-    /// État retenu entre frames (survol/focus, scroll, curseur/sélection).
+    /// State retained between frames: hover and focus, scroll, caret and selection.
     runtime: Runtime,
-    /// Surveillance live-reload (dev, `FRUS_WATCH=1`) : relance sur recompilation.
+    /// Live-reload watching (development, `FRUS_WATCH=1`): relaunch on recompilation.
     reload: Option<crate::reload::ReloadWatcher>,
-    /// Inspecteur runtime actif ? (bascule F12, builds debug uniquement).
+    /// Is the runtime inspector on? Toggled by F12, in debug builds only.
     inspector: bool,
-    /// Dump de l'arbre à imprimer à la prochaine frame inspectée.
+    /// A tree dump to print on the next inspected frame.
     inspector_dump: bool,
-    /// Modificateurs clavier courants.
+    /// The current keyboard modifiers.
     shift: bool,
     ctrl: bool,
-    /// Colonne visuelle « cible » mémorisée pour Haut/Bas/PgUp/PgDn : traverser
-    /// des lignes plus courtes garde la colonne d'origine (comportement d'éditeur).
-    /// Effacée dès qu'un autre déplacement du curseur survient.
+    /// The remembered "goal" visual column for Up/Down/PgUp/PgDn: crossing shorter
+    /// lines keeps the original column, the way an editor does. Cleared as soon as any
+    /// other caret movement happens.
     goal_x: Option<f32>,
-    /// Accès presse-papier (no-op sur Android).
+    /// Clipboard access; a no-op on Android.
     clipboard: clip::Clipboard,
-    /// Effet de démarrage (`init`) déjà exécuté ? Évite de le rejouer quand la
-    /// surface est recréée (retour d'arrière-plan sur Android).
+    /// Has the startup effect (`init`) already run? This keeps it from being replayed
+    /// when the surface is recreated, as it is when Android returns from background.
     started: bool,
-    /// Instant de la dernière frame (pour le dt des animations).
+    /// The last frame's instant, for the animations' dt.
     last_frame: Option<Instant>,
-    /// Phase **build** sale : l'état de l'app (ou la taille) a changé, il faut
-    /// reconstruire la `view`. La vue est une fonction pure de `(état, thème,
-    /// taille)` — jamais du survol/scroll/focus (qui vivent dans le `Runtime`) —,
-    /// donc une frame d'animation d'interaction se contente de **repeindre**
-    /// l'arbre retenu (§1 : « un survol ne touche que paint »).
+    /// The **build** phase is dirty: the app's state, or the size, changed and the
+    /// `view` must be rebuilt. The view is a pure function of `(state, theme, size)` —
+    /// never of hover, scroll or focus, which live in the `Runtime` — so a frame that
+    /// only animates an interaction merely **repaints** the retained tree (§1: "a hover
+    /// touches paint and nothing else").
     build_dirty: bool,
-    /// Glissement souris en cours.
+    /// The mouse drag under way.
     drag: Option<Drag>,
-    /// Abscisse **lissée** du curseur pendant un réordonnancement : elle rejoint la
-    /// position réelle par ressort, donnant au coulissement des colonnes une inertie
-    /// douce (le fond « rattrape » le fantôme qui, lui, colle au curseur).
+    /// The pointer's **smoothed** abscissa during a reorder: it springs toward the
+    /// real position, giving the columns' sliding a gentle inertia — the background
+    /// catches up with the ghost, which sticks to the pointer.
     reorder_x: f32,
-    /// Ordonnée **lissée** de la **ligne d'insertion** pendant un réordonnancement
-    /// **vertical** (cartes Kanban) : elle rejoint par ressort le bord d'emplacement
-    /// **retenu** (moitié survolée), si bien que la ligne et le trou *glissent* entre
-    /// cartes au lieu de sauter — pendant vertical du ressort `reorder_x` horizontal.
+    /// The **smoothed** ordinate of the **insertion line** during a **vertical**
+    /// reorder, that is, Kanban cards: it springs toward the **chosen** slot edge, the
+    /// hovered half, so that the line and the gap *slide* between cards instead of
+    /// jumping — the vertical counterpart of the horizontal `reorder_x` spring.
     reorder_y: f32,
-    /// Dernier message d'**annonce** poussé à la région live AccessKit (lecteur
-    /// d'écran). Persiste tel quel : il n'est re-énoncé qu'au changement, si bien
-    /// qu'un même texte reconduit chaque frame ne se répète pas. Bureau uniquement.
+    /// The last **announcement** pushed to AccessKit's live region, for the screen
+    /// reader. It persists as is: it is re-spoken only on a change, so the same text
+    /// carried over every frame does not repeat. Desktop only.
     #[cfg(desktop)]
     announce: String,
-    /// Reconnaisseur tap-ou-appui-long (palier 1 des gestes).
+    /// The tap-or-long-press recogniser (gesture tier 1).
     press: PressRecognizer,
-    /// Message d'appui long de la cible pressée, capturé à l'appui.
+    /// The pressed target's long-press message, captured on the press.
     long_press_msg: Option<A::Message>,
-    /// Instant du dernier clic (détection du double-clic).
+    /// The last click's instant, for double-click detection.
     last_click_time: Option<Instant>,
-    /// Compteur pour clés d'événements de sortie (fondu de disparition).
+    /// A counter for the keys of leaving events, which fade out.
     leaving_counter: u64,
-    /// Souscriptions actives : id → poignée d'annulation (drop = arrêt).
+    /// The running subscriptions: id → cancellation handle, dropping which stops it.
     running_subs: HashMap<u64, SubHandle>,
-    /// Demandes de focus en attente (clés issues de `Command::focus`), résolues
-    /// contre l'arbre **fraîchement construit** à la prochaine frame.
+    /// Pending focus requests — the keys `Command::focus` produced — resolved against
+    /// the **freshly built** tree on the next frame.
     pending_focus: Vec<u64>,
-    /// **Historique de focus** (déclencheurs) pour le retour du focus à la fermeture d'un
-    /// overlay : à chaque changement de focus, l'ancien (encore présent) est empilé ; si le
-    /// focus **disparaît** (menu/modale fermé), on revient au plus récent encore présent.
+    /// The **focus history** of triggers, for returning focus when an overlay closes:
+    /// on every focus change the old one, if still present, is pushed; when focus
+    /// **vanishes** because a menu or modal closed, we go back to the most recent
+    /// entry that is still present.
     focus_history: Vec<WidgetId>,
-    /// Focus de la frame précédente (pour détecter les transitions à empiler).
+    /// The previous frame's focus, to detect the transitions worth pushing.
     prev_focus: Option<WidgetId>,
-    /// Fenêtre masquée (occultée) : on suspend le rendu.
+    /// The window is occluded, so rendering is suspended.
     occluded: bool,
-    /// Temps écoulé cumulé (secondes), pour les animations continues.
+    /// Cumulative elapsed time, in seconds, for the continuous animations.
     elapsed: f32,
-    /// Derniers insets fenêtre transmis à l'app (padding + clavier), en logique.
+    /// The last window insets handed to the app — padding plus keyboard — in logical px.
     last_insets: WindowInsets,
-    /// Référence d'insets **sans clavier** (et la taille physique où elle a été
-    /// prise — une rotation la réinitialise) : l'excédent bas au-delà d'elle est
-    /// attribué au clavier logiciel.
+    /// The **keyboard-free** inset baseline, along with the physical size it was
+    /// taken at — a rotation resets it: whatever bottom inset exceeds it is credited
+    /// to the software keyboard.
     inset_baseline: Option<(Insets, (u32, u32))>,
-    /// Poignée de l'activité Android (pour interroger les insets, le clavier…).
-    /// État du **cycle de vie** courant — pour ne notifier l'app qu'aux **transitions** réelles.
+    /// The Android activity's handle, used to query the insets, the keyboard and so on.
+    /// The current **lifecycle** state, so the app is notified only on real
+    /// **transitions**.
     lifecycle: Lifecycle,
     #[cfg(android)]
     android_app: Option<winit::platform::android::activity::AndroidApp>,
-    /// Le clavier logiciel est-il demandé ? (suit le focus des champs texte).
+    /// Is the software keyboard being asked for? It follows the text fields' focus.
     #[cfg(android)]
     soft_input_shown: bool,
-    /// Longueur (en caractères) de la **composition** IME en cours dans le
-    /// champ focalisé — remplacée à chaque mise à jour de l'IME.
+    /// The length, in characters, of the IME **composition** under way in the focused
+    /// field; it is replaced on every IME update.
     #[cfg(android)]
     ime_composing: usize,
 }
 
 impl<A: Application> App<A> {
-    /// Crée le pilote autour d'une application et de son canal de messages.
+    /// Creates the driver around an application and its message channel.
     pub fn new(app: A, proxy: EventLoopProxy<A::Message>) -> Self {
         Self {
             app,
@@ -384,7 +387,7 @@ impl<A: Application> App<A> {
             elapsed: 0.0,
             last_insets: WindowInsets::ZERO,
             inset_baseline: None,
-            // L'app démarre « détachée » ; `resumed` la passera à `Resumed`.
+            // The app starts out detached; `resumed` will move it to `Resumed`.
             lifecycle: Lifecycle::Detached,
             #[cfg(android)]
             android_app: None,
@@ -395,8 +398,8 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Rejoue les actions demandées par une technologie d'assistance : un clic
-    /// AT active le widget (comme un clic pointeur), un focus AT le focalise.
+    /// Replays the actions an assistive technology asked for: an AT click activates
+    /// the widget, exactly as a pointer click would, and an AT focus focuses it.
     #[cfg(desktop)]
     fn drain_a11y_actions(&mut self) {
         use crate::a11y::A11yAction;
@@ -421,9 +424,9 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Synchronise le **clavier logiciel** avec le focus : demandé quand le
-    /// focus est dans un champ texte (`cursor_at` → `Some`), refermé sinon.
-    /// Appelé en fin de frame (tout changement de focus redessine déjà).
+    /// Keeps the **software keyboard** in step with focus: asked for when focus is in
+    /// a text field (`cursor_at` → `Some`), closed otherwise. Called at the end of a
+    /// frame, since any focus change already triggers a redraw.
     fn sync_soft_input(&mut self) {
         #[cfg(android)]
         {
@@ -442,7 +445,7 @@ impl<A: Application> App<A> {
                 self.soft_input_shown = editing;
                 self.ime_composing = 0;
                 if crate::android_ime::installed() {
-                    // Pont InputConnection : la view Java capte l'IME.
+                    // The InputConnection bridge: the Java view captures the IME.
                     if editing {
                         if let Some(id) = self.runtime.input.focused {
                             self.push_ime_context(id);
@@ -453,7 +456,7 @@ impl<A: Application> App<A> {
                         crate::android_ime::stop_input();
                     }
                 } else if let Some(app) = &self.android_app {
-                    // Repli TYPE_NULL : ouverture simple, touches latines.
+                    // The TYPE_NULL fallback: a plain open, Latin keys only.
                     if editing {
                         app.show_soft_input(true);
                     } else {
@@ -464,7 +467,7 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Notifie l'app d'un **changement** de cycle de vie (jamais deux fois le même état d'affilée).
+    /// Notifies the app of a lifecycle **change**; never the same state twice in a row.
     fn set_lifecycle(&mut self, state: Lifecycle) {
         if self.lifecycle != state {
             self.lifecycle = state;
@@ -472,13 +475,14 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Redemande **explicitement** le clavier logiciel pour le champ focalisé — appelé quand
-    /// l'utilisateur **tape dans un champ texte** (même déjà focalisé). Indispensable car le clavier
-    /// peut avoir été fermé par le **bouton retour système** sans que l'app en soit notifiée :
-    /// `soft_input_shown` reste alors `true` et le focus ne change pas au ré-appui, donc le diff de
-    /// [`sync_soft_input`](Self::sync_soft_input) ne verrait aucun changement et ne rouvrirait
-    /// jamais le clavier. Ici on rouvre inconditionnellement — comportement natif : taper dans un
-    /// champ montre le clavier.
+    /// **Explicitly** asks for the software keyboard again, for the focused field —
+    /// called when the user **taps in a text field**, even one already focused. This is
+    /// indispensable because the keyboard may have been closed by the **system back
+    /// button** without the app being told: `soft_input_shown` then stays `true` and
+    /// focus does not change on the next tap, so
+    /// [`sync_soft_input`](Self::sync_soft_input)'s diff would see no change and never
+    /// reopen the keyboard. Here it is reopened unconditionally — the native behaviour:
+    /// tapping in a field shows the keyboard.
     fn request_soft_input(&mut self) {
         #[cfg(android)]
         {
@@ -495,10 +499,10 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Applique les opérations IME en attente au champ focalisé (pont §6).
-    /// La composition est matérialisée **dans le champ** : chaque mise à jour
-    /// efface la précédente (le modèle contrôlé n'a pas encore de région de
-    /// composition stylée — voir docs/jalon-81.md).
+    /// Applies the pending IME operations to the focused field (the §6 bridge). The
+    /// composition is materialised **in the field**: each update erases the previous
+    /// one, the controlled model having no styled composition region yet — see
+    /// docs/jalon-81.md.
     #[cfg(android)]
     fn drain_ime(&mut self) {
         use crate::android_ime::ImeEvent;
@@ -512,7 +516,7 @@ impl<A: Application> App<A> {
         };
         for event in events {
             match event {
-                // Un commit `\n` (certains IME) = soumission, pas insertion.
+                // A `\n` commit, which some IMEs send, means submit, not insert.
                 ImeEvent::Commit(text) if text == "\n" || text == "\r" => {
                     self.clear_composing(focused);
                     self.apply_key(focused, Key::Enter);
@@ -525,7 +529,7 @@ impl<A: Application> App<A> {
                     self.clear_composing(focused);
                     let n = text.chars().count();
                     self.ime_composing = n;
-                    // Position AVANT insertion = début de la région composée.
+                    // The position BEFORE insertion is where the composed region starts.
                     let start = self
                         .runtime
                         .edits
@@ -535,7 +539,7 @@ impl<A: Application> App<A> {
                     if !text.is_empty() {
                         self.apply_key(focused, Key::Text(text));
                     }
-                    // Enregistre la plage soulignée (curseur désormais en fin).
+                    // Record the underlined range; the caret now sits at its end.
                     if let Some(edit) = self.runtime.edits.get_mut(&focused) {
                         edit.composing = if n > 0 {
                             Some((start, start + n))
@@ -570,13 +574,13 @@ impl<A: Application> App<A> {
                 },
             }
         }
-        // Rafraîchit le contexte de saisie (l'IME l'interroge pour ses suggestions).
+        // Refresh the input context, which the IME queries for its suggestions.
         self.push_ime_context(focused);
         self.request_redraw();
     }
 
-    /// Publie l'état d'édition du champ `id` vers le pont (texte + curseur +
-    /// sélection) — le contexte que l'IME lit pour ses suggestions.
+    /// Publishes field `id`'s editing state to the bridge — text, caret and selection
+    /// — the context the IME reads for its suggestions.
     #[cfg(android)]
     fn push_ime_context(&self, id: WidgetId) {
         let value = self
@@ -590,8 +594,8 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Efface la composition courante du champ (curseur en fin de composition)
-    /// et remet la plage soulignée à zéro.
+    /// Erases the field's current composition, the caret sitting at its end, and
+    /// clears the underlined range.
     #[cfg(android)]
     fn clear_composing(&mut self, focused: WidgetId) {
         for _ in 0..self.ime_composing {
@@ -603,7 +607,7 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Mémorise la poignée de l'activité Android (source des insets système).
+    /// Remembers the Android activity's handle, the source of the system insets.
     #[cfg(android)]
     pub(crate) fn set_android_app(
         &mut self,
@@ -612,13 +616,14 @@ impl<A: Application> App<A> {
         self.android_app = Some(android_app);
     }
 
-    /// Insets système (zone de sécurité) en px **logiques**. Sur Android, dérivés
-    /// de la zone de contenu de l'activité (hors barres système) ; ailleurs, zéro.
+    /// The system insets — the safe area — in **logical** px. On Android they are
+    /// derived from the activity's content rect, outside the system bars; zero
+    /// elsewhere.
     fn compute_insets(&self, phys_w: u32, phys_h: u32, scale: f32) -> Insets {
         #[cfg(android)]
         if let Some(app) = &self.android_app {
             let r = app.content_rect();
-            // Rectangle dégénéré (avant la première mise en page) → pas d'inset.
+            // A degenerate rect, before the first layout, means no inset.
             if r.right > r.left && r.bottom > r.top {
                 let left = r.left.max(0) as f32;
                 let top = r.top.max(0) as f32;
@@ -637,15 +642,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if self.window.is_some() {
             return;
         }
-        // Retour au premier plan (ou démarrage) : la surface va (re)naître ci-dessous.
+        // Back in the foreground, or starting up: the surface is (re)born below.
         self.set_lifecycle(Lifecycle::Resumed);
 
         let mut attributes = Window::default_attributes()
             .with_title(self.app.title())
-            // Taille minimale raisonnable (px logiques) : évite une UI absurde.
+            // A sensible minimum size, in logical px, to avoid an absurd UI.
             .with_min_inner_size(winit::dpi::LogicalSize::new(360.0, 280.0));
-        // L'adaptateur AccessKit doit être créé **avant** que la fenêtre soit
-        // montrée : on la crée cachée puis on la révèle après (bureau).
+        // The AccessKit adapter must be created **before** the window is shown, so we
+        // create it hidden and reveal it afterwards. Desktop only.
         #[cfg(desktop)]
         {
             attributes = attributes.with_visible(false);
@@ -653,7 +658,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         if let Some((w, h)) = self.app.window_size() {
             attributes = attributes.with_inner_size(winit::dpi::LogicalSize::new(w, h));
         }
-        // Web : winit crée et **ajoute un `<canvas>`** au corps du document.
+        // Web: winit creates a `<canvas>` and **appends it** to the document's body.
         #[cfg(web)]
         {
             use winit::platform::web::WindowAttributesExtWebSys;
@@ -662,15 +667,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
             Err(err) => {
-                log::error!("Échec de création de la fenêtre : {err}");
+                log::error!("failed to create the window: {err}");
                 event_loop.exit();
                 return;
             }
         };
 
-        // Web : l'init GPU est **asynchrone** (impossible de bloquer). On lance la
-        // future ; le renderer prêt est récupéré à la première frame (voir
-        // `RedrawRequested`). `init` s'exécute tout de suite (il ne touche pas le GPU).
+        // Web: GPU init is **asynchronous**, blocking being impossible. We start the
+        // future, and the ready renderer is picked up on the first frame — see
+        // `RedrawRequested`. `init` runs right away, since it does not touch the GPU.
         #[cfg(web)]
         {
             self.scale = window.scale_factor() as f32;
@@ -691,7 +696,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         *slot.borrow_mut() = Some(r);
                         win.request_redraw();
                     }
-                    Err(err) => log::error!("Échec d'initialisation du renderer (Web) : {err:#}"),
+                    Err(err) => log::error!("failed to initialise the renderer (Web): {err:#}"),
                 }
             });
             return;
@@ -709,8 +714,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             match renderer {
                 Ok(renderer) => {
                     self.scale = window.scale_factor() as f32;
-                    // Pont accessibilité (AccessKit) — créé pendant que la fenêtre
-                    // est encore cachée, puis on la révèle. Inerte sans lecteur d'écran.
+                    // The accessibility bridge (AccessKit), created while the window is
+                    // still hidden, after which we reveal it. Inert with no screen reader.
                     #[cfg(desktop)]
                     {
                         self.a11y = Some(crate::a11y::A11y::new(event_loop, &window));
@@ -718,10 +723,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                     self.window = Some(window.clone());
                     self.renderer = Some(renderer);
-                    // Surface (re)créée : forcer une reconstruction complète à la 1re frame.
+                    // The surface was (re)created: force a full rebuild on the first frame.
                     self.build_dirty = true;
-                    // Effet de démarrage (chargement initial, etc.) : une seule fois,
-                    // pas à chaque recréation de surface (retour d'arrière-plan).
+                    // The startup effect, an initial load and so on: once only, not on
+                    // every surface recreation, such as returning from the background.
                     if !self.started {
                         self.started = true;
                         let command = self.app.init();
@@ -731,61 +736,62 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     window.request_redraw();
                 }
                 Err(err) => {
-                    log::error!("Échec d'initialisation du renderer : {err:#}");
+                    log::error!("failed to initialise the renderer: {err:#}");
                     event_loop.exit();
                 }
             }
         }
     }
 
-    /// Mise en arrière-plan (Android) : la surface native est détruite. On
-    /// relâche renderer + fenêtre ; `resumed` les recrée au retour (sans rejouer
-    /// `init`, cf. `started`). Inoffensif sur bureau (l'événement n'y survient pas).
+    /// Going to the background, on Android: the native surface is destroyed. We
+    /// release the renderer and the window, and `resumed` recreates them on the way
+    /// back, without replaying `init` — see `started`. Harmless on desktop, where the
+    /// event never fires.
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
-        // Arrière-plan : la surface est perdue → l'app passe en `Paused`.
+        // Background: the surface is lost, so the app moves to `Paused`.
         self.set_lifecycle(Lifecycle::Paused);
         self.renderer = None;
         self.window = None;
         self.last_frame = None;
     }
 
-    /// Fin de la boucle d'événements (fermeture) : dernière notification `Detached` — l'app peut y
-    /// persister son état avant que le processus ne disparaisse.
+    /// The event loop is ending, on close: a final `Detached` notification, where the
+    /// app can persist its state before the process disappears.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.set_lifecycle(Lifecycle::Detached);
     }
 
-    /// Message produit par un effet (thread de fond) : on l'applique et on
-    /// redemande une frame.
+    /// A message produced by an effect, on a background thread: we apply it and ask
+    /// for another frame.
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, message: A::Message) {
         self.dispatch(message);
         self.request_redraw();
     }
 
-    /// Réveil de la boucle : si l'échéance d'appui long est atteinte, le
-    /// reconnaisseur **accepte avidement** — le message est émis et le
-    /// relâchement à venir sera avalé (l'appui long évince le tap).
+    /// The loop woke up: if the long-press deadline has been reached the recogniser
+    /// **accepts eagerly** — the message is emitted and the release to come will be
+    /// swallowed, the long press having evicted the tap.
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
         if matches!(cause, StartCause::ResumeTimeReached { .. }) && self.press.poll(Instant::now())
         {
             if let Some(message) = self.long_press_msg.take() {
                 self.dispatch(message);
             }
-            // Un défilement tactile en attente n'a plus lieu d'être.
+            // A pending touch scroll no longer has any reason to exist.
             self.drag = None;
             self.request_redraw();
         }
 
-        // Opérations IME en attente (pont de saisie Android).
+        // Pending IME operations, from the Android input bridge.
         #[cfg(android)]
         self.drain_ime();
 
-        // Actions demandées par une technologie d'assistance (AccessKit).
+        // Actions an assistive technology asked for, through AccessKit.
         #[cfg(desktop)]
         self.drain_a11y_actions();
 
-        // Live-reload (dev) : binaire remplacé par une recompilation →
-        // capture l'état et relance le nouveau binaire (ne revient pas).
+        // Live reload, in development: the binary was replaced by a recompilation, so
+        // capture the state and relaunch the new binary. This does not return.
         if let Some(watcher) = self.reload.as_mut() {
             if watcher.binary_changed() {
                 watcher.handoff(self.app.save_state());
@@ -800,7 +806,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        // L'adaptateur AccessKit observe les événements fenêtre (focus, taille…).
+        // The AccessKit adapter observes the window events: focus, size and so on.
         #[cfg(desktop)]
         if let (Some(a11y), Some(window)) = (self.a11y.as_mut(), self.window.as_ref()) {
             a11y.process_event(window, &event);
@@ -809,8 +815,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
-            // Gain/perte de focus **au premier plan** : `Resumed` ⇄ `Inactive`. On ne touche pas à
-            // `Paused`/`Detached` (arrière-plan/fermeture) — décidés par `suspended`/`exiting`.
+            // Gaining or losing focus **in the foreground**: `Resumed` ⇄ `Inactive`. We
+            // leave `Paused`/`Detached` — background and closing — alone; those are
+            // decided by `suspended` and `exiting`.
             WindowEvent::Focused(focused) => {
                 if !matches!(self.lifecycle, Lifecycle::Paused | Lifecycle::Detached) {
                     self.set_lifecycle(if focused {
@@ -832,7 +839,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
-                // Reconfigure la surface à la taille physique courante.
+                // Reconfigure the surface to the current physical size.
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
                     if let Some(renderer) = self.renderer.as_mut() {
@@ -849,10 +856,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
             }
 
-            // Toutes les sources pointeur (souris, tactile) convergent vers
-            // l'entrée **normalisée** `pointer()` — palier 0 des gestes, avec
-            // `Cancel` explicite. winit fournit des px physiques ; on travaille
-            // en logique (échelle totale = DPI × densité).
+            // Every pointer source, mouse and touch alike, converges on the
+            // **normalised** `pointer()` input — gesture tier 0, with an explicit
+            // `Cancel`. winit hands us physical px; we work in logical ones, the total
+            // scale being DPI × density.
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.total_scale();
                 let position = Point::new(position.x as f32 / scale, position.y as f32 / scale);
@@ -921,14 +928,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             ),
 
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                // Interaction clavier : l'anneau de focus (re)devient visible.
+                // A keyboard interaction: the focus ring becomes visible again.
                 if !self.runtime.focus_visible {
                     self.runtime.focus_visible = true;
                     self.request_redraw();
                 }
 
-                // Retour **système** (bouton/geste Android, touche « précédent ») :
-                // ferme l'overlay du dessus, sinon dépile un écran, sinon quitte.
+                // The **system** back — Android's button or gesture, the browser's back
+                // key: it closes the topmost overlay, else pops a screen, else quits.
                 if matches!(
                     event.logical_key,
                     WinitKey::Named(NamedKey::BrowserBack) | WinitKey::Named(NamedKey::GoBack)
@@ -939,8 +946,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     return;
                 }
 
-                // F12 : bascule l'**inspecteur** (contours + fiche du widget
-                // survolé + dump de l'arbre sur stderr) — debug uniquement.
+                // F12 toggles the **inspector**: outlines, a card for the hovered
+                // widget, and a tree dump on stderr. Debug builds only.
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::F12)) {
                     if cfg!(debug_assertions) && !event.repeat {
                         self.inspector = !self.inspector;
@@ -950,7 +957,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     return;
                 }
 
-                // Tab / Shift+Tab : navigue entre les focusables (même sans focus).
+                // Tab and Shift+Tab move between focusables, even with nothing focused.
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::Tab)) {
                     let forward = !self.shift;
                     let next = self
@@ -964,11 +971,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     return;
                 }
 
-                // Échap : montée **feuille→racine** depuis le focalisé (un
-                // `Portal` la consomme pour se fermer) ; à défaut, fermeture de
-                // l'overlay le plus au-dessus — Échap marche donc sans focus.
+                // Escape walks **leaf to root** from the focused widget — a `Portal`
+                // consumes it to close itself — and failing that closes the topmost
+                // overlay, so Escape works with nothing focused.
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
-                    // La répétition automatique ne re-déclenche pas de fermeture.
+                    // Auto-repeat does not trigger another close.
                     if !event.repeat {
                         self.escape();
                     }
@@ -979,9 +986,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     return;
                 };
 
-                // Flèches : navigation **géométrique** du focus — sauf gauche/
-                // droite dans un champ texte (elles y déplacent le curseur ;
-                // haut/bas naviguent même depuis un champ mono-ligne).
+                // Arrows navigate focus **geometrically** — except left and right in a
+                // text field, where they move the caret; up and down navigate even out
+                // of a single-line field.
                 let arrow = match event.logical_key {
                     WinitKey::Named(NamedKey::ArrowUp) => Some(FocusDirection::Up),
                     WinitKey::Named(NamedKey::ArrowDown) => Some(FocusDirection::Down),
@@ -989,8 +996,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     WinitKey::Named(NamedKey::ArrowRight) => Some(FocusDirection::Right),
                     _ => None,
                 };
-                // PgUp / PgDn : saut d'une **page** dans un champ multi-lignes (borné
-                // au champ, on n'en sort pas). Sans effet ailleurs.
+                // PgUp and PgDn jump a **page** inside a multi-line field, bounded to
+                // the field so they never leave it. No effect anywhere else.
                 if matches!(
                     event.logical_key,
                     WinitKey::Named(NamedKey::PageUp) | WinitKey::Named(NamedKey::PageDown)
@@ -1002,9 +1009,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 }
 
                 if let Some(direction) = arrow {
-                    // Champ **multi-lignes** : Haut/Bas déplacent le caret entre lignes
-                    // tant qu'il reste dans le champ ; à la première/dernière ligne, on
-                    // retombe sur la navigation du focus (on quitte le champ).
+                    // In a **multi-line** field, Up and Down move the caret between
+                    // lines while it stays in the field; on the first or last line we
+                    // fall back to focus navigation and leave the field.
                     if matches!(direction, FocusDirection::Up | FocusDirection::Down) {
                         let down = matches!(direction, FocusDirection::Down);
                         if self.move_caret_vertical(focused, down, false) {
@@ -1012,9 +1019,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         }
                     }
 
-                    // Flèches gauche/droite : proposées d'abord au widget focalisé
-                    // (curseur de plage…) via `on_key`. S'il les consomme, on n'en
-                    // navigue pas le focus.
+                    // Left and right arrows are offered to the focused widget first —
+                    // a range slider, say — through `on_key`. If it consumes them, focus
+                    // does not move.
                     if matches!(direction, FocusDirection::Left | FocusDirection::Right) {
                         let key = if matches!(direction, FocusDirection::Left) {
                             Key::Left {
@@ -1031,9 +1038,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             .tree
                             .as_ref()
                             .and_then(|tree| find_widget(tree.as_ref(), focused));
-                        // Un en-tête réordonnable déplace sa colonne d'un cran ; on
-                        // capte sa position pour l'annoncer (le clavier est le chemin
-                        // de réordonnancement des utilisateurs de lecteur d'écran).
+                        // A reorderable header moves its column by one; we capture its
+                        // position to announce it, the keyboard being how screen-reader
+                        // users reorder.
                         let reorder_from = widget.and_then(|w| w.reorder_index());
                         let handled = widget.map(|w| w.on_key(&key));
                         if let Some(KeyResponse::Handled(message)) = handled {
@@ -1077,9 +1084,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // Début/Fin proposées au widget focalisé (curseur de plage → min/max)
-                // avant l'action par défaut. Un champ texte les ignore ici (`on_key`
-                // Ignored) et retombe sur l'édition normale plus bas.
+                // Home and End are offered to the focused widget — a range slider maps
+                // them to min and max — before the default action. A text field ignores
+                // them here (`on_key` returns Ignored) and falls back to ordinary
+                // editing further down.
                 if matches!(
                     event.logical_key,
                     WinitKey::Named(NamedKey::Home) | WinitKey::Named(NamedKey::End)
@@ -1109,9 +1117,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // Activation clavier (Entrée/Espace) d'un focusable cliquable
-                // (bouton, case, interrupteur). Les champs texte (sans `on_click`)
-                // retombent sur l'édition normale (Entrée = soumettre, Espace = espace).
+                // Keyboard activation, Enter or Space, of a clickable focusable: a
+                // button, a checkbox, a switch. Text fields, which have no `on_click`,
+                // fall back to ordinary editing — Enter submits, Space is a space.
                 if matches!(
                     event.logical_key,
                     WinitKey::Named(NamedKey::Enter) | WinitKey::Named(NamedKey::Space)
@@ -1123,11 +1131,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .filter(|widget| widget.focusable());
                     let message = widget.and_then(|widget| widget.on_click());
                     if let Some(message) = message {
-                        // La répétition automatique ne mitraille pas l'activation
-                        // (maintenir Espace sur un bouton = un seul clic).
+                        // Auto-repeat does not machine-gun the activation: holding
+                        // Space on a button is one single click.
                         if !event.repeat {
-                            // Annonce vocale de l'effet (tri, sélection…), capturée
-                            // avant la reconstruction que déclenche `dispatch`.
+                            // The spoken announcement of the effect — a sort, a
+                            // selection — captured before `dispatch` rebuilds the tree.
                             let announce = widget.and_then(|widget| widget.announce());
                             self.dispatch(message);
                             if let Some(announce) = announce {
@@ -1139,7 +1147,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // Raccourcis presse-papier (Ctrl+C/X/V/A).
+                // The clipboard shortcuts, Ctrl+C/X/V/A.
                 if self.ctrl {
                     match &event.logical_key {
                         WinitKey::Character(c) if c.eq_ignore_ascii_case("c") => {
@@ -1175,10 +1183,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // Pont de saisie actif : l'édition passe EXCLUSIVEMENT par
-                // l'InputConnection (file IME) — la view pont reçoit aussi les
-                // touches matérielles. Sans cette garde, chaque frappe
-                // arriverait en double (file native winit + pont).
+                // With the input bridge active, editing goes EXCLUSIVELY through the
+                // InputConnection, that is, the IME queue — the bridge view receives the
+                // hardware keys too. Without this guard every keystroke would arrive
+                // twice, once from winit's native queue and once from the bridge.
                 #[cfg(android)]
                 if crate::android_ime::installed() {
                     return;
@@ -1188,11 +1196,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let key = match &event.logical_key {
                     WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
                     WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
-                    // La répétition d'Entrée ne re-soumet pas (le texte et
-                    // l'effacement, eux, répètent normalement).
+                    // Repeating Enter does not submit again; text and deletion do
+                    // repeat normally.
                     WinitKey::Named(NamedKey::Enter) if !event.repeat => Some(Key::Enter),
                     WinitKey::Named(NamedKey::Enter) => None,
-                    // Ctrl : Gauche/Droite sautent un mot, Début/Fin bornent le champ.
+                    // With Ctrl, Left/Right jump a word and Home/End bound the field.
                     WinitKey::Named(NamedKey::ArrowLeft) => Some(Key::Left {
                         shift,
                         word: self.ctrl,
@@ -1210,9 +1218,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         doc: self.ctrl,
                     }),
                     WinitKey::Named(NamedKey::Space) => Some(Key::Text(" ".to_string())),
-                    // Android livre Entrée en `Character("\n")` (KeyCharacterMap),
-                    // pas en `Named(Enter)` : même soumission, sans insérer de
-                    // retour à la ligne dans le champ.
+                    // Android delivers Enter as `Character("\n")`, through the
+                    // KeyCharacterMap, rather than `Named(Enter)`: the same submission,
+                    // without inserting a line break into the field.
                     WinitKey::Character(c) if c == "\n" || c == "\r" => {
                         if event.repeat {
                             None
@@ -1232,19 +1240,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             WindowEvent::MouseWheel { delta, .. } => {
                 let (mut dx, mut dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * SCROLL_SPEED, y * SCROLL_SPEED),
-                    // Delta physique → logique.
+                    // Physical delta → logical.
                     MouseScrollDelta::PixelDelta(pos) => {
                         let scale = self.total_scale();
                         (pos.x as f32 / scale, pos.y as f32 / scale)
                     }
                 };
-                // Shift : la molette défile horizontalement.
+                // With Shift, the wheel scrolls horizontally.
                 if self.shift {
                     dx = dy;
                     dy = 0.0;
                 }
-                // Fenêtre interactive sous le curseur : la molette **zoome** (ancré au
-                // curseur), bornée par les échelles min/max du widget.
+                // Over an interactive viewport the wheel **zooms**, anchored at the
+                // pointer and bounded by the widget's min and max scales.
                 if let Some((id, viewport)) = self
                     .ui
                     .as_ref()
@@ -1256,12 +1264,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .and_then(|tree| find_widget(tree.as_ref(), id))
                         .and_then(|w| w.interactive())
                         .unwrap_or((0.5, 4.0));
-                    // Molette vers le haut (`dy > 0`) = zoom avant. Pas doux (~1.1×/cran).
+                    // Wheel up (`dy > 0`) zooms in, in gentle steps of about 1.1× a notch.
                     let factor = (1.0 + dy * 0.1 / SCROLL_SPEED).clamp(0.2, 5.0);
-                    // Le zoom coupe un fling en cours.
+                    // Zooming cuts off a fling in progress.
                     self.runtime.interactive_velocity.remove(&id);
                     let view = self.runtime.interactive.entry(id).or_default();
-                    // Zoom ancré au curseur, puis bornage au cadre.
+                    // Zoom anchored at the pointer, then bounded to the frame.
                     *view = view
                         .zoom_at(factor, self.cursor, min, max)
                         .clamped(viewport);
@@ -1271,8 +1279,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if let Some((id, max_x, max_y)) =
                     self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
                 {
-                    // Défilement à inertie : la molette pousse la CIBLE (avec un
-                    // léger dépassement élastique) ; le ressort la rejoint en douceur.
+                    // Scrolling with inertia: the wheel pushes the TARGET, with a
+                    // little elastic overshoot, and the spring eases across to it.
                     let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                     let target = self.runtime.scroll_target.entry(id).or_insert(current);
                     target.0 = (target.0 - dx).clamp(-SCROLL_OVER, max_x + SCROLL_OVER);
@@ -1283,8 +1291,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::RedrawRequested => {
-                // Web : récupère le renderer initialisé de façon asynchrone dès qu'il
-                // est prêt ; tant qu'il ne l'est pas, on ne peint pas.
+                // Web: pick up the asynchronously initialised renderer as soon as it
+                // is ready; until then, nothing is painted.
                 #[cfg(web)]
                 if self.renderer.is_none() {
                     match self.pending_renderer.borrow_mut().take() {
@@ -1292,7 +1300,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         None => return,
                     }
                 }
-                // Fenêtre masquée : rendu suspendu (reprise sur Occluded(false)).
+                // Occluded window: rendering is suspended, resuming on Occluded(false).
                 if self.occluded {
                     return;
                 }
@@ -1301,30 +1309,30 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|w| w.inner_size())
                     .unwrap_or_default();
-                // Minimisée / taille nulle : rien à dessiner (évite les erreurs GPU).
+                // Minimised, or zero-sized: nothing to draw, which avoids GPU errors.
                 if size.width == 0 || size.height == 0 {
-                    self.last_frame = None; // pas de saut de dt à la restauration
+                    self.last_frame = None; // no dt jump when it is restored
                     return;
                 }
-                // L'interface est décrite en pixels **logiques** ; la sortie GPU est
-                // mise à l'échelle physique (DPI × densité) juste avant le rendu.
+                // The interface is described in **logical** pixels; the GPU output is
+                // scaled to physical ones (DPI × density) just before rendering.
                 let scale = self.total_scale();
                 let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
 
-                // Changement de taille logique (resize OU densité) → notifie l'app
-                // avant la vue, pour qu'elle réagisse au palier dans sa logique.
+                // A logical size change — a resize OR a density change — notifies the
+                // app before the view, so it can react to the breakpoint in its logic.
                 if self.last_size != Some((width, height)) {
                     self.last_size = Some((width, height));
                     self.build_dirty = true;
                     self.app.on_resize(width, height);
                 }
 
-                // Insets fenêtre : sépare le **padding** statique (barres/encoche)
-                // du **clavier** (excédent bas au-delà de la référence sans
-                // clavier). La référence est prise à la première mesure pour cette
-                // taille physique (rotation → nouvelle référence), et se corrige
-                // vers le bas si un état plus « nu » apparaît (clavier ouvert au
-                // démarrage, barres masquées…).
+                // Window insets: separates the static **padding** — bars and notch —
+                // from the **keyboard**, which is whatever bottom inset exceeds the
+                // keyboard-free baseline. The baseline is taken at the first measurement
+                // for this physical size (a rotation gives a new one), and corrects
+                // downwards should a barer state appear: the keyboard open at startup,
+                // the bars hidden, and so on.
                 let raw = self.compute_insets(size.width, size.height, scale);
                 let phys = (size.width, size.height);
                 let mut baseline = match self.inset_baseline {
@@ -1345,7 +1353,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.app.on_insets(insets);
                 }
 
-                // dt écoulé (clampé), pour toutes les animations.
+                // The elapsed dt, clamped, for every animation.
                 let now = Instant::now();
                 let dt = self
                     .last_frame
@@ -1353,29 +1361,29 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .unwrap_or(0.0);
                 self.last_frame = Some(now);
 
-                // Horloge continue (secondes) pour les animations pilotées par le temps.
+                // A continuous clock, in seconds, for the time-driven animations.
                 self.elapsed += dt;
                 self.runtime.time = self.elapsed;
 
-                // L'application avance ses propres animations (thème, nav, geste).
+                // The application advances its own animations: theme, navigation, gesture.
                 let app_animating = self.app.tick(dt);
                 let theme = self.app.theme();
 
-                // === Phase BUILD (conditionnelle) ===
-                // On ne reconstruit la `view` que si l'état de l'app ou la taille ont
-                // changé (`build_dirty`), ou si l'app anime (thème/nav/geste modifient
-                // l'état lu par la vue). Une frame d'animation d'interaction pure
-                // (survol, scroll, focus, curseur) **réutilise l'arbre retenu** et ne
-                // fait que repeindre : la `view` est une fonction pure de
-                // `(état, thème, taille)`, jamais du `Runtime`.
+                // === BUILD phase, conditional ===
+                // The `view` is rebuilt only when the app's state or the size changed
+                // (`build_dirty`), or when the app is animating, theme, navigation and
+                // gesture all altering the state the view reads. A frame that animates
+                // interaction alone — hover, scroll, focus, caret — **reuses the
+                // retained tree** and merely repaints: the `view` is a pure function of
+                // `(state, theme, size)` and never of the `Runtime`.
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
                     let tree = self.app.view(&theme, width, height);
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
-                    // Sortie : capture l'instantané des widgets présents à N-1 mais
-                    // absents à N, pour les faire disparaître en fondu.
+                    // Leaving: snapshot the widgets present at N-1 but absent at N,
+                    // so they can be faded out.
                     let leaving: std::collections::HashSet<u64> = self
                         .runtime
                         .mounted
@@ -1401,7 +1409,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         }
                     }
 
-                    // Montage : les nouveaux widgets démarrent en fondu.
+                    // Mounting: new widgets start out fading in.
                     for &id in &ids {
                         if self.runtime.mounted.insert(id) {
                             self.runtime.anims.entry(id).or_default().opacity = 0.0;
@@ -1411,18 +1419,18 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                     self.tree = Some(tree);
 
-                    // La config a pu changer : invalide le cache de peinture
-                    // (frontières de repaint). Ses entrées d'une génération
-                    // périmée ne seront plus des *hits* → repaint complet cette
-                    // frame, puis réutilisation aux frames d'interaction pure.
+                    // The configuration may have changed, so invalidate the paint
+                    // cache and its repaint boundaries. Entries from a stale generation
+                    // no longer *hit*, giving a full repaint this frame and reuse on the
+                    // interaction-only frames that follow.
                     self.runtime.paint_cache.borrow_mut().bump_generation();
                 }
                 self.build_dirty = false;
 
-                // Demandes de focus (`Command::focus`) : résolues contre l'arbre qui
-                // vient d'être (re)construit — la clé désigne le champ enveloppé par
-                // `keyed(k, …)`. La plus récente qui se résout l'emporte ; l'anneau de
-                // focus (re)devient visible (on saute au champ, comme au clavier).
+                // Focus requests (`Command::focus`), resolved against the tree just
+                // (re)built — the key names the field wrapped in `keyed(k, …)`. The most
+                // recent one that resolves wins, and the focus ring becomes visible
+                // again, since we jump to the field as the keyboard would.
                 if !self.pending_focus.is_empty() {
                     let keys = std::mem::take(&mut self.pending_focus);
                     let ids: Vec<WidgetId> = self
@@ -1436,19 +1444,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // === Phase PAINT ===
-                // L'arbre retenu est (re)peint. La mise en page passe par le cache
-                // de relayout (jalon 55 : taffy rappelé seulement si structure
-                // changée) ; la peinture par le cache de repaint (jalon 88 : un
-                // sous-arbre `RepaintBoundary` statique est rejoué sans repeindre
-                // tant que sa géométrie et l'état d'interaction sont stables).
+                // === PAINT phase ===
+                // The retained tree is (re)painted. Layout goes through the relayout
+                // cache (milestone 55: taffy is called again only when the structure
+                // changed); painting goes through the repaint cache (milestone 88: a
+                // static `RepaintBoundary` subtree is replayed without repainting while
+                // its geometry and the interaction state hold still).
                 let tree = self
                     .tree
                     .as_deref()
-                    .expect("view construite au moins une fois");
+                    .expect("the view was built at least once");
 
-                // Inertie de défilement et de pan (bornes/fenêtres issues de la frame
-                // précédente).
+                // Scroll and pan inertia; the bounds and viewports come from the
+                // previous frame.
                 let scroll_maxes = self
                     .ui
                     .as_ref()
@@ -1460,13 +1468,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .map(|ui| ui.interactive_bounds())
                     .unwrap_or_default();
 
-                // Ressort du réordonnancement, selon l'axe (constante de temps ~70 ms) :
-                // - **horizontal** (colonnes de `Table`) : l'abscisse lissée `reorder_x` rejoint le
-                //   curseur — les colonnes coulissent avec inertie tandis que le fantôme colle au
-                //   curseur réel ;
-                // - **vertical** (cartes Kanban) : l'ordonnée lissée `reorder_y` rejoint le bord
-                //   d'emplacement **retenu** (moitié survolée) — la ligne d'insertion et le trou
-                //   *glissent* entre cartes au lieu de sauter (pendant vertical de `reorder_x`).
+                // The reorder spring, per axis, with a time constant of about 70 ms:
+                // - **horizontal** (`Table` columns): the smoothed `reorder_x` catches up
+                //   with the pointer — the columns slide with inertia while the ghost
+                //   sticks to the real pointer;
+                // - **vertical** (Kanban cards): the smoothed `reorder_y` catches up with
+                //   the **chosen** slot edge, the hovered half — the insertion line and
+                //   the gap *slide* between cards instead of jumping, which is the
+                //   vertical counterpart of `reorder_x`.
                 let reorder_axis = matches!(self.drag, Some(Drag::Reorder { moved: true, .. }))
                     .then(|| self.dragged_reorder_axis())
                     .flatten();
@@ -1498,9 +1507,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | reorder_animating
                     | app_animating;
-                // Inspecteur actif : la même construction collecte les nœuds
-                // observés, et le calque (contours + fiche du widget survolé)
-                // se peint par-dessus une copie de la scène.
+                // With the inspector on, the same build collects the observed nodes,
+                // and the overlay — outlines plus a card for the hovered widget — is
+                // painted on top of a copy of the scene.
                 let (ui, scene) = if self.inspector {
                     let (ui, nodes) = frus_widgets::build_ui_inspected(
                         tree,
@@ -1519,17 +1528,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         &theme,
                         &mut scene,
                     );
-                    // Scène logique → physique (DPI × densité).
+                    // Scene: logical → physical (DPI × density).
                     (ui, scene.scaled(scale))
                 } else {
                     let ui = build_ui(tree, Size::new(width, height), &self.runtime, &theme);
-                    // Aperçu d'un réordonnancement de colonne en cours, par-dessus la scène.
+                    // The preview of a column reorder under way, on top of the scene.
                     let scene = if matches!(self.drag, Some(Drag::Reorder { moved: true, .. })) {
                         let mut scene = ui.scene().clone();
                         self.paint_reorder_preview(&ui, &theme, &mut scene);
                         scene.scaled(scale)
                     } else {
-                        // Scène logique → physique (DPI × densité) pour un rendu net.
+                        // Scene: logical → physical (DPI × density), for a crisp render.
                         ui.scene().scaled(scale)
                     };
                     (ui, scene)
@@ -1541,24 +1550,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             renderer.reconfigure();
                         }
                         Err(wgpu::SurfaceError::OutOfMemory) => {
-                            log::error!("Mémoire GPU épuisée, fermeture.");
+                            log::error!("GPU memory exhausted, shutting down.");
                             event_loop.exit();
                         }
-                        Err(err) => log::warn!("Frame ignorée : {err:?}"),
+                        Err(err) => log::warn!("frame skipped: {err:?}"),
                     }
                 }
 
-                // Un widget à animation continue (spinner…) force le redessin.
+                // A continuously animating widget, a spinner say, forces a redraw.
                 let wants_animation = ui.wants_animation();
 
-                // Conserve l'interface (hit-test). L'arbre est déjà retenu.
+                // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
 
-                // Retour du focus : si le widget focalisé a **disparu** (overlay fermé),
-                // revenir au déclencheur. Fait avant l'annonce AccessKit (focus à jour).
+                // Focus return: when the focused widget has **vanished**, an overlay
+                // having closed, go back to the trigger. Done before the AccessKit
+                // announcement, so the focus it publishes is current.
                 self.reconcile_focus();
 
-                // Publie l'arbre sémantique de la frame à AccessKit.
+                // Publish the frame's semantic tree to AccessKit.
                 #[cfg(desktop)]
                 if let Some(a11y) = self.a11y.as_mut() {
                     let focus = self.runtime.input.focused;
@@ -1568,10 +1578,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     }
                 }
 
-                // Clavier logiciel Android : suit le focus des champs texte.
+                // The Android software keyboard follows the text fields' focus.
                 self.sync_soft_input();
 
-                // Tant qu'une animation tourne, on redemande une frame.
+                // While an animation is running, ask for another frame.
                 if animating || wants_animation {
                     self.request_redraw();
                 }
@@ -1583,17 +1593,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 }
 
 impl<A: Application> App<A> {
-    /// Échelle totale : DPI système × densité applicative (physique = logique × ceci).
+    /// The total scale: system DPI × app density (physical = logical × this).
     fn total_scale(&self) -> f32 {
         (self.scale * self.app.density()).max(0.1)
     }
 
-    /// Direction de mise en page courante (RTL retourne le layout et les gestes).
+    /// The current layout direction; RTL flips both the layout and the gestures.
     fn is_rtl(&self) -> bool {
         self.app.theme().direction.is_rtl()
     }
 
-    /// Largeur **logique** de la fenêtre (px), pour les seuils de bord.
+    /// The window's **logical** width, in px, for the edge thresholds.
     fn logical_width(&self) -> f32 {
         let scale = self.total_scale();
         self.window
@@ -1609,19 +1619,19 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Entrée pointeur **normalisée** (palier 0 des gestes) : souris et tactile
-    /// convergent ici, avec `Cancel` explicite ; le reconnaisseur d'appui long
-    /// est alimenté au passage et la boucle est réveillée à son échéance.
+    /// The **normalised** pointer input (gesture tier 0): mouse and touch converge
+    /// here, with an explicit `Cancel`. The long-press recogniser is fed along the way,
+    /// and the loop is woken at its deadline.
     fn pointer(&mut self, event_loop: &ActiveEventLoop, event: PointerEvent) {
         self.cursor = event.position;
         match event.kind {
             PointerKind::Down => {
-                // Interaction pointeur : l'anneau de focus clavier s'efface.
+                // A pointer interaction: the keyboard focus ring fades away.
                 self.runtime.focus_visible = false;
                 self.pointer_down(event.touch);
-                // Candidat à l'appui long : seulement si l'appui n'a pas été
-                // capturé par un glissement (barre, poignée, sélection) — un
-                // défilement tactile pas encore en mouvement reste candidat.
+                // A long-press candidate, but only if the press was not captured by a
+                // drag — a scrollbar, a handle, a selection. A touch scroll that has not
+                // moved yet stays a candidate.
                 let free = matches!(self.drag, None | Some(Drag::Scroll { moved: false, .. }));
                 self.long_press_msg = if free {
                     self.ui
@@ -1636,15 +1646,15 @@ impl<A: Application> App<A> {
             PointerKind::Move => {
                 self.press.moved(self.cursor);
                 self.pointer_move();
-                // L'inspecteur suit le curseur (surlignage) : redessine même
-                // au-dessus de widgets inertes (aucune animation de survol).
+                // The inspector follows the pointer to highlight, so it redraws even
+                // over inert widgets, which have no hover animation.
                 if self.inspector {
                     self.request_redraw();
                 }
             }
             PointerKind::Up => {
                 if self.press.up() {
-                    // L'appui long a évincé le tap : relâchement avalé.
+                    // The long press evicted the tap, so the release is swallowed.
                     self.drag = None;
                     self.runtime.input.pressed = None;
                     self.request_redraw();
@@ -1659,12 +1669,12 @@ impl<A: Application> App<A> {
                 self.request_redraw();
             }
         }
-        // Réveil de la boucle pile à la prochaine échéance, sinon repos.
+        // Wake the loop exactly at the next deadline, and rest otherwise.
         event_loop.set_control_flow(self.idle_control_flow());
     }
 
-    /// Politique de repos de la boucle : réveil à la **plus proche** des
-    /// échéances (appui long, sondage du live-reload), sinon attente pure.
+    /// The loop's idle policy: wake at the **nearest** deadline — the long press, the
+    /// live-reload poll — and otherwise wait outright.
     fn idle_control_flow(&self) -> ControlFlow {
         let press = self.press.deadline();
         let reload = self.reload.as_ref().map(|w| w.deadline());
@@ -1676,8 +1686,8 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Déplacement du pointeur (souris ou doigt) : poursuit un glissement en
-    /// cours, sinon met à jour le survol.
+    /// Pointer movement, mouse or finger: continues a drag under way, and otherwise
+    /// updates the hover.
     fn pointer_move(&mut self) {
         if self.drag.is_some() {
             self.handle_drag();
@@ -1688,14 +1698,15 @@ impl<A: Application> App<A> {
             self.runtime.input.hovered = hovered;
             self.request_redraw();
         }
-        // Curseur système selon la sous-région survolée (jalon 205) : main sur une icône
-        // cliquable, etc. Recalculé a chaque mouvement (la sous-region peut changer sans que le
-        // widget survole change).
+        // The system cursor follows the hovered sub-region (milestone 205): a hand
+        // over a clickable icon, and so on. Recomputed on every move, since the
+        // sub-region can change without the hovered widget changing.
         self.update_cursor_icon(hovered);
     }
 
-    /// Applique la forme de curseur demandee par le widget survole a la position locale du
-    /// pointeur (jalon 205), sinon le curseur par defaut. Traduit `frus_widgets::Cursor` vers winit.
+    /// Applies the cursor shape the hovered widget asks for at the pointer's local
+    /// position (milestone 205), and the default cursor otherwise. Translates
+    /// `frus_widgets::Cursor` into winit's.
     fn update_cursor_icon(&mut self, hovered: Option<WidgetId>) {
         let requested = hovered.and_then(|id| {
             let rect = self.ui.as_ref()?.widget_rect(id)?;
@@ -1715,9 +1726,10 @@ impl<A: Application> App<A> {
         if let Some(window) = &self.window {
             window.set_cursor(icon);
         }
-        // Surbrillance de sous-region (jalon 208) : on retient la position du pointeur tant qu'il
-        // survole une sous-region interactive (cursor_icon a repondu). Un changement repeint (le
-        // hash de statut inclut hover_cursor) pour suivre / retirer le halo.
+        // Sub-region highlighting (milestone 208): the pointer's position is retained
+        // while it hovers an interactive sub-region, that is, while cursor_icon answered.
+        // A change repaints — the status hash includes hover_cursor — so the halo
+        // follows the pointer or goes away.
         let hover_cursor = requested.map(|_| self.cursor);
         if hover_cursor != self.runtime.input.hover_cursor {
             self.runtime.input.hover_cursor = hover_cursor;
@@ -1725,11 +1737,11 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Appui du pointeur (souris ou doigt) à la position `self.cursor`. `touch`
-    /// active le défilement au doigt quand aucun autre geste ne capture l'appui.
+    /// A pointer press, mouse or finger, at `self.cursor`. `touch` enables finger
+    /// scrolling when no other gesture captures the press.
     fn pointer_down(&mut self, touch: bool) {
-        // 0) Geste retour : appui sur le **bord de départ** (gauche en LTR,
-        // droite en RTL), si l'app l'autorise.
+        // 0) The back gesture: a press on the **leading edge** — left under LTR,
+        // right under RTL — if the app allows it.
         let on_back_edge = if self.is_rtl() {
             self.cursor.x > self.logical_width() - BACK_EDGE
         } else {
@@ -1748,7 +1760,7 @@ impl<A: Application> App<A> {
             return;
         }
 
-        // 1) Glissement d'une barre de défilement ?
+        // 1) Is this a scrollbar drag?
         if let Some(bar) = self.ui.as_ref().and_then(|ui| ui.scrollbar_at(self.cursor)) {
             let (along, thumb_start) = if bar.vertical {
                 (self.cursor.y, bar.thumb.y)
@@ -1768,22 +1780,22 @@ impl<A: Application> App<A> {
             return;
         }
 
-        // 1 bis) Glissement d'un widget draggable (ex. Slider) ?
+        // 1b) Is this a draggable widget, a Slider for instance?
         if let Some((id, rect)) = self.ui.as_ref().and_then(|ui| ui.draggable_at(self.cursor)) {
             self.drag = Some(Drag::Widget {
                 id,
                 rect,
                 last_x: self.cursor.x,
             });
-            // Delta nul à l'appui : seul un curseur (fraction) saute au clic.
+            // A zero delta on press: only a slider, which takes a fraction, jumps.
             self.apply_widget_drag(id, rect, 0.0);
             self.request_redraw();
             return;
         }
 
-        // 1 ter) Réordonnancement de colonne : appui sur un en-tête réordonnable.
-        // On ne `return` pas — le focus et `pressed` (tap = tri) se règlent ci-dessous ;
-        // le glissement ne s'engage qu'au-delà du seuil (sinon le relâchement trie).
+        // 1c) A column reorder: a press on a reorderable header. We do not `return` —
+        // focus and `pressed`, where a tap means sort, are settled below; the drag
+        // engages only past the threshold, and otherwise the release sorts.
         if let Some((id, from)) = self.reorderable_at(self.cursor) {
             self.drag = Some(Drag::Reorder {
                 id,
@@ -1791,39 +1803,38 @@ impl<A: Application> App<A> {
                 start: self.cursor,
                 moved: false,
             });
-            self.reorder_x = self.cursor.x; // départ collé au curseur (pas de ressaut)
-            self.reorder_y = self.cursor.y; // idem pour la ligne d'insertion verticale
+            self.reorder_x = self.cursor.x; // starts glued to the pointer, with no jerk
+            self.reorder_y = self.cursor.y; // likewise for the vertical insertion line
         }
 
         self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
-        // 2) Focus + placement du curseur, et début d'une sélection texte.
+        // 2) Focus and caret placement, and the start of a text selection.
         let previously_focused = self.runtime.input.focused;
         let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
         self.runtime.input.focused = focus.map(|(id, _)| id);
         if let Some((id, rect)) = focus {
             let local_x = self.cursor.x - rect.x;
-            // Le défilement vertical retenu (champ multi-lignes) fait partie de la
-            // coordonnée contenu : on l'ajoute pour que le clic tombe sur la bonne ligne.
+            // The retained vertical scroll, in a multi-line field, is part of the
+            // content coordinate: we add it so the click lands on the right line.
             let local_y =
                 self.cursor.y - rect.y + self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
-            // Défilement affiché juste avant ce clic : calculé depuis le
-            // curseur courant si le champ était déjà focalisé, sinon 0.
+            // The scroll shown just before this click, computed from the current caret
+            // when the field was already focused, and 0 otherwise.
             let scroll_cursor = if previously_focused == Some(id) {
                 self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
             } else {
                 0
             };
-            // Seuls les **champs texte** (`cursor_at` → `Some`) démarrent une
-            // sélection ; les autres focusables (boutons, cases…) gardent le
-            // focus mais ne doivent PAS capturer le clic (sinon il est avalé
-            // au relâchement comme une fin de glissement).
+            // Only **text fields** (`cursor_at` → `Some`) start a selection; the other
+            // focusables — buttons, checkboxes — keep focus but must NOT capture the
+            // click, which would otherwise be swallowed on release as the end of a drag.
             let cursor = self
                 .tree
                 .as_ref()
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
             if let Some(cursor) = cursor {
-                // Placer le caret à la souris oublie la colonne cible verticale.
+                // Placing the caret with the mouse forgets the vertical goal column.
                 self.goal_x = None;
                 self.runtime.edits.insert(
                     id,
@@ -1834,11 +1845,12 @@ impl<A: Application> App<A> {
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
-                // Taper dans un champ **rouvre** le clavier — même s'il était déjà « montré » côté app
-                // mais fermé par le retour système (voir `request_soft_input`).
+                // Tapping in a field **reopens** the keyboard, even one the app already
+                // considers shown but which the system back closed — see
+                // `request_soft_input`.
                 self.request_soft_input();
 
-                // Double-clic : sélectionne le mot sous le curseur.
+                // A double click selects the word under the pointer.
                 let now = Instant::now();
                 let double = self
                     .last_click_time
@@ -1866,9 +1878,9 @@ impl<A: Application> App<A> {
             }
         }
 
-        // 3) Tactile : si rien n'a capturé le geste (ni barre, ni widget, ni
-        // sélection texte), préparer un défilement au doigt sur la zone sous le
-        // doigt. Un relâchement sans mouvement (< TOUCH_SLOP) restera un tap.
+        // 3) Touch: when nothing captured the gesture — no scrollbar, no widget, no
+        // text selection — prepare a finger scroll on the area under the finger. A
+        // release without movement, under TOUCH_SLOP, stays a tap.
         if touch && self.drag.is_none() {
             if let Some((id, _, _)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
                 self.drag = Some(Drag::Scroll {
@@ -1881,16 +1893,16 @@ impl<A: Application> App<A> {
             }
         }
 
-        // 4) Fenêtre interactive (`InteractiveViewer`) sous le pointeur : préparer un
-        // **pan** (souris ou doigt). Comme le défilement tactile, il ne s'engage
-        // qu'au-delà du seuil — un tap passe alors à l'enfant (bouton, etc.).
+        // 4) An interactive viewport (`InteractiveViewer`) under the pointer: prepare a
+        // **pan**, with mouse or finger. Like the touch scroll it engages only past the
+        // threshold, so a tap goes through to the child, a button for instance.
         if self.drag.is_none() {
             if let Some((id, viewport)) = self
                 .ui
                 .as_ref()
                 .and_then(|ui| ui.interactive_at(self.cursor))
             {
-                // L'appui stoppe un fling en cours (on reprend la main sur le contenu).
+                // The press stops a fling in progress: we take the content back in hand.
                 self.runtime.interactive_velocity.remove(&id);
                 self.drag = Some(Drag::Pan {
                     id,
@@ -1905,27 +1917,27 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
-    /// Relâchement du pointeur (souris ou doigt) : termine un glissement ou
-    /// valide un clic/tap si le relâchement retombe sur le widget pressé.
+    /// A pointer release, mouse or finger: it ends a drag, or commits a click or tap
+    /// when the release lands back on the widget that was pressed.
     fn pointer_up(&mut self) {
         let ended = self.drag.take();
         if let Some(Drag::Back { velocity, .. }) = ended {
-            // L'app décide (valider / annuler) à partir de la vélocité.
+            // The app decides — commit or cancel — from the velocity.
             self.build_dirty = true;
             self.app.back_gesture_end(velocity);
             self.request_redraw();
             return;
         }
-        // Un défilement tactile ou un pan qui n'a pas bougé = un simple tap : on le
-        // laisse suivre le chemin normal du clic ci-dessous.
+        // A touch scroll or a pan that never moved is a plain tap: we let it follow
+        // the ordinary click path below.
         let was_tap = matches!(
             ended,
             Some(Drag::Scroll { moved: false, .. })
                 | Some(Drag::Pan { moved: false, .. })
                 | Some(Drag::Reorder { moved: false, .. })
         );
-        // Réordonnancement : au dépôt, la colonne cible est l'en-tête réordonnable
-        // sous le curseur ; on route `on_reorder(from, to)` de l'en-tête saisi.
+        // Reordering: on the drop, the target column is the reorderable header under
+        // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
         if let Some(Drag::Reorder {
             id,
             from,
@@ -1941,9 +1953,9 @@ impl<A: Application> App<A> {
             let base = target
                 .and_then(|tid| tree.and_then(|t| find_widget(t.as_ref(), tid)))
                 .and_then(|widget| widget.reorder_index());
-            // Moitié **basse** d'une cible verticale survolée → insertion **après** (index +1) :
-            // l'emplacement effectif de dépôt suit la ligne d'insertion peinte. Sans effet à
-            // l'horizontale (colonnes de `Table`) ni hors cible.
+            // The **lower** half of a hovered vertical target means inserting **after**
+            // it, index +1: the effective drop slot follows the insertion line that was
+            // painted. No effect horizontally, for `Table` columns, or off target.
             let to = match (base, target) {
                 (Some(base), Some(tid)) => {
                     let after = self
@@ -1956,8 +1968,9 @@ impl<A: Application> App<A> {
                 }
                 _ => None,
             };
-            // Dépôt **sur soi-même** : aucun déplacement, même en moitié basse (où `to = from + 1`
-            // passerait le garde `to != from`) — sinon on émettrait un mouvement nul + une annonce.
+            // Dropping **onto itself** moves nothing, even in the lower half, where
+            // `to = from + 1` would slip past the `to != from` guard — otherwise we would
+            // emit a null move and announce it.
             let self_drop = target == Some(*id);
             let message = match to {
                 Some(to) if to != *from && !self_drop => tree
@@ -1972,10 +1985,11 @@ impl<A: Application> App<A> {
                     .map(|w| w.reorder_axis())
                     .unwrap_or(ReorderAxis::Horizontal);
                 self.dispatch(message);
-                // Déplacement énoncé au lecteur d'écran (pendant du fantôme, pour l'utilisateur non
-                // voyant). L'index dépend de l'axe : à l'horizontale `to` est la **position de
-                // colonne** (1-based) ; à la verticale c'est un index **plat** (col×STRIDE+pos) qui
-                // n'a pas de sens à lire — on énonce alors le déplacement sans numéro.
+                // The move is spoken to the screen reader — the ghost's counterpart for
+                // a blind user. The index depends on the axis: horizontally `to` is the
+                // **column position**, 1-based; vertically it is a **flat** index
+                // (col×STRIDE+pos) that means nothing read aloud, so we announce the move
+                // without a number.
                 let announcement = match axis {
                     ReorderAxis::Horizontal => format!("Column moved to position {}", to + 1),
                     ReorderAxis::Vertical => "Card moved".to_string(),
@@ -1983,8 +1997,9 @@ impl<A: Application> App<A> {
                 self.set_announcement(announcement);
             }
         }
-        // Fling : l'élan du doigt projette une destination balistique (friction),
-        // le ressort de défilement existant y glisse (rebond aux bornes compris).
+        // Fling: the finger's momentum projects a ballistic destination through
+        // friction, and the existing scroll spring eases across to it, rubber band
+        // included.
         if let Some(Drag::Scroll {
             id,
             moved: true,
@@ -1994,8 +2009,8 @@ impl<A: Application> App<A> {
         {
             self.fling(*id, *velocity);
         }
-        // Fling de pan : l'élan lance le contenu, décéléré et borné par
-        // `advance_interactive` (frame par frame).
+        // A pan fling: the momentum launches the content, which `advance_interactive`
+        // decelerates and bounds frame by frame.
         if let Some(Drag::Pan {
             id,
             moved: true,
@@ -2011,12 +2026,13 @@ impl<A: Application> App<A> {
             self.request_redraw();
             return;
         }
-        // Le clic n'est validé que si press et release sont sur le même widget.
+        // A click only counts when press and release land on the same widget.
         let released = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
         let (message, announce) = match (self.runtime.input.pressed, released) {
             (Some(pressed), Some(released)) if pressed == released => {
-                // Clic **positionnel** (sous-région, p. ex. suffixe cliquable d'un champ) :
-                // prioritaire sur `on_click`. Coordonnées locales = curseur − coin du widget.
+                // A **positional** click, on a sub-region such as a field's clickable
+                // suffix, takes priority over `on_click`. Local coordinates are the
+                // pointer minus the widget's corner.
                 let positional = self
                     .ui
                     .as_ref()
@@ -2036,8 +2052,8 @@ impl<A: Application> App<A> {
                     });
                 let message =
                     positional.or_else(|| self.ui.as_ref().and_then(|ui| ui.msg_for(pressed)));
-                // Annonce vocale de l'effet (tri, sélection…), lue sur le widget cliqué
-                // avant que `dispatch` ne reconstruise l'arbre.
+                // The spoken announcement of the effect — a sort, a selection — read off
+                // the clicked widget before `dispatch` rebuilds the tree.
                 let announce = self
                     .tree
                     .as_ref()
@@ -2057,9 +2073,9 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
-    /// Énonce un message à voix haute via la **région live** du lecteur d'écran
-    /// (réordonnancement de colonne…). Sans lecteur d'écran actif, sans coût. Le
-    /// texte n'est re-énoncé qu'au changement. Bureau uniquement (no-op ailleurs).
+    /// Speaks a message aloud through the screen reader's **live region**, for a
+    /// column reorder and the like. With no screen reader running it costs nothing. The
+    /// text is re-spoken only on a change. Desktop only; a no-op elsewhere.
     #[cfg(desktop)]
     fn set_announcement(&mut self, message: String) {
         self.announce = message;
@@ -2067,11 +2083,12 @@ impl<A: Application> App<A> {
     #[cfg(not(desktop))]
     fn set_announcement(&mut self, _message: String) {}
 
-    /// Retour du focus à la fermeture d'un overlay : si le widget focalisé a **disparu**
-    /// de la frame (menu/modale refermé), revient au **déclencheur** — le focusable présent
-    /// le plus récent de l'historique. Enregistre au passage chaque transition (l'ancien
-    /// focus, encore présent, devient un déclencheur candidat). Anneau de focus rendu à la
-    /// frame suivante (`request_redraw` si le focus a bougé).
+    /// Returning focus when an overlay closes: if the focused widget has **vanished**
+    /// from the frame, a menu or modal having closed, focus goes back to the
+    /// **trigger** — the most recent focusable in the history that is still present.
+    /// Every transition is recorded along the way: the old focus, if still present,
+    /// becomes a candidate trigger. The focus ring is drawn on the following frame
+    /// (`request_redraw` when focus moved).
     fn reconcile_focus(&mut self) {
         let present: std::collections::HashSet<WidgetId> = match self.ui.as_ref() {
             Some(ui) => ui.focusable_ids().collect(),
@@ -2090,24 +2107,24 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Applique un message à l'application, exécute ses effets, puis réévalue les
-    /// souscriptions (l'état a pu changer celles qui doivent tourner).
+    /// Applies a message to the application, runs its effects, then re-evaluates the
+    /// subscriptions, the state having possibly changed which ones should run.
     fn dispatch(&mut self, message: A::Message) {
-        // L'app a (potentiellement) changé d'état → la `view` doit être reconstruite.
+        // The app may have changed state, so the `view` must be rebuilt.
         self.build_dirty = true;
         let command = self.app.update(message);
         self.run_command(command);
         self.sync_subscriptions();
     }
 
-    /// Exécute une commande : chaque tâche part en arrière-plan (thread natif, ou
-    /// `spawn_local` microtask sur le Web) et son message éventuel revient dans la
-    /// boucle via le proxy ; les demandes de focus sont **mises en attente** puis
-    /// résolues contre l'arbre fraîchement construit à la prochaine frame.
+    /// Runs a command: each task goes off in the background — a native thread, or a
+    /// `spawn_local` microtask on the Web — and whatever message it produces comes back
+    /// into the loop through the proxy. Focus requests are **queued**, then resolved
+    /// against the freshly built tree on the next frame.
     ///
-    /// Les tâches **asynchrones** ([`Command::perform_async`]) sont, elles, pilotées
-    /// **par le navigateur** sur le Web (`spawn_local` — un vrai `fetch` peut `await`)
-    /// et **menées à terme** sur un thread en natif (`block_on`).
+    /// The **asynchronous** tasks ([`Command::perform_async`]) are driven **by the
+    /// browser** on the Web (`spawn_local`, so a real `fetch` can `await`) and **driven
+    /// to completion** on a thread natively (`block_on`).
     fn run_command(&mut self, command: crate::command::Command<A::Message>) {
         let (tasks, async_tasks, focus) = command.into_parts();
         self.pending_focus.extend(focus);
@@ -2128,17 +2145,17 @@ impl<A: Application> App<A> {
         }
         for future in async_tasks {
             let proxy = self.proxy.clone();
-            // Natif : la future est menée à terme sur son propre thread (`block_on`) —
-            // les futures autonomes n'ont pas besoin d'un réacteur ; une E/S réseau
-            // réelle s'appuie sur le runtime async de l'application.
+            // Native: the future is driven to completion on its own thread
+            // (`block_on`). Self-contained futures need no reactor; real network I/O
+            // leans on the application's own async runtime.
             #[cfg(not(web))]
             std::thread::spawn(move || {
                 if let Some(message) = pollster::block_on(future) {
                     let _ = proxy.send_event(message);
                 }
             });
-            // Web : le navigateur pilote la future (mono-thread) — `fetch` &co. `await`
-            // réellement, sans bloquer la boucle.
+            // Web: the browser drives the future, single-threaded — `fetch` and friends
+            // genuinely `await`, without blocking the loop.
             #[cfg(web)]
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(message) = future.await {
@@ -2148,16 +2165,16 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Diffe les souscriptions déclarées par l'app contre celles en cours :
-    /// démarre les nouvelles, arrête (drop du `Sender`) celles disparues.
+    /// Diffs the subscriptions the app declares against those running: starts the new
+    /// ones and stops those that vanished, by dropping their `Sender`.
     fn sync_subscriptions(&mut self) {
         let entries = self.app.subscription().into_entries();
         let declared: std::collections::HashSet<u64> = entries.iter().map(|e| e.id).collect();
 
-        // Arrête les souscriptions qui ne sont plus déclarées.
+        // Stop the subscriptions that are no longer declared.
         self.running_subs.retain(|id, _| declared.contains(id));
 
-        // Démarre les nouvelles.
+        // Start the new ones.
         for entry in entries {
             if self.running_subs.contains_key(&entry.id) {
                 continue;
@@ -2167,8 +2184,8 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Démarre une souscription sur un thread de fond ; renvoie sa poignée
-    /// d'annulation (drop du `Sender` → le thread sort au prochain réveil).
+    /// Starts a subscription on a background thread and returns its cancellation
+    /// handle; dropping the `Sender` makes the thread exit at its next wake-up.
     #[cfg(not(web))]
     fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
         let (tx, rx) = std::sync::mpsc::channel::<()>();
@@ -2177,13 +2194,13 @@ impl<A: Application> App<A> {
             crate::subscription::Kind::Every { interval, make } => {
                 std::thread::spawn(move || loop {
                     match rx.recv_timeout(interval) {
-                        // Intervalle écoulé : émet le message.
+                        // The interval elapsed: emit the message.
                         Err(RecvTimeoutError::Timeout) => {
                             if proxy.send_event(make(Instant::now())).is_err() {
                                 break;
                             }
                         }
-                        // Annulation (Sender droppé) ou boucle fermée : on sort.
+                        // Cancelled (the Sender was dropped) or the loop closed: exit.
                         _ => break,
                     }
                 });
@@ -2192,9 +2209,9 @@ impl<A: Application> App<A> {
         tx
     }
 
-    /// Démarre une souscription sur le **Web** : un `setInterval` navigateur (pas de
-    /// thread). Renvoie sa poignée d'annulation (`clearInterval` au drop). Le proxy
-    /// réinjecte le message dans la boucle à chaque tick.
+    /// Starts a subscription on the **Web**: a browser `setInterval`, with no thread.
+    /// Returns its cancellation handle, which calls `clearInterval` on drop. The proxy
+    /// feeds the message back into the loop on every tick.
     #[cfg(web)]
     fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
         let proxy = self.proxy.clone();
@@ -2208,7 +2225,7 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Applique le glissement souris en cours.
+    /// Applies the mouse drag under way.
     fn handle_drag(&mut self) {
         let Some(mut drag) = self.drag.take() else {
             return;
@@ -2237,7 +2254,7 @@ impl<A: Application> App<A> {
                 } else {
                     entry.0 = offset;
                 }
-                // Glissement précis : la cible suit l'offset, l'inertie est coupée.
+                // A precise drag: the target follows the offset and inertia is cut off.
                 let synced = *entry;
                 self.runtime.scroll_target.insert(*id, synced);
                 self.runtime.scroll_velocity.remove(&*id);
@@ -2246,7 +2263,7 @@ impl<A: Application> App<A> {
                 let local_x = self.cursor.x - rect.x;
                 let local_y = self.cursor.y - rect.y
                     + self.runtime.scroll.get(id).map(|s| s.1).unwrap_or(0.0);
-                // Le champ est focalisé pendant le drag : défilement depuis le curseur courant.
+                // The field is focused during the drag, so scroll from the current caret.
                 let scroll_cursor = self.runtime.edits.get(id).map(|e| e.cursor).unwrap_or(0);
                 let cursor = self
                     .tree
@@ -2269,13 +2286,13 @@ impl<A: Application> App<A> {
                 self.apply_widget_drag(*id, *rect, dx);
             }
             Drag::Reorder { start, moved, .. } => {
-                // Au-delà du seuil, c'est un vrai glissement (plus un tri).
+                // Past the threshold this is a real drag, and no longer a sort.
                 let dx = self.cursor.x - start.x;
                 let dy = self.cursor.y - start.y;
                 if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
                     *moved = true;
                 }
-                // La carte fantôme suit le curseur : redessiner à chaque déplacement.
+                // The ghost card follows the pointer, so redraw on every move.
                 if *moved {
                     self.request_redraw();
                 }
@@ -2295,9 +2312,9 @@ impl<A: Application> App<A> {
                 }
                 if *moved {
                     let view = self.runtime.interactive.entry(*id).or_default();
-                    // Le doigt pousse le contenu, borné au cadre.
+                    // The finger pushes the content, bounded to the frame.
                     *view = view.pan(dx, dy).clamped(*viewport);
-                    // Vitesse lissée (moyenne exponentielle) → l'élan du fling.
+                    // A smoothed velocity, exponentially averaged: the fling's momentum.
                     let now = Instant::now();
                     let dt = (now - *last_t).as_secs_f32();
                     if dt > 1e-4 {
@@ -2317,7 +2334,7 @@ impl<A: Application> App<A> {
             } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
-                // Sous le seuil, on ne défile pas encore (le geste peut être un tap).
+                // Under the threshold we do not scroll yet; the gesture may be a tap.
                 if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
                     *moved = true;
                 }
@@ -2333,14 +2350,14 @@ impl<A: Application> App<A> {
                         .map(|(_, x, y)| (*x, *y))
                         .unwrap_or((0.0, 0.0));
                     let cur = self.runtime.scroll.get(id).copied().unwrap_or((0.0, 0.0));
-                    // Le doigt « pousse » le contenu : on suit le delta immédiatement.
+                    // The finger pushes the content, so we follow the delta at once.
                     let nx = (cur.0 - dx).clamp(0.0, mx);
                     let ny = (cur.1 - dy).clamp(0.0, my);
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
                     self.runtime.scroll_velocity.remove(id);
-                    // Vitesse en espace défilement (le contenu va à l'opposé du
-                    // doigt), lissée par moyenne exponentielle — l'élan du fling.
+                    // The velocity in scroll space, the content moving opposite the
+                    // finger, exponentially smoothed: the fling's momentum.
                     let now = Instant::now();
                     let dt = (now - *last_t).as_secs_f32();
                     if dt > 1e-4 {
@@ -2367,13 +2384,13 @@ impl<A: Application> App<A> {
                     .max(1.0);
                 let now = Instant::now();
                 let x = self.cursor.x;
-                // En RTL, le doigt glisse vers la **gauche** depuis le bord droit :
-                // la progression (et la vélocité) suivent le sens inverse.
+                // Under RTL the finger slides **left** from the right edge, so progress
+                // and velocity run the other way.
                 let sign = if self.is_rtl() { -1.0 } else { 1.0 };
                 let progress = (sign * (x - *start_x) / width).clamp(0.0, 1.0);
                 let dt = (now - *last_t).as_secs_f32();
                 if dt > 1e-4 {
-                    // Vitesse instantanée (fraction/s), lissée par moyenne exponentielle.
+                    // The instantaneous velocity, in fractions per second, exponentially smoothed.
                     let inst = sign * (x - *last_x) / width / dt;
                     *velocity = *velocity * 0.5 + inst * 0.5;
                     *last_x = x;
@@ -2387,9 +2404,9 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
-    /// Fling de défilement : projette la destination balistique de chaque axe
-    /// (friction en forme close), bornée avec le dépassement élastique, et amorce
-    /// le ressort de défilement avec l'élan du doigt.
+    /// A scroll fling: projects each axis's ballistic destination, friction in closed
+    /// form, bounds it with the elastic overshoot, and primes the scroll spring with
+    /// the finger's momentum.
     fn fling(&mut self, id: WidgetId, velocity: (f32, f32)) {
         let (max_x, max_y) = self
             .ui
@@ -2407,7 +2424,7 @@ impl<A: Application> App<A> {
         let dest_y = crate::gesture::fling_destination(current.1, velocity.1)
             .map(|d| d.clamp(-SCROLL_OVER, max_y + SCROLL_OVER));
         if dest_x.is_none() && dest_y.is_none() {
-            return; // relâchement lent : pas d'entraînement.
+            return; // a slow release does not carry the content along
         }
         self.runtime.scroll_target.insert(
             id,
@@ -2416,18 +2433,17 @@ impl<A: Application> App<A> {
         self.runtime.scroll_velocity.insert(id, velocity);
     }
 
-    /// Applique un glissement de widget : calcule la fraction horizontale et
-    /// route le message produit par `on_drag`.
-    /// Widget **réordonnable** le plus au-dessus sous `point` : `(id, index plat)`. Utilise le registre
-    /// des réordonnables (indépendant du clic) — donc aussi les cartes/zones Kanban, non cliquables.
+    /// The topmost **reorderable** widget under `point`, as `(id, flat index)`. It
+    /// uses the reorderables' registry, which is independent of clicking, and so covers
+    /// the Kanban cards and drop zones, which are not clickable.
     fn reorderable_at(&self, point: Point) -> Option<(WidgetId, usize)> {
         let id = self.ui.as_ref()?.reorderable_at(point)?;
         let widget = self
             .tree
             .as_ref()
             .and_then(|tree| find_widget(tree.as_ref(), id))?;
-        // Cible **seule** (zone de dépôt) : réordonnable mais non saisissable — on ne démarre pas de
-        // glisser dessus (le dépôt, lui, continue de la viser via `ui.reorderable_at`).
+        // A target-**only** widget, a drop zone: reorderable but not grabbable, so no
+        // drag starts on it. Dropping still aims at it, through `ui.reorderable_at`.
         if !widget.reorder_draggable() {
             return None;
         }
@@ -2435,9 +2451,9 @@ impl<A: Application> App<A> {
         Some((id, from))
     }
 
-    /// Axe du réordonnable actuellement **saisi** (glisser en cours), s'il y en a un. Sert à
-    /// n'appliquer le **ressort horizontal** (`reorder_x`) qu'aux colonnes de `Table` — les cartes
-    /// Kanban (vertical) réagencent sans lissage x.
+    /// The axis of the reorderable currently **grabbed**, if a drag is under way. It
+    /// is what keeps the **horizontal spring** (`reorder_x`) to `Table`'s columns; the
+    /// Kanban cards, being vertical, reflow with no x smoothing.
     fn dragged_reorder_axis(&self) -> Option<ReorderAxis> {
         let Some(Drag::Reorder { id, .. }) = self.drag else {
             return None;
@@ -2448,10 +2464,10 @@ impl<A: Application> App<A> {
             .map(|w| w.reorder_axis())
     }
 
-    /// Peint l'**aperçu de réordonnancement** par-dessus la scène (non découpée) :
-    /// colonne source estompée, **indicateur de dépôt** au bord d'insertion de la
-    /// colonne cible, et **carte soulevée** (ombre + bord `primary`) suivant le
-    /// curseur. Sans effet hors d'un glissement d'en-tête engagé.
+    /// Paints the **reorder preview** on top of the scene, unclipped: the source
+    /// column dimmed, a **drop indicator** at the target column's insertion edge, and a
+    /// **lifted card** — shadow plus a `primary` border — following the pointer. No
+    /// effect outside an engaged header drag.
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
         let Some(Drag::Reorder {
             id,
@@ -2474,16 +2490,16 @@ impl<A: Application> App<A> {
         let dx = self.cursor.x - start.x;
         let dy = self.cursor.y - start.y;
 
-        // Décalage du fantôme selon l'axe : **horizontal** (colonnes de Table) suit `dx` (léger
-        // soulèvement `-2`) ; **vertical** (cartes Kanban) suit le curseur en 2D.
+        // The ghost's offset, per axis: **horizontal** (Table columns) follows `dx`,
+        // with a slight `-2` lift; **vertical** (Kanban cards) follows the pointer in 2D.
         let (gx, gy) = match axis {
             ReorderAxis::Horizontal => (dx, drag_preview::LIFT_Y),
             ReorderAxis::Vertical => (dx, dy),
         };
 
-        // Propriétaires du **sous-arbre** de l'élément saisi : sert au fantôme (capter le contenu
-        // d'une carte riche, peint par des enfants, jalon 251) **et** au réagencement vertical
-        // (retirer la carte soulevée de l'aperçu). Repli : la carte seule.
+        // The owners of the grabbed item's **subtree**: used by the ghost, to capture a
+        // rich card's content, which its children paint (milestone 251), **and** by the
+        // vertical reflow, to lift the card out of the preview. Fallback: the card alone.
         let owners: std::collections::HashSet<u64> = self
             .tree
             .as_ref()
@@ -2493,9 +2509,9 @@ impl<A: Application> App<A> {
 
         match axis {
             ReorderAxis::Horizontal => {
-                // Réagence les colonnes voisines : le trou de la source se referme et la place de
-                // dépôt s'ouvre, selon l'abscisse **lissée** (ressort) du curseur — coulissement à
-                // inertie douce, tandis que le fantôme colle au curseur réel.
+                // Reflow the neighbouring columns: the source's gap closes and the drop
+                // slot opens, following the pointer's **smoothed** abscissa — a gentle
+                // inertial slide, while the ghost sticks to the real pointer.
                 let reflowed =
                     reflow_reorder_columns(scene.primitives(), src, self.reorder_x, id.as_u64());
                 scene.clear();
@@ -2504,13 +2520,15 @@ impl<A: Application> App<A> {
                 }
             }
             ReorderAxis::Vertical => {
-                // Réagence les **cartes** : le trou de la carte soulevée se referme (colonne source)
-                // et la place s'ouvre sous la **ligne d'insertion** (colonne cible). Puis on pose la
-                // ligne par-dessus, au bord retenu (moitié survolée, jalon 252).
+                // Reflow the **cards**: the lifted card's gap closes in the source
+                // column and a slot opens under the **insertion line** in the target one.
+                // Then the line is laid on top, at the chosen edge — the hovered half,
+                // milestone 252.
                 //
-                // Ligne **lissée** (jalon 265) : on garde l'emplacement retenu (largeur, abscisse,
-                // épaisseur) mais on remplace l'**ordonnée** par le ressort `reorder_y` — la ligne
-                // *et* le trou glissent entre cartes (inertie verticale) au lieu de sauter d'un cran.
+                // A **smoothed** line (milestone 265): the chosen slot's width, abscissa
+                // and thickness are kept, but the **ordinate** is replaced by the
+                // `reorder_y` spring — the line *and* the gap slide between cards, with
+                // vertical inertia, instead of jumping a notch.
                 let line = self
                     .reorder_drop_line(drag_preview::INSERT_THICKNESS)
                     .map(|r| Rect {
@@ -2535,11 +2553,11 @@ impl<A: Application> App<A> {
             }
         }
 
-        // Fantôme fidèle : les primitives de l'élément saisi — depuis la scène d'origine —,
-        // translatées et **dé-découpées** (sinon rognées à la source). Pour une **carte riche**,
-        // le fond est peint par la carte mais son contenu (libellé, étiquettes, bouton ×) par des
-        // enfants, sous d'autres propriétaires : on capte donc les primitives de **tout le
-        // sous-arbre** de l'élément (voir `owners` ci-dessus).
+        // A faithful ghost: the grabbed item's primitives, taken from the original
+        // scene, translated and **un-clipped**, since they would otherwise be cropped at
+        // the source. In a **rich card** the background is painted by the card but its
+        // content — label, tags, the × button — by children, under other owners, so we
+        // capture the primitives of the item's **whole subtree**; see `owners` above.
         let ghost: Vec<Primitive> = ui
             .scene()
             .primitives()
@@ -2550,12 +2568,12 @@ impl<A: Application> App<A> {
         draw_ghost_card(scene, theme, src.translate(gx, gy), &ghost);
     }
 
-    /// Ligne d'**insertion** (aperçu vertical) : un fin bandeau au bord de l'emplacement réordonnable
-    /// survolé (carte ou zone de dépôt) — **supérieur** si le curseur est dans sa moitié haute
-    /// (insertion **avant**), **inférieur** dans sa moitié basse (insertion **après**). `None` si le
-    /// curseur n'est pas sur une cible.
+    /// The **insertion** line of the vertical preview: a thin band at the edge of the
+    /// hovered reorderable slot, a card or a drop zone — the **top** edge when the
+    /// pointer is in its upper half (inserting **before**), the **bottom** edge in its
+    /// lower half (inserting **after**). `None` when the pointer is not over a target.
     fn reorder_drop_line(&self, thickness: f32) -> Option<Rect> {
-        // Emplacement réordonnable (carte/zone de dépôt) sous le curseur, via le registre dédié.
+        // The reorderable slot — card or drop zone — under the pointer, via its registry.
         let target = self.ui.as_ref()?.reorderable_at(self.cursor)?;
         let rect = self.ui.as_ref()?.widget_rect(target)?;
         Some(drop_insertion_line(
@@ -2565,10 +2583,11 @@ impl<A: Application> App<A> {
         ))
     }
 
-    /// Pour un emplacement à réordonnancement **vertical**, indique si le curseur est dans sa moitié
-    /// **basse** — donc si l'insertion se fait **après** lui (index +1 : entre cette carte et la
-    /// suivante). Toujours `false` sur l'axe **horizontal** (les colonnes de `Table` gardent leur
-    /// logique de dépôt inchangée). C'est le pendant, côté **routage**, de la ligne d'insertion.
+    /// For a **vertically** reordered slot, tells whether the pointer is in its
+    /// **lower** half — that is, whether insertion happens **after** it (index +1,
+    /// between this card and the next). Always `false` on the **horizontal** axis, where
+    /// `Table`'s columns keep their drop logic unchanged. This is the insertion line's
+    /// counterpart on the **routing** side.
     fn reorder_insert_after(&self, target: WidgetId, rect: Rect) -> bool {
         let vertical = self
             .tree
@@ -2585,7 +2604,8 @@ impl<A: Application> App<A> {
         } else {
             0.0
         };
-        // Poignée à accumulation (delta) d'abord, sinon curseur (fraction absolue).
+        // An accumulating handle, taking a delta, first; otherwise a slider's absolute
+        // fraction.
         let message = self
             .tree
             .as_ref()
@@ -2600,11 +2620,12 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Retour **système** (Android `KEYCODE_BACK`, touche « précédent ») — la
-    /// chaîne native : ① l'overlay du dessus se ferme (feuille, tiroir, modale,
-    /// menu) ; ② sinon un écran se dépile, en rejouant le **geste retour validé
-    /// d'emblée** (mêmes hooks que le swipe → détente animée) ; ③ sinon, à la
-    /// racine, le retour **quitte l'application** (comportement Android).
+    /// The **system** back — Android's `KEYCODE_BACK`, the browser's back key — and
+    /// its native chain: ① the topmost overlay closes, be it a sheet, a drawer, a modal
+    /// or a menu; ② failing that a screen is popped, by replaying the **back gesture
+    /// already committed**, through the same hooks as the swipe, so it settles with an
+    /// animation; ③ failing that, at the root, back **quits the application**, as
+    /// Android expects.
     fn system_back(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
             self.dispatch(message);
@@ -2614,8 +2635,8 @@ impl<A: Application> App<A> {
         if self.app.can_go_back() {
             self.build_dirty = true;
             self.app.back_gesture(0.0);
-            // Élan « validé » : la projection dépasse le seuil de commit, la
-            // détente anime le dépilement.
+            // A "committed" momentum: the projection passes the commit threshold and
+            // the settle animates the pop.
             self.app.back_gesture_end(5.0);
             self.request_redraw();
             return;
@@ -2623,13 +2644,13 @@ impl<A: Application> App<A> {
         event_loop.exit();
     }
 
-    /// Route **Échap** : montée feuille→racine depuis le widget focalisé
-    /// (résultat à 3 états — `Ignored` continue de remonter, `Handled` consomme,
-    /// `Skip` arrête sans repli), puis repli sur la fermeture de l'overlay le
-    /// plus au-dessus si personne n'a répondu (ou sans focus).
+    /// Routes **Escape**: a leaf-to-root walk from the focused widget, with a
+    /// three-state result — `Ignored` keeps walking up, `Handled` consumes, `Skip` stops
+    /// with no fallback — then falls back to closing the topmost overlay when nobody
+    /// answered, or when nothing is focused.
     fn escape(&mut self) {
-        // 1) Montée le long du chemin de focus. `Some(None)` = consommé sans
-        // message ; `None` extérieur = tout le chemin a ignoré → repli.
+        // 1) Walk up the focus path. `Some(None)` means consumed with no message; an
+        // outer `None` means the whole path ignored it, so we fall back.
         let outcome: Option<Option<A::Message>> = self.runtime.input.focused.and_then(|focused| {
             let tree = self.tree.as_ref()?;
             let path = find_path(tree.as_ref(), focused);
@@ -2650,7 +2671,7 @@ impl<A: Application> App<A> {
                     self.request_redraw();
                 }
             }
-            // 2) Personne sur le chemin (ou pas de focus) : overlay du dessus.
+            // 2) Nobody on the path, or nothing focused: the topmost overlay.
             None => {
                 if let Some(message) = self.ui.as_ref().and_then(|ui| ui.top_dismiss()) {
                     self.dispatch(message);
@@ -2660,10 +2681,11 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Déplace le caret verticalement dans le champ multi-lignes focalisé (Haut/Bas
-    /// si `page=false`, PgUp/PgDn sinon), en préservant la **colonne cible mémorisée**.
-    /// Applique la sélection au Shift et révèle le caret. Rend `true` si le caret a
-    /// bougé dans le champ, `false` sinon (le shell navigue alors le focus).
+    /// Moves the caret vertically in the focused multi-line field — Up/Down when
+    /// `page` is false, PgUp/PgDn otherwise — preserving the **remembered goal column**.
+    /// Applies the selection under Shift and reveals the caret. Returns `true` when the
+    /// caret moved within the field, `false` otherwise, in which case the shell
+    /// navigates focus instead.
     fn move_caret_vertical(&mut self, id: WidgetId, down: bool, page: bool) -> bool {
         let width = self
             .ui
@@ -2690,17 +2712,17 @@ impl<A: Application> App<A> {
             edit.anchor = None;
         }
         edit.cursor = new_cursor;
-        // Mémorise la colonne visée pour le prochain saut vertical.
+        // Remember the goal column for the next vertical jump.
         self.goal_x = Some(goal);
         self.reveal_caret(id, new_cursor);
         self.request_redraw();
         true
     }
 
-    /// Route une touche vers le champ focalisé : met à jour l'état d'édition et
-    /// applique le message éventuel (changement de valeur ou soumission).
+    /// Routes a key to the focused field: updates the editing state and applies
+    /// whatever message comes out, a value change or a submission.
     fn apply_key(&mut self, id: WidgetId, key: Key) {
-        // Tout déplacement horizontal / frappe oublie la colonne cible verticale.
+        // Any horizontal move, or any keystroke, forgets the vertical goal column.
         self.goal_x = None;
         let mut edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
         let message = self
@@ -2709,16 +2731,15 @@ impl<A: Application> App<A> {
             .and_then(|tree| find_widget(tree.as_ref(), id))
             .and_then(|widget| widget.on_edit(&mut edit, &key));
         self.runtime.edits.insert(id, edit);
-        // Champ multi-lignes : fait suivre le défilement retenu au caret (le révèle).
+        // In a multi-line field, make the retained scroll follow the caret and reveal it.
         self.reveal_caret(id, edit.cursor);
         if let Some(message) = message {
             self.dispatch(message);
-            // Les touches peuvent arriver en **rafale** (plus vite qu'une
-            // frame — clavier logiciel, `adb input text`, répétition) : la
-            // suivante doit voir la valeur À JOUR, pas celle de l'arbre
-            // retenu (sinon elle écrase la frappe précédente). On rafraîchit
-            // l'arbre tout de suite ; `build_dirty` reste levé, la prochaine
-            // frame refera la passe complète (montages, fondus de sortie).
+            // Keys can arrive in **bursts**, faster than a frame — a software
+            // keyboard, `adb input text`, auto-repeat — and the next one must see the
+            // CURRENT value, not the retained tree's, or it would overwrite the previous
+            // keystroke. So we refresh the tree right away; `build_dirty` stays raised
+            // and the next frame redoes the full pass: mounts, leaving fades and all.
             if let Some((width, height)) = self.last_size {
                 let theme = self.app.theme();
                 self.tree = Some(self.app.view(&theme, width, height));
@@ -2726,9 +2747,9 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Fait **suivre le caret** au défilement retenu d'un champ multi-lignes : ajuste
-    /// `runtime.scroll[id]` juste assez pour que le caret reste visible (comme un
-    /// éditeur qui recentre à la frappe). No-op pour un champ non défilable.
+    /// Makes a multi-line field's retained scroll **follow the caret**: adjusts
+    /// `runtime.scroll[id]` just enough to keep the caret visible, the way an editor
+    /// re-centres as you type. A no-op for a field that does not scroll.
     fn reveal_caret(&mut self, id: WidgetId, cursor: usize) {
         let Some(vp) = self.ui.as_ref().and_then(|ui| ui.scrollable_viewport(id)) else {
             return;
@@ -2743,8 +2764,8 @@ impl<A: Application> App<A> {
         };
         let max_y = (content_h - visible_h).max(0.0);
         let cur = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
-        // Fenêtre de défilement où le caret reste visible : du « bas du caret visible »
-        // au « haut du caret visible ». On y ramène le défilement courant.
+        // The scroll window in which the caret stays visible, from "the caret's bottom
+        // is visible" to "the caret's top is visible". We bring the current scroll into it.
         let lo = (caret_top + caret_h - visible_h).max(0.0);
         let hi = caret_top;
         let target = cur.clamp(lo.min(hi), lo.max(hi)).clamp(0.0, max_y);
@@ -2753,7 +2774,7 @@ impl<A: Application> App<A> {
         self.runtime.scroll_velocity.remove(&id);
     }
 
-    /// Copie le texte sélectionné du champ `id` dans le presse-papier.
+    /// Copies field `id`'s selected text to the clipboard.
     fn copy_selection(&mut self, id: WidgetId) {
         let edit = self.runtime.edits.get(&id).copied().unwrap_or_default();
         let text = self
@@ -2767,23 +2788,24 @@ impl<A: Application> App<A> {
     }
 }
 
-/// Rapproche `current` de `target` d'un pas de ressort **exponentiel** (constante de
-/// temps `tau`, en secondes) sur un intervalle `dt` : cadence-indépendant et sans
-/// dépassement. Sert au lissage de l'abscisse pendant un réordonnancement.
+/// Moves `current` toward `target` by one **exponential** spring step, with time
+/// constant `tau` in seconds, over an interval `dt`: frame-rate independent and free
+/// of overshoot. Used to smooth the abscissa during a reorder.
 fn spring_toward(current: f32, target: f32, dt: f32, tau: f32) -> f32 {
     let k = 1.0 - (-dt / tau.max(1e-4)).exp();
     current + (target - current) * k
 }
 
-/// Profondeur max de l'historique de focus (déclencheurs d'overlays imbriqués).
+/// The focus history's maximum depth, for nested overlays' triggers.
 const FOCUS_HISTORY_MAX: usize = 8;
 
-/// Résout le focus après (re)construction, à partir des focusables **présents** cette
-/// frame. Si `current` a **disparu** (overlay fermé), revient au **déclencheur** présent le
-/// plus récent de `history` (dépilé jusqu'à en trouver un). Enregistre la transition :
-/// l'ancien focus (`prev`), s'il est encore présent et différent du nouveau, devient un
-/// déclencheur candidat empilé (borné à [`FOCUS_HISTORY_MAX`]). Renvoie le focus résolu.
-/// Fonction **pure** (hors `history`/`prev` mutés) — testable sans fenêtre.
+/// Resolves focus after a (re)build, from the focusables **present** this frame. When
+/// `current` has **vanished**, an overlay having closed, focus returns to the most
+/// recent present **trigger** in `history`, which is popped until one is found. The
+/// transition is recorded: the old focus (`prev`), if still present and different from
+/// the new one, is pushed as a candidate trigger, bounded by [`FOCUS_HISTORY_MAX`].
+/// Returns the resolved focus. A **pure** function apart from the mutated `history` and
+/// `prev` — testable without a window.
 fn resolve_focus(
     current: Option<WidgetId>,
     present: &std::collections::HashSet<WidgetId>,
@@ -2816,15 +2838,17 @@ fn resolve_focus(
     cur
 }
 
-/// Peint la **carte soulevée** (fantôme) de l'en-tête glissé dans `scene` (non découpé)
-/// à `card` : ombre portée, **face fidèle** (primitives de l'en-tête déjà translatées)
-/// ou pleine en repli si `ghost` est vide, puis bord `primary`. Fonction pure — testable
-/// sans GPU. Le coulissement des voisines est fait en amont (`reflow_reorder_columns`).
+/// Paints the dragged header's **lifted card**, the ghost, into `scene` — unclipped —
+/// at `card`: a drop shadow, a **faithful face** from the header's already-translated
+/// primitives, or a solid one as a fallback when `ghost` is empty, then a `primary`
+/// border. A pure function, testable without a GPU. The neighbours' sliding happens
+/// upstream, in `reflow_reorder_columns`.
 fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primitive]) {
     use drag_preview::{BORDER_ALPHA, BORDER_WIDTH, SHADOW_ALPHA, SHADOW_BLUR, SHADOW_OFFSET_Y};
     scene.set_clip(Rect::UNBOUNDED);
-    // Couleur d'ombre **du thème** (surchargeable) — même rôle que l'ombre de `Button` ; seule la
-    // géométrie (décalage, flou, opacité) est en constantes locales.
+    // The shadow colour comes from **the theme** and can be overridden — the same role
+    // as `Button`'s shadow; only the geometry, offset, blur and opacity, is a local
+    // constant.
     let shadow = theme.scheme.shadow.with_alpha(SHADOW_ALPHA);
     scene.shadow(
         card.translate(0.0, SHADOW_OFFSET_Y),
@@ -2844,10 +2868,11 @@ fn draw_ghost_card(scene: &mut Scene, theme: &Theme, card: Rect, ghost: &[Primit
     }
 }
 
-/// Géométrie de la **ligne d'insertion** d'un aperçu de réordonnancement **vertical** : un fin
-/// bandeau (épaisseur `thickness`) centré sur le bord de la cible **où se fera l'insertion** — bord
-/// **supérieur** (insertion avant, moitié haute survolée) ou **inférieur** (insertion après,
-/// `after = true`, moitié basse survolée), sur toute la largeur. Fonction pure — testable sans GPU.
+/// The geometry of a **vertical** reorder preview's **insertion line**: a thin band
+/// of thickness `thickness`, centred on the target edge **where the insertion will
+/// happen** — the **top** edge (inserting before, the upper half hovered) or the
+/// **bottom** one (inserting after, `after = true`, the lower half hovered) — spanning
+/// the full width. A pure function, testable without a GPU.
 fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
     let edge = if after {
         target.y + target.height
@@ -2867,23 +2892,23 @@ mod tests {
 
     #[test]
     fn insertion_line_sits_on_the_target_top_edge() {
-        // Moitié haute survolée → insertion **avant** : bandeau d'épaisseur 4 centré sur le bord
-        // supérieur (y=100) d'une cible large de 200.
+        // The upper half hovered means inserting **before**: a band of thickness 4
+        // centred on the top edge (y=100) of a target 200 wide.
         let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, false);
-        assert_eq!(line.x, 20.0, "aligné à gauche de la cible");
+        assert_eq!(line.x, 20.0, "aligned to the target's left");
         assert_eq!(line.width, 200.0, "toute la largeur de la cible");
-        assert_eq!(line.y, 98.0, "centré sur le bord supérieur (100 - 4/2)");
+        assert_eq!(line.y, 98.0, "centred on the top edge (100 - 4/2)");
         assert_eq!(line.height, 4.0);
     }
 
     #[test]
     fn insertion_line_sits_on_the_target_bottom_edge_when_inserting_after() {
-        // Moitié basse survolée → insertion **après** : le bandeau glisse sur le bord **inférieur**
-        // (y = 100 + 44 = 144, centré → 142). Même largeur, même épaisseur.
+        // The lower half hovered means inserting **after**: the band slides to the
+        // **bottom** edge (y = 100 + 44 = 144, centred → 142). Same width, same thickness.
         let line = drop_insertion_line(Rect::new(20.0, 100.0, 200.0, 44.0), 4.0, true);
-        assert_eq!(line.x, 20.0, "toujours aligné à gauche");
+        assert_eq!(line.x, 20.0, "still aligned to the left");
         assert_eq!(line.width, 200.0, "toute la largeur de la cible");
-        assert_eq!(line.y, 142.0, "centré sur le bord inférieur (144 - 4/2)");
+        assert_eq!(line.y, 142.0, "centred on the bottom edge (144 - 4/2)");
         assert_eq!(line.height, 4.0);
     }
 
@@ -2893,7 +2918,7 @@ mod tests {
         let item = WidgetId::from_u64(2);
         let (mut history, mut prev) = (Vec::new(), None);
 
-        // Frame 1 : focus sur l'ancre (présente).
+        // Frame 1: focus on the anchor, which is present.
         let f = resolve_focus(
             Some(anchor),
             &HashSet::from([anchor]),
@@ -2903,20 +2928,20 @@ mod tests {
         assert_eq!(f, Some(anchor));
         assert!(history.is_empty());
 
-        // Frame 2 : menu ouvert, focus sur l'item ; l'ancre est empilée (déclencheur).
+        // Frame 2: the menu is open and the item focused; the anchor is pushed as trigger.
         let present = HashSet::from([anchor, item]);
         let f = resolve_focus(Some(item), &present, &mut history, &mut prev);
         assert_eq!(f, Some(item));
         assert_eq!(history, vec![anchor]);
 
-        // Frame 3 : menu fermé, l'item a disparu → retour au déclencheur, historique consommé.
+        // Frame 3: the menu closed and the item vanished → back to the trigger, history spent.
         let f = resolve_focus(
             Some(item),
             &HashSet::from([anchor]),
             &mut history,
             &mut prev,
         );
-        assert_eq!(f, Some(anchor), "le focus revient au déclencheur");
+        assert_eq!(f, Some(anchor), "focus returns to the trigger");
         assert!(history.is_empty());
     }
 
@@ -2924,7 +2949,7 @@ mod tests {
     fn focus_falls_to_none_when_no_trigger_remains() {
         let a = WidgetId::from_u64(1);
         let (mut history, mut prev) = (Vec::new(), Some(a));
-        // `a` disparaît et l'historique est vide → aucun focus.
+        // `a` vanishes and the history is empty → no focus at all.
         let f = resolve_focus(Some(a), &HashSet::new(), &mut history, &mut prev);
         assert_eq!(f, None);
         assert_eq!(prev, None);
@@ -2932,25 +2957,25 @@ mod tests {
 
     #[test]
     fn spring_approaches_target_monotonically_and_settles() {
-        // Part de 0, cible 100 : approche monotone sans dépassement, quasi atteinte
-        // après plusieurs pas de 16 ms.
+        // From 0 toward 100: a monotonic approach with no overshoot, all but reached
+        // after several 16 ms steps.
         let mut x = 0.0;
         let mut prev = -1.0;
         for _ in 0..30 {
             x = spring_toward(x, 100.0, 0.016, 0.07);
-            assert!(x > prev && x <= 100.0, "monotone borné : {x}");
+            assert!(x > prev && x <= 100.0, "monotonic and bounded: {x}");
             prev = x;
         }
-        assert!(x > 99.0, "quasi atteint après ~0.5 s : {x}");
+        assert!(x > 99.0, "all but reached after ~0.5 s: {x}");
     }
 
     #[test]
     fn ghost_card_shape() {
         let theme = Theme::default();
         let card = Rect::new(140.0, 0.0, 80.0, 34.0);
-        // Fantôme vide → repli : ombre + carte pleine bordée = 2 primitives.
+        // An empty ghost falls back to a shadow plus a solid bordered card: 2 primitives.
         let mut scene = Scene::new();
         draw_ghost_card(&mut scene, &theme, card, &[]);
-        assert_eq!(scene.primitives().len(), 2, "ombre + carte pleine");
+        assert_eq!(scene.primitives().len(), 2, "shadow plus solid card");
     }
 }
