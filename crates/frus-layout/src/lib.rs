@@ -1,11 +1,11 @@
-//! `frus-layout` — moteur de mise en page de frus.
+//! `frus-layout` — frus's layout engine.
 //!
-//! Il transforme un **arbre de nœuds stylés** en **rectangles positionnés** (en
-//! coordonnées absolues), prêts à être dessinés par `frus-gpu`.
+//! It turns a **tree of styled nodes** into **positioned rectangles**, in absolute
+//! coordinates, ready for `frus-gpu` to draw.
 //!
-//! L'implémentation repose sur [`taffy`](https://docs.rs/taffy) (flexbox), mais
-//! celui-ci est **entièrement caché** derrière l'API de frus : on pourra le
-//! remplacer plus tard sans casser l'API publique.
+//! The implementation rests on [`taffy`](https://docs.rs/taffy) for flexbox, but
+//! taffy is **entirely hidden** behind frus's own API, so it can be replaced later
+//! without breaking anything public.
 
 mod style;
 mod tree;
@@ -13,5 +13,5 @@ mod tree;
 pub use style::{Align, Dimension, FlexDirection, Justify, Style};
 pub use tree::{Layout, MeasureFn, NodeId};
 
-// Ré-export des types géométriques du socle, par commodité pour les appelants.
+// Re-export of the core geometry types, as a convenience for callers.
 pub use frus_core::{Rect, Size};

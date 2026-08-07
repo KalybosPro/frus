@@ -1,4 +1,4 @@
-//! Construction de l'arbre de mise en page et calcul des rectangles absolus.
+//! Building the layout tree and computing absolute rectangles.
 
 use std::collections::HashMap;
 
@@ -7,26 +7,26 @@ use taffy::{AvailableSpace, TaffyTree, TraversePartialTree};
 
 use crate::style::Style;
 
-/// Identifiant opaque d'un nœud de mise en page.
+/// An opaque identifier for a layout node.
 pub type NodeId = taffy::NodeId;
 
-/// Une **mesure sous contraintes** pour une feuille dont la taille dépend de
-/// l'espace offert (texte qui se replie, contenu peint sur mesure). Reçoit les
-/// largeur/hauteur maximales (`None` = non contraint) et renvoie la taille du
-/// contenu. Appelée par taffy pendant le calcul — y compris pour les tailles
-/// **intrinsèques** (min-content → largeur `Some(0.0)`, max-content → `None`).
+/// A **constrained measurement** for a leaf whose size depends on the space
+/// offered — wrapping text, custom-painted content. It receives the maximum
+/// width and height (`None` = unconstrained) and returns the content's size. Taffy
+/// calls it during layout, including for **intrinsic** sizes (min-content gives a
+/// width of `Some(0.0)`, max-content gives `None`).
 pub type MeasureFn = Box<dyn Fn(Option<f32>, Option<f32>) -> Size>;
 
-/// Un arbre de mise en page. `T` est une donnée utilisateur attachée aux nœuds
-/// (par exemple une couleur), restituée avec chaque rectangle calculé.
+/// A layout tree. `T` is user data attached to the nodes — a colour, say — handed
+/// back with each computed rectangle.
 pub struct Layout<T> {
     tree: TaffyTree<T>,
-    /// Mesures sous contraintes, par feuille « mesurée ».
+    /// Constrained measurements, one per "measured" leaf.
     measures: HashMap<NodeId, MeasureFn>,
 }
 
 impl<T> Layout<T> {
-    /// Crée un arbre vide.
+    /// Creates an empty tree.
     pub fn new() -> Self {
         Self {
             tree: TaffyTree::new(),
@@ -34,29 +34,29 @@ impl<T> Layout<T> {
         }
     }
 
-    /// Ajoute une feuille (nœud sans enfant) avec une donnée associée.
+    /// Adds a leaf — a node with no children — carrying associated data.
     pub fn leaf(&mut self, style: Style, data: T) -> NodeId {
         self.tree
             .new_leaf_with_context(style.to_taffy(), data)
             .expect("création d'une feuille de layout")
     }
 
-    /// Ajoute une feuille **mesurée** : sa taille est calculée par `measure`
-    /// selon l'espace offert (au lieu d'une dimension fixée dans le style).
+    /// Adds a **measured** leaf: its size comes from `measure`, given the space
+    /// offered, rather than from a dimension fixed in the style.
     pub fn measured_leaf(&mut self, style: Style, data: T, measure: MeasureFn) -> NodeId {
         let node = self.leaf(style, data);
         self.measures.insert(node, measure);
         node
     }
 
-    /// Ajoute un conteneur (nœud avec enfants), sans donnée associée.
+    /// Adds a container — a node with children — with no associated data.
     pub fn container(&mut self, style: Style, children: &[NodeId]) -> NodeId {
         self.tree
             .new_with_children(style.to_taffy(), children)
             .expect("création d'un conteneur de layout")
     }
 
-    /// Calcule la mise en page à partir de `root`, dans l'espace disponible donné.
+    /// Computes the layout from `root`, within the given available space.
     pub fn compute(&mut self, root: NodeId, available: Size) {
         self.compute_in(
             root,
@@ -67,9 +67,9 @@ impl<T> Layout<T> {
         );
     }
 
-    /// Calcule la mise en page d'un contenu scrollable : chaque axe est soit
-    /// contraint au viewport, soit **libre** (le contenu prend sa taille
-    /// naturelle) selon `free_x` / `free_y`.
+    /// Computes the layout of scrollable content: each axis is either constrained
+    /// to the viewport or **free**, in which case the content takes its natural
+    /// size, according to `free_x` and `free_y`.
     pub fn compute_scroll(
         &mut self,
         root: NodeId,
@@ -78,14 +78,14 @@ impl<T> Layout<T> {
         free_x: bool,
         free_y: bool,
     ) {
-        // **Remplir l'axe contraint** (façon `ListView` de Flutter) : le contenu d'un défilable
-        // **à un seul axe** prend la taille du viewport sur l'axe **transverse** (contraint), au
-        // lieu de se caler sur son contenu — sans quoi un enfant `flex(1)`/`Percent` sur cet axe
-        // s'effondrerait faute d'une base définie, et l'app devrait insérer un conteneur
-        // « remplisseur ». On ne touche l'axe que s'il est **contraint alors que l'autre est
-        // libre** (vrai défilement mono-axe : ni la mise en page définie — deux axes contraints —,
-        // ni le défilement 2D — deux axes libres), et **seulement** si la dimension racine est
-        // `Auto` (un choix explicite de taille est respecté).
+        // **Fill the constrained axis**: the content of a **single-axis** scrollable takes
+        // the viewport's size on the **cross** (constrained) axis, instead of hugging its
+        // content. Without this a `flex(1)` or `Percent` child on that axis would collapse
+        // for want of a definite basis, and the app would have to insert a "filler"
+        // container. We only touch the axis when it is **constrained while the other is
+        // free** — true single-axis scrolling, neither definite layout (both constrained)
+        // nor 2D scrolling (both free) — and **only** when the root dimension is `Auto`,
+        // since an explicit size choice is respected.
         let fill_w = !free_x && free_y;
         let fill_h = !free_y && free_x;
         if fill_w || fill_h {
@@ -122,8 +122,8 @@ impl<T> Layout<T> {
         );
     }
 
-    /// Le calcul commun : taffy, avec les **mesures sous contraintes** des
-    /// feuilles mesurées routées vers leur closure.
+    /// The shared computation: taffy, with measured leaves' **constrained
+    /// measurements** routed to their closures.
     fn compute_in(&mut self, root: NodeId, available: taffy::Size<AvailableSpace>) {
         let measures = &self.measures;
         self.tree
@@ -138,9 +138,9 @@ impl<T> Layout<T> {
                     let Some(measure) = measures.get(&node) else {
                         return taffy::Size::ZERO;
                     };
-                    // Contrainte résolue par axe : dimension connue si taffy l'a
-                    // déjà tranchée, sinon selon l'espace offert (min-content =
-                    // le plus étroit possible → 0 ; max-content = non contraint).
+                    // The constraint resolved per axis: the known dimension if taffy
+                    // has already settled it, otherwise from the space offered
+                    // (min-content = as narrow as possible, 0; max-content = free).
                     let bound = |known: Option<f32>, space: AvailableSpace| {
                         known.or(match space {
                             AvailableSpace::Definite(v) => Some(v),
@@ -161,11 +161,11 @@ impl<T> Layout<T> {
             .expect("calcul de la mise en page");
     }
 
-    /// Parcourt l'arbre (préfixe) et renvoie, pour chaque nœud, son rectangle en
-    /// coordonnées **absolues** ainsi que sa donnée associée éventuelle.
+    /// Walks the tree in prefix order and returns, for each node, its rectangle in
+    /// **absolute** coordinates along with any associated data.
     ///
-    /// taffy exprime les positions relativement au parent ; on accumule ici les
-    /// offsets pour obtenir des coordonnées absolues directement rendables.
+    /// taffy expresses positions relative to the parent; here we accumulate the
+    /// offsets to get absolute coordinates that can be rendered directly.
     pub fn absolute_rects(&self, root: NodeId) -> Vec<(Rect, Option<&T>)> {
         let mut out = Vec::new();
         self.collect(root, 0.0, 0.0, &mut out);
@@ -210,7 +210,7 @@ mod tests {
     fn flex_row_computes_absolute_positions() {
         let mut layout: Layout<()> = Layout::new();
 
-        // Enfant A : largeur fixe 120. Enfant B : flex_grow 1 (remplit le reste).
+        // Child A: fixed width 120. Child B: flex_grow 1, filling the rest.
         let a = layout.leaf(
             Style {
                 width: Dimension::Length(120.0),
@@ -240,19 +240,19 @@ mod tests {
         layout.compute(root, Size::new(400.0, 100.0));
         let rects = layout.absolute_rects(root);
 
-        // Parcours préfixe : [root, a, b].
+        // Prefix walk: [root, a, b].
         let (root_rect, _) = rects[0];
         let (a_rect, _) = rects[1];
         let (b_rect, _) = rects[2];
 
         assert_eq!(root_rect, Rect::new(0.0, 0.0, 400.0, 100.0));
 
-        // Zone de contenu : padding 10 de chaque côté.
-        // A : x = 10, largeur 120, étirée en hauteur (align stretch) => 80, y = 10.
+        // The content area: 10 of padding on every side.
+        // A: x = 10, width 120, stretched in height (align stretch) => 80, y = 10.
         assert_eq!(a_rect, Rect::new(10.0, 10.0, 120.0, 80.0));
 
-        // B : après A + gap => x = 10 + 120 + 8 = 138.
-        // Largeur = contenu(380) - A(120) - gap(8) = 252.
+        // B: after A plus the gap => x = 10 + 120 + 8 = 138.
+        // Width = content(380) - A(120) - gap(8) = 252.
         assert_eq!(b_rect, Rect::new(138.0, 10.0, 252.0, 80.0));
     }
 
@@ -260,8 +260,8 @@ mod tests {
     fn flex_wrap_moves_overflowing_child_to_next_line() {
         let mut layout: Layout<()> = Layout::new();
 
-        // 3 enfants de 80px dans un conteneur de 200px : 80+80 tiennent sur la
-        // 1re ligne, le 3e (240 > 200) passe à la ligne suivante.
+        // Three 80px children in a 200px container: 80+80 fit on the first line, and
+        // the third (240 > 200) wraps to the next.
         let kids: Vec<_> = (0..3)
             .map(|_| {
                 layout.leaf(
@@ -288,12 +288,12 @@ mod tests {
 
         layout.compute(root, Size::new(200.0, 200.0));
         let rects = layout.absolute_rects(root);
-        // Parcours préfixe : [root, k0, k1, k2].
+        // Prefix walk: [root, k0, k1, k2].
         let (k0, _) = rects[1];
         let (k1, _) = rects[2];
         let (k2, _) = rects[3];
 
-        // k0 et k1 sur la 1re ligne ; k2 revient à gauche, plus bas.
+        // k0 and k1 on the first line; k2 comes back to the left, lower down.
         assert_eq!(k0.y, k1.y);
         assert_eq!(k2.x, k0.x);
         assert!(k2.y >= k0.y + 40.0, "k2.y = {} attendu >= 40", k2.y);
@@ -301,8 +301,8 @@ mod tests {
 
     #[test]
     fn measured_leaf_wraps_to_the_offered_width() {
-        // Simule un texte de 250 px qui se replie : à largeur W offerte, il
-        // occupe min(W, 250) de large et grandit en hauteur s'il se replie.
+        // Simulates a 250px text that wraps: given a width W, it occupies min(W, 250)
+        // across and grows in height when it wraps.
         let measure: crate::MeasureFn = Box::new(|w, _| {
             let w = w.unwrap_or(250.0).min(250.0);
             let lines = (250.0 / w).ceil();
@@ -357,7 +357,7 @@ mod tests {
         layout.compute(root, Size::new(400.0, 100.0));
         let rects = layout.absolute_rects(root);
 
-        // Enfant centré sur l'axe principal : x = (400 - 100) / 2 = 150.
+        // A child centred on the main axis: x = (400 - 100) / 2 = 150.
         assert_eq!(rects[1].0, Rect::new(150.0, 0.0, 100.0, 40.0));
     }
 }

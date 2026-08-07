@@ -1,15 +1,15 @@
-//! Style de mise en page — une API frus mince, traduite vers taffy en interne.
+//! Layout style — a thin frus API, translated to taffy internally.
 
 use frus_core::Insets;
 
-/// Dimension d'un axe (largeur ou hauteur).
+/// The dimension of one axis, width or height.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Dimension {
-    /// Taille déterminée par le contenu / la mise en page.
+    /// A size decided by the content and the layout.
     Auto,
-    /// Taille fixe, en pixels logiques.
+    /// A fixed size, in logical pixels.
     Length(f32),
-    /// Pourcentage de la taille du parent (`0.0..=1.0`).
+    /// A percentage of the parent's size (`0.0..=1.0`).
     Percent(f32),
 }
 
@@ -23,12 +23,12 @@ impl Dimension {
     }
 }
 
-/// Direction de l'axe principal d'un conteneur flex.
+/// The main-axis direction of a flex container.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FlexDirection {
-    /// Enfants disposés horizontalement.
+    /// Children laid out horizontally.
     Row,
-    /// Enfants disposés verticalement.
+    /// Children laid out vertically.
     Column,
 }
 
@@ -41,7 +41,7 @@ impl FlexDirection {
     }
 }
 
-/// Répartition des enfants sur l'axe **principal**.
+/// How children are distributed along the **main** axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Justify {
     Start,
@@ -63,13 +63,13 @@ impl Justify {
     }
 }
 
-/// Alignement des enfants sur l'axe **croisé**.
+/// How children are aligned on the **cross** axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
     Start,
     Center,
     End,
-    /// Les enfants s'étirent pour remplir l'axe croisé (défaut).
+    /// Children stretch to fill the cross axis. This is the default.
     Stretch,
 }
 
@@ -84,43 +84,43 @@ impl Align {
     }
 }
 
-/// Style d'un nœud de mise en page.
+/// A layout node's style.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Style {
-    /// Largeur.
+    /// Width.
     pub width: Dimension,
-    /// Hauteur.
+    /// Height.
     pub height: Dimension,
-    /// Largeur **minimale** : plancher que la mise en page ne descend pas sous. Utile
-    /// pour une boîte qui grandit avec son contenu sans jamais se tasser (`Auto` = aucun).
+    /// **Minimum** width: a floor the layout never goes below. Useful for a box that
+    /// grows with its content and never squashes (`Auto` = no floor).
     pub min_width: Dimension,
-    /// Hauteur **minimale** : plancher que la mise en page ne descend pas sous — p.ex.
-    /// une rangée qui grandit avec un contenu haut sans jamais rétrécir (`Auto` = aucun).
+    /// **Minimum** height: a floor the layout never goes below — for instance a row
+    /// that grows with tall content and never shrinks (`Auto` = no floor).
     pub min_height: Dimension,
-    /// Facteur d'expansion sur l'axe principal (flexbox).
+    /// The main-axis grow factor (flexbox).
     pub flex_grow: f32,
-    /// Direction de l'axe principal (pour un conteneur).
+    /// The main-axis direction, for a container.
     pub flex_direction: FlexDirection,
-    /// Répartition sur l'axe principal.
+    /// Distribution along the main axis.
     pub justify: Justify,
-    /// Alignement sur l'axe croisé.
+    /// Alignment on the cross axis.
     pub align: Align,
-    /// Marge intérieure, par côté, en pixels logiques.
+    /// Padding, per side, in logical pixels.
     pub padding: Insets,
-    /// Marge **extérieure**, par côté, en pixels logiques : espace réservé
-    /// **autour** de la boîte (hors décoration), qui repousse les frères.
+    /// **Margin**, per side, in logical pixels: space reserved **around** the box,
+    /// outside its decoration, which pushes siblings away.
     pub margin: Insets,
-    /// Si `Some(r)`, la boîte **conserve un rapport largeur/hauteur** de `r`
-    /// (`width / height`) : la dimension libre est dérivée de la dimension
-    /// contrainte. `None` = pas de contrainte de rapport.
+    /// When `Some(r)`, the box **keeps an aspect ratio** of `r` (`width / height`):
+    /// the free dimension is derived from the constrained one. `None` means no
+    /// ratio constraint.
     pub aspect_ratio: Option<f32>,
-    /// Espacement entre enfants, en pixels logiques.
+    /// Spacing between children, in logical pixels.
     pub gap: f32,
-    /// Si `true`, les enfants **passent à la ligne** (flex-wrap) quand ils
-    /// débordent l'axe principal — reflow responsive automatique.
+    /// When `true`, children **wrap** onto the next line (flex-wrap) once they
+    /// overflow the main axis — automatic responsive reflow.
     pub flex_wrap: bool,
-    /// Si `Some(n)`, le conteneur est une **grille** de `n` colonnes égales
-    /// (les enfants s'y placent automatiquement, ligne par ligne). `None` = flex.
+    /// When `Some(n)`, the container is a **grid** of `n` equal columns, with
+    /// children placed automatically, row by row. `None` means flex.
     pub grid_columns: Option<usize>,
 }
 
@@ -146,12 +146,11 @@ impl Default for Style {
 }
 
 impl Style {
-    /// Mêle dans `hasher` **tous les champs qui influent sur la géométrie** de
-    /// mise en page. Deux styles produisant la même empreinte donnent la même
-    /// disposition — c'est ce qui permet un cache de relayout (sauter taffy quand
-    /// rien de pertinent n'a changé). Les `f32` sont hachés par motif binaire
-    /// (égalité exacte, bit à bit) ; la couleur/le texte n'entrent pas ici (ils ne
-    /// touchent que la peinture).
+    /// Mixes into `hasher` **every field that affects layout geometry**. Two styles
+    /// with the same fingerprint produce the same arrangement — which is what makes
+    /// a relayout cache possible, skipping taffy when nothing relevant has changed.
+    /// The `f32`s are hashed by bit pattern, so equality is exact; colour and text do
+    /// not enter into it, since they only affect painting.
     pub fn layout_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         use std::hash::Hash;
         fn dim<H: std::hash::Hasher>(d: Dimension, h: &mut H) {
@@ -234,14 +233,14 @@ impl Style {
             ..Default::default()
         };
 
-        // Grille : `n` colonnes égales (1fr chacune) ; les enfants se placent
-        // automatiquement, ligne par ligne (auto-flow), lignes dimensionnées au contenu.
+        // Grid: `n` equal columns of 1fr each; children are placed automatically,
+        // row by row (auto-flow), with rows sized to their content.
         if let Some(columns) = self.grid_columns {
             use taffy::style_helpers::fr;
             style.display = taffy::Display::Grid;
-            // `1.0_f32` explicite : `fr` est générique, et le repli silencieux de
-            // `1.0` vers `f32` est en cours de retrait (future_incompatible,
-            // rust#154024). Sans le suffixe, ceci deviendra une erreur dure.
+            // The explicit `1.0_f32`: `fr` is generic, and the silent fallback from
+            // `1.0` to `f32` is being withdrawn (future_incompatible, rust#154024).
+            // Without the suffix this becomes a hard error.
             style.grid_template_columns = (0..columns).map(|_| fr(1.0_f32)).collect();
         }
 
