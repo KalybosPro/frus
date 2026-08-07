@@ -1,22 +1,21 @@
-//! Simulations physiques : des fonctions **pures** `temps → valeur`.
+//! Physical simulations: **pure** `time → value` functions.
 //!
-//! Une [`Simulation`] décrit un mouvement par sa position `x(t)`, sa vitesse
-//! `dx(t)` et un critère d'arrêt `is_done(t)` — sans état mutable ni couplage au
-//! rendu. C'est l'abstraction que tout le reste de l'animation partage : un
-//! ressort, un fling à friction et le momentum de défilement passent par le même
-//! chemin (un pilote échantillonne `x(t)` à chaque frame).
+//! A [`Simulation`] describes a motion through its position `x(t)`, its velocity
+//! `dx(t)` and a stopping test `is_done(t)` — with no mutable state and no coupling
+//! to rendering. It is the abstraction the rest of the animation layer shares: a
+//! spring, a friction fling and scroll momentum all take the same path, with a
+//! driver sampling `x(t)` every frame.
 //!
-//! Les maths (ressort en 3 régimes, friction en forme close) sont portées de
-//! Flutter (`physics/*.dart`), mais exprimées comme des valeurs immuables
-//! calculées une fois à la construction : aucune ré-entrance, aucun emprunt vers
-//! le haut — le style colle à Rust.
+//! The maths — a spring in its three regimes, friction in closed form — are
+//! expressed as immutable values computed once at construction: no re-entrancy and
+//! no upward borrowing, which is the shape Rust wants.
 
-/// Seuils en deçà desquels une simulation est considérée « au repos ».
+/// The thresholds below which a simulation counts as "at rest".
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tolerance {
-    /// Distance négligeable (unités de position).
+    /// Negligible distance, in position units.
     pub distance: f32,
-    /// Vitesse négligeable (unités de position par seconde).
+    /// Negligible velocity, in position units per second.
     pub velocity: f32,
 }
 
@@ -30,44 +29,43 @@ impl Default for Tolerance {
 }
 
 impl Tolerance {
-    /// Une tolérance calibrée en **pixels** (mouvements d'UI) : on considère un
-    /// déplacement de moins d'un demi-pixel et une vitesse de moins de 2 px/s
-    /// comme immobiles.
+    /// A tolerance calibrated in **pixels**, for UI motion: a displacement of less
+    /// than half a pixel, at a velocity under 2 px/s, counts as stationary.
     pub const PIXELS: Tolerance = Tolerance {
         distance: 0.5,
         velocity: 2.0,
     };
 }
 
-/// Un mouvement décrit comme une fonction pure du temps.
+/// A motion described as a pure function of time.
 ///
-/// `time` est en **secondes** depuis le début du mouvement.
+/// `time` is in **seconds** since the motion began.
 pub trait Simulation {
-    /// Position à l'instant `time`.
+    /// The position at instant `time`.
     fn x(&self, time: f32) -> f32;
-    /// Vitesse (dérivée de la position) à l'instant `time`.
+    /// The velocity — the derivative of position — at instant `time`.
     fn dx(&self, time: f32) -> f32;
-    /// `true` quand le mouvement est terminé (dans les tolérances).
+    /// `true` once the motion has finished, within the tolerances.
     fn is_done(&self, time: f32) -> bool;
-    /// Seuils d'arrêt.
+    /// The stopping thresholds.
     fn tolerance(&self) -> Tolerance {
         Tolerance::default()
     }
 }
 
-/// Paramètres d'un ressort amorti.
+/// The parameters of a damped spring.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpringDescription {
-    /// Masse `m` (> 0).
+    /// Mass `m` (> 0).
     pub mass: f32,
-    /// Raideur `k` (> 0).
+    /// Stiffness `k` (> 0).
     pub stiffness: f32,
-    /// Amortissement `c` (≥ 0).
+    /// Damping `c` (≥ 0).
     pub damping: f32,
 }
 
 impl SpringDescription {
-    /// Ressort décrit directement par `(masse, raideur, amortissement)`.
+    /// A spring given directly as `(mass, stiffness, damping)`.
     pub fn new(mass: f32, stiffness: f32, damping: f32) -> Self {
         Self {
             mass,
@@ -76,8 +74,8 @@ impl SpringDescription {
         }
     }
 
-    /// Ressort décrit par un **ratio d'amortissement** : `1` = critique (arrivée
-    /// la plus rapide sans dépassement), `< 1` oscille, `> 1` est mou.
+    /// A spring given by its **damping ratio**: `1` is critical (the fastest
+    /// settle with no overshoot), `< 1` oscillates, `> 1` is sluggish.
     /// `c = ratio · 2·√(m·k)`.
     pub fn with_damping_ratio(mass: f32, stiffness: f32, ratio: f32) -> Self {
         Self {
@@ -88,15 +86,15 @@ impl SpringDescription {
     }
 }
 
-/// La forme close d'un ressort, choisie selon le discriminant `c² − 4mk`.
+/// A spring's closed form, chosen from the discriminant `c² − 4mk`.
 #[derive(Clone, Copy, Debug)]
 enum Solution {
-    /// Amortissement critique (`c² − 4mk == 0`) : arrivée la plus rapide sans
+    /// Critically damped (`c² − 4mk == 0`): the fastest settle, with no
     /// oscillation.
     Critical { r: f32, c1: f32, c2: f32 },
-    /// Suramorti (`c² − 4mk > 0`) : deux exponentielles réelles, pas d'oscillation.
+    /// Overdamped (`c² − 4mk > 0`): two real exponentials, no oscillation.
     Overdamped { r1: f32, r2: f32, c1: f32, c2: f32 },
-    /// Sous-amorti (`c² − 4mk < 0`) : oscillation amortie.
+    /// Underdamped (`c² − 4mk < 0`): a damped oscillation.
     Underdamped { w: f32, r: f32, c1: f32, c2: f32 },
 }
 
@@ -130,8 +128,8 @@ impl Solution {
     }
 }
 
-/// Un ressort qui ramène une valeur de `start` vers `end`, amorcé par une vitesse
-/// initiale `velocity`. La position rapportée est `end + solution(t)`.
+/// A spring pulling a value from `start` towards `end`, started with an initial
+/// `velocity`. The reported position is `end + solution(t)`.
 #[derive(Clone, Copy, Debug)]
 pub struct SpringSimulation {
     end: f32,
@@ -140,8 +138,8 @@ pub struct SpringSimulation {
 }
 
 impl SpringSimulation {
-    /// Construit un ressort tendant de `start` vers `end`, à vitesse initiale
-    /// `velocity` (px/s), avec la tolérance donnée.
+    /// Builds a spring reaching from `start` to `end`, at initial `velocity`
+    /// (px/s), with the given tolerance.
     pub fn new(
         spring: SpringDescription,
         start: f32,
@@ -156,9 +154,9 @@ impl SpringSimulation {
         let v0 = velocity;
         let cmk = c * c - 4.0 * m * k;
 
-        // On considère le régime critique dès que le discriminant est négligeable
-        // devant `4mk` : `with_damping_ratio(1.0)` peut, par arrondi flottant,
-        // produire un `cmk` minuscule non nul qu'on ne veut pas voir osciller.
+        // We treat the regime as critical as soon as the discriminant is negligible
+        // next to `4mk`: floating-point rounding can leave `with_damping_ratio(1.0)`
+        // with a tiny non-zero `cmk` that we do not want to see oscillate.
         let solution = if cmk.abs() <= 1e-4 * (4.0 * m * k).max(1.0) {
             let r = -c / (2.0 * m);
             Solution::Critical {
@@ -215,9 +213,9 @@ impl Simulation for SpringSimulation {
     }
 }
 
-/// Décélération par friction (momentum de scroll/fling), en forme close.
+/// Friction deceleration — scroll and fling momentum — in closed form.
 ///
-/// `drag ∈ (0, 1)` : plus il est proche de 1, plus le mouvement roule longtemps.
+/// `drag ∈ (0, 1)`: the closer to 1, the longer the motion keeps rolling.
 #[derive(Clone, Copy, Debug)]
 pub struct FrictionSimulation {
     drag: f32,
@@ -228,8 +226,7 @@ pub struct FrictionSimulation {
 }
 
 impl FrictionSimulation {
-    /// Friction depuis la position `position` à la vitesse `velocity`, avec le
-    /// coefficient `drag`.
+    /// Friction from `position` at `velocity`, with the coefficient `drag`.
     pub fn new(drag: f32, position: f32, velocity: f32, tolerance: Tolerance) -> Self {
         Self {
             drag,
@@ -240,8 +237,8 @@ impl FrictionSimulation {
         }
     }
 
-    /// Friction calibrée pour passer par `start` (à `start_velocity`) **et**
-    /// s'arrêter à `end` (à `end_velocity`) : en déduit le `drag`.
+    /// A friction calibrated to pass through `start` (at `start_velocity`) **and**
+    /// stop at `end` (at `end_velocity`), deriving `drag` from that.
     /// `drag = e^((v₀ − v₁)/(x₀ − x₁))`.
     pub fn through(
         start: f32,
@@ -254,7 +251,7 @@ impl FrictionSimulation {
         Self::new(drag, start, start_velocity, tolerance)
     }
 
-    /// Position finale (limite quand `t → ∞`).
+    /// The final position — the limit as `t → ∞`.
     pub fn final_x(&self) -> f32 {
         self.x0 - self.v0 / self.drag_log
     }
@@ -278,9 +275,9 @@ impl Simulation for FrictionSimulation {
     }
 }
 
-/// Épingle la **position** d'une simulation dans `[min, max]` (la vitesse
-/// continue de rapporter celle de la simulation sous-jacente). Sert au scroll :
-/// le momentum est calculé librement, mais l'offset ne sort pas des bornes.
+/// Pins a simulation's **position** into `[min, max]`; the velocity keeps
+/// reporting the underlying simulation's. This is what scrolling needs: momentum
+/// is computed freely, but the offset never leaves the bounds.
 pub struct ClampedSimulation<S: Simulation> {
     inner: S,
     min: f32,
@@ -288,7 +285,7 @@ pub struct ClampedSimulation<S: Simulation> {
 }
 
 impl<S: Simulation> ClampedSimulation<S> {
-    /// Enveloppe `inner`, contraignant sa position dans `[min, max]`.
+    /// Wraps `inner`, constraining its position to `[min, max]`.
     pub fn new(inner: S, min: f32, max: f32) -> Self {
         Self { inner, min, max }
     }
@@ -316,14 +313,14 @@ impl<S: Simulation> Simulation for ClampedSimulation<S> {
 mod tests {
     use super::*;
 
-    /// Intègre numériquement `dx` et vérifie que ça colle à `x` : garantit que
-    /// vitesse et position d'une simulation sont cohérentes.
+    /// Numerically integrates `dx` and checks it against `x`, which guarantees that
+    /// a simulation's velocity and position agree with one another.
     fn dx_matches_x<S: Simulation>(sim: &S, t: f32) {
         let h = 1e-4;
         let numeric = (sim.x(t + h) - sim.x(t - h)) / (2.0 * h);
         let analytic = sim.dx(t);
-        // Tolérance relative : la différence finie centrée a une erreur de
-        // troncature proportionnelle à la courbure (grande à haute vitesse).
+        // A relative tolerance: the centred finite difference has a truncation error
+        // proportional to the curvature, which is large at high speed.
         let scale = analytic.abs().max(1.0);
         assert!(
             (numeric - analytic).abs() < 1e-2 * scale,
@@ -336,7 +333,7 @@ mod tests {
         let spring = SpringDescription::with_damping_ratio(1.0, 500.0, 1.0);
         let sim = SpringSimulation::new(spring, 0.0, 1.0, 0.0, Tolerance::default());
         assert!((sim.x(0.0) - 0.0).abs() < 1e-5, "départ à start");
-        // Monotone croissante, ne dépasse jamais 1 (pas d'oscillation).
+        // Monotonically increasing, never above 1 — no oscillation.
         let mut prev = sim.x(0.0);
         let mut t = 0.0;
         while t < 2.0 {
@@ -355,7 +352,7 @@ mod tests {
     fn underdamped_spring_overshoots_then_returns() {
         let spring = SpringDescription::with_damping_ratio(1.0, 500.0, 0.3);
         let sim = SpringSimulation::new(spring, 0.0, 1.0, 0.0, Tolerance::default());
-        // Faiblement amorti : dépasse la cible au moins une fois.
+        // Lightly damped: it overshoots the target at least once.
         let mut max = f32::MIN;
         let mut t = 0.0;
         while t < 2.0 {
@@ -363,7 +360,7 @@ mod tests {
             t += 0.005;
         }
         assert!(max > 1.05, "devrait dépasser la cible, max={max}");
-        // Finit par se poser sur la cible.
+        // It settles on the target in the end.
         assert!((sim.x(3.0) - 1.0).abs() < 1e-2);
         dx_matches_x(&sim, 0.1);
     }
@@ -388,7 +385,7 @@ mod tests {
     fn spring_honours_initial_velocity() {
         let spring = SpringDescription::with_damping_ratio(1.0, 500.0, 1.0);
         let sim = SpringSimulation::new(spring, 0.0, 1.0, 50.0, Tolerance::default());
-        // Vitesse initiale = 50 px/s vers la cible.
+        // Initial velocity = 50 px/s towards the target.
         assert!((sim.dx(0.0) - 50.0).abs() < 1e-2, "dx(0) = {}", sim.dx(0.0));
     }
 
@@ -396,14 +393,14 @@ mod tests {
     fn friction_decelerates_to_finite_limit() {
         let sim = FrictionSimulation::new(0.135, 0.0, 1000.0, Tolerance::PIXELS);
         let limit = sim.final_x();
-        // La position tend vers la limite finie sans la dépasser.
+        // The position approaches the finite limit without passing it.
         assert!(sim.x(0.0).abs() < 1e-4);
         assert!(sim.x(10.0) <= limit + 1e-3);
         assert!(
             (sim.x(10.0) - limit).abs() < 1.0,
             "proche de la limite après 10 s"
         );
-        // La vitesse décroît vers 0.
+        // The velocity decays towards 0.
         assert!(sim.dx(0.0) > sim.dx(1.0));
         assert!(sim.dx(5.0).abs() < sim.dx(0.0).abs());
         dx_matches_x(&sim, 0.5);
@@ -411,7 +408,7 @@ mod tests {
 
     #[test]
     fn friction_through_hits_endpoints() {
-        // Doit passer par x=0 à v=1000 et finir à x=200 à v≈0.
+        // It must pass through x=0 at v=1000 and end at x=200 with v about 0.
         let sim = FrictionSimulation::through(0.0, 200.0, 1000.0, 0.0, Tolerance::PIXELS);
         assert!((sim.x(0.0)).abs() < 1e-3);
         assert!(
@@ -428,7 +425,7 @@ mod tests {
         assert!(uncapped > 100.0);
         let clamped = ClampedSimulation::new(inner, 0.0, 100.0);
         assert_eq!(clamped.x(10.0), 100.0, "position épinglée au max");
-        // La vitesse reste celle du mouvement libre (non nulle près du bord).
+        // The velocity stays that of the free motion, non-zero near the edge.
         assert!(clamped.dx(0.1) > 0.0);
     }
 }

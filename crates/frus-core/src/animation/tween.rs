@@ -1,13 +1,13 @@
-//! Interpolation typée : une progression `[0,1]` pilote n'importe quelle valeur
-//! interpolable (nombre, couleur, point, taille…).
+//! Typed interpolation: a `[0,1]` progress value drives any interpolable value —
+//! a number, a colour, a point, a size.
 
 use super::controller::{AnimationController, Status};
 use super::curve::Curve;
 use crate::{Alignment, BorderRadius, Color, Insets, Point, Size};
 
-/// Une valeur interpolable linéairement.
+/// A linearly interpolable value.
 pub trait Lerp: Copy {
-    /// Interpole de `self` (à `t=0`) vers `other` (à `t=1`).
+    /// Interpolates from `self` (at `t=0`) to `other` (at `t=1`).
     fn lerp(self, other: Self, t: f32) -> Self;
 }
 
@@ -66,46 +66,45 @@ impl Lerp for Alignment {
     }
 }
 
-/// Interpole une valeur entre deux bornes selon une progression `[0,1]`.
+/// Interpolates a value between two bounds, driven by a `[0,1]` progress value.
 ///
-/// Un seul pilote `[0,1]` (contrôleur, ressort…) anime ainsi arbitrairement de
-/// valeurs typées, chacune avec ses propres bornes.
+/// A single `[0,1]` driver — a controller, a spring — can therefore animate any
+/// number of typed values, each with its own bounds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tween<T> {
-    /// Valeur à `t = 0`.
+    /// The value at `t = 0`.
     pub begin: T,
-    /// Valeur à `t = 1`.
+    /// The value at `t = 1`.
     pub end: T,
 }
 
 impl<T: Lerp> Tween<T> {
-    /// Crée un tween de `begin` à `end`.
+    /// Creates a tween from `begin` to `end`.
     pub fn new(begin: T, end: T) -> Self {
         Self { begin, end }
     }
 
-    /// Valeur à la progression `t` (généralement issue d'une [`super::Curve`]).
+    /// The value at progress `t`, usually coming from a [`super::Curve`].
     pub fn eval(&self, t: f32) -> T {
         self.begin.lerp(self.end, t)
     }
 }
 
-/// Une valeur **façonnable** par une progression `[0,1]` — l'abstraction que
-/// partagent tweens et courbes (Flutter `Animatable`). C'est le pont entre le
-/// versant *explicite* (un [`AnimationController`] qui produit un `[0,1]` frame par
-/// frame) et une valeur *typée* : `tween.animate(&controller).value()` lit à tout
-/// instant la couleur / taille / point courant, sans que la vue ne connaisse le
-/// contrôleur autrement que par cette valeur.
+/// A value that can be **shaped** by a `[0,1]` progress value — the abstraction
+/// tweens and curves share. It is the bridge between the *explicit* side (an
+/// [`AnimationController`] producing a `[0,1]` frame by frame) and a *typed* value:
+/// `tween.animate(&controller).value()` reads the current colour, size or point at
+/// any instant, without the view knowing the controller as anything other than
+/// that value.
 pub trait Animatable {
-    /// Le type de valeur produit (couleur, taille, nombre…).
+    /// The type of value produced (colour, size, number).
     type Output;
 
-    /// Valeur à la progression `t ∈ [0,1]`.
+    /// The value at progress `t ∈ [0,1]`.
     fn evaluate(&self, t: f32) -> Self::Output;
 
-    /// Enchaîne une [`Curve`] **avant** l'évaluation : `t` est d'abord façonné par
-    /// la courbe (façon `CurveTween` de Flutter). Une seule progression linéaire
-    /// pilote ainsi une valeur au timing non linéaire.
+    /// Chains a [`Curve`] **before** evaluation: `t` is shaped by the curve first,
+    /// so a single linear progress value can drive a value with non-linear timing.
     fn curved(self, curve: Curve) -> Curved<Self>
     where
         Self: Sized,
@@ -113,10 +112,10 @@ pub trait Animatable {
         Curved { inner: self, curve }
     }
 
-    /// Lie cette animation à la progression d'un [`AnimationController`], produisant
-    /// une [`Animation`] dont `value()` suit la valeur courante du contrôleur. La
-    /// valeur du contrôleur est **normalisée** par ses bornes, si bien qu'un
-    /// contrôleur non unitaire pilote quand même un `[0,1]` complet.
+    /// Binds this animation to an [`AnimationController`]'s progress, producing an
+    /// [`Animation`] whose `value()` follows the controller's current value. The
+    /// controller's value is **normalised** by its own bounds, so a non-unit
+    /// controller still drives a full `[0,1]`.
     fn animate<'a>(&'a self, controller: &'a AnimationController) -> Animation<'a, Self>
     where
         Self: Sized,
@@ -136,8 +135,8 @@ impl<T: Lerp> Animatable for Tween<T> {
     }
 }
 
-/// Un [`Animatable`] dont la progression est d'abord façonnée par une [`Curve`]
-/// (résultat de [`Animatable::curved`]).
+/// An [`Animatable`] whose progress is shaped by a [`Curve`] first — the result of
+/// [`Animatable::curved`].
 #[derive(Clone, Debug)]
 pub struct Curved<A> {
     inner: A,
@@ -152,16 +151,16 @@ impl<A: Animatable> Animatable for Curved<A> {
     }
 }
 
-/// Une valeur typée **vivante** : un [`Animatable`] lié à un [`AnimationController`]
-/// (résultat de [`Animatable::animate`]). `value()` échantillonne le contrôleur à
-/// l'instant présent — c'est ce que la vue lit au paint.
+/// A **live** typed value: an [`Animatable`] bound to an [`AnimationController`]
+/// (the result of [`Animatable::animate`]). `value()` samples the controller at the
+/// present instant — this is what the view reads at paint time.
 pub struct Animation<'a, A: Animatable> {
     animatable: &'a A,
     controller: &'a AnimationController,
 }
 
 impl<A: Animatable> Animation<'_, A> {
-    /// Valeur typée courante : progression normalisée du contrôleur, évaluée.
+    /// The current typed value: the controller's normalised progress, evaluated.
     pub fn value(&self) -> A::Output {
         let (lower, upper) = self.controller.bounds();
         let t = if upper > lower {
@@ -172,34 +171,34 @@ impl<A: Animatable> Animation<'_, A> {
         self.animatable.evaluate(t.clamp(0.0, 1.0))
     }
 
-    /// Statut du contrôleur sous-jacent.
+    /// The underlying controller's status.
     pub fn status(&self) -> Status {
         self.controller.status()
     }
 
-    /// `true` si le contrôleur sous-jacent anime encore.
+    /// `true` while the underlying controller is still animating.
     pub fn is_animating(&self) -> bool {
         self.controller.is_animating()
     }
 }
 
-/// Une suite de segments [`Animatable`] enchaînés sur la progression `[0,1]`, façon
-/// `TweenSequence` de Flutter : chaque segment reçoit une **part** proportionnelle à
-/// son poids. Ainsi une seule progression traverse plusieurs étapes — un morph en
-/// plusieurs temps (couleur A → B → C), un rebond (grossir puis revenir), une
-/// séquence à rythmes distincts (un segment `.curved`, l'autre linéaire).
+/// A run of [`Animatable`] segments chained along the `[0,1]` progress value: each
+/// segment gets a **share** proportional to its weight. One progress value can thus
+/// cross several stages — a multi-step morph (colour A → B → C), a bounce (grow
+/// then come back), or a sequence with distinct rhythms (one segment `.curved`, the
+/// other linear).
 ///
-/// `TweenSequence` est **lui-même** un `Animatable` : il se `.curved()` et
-/// s'`.animate()` comme n'importe quel tween.
+/// `TweenSequence` is **itself** an `Animatable`: it can be `.curved()` and
+/// `.animate()`d like any other tween.
 pub struct TweenSequence<T> {
-    /// `(segment, poids)`. Toujours au moins un (garanti par [`new`](Self::new)).
+    /// `(segment, weight)`. Always at least one, guaranteed by [`new`](Self::new).
     items: Vec<(Box<dyn Animatable<Output = T>>, f32)>,
     total_weight: f32,
 }
 
 impl<T> TweenSequence<T> {
-    /// Démarre une suite avec son premier segment et son poids (poids négatif borné
-    /// à zéro).
+    /// Starts a run with its first segment and weight; a negative weight is clamped
+    /// to zero.
     pub fn new(first: impl Animatable<Output = T> + 'static, weight: f32) -> Self {
         let w = weight.max(0.0);
         Self {
@@ -208,7 +207,7 @@ impl<T> TweenSequence<T> {
         }
     }
 
-    /// Enchaîne un segment de plus, occupant `weight` de la progression totale.
+    /// Chains one more segment, taking up `weight` of the total progress.
     pub fn then(mut self, next: impl Animatable<Output = T> + 'static, weight: f32) -> Self {
         let w = weight.max(0.0);
         self.total_weight += w;
@@ -223,14 +222,14 @@ impl<T> Animatable for TweenSequence<T> {
     fn evaluate(&self, t: f32) -> T {
         let t = t.clamp(0.0, 1.0);
         let last = self.items.len() - 1;
-        // Tous les poids nuls : pas de partition possible → dernier segment.
+        // All weights zero: no partition is possible, so use the last segment.
         if self.total_weight <= 0.0 {
             return self.items[last].0.evaluate(t);
         }
         let target = t * self.total_weight;
         let mut acc = 0.0;
         for (i, (seg, w)) in self.items.iter().enumerate() {
-            // Le dernier segment attrape le reste (robuste aux arrondis).
+            // The last segment catches the remainder, which is rounding-proof.
             if i == last || target <= acc + *w {
                 let local = if *w > 0.0 { (target - acc) / *w } else { 0.0 };
                 return seg.evaluate(local.clamp(0.0, 1.0));
@@ -266,8 +265,8 @@ mod tests {
         assert_eq!(t.eval(0.5), Point::new(5.0, 10.0));
     }
 
-    /// `tween.animate(&controller)` : la valeur typée suit le contrôleur — au repos
-    /// bas → `begin`, puis vers `end` une fois l'animation terminée.
+    /// `tween.animate(&controller)`: the typed value follows the controller — at rest
+    /// at the bottom it is `begin`, then `end` once the animation has finished.
     #[test]
     fn animate_follows_controller() {
         let mut ctrl = AnimationController::unit();
@@ -281,8 +280,8 @@ mod tests {
         assert_eq!(tween.animate(&ctrl).status(), Status::Completed);
     }
 
-    /// `.curved(...)` façonne la progression avant l'évaluation : à mi-course d'un
-    /// `ease_in`, la valeur est **en deçà** du milieu linéaire.
+    /// `.curved(...)` shapes the progress before evaluation: half way through an
+    /// `ease_in`, the value sits **below** the linear midpoint.
     #[test]
     fn curved_reshapes_progression() {
         let mut ctrl = AnimationController::unit();
@@ -292,19 +291,19 @@ mod tests {
         let mid = eased.animate(&ctrl).value();
         assert!(mid < 50.0, "ease_in en deçà du milieu linéaire : {mid}");
         assert!(mid > 0.0);
-        // Les bornes restent atteintes (à la tolérance du solveur de bézier près).
+        // The bounds are still reached, to the Bézier solver's tolerance.
         ctrl.set_value(0.0);
         assert!(eased.animate(&ctrl).value().abs() < 0.5);
         ctrl.set_value(1.0);
         assert!((eased.animate(&ctrl).value() - 100.0).abs() < 0.5);
     }
 
-    /// Un contrôleur non unitaire pilote quand même un `[0,1]` complet : la valeur
-    /// est normalisée par ses bornes.
+    /// A non-unit controller still drives a full `[0,1]`: the value is normalised by
+    /// its bounds.
     #[test]
     fn non_unit_bounds_are_normalized() {
         let mut ctrl = AnimationController::new(0.0, 2.0);
-        ctrl.set_value(1.0); // milieu de [0,2] → t = 0.5
+        ctrl.set_value(1.0); // the middle of [0,2] -> t = 0.5
         let tween = Tween::new(Color::BLACK, Color::WHITE);
         assert_eq!(tween.animate(&ctrl).value(), Color::rgb(0.5, 0.5, 0.5));
     }
@@ -325,40 +324,40 @@ mod tests {
         assert_eq!(radius.eval(0.5), BorderRadius::uniform(14.0));
     }
 
-    /// `TweenSequence` à poids égaux : deux segments qui se relaient à `t = 0.5`,
-    /// chacun parcouru en entier sur sa moitié.
+    /// A `TweenSequence` with equal weights: two segments handing over at `t = 0.5`,
+    /// each traversed in full over its own half.
     #[test]
     fn tween_sequence_relays_equal_weight_segments() {
         let seq =
             TweenSequence::new(Tween::new(0.0f32, 10.0), 1.0).then(Tween::new(10.0, 30.0), 1.0);
         assert_eq!(seq.evaluate(0.0), 0.0);
-        assert_eq!(seq.evaluate(0.25), 5.0); // milieu du 1er segment
-        assert_eq!(seq.evaluate(0.5), 10.0); // couture
-        assert_eq!(seq.evaluate(0.75), 20.0); // milieu du 2e segment
+        assert_eq!(seq.evaluate(0.25), 5.0); // middle of the 1st segment
+        assert_eq!(seq.evaluate(0.5), 10.0); // the seam
+        assert_eq!(seq.evaluate(0.75), 20.0); // middle of the 2nd segment
         assert_eq!(seq.evaluate(1.0), 30.0);
     }
 
-    /// Poids inégaux : le segment le plus lourd occupe une plus grande part de la
-    /// progression.
+    /// Unequal weights: the heavier segment takes up a larger share of the
+    /// progress.
     #[test]
     fn tween_sequence_honors_weights() {
-        // 3 parts pour le 1er, 1 part pour le 2e → couture à t = 0.75.
+        // 3 shares for the 1st, 1 for the 2nd -> the seam falls at t = 0.75.
         let seq =
             TweenSequence::new(Tween::new(0.0f32, 100.0), 3.0).then(Tween::new(100.0, 200.0), 1.0);
-        assert_eq!(seq.evaluate(0.75), 100.0); // fin du 1er / début du 2e
-        assert_eq!(seq.evaluate(0.375), 50.0); // milieu du 1er (0.375 / 0.75)
-        assert_eq!(seq.evaluate(0.875), 150.0); // milieu du 2e
+        assert_eq!(seq.evaluate(0.75), 100.0); // end of the 1st / start of the 2nd
+        assert_eq!(seq.evaluate(0.375), 50.0); // middle of the 1st (0.375 / 0.75)
+        assert_eq!(seq.evaluate(0.875), 150.0); // middle of the 2nd
     }
 
-    /// La suite est elle-même un `Animatable` : elle se pilote par un contrôleur.
+    /// The run is itself an `Animatable`, so a controller can drive it.
     #[test]
     fn tween_sequence_drives_from_controller() {
         let seq = TweenSequence::new(Tween::new(Color::BLACK, Color::WHITE), 1.0)
             .then(Tween::new(Color::WHITE, Color::BLACK), 1.0);
         let mut ctrl = AnimationController::unit();
-        ctrl.set_value(0.5); // couture → blanc
+        ctrl.set_value(0.5); // the seam -> white
         assert_eq!(seq.animate(&ctrl).value(), Color::WHITE);
-        ctrl.set_value(1.0); // retour au noir
+        ctrl.set_value(1.0); // back to black
         assert_eq!(seq.animate(&ctrl).value(), Color::BLACK);
     }
 }
