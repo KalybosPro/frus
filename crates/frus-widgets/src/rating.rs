@@ -1,4 +1,4 @@
-//! [`Rating`] : une note en **étoiles cliquables**, **contrôlée**.
+//! [`Rating`]: a **controlled** rating in **clickable stars**.
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -9,7 +9,7 @@ use crate::widget::Widget;
 
 const STAR: f32 = 24.0;
 
-/// Une étoile (pleine ou vide), cliquable.
+/// One star, filled or empty, and clickable.
 struct Star<Msg> {
     filled: bool,
     message: Msg,
@@ -35,7 +35,7 @@ impl<Msg: Clone> Widget<Msg> for Star<Msg> {
         } else {
             theme.muted.fade(0.45)
         };
-        // Léger éclaircissement au survol.
+        // A slight lightening on hover.
         let color = base.lerp(theme.on_surface, 0.2 * status.hover_progress);
         scene.text(
             Point::new(bounds.x, bounds.y - 2.0),
@@ -54,14 +54,14 @@ impl<Msg: Clone> Widget<Msg> for Star<Msg> {
     }
 }
 
-/// Une note en étoiles (`value` sur `max`).
+/// A star rating: `value` out of `max`.
 pub struct Rating<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Rating<Msg> {
-    /// Crée une note : `value` étoiles pleines sur `max` ; cliquer la i-ᵉ étoile
-    /// émet `on_rate(i + 1)`.
+    /// Creates a rating: `value` filled stars out of `max`. Clicking the i-th star
+    /// emits `on_rate(i + 1)`.
     pub fn new(value: u32, max: u32, on_rate: impl Fn(u32) -> Msg + 'static) -> Self {
         let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::new();
         for i in 0..max {
@@ -108,7 +108,7 @@ mod tests {
         let rating = Rating::new(2, 5, Msg::Rate);
         let stars = Widget::<Msg>::children(&rating);
         assert_eq!(stars.len(), 5);
-        // Cliquer la 4ᵉ étoile (index 3) → note 4.
+        // Clicking the fourth star, index 3, gives a rating of 4.
         assert_eq!(stars[3].on_click(), Some(Msg::Rate(4)));
     }
 

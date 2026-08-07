@@ -1,11 +1,10 @@
-//! [`CustomPaint`] : une **toile libre** — le pendant du `CustomPainter` de
-//! Flutter. Le widget réserve une boîte de taille fixe et confie sa peinture à
-//! une closure fournie par l'application, qui dessine ce qu'elle veut (chemins
-//! vectoriels, rectangles…) via la [`Scene`].
+//! [`CustomPaint`]: a **free canvas**. The widget reserves a fixed-size box and hands
+//! its painting over to a closure the application supplies, which draws whatever it
+//! likes — vector paths, rectangles and so on — through the [`Scene`].
 //!
-//! La closure reçoit sa **boîte résolue** et le **thème** courant, pour se
-//! thémer au moment de peindre (comme tous les widgets). Elle n'émet aucun
-//! message : c'est un widget purement visuel.
+//! The closure receives its **resolved box** and the current **theme**, so it can theme
+//! itself as it paints, as every widget does. It emits no message: this is a purely
+//! visual widget.
 
 use std::marker::PhantomData;
 
@@ -16,15 +15,15 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Type de la fonction de peinture : `(scène, boîte, thème)`.
+/// The paint function's type: `(scene, box, theme)`.
 type PaintFn = dyn Fn(&mut Scene, Rect, &Theme);
 
-/// Une toile personnalisée de taille fixe, peinte par une closure.
+/// A fixed-size custom canvas, painted by a closure.
 pub struct CustomPaint<Msg> {
     width: f32,
     height: f32,
     painter: Box<PaintFn>,
-    // `fn() -> Msg` garde le paramètre sans imposer `Msg: Send`/covariance.
+    // `fn() -> Msg` keeps the parameter without forcing `Msg: Send` or covariance.
     _msg: PhantomData<fn() -> Msg>,
 }
 
@@ -98,7 +97,7 @@ mod tests {
                 fill: Some(_),
                 ..
             } => {
-                // Le premier sommet suit la boîte passée (x=10, y=20).
+                // The first vertex follows the box that was passed (x=10, y=20).
                 assert_eq!(
                     path.verbs().first(),
                     Some(&frus_core::PathVerb::MoveTo(Point::new(10.0, 20.0)))

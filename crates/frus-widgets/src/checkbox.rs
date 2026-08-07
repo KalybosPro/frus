@@ -1,4 +1,4 @@
-//! [`Checkbox`] : une case à cocher **contrôlée** (état venant de l'application).
+//! [`Checkbox`]: a **controlled** checkbox, its state coming from the application.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -10,7 +10,7 @@ use crate::widget::Widget;
 const BOX: f32 = 20.0;
 const GAP: f32 = 10.0;
 
-/// Une case à cocher, avec libellé optionnel.
+/// A checkbox, with an optional label.
 pub struct Checkbox<Msg> {
     checked: bool,
     label: Option<String>,
@@ -19,7 +19,7 @@ pub struct Checkbox<Msg> {
 }
 
 impl<Msg> Checkbox<Msg> {
-    /// Crée une case dont l'état coché est fourni.
+    /// Creates a checkbox whose checked state is supplied.
     pub fn new(checked: bool) -> Self {
         Self {
             checked,
@@ -29,13 +29,13 @@ impl<Msg> Checkbox<Msg> {
         }
     }
 
-    /// Ajoute un libellé à droite.
+    /// Adds a label on the right.
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
     }
 
-    /// Closure produisant un message depuis le nouvel état (coché ou non).
+    /// A closure producing a message from the new state, checked or not.
     pub fn on_toggle(mut self, on_toggle: impl Fn(bool) -> Msg + 'static) -> Self {
         self.on_toggle = Some(Box::new(on_toggle));
         self

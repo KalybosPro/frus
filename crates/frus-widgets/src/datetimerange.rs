@@ -1,11 +1,11 @@
-//! [`DateTimeRange`] : une **plage date + heure** en un widget — le calendrier double de
-//! [`crate::DatePicker::range_dual`] au-dessus de la plage horaire [`crate::TimeRange`], coiffés
-//! d'un **récapitulatif** « début → fin ». Pour réserver un créneau complet : « du 28 juillet
-//! 09:00 au 3 août 17:30 ».
+//! [`DateTimeRange`]: a **date-and-time range** in one widget — the dual calendar of
+//! [`crate::DatePicker::range_dual`] above the [`crate::TimeRange`] time range, topped by
+//! a **"start → end" summary**. For booking a complete slot: "from 28 July 09:00 to 3
+//! August 17:30".
 //!
-//! Purement composite et **contrôlé** : il combine les deux sous-sélecteurs et relaie leurs
-//! messages ; l'état (dates, heures) vit dans l'application, qui décide quelle borne reçoit un
-//! jour cliqué (comme la plage de dates).
+//! Purely composite and **controlled**: it combines the two sub-pickers and relays their
+//! messages; the state, dates and times, lives in the application, which decides which
+//! endpoint a clicked day lands on, as the date range does.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -32,17 +32,17 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// Un sélecteur de plage date + heure.
+/// A date-and-time range picker.
 pub struct DateTimeRange<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> DateTimeRange<Msg> {
-    /// Crée le sélecteur. La partie **date** montre `year`/`month` (1–12) et le mois suivant,
-    /// surlignant la plage `[start_date, end_date]` (`on_date((année, mois, jour))` au clic,
-    /// `on_nav(±1)` pour décaler la paire) ; la partie **heure** montre `start_time`/`end_time`
-    /// (`on_time(borne, champ, valeur)`). Un récapitulatif « début → fin » coiffe le tout quand
-    /// les **deux** dates sont posées.
+    /// Creates the picker. The **date** part shows `year`/`month` (1–12) and the month
+    /// after, highlighting the `[start_date, end_date]` range — `on_date((year, month,
+    /// day))` on click, `on_nav(±1)` to shift the pair — while the **time** part shows
+    /// `start_time`/`end_time` (`on_time(endpoint, field, value)`). A "start → end"
+    /// summary tops it all once **both** dates are set.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         year: i32,
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn summary_appears_only_with_both_dates() {
-        // Aucune / une seule borne → [calendrier, heures]. Les deux → [récap, calendrier, heures].
+        // Neither or one endpoint gives [calendar, times]; both give [summary, calendar, times].
         assert_eq!(Widget::<Msg>::children(&build(None, None)).len(), 2);
         assert_eq!(
             Widget::<Msg>::children(&build(Some((2026, 7, 28)), None)).len(),
@@ -155,6 +155,6 @@ mod tests {
             matches!(p, Primitive::Text { text, .. }
                 if text == "July 28, 2026  09:00  →  August 3, 2026  17:30")
         });
-        assert!(has, "récapitulatif début → fin affiché");
+        assert!(has, "the start → end summary is shown");
     }
 }

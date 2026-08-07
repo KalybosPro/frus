@@ -1,10 +1,10 @@
-//! [`Keyed`] : un wrapper **transparent** qui donne à un widget une **identité
-//! stable** (par clé), indépendante de sa position parmi ses frères.
+//! [`Keyed`]: a **transparent** wrapper that gives a widget a **stable identity**,
+//! through a key, independent of its position among its siblings.
 //!
-//! Sans clé, l'identité est positionnelle : supprimer un élément au milieu d'une
-//! liste décale l'identité des suivants, et leur état retenu (survol, focus,
-//! curseur, animations, fondu de sortie) « saute ». Envelopper chaque élément
-//! dans un `Keyed` (clé = son id métier stable) résout ça.
+//! Without a key, identity is positional: removing an item from the middle of a list
+//! shifts the identity of everything after it, and their retained state — hover, focus,
+//! caret, animations, the leaving fade — jumps. Wrapping each item in a `Keyed`, keyed
+//! on its stable domain id, fixes that.
 
 use std::hash::{Hash, Hasher};
 
@@ -18,14 +18,14 @@ use crate::scroll::Axis;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Enveloppe un widget d'une clé d'identité stable (délègue tout le reste).
+/// Wraps a widget in a stable identity key, delegating everything else.
 pub struct Keyed<Msg> {
     key: u64,
     inner: Box<dyn Widget<Msg>>,
 }
 
 impl<Msg> Keyed<Msg> {
-    /// Enveloppe `inner` avec la clé `key` (n'importe quel type hachable).
+    /// Wraps `inner` with the key `key`, which may be any hashable type.
     pub fn new(key: impl Hash, inner: impl Widget<Msg> + 'static) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         key.hash(&mut hasher);
@@ -42,7 +42,7 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
     }
 
     fn debug_name(&self) -> &'static str {
-        // Wrapper transparent : l'inspecteur montre le widget enveloppé.
+        // A transparent wrapper: the inspector shows the wrapped widget.
         self.inner.debug_name()
     }
 
@@ -279,9 +279,9 @@ mod tests {
     fn reports_key_and_delegates() {
         let inner = Container::<()>::new().width(40.0).child(Text::new("x"));
         let keyed = Keyed::new(99u64, inner);
-        // Renvoie une clé.
+        // It returns a key.
         assert!(Widget::<()>::key(&keyed).is_some());
-        // Délègue les enfants (le Container a un enfant).
+        // It delegates the children; the Container has one.
         assert_eq!(Widget::<()>::children(&keyed).len(), 1);
     }
 

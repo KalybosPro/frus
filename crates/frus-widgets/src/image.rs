@@ -1,7 +1,7 @@
-//! [`Image`] : affiche une image bitmap ([`frus_core::ImageHandle`]) dans une
-//! boîte de taille fixe, ajustée selon un [`BoxFit`] (aspect conservé, letterbox
-//! ou rognage). L'image est téléversée **une fois** puis mise en cache par le
-//! renderer (clé = identité de l'`ImageData`).
+//! [`Image`]: displays a bitmap image ([`frus_core::ImageHandle`]) in a fixed-size
+//! box, fitted according to a [`BoxFit`] — aspect preserved, letterboxed or cropped.
+//! The image is uploaded **once** then cached by the renderer, keyed on the
+//! `ImageData`'s identity.
 
 use frus_core::{BoxFit, Color, ImageHandle, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -10,7 +10,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Une image affichée dans une boîte `width×height`, ajustée par `fit`.
+/// An image displayed in a `width×height` box, fitted by `fit`.
 pub struct Image {
     image: ImageHandle,
     width: f32,
@@ -20,7 +20,7 @@ pub struct Image {
 }
 
 impl Image {
-    /// Une image `width×height`, ajustée en [`BoxFit::Contain`] par défaut.
+    /// A `width×height` image, fitted with [`BoxFit::Contain`] by default.
     pub fn new(image: ImageHandle, width: f32, height: f32) -> Self {
         Self {
             image,
@@ -37,7 +37,7 @@ impl Image {
         self
     }
 
-    /// Teinte multiplicative (blanc = inchangé) — p. ex. pour des icônes bitmap.
+    /// A multiplied tint, white leaving it unchanged — for bitmap icons, say.
     pub fn tint(mut self, tint: Color) -> Self {
         self.tint = Some(tint);
         self
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn contain_letterboxes_a_square_in_a_wide_box() {
-        // Source carrée 10×10 dans une boîte 100×40 → 40×40 centrée en x.
+        // A square 10×10 source in a 100×40 box gives 40×40, centred in x.
         let prim = paint(
             Image::new(handle(10, 10), 100.0, 40.0),
             Rect::new(0.0, 0.0, 100.0, 40.0),

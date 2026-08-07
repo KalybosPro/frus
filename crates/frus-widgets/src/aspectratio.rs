@@ -1,5 +1,4 @@
-//! [`AspectRatio`] : contraint son enfant à un **rapport largeur/hauteur** donné
-//! (façon `AspectRatio` de Flutter).
+//! [`AspectRatio`]: constrains its child to a given **width-to-height ratio**.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -8,23 +7,23 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Impose un rapport `width / height` à sa boîte : la boîte **prend toute la
-/// largeur disponible**, puis dérive sa hauteur du rapport (`hauteur = largeur /
-/// rapport`). Dans une colonne large de 100, `AspectRatio::new(2.0)` fait une
-/// boîte de 100×50 ; `AspectRatio::new(0.5)`, une boîte de 100×200.
+/// Imposes a `width / height` ratio on its box: the box **takes the full available
+/// width**, then derives its height from the ratio (`height = width / ratio`). In a
+/// column 100 wide, `AspectRatio::new(2.0)` gives a 100×50 box and
+/// `AspectRatio::new(0.5)` a 100×200 one.
 ///
 /// Le rapport suit la convention de Flutter (et de taffy) : `largeur / hauteur`
 /// — `2.0` est deux fois plus large que haut, `0.5` deux fois plus haut que large.
 ///
-/// L'enfant hérite de la boîte : il s'étire en hauteur (axe croisé) et remplit la
-/// largeur s'il grandit (`flex`) — typiquement une image ou un fond plein.
+/// The child inherits the box: it stretches in height, along the cross axis, and
+/// fills the width if it grows (`flex`) — typically an image or a solid background.
 pub struct AspectRatio<Msg> {
     ratio: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> AspectRatio<Msg> {
-    /// Crée une boîte au rapport `width / height` donné (borné à `> 0`).
+    /// Creates a box at the given `width / height` ratio, clamped to `> 0`.
     pub fn new(ratio: f32) -> Self {
         Self {
             ratio: ratio.max(f32::MIN_POSITIVE),
@@ -32,7 +31,7 @@ impl<Msg> AspectRatio<Msg> {
         }
     }
 
-    /// Définit l'enfant contraint au rapport.
+    /// Sets the child constrained to the ratio.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
@@ -42,9 +41,9 @@ impl<Msg> AspectRatio<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for AspectRatio<Msg> {
     fn style(&self) -> Style {
-        // La boîte prend toute la largeur du parent (dimension **connue** de
-        // taffy) ; le rapport en dérive la hauteur. Une largeur seulement
-        // « étirée » (align stretch) ne suffit pas à taffy pour dériver l'axe.
+        // The box takes the parent's full width, a dimension taffy **knows**, and the
+        // ratio derives the height from it. A width that is merely "stretched", through
+        // align stretch, is not enough for taffy to derive the other axis.
         Style {
             width: Dimension::Percent(1.0),
             aspect_ratio: Some(self.ratio),
@@ -57,7 +56,7 @@ impl<Msg: Clone> Widget<Msg> for AspectRatio<Msg> {
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
-        // Widget de disposition pur : aucune décoration propre.
+        // A pure layout widget: no decoration of its own.
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -71,9 +70,9 @@ mod tests {
     use crate::Container;
     use frus_core::{Color, Primitive, Size};
 
-    /// Dans une colonne large de 100, un `AspectRatio(2.0)` produit une boîte
-    /// 100×50 (largeur pleine, hauteur dérivée) ; son enfant, qui remplit, peint
-    /// un fond de ~100×50.
+    /// In a column 100 wide, an `AspectRatio(2.0)` gives a 100×50 box — full width,
+    /// derived height — and its child, which fills, paints a background of about
+    /// 100×50.
     #[test]
     fn derives_free_dimension_from_ratio() {
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -98,8 +97,8 @@ mod tests {
         );
     }
 
-    /// Un rapport < 1 rend la boîte **plus haute que large** : `0.5` dans une
-    /// colonne de 100 → 100×200.
+    /// A ratio below 1 makes the box **taller than it is wide**: `0.5` in a column of
+    /// 100 gives 100×200.
     #[test]
     fn ratio_below_one_is_taller_than_wide() {
         let red = Color::rgb(1.0, 0.0, 0.0);

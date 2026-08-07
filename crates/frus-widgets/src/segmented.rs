@@ -1,5 +1,5 @@
-//! [`SegmentedControl`] : un sélecteur segmenté **contrôlé** (boutons connectés,
-//! sélection unique) — façon contrôle segmenté iOS.
+//! [`SegmentedControl`]: a **controlled** segmented picker — connected buttons with a
+//! single selection, in the manner of an iOS segmented control.
 
 use frus_core::{BorderRadius, Rect, Scene};
 use frus_layout::{FlexDirection, Style};
@@ -9,19 +9,19 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un contrôle segmenté à sélection unique.
+/// A single-selection segmented control.
 pub struct SegmentedControl<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
-    /// Rayon des coins **extérieurs** (les coins intérieurs sont droits :
-    /// segments connectés). Défaut : 10 px, surchargable via `radius`.
+    /// The radius of the **outer** corners; the inner ones stay square, since the
+    /// segments are connected. It defaults to 10 px and `radius` overrides it.
     radius: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> SegmentedControl<Msg> {
-    /// Crée un contrôle : `selected` = index actif, `on_select(i)` au clic.
+    /// Creates a control: `selected` is the active index, `on_select(i)` fires on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
             selected,
@@ -32,7 +32,7 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
         }
     }
 
-    /// Surcharge le rayon des coins extérieurs du groupe.
+    /// Overrides the radius of the group's outer corners.
     pub fn radius(mut self, radius: f32) -> Self {
         self.radius = radius;
         self.rebuild();
@@ -46,9 +46,9 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
         self
     }
 
-    /// Rayons du `i`-ième segment sur `n` : seuls les coins **extérieurs** du
-    /// groupe sont arrondis (premier à gauche, dernier à droite), les jointures
-    /// restent droites — l'aspect « boutons connectés ».
+    /// The radii of segment `i` of `n`: only the group's **outer** corners are
+    /// rounded — the first on the left, the last on the right — while the joints stay
+    /// square, which gives the connected-buttons look.
     fn corner_radius(&self, i: usize, n: usize) -> BorderRadius {
         let r = self.radius;
         match (i == 0, i + 1 == n) {
@@ -147,8 +147,8 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Les remplissages des boutons (rectangles nets, non floutés, opaques),
-        // dans l'ordre : premier, milieu, dernier.
+        // The buttons' fills — hard, unblurred, opaque rectangles — in order: first,
+        // middle, last.
         let fills: Vec<BorderRadius> = ui
             .scene()
             .primitives()

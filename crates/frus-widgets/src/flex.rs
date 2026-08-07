@@ -1,5 +1,5 @@
-//! [`Flex`] : un conteneur qui dispose ses enfants en rangée ou en colonne,
-//! avec répartition (justify) et alignement (align).
+//! [`Flex`]: a container that lays its children out in a row or a column, with
+//! distribution (justify) and alignment (align).
 
 use frus_core::{Insets, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
@@ -8,7 +8,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un conteneur flex (rangée ou colonne). Ne peint aucune décoration propre.
+/// A flex container, row or column. It paints no decoration of its own.
 pub struct Flex<Msg> {
     direction: FlexDirection,
     width: Dimension,
@@ -23,12 +23,12 @@ pub struct Flex<Msg> {
 }
 
 impl<Msg> Flex<Msg> {
-    /// Conteneur disposant ses enfants horizontalement.
+    /// A container laying its children out horizontally.
     pub fn row() -> Self {
         Self::with_direction(FlexDirection::Row)
     }
 
-    /// Conteneur disposant ses enfants verticalement.
+    /// A container laying its children out vertically.
     pub fn column() -> Self {
         Self::with_direction(FlexDirection::Column)
     }
@@ -48,43 +48,43 @@ impl<Msg> Flex<Msg> {
         }
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la hauteur, en pixels logiques.
+    /// Sets the height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// The flex grow factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
     }
 
-    /// Répartition des enfants sur l'axe principal.
+    /// How the children are distributed along the main axis.
     pub fn justify(mut self, justify: Justify) -> Self {
         self.justify = justify;
         self
     }
 
-    /// Alignement des enfants sur l'axe croisé.
+    /// How the children are aligned on the cross axis.
     pub fn align(mut self, align: Align) -> Self {
         self.align = align;
         self
     }
 
-    /// Marge intérieure uniforme, en pixels logiques.
+    /// Uniform padding, in logical pixels.
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = Insets::uniform(padding);
         self
     }
 
-    /// Marge intérieure par côté (haut, droite, bas, gauche).
+    /// Padding per side: top, right, bottom, left.
     pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
         self.padding = Insets::new(top, right, bottom, left);
         self
@@ -96,9 +96,8 @@ impl<Msg> Flex<Msg> {
         self
     }
 
-    /// Active le **passage à la ligne** : les enfants qui débordent l'axe
-    /// principal repassent sur une nouvelle ligne (reflow responsive). Voir aussi
-    /// [`Wrap`] comme point d'entrée nommé.
+    /// Turns **wrapping** on: children that overflow the main axis move to a new
+    /// line, a responsive reflow. See also [`Wrap`] as a named entry point.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
         self
@@ -110,8 +109,8 @@ impl<Msg> Flex<Msg> {
         self
     }
 
-    /// Ajoute un enfant **déjà boxé** (utile quand les enfants sont construits dynamiquement, en
-    /// `Vec<Box<dyn Widget>>`, et déjà effacés au type dynamique).
+    /// Adds an **already boxed** child — useful when children are built dynamically,
+    /// in a `Vec<Box<dyn Widget>>`, and already erased to the dynamic type.
     pub fn child_boxed(mut self, child: Box<dyn Widget<Msg>>) -> Self {
         self.children.push(child);
         self
@@ -142,7 +141,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
-        // Un conteneur flex est transparent : pas de décoration propre.
+        // A flex container is transparent: no decoration of its own.
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -150,15 +149,15 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
     }
 }
 
-/// Point d'entrée nommé pour une rangée **qui passe à la ligne** (flex-wrap).
+/// A named entry point for a **wrapping** row (flex-wrap).
 ///
-/// `Wrap::new().gap(8.0).child(a).child(b)…` — les enfants s'écoulent sur
-/// plusieurs lignes selon la largeur disponible, sans breakpoint. Renvoie un
-/// [`Flex`] (rangée avec `wrap` activé), donc tous ses réglages restent dispo.
+/// `Wrap::new().gap(8.0).child(a).child(b)…` — the children flow over several lines
+/// according to the available width, with no breakpoint. It returns a [`Flex`], a row
+/// with `wrap` turned on, so all its settings remain available.
 pub struct Wrap;
 
 impl Wrap {
-    /// Rangée avec passage à la ligne activé.
+    /// A row with wrapping turned on.
     #[allow(clippy::new_ret_no_self)]
     pub fn new<Msg>() -> Flex<Msg> {
         Flex::row().wrap()

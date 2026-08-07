@@ -1,5 +1,5 @@
-//! [`Spinner`] : un indicateur d'activité **animé en continu** (piloté par le
-//! temps). Déclare `continuous()` → le framework continue de redessiner.
+//! [`Spinner`]: an activity indicator **animated continuously**, driven by time. It
+//! declares `continuous()`, so the framework keeps redrawing.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -19,12 +19,12 @@ pub struct Spinner {
 }
 
 impl Spinner {
-    /// Crée un spinner de côté `24` px par défaut.
+    /// Creates a spinner, `24` px on a side by default.
     pub fn new() -> Self {
         Self { size: 24.0 }
     }
 
-    /// Fixe la taille (côté du carré), en pixels logiques.
+    /// Sets the size, that is, the square's side, in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
@@ -62,14 +62,14 @@ impl<Msg> Widget<Msg> for Spinner {
         let ring = side * 0.36;
         let dot = (side * 0.12).max(1.0);
 
-        // Tête lumineuse qui progresse dans le temps ; les points en arrière fondent.
+        // A bright head advancing over time; the dots behind it fade out.
         let head = (status.time * SPEED).fract() * DOTS as f32;
         for i in 0..DOTS {
             let angle =
                 (i as f32 / DOTS as f32) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
             let px = cx + ring * angle.cos();
             let py = cy + ring * angle.sin();
-            // Distance angulaire derrière la tête (0 = tête, ~1 = queue).
+            // The angular distance behind the head: 0 is the head, about 1 the tail.
             let behind = (i as f32 - head).rem_euclid(DOTS as f32) / DOTS as f32;
             let alpha = (0.15 + 0.85 * (1.0 - behind)) * o;
             scene.draw_rect(
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn animation_depends_on_time() {
-        // La distribution des opacités change avec le temps (ça tourne).
+        // The distribution of opacities changes over time, which is the spinning.
         assert_ne!(dot_alphas(0.0), dot_alphas(0.3));
     }
 

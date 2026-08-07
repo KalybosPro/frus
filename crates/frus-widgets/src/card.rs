@@ -1,4 +1,4 @@
-//! [`Card`] : une surface themée (fond, bordure, rayon, ombre) avec un enfant.
+//! [`Card`]: a themed surface — background, border, radius, shadow — with one child.
 
 use frus_core::{Insets, Rect, Scene};
 use frus_layout::Style;
@@ -7,14 +7,14 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Une carte : conteneur de surface, aux couleurs du thème.
+/// A card: a surface container, in the theme's colours.
 pub struct Card<Msg> {
     padding: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> Card<Msg> {
-    /// Crée une carte (marge intérieure 16 par défaut).
+    /// Creates a card, with a default padding of 16.
     pub fn new() -> Self {
         Self {
             padding: 16.0,
@@ -22,13 +22,13 @@ impl<Msg> Card<Msg> {
         }
     }
 
-    /// Marge intérieure uniforme.
+    /// Uniform padding.
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = padding;
         self
     }
 
-    /// Définit le contenu de la carte.
+    /// Sets the card's content.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));

@@ -1,6 +1,6 @@
-//! [`Stack`] : superpose ses enfants dans la **même boîte** (z-layering). Chaque
-//! couche remplit la pile ; la dernière est au-dessus. Base des overlays internes
-//! (voile sur du contenu, pastille dans un coin via une couche alignée…).
+//! [`Stack`]: overlays its children in the **same box**, z-layering them. Every layer
+//! fills the stack and the last one sits on top. It underpins the internal overlays: a
+//! scrim over content, a badge in a corner through an aligned layer, and so on.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -9,7 +9,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un conteneur à couches superposées.
+/// A container of overlaid layers.
 pub struct Stack<Msg> {
     width: Dimension,
     height: Dimension,
@@ -18,7 +18,7 @@ pub struct Stack<Msg> {
 }
 
 impl<Msg> Stack<Msg> {
-    /// Crée une pile vide.
+    /// Creates an empty stack.
     pub fn new() -> Self {
         Self {
             width: Dimension::Auto,
@@ -46,7 +46,7 @@ impl<Msg> Stack<Msg> {
         self
     }
 
-    /// Ajoute une couche (au-dessus des précédentes).
+    /// Adds a layer, on top of the previous ones.
     pub fn layer(mut self, layer: impl Widget<Msg> + 'static) -> Self {
         self.layers.push(Box::new(layer));
         self
@@ -114,9 +114,9 @@ mod tests {
                     Primitive::Rect { color, rect, .. } if *color == c => Some(*rect),
                     _ => None,
                 })
-                .expect("couche présente")
+                .expect("the layer is present")
         };
-        // Les deux couches partagent la même origine (superposées).
+        // Both layers share the same origin, being overlaid.
         assert_eq!(rect_of(red).origin(), rect_of(blue).origin());
     }
 }

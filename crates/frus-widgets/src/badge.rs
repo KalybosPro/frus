@@ -1,4 +1,4 @@
-//! [`Badge`] : une petite pastille (compteur ou étiquette), aux couleurs d'accent.
+//! [`Badge`]: a small pill — a counter or a label — in the accent colours.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -17,7 +17,7 @@ pub struct Badge {
 }
 
 impl Badge {
-    /// Crée une pastille avec le texte donné.
+    /// Creates a badge with the given text.
     pub fn new(text: impl Into<String>) -> Self {
         Self { text: text.into() }
     }

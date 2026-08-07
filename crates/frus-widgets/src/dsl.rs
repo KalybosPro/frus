@@ -1,6 +1,6 @@
-//! Sucre syntaxique pour décrire une interface **plus vite** : les macros
-//! [`row!`](crate::row) / [`column!`](crate::column) et quelques fonctions
-//! raccourcis. Purement additif — les constructeurs restent disponibles.
+//! Syntactic sugar for describing an interface **faster**: the
+//! [`row!`](crate::row) and [`column!`](crate::column) macros, plus a few shorthand
+//! functions. Purely additive — the constructors remain available.
 
 use std::hash::Hash;
 
@@ -26,14 +26,14 @@ pub fn button<Msg>(label: impl Into<String>, on_press: Msg) -> Button<Msg> {
     Button::new(label).on_press(on_press)
 }
 
-/// Raccourci : donne une **identité stable** à un widget (élément de liste).
-/// `keyed(todo.id, todo_row(todo))` = `Keyed::new(todo.id, todo_row(todo))`.
+/// Shorthand: gives a widget — a list item, say — a **stable identity**.
+/// `keyed(todo.id, todo_row(todo))` is `Keyed::new(todo.id, todo_row(todo))`.
 pub fn keyed<Msg>(key: impl Hash, widget: impl Widget<Msg> + 'static) -> Keyed<Msg> {
     Keyed::new(key, widget)
 }
 
-/// Une **rangée** flex. `row![a, b, c]` = `Flex::row().child(a).child(b).child(c)`.
-/// Le résultat reste chaînable : `row![a, b].gap(8.0).align(...)`.
+/// A flex **row**. `row![a, b, c]` is `Flex::row().child(a).child(b).child(c)`.
+/// The result stays chainable: `row![a, b].gap(8.0).align(...)`.
 #[macro_export]
 macro_rules! row {
     () => { $crate::Flex::row() };
@@ -42,8 +42,8 @@ macro_rules! row {
     };
 }
 
-/// Une **colonne** flex. `column![a, b, c]` = `Flex::column().child(a)…`.
-/// Le résultat reste chaînable : `column![a, b].gap(16.0).padding(20.0)`.
+/// A flex **column**. `column![a, b, c]` is `Flex::column().child(a)…`.
+/// The result stays chainable: `column![a, b].gap(16.0).padding(20.0)`.
 #[macro_export]
 macro_rules! column {
     () => { $crate::Flex::column() };
@@ -65,9 +65,9 @@ mod tests {
         let empty: Flex<()> = row![];
         assert_eq!(Widget::<()>::children(&empty).len(), 0);
 
-        // Résultat chaînable + rangées imbriquées.
+        // A chainable result, plus nested rows.
         let nested: Flex<()> =
-            column![text("titre"), row![text("a"), spacer(), text("b")]].gap(8.0);
+            column![text("title"), row![text("a"), spacer(), text("b")]].gap(8.0);
         assert_eq!(Widget::<()>::children(&nested).len(), 2);
     }
 

@@ -1,5 +1,5 @@
-//! [`Popover`] : un panneau flottant à **contenu libre**, ancré, contrôlé, avec
-//! fermeture au clic extérieur. Généralise [`crate::Menu`] (contenu quelconque).
+//! [`Popover`]: a floating panel with **free content**, anchored and controlled, that
+//! closes on an outside click. It generalises [`crate::Menu`] to any content.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{FlexDirection, Style};
@@ -18,8 +18,8 @@ pub struct Popover<Msg> {
 }
 
 impl<Msg: Clone + 'static> Popover<Msg> {
-    /// Crée un popover autour d'une ancre. Si `open`, le contenu flotte ;
-    /// `on_dismiss` est émis au clic **hors** du popover.
+    /// Creates a popover around an anchor. When `open`, the content floats;
+    /// `on_dismiss` is emitted on a click **outside** the popover.
     pub fn new(anchor: impl Widget<Msg> + 'static, open: bool, on_dismiss: Msg) -> Self {
         Self {
             open,
@@ -28,7 +28,7 @@ impl<Msg: Clone + 'static> Popover<Msg> {
         }
     }
 
-    /// Définit le contenu flottant (affiché seulement si ouvert).
+    /// Sets the floating content, which is shown only when open.
     pub fn content(mut self, content: impl Widget<Msg> + 'static) -> Self {
         if self.open {
             self.children.truncate(1);

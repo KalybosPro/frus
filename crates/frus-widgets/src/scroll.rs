@@ -1,8 +1,8 @@
-//! [`Scroll`] : un conteneur défilable verticalement.
+//! [`Scroll`]: a vertically scrollable container.
 //!
-//! Il occupe un viewport de taille fixe ; son contenu (unique) est mis en page
-//! à hauteur libre par le pilote, puis découpé au viewport et translaté selon
-//! l'offset de défilement (retenu au runtime, clé par identité).
+//! It occupies a fixed-size viewport; its single child is laid out at free height by
+//! the driver, then clipped to the viewport and translated by the scroll offset, which
+//! the runtime retains, keyed by identity.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -11,7 +11,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Axe(s) de défilement d'un [`Scroll`].
+/// A [`Scroll`]'s scrolling axis, or axes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Axis {
     Vertical,
@@ -28,14 +28,14 @@ impl Axis {
     }
 }
 
-/// Un conteneur défilable.
+/// A scrollable container.
 pub struct Scroll<Msg> {
     width: Dimension,
     height: Dimension,
-    /// La largeur a-t-elle été **fixée** explicitement ? Sinon, en mode flex, la
-    /// largeur ne doit pas servir de base (voir [`Scroll::style`]).
+    /// Was the width **set** explicitly? If not, in flex mode the width must not
+    /// serve as a basis; see [`Scroll::style`].
     width_explicit: bool,
-    /// La hauteur a-t-elle été **fixée** explicitement ? (idem pour l'axe vertical.)
+    /// Was the height **set** explicitly? The same question for the vertical axis.
     height_explicit: bool,
     flex_grow: f32,
     axis: Axis,
@@ -43,7 +43,7 @@ pub struct Scroll<Msg> {
 }
 
 impl<Msg> Scroll<Msg> {
-    /// Crée une zone défilable (viewport 200 px de haut par défaut).
+    /// Creates a scrollable area, its viewport 200 px tall by default.
     pub fn new() -> Self {
         Self {
             width: Dimension::Auto,
@@ -56,7 +56,7 @@ impl<Msg> Scroll<Msg> {
         }
     }
 
-    /// Choisit le ou les axes de défilement (vertical par défaut).
+    /// Chooses the scrolling axis or axes; vertical by default.
     pub fn axis(mut self, axis: Axis) -> Self {
         self.axis = axis;
         self
@@ -82,7 +82,7 @@ impl<Msg> Scroll<Msg> {
         self
     }
 
-    /// Définit le contenu défilable.
+    /// Sets the scrollable content.
     pub fn child(mut self, content: impl Widget<Msg> + 'static) -> Self {
         self.content.clear();
         self.content.push(Box::new(content));
@@ -98,11 +98,11 @@ impl<Msg> Default for Scroll<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
     fn style(&self) -> Style {
-        // En mode **flex** (fill-then-scroll), une dimension d'axe **non fixée**
-        // explicitement ne doit pas servir de base : sinon la hauteur par défaut
-        // (200) resterait une base flexible et le viewport ne remplirait pas
-        // l'espace restant du parent (il faudrait `+200` de libre pour grandir).
-        // On la met alors à `Auto` (base 0) pour que `flex_grow` **remplisse**.
+        // In **flex** mode (fill then scroll), an axis dimension that was not set
+        // explicitly must not serve as a basis: the default height of 200 would
+        // otherwise stay a flexible basis and the viewport would not fill the parent's
+        // remaining space — it would take `+200` of free room to grow. So we set it to
+        // `Auto`, a basis of 0, and let `flex_grow` **fill**.
         let filling = self.flex_grow > 0.0;
         let height = if filling && !self.height_explicit && self.axis.free_y() {
             Dimension::Auto
@@ -127,7 +127,7 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
-        // Le viewport lui-même est transparent : seul le contenu est dessiné.
+        // The viewport itself is transparent: only the content is drawn.
     }
 
     fn on_click(&self) -> Option<Msg> {

@@ -1,5 +1,5 @@
-//! [`Breadcrumb`] : un fil d'Ariane — chemin de segments cliquables, le dernier
-//! étant la page courante.
+//! [`Breadcrumb`]: a trail of clickable segments, the last of which is the current
+//! page.
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
@@ -10,10 +10,10 @@ use crate::widget::Widget;
 
 const SIZE: f32 = 15.0;
 
-/// Un segment : lien cliquable, page courante, ou séparateur.
+/// One segment: a clickable link, the current page, or a separator.
 struct Crumb<Msg> {
     label: String,
-    /// `Some` = lien cliquable ; `None` = courant ou séparateur.
+    /// `Some` is a clickable link; `None` is the current page or a separator.
     message: Option<Msg>,
     separator: bool,
 }
@@ -37,7 +37,7 @@ impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
         let color = if self.separator {
             theme.muted
         } else if self.message.is_some() {
-            // Lien : discret, s'éclaircit au survol.
+            // A link: discreet, lightening on hover.
             theme.muted.lerp(theme.on_surface, status.hover_progress)
         } else {
             // Page courante.
@@ -60,7 +60,7 @@ impl<Msg: Clone> Widget<Msg> for Crumb<Msg> {
     }
 }
 
-/// Un fil d'Ariane contrôlé.
+/// A controlled breadcrumb trail.
 pub struct Breadcrumb<Msg> {
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
@@ -68,7 +68,7 @@ pub struct Breadcrumb<Msg> {
 }
 
 impl<Msg: Clone + 'static> Breadcrumb<Msg> {
-    /// Crée un fil d'Ariane ; `on_select(i)` est émis au clic sur le i-ᵉ segment.
+    /// Creates a breadcrumb; `on_select(i)` is emitted when the i-th segment is clicked.
     pub fn new(on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
             on_select: Box::new(on_select),
@@ -142,15 +142,15 @@ mod tests {
     #[test]
     fn links_click_but_current_does_not() {
         let bc = Breadcrumb::new(Msg::Go)
-            .crumb("Accueil")
-            .crumb("Réglages")
-            .crumb("Avancé");
+            .crumb("Home")
+            .crumb("Settings")
+            .crumb("Advanced");
         let children = Widget::<Msg>::children(&bc);
-        // 3 segments + 2 séparateurs = 5 enfants.
+        // 3 segments plus 2 separators makes 5 children.
         assert_eq!(children.len(), 5);
         // Enfant 0 = "Accueil" (lien) → Go(0).
         assert_eq!(children[0].on_click(), Some(Msg::Go(0)));
-        // Dernier = "Avancé" (courant) → non cliquable.
+        // The last one, "Advanced", is current and so not clickable.
         assert_eq!(children[4].on_click(), None);
     }
 }

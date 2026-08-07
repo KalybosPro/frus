@@ -1,4 +1,4 @@
-//! [`Switch`] : un interrupteur à bascule (pilule), **contrôlé**.
+//! [`Switch`]: a **controlled** toggle switch, shaped as a pill.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -18,7 +18,7 @@ pub struct Switch<Msg> {
 }
 
 impl<Msg> Switch<Msg> {
-    /// Crée un interrupteur dont l'état est fourni.
+    /// Creates a switch whose state is supplied.
     pub fn new(on: bool) -> Self {
         Self {
             on,
@@ -26,7 +26,7 @@ impl<Msg> Switch<Msg> {
         }
     }
 
-    /// Closure produisant un message depuis le nouvel état.
+    /// A closure producing a message from the new state.
     pub fn on_toggle(mut self, on_toggle: impl Fn(bool) -> Msg + 'static) -> Self {
         self.on_toggle = Some(Box::new(on_toggle));
         self
@@ -48,7 +48,7 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // `t` : position animée de la bascule (0 = off, 1 = on).
+        // `t` is the switch's animated position: 0 is off, 1 is on.
         let t = status.value;
         let track = theme.border.lerp(theme.primary, t);
         scene.draw_rect(bounds, track.fade(o), H * 0.5, 0.0, Color::TRANSPARENT);
@@ -86,8 +86,8 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         Some(if self.on { 1.0 } else { 0.0 })
     }
 
-    /// Le pouce glisse en douceur (accélère puis freine) plutôt qu'à vitesse
-    /// constante — l'animation implicite standard d'une bascule.
+    /// The thumb glides smoothly, accelerating then braking, rather than at a constant
+    /// speed — a switch's standard implicit animation.
     fn anim_curve(&self) -> frus_core::Curve {
         frus_core::Curve::ease_in_out()
     }

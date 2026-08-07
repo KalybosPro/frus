@@ -1,5 +1,5 @@
-//! [`ColorPicker`] : une palette de pastilles de couleur cliquables, bâtie sur
-//! [`crate::Grid`]. La pastille sélectionnée porte un anneau.
+//! [`ColorPicker`]: a palette of clickable colour swatches, built on
+//! [`crate::Grid`]. The selected swatch carries a ring.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -35,7 +35,7 @@ impl<Msg: Clone> Widget<Msg> for Swatch<Msg> {
         let o = status.opacity;
         scene.draw_rect(bounds, self.color.fade(o), 8.0, 0.0, Color::TRANSPARENT);
         if self.selected {
-            // Anneau de sélection (légèrement débordant).
+            // The selection ring, overflowing slightly.
             let ring = Rect::new(
                 bounds.x - 2.0,
                 bounds.y - 2.0,
@@ -55,7 +55,7 @@ impl<Msg: Clone> Widget<Msg> for Swatch<Msg> {
     }
 }
 
-/// Un sélecteur de couleur (grille de pastilles), contrôlé.
+/// A controlled colour picker, laid out as a grid of swatches.
 pub struct ColorPicker<Msg> {
     selected: Option<Color>,
     on_pick: Box<dyn Fn(Color) -> Msg>,
@@ -63,8 +63,8 @@ pub struct ColorPicker<Msg> {
 }
 
 impl<Msg: Clone + 'static> ColorPicker<Msg> {
-    /// Crée un sélecteur : couleur sélectionnée éventuelle, `on_pick(couleur)` au
-    /// clic, et un nombre de colonnes.
+    /// Creates a picker: the selected colour if there is one, `on_pick(colour)` for
+    /// clicks, and a column count.
     pub fn new(
         selected: Option<Color>,
         columns: usize,
@@ -132,11 +132,11 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // La sélection (rouge) ajoute un anneau (bordure focus).
+        // The selection, red here, adds a ring, drawn as a focus border.
         let focus = Theme::default().focus;
         let has_ring = ui.scene().primitives().iter().any(|p| {
             matches!(p, Primitive::Rect { border_color, border_width, .. } if *border_width > 0.0 && *border_color == focus)
         });
-        assert!(has_ring, "la pastille sélectionnée a un anneau");
+        assert!(has_ring, "the selected swatch has a ring");
     }
 }

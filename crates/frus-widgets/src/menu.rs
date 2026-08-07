@@ -1,5 +1,5 @@
-//! [`Menu`] : un menu d'actions **flottant** — une ancre + une liste d'items qui
-//! s'ouvre par-dessus (via l'overlay), avec fermeture au clic extérieur.
+//! [`Menu`]: a **floating** action menu — an anchor plus a list of items that opens
+//! over it, through the overlay, and closes on an outside click.
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -36,7 +36,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Panneau flottant = surface **élevée** (rôle `surface_container_high`).
+        // A floating panel is an **elevated** surface, the `surface_container_high` role.
         let bg = theme.state_layer(
             theme.scheme.surface_container_high,
             theme.on_surface,
@@ -61,7 +61,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
     }
 }
 
-/// Un menu d'actions contrôlé (ouvert/fermé par l'application).
+/// A controlled action menu, opened and closed by the application.
 pub struct Menu<Msg> {
     open: bool,
     /// `[ancre]` ou `[ancre, liste]`.
@@ -71,8 +71,8 @@ pub struct Menu<Msg> {
 }
 
 impl<Msg: Clone + 'static> Menu<Msg> {
-    /// Crée un menu autour d'une ancre. Si `open`, la liste flotte au-dessus ;
-    /// `on_dismiss` est émis au clic **hors** du menu.
+    /// Creates a menu around an anchor. When `open`, the list floats above it;
+    /// `on_dismiss` is emitted on a click **outside** the menu.
     pub fn new(anchor: impl Widget<Msg> + 'static, open: bool, on_dismiss: Msg) -> Self {
         Self {
             open,
@@ -82,7 +82,7 @@ impl<Msg: Clone + 'static> Menu<Msg> {
         }
     }
 
-    /// Ajoute une action (libellé + message au clic). Ignorée si le menu est fermé.
+    /// Adds an action: a label plus a message on click. Ignored when the menu is closed.
     pub fn item(mut self, label: impl Into<String>, message: Msg) -> Self {
         if self.open {
             self.items.push((label.into(), message));
@@ -138,8 +138,9 @@ impl<Msg: Clone> Widget<Msg> for Menu<Msg> {
     }
 
     fn overlay_traps_focus(&self) -> bool {
-        // Un menu ouvert **piège** le focus clavier dans ses items (Échap / clic extérieur
-        // ferme via `on_dismiss`) — motif clavier attendu des menus.
+        // An open menu **traps** keyboard focus in its items — Escape or an outside
+        // click closes it through `on_dismiss` — the keyboard pattern menus are expected
+        // to follow.
         self.open
     }
 }

@@ -1,9 +1,9 @@
-//! [`DateTimePicker`] : un **flux date + heure** en un seul widget (façon
-//! `showDateTimePicker`) — le calendrier [`crate::DatePicker`] au-dessus du sélecteur
-//! d'heure [`crate::TimePicker`], coiffés d'un **récapitulatif** de la sélection.
+//! [`DateTimePicker`]: a **date-and-time flow** in a single widget — the
+//! [`crate::DatePicker`] calendar above the [`crate::TimePicker`] time picker, topped by
+//! a **summary** of the selection.
 //!
-//! Purement composite et contrôlé : il ne fait que combiner les deux sous-sélecteurs et
-//! relayer leurs messages ; l'état (date, heure) vit dans l'application.
+//! Purely composite and controlled: it only combines the two sub-pickers and relays
+//! their messages; the state, date and time, lives in the application.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -30,16 +30,17 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// Un sélecteur date + heure.
+/// A date-and-time picker.
 pub struct DateTimePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> DateTimePicker<Msg> {
-    /// Crée un flux date + heure. La partie **date** affiche `year`/`month` (1–12) avec le
-    /// `day` éventuellement sélectionné (`on_day(jour)` au clic, `on_nav(±1)` pour changer
-    /// de mois) ; la partie **heure** affiche `hour`/`minute` (`on_hour`/`on_minute`). Un
-    /// récapitulatif « Mois jour, année  HH:MM » coiffe le tout quand un jour est choisi.
+    /// Creates a date-and-time flow. The **date** part shows `year`/`month` (1–12)
+    /// with `day` selected if there is one — `on_day(day)` on click, `on_nav(±1)` to
+    /// change month — while the **time** part shows `hour`/`minute`
+    /// (`on_hour`/`on_minute`). A "Month day, year  HH:MM" summary tops it all once a
+    /// day is chosen.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         year: i32,
@@ -110,7 +111,7 @@ mod tests {
 
     #[test]
     fn summary_appears_only_when_a_day_is_picked() {
-        // Sans jour : [date, heure]. Avec jour : [récap, date, heure].
+        // With no day: [date, time]. With one: [summary, date, time].
         let without = DateTimePicker::new(
             2026,
             7,
@@ -161,6 +162,6 @@ mod tests {
             ui.scene().primitives().iter().any(
                 |p| matches!(p, Primitive::Text { text, .. } if text == "July 11, 2026  09:30"),
             );
-        assert!(has_summary, "le récapitulatif date + heure est affiché");
+        assert!(has_summary, "the date-and-time summary is shown");
     }
 }

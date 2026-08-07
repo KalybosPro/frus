@@ -1,6 +1,6 @@
-//! [`Collapsible`] : une section **repliable** contrôlée (en-tête cliquable +
-//! contenu affiché si ouvert). L'apparition/disparition du contenu profite des
-//! fondus de montage/démontage.
+//! [`Collapsible`]: a controlled **collapsible** section — a clickable header plus
+//! content shown when open. The content appearing and disappearing benefits from the
+//! mount and unmount fades.
 
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -13,7 +13,7 @@ const HEADER_H: f32 = 40.0;
 const PAD_X: f32 = 12.0;
 const SIZE: f32 = 18.0;
 
-/// En-tête cliquable : titre + chevron, bascule l'ouverture.
+/// The clickable header: a title plus a chevron, which toggles the section open.
 struct Header<Msg> {
     title: String,
     open: bool,
@@ -63,12 +63,12 @@ impl<Msg: Clone> Widget<Msg> for Header<Msg> {
 /// Une section repliable.
 pub struct Collapsible<Msg> {
     open: bool,
-    /// `[en-tête]` ou `[en-tête, contenu]`.
+    /// Either `[header]` or `[header, content]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Collapsible<Msg> {
-    /// Crée une section : titre, état ouvert, message de bascule.
+    /// Creates a section: a title, an open state, and a toggle message.
     pub fn new(title: impl Into<String>, open: bool, on_toggle: Msg) -> Self {
         let header = Header {
             title: title.into(),
@@ -81,7 +81,7 @@ impl<Msg: Clone + 'static> Collapsible<Msg> {
         }
     }
 
-    /// Définit le contenu (affiché seulement si ouvert).
+    /// Sets the content, which is shown only when open.
     pub fn content(mut self, content: impl Widget<Msg> + 'static) -> Self {
         if self.open {
             self.children.truncate(1);
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn collapsed_shows_header_only() {
-        let section = Collapsible::new("Titre", false, Msg::Toggle).content(Text::new("caché"));
+        let section = Collapsible::new("Title", false, Msg::Toggle).content(Text::new("hidden"));
         assert_eq!(Widget::<Msg>::children(&section).len(), 1);
     }
 
@@ -132,7 +132,7 @@ mod tests {
         let section = Collapsible::new("Titre", true, Msg::Toggle).content(Text::new("visible"));
         let children = Widget::<Msg>::children(&section);
         assert_eq!(children.len(), 2);
-        // L'en-tête émet la bascule.
+        // The header emits the toggle.
         assert_eq!(children[0].on_click(), Some(Msg::Toggle));
     }
 }

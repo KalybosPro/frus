@@ -1,7 +1,7 @@
-//! [`Tabs`] : une barre d'onglets **contrôlée** + le panneau sélectionné.
+//! [`Tabs`]: a **controlled** tab bar plus the selected panel.
 //!
-//! Composite : ses enfants sont `[en-tête, panneau]` (colonne). Seul le contenu
-//! de l'onglet sélectionné est réalisé (l'app reconstruit la vue à chaque frame).
+//! It is composite: its children are `[header, panel]`, in a column. Only the selected
+//! tab's content is realised, the app rebuilding the view every frame.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -12,17 +12,17 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Une vue à onglets.
+/// A tabbed view.
 pub struct Tabs<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
-    /// `[en-tête]` ou `[en-tête, panneau]`.
+    /// Either `[header]` or `[header, panel]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Tabs<Msg> {
-    /// Crée des onglets : `selected` = index actif, `on_select(i)` = message au clic.
+    /// Creates tabs: `selected` is the active index, `on_select(i)` the message on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         let mut tabs = Self {
             selected,
@@ -34,8 +34,8 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
         tabs
     }
 
-    /// Ajoute un onglet (libellé + contenu). Le contenu n'est réalisé que s'il
-    /// correspond à l'onglet sélectionné.
+    /// Adds a tab, a label plus content. The content is realised only when it belongs
+    /// to the selected tab.
     pub fn tab(mut self, label: impl Into<String>, content: impl Widget<Msg> + 'static) -> Self {
         let index = self.labels.len();
         self.labels.push(label.into());
@@ -50,7 +50,7 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
         self
     }
 
-    /// (Re)construit l'en-tête (boutons d'onglets) à l'index 0.
+    /// (Re)builds the header, the tab buttons, at index 0.
     fn rebuild_header(&mut self) {
         let mut header = Flex::row().gap(6.0);
         for (i, label) in self.labels.iter().enumerate() {
@@ -111,17 +111,17 @@ mod tests {
         let tabs = Tabs::new(1, Msg::Select)
             .tab("Un", Text::new("panneau un"))
             .tab("Deux", Text::new("panneau deux"))
-            .tab("Trois", Text::new("panneau trois"));
-        // [en-tête, panneau] — le panneau = contenu de l'onglet sélectionné (1).
+            .tab("Three", Text::new("panel three"));
+        // [header, panel] — the panel is the selected tab's content, tab 1.
         let children = Widget::<Msg>::children(&tabs);
         assert_eq!(children.len(), 2);
-        // L'en-tête a 3 boutons.
+        // The header has 3 buttons.
         assert_eq!(children[0].children().len(), 3);
     }
 
     #[test]
     fn no_panel_when_selection_out_of_range() {
-        let tabs = Tabs::new(9, Msg::Select).tab("Un", Text::new("x"));
-        assert_eq!(Widget::<Msg>::children(&tabs).len(), 1); // en-tête seul
+        let tabs = Tabs::new(9, Msg::Select).tab("One", Text::new("x"));
+        assert_eq!(Widget::<Msg>::children(&tabs).len(), 1); // the header alone
     }
 }

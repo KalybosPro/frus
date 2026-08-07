@@ -1,4 +1,4 @@
-//! [`ProgressBar`] : une barre de progression **déterminée** (`0..1`).
+//! [`ProgressBar`]: a **determinate** progress bar (`0..1`).
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -10,14 +10,14 @@ use crate::widget::Widget;
 /// Hauteur de la barre, en pixels logiques.
 const HEIGHT: f32 = 8.0;
 
-/// Une barre de progression : piste + remplissage proportionnel à `value`.
+/// A progress bar: a track plus a fill proportional to `value`.
 pub struct ProgressBar {
     value: f32,
     width: Dimension,
 }
 
 impl ProgressBar {
-    /// Crée une barre remplie à `value` (borné à `0.0..=1.0`).
+    /// Creates a bar filled to `value`, clamped to `0.0..=1.0`.
     pub fn new(value: f32) -> Self {
         Self {
             value: value.clamp(0.0, 1.0),
@@ -133,6 +133,6 @@ mod tests {
             &Theme::default(),
             &mut scene,
         );
-        assert_eq!(scene.primitives().len(), 1, "seule la piste est dessinée");
+        assert_eq!(scene.primitives().len(), 1, "only the track is drawn");
     }
 }

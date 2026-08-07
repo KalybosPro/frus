@@ -1,6 +1,6 @@
-//! [`Icon`] : affiche une icône vectorielle du jeu embarqué ([`IconName`]),
-//! mise à l'échelle et colorée au thème. C'est le premier consommateur des
-//! chemins vectoriels ([`frus_core::Path`]) côté widgets.
+//! [`Icon`]: displays a vector icon from the bundled set ([`IconName`]), scaled and
+//! coloured to the theme. It is the first consumer of the vector paths
+//! ([`frus_core::Path`]) on the widget side.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -10,11 +10,11 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Taille de référence de la grille des icônes (voir [`crate::icons`]).
+/// The icon grid's reference size; see [`crate::icons`].
 const GRID: f32 = 24.0;
 
-/// Une icône vectorielle. Taille et couleur sont personnalisables ; par défaut
-/// `24` px et la couleur de premier plan du thème (`on_surface`).
+/// A vector icon. Size and colour can both be customised; they default to `24` px
+/// and the theme's foreground colour (`on_surface`).
 pub struct Icon {
     name: IconName,
     size: f32,
@@ -22,7 +22,7 @@ pub struct Icon {
 }
 
 impl Icon {
-    /// Une icône `24` px, couleur du thème.
+    /// A `24` px icon, in the theme's colour.
     pub fn new(name: IconName) -> Self {
         Self {
             name,
@@ -31,13 +31,13 @@ impl Icon {
         }
     }
 
-    /// Fixe la taille (côté du carré), en pixels logiques.
+    /// Sets the size, that is, the square's side, in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
     }
 
-    /// Force la couleur (sinon `on_surface` du thème).
+    /// Forces the colour; the theme's `on_surface` otherwise.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
@@ -59,7 +59,7 @@ impl<Msg> Widget<Msg> for Icon {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let color = self.color.unwrap_or(theme.on_surface).fade(status.opacity);
-        // Grille 24×24 → taille réelle, centrée dans la boîte.
+        // The 24×24 grid scaled to the real size, centred in the box.
         let scale = self.size / GRID;
         let ox = bounds.x + (bounds.width - self.size) * 0.5;
         let oy = bounds.y + (bounds.height - self.size) * 0.5;

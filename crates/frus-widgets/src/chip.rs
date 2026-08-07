@@ -1,4 +1,4 @@
-//! [`Chip`] : une petite étiquette (tag / filtre), optionnellement **supprimable**.
+//! [`Chip`]: a small label — a tag or a filter — optionally **removable**.
 
 use frus_core::{Color, Insets, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
@@ -50,20 +50,20 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
 
 const SIZE: f32 = 15.0;
 
-/// Une étiquette compacte, aux couleurs du thème.
+/// A compact label, in the theme's colours.
 pub struct Chip<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Chip<Msg> {
-    /// Crée une étiquette avec le libellé donné.
+    /// Creates a chip with the given label.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             children: vec![Box::new(Text::new(label).size(SIZE))],
         }
     }
 
-    /// Ajoute une croix de suppression émettant `message`.
+    /// Adds a remove cross that emits `message`.
     pub fn on_remove(mut self, message: Msg) -> Self {
         self.children.truncate(1);
         self.children.push(Box::new(Remove { message }));
@@ -135,7 +135,7 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "×")));
-        // …et un point sur sa zone (balayage) émet la suppression.
+        // …and a point in its area, found by sweeping, emits the removal.
         let found = (0..40)
             .flat_map(|y| (0..200).map(move |x| (x, y)))
             .filter_map(|(x, y)| {

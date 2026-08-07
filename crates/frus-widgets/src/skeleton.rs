@@ -1,5 +1,5 @@
-//! [`Skeleton`] : un placeholder de chargement dont l'intensité **pulse** dans le
-//! temps (shimmer). Réutilise l'horloge continue (`Status::time` + `continuous`).
+//! [`Skeleton`]: a loading placeholder whose intensity **pulses** over time, a
+//! shimmer. It reuses the continuous clock (`Status::time` plus `continuous`).
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -11,7 +11,7 @@ use crate::widget::Widget;
 /// Vitesse de pulsation (radians/seconde).
 const SPEED: f32 = 2.5;
 
-/// Un bloc de chargement animé.
+/// An animated loading block.
 pub struct Skeleton {
     width: Dimension,
     height: f32,
@@ -19,7 +19,7 @@ pub struct Skeleton {
 }
 
 impl Skeleton {
-    /// Crée un placeholder (largeur pleine, hauteur 16 par défaut).
+    /// Creates a placeholder: full width, and 16 tall by default.
     pub fn new() -> Self {
         Self {
             width: Dimension::Auto,
@@ -72,7 +72,7 @@ impl<Msg> Widget<Msg> for Skeleton {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Pulsation `0..1` pilotée par le temps.
+        // A `0..1` pulse driven by time.
         let pulse = 0.5 + 0.5 * (status.time * SPEED).sin();
         let alpha = (0.18 + 0.22 * pulse) * o;
         scene.draw_rect(
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn intensity_varies_with_time() {
-        // Deux instants distincts de la pulsation → opacités différentes.
+        // Two distinct instants of the pulse give different opacities.
         assert_ne!(alpha_at(0.0), alpha_at(0.6));
     }
 }

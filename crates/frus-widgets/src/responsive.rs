@@ -1,9 +1,9 @@
-//! [`Responsive`] : choisit un sous-arbre selon la [`SizeClass`] courante.
+//! [`Responsive`]: picks a subtree from the current [`SizeClass`].
 //!
-//! `responsive(width).compact(a).medium(b).expanded(c)` sélectionne la variante
-//! correspondant au palier de largeur, avec **repli gracieux** : si le palier
-//! exact n'est pas fourni, le plus proche est utilisé (en préférant plus petit).
-//! Le widget résultant **délègue tout** à la variante choisie (comme [`Keyed`]).
+//! `responsive(width).compact(a).medium(b).expanded(c)` selects the variant matching
+//! the width breakpoint, with a **graceful fallback**: when the exact breakpoint is not
+//! supplied, the nearest is used, preferring the smaller one. The resulting widget
+//! **delegates everything** to the chosen variant, as [`Keyed`] does.
 //!
 //! [`Keyed`]: crate::Keyed
 
@@ -17,21 +17,21 @@ use crate::scroll::Axis;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Sélectionne un sous-arbre selon la classe de taille (délègue au choisi).
+/// Selects a subtree from the size class, delegating to whichever is chosen.
 pub struct Responsive<Msg> {
     class_rank: u8,
     inner: Option<Box<dyn Widget<Msg>>>,
     inner_rank: u8,
 }
 
-/// Distance d'un palier à la classe cible : minimiser `(écart, est_au-dessus)`
-/// choisit le plus proche, en préférant un palier plus petit à égalité d'écart.
+/// A breakpoint's distance from the target class: minimising `(gap, is_above)` picks
+/// the nearest, preferring a smaller breakpoint when the gaps are equal.
 fn closeness(rank: u8, class: u8) -> (u8, bool) {
     (rank.abs_diff(class), rank > class)
 }
 
 impl<Msg> Responsive<Msg> {
-    /// Construit un sélecteur pour la classe `class`.
+    /// Builds a selector for the class `class`.
     pub fn new(class: SizeClass) -> Self {
         Self {
             class_rank: class.rank(),
@@ -40,8 +40,8 @@ impl<Msg> Responsive<Msg> {
         }
     }
 
-    /// Considère `widget` pour le palier de rang `rank`, en gardant le meilleur
-    /// candidat vu jusqu'ici (indépendant de l'ordre des appels).
+    /// Considers `widget` for the breakpoint of rank `rank`, keeping the best
+    /// candidate seen so far, independently of the order of the calls.
     fn consider(mut self, rank: u8, widget: impl Widget<Msg> + 'static) -> Self {
         let better = self.inner.is_none()
             || closeness(rank, self.class_rank) < closeness(self.inner_rank, self.class_rank);
@@ -68,7 +68,7 @@ impl<Msg> Responsive<Msg> {
     }
 }
 
-/// Sélecteur responsive pour une largeur donnée (px logiques).
+/// A responsive selector for a given width, in logical px.
 ///
 /// `responsive(w).compact(a).medium(b).expanded(c)` — voir [`Responsive`].
 pub fn responsive<Msg>(width: f32) -> Responsive<Msg> {
@@ -81,7 +81,7 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     }
 
     fn debug_name(&self) -> &'static str {
-        // Wrapper transparent : l'inspecteur montre le widget réalisé.
+        // A transparent wrapper: the inspector shows the realised widget.
         self.inner
             .as_ref()
             .map(|w| w.debug_name())
@@ -376,15 +376,15 @@ mod tests {
 
     #[test]
     fn falls_back_to_nearest_when_missing() {
-        // Seul `expanded` fourni → utilisé pour toutes les largeurs.
+        // Only `expanded` is supplied, so it is used at every width.
         let only_expanded = |w: f32| responsive::<()>(w).expanded(Container::new().width(300.0));
         assert_eq!(
             chosen_width(&only_expanded(300.0)),
             Dimension::Length(300.0)
         );
 
-        // compact + expanded, largeur medium (rang 1) : compact (rang 0, écart 1,
-        // en-dessous) préféré à expanded (rang 2, écart 1, au-dessus).
+        // compact plus expanded at a medium width (rank 1): compact (rank 0, gap 1,
+        // below) wins over expanded (rank 2, gap 1, above).
         let two = responsive::<()>(700.0)
             .compact(Container::new().width(100.0))
             .expanded(Container::new().width(300.0));

@@ -1,5 +1,5 @@
-//! [`Grid`] : un conteneur en **grille** à colonnes égales. Les cellules se
-//! placent automatiquement, ligne par ligne ; la hauteur suit le contenu.
+//! [`Grid`]: a **grid** container of equal columns. Cells place themselves
+//! automatically, row by row, and the height follows the content.
 //!
 //! Contrairement aux composites, `Grid` est un **conteneur normal** : la
 //! disposition est faite par le moteur de layout (CSS Grid de taffy), donc
@@ -12,7 +12,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Une grille à `columns` colonnes égales.
+/// A grid of `columns` equal columns.
 pub struct Grid<Msg> {
     columns: usize,
     gap: f32,
@@ -23,7 +23,7 @@ pub struct Grid<Msg> {
 }
 
 impl<Msg> Grid<Msg> {
-    /// Crée une grille de `columns` colonnes (au moins 1).
+    /// Creates a grid of `columns` columns, at least one.
     pub fn new(columns: usize) -> Self {
         Self {
             columns: columns.max(1),
@@ -59,7 +59,7 @@ impl<Msg> Grid<Msg> {
         self
     }
 
-    /// Ajoute une cellule (placée automatiquement dans la grille).
+    /// Adds a cell, placed automatically in the grid.
     pub fn cell(mut self, cell: impl Widget<Msg> + 'static) -> Self {
         self.children.push(Box::new(cell));
         self
@@ -128,20 +128,20 @@ mod tests {
                     Primitive::Rect { color, rect, .. } if *color == col => Some(*rect),
                     _ => None,
                 })
-                .expect("cellule présente")
+                .expect("the cell is present")
         };
         let (ra, rb, rc, rd) = (rect_of(a), rect_of(b), rect_of(c), rect_of(d));
 
-        // a et b : même ligne (même y), colonnes différentes (b à droite de a).
+        // a and b: the same row, same y, in different columns, b right of a.
         assert_eq!(ra.y, rb.y);
         assert!(rb.x > ra.x);
-        // c est sous a (ligne suivante), même colonne (même x).
+        // c sits under a, on the next row, in the same column, same x.
         assert!(rc.y > ra.y);
         assert_eq!(rc.x, ra.x);
-        // d aligné avec b en x, avec c en y.
+        // d lines up with b in x and with c in y.
         assert_eq!(rd.x, rb.x);
         assert_eq!(rd.y, rc.y);
-        // Colonnes égales : largeur de a == largeur de b.
+        // Equal columns: a's width equals b's.
         assert_eq!(ra.width, rb.width);
     }
 }

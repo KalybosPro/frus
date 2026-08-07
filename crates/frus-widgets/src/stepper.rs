@@ -1,4 +1,4 @@
-//! [`Stepper`] : un champ numérique à boutons **−/valeur/+**, **contrôlé**.
+//! [`Stepper`]: a **controlled** numeric field with **−/value/+** buttons.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Align, FlexDirection, Style};
@@ -9,7 +9,7 @@ use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un sélecteur numérique incrémental.
+/// An incremental numeric picker.
 pub struct Stepper<Msg> {
     value: i32,
     min: i32,
@@ -21,7 +21,7 @@ pub struct Stepper<Msg> {
 }
 
 impl<Msg: Clone + 'static> Stepper<Msg> {
-    /// Crée un sélecteur : valeur courante + message à chaque nouvelle valeur.
+    /// Creates a picker: the current value plus a message for each new value.
     pub fn new(value: i32, on_change: impl Fn(i32) -> Msg + 'static) -> Self {
         let mut stepper = Self {
             value,
@@ -35,7 +35,7 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
         stepper
     }
 
-    /// Borne la valeur à `[min, max]`.
+    /// Clamps the value to `[min, max]`.
     pub fn range(mut self, min: i32, max: i32) -> Self {
         self.min = min;
         self.max = max;
@@ -43,7 +43,7 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
         self
     }
 
-    /// Fixe le pas d'incrément (≥ 1).
+    /// Sets the increment step, at least 1.
     pub fn step(mut self, step: i32) -> Self {
         self.step = step.max(1);
         self.rebuild();
@@ -114,7 +114,7 @@ mod tests {
     fn values_are_clamped_to_range() {
         let at_max = Stepper::new(10, Msg::Set).range(0, 10).step(3);
         let children = Widget::<Msg>::children(&at_max);
-        assert_eq!(children[2].on_click(), Some(Msg::Set(10))); // + borné à max
+        assert_eq!(children[2].on_click(), Some(Msg::Set(10))); // + clamped to max
         assert_eq!(children[0].on_click(), Some(Msg::Set(7))); // −
     }
 }

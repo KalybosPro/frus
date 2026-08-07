@@ -1,5 +1,5 @@
-//! [`Avatar`] : une pastille ronde d'initiales (ou de couleur), aux couleurs
-//! d'accent — pour listes, en-têtes, etc.
+//! [`Avatar`]: a round pill of initials, or of colour, in the accent colours — for
+//! lists, headers and the like.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -10,7 +10,7 @@ use crate::widget::Widget;
 
 const SIZE: f32 = 36.0;
 
-/// Un avatar circulaire affichant jusqu'à deux initiales.
+/// A circular avatar showing up to two initials.
 pub struct Avatar {
     initials: String,
     color: Option<Color>,
@@ -18,7 +18,7 @@ pub struct Avatar {
 }
 
 impl Avatar {
-    /// Crée un avatar depuis un texte (2 premières lettres, en majuscules).
+    /// Creates an avatar from a text: its first two letters, upper-cased.
     pub fn new(initials: impl Into<String>) -> Self {
         let source: String = initials.into();
         let initials: String = source
@@ -39,13 +39,13 @@ impl Avatar {
         }
     }
 
-    /// Couleur de fond (sinon l'accent du thème).
+    /// The background colour; the theme's accent otherwise.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Taille (diamètre), en pixels logiques.
+    /// The size, that is, the diameter, in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
@@ -68,7 +68,7 @@ impl<Msg> Widget<Msg> for Avatar {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let bg = self.color.unwrap_or(theme.primary);
-        // Cercle (rectangle entièrement arrondi).
+        // A circle: a fully rounded rectangle.
         scene.draw_rect(
             bounds,
             bg.fade(o),

@@ -1,16 +1,15 @@
-//! [`LayoutBuilder`] : construit son contenu **à partir de la boîte réellement
-//! disponible** (façon Flutter `LayoutBuilder`) — le primitif responsive le plus
-//! puissant : un composant s'adapte quel que soit l'endroit où il est placé
-//! (barre latérale étroite vs plein écran), pas seulement selon la fenêtre.
+//! [`LayoutBuilder`]: builds its content **from the box actually available** — the
+//! most powerful responsive primitive, since a component adapts wherever it is placed,
+//! in a narrow sidebar or full screen, and not merely to the window.
 //!
-//! Comme un élément de liste virtualisée, le contenu est **construit à la volée**
-//! à chaque frame : il n'a donc **pas d'état retenu** (survol/clic fonctionnent,
-//! mais pas le focus clavier persistant ni les overlays différés).
+//! As with a virtualised list item, the content is **built on the fly** every frame, so
+//! it has **no retained state**: hover and clicks work, but persistent keyboard focus
+//! and deferred overlays do not.
 //!
-//! Contrat de taille : `LayoutBuilder` est une **feuille de layout**, donc sa
-//! propre taille vient de son style (comme une boîte), pas de son contenu. Sur
-//! l'axe croisé d'un parent `Stretch`, la largeur est déjà celle du parent ;
-//! fixez la hauteur (ou `flex`) pour lui donner une boîte exploitable.
+//! The sizing contract: `LayoutBuilder` is a **layout leaf**, so its own size comes
+//! from its style, as a box's does, and not from its content. On the cross axis of a
+//! `Stretch` parent the width is already the parent's; set the height, or `flex`, to
+//! give it a usable box.
 
 use frus_core::{Rect, Scene, Size};
 use frus_layout::{Dimension, Style};
@@ -28,8 +27,8 @@ pub struct LayoutBuilder<Msg> {
 }
 
 impl<Msg> LayoutBuilder<Msg> {
-    /// Construit à partir d'une fabrique `taille → widget`. La taille reçue est
-    /// la **boîte réelle** allouée à ce `LayoutBuilder` (px logiques).
+    /// Builds from a `size → widget` factory. The size received is the **real box**
+    /// allocated to this `LayoutBuilder`, in logical px.
     pub fn new<W: Widget<Msg> + 'static>(build: impl Fn(Size) -> W + 'static) -> Self {
         Self {
             width: Dimension::Auto,
@@ -109,13 +108,13 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // La fabrique reçoit la boîte du LayoutBuilder, pas la fenêtre.
+        // The factory receives the LayoutBuilder's box, not the window's.
         assert_eq!(seen.get(), Size::new(320.0, 48.0));
     }
 
     #[test]
     fn adapts_content_to_available_width() {
-        // Choisit un nombre de tuiles selon la classe de taille de la boîte.
+        // Picks a number of tiles from the box's size class.
         let count_tiles = |window_w: f32| {
             let lb = LayoutBuilder::<()>::new(|size| {
                 let tiles = match SizeClass::from_width(size.width) {
@@ -135,8 +134,8 @@ mod tests {
                 row
             })
             .height(20.0);
-            // Colonne racine dimensionnée : le stretch donne au LayoutBuilder la
-            // largeur de la fenêtre, sa boîte reflète donc la largeur disponible.
+            // The root column is sized, so the stretch gives the LayoutBuilder the
+            // window's width and its box reflects the available width.
             let root = crate::Flex::<()>::column()
                 .width(window_w)
                 .height(200.0)

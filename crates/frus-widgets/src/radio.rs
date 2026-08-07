@@ -1,4 +1,4 @@
-//! [`RadioGroup`] : un groupe de boutons radio (une seule option sélectionnée).
+//! [`RadioGroup`]: a group of radio buttons, with one option selected.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -67,7 +67,7 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
     }
 }
 
-/// Un groupe de boutons radio à sélection unique.
+/// A single-selection group of radio buttons.
 pub struct RadioGroup<Msg> {
     selected: usize,
     size: f32,
@@ -77,7 +77,7 @@ pub struct RadioGroup<Msg> {
 }
 
 impl<Msg: Clone + 'static> RadioGroup<Msg> {
-    /// Crée un groupe : index sélectionné + closure `index -> message`.
+    /// Creates a group: the selected index plus an `index -> message` closure.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
             selected,

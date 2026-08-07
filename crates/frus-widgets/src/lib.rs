@@ -1,13 +1,13 @@
-//! `frus-widgets` — l'arbre de widgets déclaratif de frus.
+//! `frus-widgets` — frus's declarative widget tree.
 //!
-//! On décrit l'interface avec des widgets composables ([`Container`], [`Flex`],
-//! [`Text`], [`TextInput`], [`Scroll`]) génériques sur un type de message `Msg`
-//! (modèle à messages, façon Elm/iced). [`build_ui`] les traduit en mise en page
-//! (via `frus-layout`) puis en une [`Ui`] : la [`Scene`] à dessiner + des cartes
-//! de hit-test (clic, focus, scroll).
+//! An interface is described with composable widgets ([`Container`], [`Flex`],
+//! [`Text`], [`TextInput`], [`Scroll`]) generic over a message type `Msg`, in the
+//! Elm/iced message model. [`build_ui`] translates them into a layout, through
+//! `frus-layout`, and then into a [`Ui`]: the [`Scene`] to draw, plus the hit-test maps
+//! for clicking, focus and scrolling.
 //!
-//! L'état retenu entre frames (survol/focus, offsets de scroll, curseur/sélection)
-//! vit dans un [`Runtime`], clé par identité de widget.
+//! The state retained between frames — hover and focus, scroll offsets, caret and
+//! selection — lives in a [`Runtime`], keyed by widget identity.
 
 mod alert;
 mod animated;
@@ -39,7 +39,7 @@ mod dropdown;
 mod dsl;
 mod fittedbox;
 mod flex;
-/// Validation de formulaire (pure, côté application) : [`form::Rule`] et [`form::Form`].
+/// Form validation, pure and application-side: [`form::Rule`] and [`form::Form`].
 pub mod form;
 pub use form::ErrorSummary;
 mod fractional;
@@ -189,7 +189,7 @@ pub use ui::{
 };
 pub use widget::{ReorderAxis, Widget};
 
-// Ré-exports de commodité pour les appelants.
+// Convenience re-exports for callers.
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius,
     BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets,
@@ -197,14 +197,14 @@ pub use frus_core::{
     Scene, Semantics, Size, SizeClass, TextDecoration, TextDirection, TextSpan, TextStyle, Toggled,
     WindowInsets,
 };
-/// Couche d'animation partagée (physique, courbes, pilote) — voir
-/// [`frus_core::animation`]. Ré-exportée ici pour que les applications l'atteignent
-/// via `frus_widgets` sans dépendre directement de `frus-core`.
+/// The shared animation layer — physics, curves, driver — see
+/// [`frus_core::animation`]. Re-exported here so applications can reach it through
+/// `frus_widgets` without depending on `frus-core` directly.
 pub use frus_core::{
     AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
     SpringDescription, SpringSimulation, Tolerance, Tween,
 };
-// `frus_core::Status` (avancement d'animation) est renommé pour ne pas masquer le
-// `Status` d'interaction (état de peinture : survol/pression/focus…).
+// `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
+// interaction `Status`, which is paint state: hover, press, focus and so on.
 pub use frus_core::Status as AnimationStatus;
 pub use frus_layout::{Align, Justify};

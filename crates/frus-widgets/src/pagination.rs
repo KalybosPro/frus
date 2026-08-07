@@ -1,4 +1,4 @@
-//! [`Pagination`] : un sélecteur de page — ‹ préc. · fenêtre de pages · suiv. ›.
+//! [`Pagination`]: a page picker — ‹ prev · a window of pages · next ›.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{FlexDirection, Style};
@@ -8,10 +8,10 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Nombre de pages affichées de part et d'autre de la page courante.
+/// How many pages are shown on either side of the current one.
 const WINDOW: usize = 2;
 
-/// Un bouton de page (actif, lien, ou désactivé).
+/// A page button: active, a link, or disabled.
 fn page_button<Msg: Clone + 'static>(
     label: impl Into<String>,
     message: Option<Msg>,
@@ -29,26 +29,26 @@ fn page_button<Msg: Clone + 'static>(
     Box::new(button)
 }
 
-/// Un sélecteur de page contrôlé (pages **1-indexées**).
+/// A controlled page picker; pages are **1-indexed**.
 pub struct Pagination<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Pagination<Msg> {
-    /// Crée le sélecteur : page `current` sur `total`, `on_select(p)` au clic.
+    /// Creates the picker: page `current` of `total`, with `on_select(p)` on click.
     pub fn new(current: usize, total: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         let total = total.max(1);
         let current = current.clamp(1, total);
         let mut children: Vec<Box<dyn Widget<Msg>>> = Vec::new();
 
-        // ‹ précédent (désactivé sur la première page).
+        // ‹ previous, disabled on the first page.
         children.push(page_button(
             "‹",
             (current > 1).then(|| on_select(current - 1)),
             false,
         ));
 
-        // Fenêtre de pages autour de la courante.
+        // The window of pages around the current one.
         let start = current.saturating_sub(WINDOW).max(1);
         let end = (current + WINDOW).min(total);
         for page in start..=end {
@@ -59,7 +59,7 @@ impl<Msg: Clone + 'static> Pagination<Msg> {
             ));
         }
 
-        // › suivant (désactivé sur la dernière page).
+        // › next, disabled on the last page.
         children.push(page_button(
             "›",
             (current < total).then(|| on_select(current + 1)),
@@ -105,9 +105,9 @@ mod tests {
         let p = Pagination::new(5, 10, Msg::Page);
         let children = Widget::<Msg>::children(&p);
         assert_eq!(children.len(), 7);
-        // ‹ va à la page 4.
+        // ‹ goes to page 4.
         assert_eq!(children[0].on_click(), Some(Msg::Page(4)));
-        // › va à la page 6.
+        // › goes to page 6.
         assert_eq!(children[6].on_click(), Some(Msg::Page(6)));
     }
 
@@ -115,6 +115,6 @@ mod tests {
     fn first_page_disables_prev() {
         let p = Pagination::new(1, 3, Msg::Page);
         let children = Widget::<Msg>::children(&p);
-        assert_eq!(children[0].on_click(), None); // ‹ désactivé
+        assert_eq!(children[0].on_click(), None); // ‹ disabled
     }
 }

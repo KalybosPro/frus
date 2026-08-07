@@ -1,7 +1,7 @@
-//! [`NavScaffold`] : l'ossature de navigation **adaptative**. Selon la
-//! [`SizeClass`], elle place la navigation principale en **rail vertical**
-//! (Medium/Expanded) ou en **barre basse** (Compact), le corps remplissant le
-//! reste. C'est ici que la classe de taille pilote la *structure* de l'écran.
+//! [`NavScaffold`]: the **adaptive** navigation scaffold. Depending on the
+//! [`SizeClass`] it places the primary navigation in a **vertical rail**
+//! (Medium/Expanded) or in a **bottom bar** (Compact), the body filling the rest. This
+//! is where the size class drives the screen's *structure*.
 
 use frus_core::{Rect, Scene, SizeClass};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -22,8 +22,8 @@ pub struct NavScaffold<Msg> {
 }
 
 impl<Msg: Clone + 'static> NavScaffold<Msg> {
-    /// Crée une ossature : `class` détermine la présentation, `selected` la
-    /// destination active, `on_select(i)` est émis au choix d'une destination.
+    /// Creates a scaffold: `class` decides the presentation, `selected` the active
+    /// destination, and `on_select(i)` is emitted when a destination is chosen.
     pub fn new(
         class: SizeClass,
         selected: usize,
@@ -38,7 +38,7 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         }
     }
 
-    /// Ajoute une destination (glyphe + libellé). À appeler **avant** [`body`].
+    /// Adds a destination, a glyph plus a label. Call this **before** [`body`].
     ///
     /// [`body`]: NavScaffold::body
     pub fn destination(mut self, icon: impl Into<String>, label: impl Into<String>) -> Self {
@@ -46,7 +46,7 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         self
     }
 
-    /// Ajoute un compteur de notifications à la **dernière** destination.
+    /// Adds a notification count to the **last** destination.
     pub fn badge(mut self, count: u32) -> Self {
         if let Some(last) = self.destinations.last_mut() {
             last.2 = Some(count);
@@ -54,14 +54,14 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
         self
     }
 
-    /// Définit le corps et **finalise** l'ossature (appeler en dernier). Le corps
-    /// remplit l'espace restant à côté (ou au-dessus) de la navigation.
+    /// Sets the body and **finalises** the scaffold; call it last. The body fills the
+    /// space left beside, or above, the navigation.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
-        let on_select = self.on_select.take().expect("body appelé une seule fois");
+        let on_select = self.on_select.take().expect("body called exactly once");
         let destinations = std::mem::take(&mut self.destinations);
         let body_pane: Box<dyn Widget<Msg>> = Box::new(Flex::column().flex(1.0).child(body));
 
-        // Un seul des deux bras s'exécute : `on_select` n'est déplacé qu'une fois.
+        // Only one arm runs, so `on_select` is moved exactly once.
         let nav: Box<dyn Widget<Msg>> = if self.compact {
             let mut bar = BottomBar::new(self.selected, on_select);
             for (icon, label, badge) in destinations {
@@ -82,7 +82,8 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
             Box::new(rail)
         };
 
-        // Compact : corps au-dessus, barre en bas. Sinon : rail à gauche, corps à droite.
+        // Compact puts the body above and the bar below; otherwise the rail is on the
+        // left and the body on the right.
         self.children = if self.compact {
             vec![body_pane, nav]
         } else {

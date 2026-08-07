@@ -1,5 +1,5 @@
-//! [`Timeline`] : une chronologie verticale — des événements reliés par une
-//! ligne, chacun marqué d'un point.
+//! [`Timeline`]: a vertical chronology — events joined by a line, each marked with a
+//! dot.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -13,7 +13,7 @@ const LINE_X: f32 = 8.0;
 const DOT: f32 = 10.0;
 const TEXT_X: f32 = 28.0;
 
-/// Un événement de la chronologie (point + ligne + textes).
+/// One event on the timeline: a dot, a line and the texts.
 struct Event {
     title: String,
     detail: String,
@@ -34,7 +34,7 @@ impl<Msg> Widget<Msg> for Event {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let cx = bounds.x + LINE_X;
-        // Ligne continue (traverse toute la ligne ; les rangées se rejoignent).
+        // A continuous line, crossing the whole row so that the rows join up.
         scene.fill_rect(
             Rect::new(cx - 1.0, bounds.y, 2.0, bounds.height),
             theme.border.fade(o),
@@ -48,7 +48,7 @@ impl<Msg> Widget<Msg> for Event {
             0.0,
             Color::TRANSPARENT,
         );
-        // Titre + détail.
+        // Title and detail.
         scene.text(
             Point::new(bounds.x + TEXT_X, bounds.y + 8.0),
             self.title.clone(),
@@ -74,14 +74,14 @@ pub struct Timeline<Msg> {
 }
 
 impl<Msg> Timeline<Msg> {
-    /// Crée une chronologie vide.
+    /// Creates an empty timeline.
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
         }
     }
 
-    /// Ajoute un événement (titre + détail), du plus ancien au plus récent.
+    /// Adds an event, title and detail, oldest to most recent.
     pub fn event(mut self, title: impl Into<String>, detail: impl Into<String>) -> Self {
         self.children.push(Box::new(Event {
             title: title.into(),
@@ -125,8 +125,8 @@ mod tests {
     #[test]
     fn events_paint_dots_and_text() {
         let timeline = Timeline::<()>::new()
-            .event("Jalon 1", "fenêtre")
-            .event("Jalon 2", "layout");
+            .event("Milestone 1", "window")
+            .event("Milestone 2", "layout");
         assert_eq!(Widget::<()>::children(&timeline).len(), 2);
 
         let ui = build_ui(
@@ -141,6 +141,6 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        assert!(has("Jalon 1") && has("Jalon 2"));
+        assert!(has("Milestone 1") && has("Milestone 2"));
     }
 }

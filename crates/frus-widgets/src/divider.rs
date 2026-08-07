@@ -1,4 +1,4 @@
-//! [`Divider`] : un fin séparateur horizontal, aux couleurs du thème.
+//! [`Divider`]: a thin horizontal separator, in the theme's colours.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -7,11 +7,11 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Un séparateur : une ligne fine qui occupe toute la largeur disponible.
+/// A separator: a thin line spanning the full available width.
 pub struct Divider;
 
 impl Divider {
-    /// Crée un séparateur.
+    /// Creates a separator.
     pub fn new() -> Self {
         Divider
     }
@@ -26,7 +26,7 @@ impl Default for Divider {
 impl<Msg> Widget<Msg> for Divider {
     fn style(&self) -> Style {
         Style {
-            // Largeur automatique : étirée par le parent (align: stretch).
+            // Automatic width: the parent stretches it (align: stretch).
             width: Dimension::Auto,
             height: Dimension::Length(1.0),
             ..Default::default()

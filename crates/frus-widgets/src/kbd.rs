@@ -11,13 +11,13 @@ const SIZE: f32 = 13.0;
 const PAD_X: f32 = 7.0;
 const PAD_Y: f32 = 3.0;
 
-/// Un capuchon de touche affichant un libellé (ex. « Ctrl », « Enter »).
+/// A key cap showing a label, such as "Ctrl" or "Enter".
 pub struct Kbd {
     label: String,
 }
 
 impl Kbd {
-    /// Crée un capuchon avec le libellé donné.
+    /// Creates a key cap with the given label.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
