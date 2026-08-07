@@ -1,50 +1,50 @@
-//! La [`Scene`] : une liste d'affichage pure, indépendante du backend de rendu.
+//! The [`Scene`]: a pure display list, independent of any rendering backend.
 //!
-//! Elle décrit *ce qu'il faut dessiner* (des primitives) sans rien savoir du
-//! GPU. `frus-gpu` la consomme pour produire des commandes GPU ; `frus-widgets`
-//! la produit à partir d'un arbre de widgets.
+//! It describes *what to draw* — primitives — while knowing nothing about the
+//! GPU. `frus-gpu` consumes it to produce GPU commands; `frus-widgets` produces
+//! it from a widget tree.
 //!
-//! Chaque primitive porte un **rectangle de découpe** (`clip`) ; on le fixe via
-//! [`Scene::set_clip`] avant d'ajouter des primitives.
+//! Every primitive carries a **clip rectangle**, set through
+//! [`Scene::set_clip`] before primitives are added.
 
 use crate::{
     Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, PathVerb, Point, Rect, Stroke,
     TextDecoration, TextRun, TextStyle,
 };
 
-/// Transformation appliquée à un **calque** ([`Primitive::Layer`]) au moment du
-/// compositing : une [`Affine`] arbitraire (translation, échelle par axe, rotation,
-/// ou leur composition) en pixels écran. Le calque est d'abord rendu **à plat** dans
-/// une texture (comme pour l'opacité de groupe), puis composité **transformé** — une
-/// seule passe gère ainsi la transformation de tout un sous-arbre (rects, texte,
-/// images…), sans toucher les shaders de chaque primitive.
+/// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
+/// an arbitrary [`Affine`] (translation, per-axis scale, rotation, or any
+/// composition of them) in screen pixels. The layer is first rendered **flat** into
+/// a texture, as with group opacity, then composited **transformed** — so a single
+/// pass transforms a whole subtree (rects, text, images) without touching any
+/// individual primitive's shaders.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerTransform {
-    /// La transformation local(à plat) → écran.
+    /// The local (flat) → screen transform.
     pub affine: Affine,
 }
 
 impl LayerTransform {
-    /// Enveloppe une [`Affine`] quelconque.
+    /// Wraps any [`Affine`].
     pub const fn new(affine: Affine) -> Self {
         Self { affine }
     }
 
-    /// Une rotation d'`angle` radians autour de `pivot` (px écran).
+    /// A rotation of `angle` radians about `pivot`, in screen pixels.
     pub fn rotation(angle: f32, pivot: Point) -> Self {
         Self {
             affine: Affine::rotation(angle).about(pivot),
         }
     }
 
-    /// Conjugue la transformation par une mise à l'échelle (pour suivre
-    /// `Primitive::scaled`) : `S ∘ M ∘ S⁻¹`, afin qu'un DPI mette bien à l'échelle
-    /// tout le calque, transformation comprise.
+    /// Conjugates the transform by a scale, so it follows `Primitive::scaled`:
+    /// `S ∘ M ∘ S⁻¹`, which is what makes a DPI change scale the whole layer, its
+    /// transform included.
     pub fn scaled(self, factor: f32) -> Self {
         self.scaled_xy(factor, factor)
     }
 
-    /// Comme [`LayerTransform::scaled`], mais par axe.
+    /// Like [`LayerTransform::scaled`], but per axis.
     pub fn scaled_xy(self, sx: f32, sy: f32) -> Self {
         let conj = Affine::scale(1.0 / sx, 1.0 / sy)
             .then(self.affine)
@@ -52,7 +52,7 @@ impl LayerTransform {
         Self { affine: conj }
     }
 
-    /// Conjugue par une translation (pour suivre `Primitive::translated`).
+    /// Conjugates by a translation, so it follows `Primitive::translated`.
     pub fn translated(self, dx: f32, dy: f32) -> Self {
         let conj = Affine::translation(-dx, -dy)
             .then(self.affine)
@@ -61,23 +61,23 @@ impl LayerTransform {
     }
 }
 
-/// Forme de découpe d'un [`Primitive::Layer`], **inscrite** dans son rectangle
-/// `clip`. Le compositing multiplie l'alpha du calque par la couverture de la
-/// forme (bords anticrénelés) — la brique de `ClipRRect` / `ClipOval` / `ClipPath`
-/// de Flutter.
+/// The clip shape of a [`Primitive::Layer`], **inscribed** in its `clip` rectangle.
+/// Compositing multiplies the layer's alpha by the shape's coverage, with
+/// antialiased edges. This is the building block of the `ClipRRect`, `ClipOval`
+/// and `ClipPath` widgets.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClipShape {
-    /// Découpe rectangulaire nette (le `clip` du calque tel quel).
+    /// A crisp rectangular clip — the layer's `clip`, unchanged.
     Rect,
-    /// Rectangle à **coins arrondis**, rayon **par coin** ([`BorderRadius`], px
-    /// logiques) borné à la demi-plus-petite dimension du `clip`. Un rayon uniforme
-    /// reste `BorderRadius::uniform(r)`.
+    /// A **rounded-corner** rectangle, with a **per-corner** radius
+    /// ([`BorderRadius`], logical px) clamped to half the `clip`'s smaller side. A
+    /// uniform radius is still `BorderRadius::uniform(r)`.
     RRect(BorderRadius),
-    /// **Ellipse** inscrite dans le `clip` (un cercle si le `clip` est carré).
+    /// An **ellipse** inscribed in the `clip` — a circle when the `clip` is square.
     Oval,
-    /// **Chemin arbitraire** (coordonnées écran absolues) : le compositing rend le
-    /// chemin dans un **masque** de couverture qu'il multiplie à l'alpha du calque.
-    /// La brique de `ClipPath` — étoiles, découpes en pointe, formes libres.
+    /// An **arbitrary path**, in absolute screen coordinates: compositing renders it
+    /// into a coverage **mask** which it multiplies into the layer's alpha. The
+    /// building block of `ClipPath` — stars, notches, free-form shapes.
     Path(Path),
 }
 
@@ -88,132 +88,130 @@ impl Default for ClipShape {
 }
 
 impl ClipShape {
-    /// Suit une mise à l'échelle **par axe** du calque (DPI, échelle de peinture) :
-    /// seul le rayon d'un arrondi change, selon la moyenne des facteurs (il n'a pas
-    /// d'axe). L'ellipse suit son `clip` et le rectangle n'a rien à mettre à l'échelle.
+    /// Follows a **per-axis** scaling of the layer (DPI, paint scale): only a
+    /// rounded radius changes, by the average of the two factors, since it has no
+    /// axis. The ellipse follows its `clip`, and the rectangle has nothing to scale.
     pub fn scaled_xy(self, sx: f32, sy: f32) -> ClipShape {
         match self {
             ClipShape::RRect(br) => ClipShape::RRect(br.scale((sx + sy) * 0.5)),
-            // Le chemin est en coordonnées absolues : la mise à l'échelle DPI le suit
-            // (uniforme — `sx == sy` au DPI).
+            // The path is in absolute coordinates, so DPI scaling follows it
+            // (uniformly — at DPI, `sx == sy`).
             ClipShape::Path(p) => ClipShape::Path(p.scaled((sx + sy) * 0.5)),
             other => other,
         }
     }
 }
 
-/// Une primitive de dessin.
+/// A drawing primitive.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Primitive {
-    /// Un rectangle : coins arrondis, bordure, dégradé et/ou ombre douce.
+    /// A rectangle: rounded corners, border, gradient and/or soft shadow.
     Rect {
         rect: Rect,
-        /// Couleur de remplissage (couleur de départ si dégradé).
+        /// Fill colour — the start colour when there is a gradient.
         color: Color,
-        /// Couleur de fin du dégradé (`== color` si uni).
+        /// The gradient's end colour (`== color` when flat).
         color2: Color,
-        /// Direction du dégradé en espace `[0,1]²` ; `(0,0)` = uni.
+        /// Gradient direction in `[0,1]²` space; `(0,0)` means flat.
         gradient_dir: [f32; 2],
-        /// Rayons d'arrondi, par coin.
+        /// Corner radii, per corner.
         radius: BorderRadius,
         border_width: f32,
         border_color: Color,
-        /// Adoucissement du bord, en pixels (0 = net ; > 0 = ombre floue).
+        /// Edge softening, in pixels (0 = crisp; > 0 = a blurred shadow).
         blur: f32,
-        /// Rectangle de découpe : rien n'est dessiné en dehors.
+        /// Clip rectangle: nothing is drawn outside it.
         clip: Rect,
-        /// Identité du widget émetteur (pour l'animation de sortie).
+        /// The emitting widget's identity, used for exit animation.
         owner: u64,
     },
-    /// Une ligne de texte, ancrée par son coin haut-gauche.
+    /// A line of text, anchored by its top-left corner.
     Text {
         position: Point,
         text: String,
         size: f32,
         color: Color,
-        /// Graisse de police.
+        /// Font weight.
         weight: FontWeight,
-        /// Italique.
+        /// Italic.
         italic: bool,
-        /// Largeur de repli : au-delà, le texte revient à la ligne (`None` =
-        /// pas de repli — les `\n` explicites font les lignes).
+        /// Wrap width: beyond it the text wraps (`None` = no wrapping, in which
+        /// case explicit `\n` characters make the lines).
         max_width: Option<f32>,
-        /// Lignes de décoration (soulignement, barré…).
+        /// Decoration lines (underline, strikethrough, and so on).
         decoration: TextDecoration,
-        /// Couleur des décorations ; `None` = la couleur du texte.
+        /// Decoration colour; `None` means the text's own colour.
         decoration_color: Option<Color>,
-        /// Rectangle de découpe.
+        /// Clip rectangle.
         clip: Rect,
-        /// Identité du widget émetteur.
+        /// The emitting widget's identity.
         owner: u64,
     },
-    /// Du texte **riche** : une suite de runs résolus (styles/couleurs mêlés),
-    /// mise en forme d'un seul tenant (une seule ligne de base partagée).
+    /// **Rich** text: a sequence of resolved runs, mixing styles and colours, laid
+    /// out as one piece, on a single shared baseline.
     RichText {
         position: Point,
         runs: Vec<TextRun>,
-        /// Largeur de repli : au-delà, le texte revient à la ligne (`None` =
-        /// pas de repli).
+        /// Wrap width: beyond it the text wraps (`None` = no wrapping).
         max_width: Option<f32>,
-        /// Rectangle de découpe.
+        /// Clip rectangle.
         clip: Rect,
-        /// Identité du widget émetteur.
+        /// The emitting widget's identity.
         owner: u64,
     },
-    /// Un **chemin vectoriel** : géométrie 2D arbitraire, remplie (`fill`)
-    /// et/ou tracée (`stroke`). La brique des icônes et du dessin personnalisé.
+    /// A **vector path**: arbitrary 2D geometry, filled (`fill`) and/or stroked
+    /// (`stroke`). The building block of icons and custom drawing.
     Path {
         path: Path,
-        /// Couleur de remplissage intérieur (`None` = pas de remplissage).
+        /// Interior fill colour (`None` = no fill).
         fill: Option<Color>,
-        /// Contour (couleur + épaisseur), `None` = pas de contour.
+        /// Outline (colour plus width); `None` = no outline.
         stroke: Option<Stroke>,
-        /// Rectangle de découpe.
+        /// Clip rectangle.
         clip: Rect,
-        /// Identité du widget émetteur.
+        /// The emitting widget's identity.
         owner: u64,
     },
-    /// Une **image** bitmap échantillonnée dans un rectangle de destination.
+    /// A bitmap **image**, sampled into a destination rectangle.
     Image {
-        /// Handle partagé vers les pixels (cache GPU par [`crate::ImageData::id`]).
+        /// Shared handle to the pixels (GPU-cached by [`crate::ImageData::id`]).
         image: ImageHandle,
-        /// Rectangle de destination (déjà ajusté selon le [`crate::BoxFit`]).
+        /// Destination rectangle, already fitted per the [`crate::BoxFit`].
         rect: Rect,
-        /// Sous-région de la texture échantillonnée, en `0..1` (rognage `Cover`).
+        /// The sampled sub-region of the texture, in `0..1` (the `Cover` crop).
         uv: Rect,
-        /// Teinte multiplicative (blanc = inchangé ; alpha pour le fondu).
+        /// Multiplicative tint (white = unchanged; the alpha drives fading).
         tint: Color,
-        /// Rectangle de découpe.
+        /// Clip rectangle.
         clip: Rect,
-        /// Identité du widget émetteur.
+        /// The emitting widget's identity.
         owner: u64,
     },
-    /// Un **calque** : un sous-groupe de primitives composité **d'un bloc** à
-    /// `opacity`. Rendu à part sur une texture (pleine opacité) puis composité —
-    /// l'alpha de groupe est ainsi correct (pas de double-superposition là où les
-    /// primitives internes se chevauchent), comme le `saveLayer`/`Opacity` de
-    /// Flutter.
+    /// A **layer**: a subgroup of primitives composited **as one** at `opacity`.
+    /// It is rendered separately into a texture at full opacity, then composited,
+    /// which is what makes the group alpha correct: no double blending where the
+    /// inner primitives overlap.
     Layer {
-        /// Les primitives du groupe (coordonnées absolues, comme la scène mère).
+        /// The group's primitives, in absolute coordinates like the parent scene.
         primitives: Vec<Primitive>,
-        /// Opacité de groupe appliquée au calque entier (`0..1`).
+        /// Group opacity applied to the whole layer (`0..1`).
         opacity: f32,
-        /// Rectangle de découpe du calque.
+        /// The layer's clip rectangle.
         clip: Rect,
-        /// **Forme** de découpe inscrite dans `clip` (arrondi / ellipse) — la
-        /// couverture module l'alpha au compositing. [`ClipShape::Rect`] = découpe
-        /// rectangulaire simple (comportement par défaut).
+        /// The clip **shape** inscribed in `clip` (rounded or elliptical); its
+        /// coverage modulates alpha at compositing time. [`ClipShape::Rect`] is a
+        /// plain rectangular clip, and the default.
         clip_shape: ClipShape,
-        /// Transformation affine (rotation) appliquée au compositing. `None` =
-        /// calque simplement composité à sa position (opacité de groupe).
+        /// The affine transform (rotation) applied at compositing. `None` means the
+        /// layer is simply composited in place, with group opacity.
         transform: Option<LayerTransform>,
-        /// Identité du widget émetteur.
+        /// The emitting widget's identity.
         owner: u64,
     },
 }
 
 impl Primitive {
-    /// Identité du widget qui a émis cette primitive.
+    /// The identity of the widget that emitted this primitive.
     pub fn owner(&self) -> u64 {
         match self {
             Primitive::Rect { owner, .. } => *owner,
@@ -225,19 +223,19 @@ impl Primitive {
         }
     }
 
-    /// Met la **géométrie** à l'échelle par `factor` (position, taille, rayon,
-    /// bordure, flou, découpe, taille de police). Couleurs et texte inchangés.
-    /// Sert à convertir une scène logique en scène physique (DPI).
+    /// Scales the **geometry** by `factor` — position, size, radius, border, blur,
+    /// clip, font size. Colours and text are unchanged. This is how a logical scene
+    /// becomes a physical one (DPI).
     pub fn scaled(&self, factor: f32) -> Primitive {
         self.scaled_xy(factor, factor)
     }
 
-    /// Met la géométrie à l'échelle **par axe** (`sx` horizontal, `sy` vertical).
-    /// Les rectangles et images s'étirent exactement ; les grandeurs **scalaires**
-    /// (rayon d'arrondi, bordure, flou, chemin) suivent la moyenne des deux facteurs
-    /// (elles n'ont pas d'axe), la taille de police suit `sy` et la largeur de repli
-    /// suit `sx` — approximations sans conséquence quand `sx == sy` (échelle uniforme
-    /// ou DPI). Base de la mise à l'échelle **non uniforme** d'un sous-arbre.
+    /// Scales the geometry **per axis** (`sx` horizontal, `sy` vertical).
+    /// Rectangles and images stretch exactly; **scalar** quantities (corner radius,
+    /// border, blur, path) follow the average of the two factors, having no axis of
+    /// their own; font size follows `sy` and wrap width follows `sx` — approximations
+    /// with no consequence when `sx == sy`, as with a uniform scale or DPI. This is
+    /// the basis of **non-uniform** subtree scaling.
     pub fn scaled_xy(&self, sx: f32, sy: f32) -> Primitive {
         let avg = (sx + sy) * 0.5;
         match self.clone() {
@@ -330,7 +328,7 @@ impl Primitive {
             } => Primitive::Image {
                 image,
                 rect: rect.scale_xy(sx, sy),
-                // L'UV est en 0..1 : indépendant de l'échelle.
+                // The UV is in 0..1, so it is independent of scale.
                 uv,
                 tint,
                 clip: clip.scale_xy(sx, sy),
@@ -354,9 +352,9 @@ impl Primitive {
         }
     }
 
-    /// Décale la **géométrie** de `(dx, dy)` (position, découpe) — couleurs,
-    /// tailles et texte inchangés. Combiné à [`Primitive::scaled`], sert à mettre
-    /// un sous-arbre à l'échelle **autour d'un pivot** :
+    /// Offsets the **geometry** by `(dx, dy)` (position, clip); colours, sizes and
+    /// text are unchanged. Combined with [`Primitive::scaled`], it scales a subtree
+    /// **about a pivot**:
     /// `p.scaled(f).translated(pivot.x * (1 - f), pivot.y * (1 - f))`.
     pub fn translated(&self, dx: f32, dy: f32) -> Primitive {
         match self.clone() {
@@ -461,8 +459,8 @@ impl Primitive {
                     primitives: primitives.iter().map(|p| p.translated(dx, dy)).collect(),
                     opacity,
                     clip: clip.translate(dx, dy),
-                    // Le rayon/l'ellipse est invariant par translation ; seul le
-                    // rectangle `clip` bouge (ci-dessus).
+                    // Radius and ellipse are translation-invariant; only the `clip`
+                    // rectangle moves, which is handled above.
                     clip_shape,
                     transform: transform.map(|t| t.translated(dx, dy)),
                     owner,
@@ -471,9 +469,9 @@ impl Primitive {
         }
     }
 
-    /// Boîte englobante (approximative) de cette primitive, en coordonnées de scène.
-    /// Le texte n'étant pas mesuré dans ce module, une primitive `Text`/`RichText`
-    /// renvoie un rectangle **ponctuel** à sa position (suffisant comme repère en x).
+    /// This primitive's (approximate) bounding box, in scene coordinates.
+    /// Text is not measured in this module, so a `Text` or `RichText` primitive
+    /// returns a **point** rectangle at its position, enough as an x reference.
     pub fn bounds(&self) -> Rect {
         match self {
             Primitive::Rect { rect, .. } | Primitive::Image { rect, .. } => *rect,
@@ -481,9 +479,9 @@ impl Primitive {
                 Rect::new(position.x, position.y, 0.0, 0.0)
             }
             Primitive::Path { path, .. } => {
-                // Boîte englobante des points de contrôle (bornes conservatrices : elle
-                // englobe les contrôles de Bézier, donc jamais plus petite que la courbe).
-                // Accumulée sans allocation : min/max mis à jour point par point.
+                // The control points' bounding box — conservative bounds, since it
+                // encloses the Bézier controls and so is never smaller than the curve.
+                // Accumulated without allocating: min/max updated point by point.
                 let mut bbox: Option<(f32, f32, f32, f32)> = None;
                 let mut include = |p: Point| {
                     bbox = Some(match bbox {
@@ -521,9 +519,9 @@ impl Primitive {
         }
     }
 
-    /// Copie de cette primitive avec sa **découpe** remplacée par `clip` — pour
-    /// « dé-découper » une primitive capturée qu'on rejoue ailleurs (ex. le fantôme
-    /// d'un en-tête glissé, qui déborde de la colonne source).
+    /// A copy of this primitive with its **clip** replaced by `clip` — used to
+    /// "un-clip" a captured primitive replayed elsewhere, such as the ghost of a
+    /// dragged header, which overflows its source column.
     pub fn with_clip(&self, clip: Rect) -> Primitive {
         match self.clone() {
             Primitive::Rect {
@@ -633,22 +631,22 @@ impl Primitive {
         }
     }
 
-    /// Met la géométrie à l'échelle par `factor` **autour de `pivot`** (le pivot
-    /// reste fixe) : `pos' = pivot + (pos - pivot) * factor`. Tailles, police,
-    /// rayons et traits suivent l'échelle.
+    /// Scales the geometry by `factor` **about `pivot`**, which stays fixed:
+    /// `pos' = pivot + (pos - pivot) * factor`. Sizes, font, radii and strokes all
+    /// follow the scale.
     pub fn scaled_about(&self, pivot: Point, factor: f32) -> Primitive {
         self.scaled_about_xy(pivot, factor, factor)
     }
 
-    /// Comme [`Primitive::scaled_about`], mais avec des facteurs **par axe**
-    /// (`sx`, `sy`) — mise à l'échelle non uniforme autour de `pivot`.
+    /// Like [`Primitive::scaled_about`], but with **per-axis** factors (`sx`, `sy`)
+    /// — a non-uniform scale about `pivot`.
     pub fn scaled_about_xy(&self, pivot: Point, sx: f32, sy: f32) -> Primitive {
         self.scaled_xy(sx, sy)
             .translated(pivot.x * (1.0 - sx), pivot.y * (1.0 - sy))
     }
 }
 
-/// Une scène 2D : la description déclarative de ce qu'il faut dessiner.
+/// A 2D scene: the declarative description of what to draw.
 #[derive(Clone, Debug)]
 pub struct Scene {
     primitives: Vec<Primitive>,
@@ -667,49 +665,49 @@ impl Default for Scene {
 }
 
 impl Scene {
-    /// Crée une scène vide (découpe neutre).
+    /// Creates an empty scene, with a neutral clip.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Vide la scène pour la réutiliser à la frame suivante.
+    /// Empties the scene so it can be reused on the next frame.
     pub fn clear(&mut self) {
         self.primitives.clear();
         self.current_clip = Rect::UNBOUNDED;
         self.current_owner = 0;
     }
 
-    /// Fixe le rectangle de découpe appliqué aux primitives suivantes.
+    /// Sets the clip rectangle applied to subsequent primitives.
     pub fn set_clip(&mut self, clip: Rect) {
         self.current_clip = clip;
     }
 
-    /// Rectangle de découpe courant (pour l'intersecter avec des bornes locales).
+    /// The current clip rectangle, for intersecting with local bounds.
     pub fn current_clip(&self) -> Rect {
         self.current_clip
     }
 
-    /// Fixe l'identité du widget émetteur des primitives suivantes.
+    /// Sets the emitting widget's identity for subsequent primitives.
     pub fn set_owner(&mut self, owner: u64) {
         self.current_owner = owner;
     }
 
-    /// Rajoute une primitive **déjà formée** (découpe et propriétaire déjà
-    /// baked dans la primitive). Sert à rejouer un sous-arbre mis en cache
-    /// (frontière de repaint) tel quel, sans le repeindre.
+    /// Appends an **already-formed** primitive, with its clip and owner already
+    /// baked in. This replays a cached subtree (a repaint boundary) as-is, without
+    /// repainting it.
     pub fn push_primitive(&mut self, primitive: Primitive) {
         self.primitives.push(primitive);
     }
 
-    /// Retire et renvoie les primitives à partir de l'index `start` (ordre
-    /// conservé). Sert à **envelopper** un sous-arbre déjà peint dans un calque
-    /// ([`Primitive::Layer`]) : on peint le sous-arbre, puis on déplace sa plage
-    /// de primitives dans un calque (opacité de groupe).
+    /// Removes and returns the primitives from index `start` onwards, preserving
+    /// order. This **wraps** an already-painted subtree in a layer
+    /// ([`Primitive::Layer`]): paint the subtree, then move its range of primitives
+    /// into a layer, giving it group opacity.
     pub fn split_off(&mut self, start: usize) -> Vec<Primitive> {
         self.primitives.split_off(start)
     }
 
-    /// Rejoue une primitive existante avec une opacité réduite (fondu de sortie).
+    /// Replays an existing primitive at reduced opacity — an exit fade.
     pub fn push_faded(&mut self, primitive: &Primitive, opacity: f32) {
         let faded = match primitive.clone() {
             Primitive::Rect {
@@ -816,7 +814,7 @@ impl Scene {
                 owner,
             } => Primitive::Layer {
                 primitives,
-                // Fondre un calque = atténuer son opacité de groupe.
+                // Fading a layer means dimming its group opacity.
                 opacity: group * opacity,
                 clip,
                 clip_shape,
@@ -827,7 +825,7 @@ impl Scene {
         self.primitives.push(faded);
     }
 
-    /// Ajoute un rectangle plein (coins droits, sans bordure).
+    /// Adds a solid rectangle, with square corners and no border.
     pub fn fill_rect(&mut self, rect: Rect, color: Color) {
         self.primitives.push(Primitive::Rect {
             rect,
@@ -843,8 +841,8 @@ impl Scene {
         });
     }
 
-    /// Ajoute un rectangle avec coins arrondis (uniformes via `f32`, ou par coin
-    /// via [`BorderRadius`]) et/ou bordure.
+    /// Adds a rectangle with rounded corners (uniform through `f32`, or per corner
+    /// through [`BorderRadius`]) and/or a border.
     pub fn draw_rect(
         &mut self,
         rect: Rect,
@@ -867,7 +865,7 @@ impl Scene {
         });
     }
 
-    /// Ajoute un rectangle à dégradé linéaire (`color` → `color2` selon `dir`).
+    /// Adds a linear-gradient rectangle (`color` → `color2` along `dir`).
     pub fn gradient_rect(
         &mut self,
         rect: Rect,
@@ -892,7 +890,7 @@ impl Scene {
         });
     }
 
-    /// Ajoute une ombre douce (rectangle arrondi au bord flou), sans bordure.
+    /// Adds a soft shadow — a rounded rectangle with a blurred edge, no border.
     pub fn shadow(&mut self, rect: Rect, color: Color, radius: impl Into<BorderRadius>, blur: f32) {
         self.primitives.push(Primitive::Rect {
             rect,
@@ -908,7 +906,7 @@ impl Scene {
         });
     }
 
-    /// Remplit un chemin vectoriel d'une couleur unie (règle *non-zero*).
+    /// Fills a vector path with a flat colour, using the *non-zero* rule.
     pub fn fill_path(&mut self, path: &Path, color: Color) {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
@@ -919,7 +917,7 @@ impl Scene {
         });
     }
 
-    /// Trace le contour d'un chemin (couleur + épaisseur), sans remplissage.
+    /// Strokes a path's outline (colour plus width), with no fill.
     pub fn stroke_path(&mut self, path: &Path, color: Color, width: f32) {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
@@ -930,7 +928,7 @@ impl Scene {
         });
     }
 
-    /// Ajoute un chemin rempli **et/ou** tracé (les deux passes en une primitive).
+    /// Adds a path filled **and/or** stroked — both passes in one primitive.
     pub fn paint_path(&mut self, path: &Path, fill: Option<Color>, stroke: Option<Stroke>) {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
@@ -941,9 +939,9 @@ impl Scene {
         });
     }
 
-    /// Dessine une image dans `rect`, en échantillonnant la sous-région `uv`
-    /// (en `0..1`) et en la teintant par `tint` (blanc = inchangé). Bas niveau :
-    /// voir [`Scene::image`] pour l'ajustement automatique par [`crate::BoxFit`].
+    /// Draws an image into `rect`, sampling the `uv` sub-region (in `0..1`) and
+    /// tinting it by `tint` (white = unchanged). Low level: see [`Scene::image`]
+    /// for automatic fitting through [`crate::BoxFit`].
     pub fn draw_image(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color) {
         self.primitives.push(Primitive::Image {
             image: image.clone(),
@@ -955,18 +953,17 @@ impl Scene {
         });
     }
 
-    /// Dessine une image ajustée dans `rect` selon `fit` (aspect conservé,
-    /// letterbox ou rognage), sans teinte.
+    /// Draws an image fitted into `rect` per `fit` (aspect preserved, letterboxed
+    /// or cropped), untinted.
     pub fn image(&mut self, image: &ImageHandle, rect: Rect, fit: crate::BoxFit) {
         let (dst, uv) = fit.apply(image.size(), rect);
         self.draw_image(image, dst, uv, Color::WHITE);
     }
 
-    /// Compose un **calque** : `build` remplit un sous-groupe de primitives, qui
-    /// est ensuite composité **d'un bloc** à `opacity` (`0..1`). Contrairement à
-    /// une opacité appliquée primitive par primitive, l'alpha de groupe reste
-    /// correct là où les primitives internes se chevauchent (façon `Opacity` de
-    /// Flutter). Le calque hérite de la découpe et du propriétaire courants.
+    /// Composes a **layer**: `build` fills a subgroup of primitives, which is then
+    /// composited **as one** at `opacity` (`0..1`). Unlike an opacity applied
+    /// primitive by primitive, the group alpha stays correct where the inner
+    /// primitives overlap. The layer inherits the current clip and owner.
     pub fn layer(&mut self, opacity: f32, build: impl FnOnce(&mut Scene)) {
         let mut inner = Scene::new();
         inner.current_clip = self.current_clip;
@@ -982,8 +979,8 @@ impl Scene {
         });
     }
 
-    /// Ajoute une ligne de texte, ancrée par son coin haut-gauche (graisse
-    /// normale, droit). Voir [`Scene::text_styled`] pour la graisse/l'italique.
+    /// Adds a line of text, anchored by its top-left corner, regular and upright.
+    /// See [`Scene::text_styled`] for weight and italics.
     pub fn text(&mut self, position: Point, text: impl Into<String>, size: f32, color: Color) {
         self.primitives.push(Primitive::Text {
             position,
@@ -1000,8 +997,8 @@ impl Scene {
         });
     }
 
-    /// Ajoute du texte **riche** : des runs résolus (styles/couleurs mêlés) mis en
-    /// forme d'un seul tenant, ancré par son coin haut-gauche.
+    /// Adds **rich** text: resolved runs, mixing styles and colours, laid out as one
+    /// piece, anchored by its top-left corner.
     pub fn rich_text(&mut self, position: Point, runs: Vec<TextRun>) {
         self.primitives.push(Primitive::RichText {
             position,
@@ -1012,8 +1009,8 @@ impl Scene {
         });
     }
 
-    /// Ajoute un **paragraphe riche** : les runs reviennent à la ligne au-delà de
-    /// `max_width` (le repli du rendu suit celui de la mise en page).
+    /// Adds a **rich paragraph**: the runs wrap beyond `max_width`, and the render's
+    /// wrapping matches the layout's.
     pub fn rich_text_wrapped(&mut self, position: Point, runs: Vec<TextRun>, max_width: f32) {
         self.primitives.push(Primitive::RichText {
             position,
@@ -1024,9 +1021,9 @@ impl Scene {
         });
     }
 
-    /// Ajoute une ligne de texte stylée (taille/graisse/italique du [`TextStyle`]).
-    /// `color` est la couleur **résolue** (la `color` optionnelle du style ayant
-    /// été tranchée par l'appelant, généralement contre le thème).
+    /// Adds a styled line of text — size, weight and italics from the [`TextStyle`].
+    /// `color` is the **resolved** colour: the style's optional `color` has already
+    /// been settled by the caller, usually against the theme.
     pub fn text_styled(
         &mut self,
         position: Point,
@@ -1049,8 +1046,8 @@ impl Scene {
         });
     }
 
-    /// Ajoute un **paragraphe** : texte stylé qui revient à la ligne au-delà de
-    /// `max_width` (le repli du rendu suit celui de la mise en page).
+    /// Adds a **paragraph**: styled text that wraps beyond `max_width`, the render's
+    /// wrapping matching the layout's.
     pub fn text_wrapped(
         &mut self,
         position: Point,
@@ -1074,23 +1071,23 @@ impl Scene {
         });
     }
 
-    /// Nombre de primitives dans la scène.
+    /// The number of primitives in the scene.
     pub fn len(&self) -> usize {
         self.primitives.len()
     }
 
-    /// `true` si la scène ne contient aucune primitive.
+    /// `true` when the scene holds no primitives at all.
     pub fn is_empty(&self) -> bool {
         self.primitives.is_empty()
     }
 
-    /// Les primitives, dans l'ordre d'insertion (= ordre de dessin).
+    /// The primitives, in insertion order, which is drawing order.
     pub fn primitives(&self) -> &[Primitive] {
         &self.primitives
     }
 
-    /// Une copie de la scène avec toute la géométrie mise à l'échelle par
-    /// `factor` (conversion logique → physique pour le rendu HiDPI).
+    /// A copy of the scene with all geometry scaled by `factor` — the logical →
+    /// physical conversion for HiDPI rendering.
     pub fn scaled(&self, factor: f32) -> Scene {
         Scene {
             primitives: self.primitives.iter().map(|p| p.scaled(factor)).collect(),
@@ -1173,7 +1170,7 @@ mod tests {
                 assert_eq!(*rect, Rect::new(4.0, 8.0, 20.0, 40.0));
                 assert_eq!(*radius, BorderRadius::uniform(6.0));
                 assert_eq!(*border_width, 2.0);
-                assert_eq!(*color, Color::rgb(1.0, 0.0, 0.0)); // couleur inchangée
+                assert_eq!(*color, Color::rgb(1.0, 0.0, 0.0)); // colour unchanged
             }
             _ => panic!("attendu un rectangle"),
         }
@@ -1186,7 +1183,7 @@ mod tests {
             } => {
                 assert_eq!(*position, Point::new(10.0, 12.0));
                 assert_eq!(*size, 36.0);
-                assert_eq!(text, "hi"); // texte inchangé
+                assert_eq!(text, "hi"); // text unchanged
             }
             _ => panic!("attendu du texte"),
         }
