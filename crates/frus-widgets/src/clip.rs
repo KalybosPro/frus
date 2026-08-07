@@ -1,5 +1,5 @@
-//! [`ClipRRect`] et [`ClipOval`] : découpent leur enfant à une **forme** (coins
-//! arrondis, ellipse) à la peinture, façon `ClipRRect` / `ClipOval` de Flutter.
+//! [`ClipRRect`] and [`ClipOval`]: clip their child to a **shape** (rounded
+//! corners, an ellipse) at paint time.
 
 use frus_core::{BorderRadius, ClipShape, Path, Rect, Scene};
 use frus_layout::Style;
@@ -8,15 +8,15 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Découpe son enfant à un **rectangle à coins arrondis** — rayon **par coin**. Le
-/// sous-arbre est peint dans un calque dont la forme gomme ce qui déborde des coins
-/// (bords anticrénelés) — la brique d'une vignette, d'un avatar carré-arrondi, d'une
-/// carte à coins doux (ou seulement le haut arrondi, façon feuille montante) dont le
-/// contenu (image, dégradé…) épouse exactement l'arrondi.
+/// Clips its child to a **rounded rectangle** — a radius **per corner**. The subtree
+/// is painted in a layer whose shape erases whatever overflows the corners
+/// (antialiased edges) — the building block of a thumbnail, a squircle avatar, a card
+/// with soft corners (or only the top rounded, like a rising sheet) whose content (an
+/// image, a gradient…) hugs the rounding exactly.
 ///
-/// Passe-plat en mise en page : la boîte prend la taille que le parent lui donne (comme
-/// son enfant), et l'arrondi est **inscrit** dans cette boîte. Chaque rayon est borné à
-/// la demi-plus-petite dimension (au-delà, les coins se rejoignent — un stade).
+/// A pass-through in layout: the box takes the size the parent gives it (like its
+/// child), and the rounding is **inscribed** in that box. Each radius is clamped to
+/// half the smaller dimension (beyond that the corners meet — a stadium).
 ///
 /// ```ignore
 /// ClipRRect::new(12.0).child(Image::asset("photo.png"))              // uniforme
@@ -28,13 +28,13 @@ pub struct ClipRRect<Msg> {
 }
 
 impl<Msg> ClipRRect<Msg> {
-    /// Découpe l'enfant à un rectangle arrondi de `radius` px logiques, **uniforme**
-    /// sur les quatre coins.
+    /// Clips the child to a rounded rectangle of `radius` logical pixels, **uniform**
+    /// across all four corners.
     pub fn new(radius: f32) -> Self {
         Self::rounded(BorderRadius::uniform(radius))
     }
 
-    /// Découpe l'enfant à un rectangle arrondi **par coin** (rayons distincts).
+    /// Clips the child to a rounded rectangle **per corner** (distinct radii).
     pub fn rounded(radius: BorderRadius) -> Self {
         Self {
             radius,
@@ -42,7 +42,7 @@ impl<Msg> ClipRRect<Msg> {
         }
     }
 
-    /// Définit l'enfant découpé.
+    /// Sets the clipped child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
@@ -52,8 +52,8 @@ impl<Msg> ClipRRect<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for ClipRRect<Msg> {
     fn style(&self) -> Style {
-        // Passe-plat : la boîte prend sa taille du contexte comme l'enfant ; la
-        // découpe n'agit qu'à la peinture (voir `clip_shape`).
+        // A pass-through: the box takes its size from the context, like the child;
+        // the clipping only acts at paint time (see `clip_shape`).
         Style::default()
     }
 
@@ -62,7 +62,7 @@ impl<Msg: Clone> Widget<Msg> for ClipRRect<Msg> {
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
-        // Widget de découpe pur : aucune décoration propre.
+        // A pure clipping widget: no decoration of its own.
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -74,10 +74,10 @@ impl<Msg: Clone> Widget<Msg> for ClipRRect<Msg> {
     }
 }
 
-/// Découpe son enfant à une **ellipse** inscrite dans sa boîte (un cercle si la boîte
-/// est carrée) : la brique d'un avatar rond, d'une pastille, d'une jauge circulaire
-/// dont le contenu est rogné au disque. Mêmes règles de mise en page que
-/// [`ClipRRect`] (passe-plat, forme inscrite dans la boîte).
+/// Clips its child to an **ellipse** inscribed in its box (a circle if the box is
+/// square): the building block of a round avatar, a dot, a circular gauge whose
+/// content is cropped to the disc. Same layout rules as [`ClipRRect`] (a
+/// pass-through, with the shape inscribed in the box).
 ///
 /// ```ignore
 /// ClipOval::new().child(Image::asset("avatar.png"))
@@ -87,14 +87,14 @@ pub struct ClipOval<Msg> {
 }
 
 impl<Msg> ClipOval<Msg> {
-    /// Découpe l'enfant à l'ellipse inscrite dans la boîte.
+    /// Clips the child to the ellipse inscribed in the box.
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
         }
     }
 
-    /// Définit l'enfant découpé.
+    /// Sets the clipped child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
@@ -128,17 +128,16 @@ impl<Msg: Clone> Widget<Msg> for ClipOval<Msg> {
     }
 }
 
-/// Découpe son enfant à un **chemin arbitraire** (`ClipPath` de Flutter) : le
-/// sous-arbre est peint dans un calque dont un **masque** (le chemin, rendu par le
-/// GPU) gomme tout ce qui est en dehors — étoiles, découpes en pointe, bulles, formes
-/// libres, avec bords anticrénelés.
+/// Clips its child to an **arbitrary path**: the subtree is painted in a layer where
+/// a **mask** (the path, rendered by the GPU) erases everything outside it — stars,
+/// pointed cut-outs, speech bubbles, free-form shapes, with antialiased edges.
 ///
-/// Le chemin est donné en **coordonnées locales** (origine au coin haut-gauche de la
-/// boîte du widget) ; la marche le décale à la position écran. Passe-plat en mise en
-/// page, comme [`ClipRRect`].
+/// The path is given in **local coordinates** (the origin at the top-left corner of
+/// the widget's box); the walk offsets it to the screen position. A layout
+/// pass-through, like [`ClipRRect`].
 ///
 /// ```ignore
-/// // Un losange inscrit dans une boîte 100×100.
+/// // A diamond inscribed in a 100×100 box.
 /// let diamond = Path::new()
 ///     .move_to(Point::new(50.0, 0.0))
 ///     .line_to(Point::new(100.0, 50.0))
@@ -153,7 +152,7 @@ pub struct ClipPath<Msg> {
 }
 
 impl<Msg> ClipPath<Msg> {
-    /// Découpe l'enfant au `path` (coordonnées locales à la boîte).
+    /// Clips the child to `path` (coordinates local to the box).
     pub fn new(path: Path) -> Self {
         Self {
             path,
@@ -161,7 +160,7 @@ impl<Msg> ClipPath<Msg> {
         }
     }
 
-    /// Définit l'enfant découpé.
+    /// Sets the clipped child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
@@ -195,8 +194,8 @@ mod tests {
     use crate::Container;
     use frus_core::{Color, Point, Primitive, Size};
 
-    /// Enveloppe la scène d'un `ClipRRect` : un calque à forme `RRect` est émis, et
-    /// le fond de l'enfant est peint **dedans** (dans les primitives du calque).
+    /// Wrapping the scene in a `ClipRRect`: a layer with an `RRect` shape is emitted,
+    /// and the child's background is painted **inside** it (in the layer's primitives).
     #[test]
     fn clip_rrect_wraps_child_in_a_rounded_layer() {
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -218,7 +217,7 @@ mod tests {
                 } => Some((clip_shape.clone(), primitives.clone())),
                 _ => None,
             })
-            .expect("un calque de découpe");
+            .expect("a clipping layer");
         assert_eq!(
             layer.0,
             ClipShape::RRect(BorderRadius::uniform(8.0)),
@@ -229,11 +228,11 @@ mod tests {
                 .1
                 .iter()
                 .any(|p| matches!(p, Primitive::Rect { color, .. } if color.r > 0.5)),
-            "le fond rouge de l'enfant est peint dans le calque"
+            "the child's red background is painted in the layer"
         );
     }
 
-    /// `ClipOval` émet un calque à forme `Oval`.
+    /// `ClipOval` emits a layer with an `Oval` shape.
     #[test]
     fn clip_oval_emits_an_oval_layer() {
         let blue = Color::rgb(0.0, 0.0, 1.0);
@@ -250,11 +249,11 @@ mod tests {
         assert_eq!(shape, Some(ClipShape::Oval), "forme ellipse");
     }
 
-    /// `ClipPath` émet un calque à forme `Path`, **décalée à la position écran** de la
-    /// boîte (le chemin local est translaté par l'origine de la boîte).
+    /// `ClipPath` emits a layer with a `Path` shape, **offset to the screen position**
+    /// of the box (the local path is translated by the box's origin).
     #[test]
     fn clip_path_emits_a_translated_path_layer() {
-        // Losange 40×40 en coordonnées locales.
+        // A 40×40 diamond in local coordinates.
         let diamond = Path::new()
             .move_to(Point::new(20.0, 0.0))
             .line_to(Point::new(40.0, 20.0))
@@ -282,21 +281,21 @@ mod tests {
             } => Some(path.clone()),
             _ => None,
         });
-        let path = shape.expect("un calque de découpe par chemin");
-        // Le sommet local (20, 0) est translaté de l'origine de la boîte (padding 10)
-        // → (30, 10) à l'écran.
-        let first = path.verbs().first().copied().expect("au moins un verbe");
+        let path = shape.expect("a path clipping layer");
+        // The local vertex (20, 0) is translated by the box's origin (padding 10)
+        // → (30, 10) on screen.
+        let first = path.verbs().first().copied().expect("at least one verb");
         match first {
             frus_core::PathVerb::MoveTo(p) => assert!(
                 (p.x - 30.0).abs() < 0.6 && (p.y - 10.0).abs() < 0.6,
-                "sommet décalé à l'écran (30, 10) : {p:?}"
+                "vertex offset on screen to (30, 10): {p:?}"
             ),
-            other => panic!("premier verbe attendu MoveTo, obtenu {other:?}"),
+            other => panic!("expected MoveTo as the first verb, got {other:?}"),
         }
     }
 
-    /// La découpe est **passe-plat** en mise en page : un frère placé après un enfant
-    /// découpé garde sa position (le `ClipRRect` n'agrandit pas sa boîte).
+    /// Clipping is a layout **pass-through**: a sibling placed after a clipped child
+    /// keeps its position (the `ClipRRect` does not grow its box).
     #[test]
     fn clip_is_layout_passthrough() {
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -308,7 +307,7 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
-        // Le 2e enfant suit à y = 20 (l'enfant découpé occupe 20px de haut).
+        // The 2nd child follows at y = 20 (the clipped child takes 20px of height).
         let green_y = ui
             .scene()
             .primitives()
@@ -326,7 +325,7 @@ mod tests {
             .expect("le fond vert du 2e enfant");
         assert!(
             (green_y - 20.0).abs() < 0.5,
-            "frère à sa place layout : y = {green_y}"
+            "sibling in its layout place: y = {green_y}"
         );
     }
 }

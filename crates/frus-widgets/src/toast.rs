@@ -1,6 +1,6 @@
-//! [`Toast`] : une notification transitoire (carte stylée). Le *système*
-//! (empilement, minuterie d'auto-fermeture) est du ressort de l'application
-//! (typiquement via un `Command` minuté).
+//! [`Toast`]: a transient notification (a styled card). The *system* around it
+//! (stacking, the auto-dismiss timer) is the application's responsibility,
+//! typically through a timed `Command`.
 
 use std::collections::VecDeque;
 
@@ -15,13 +15,13 @@ const PAD_X: f32 = 16.0;
 const PAD_Y: f32 = 12.0;
 const SIZE: f32 = 16.0;
 const ACCENT: f32 = 4.0;
-/// Bouton d'action (Material « UNDO ») : police, marge et hauteur.
+/// The action button (Material's "UNDO"): font, padding and height.
 const ACTION_SIZE: f32 = 14.0;
 const ACTION_PAD_X: f32 = 12.0;
 const ACTION_GAP: f32 = 8.0;
 const ACTION_H: f32 = 32.0;
 
-/// Nature d'une notification (couleur d'accent).
+/// The nature of a notification (its accent color).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ToastKind {
     Info,
@@ -29,19 +29,19 @@ pub enum ToastKind {
     Error,
 }
 
-/// Une notification transitoire, avec une **action** optionnelle (façon Snackbar Material :
-/// « UNDO »). L'action est un bouton texte à droite qui émet un message au clic.
+/// A transient notification, with an optional **action** (Material Snackbar style:
+/// "UNDO"). The action is a text button on the right that emits a message on click.
 pub struct Toast<Msg> {
     text: String,
     kind: ToastKind,
-    /// Largeur additionnelle réservée à l'action (0 si aucune).
+    /// Extra width reserved for the action (0 if there is none).
     action_w: f32,
-    /// Vide, ou `[bouton d'action]`.
+    /// Empty, or `[action button]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Toast<Msg> {
-    /// Crée une notification d'information.
+    /// Creates an informational notification.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -51,7 +51,7 @@ impl<Msg: Clone + 'static> Toast<Msg> {
         }
     }
 
-    /// Variante succès.
+    /// The success variant.
     pub fn success(mut self) -> Self {
         self.kind = ToastKind::Success;
         self
@@ -63,8 +63,8 @@ impl<Msg: Clone + 'static> Toast<Msg> {
         self
     }
 
-    /// Ajoute un **bouton d'action** (libellé en capitales, façon Material) émettant `message`
-    /// au clic — typiquement « UNDO » pour annuler l'action qui a déclenché la notification.
+    /// Adds an **action button** (an uppercased label, Material style) that emits `message`
+    /// on click — typically "UNDO", to undo whatever triggered the notification.
     pub fn action(mut self, label: impl Into<String>, message: Msg) -> Self {
         let label = label.into().to_uppercase();
         let width = (frus_text::measure(&label, ACTION_SIZE).width + ACTION_PAD_X * 2.0).ceil();
@@ -98,7 +98,7 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
             height: Dimension::Length((measured.height + PAD_Y * 2.0).max(ACTION_H).ceil()),
             ..Default::default()
         };
-        // Avec une action : la placer à droite, centrée verticalement.
+        // With an action: place it on the right, vertically centred.
         if !self.children.is_empty() {
             style.justify = Justify::End;
             style.align = Align::Center;
@@ -113,7 +113,7 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Ombre + carte.
+        // Shadow + card.
         scene.shadow(
             Rect::new(
                 bounds.x - 8.0,
@@ -132,7 +132,7 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
             1.0,
             theme.border.fade(o),
         );
-        // Barre d'accent à gauche.
+        // Accent bar on the left.
         scene.draw_rect(
             Rect::new(bounds.x, bounds.y, ACCENT, bounds.height),
             self.accent(theme).fade(o),
@@ -153,7 +153,7 @@ impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
     }
 }
 
-/// Bouton d'action d'une notification (texte en capitales, couleur d'accent), cliquable.
+/// A notification's action button (uppercased text, accent color), clickable.
 struct ActionButton<Msg> {
     label: String,
     width: f32,
@@ -175,7 +175,7 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Fond de survol/focus (state-layer bakée : invisible au repos, teintée à l'interaction).
+        // Hover/focus background (a baked state layer: invisible at rest, tinted on interaction).
         let bg = theme.state_layer(theme.surface, theme.primary, &status);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 0.0, Color::TRANSPARENT);
         let w = frus_text::measure(&self.label, ACTION_SIZE).width;
@@ -207,18 +207,18 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
     }
 }
 
-/// **File d'attente de notifications** — pure, côté application (esprit [`crate::form::Form`]).
+/// A **notification queue** — pure, application-side (in the spirit of [`crate::form::Form`]).
 ///
-/// Une seule notification est visible à la fois ; les suivantes patientent. L'application
-/// appelle [`tick`](Self::tick) à chaque frame (avec le temps écoulé) pour faire **expirer**
-/// la notification courante et présenter la suivante — l'auto-fermeture façon Material sans
-/// minuterie côté widget. [`dismiss`](Self::dismiss) ferme la courante immédiatement (clic sur
-/// l'action ou la croix). Générique sur la charge `T` (au minimum le texte ; souvent aussi le
-/// type et le message d'action).
+/// Only one notification is visible at a time; the others wait. The application calls
+/// [`tick`](Self::tick) on every frame (with the elapsed time) to **expire** the current
+/// notification and present the next — Material-style auto-dismiss with no timer on the
+/// widget side. [`dismiss`](Self::dismiss) closes the current one immediately (a click on
+/// the action or the cross). Generic over the payload `T` (at minimum the text; often the
+/// kind and the action message too).
 pub struct SnackbarQueue<T> {
-    /// `(charge, secondes restantes, en cours de sortie)` ; l'avant est la notification affichée.
-    /// Le drapeau « en sortie » permet à l'hôte de jouer une **transition de sortie** (fondu)
-    /// avant le retrait (voir [`start_leaving`](Self::start_leaving) / [`is_leaving`](Self::is_leaving)).
+    /// `(payload, seconds left, leaving)`; the front one is the notification on display.
+    /// The "leaving" flag lets the host play an **exit transition** (a fade) before the
+    /// removal (see [`start_leaving`](Self::start_leaving) / [`is_leaving`](Self::is_leaving)).
     items: VecDeque<(T, f32, bool)>,
 }
 
@@ -231,24 +231,24 @@ impl<T> Default for SnackbarQueue<T> {
 }
 
 impl<T> SnackbarQueue<T> {
-    /// Une file vide.
+    /// An empty queue.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Ajoute une notification qui restera visible `seconds` secondes une fois **en tête**.
+    /// Adds a notification that will stay visible `seconds` seconds once **at the front**.
     pub fn push(&mut self, item: T, seconds: f32) {
         self.items.push_back((item, seconds.max(0.0), false));
     }
 
-    /// La notification actuellement visible (l'avant de la file), s'il y en a une.
+    /// The notification currently visible (the front of the queue), if there is one.
     pub fn current(&self) -> Option<&T> {
         self.items.front().map(|(item, _, _)| item)
     }
 
-    /// Fait s'écouler `dt` secondes sur la notification en tête ; si son temps est épuisé, elle
-    /// est retirée (la suivante démarre son propre décompte). Rend `true` si la notification
-    /// visible **a changé** (expiration) — utile pour redemander un rendu.
+    /// Runs `dt` seconds down on the notification at the front; if its time is up, it is
+    /// removed (the next one starts its own countdown). Returns `true` if the visible
+    /// notification **changed** (an expiry) — useful to request another render.
     pub fn tick(&mut self, dt: f32) -> bool {
         let Some(front) = self.items.front_mut() else {
             return false;
@@ -262,20 +262,20 @@ impl<T> SnackbarQueue<T> {
         }
     }
 
-    /// Marque la notification courante **en sortie** : l'hôte peut alors jouer sa transition de
-    /// sortie (fondu) avant que l'application ne la retire (via [`dismiss`](Self::dismiss)).
+    /// Marks the current notification as **leaving**: the host can then play its exit
+    /// transition (a fade) before the application removes it (via [`dismiss`](Self::dismiss)).
     pub fn start_leaving(&mut self) {
         if let Some(front) = self.items.front_mut() {
             front.2 = true;
         }
     }
 
-    /// La notification courante est-elle **en sortie** ? (fondu de disparition en cours.)
+    /// Is the current notification **leaving**? (a disappearing fade is under way.)
     pub fn is_leaving(&self) -> bool {
         self.items.front().is_some_and(|(_, _, leaving)| *leaving)
     }
 
-    /// Ferme la notification courante immédiatement (action/croix/fin de sortie) ; rend sa charge.
+    /// Closes the current notification at once (action, cross, end of exit); returns its payload.
     pub fn dismiss(&mut self) -> Option<T> {
         self.items.pop_front().map(|(item, _, _)| item)
     }
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn paints_card_accent_and_text() {
-        let toast = Toast::<()>::new("Enregistré").success();
+        let toast = Toast::<()>::new("Saved").success();
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &toast,
@@ -312,7 +312,7 @@ mod tests {
             &Theme::default(),
             &mut scene,
         );
-        // Accent succès présent + texte.
+        // The success accent is present, plus the text.
         let green = Color::rgb8(70, 190, 120);
         assert!(scene
             .primitives()
@@ -321,7 +321,7 @@ mod tests {
         assert!(scene
             .primitives()
             .iter()
-            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Enregistré")));
+            .any(|p| matches!(p, Primitive::Text { text, .. } if text == "Saved")));
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod tests {
         // Sans action : aucun enfant.
         let plain = Toast::<Msg>::new("Item deleted");
         assert!(Widget::<Msg>::children(&plain).is_empty());
-        // Avec action : un bouton en capitales qui émet le message.
+        // With an action: an uppercased button that emits the message.
         let toast = Toast::new("Item deleted").action("Undo", Msg::Undo);
         let kids = Widget::<Msg>::children(&toast);
         assert_eq!(kids.len(), 1);
@@ -344,14 +344,14 @@ mod tests {
         q.push("first", 3.0);
         q.push("second", 3.0);
         assert_eq!(q.len(), 2);
-        assert_eq!(q.current(), Some(&"first"), "l'avant est visible");
-        // Le décompte ne touche que la tête.
+        assert_eq!(q.current(), Some(&"first"), "the front is the visible one");
+        // The countdown only touches the front.
         assert!(!q.tick(1.0));
         assert_eq!(q.current(), Some(&"first"));
-        // Expiration → la suivante prend le relais.
-        assert!(q.tick(2.5), "changement à l'expiration");
+        // Expiry → the next one takes over.
+        assert!(q.tick(2.5), "a change at expiry");
         assert_eq!(q.current(), Some(&"second"));
-        // Fermeture manuelle (action/croix).
+        // A manual close (action or cross).
         assert_eq!(q.dismiss(), Some("second"));
         assert!(q.is_empty());
         assert!(!q.tick(1.0), "file vide : rien ne change");
@@ -360,18 +360,14 @@ mod tests {
     #[test]
     fn leaving_phase_precedes_dismissal() {
         let mut q: SnackbarQueue<&str> = SnackbarQueue::new();
-        assert!(!q.is_leaving(), "file vide : pas de sortie");
+        assert!(!q.is_leaving(), "empty queue: nothing leaving");
         q.push("hello", 3.0);
-        assert!(!q.is_leaving(), "affichée : pas encore en sortie");
-        // On déclenche la sortie (fondu) sans retirer tout de suite.
+        assert!(!q.is_leaving(), "on display: not leaving yet");
+        // Trigger the exit (fade) without removing it right away.
         q.start_leaving();
-        assert!(q.is_leaving(), "en sortie");
-        assert_eq!(
-            q.current(),
-            Some(&"hello"),
-            "toujours visible pendant la sortie"
-        );
-        // Puis retrait effectif.
+        assert!(q.is_leaving(), "leaving");
+        assert_eq!(q.current(), Some(&"hello"), "still visible while leaving");
+        // Then the actual removal.
         assert_eq!(q.dismiss(), Some("hello"));
         assert!(!q.is_leaving());
         assert!(q.is_empty());

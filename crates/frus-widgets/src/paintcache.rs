@@ -1,38 +1,38 @@
-//! Cache de **frontière de repaint** : retient, entre les frames, la sortie
-//! peinte (primitives + cartes d'interaction) d'un sous-arbre marqué
-//! [`crate::Widget::repaint_boundary`], et la **réutilise telle quelle** tant
-//! que sa géométrie et l'état d'interaction de ses descendants n'ont pas bougé.
+//! The **repaint boundary** cache: holds, between frames, the painted output
+//! (primitives + interaction maps) of a subtree marked
+//! [`crate::Widget::repaint_boundary`], and **reuses it as is** for as long as
+//! its geometry and its descendants' interaction state have not moved.
 //!
-//! C'est le pendant *peinture* du cache de relayout (`relayout.rs`, jalon 55) :
-//! là où le cache de layout réutilise les **rectangles** quand le *style/la
-//! structure* sont stables, celui-ci réutilise les **primitives** quand l'*état
-//! lu à la peinture* (survol, focus, valeur animée, opacité, curseur) et la
-//! **géométrie** sont stables. Un widget qui s'anime ailleurs sur l'écran ne
-//! force plus le repaint d'un sous-arbre statique.
+//! It is the *paint* counterpart of the relayout cache (`relayout.rs`, milestone
+//! 55): where the layout cache reuses the **rectangles** when the *style and
+//! structure* are stable, this one reuses the **primitives** when the *state read
+//! at paint time* (hover, focus, animated value, opacity, cursor) and the
+//! **geometry** are stable. A widget animating elsewhere on screen no longer
+//! forces a static subtree to repaint.
 //!
-//! ## Correction
-//! - Toute reconstruction de la `view` (changement d'état, de thème, de taille)
-//!   **incrémente la génération** ; une entrée d'une génération périmée est
-//!   ignorée. La configuration des widgets étant alors identique d'une frame à
-//!   l'autre (l'arbre est le **même** objet retenu tant que `build` ne tourne
-//!   pas), une entrée de génération courante correspond à une config identique.
-//! - L'**empreinte** couvre le reste : l'état d'interaction (`Status`) de chaque
-//!   descendant et les rectangles absolus du sous-arbre. Empreinte + génération
-//!   égales ⇒ la peinture serait **bit-à-bit identique** → on rejoue le cache.
+//! ## Correctness
+//! - Any rebuild of the `view` (a change of state, theme or size) **bumps the
+//!   generation**; an entry from a stale generation is ignored. Since the widgets'
+//!   configuration is then identical from one frame to the next (the tree is the
+//!   **same** retained object for as long as `build` does not run), an entry from
+//!   the current generation corresponds to an identical configuration.
+//! - The **fingerprint** covers the rest: each descendant's interaction state
+//!   (`Status`) and the subtree's absolute rectangles. Equal fingerprint and
+//!   generation ⇒ the painting would be **bit-for-bit identical** → replay the cache.
 //!
-//! Le cache ne connaît pas le type `Msg` de l'application (le `Runtime` est
-//! générique-agnostique) : la donnée est stockée **effacée** derrière un
-//! `Box<dyn Any>`, et `ui.rs` la redescend vers son `BoundaryData<Msg>` concret
-//! (une seule instance de `Msg` par app → le `downcast` réussit toujours).
+//! The cache does not know the application's `Msg` type (the `Runtime` is
+//! generic-agnostic): the data is stored **erased** behind a `Box<dyn Any>`, and
+//! `ui.rs` downcasts it back to its concrete `BoundaryData<Msg>` (a single `Msg`
+//! per app → the `downcast` always succeeds).
 
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 
 use crate::interaction::WidgetId;
 
-/// Une entrée : la génération et l'empreinte sous lesquelles la sortie a été
-/// capturée, le nombre de rectangles consommés par le sous-arbre (pour avancer
-/// l'index de parcours sur un *hit*), et la donnée peinte effacée.
+/// One entry: the generation and fingerprint the output was captured under, the
+/// number of rectangles the subtree consumes (to advance the walk index on a
+/// *hit*), and the erased painted data.
 struct Slot {
     generation: u64,
     fingerprint: u64,
@@ -40,13 +40,13 @@ struct Slot {
     data: Box<dyn Any>,
 }
 
-/// Le cache de peinture, retenu dans le [`crate::Runtime`] d'une frame à l'autre.
+/// The paint cache, retained in the [`crate::Runtime`] from one frame to the next.
 #[derive(Default)]
 pub struct PaintCache {
     entries: HashMap<WidgetId, Slot>,
-    /// Frontières touchées durant la frame courante (pour évincer les disparues).
+    /// Boundaries touched during the current frame (to evict the vanished ones).
     touched: HashSet<WidgetId>,
-    /// Génération courante : incrémentée à chaque reconstruction de la `view`.
+    /// The current generation: bumped on every rebuild of the `view`.
     generation: u64,
     hits: u32,
     misses: u32,
@@ -55,16 +55,16 @@ pub struct PaintCache {
 }
 
 impl PaintCache {
-    /// Invalide tout le cache **logiquement** : la `view` a été reconstruite, la
-    /// config des widgets a pu changer. Les entrées de l'ancienne génération ne
-    /// seront plus jamais des *hits*.
+    /// Invalidates the whole cache **logically**: the `view` has been rebuilt, so
+    /// the widgets' configuration may have changed. Entries from the old
+    /// generation will never be *hits* again.
     pub fn bump_generation(&mut self) {
         self.generation = self.generation.wrapping_add(1);
     }
 
-    /// La donnée effacée d'une frontière si sa génération **et** son empreinte
-    /// correspondent (un *hit*), avec le nombre de rectangles qu'elle couvre.
-    /// Marque la frontière comme touchée (pour la survie en fin de frame).
+    /// A boundary's erased data if its generation **and** its fingerprint match (a
+    /// *hit*), along with the number of rectangles it covers. Marks the boundary
+    /// as touched, so it survives the end of the frame.
     pub(crate) fn get(&mut self, key: WidgetId, fingerprint: u64) -> Option<(usize, &dyn Any)> {
         self.touched.insert(key);
         let slot = self.entries.get(&key)?;
@@ -74,8 +74,8 @@ impl PaintCache {
         None
     }
 
-    /// Mémorise (ou remplace) la sortie peinte d'une frontière sous la
-    /// génération courante.
+    /// Records (or replaces) a boundary's painted output under the current
+    /// generation.
     pub(crate) fn put(
         &mut self,
         key: WidgetId,
@@ -94,19 +94,19 @@ impl PaintCache {
         );
     }
 
-    /// Compteur de diagnostic : une frontière réutilisée cette frame.
+    /// A diagnostic counter: one boundary reused this frame.
     pub(crate) fn note_hit(&mut self) {
         self.hits += 1;
     }
 
-    /// Compteur de diagnostic : une frontière repeinte cette frame (miss, ou
-    /// non-cachable).
+    /// A diagnostic counter: one boundary repainted this frame (a miss, or
+    /// non-cacheable).
     pub(crate) fn note_miss(&mut self) {
         self.misses += 1;
     }
 
-    /// À appeler en fin de frame : oublie les frontières non touchées (widgets
-    /// disparus) et fige les compteurs de diagnostic de la frame.
+    /// To be called at the end of a frame: forgets untouched boundaries (vanished
+    /// widgets) and freezes the frame's diagnostic counters.
     pub(crate) fn end_frame(&mut self) {
         let touched = std::mem::take(&mut self.touched);
         self.entries.retain(|id, _| touched.contains(id));
@@ -116,7 +116,7 @@ impl PaintCache {
         self.misses = 0;
     }
 
-    /// Réutilisations / repaints de la dernière frame terminée (diagnostic).
+    /// Reuses and repaints of the last completed frame (diagnostic).
     pub fn last_frame_stats(&self) -> (u32, u32) {
         (self.last_hits, self.last_misses)
     }
@@ -132,13 +132,13 @@ mod tests {
     fn stored_entry_is_a_hit_until_generation_bumps() {
         let mut c = PaintCache::default();
         c.put(A, 42, 3, Box::new(7u32));
-        // Génération courante + empreinte égales → hit, avec le rect_count.
+        // Current generation + equal fingerprint → a hit, with the rect_count.
         let (rc, any) = c.get(A, 42).expect("hit");
         assert_eq!(rc, 3);
         assert_eq!(*any.downcast_ref::<u32>().unwrap(), 7);
-        // Empreinte différente → pas de hit.
+        // A different fingerprint → no hit.
         assert!(c.get(A, 99).is_none());
-        // Génération périmée → l'entrée n'est plus un hit.
+        // A stale generation → the entry is no longer a hit.
         c.bump_generation();
         assert!(c.get(A, 42).is_none());
     }
@@ -148,13 +148,13 @@ mod tests {
         let mut c = PaintCache::default();
         c.put(A, 1, 1, Box::new(()));
         c.put(A.child(0), 1, 1, Box::new(()));
-        // `put` seul ne marque pas « touché » ; simule une frame où seule A est vue.
+        // `put` alone does not mark "touched"; simulate a frame where only A is seen.
         c.get(A, 1);
         c.end_frame();
         assert!(c.entries.contains_key(&A));
         assert!(
             !c.entries.contains_key(&A.child(0)),
-            "frontière disparue évincée"
+            "vanished boundary evicted"
         );
     }
 
@@ -166,7 +166,7 @@ mod tests {
         c.note_miss();
         c.end_frame();
         assert_eq!(c.last_frame_stats(), (2, 1));
-        // Les compteurs repartent de zéro pour la frame suivante.
+        // The counters start again from zero for the next frame.
         c.end_frame();
         assert_eq!(c.last_frame_stats(), (0, 0));
     }

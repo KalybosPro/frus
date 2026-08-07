@@ -1,19 +1,19 @@
-//! Cache de **frontière de relayout** : retient, entre les frames, les rectangles
-//! calculés de chaque racine de mise en page, indexés par identité.
+//! The **relayout boundary** cache: holds, between frames, the computed rectangles
+//! of each layout root, indexed by identity.
 //!
-//! Frus reconstruit l'arbre de widgets à chaque frame et, jusqu'ici, relançait
-//! taffy *from scratch* à chaque racine de layout (`build_ui`, chaque défilable,
-//! chaque écran, chaque overlay…). Or la géométrie ne dépend **que** du *style* et
-//! de la *structure* de l'arbre et des *contraintes* du parent — pas des couleurs
-//! ni du texte, qui ne touchent que la peinture. Un survol, un curseur qui
-//! clignote, une couleur qui s'anime → même layout.
+//! Frus rebuilds the widget tree on every frame and, until now, re-ran taffy *from
+//! scratch* at every layout root (`build_ui`, every scrollable, every screen, every
+//! overlay…). Yet the geometry depends **only** on the tree's *style* and
+//! *structure* and on the parent's *constraints* — not on colors or text, which
+//! only affect painting. A hover, a blinking caret, an animating color → the same
+//! layout.
 //!
-//! Ce cache mémorise, par racine (`WidgetId`), `(empreinte, contraintes,
-//! rectangles)`. Si l'empreinte de mise en page et les contraintes sont
-//! inchangées, on **réutilise les rectangles** et on ne rappelle pas taffy. La
-//! sortie est **bit-à-bit identique** au calcul complet — seule la performance
-//! change. C'est aussi le socle du futur système de phases : « empreinte changée »
-//! *est* le bit « layout sale » d'une racine.
+//! This cache records, per root (`WidgetId`), `(fingerprint, constraints,
+//! rectangles)`. If the layout fingerprint and the constraints are unchanged, the
+//! **rectangles are reused** and taffy is not called again. The output is
+//! **bit-for-bit identical** to the full computation — only the performance
+//! changes. It is also the foundation of the future phase system: "fingerprint
+//! changed" *is* a root's "layout dirty" bit.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -25,9 +25,9 @@ use crate::runtime::Runtime;
 use crate::ui::{build_layout, child_id, effective_style};
 use crate::widget::Widget;
 
-/// Contraintes passées à taffy pour une racine de layout. `free_x`/`free_y`
-/// laissent un axe **libre** (le contenu prend sa taille naturelle) — c'est le
-/// cas du contenu défilable.
+/// The constraints passed to taffy for a layout root. `free_x`/`free_y` leave an
+/// axis **free** (the content takes its natural size) — the case of scrollable
+/// content.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Constraints {
     pub w: f32,
@@ -37,7 +37,7 @@ pub(crate) struct Constraints {
 }
 
 impl Constraints {
-    /// Les deux axes contraints à `size` (mise en page classique).
+    /// Both axes constrained to `size` (ordinary layout).
     pub fn definite(size: Size) -> Self {
         Self {
             w: size.width,
@@ -47,7 +47,7 @@ impl Constraints {
         }
     }
 
-    /// Un contenu défilable : chaque axe contraint ou libre.
+    /// Scrollable content: each axis either constrained or free.
     pub fn scroll(w: f32, h: f32, free_x: bool, free_y: bool) -> Self {
         Self {
             w,
@@ -58,21 +58,21 @@ impl Constraints {
     }
 }
 
-/// Une entrée du cache : l'empreinte de la dernière racine calculée sous cette
-/// identité, ses contraintes, et les rectangles produits (ordre préfixe).
+/// One cache entry: the fingerprint of the last root computed under this identity,
+/// its constraints, and the rectangles produced (in prefix order).
 struct Entry {
     signature: u64,
     constraints: Constraints,
     rects: Vec<Rect>,
 }
 
-/// Le cache de relayout, retenu dans le [`crate::Runtime`] d'une frame à l'autre.
+/// The relayout cache, retained in the [`crate::Runtime`] from one frame to the next.
 #[derive(Default)]
 pub struct LayoutCache {
     entries: HashMap<WidgetId, Entry>,
-    /// Racines touchées durant la frame courante (pour évincer les disparues).
+    /// Roots touched during the current frame (to evict the vanished ones).
     touched: HashSet<WidgetId>,
-    /// Diagnostic : réutilisations / recalculs de la **dernière** frame.
+    /// Diagnostic: reuses and recomputations of the **last** frame.
     last_hits: u32,
     last_misses: u32,
     hits: u32,
@@ -80,9 +80,9 @@ pub struct LayoutCache {
 }
 
 impl LayoutCache {
-    /// Rectangles (ordre préfixe) de la racine `key` sous les contraintes `c`.
-    /// Réutilise le cache si l'empreinte de mise en page **et** les contraintes
-    /// sont inchangées ; sinon relance taffy et mémorise le résultat.
+    /// The rectangles (prefix order) of root `key` under constraints `c`. Reuses
+    /// the cache if the layout fingerprint **and** the constraints are unchanged;
+    /// otherwise re-runs taffy and records the result.
     pub(crate) fn rects<Msg>(
         &mut self,
         key: WidgetId,
@@ -111,8 +111,8 @@ impl LayoutCache {
         rects
     }
 
-    /// À appeler en fin de frame : oublie les racines non touchées (widgets
-    /// disparus) et fige les compteurs de diagnostic de la frame.
+    /// To be called at the end of a frame: forgets untouched roots (vanished
+    /// widgets) and freezes the frame's diagnostic counters.
     pub(crate) fn end_frame(&mut self) {
         let touched = std::mem::take(&mut self.touched);
         self.entries.retain(|id, _| touched.contains(id));
@@ -122,14 +122,14 @@ impl LayoutCache {
         self.misses = 0;
     }
 
-    /// Réutilisations / recalculs de la dernière frame terminée (diagnostic).
+    /// Reuses and recomputations of the last completed frame (diagnostic).
     pub fn last_frame_stats(&self) -> (u32, u32) {
         (self.last_hits, self.last_misses)
     }
 }
 
-/// Calcule les rectangles absolus d'une racine — le chemin « complet » (build +
-/// taffy + collecte), emprunté à chaque *miss* du cache.
+/// Computes a root's absolute rectangles — the "full" path (build + taffy +
+/// collect), taken on every cache *miss*.
 fn compute_rects<Msg>(
     root: &dyn Widget<Msg>,
     key: WidgetId,
@@ -138,8 +138,8 @@ fn compute_rects<Msg>(
 ) -> Vec<Rect> {
     let mut layout = frus_layout::Layout::new();
     let node = build_layout(root, key, runtime, &mut layout);
-    // `compute_scroll(_, _, false, false)` équivaut à `compute` (deux axes
-    // `Definite`) : un seul chemin couvre les deux cas.
+    // `compute_scroll(_, _, false, false)` is equivalent to `compute` (both axes
+    // `Definite`): a single path covers both cases.
     layout.compute_scroll(node, c.w, c.h, c.free_x, c.free_y);
     layout
         .absolute_rects(node)
@@ -148,10 +148,10 @@ fn compute_rects<Msg>(
         .collect()
 }
 
-/// Empreinte 64-bit de la **mise en page** d'un sous-arbre : styles + structure,
-/// en suivant **exactement** le branchement de [`build_layout`] (défilable/
-/// navigateur/liste/pile = feuille ; portail = ancre seule). Couleurs, textes et
-/// messages en sont exclus (ils ne touchent que la peinture).
+/// A 64-bit fingerprint of a subtree's **layout**: styles + structure, following
+/// **exactly** the branching of [`build_layout`] (scrollable/navigator/list/stack
+/// = a leaf; portal = the anchor alone). Colors, texts and messages are excluded
+/// (they only affect painting).
 pub(crate) fn layout_signature<Msg>(
     root: &dyn Widget<Msg>,
     id: WidgetId,
@@ -168,13 +168,13 @@ fn hash_node<Msg, H: Hasher>(
     runtime: &Runtime,
     hasher: &mut H,
 ) {
-    // Ces branches doivent rester alignées sur `build_layout` : la forme de
-    // l'arbre taffy (donc le nombre et l'ordre des rectangles) en dépend.
-    // On hache le style **effectif** (taille animée injectée) — même source que
-    // `build_layout`, donc l'empreinte change tant que la taille bouge.
-    // `RotatedBox` : sa boîte dépend de la taille **naturelle** de l'enfant (échangée
-    // pour un quart impair) — l'empreinte doit donc inclure l'enfant, sinon un enfant
-    // modifié laisserait une boîte périmée en cache.
+    // These branches must stay aligned with `build_layout`: the shape of the taffy
+    // tree (and therefore the number and order of the rectangles) depends on it.
+    // The **effective** style is hashed (animated size injected) — the same source
+    // as `build_layout`, so the fingerprint changes while the size moves.
+    // `RotatedBox`: its box depends on the child's **natural** size (swapped for an
+    // odd quarter), so the fingerprint must include the child; otherwise a modified
+    // child would leave a stale box in the cache.
     if let Some(q) = widget.rotated_quarter_turns() {
         4u8.hash(hasher);
         q.hash(hasher);
@@ -211,9 +211,9 @@ fn hash_node<Msg, H: Hasher>(
     let children = widget.children();
     3u8.hash(hasher);
     effective_style(widget, id, runtime).layout_hash(hasher);
-    // Feuille mesurée : son **contenu** (texte…) influe sur la géométrie sans
-    // passer par le style — sans cette empreinte, deux contenus différents
-    // seraient confondus et le cache garderait une vieille mise en page.
+    // A measured leaf: its **content** (text…) affects the geometry without going
+    // through the style — without this fingerprint, two different contents would
+    // be conflated and the cache would keep an old layout.
     widget.measure_key().hash(hasher);
     children.len().hash(hasher);
     for (i, child) in children.iter().enumerate() {
@@ -266,8 +266,8 @@ mod tests {
         let tree: Container<()> = Container::new().width(200.0).height(100.0);
         let first = cache.rects(key, &tree, &rt, c);
         let second = cache.rects(key, &tree, &rt, c);
-        assert_eq!(first, second, "mêmes rectangles");
-        // 1 miss (calcul), puis 1 hit (réutilisation).
+        assert_eq!(first, second, "the same rectangles");
+        // 1 miss (computed), then 1 hit (reused).
         assert_eq!((cache.hits, cache.misses), (1, 1));
     }
 
@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(
             (cache.hits, cache.misses),
             (0, 2),
-            "taille changée → recalcul"
+            "size changed → recomputed"
         );
     }
 
@@ -307,7 +307,7 @@ mod tests {
         cache.end_frame();
         assert_eq!(cache.entries.len(), 2);
 
-        // Frame suivante : une seule racine touchée → l'autre est évincée.
+        // Next frame: only one root touched → the other is evicted.
         cache.rects(WidgetId::ROOT, &tree, &rt, c);
         cache.end_frame();
         assert_eq!(cache.entries.len(), 1);

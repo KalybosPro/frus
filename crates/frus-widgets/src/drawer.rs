@@ -1,21 +1,21 @@
-//! [`Drawer`] : un **tiroir latéral** rétractable — le 3ᵉ palier de navigation
-//! Material, en complément de `NavRail` (rail) et `BottomBar` (barre).
+//! [`Drawer`]: a retractable **side drawer** — the 3rd tier of Material
+//! navigation, alongside `NavRail` (the rail) and `BottomBar` (the bar).
 //!
-//! Deux modes :
-//! - **modal** (par défaut) : le corps reste visible en fond ; quand le tiroir
-//!   est ouvert, un panneau plein-hauteur glisse depuis un bord (gauche ou
-//!   droite) par-dessus, avec un voile qui le referme au clic. L'ouverture est
-//!   animée automatiquement (voir jalon 46).
-//! - **permanent** ([`Drawer::permanent`]) : le panneau est **accosté** dans le
-//!   flux, toujours visible à côté du corps (sans voile). Typiquement activé au
-//!   palier `Expanded`.
+//! Two modes:
+//! - **modal** (the default): the body stays visible behind; when the drawer is
+//!   open, a full-height panel slides in from an edge (left or right) over it,
+//!   with a scrim that closes it on click. Opening is animated automatically
+//!   (see milestone 46).
+//! - **permanent** ([`Drawer::permanent`]): the panel is **docked** in the flow,
+//!   always visible beside the body (no scrim). Typically enabled at the
+//!   `Expanded` breakpoint.
 //!
 //! ```ignore
 //! Drawer::new(app.menu_open)
 //!     .on_dismiss(Msg::CloseMenu)
 //!     .permanent(class == SizeClass::Expanded)
-//!     .panel(nav_list)   // contenu du tiroir
-//!     .body(main_screen) // contenu de fond (toujours visible)
+//!     .panel(nav_list)   // the drawer's content
+//!     .body(main_screen) // the background content (always visible)
 //! ```
 
 use frus_core::{Rect, Scene};
@@ -27,14 +27,14 @@ use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Largeur d'un tiroir latéral, en px logiques.
+/// The width of a side drawer, in logical pixels.
 pub const DRAWER_WIDTH: f32 = 280.0;
 
-/// Panneau interne du tiroir : plein-hauteur, fond thématisé, liseré sur le bord
-/// **intérieur** (droit pour un tiroir gauche, gauche pour un tiroir droit).
+/// The drawer's inner panel: full height, a themed background, a hairline on the
+/// **inner** edge (right for a left drawer, left for a right drawer).
 struct DrawerPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
-    /// Dessine le liseré sur le bord gauche (tiroir accosté à droite).
+    /// Draws the hairline on the left edge (a drawer docked to the right).
     border_left: bool,
 }
 
@@ -42,8 +42,8 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(DRAWER_WIDTH),
-            // La hauteur se déploie à toute la fenêtre (placement latéral) ou à
-            // la hauteur de la rangée (mode permanent).
+            // The height expands to the whole window (side placement) or to the
+            // row's height (permanent mode).
             height: Dimension::Percent(1.0),
             flex_direction: FlexDirection::Column,
             ..Default::default()
@@ -56,7 +56,7 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Surface opaque du tiroir + fin liseré sur le bord intérieur.
+        // The drawer's opaque surface + a thin hairline on the inner edge.
         scene.fill_rect(bounds, theme.surface.fade(o));
         let x = if self.border_left {
             bounds.x
@@ -74,22 +74,22 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
     }
 }
 
-/// Tiroir latéral rétractable : corps de fond + panneau (modal ou accosté).
+/// A retractable side drawer: a background body + a panel, modal or docked.
 pub struct Drawer<Msg> {
     open: bool,
     right: bool,
     permanent: bool,
     on_dismiss: Option<Msg>,
-    /// Contenu du tiroir, fourni par l'appelant (avant enrobage `DrawerPanel`).
+    /// The drawer's content, supplied by the caller (before `DrawerPanel` wrapping).
     panel_content: Option<Box<dyn Widget<Msg>>>,
-    /// Panneau modal (mode non permanent), enrobé, prêt pour l'overlay.
+    /// The modal panel (non-permanent mode), wrapped, ready for the overlay.
     modal_panel: Option<Box<dyn Widget<Msg>>>,
-    /// Enfants dans le flux : `[corps]` (modal) ou `[panneau, corps]` (permanent).
+    /// Children in the flow: `[body]` (modal) or `[panel, body]` (permanent).
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Drawer<Msg> {
-    /// Crée un tiroir : `open` indique s'il est déployé (ignoré en mode permanent).
+    /// Creates a drawer; `open` says whether it is expanded (ignored when permanent).
     pub fn new(open: bool) -> Self {
         Self {
             open,
@@ -102,32 +102,32 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
         }
     }
 
-    /// Message émis au clic sur le voile (hors du panneau) — pour refermer.
+    /// Message emitted on a click on the scrim (outside the panel) — to close it.
     pub fn on_dismiss(mut self, message: Msg) -> Self {
         self.on_dismiss = Some(message);
         self
     }
 
-    /// Accoste le tiroir au bord **droit** (par défaut : gauche).
+    /// Docks the drawer to the **right** edge (left by default).
     pub fn right(mut self) -> Self {
         self.right = true;
         self
     }
 
-    /// Rend le tiroir **permanent** (accosté dans le flux, sans voile) quand
-    /// `permanent` est vrai — typiquement au palier `Expanded`.
+    /// Makes the drawer **permanent** (docked in the flow, no scrim) when
+    /// `permanent` is true — typically at the `Expanded` breakpoint.
     pub fn permanent(mut self, permanent: bool) -> Self {
         self.permanent = permanent;
         self
     }
 
-    /// Définit le **contenu du tiroir** (la navigation, en général).
+    /// Sets the **drawer's content**, usually the navigation.
     pub fn panel(mut self, content: impl Widget<Msg> + 'static) -> Self {
         self.panel_content = Some(Box::new(content));
         self
     }
 
-    /// Définit le **corps de fond** (toujours visible) et finalise le tiroir.
+    /// Sets the **background body** (always visible) and finalises the drawer.
     pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
         let panel = self.panel_content.take().map(|content| {
             Box::new(DrawerPanel {
@@ -137,7 +137,7 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
         });
 
         if self.permanent {
-            // Accosté dans le flux : rangée `[panneau, corps]` (ou l'inverse à droite).
+            // Docked in the flow: a `[panel, body]` row (or the reverse on the right).
             let body_pane: Box<dyn Widget<Msg>> = Box::new(Flex::column().flex(1.0).child(body));
             self.children = match panel {
                 Some(panel) if self.right => vec![body_pane, panel],
@@ -145,7 +145,7 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
                 None => vec![body_pane],
             };
         } else {
-            // Modal : seul le corps est dans le flux ; le panneau part en overlay.
+            // Modal: only the body is in the flow; the panel goes to the overlay.
             self.modal_panel = panel;
             self.children = vec![Box::new(body)];
         }
@@ -158,8 +158,8 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
         Style {
             width: Dimension::Percent(1.0),
             height: Dimension::Percent(1.0),
-            // Permanent : rangée (panneau + corps côte à côte). Modal : le corps
-            // remplit seul (le panneau flotte en overlay).
+            // Permanent: a row (panel + body side by side). Modal: the body fills
+            // on its own (the panel floats as an overlay).
             flex_direction: if self.permanent {
                 FlexDirection::Row
             } else {
@@ -180,8 +180,8 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
     }
 
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
-        // Uniquement en mode modal : c'est la **progression** animée
-        // (`anim_target`) qui décide de l'affichage et du glissement.
+        // Modal mode only: it is the animated **progress** (`anim_target`)
+        // that decides both the display and the slide.
         let placement = if self.right {
             Placement::Right
         } else {
@@ -195,8 +195,8 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
     }
 
     fn anim_target(&self) -> Option<f32> {
-        // Pas d'animation en mode permanent (toujours affiché). Sinon, cible
-        // d'ouverture `0↔1` interpolée par le runtime (glissement + fondu).
+        // No animation when permanent (it is always shown). Otherwise the `0↔1`
+        // open target, interpolated by the runtime (slide + fade).
         if self.permanent {
             None
         } else {
@@ -260,7 +260,7 @@ mod tests {
             ui.scene().primitives().iter().any(
                 |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
             );
-        assert!(!scrim, "un tiroir fermé ne peint pas de voile");
+        assert!(!scrim, "a closed drawer paints no scrim");
     }
 
     #[test]
@@ -279,12 +279,12 @@ mod tests {
             ui.scene().primitives().iter().any(
                 |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
             );
-        assert!(scrim, "le voile doit couvrir la fenêtre");
+        assert!(scrim, "the scrim must cover the window");
         let panel = ui.scene().primitives().iter().any(|p| {
             matches!(p, frus_core::Primitive::Rect { rect, .. }
                 if (rect.width - DRAWER_WIDTH).abs() < 1.0 && rect.height >= 399.0)
         });
-        assert!(panel, "le panneau doit se déployer sur toute la hauteur");
+        assert!(panel, "the panel must expand to the full height");
     }
 
     #[test]
@@ -302,9 +302,9 @@ mod tests {
             }
             _ => None,
         });
-        let edge = panel_edge.expect("le panneau du tiroir doit être présent");
-        // Le glissement suit la courbe en ressort : à t=0.5 linéaire, le bord droit
-        // vaut `spring_ease(0.5)·largeur` (déjà bien avancé).
+        let edge = panel_edge.expect("the drawer's panel must be present");
+        // The slide follows the spring curve: at linear t=0.5, the right edge sits
+        // at `spring_ease(0.5)·width`, already well advanced.
         let expected = crate::spring_ease(0.5) * DRAWER_WIDTH;
         assert!(
             (edge - expected).abs() < 2.0,
@@ -314,14 +314,14 @@ mod tests {
 
     #[test]
     fn permanent_drawer_docks_panel_beside_body_without_scrim() {
-        let drawer = Drawer::new(false) // `open` ignoré en permanent
+        let drawer = Drawer::new(false) // `open` is ignored when permanent
             .permanent(true)
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
-        // Aucune animation, aucun overlay : le panneau est dans le flux.
+        // No animation and no overlay: the panel is in the flow.
         assert_eq!(Widget::<Msg>::anim_target(&drawer), None);
         assert!(Widget::<Msg>::overlay(&drawer).is_none());
-        // Rangée [panneau, corps].
+        // A [panel, body] row.
         assert_eq!(
             Widget::<Msg>::style(&drawer).flex_direction,
             FlexDirection::Row
@@ -334,21 +334,18 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Pas de voile plein écran (le panneau ne couvre que sa largeur).
+        // No full-screen scrim (the panel only covers its own width).
         let scrim =
             ui.scene().primitives().iter().any(
                 |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 900.0),
             );
-        assert!(!scrim, "un tiroir permanent ne peint pas de voile");
-        // Le panneau accosté est présent, plein-hauteur, à gauche (x ≈ 0).
+        assert!(!scrim, "a permanent drawer paints no scrim");
+        // The docked panel is present, full-height, on the left (x ≈ 0).
         let docked = ui.scene().primitives().iter().any(|p| {
             matches!(p, frus_core::Primitive::Rect { rect, .. }
                 if (rect.width - DRAWER_WIDTH).abs() < 1.0 && rect.x < 1.0 && rect.height >= 399.0)
         });
-        assert!(
-            docked,
-            "le panneau doit être accosté à gauche, plein-hauteur"
-        );
+        assert!(docked, "the panel must be docked left, full-height");
     }
 
     #[test]
@@ -358,7 +355,7 @@ mod tests {
             .right()
             .panel(Text::new("menu"))
             .body(Container::<Msg>::new());
-        // Ordre [corps, panneau] pour un accostage à droite.
+        // A [body, panel] order for docking on the right.
         assert_eq!(Widget::<Msg>::children(&drawer).len(), 2);
         let ui = build_ui(
             &drawer,
@@ -366,11 +363,11 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Panneau plein-hauteur dont le bord droit touche la fenêtre (x+w ≈ 900).
+        // A full-height panel whose right edge touches the window (x+w ≈ 900).
         let on_right = ui.scene().primitives().iter().any(|p| {
             matches!(p, frus_core::Primitive::Rect { rect, .. }
                 if (rect.width - DRAWER_WIDTH).abs() < 1.0 && (rect.x + rect.width - 900.0).abs() < 1.0)
         });
-        assert!(on_right, "le panneau doit être accosté à droite");
+        assert!(on_right, "the panel must be docked on the right");
     }
 }

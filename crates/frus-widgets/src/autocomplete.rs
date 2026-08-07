@@ -1,11 +1,11 @@
-//! [`Autocomplete`] : un champ de saisie avec une **liste de suggestions**
-//! flottante. Contrôlé : l'application fournit la valeur **et** les suggestions
-//! (déjà filtrées) ; la liste ne flotte que si elle est non vide. Largeur réglable
-//! ([`width`](Autocomplete::width)) ; les suggestions prennent le focus clavier.
+//! [`Autocomplete`]: a text field with a floating **suggestion list**. Controlled:
+//! the application supplies the value **and** the suggestions (already filtered);
+//! the list only floats when it is non-empty. Adjustable width
+//! ([`width`](Autocomplete::width)); the suggestions take keyboard focus.
 //!
-//! Chaque suggestion **met en avant** la portion correspondant à la requête
-//! (couleur `primary`), et la suggestion **active** ([`active`](Autocomplete::active),
-//! parcourue au clavier) est surlignée — comme le menu d'un `Dropdown`.
+//! Each suggestion **brings out** the portion matching the query (in the `primary`
+//! color), and the **active** suggestion ([`active`](Autocomplete::active), stepped
+//! through from the keyboard) is highlighted — like a `Dropdown`'s menu.
 
 use std::rc::Rc;
 
@@ -24,11 +24,11 @@ const DEFAULT_WIDTH: f32 = 260.0;
 const ROW_H: f32 = 32.0;
 const PAD_X: f32 = 10.0;
 const SIZE: f32 = 16.0;
-/// Écart vertical entre suggestions.
+/// The vertical gap between suggestions.
 const ROW_GAP: f32 = 2.0;
 
-/// Portion (indices de **caractères**) du libellé qui correspond à la requête
-/// (recherche insensible à la casse). `None` si la requête est vide ou absente.
+/// The portion of the label (in **character** indices) matching the query
+/// (a case-insensitive search). `None` if the query is empty or absent.
 fn match_range(label: &str, query: &str) -> Option<(usize, usize)> {
     if query.trim().is_empty() {
         return None;
@@ -43,14 +43,14 @@ fn match_range(label: &str, query: &str) -> Option<(usize, usize)> {
         .map(|i| (i, i + ql.len()))
 }
 
-/// Une suggestion cliquable. La portion correspondant à `query` est mise en avant
-/// (couleur `primary`) ; la suggestion **active** (parcourue au clavier) est surlignée.
+/// A clickable suggestion. The portion matching `query` is brought out (in the
+/// `primary` color); the **active** one (stepped to from the keyboard) is highlighted.
 struct Suggestion<Msg> {
     label: String,
-    /// Requête courante, pour surligner la portion correspondante.
+    /// The current query, used to highlight the matching portion.
     query: String,
     width: f32,
-    /// Suggestion **active** (celle qui serait choisie) : fond teinté.
+    /// The **active** suggestion (the one that would be picked): a tinted background.
     active: bool,
     message: Msg,
 }
@@ -70,7 +70,7 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Suggestion active : fond teinté `primary` ; survol par-dessus.
+        // The active suggestion: a `primary`-tinted background; hover on top.
         let base = if self.active {
             theme.surface.lerp(theme.primary, 0.14)
         } else {
@@ -84,7 +84,7 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
         let normal = theme.on_surface.fade(o);
         let hilite = theme.primary.fade(o);
         let mut x = bounds.x + PAD_X;
-        // Segments [avant | correspondance | après] : la correspondance en `primary`.
+        // Segments [before | match | after]: the match in `primary`.
         let segments: [(std::ops::Range<usize>, frus_core::Color); 3] =
             match match_range(&self.label, &self.query) {
                 Some((i, j)) => [(0..i, normal), (i..j, hilite), (j..chars.len(), normal)],
@@ -110,24 +110,24 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
     }
 }
 
-/// Un champ de saisie avec suggestions.
+/// A text field with suggestions.
 pub struct Autocomplete<Msg> {
     value: String,
     width: f32,
-    /// Suggestion **active** (parcourue au clavier / surlignée), le cas échéant.
+    /// The **active** suggestion (stepped to from the keyboard, highlighted), if any.
     active: Option<usize>,
-    /// Nombre max de suggestions visibles : au-delà, la liste **défile**.
+    /// The maximum number of visible suggestions; beyond that the list **scrolls**.
     max_visible: Option<usize>,
     on_input: Rc<dyn Fn(String) -> Msg>,
     on_pick: Rc<dyn Fn(String) -> Msg>,
     labels: Vec<String>,
-    /// `[champ]` ou `[champ, liste]`.
+    /// `[field]` or `[field, list]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Autocomplete<Msg> {
-    /// Crée un champ : valeur courante, `on_input(texte)` à la frappe, et
-    /// `on_pick(suggestion)` au choix d'une suggestion.
+    /// Creates a field: the current value, `on_input(text)` on typing, and
+    /// `on_pick(suggestion)` when a suggestion is chosen.
     pub fn new(
         value: impl Into<String>,
         on_input: impl Fn(String) -> Msg + 'static,
@@ -147,30 +147,30 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         ac
     }
 
-    /// Largeur du champ et des suggestions, en pixels logiques (défaut 260).
+    /// The width of the field and the suggestions, in logical pixels (260 by default).
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self.rebuild();
         self
     }
 
-    /// Index de la suggestion **active** (surlignée ; choisie au clavier). L'app la
-    /// fait avancer (flèches) et la valide (Entrée) — l'état reste chez elle.
+    /// The index of the **active** suggestion (highlighted; chosen from the keyboard).
+    /// The app moves it along (arrows) and commits it (Enter) — the state stays with it.
     pub fn active(mut self, index: usize) -> Self {
         self.active = Some(index);
         self.rebuild();
         self
     }
 
-    /// Limite le nombre de suggestions **visibles** : au-delà, la liste flottante
-    /// **défile** (viewport borné à `n` lignes) au lieu de s'étirer sans fin.
+    /// Limits the number of **visible** suggestions; beyond that the floating list
+    /// **scrolls** (a viewport bounded to `n` rows) instead of stretching forever.
     pub fn max_visible(mut self, rows: usize) -> Self {
         self.max_visible = Some(rows.max(1));
         self.rebuild();
         self
     }
 
-    /// Ajoute une suggestion à la liste flottante.
+    /// Adds a suggestion to the floating list.
     pub fn suggestion(mut self, label: impl Into<String>) -> Self {
         self.labels.push(label.into());
         self.rebuild();
@@ -178,8 +178,8 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
     }
 
     fn rebuild(&mut self) {
-        // Champ : reconstruit à chaque réglage (largeur, valeur). Le rappel `on_input`
-        // partagé (Rc) est capturé par le champ.
+        // The field: rebuilt on every setting (width, value). The shared `on_input`
+        // callback (an Rc) is captured by the field.
         let on_input = self.on_input.clone();
         let input = TextInput::new(self.value.clone())
             .width(self.width)
@@ -197,7 +197,7 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
                     message: (self.on_pick)(label.clone()),
                 });
             }
-            // Au-delà du seuil, la liste défile dans un viewport borné à `n` lignes.
+            // Past the threshold, the list scrolls in a viewport bounded to `n` rows.
             match self.max_visible {
                 Some(n) if self.labels.len() > n => {
                     let viewport = n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP;
@@ -260,7 +260,7 @@ mod tests {
             .suggestion("apple")
             .suggestion("apricot");
         assert!(Widget::<Msg>::overlay(&ac).is_some());
-        // La liste contient les deux suggestions ; la 1ʳᵉ émet Pick("apple").
+        // The list holds both suggestions; the 1st emits Pick("apple").
         let list = &Widget::<Msg>::children(&ac)[1];
         assert_eq!(list.children().len(), 2);
         assert_eq!(
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn matched_portion_is_drawn_as_its_own_segment() {
-        // Requête "ap" sur "apricot" → segments "ap" (mis en avant) + "ricot".
+        // The query "ap" on "apricot" → segments "ap" (brought out) + "ricot".
         let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick).suggestion("apricot");
         let (list, _) = Widget::<Msg>::overlay(&ac).unwrap();
         let ui = build_ui(
@@ -299,11 +299,11 @@ mod tests {
             .collect();
         assert!(
             texts.contains(&"ap".to_string()),
-            "portion correspondante isolée : {texts:?}"
+            "the matching portion is isolated: {texts:?}"
         );
         assert!(
             texts.contains(&"ricot".to_string()),
-            "reste isolé : {texts:?}"
+            "the remainder is isolated: {texts:?}"
         );
     }
 
@@ -328,7 +328,7 @@ mod tests {
                 Primitive::Rect { color, .. } if color.fade(1.0) == tint.fade(1.0)
             )
         });
-        assert!(has_tint, "la suggestion active est surlignée");
+        assert!(has_tint, "the active suggestion is highlighted");
     }
 
     #[test]
@@ -340,25 +340,25 @@ mod tests {
             .suggestion("a3")
             .suggestion("a4");
         let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
-        // L'overlay est un Scroll borné à 2 lignes (viewport = 2*ROW_H + 1 écart).
+        // The overlay is a Scroll bounded to 2 rows (viewport = 2*ROW_H + 1 gap).
         let expected = 2.0 * ROW_H + ROW_GAP;
         assert!(
             matches!(Widget::<Msg>::style(overlay).height, Dimension::Length(v) if (v - expected).abs() < 0.5),
-            "viewport borné à 2 lignes",
+            "viewport bounded to 2 rows",
         );
-        // Il défile bien sur les 4 suggestions.
+        // It does scroll over all 4 suggestions.
         assert_eq!(overlay.children()[0].children().len(), 4);
     }
 
     #[test]
     fn short_list_is_not_wrapped_in_scroll() {
-        // Sous le seuil : liste nue (pas de viewport borné).
+        // Below the threshold: a bare list, with no bounded viewport.
         let ac = Autocomplete::new("a", Msg::Input, Msg::Pick)
             .max_visible(5)
             .suggestion("a1")
             .suggestion("a2");
         let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
-        // Liste directe : ses enfants sont les 2 suggestions (pas un Scroll d'un cran).
+        // A direct list: its children are the 2 suggestions, not a Scroll one level down.
         assert_eq!(overlay.children().len(), 2);
         assert_eq!(
             overlay.children()[0].on_click(),
@@ -368,9 +368,9 @@ mod tests {
 
     #[test]
     fn field_and_suggestions_are_keyboard_reachable() {
-        // La descente clavier passe par le système de focus : le champ puis les
-        // suggestions entrent dans le cycle Tab (flèche bas depuis le champ mono-ligne
-        // navigue le focus vers la 1ʳᵉ suggestion).
+        // Keyboard descent goes through the focus system: the field, then the
+        // suggestions, enter the Tab cycle (the down arrow from the single-line field
+        // moves the focus to the 1st suggestion).
         let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick)
             .suggestion("apple")
             .suggestion("apricot");
@@ -381,11 +381,11 @@ mod tests {
             &Theme::default(),
         );
         let first = ui.focus_next(None, true);
-        assert!(first.is_some(), "le champ est focusable");
+        assert!(first.is_some(), "the field is focusable");
         let second = ui.focus_next(first, true);
         assert!(
             second.is_some() && second != first,
-            "une suggestion suit le champ dans le cycle"
+            "a suggestion follows the field in the cycle"
         );
     }
 }

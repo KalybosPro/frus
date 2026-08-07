@@ -1,14 +1,14 @@
-//! [`Steps`] : un **indicateur d'étapes** (fil d'Ariane numéroté d'un formulaire
-//! multi-étapes / assistant), façon `Stepper` de Material.
+//! [`Steps`]: a **step indicator** — the numbered breadcrumb of a multi-step form
+//! or wizard, in the Material `Stepper` style.
 //!
-//! Une rangée de marqueurs ronds numérotés reliés par des connecteurs, chacun dans
-//! l'un de trois états : **terminé** (coche, accent), **courant** (numéro, accent),
-//! **à venir** (numéro, surface bordée). Un libellé sous chaque marqueur.
+//! A row of round numbered markers joined by connectors, each in one of three
+//! states: **done** (a tick, accent), **current** (the number, accent), **upcoming**
+//! (the number, a bordered surface). A label sits under each marker.
 //!
-//! Le widget est **purement visuel** : la navigation (Suivant/Précédent) et la
-//! validation par étape restent applicatives (un [`crate::form::Form`] par étape,
-//! des boutons qui changent l'étape courante). Le nom `Stepper` étant déjà pris par
-//! le sélecteur numérique −/valeur/+, cet indicateur s'appelle `Steps`.
+//! The widget is **purely visual**: navigation (Next/Previous) and per-step
+//! validation stay in the application (one [`crate::form::Form`] per step, buttons
+//! that change the current step). Since the name `Stepper` is already taken by the
+//! −/value/+ numeric picker, this indicator is called `Steps`.
 
 use frus_core::{Color, Point, Rect, Role, Scene, Semantics};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
@@ -19,41 +19,41 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Diamètre d'un marqueur (rond).
+/// The diameter of a (round) marker.
 const MARKER_D: f32 = 28.0;
-/// Rayon d'un marqueur.
+/// The radius of a marker.
 const R: f32 = MARKER_D / 2.0;
-/// Écart marqueur → libellé.
+/// The marker → label gap.
 const LABEL_GAP: f32 = 8.0;
-/// Taille de police d'un libellé d'étape.
+/// Font size of a step label.
 const LABEL_SIZE: f32 = 12.0;
-/// Taille de police du numéro dans un marqueur.
+/// Font size of the number inside a marker.
 const NUM_SIZE: f32 = 14.0;
-/// Hauteur totale de l'indicateur (marqueur + libellé).
+/// Total height of the indicator (marker + label).
 const HEIGHT: f32 = 56.0;
 
-/// Indicateur d'étapes d'un formulaire multi-étapes.
+/// The step indicator of a multi-step form.
 ///
 /// ```
 /// use frus_widgets::Steps;
-/// // Trois étapes, la deuxième en cours (la première est donc « terminée »).
+/// // Three steps, the second in progress (so the first counts as "done").
 /// let steps: Steps<()> = Steps::new(["Account", "Profile", "Review"]).current(1);
 /// ```
 pub struct Steps<Msg> {
     labels: Vec<String>,
     current: usize,
-    /// Couleur d'accent surchargée ; `None` = `primary` du thème.
+    /// Overridden accent color; `None` = the theme's `primary`.
     color: Option<Color>,
-    /// Masque « terminé » **explicite** par étape (validité). Vide → règle par défaut
-    /// (`i < current`, cf. [`completed`](Self::completed)).
+    /// An **explicit** per-step "done" mask (validity). Empty → the default rule
+    /// (`i < current`, see [`completed`](Self::completed)).
     completed: Vec<bool>,
-    /// Vide, ou **une** rangée de zones cliquables (hotspots) superposée aux marqueurs quand
-    /// [`on_tap`](Self::on_tap) est fourni.
+    /// Empty, or **one** row of clickable hotspots laid over the markers when
+    /// [`on_tap`](Self::on_tap) is supplied.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Steps<Msg> {
-    /// Crée un indicateur depuis les libellés d'étapes ; l'étape courante est la première.
+    /// Creates an indicator from the step labels; the current step is the first one.
     pub fn new(labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
             labels: labels.into_iter().map(Into::into).collect(),
@@ -64,31 +64,31 @@ impl<Msg: Clone + 'static> Steps<Msg> {
         }
     }
 
-    /// Marque explicitement les étapes **terminées** (une coche) par un drapeau par étape —
-    /// typiquement la **validité** de chaque étape, plutôt que la seule position. Sans cet appel,
-    /// une étape est « terminée » si elle précède l'étape courante (`i < current`).
+    /// Explicitly marks the **done** steps (a tick) with one flag per step — typically each
+    /// step's **validity**, rather than position alone. Without this call, a step counts as
+    /// "done" if it precedes the current one (`i < current`).
     pub fn completed(mut self, flags: impl IntoIterator<Item = bool>) -> Self {
         self.completed = flags.into_iter().collect();
         self
     }
 
-    /// Fixe l'étape **courante** (les précédentes sont « terminées », les suivantes « à venir »).
-    /// Bornée au dernier index.
+    /// Sets the **current** step (the earlier ones are "done", the later ones "upcoming").
+    /// Clamped to the last index.
     pub fn current(mut self, index: usize) -> Self {
         self.current = index.min(self.labels.len().saturating_sub(1));
         self
     }
 
-    /// Surcharge la couleur d'accent (marqueurs terminés/courant + connecteurs franchis).
+    /// Overrides the accent color (done and current markers + the connectors crossed).
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Rend les marqueurs **cliquables** : cliquer le marqueur de l'étape `i` émet `on_tap(i)`
-    /// (pour y sauter — typiquement une étape déjà visitée). Superpose une rangée de zones
-    /// cliquables transparentes alignées **exactement** sur les marqueurs (répartition
-    /// `SpaceBetween` de boîtes de la taille d'un marqueur), sans changer le rendu.
+    /// Makes the markers **clickable**: clicking step `i`'s marker emits `on_tap(i)` (to jump
+    /// there — typically a step already visited). Lays a row of transparent clickable zones
+    /// **exactly** over the markers (a `SpaceBetween` distribution of marker-sized boxes),
+    /// without changing the rendering.
     pub fn on_tap(mut self, on_tap: impl Fn(usize) -> Msg) -> Self {
         let mut row: Flex<Msg> = Flex::row().justify(Justify::SpaceBetween);
         for (i, label) in self.labels.iter().enumerate() {
@@ -103,7 +103,7 @@ impl<Msg: Clone + 'static> Steps<Msg> {
 }
 
 impl<Msg> Steps<Msg> {
-    /// L'étape `i` est-elle **terminée** ? Masque explicite s'il est fourni, sinon `i < current`.
+    /// Is step `i` **done**? The explicit mask if one is supplied, otherwise `i < current`.
     fn is_done(&self, i: usize) -> bool {
         if self.completed.is_empty() {
             i < self.current
@@ -112,7 +112,7 @@ impl<Msg> Steps<Msg> {
         }
     }
 
-    /// Abscisse du centre du marqueur `i` dans `bounds` (marqueurs répartis d'un bord à l'autre).
+    /// The x of marker `i`'s centre within `bounds` (markers spread from edge to edge).
     fn center_x(&self, bounds: Rect, i: usize) -> f32 {
         let n = self.labels.len();
         if n <= 1 {
@@ -128,7 +128,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
         Style {
             width: Dimension::Percent(1.0),
             height: Dimension::Length(HEIGHT),
-            // Une éventuelle rangée de hotspots occupe le haut (bande des marqueurs).
+            // Any row of hotspots occupies the top, the markers' band.
             flex_direction: FlexDirection::Column,
             align: Align::Stretch,
             ..Default::default()
@@ -148,7 +148,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
         let accent = self.color.unwrap_or(theme.primary);
         let cy = bounds.y + R;
 
-        // Connecteurs (sous les marqueurs) : franchis (accent) jusqu'à l'étape courante, sinon bord.
+        // Connectors (under the markers): crossed (accent) up to the current step, else border.
         for i in 0..n.saturating_sub(1) {
             let x0 = self.center_x(bounds, i) + R;
             let x1 = self.center_x(bounds, i + 1) - R;
@@ -161,13 +161,13 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
             scene.draw_rect(rect, col.fade(o), 0.0, 0.0, Color::TRANSPARENT);
         }
 
-        // Marqueurs + numéros/coches + libellés.
+        // Markers + numbers/ticks + labels.
         for i in 0..n {
             let cx = self.center_x(bounds, i);
             let rect = Rect::new(cx - R, cy - R, MARKER_D, MARKER_D);
             let current = i == self.current;
-            // L'étape courante montre son numéro (même si valide) ; les autres, une coche si
-            // terminées (validité), sinon leur numéro.
+            // The current step shows its number (even when valid); the others show a tick
+            // if done (validity), otherwise their number.
             let completed = !current && self.is_done(i);
 
             let (fill, bw, bc) = if completed || current {
@@ -178,7 +178,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
             scene.draw_rect(rect, fill.fade(o), R, bw, bc.fade(o));
 
             if completed {
-                // Coche (icône 16 px centrée) sur fond accent.
+                // A tick (a centred 16 px icon) on an accent background.
                 let path = IconName::Check
                     .path()
                     .scaled(16.0 / 24.0)
@@ -196,7 +196,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
                 scene.text(p, num, NUM_SIZE, color.fade(o));
             }
 
-            // Libellé sous le marqueur, centré ; atténué hors étape courante.
+            // The label under the marker, centred; dimmed away from the current step.
             let label = &self.labels[i];
             let lm = frus_text::measure(label, LABEL_SIZE);
             let alpha = if current { o } else { 0.6 * o };
@@ -210,9 +210,9 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
     }
 }
 
-/// Zone cliquable **transparente** de la taille d'un marqueur, superposée à celui-ci quand
-/// [`Steps::on_tap`] est utilisé : elle ne dessine rien mais capte le clic (et le focus clavier)
-/// pour sauter à l'étape correspondante.
+/// A **transparent** clickable zone the size of a marker, laid over it when
+/// [`Steps::on_tap`] is used: it draws nothing but captures the click (and the keyboard
+/// focus) to jump to the matching step.
 struct Hotspot<Msg> {
     label: String,
     message: Msg,
@@ -276,54 +276,54 @@ mod tests {
 
     #[test]
     fn markers_reflect_progress() {
-        // 4 étapes, la 3e (index 2) courante : 0,1 terminées ; 2 courante ; 3 à venir.
+        // 4 steps, the 3rd (index 2) current: 0 and 1 done; 2 current; 3 upcoming.
         let prims = paint_steps(&Steps::<()>::new(["A", "B", "C", "D"]).current(2));
         let has_text = |t: &str| {
             prims
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        // Terminées → coches (pas de numéro) ; courante → « 3 » ; à venir → « 4 ».
+        // Done → ticks (no number); current → "3"; upcoming → "4".
         assert!(
             has_text("3") && has_text("4"),
-            "numéros de l'étape courante et à venir"
+            "the numbers of the current and upcoming steps"
         );
         assert!(
             !has_text("1") && !has_text("2"),
-            "les étapes terminées montrent une coche"
+            "the done steps show a tick"
         );
-        // Une coche (chemin rempli) par étape terminée.
+        // One tick (a filled path) per done step.
         let checks = prims
             .iter()
             .filter(|p| matches!(p, Primitive::Path { fill: Some(_), .. }))
             .count();
-        assert_eq!(checks, 2, "deux coches pour les deux étapes terminées");
-        // Tous les libellés sont dessinés.
+        assert_eq!(checks, 2, "two ticks for the two done steps");
+        // All the labels are drawn.
         assert!(has_text("A") && has_text("B") && has_text("C") && has_text("D"));
     }
 
     #[test]
     fn completed_mask_overrides_position() {
-        // Sans masque : « terminé » = position (i < current).
+        // Without a mask: "done" = position (i < current).
         let default = Steps::<()>::new(["A", "B", "C"]).current(2);
         assert!(default.is_done(0) && default.is_done(1));
         assert!(
             !default.is_done(2),
-            "l'étape courante n'est pas terminée par défaut"
+            "the current step is not done by default"
         );
-        // Avec masque (validité) : indépendant de la position.
+        // With a mask (validity): independent of position.
         let masked = Steps::<()>::new(["A", "B", "C"])
             .current(1)
             .completed([false, false, true]);
         assert!(
             !masked.is_done(0),
-            "étape 0 invalide → non terminée malgré i < current"
+            "step 0 invalid → not done despite i < current"
         );
         assert!(
             masked.is_done(2),
-            "étape 2 valide → terminée bien que i > current"
+            "step 2 valid → done even though i > current"
         );
-        // Masque plus court que le nombre d'étapes : les manquants sont non terminés.
+        // A mask shorter than the number of steps: the missing ones are not done.
         let short = Steps::<()>::new(["A", "B", "C"]).completed([true]);
         assert!(short.is_done(0) && !short.is_done(1) && !short.is_done(2));
     }
@@ -337,12 +337,12 @@ mod tests {
         // Sans on_tap : aucun enfant (purement visuel).
         let plain = Steps::<Msg>::new(["A", "B", "C"]).current(1);
         assert!(Widget::<Msg>::children(&plain).is_empty());
-        // Avec on_tap : une rangée d'enfants dont chaque marqueur émet son index.
+        // With on_tap: a row of children whose every marker emits its index.
         let tappable = Steps::new(["A", "B", "C"]).current(1).on_tap(Msg::Go);
         let row = Widget::<Msg>::children(&tappable);
-        assert_eq!(row.len(), 1, "une seule rangée de hotspots");
+        assert_eq!(row.len(), 1, "a single row of hotspots");
         let spots = row[0].children();
-        assert_eq!(spots.len(), 3, "un hotspot par étape");
+        assert_eq!(spots.len(), 3, "one hotspot per step");
         assert_eq!(spots[0].on_click(), Some(Msg::Go(0)));
         assert_eq!(spots[2].on_click(), Some(Msg::Go(2)));
         assert!(spots[0].focusable(), "un hotspot est focalisable");
