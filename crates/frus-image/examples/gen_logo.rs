@@ -1,6 +1,5 @@
-//! Génère le logo PNG de la démo sur la **sortie standard** (provenance
-//! reproductible de l'asset binaire, plutôt qu'un fichier opaque committé « à la
-//! main »).
+//! Generates the demo's PNG logo on **standard output** — a reproducible provenance
+//! for the binary asset, rather than an opaque file committed by hand.
 //!
 //! ```text
 //! cargo run -p frus-image --example gen_logo > crates/frus-demo/assets/logo.png
@@ -18,7 +17,7 @@ fn main() {
         let dx = x as f32 - cx;
         let dy = y as f32 - cy;
         let dist = (dx * dx + dy * dy).sqrt();
-        // Dégradé diagonal (R horizontal, G vertical) + disque central plus clair.
+        // A diagonal gradient (R horizontal, G vertical) plus a lighter central disc.
         let r = (x * 255 / (W - 1)) as u8;
         let g = (y * 255 / (H - 1)) as u8;
         let b = if dist < 34.0 { 235 } else { 80 };

@@ -1,9 +1,9 @@
-//! `frus-l10n` — **localisation** des applications frus, bâtie sur
-//! [Fluent](https://projectfluent.org/) (le standard i18n de Mozilla).
+//! `frus-l10n` — **localisation** for frus applications, built on
+//! [Fluent](https://projectfluent.org/), Mozilla's i18n standard.
 //!
-//! On ne réinvente rien : les messages, pluriels et sélections vivent dans des
-//! ressources `.ftl` (embarquées par l'app via `include_str!`), résolus par
-//! locale avec **repli** (négociation `fluent-langneg`).
+//! Nothing is reinvented here: messages, plurals and selections live in `.ftl`
+//! resources, embedded by the application through `include_str!`, and resolved per
+//! locale with a **fallback** chain (`fluent-langneg` negotiation).
 //!
 //! ```
 //! use frus_l10n::{Localizer, args};
@@ -14,23 +14,23 @@
 //! assert_eq!(l10n.format("hello", args![name: "Ada"]), "Hello, Ada!");
 //! l10n.set_locale("fr");
 //! assert_eq!(l10n.format("tasks", args![n: 2]), "2 tâches");
-//! // Repli sur la locale par défaut si la clé manque dans la locale courante.
+//! // Falls back to the default locale when the key is missing from the current one.
 //! ```
 
 use std::collections::HashMap;
 
-// Le bundle **concurrent** (mémoïseur derrière un `Mutex`) rend le `Localizer`
-// `Send + Sync` : utilisable dans un `static`/`OnceLock` côté application.
+// The **concurrent** bundle — its memoiser sits behind a `Mutex` — is what makes
+// `Localizer` `Send + Sync`, so an application can hold it in a `static`/`OnceLock`.
 use fluent_bundle::concurrent::FluentBundle;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 
-/// Une valeur d'argument passée à un message (chaîne ou nombre).
+/// An argument value passed to a message: a string or a number.
 #[derive(Clone, Debug)]
 pub enum Arg<'a> {
-    /// Texte.
+    /// Text.
     Str(&'a str),
-    /// Nombre (participe aux règles de pluriel CLDR).
+    /// A number, which takes part in the CLDR plural rules.
     Num(f64),
 }
 
@@ -60,7 +60,7 @@ impl From<f64> for Arg<'_> {
     }
 }
 
-/// Construit la liste d'arguments d'un message : `args![name: "Ada", n: 3]`.
+/// Builds a message's argument list: `args![name: "Ada", n: 3]`.
 #[macro_export]
 macro_rules! args {
     ($($key:ident : $value:expr),* $(,)?) => {
@@ -69,8 +69,8 @@ macro_rules! args {
     () => { &[] };
 }
 
-/// Le **localiseur** : des bundles Fluent par locale, une locale courante et
-/// une locale par défaut (le repli ultime).
+/// The **localiser**: Fluent bundles per locale, a current locale and a default
+/// locale, the latter being the last resort.
 pub struct Localizer {
     bundles: HashMap<LanguageIdentifier, FluentBundle<FluentResource>>,
     default: LanguageIdentifier,
@@ -78,8 +78,8 @@ pub struct Localizer {
 }
 
 impl Localizer {
-    /// Crée un localiseur dont la locale par défaut (et courante) est `default`
-    /// (p. ex. `"en"`, `"fr-FR"`). Une locale mal formée retombe sur `und`.
+    /// Creates a localiser whose default — and current — locale is `default`, for
+    /// instance `"en"` or `"fr-FR"`. A malformed locale falls back to `und`.
     pub fn new(default: &str) -> Self {
         let default: LanguageIdentifier = default.parse().unwrap_or_default();
         Self {
@@ -89,9 +89,9 @@ impl Localizer {
         }
     }
 
-    /// Ajoute (ou complète) les messages d'une locale depuis une source `.ftl`.
-    /// Les erreurs de syntaxe sont journalisées via `debug_assert` mais
-    /// n'empêchent pas de charger le reste du fichier.
+    /// Adds to, or extends, a locale's messages from an `.ftl` source. Syntax errors
+    /// are reported through `debug_assert` but do not stop the rest of the file from
+    /// loading.
     pub fn add(&mut self, locale: &str, ftl: &str) {
         let langid: LanguageIdentifier = match locale.parse() {
             Ok(id) => id,
@@ -108,20 +108,20 @@ impl Localizer {
             .bundles
             .entry(langid.clone())
             .or_insert_with(|| new_bundle(langid));
-        // Une clé déjà présente n'est pas écrasée (add_resource ignore les
-        // doublons en signalant une erreur qu'on ignore volontairement).
+        // An existing key is not overwritten: add_resource skips duplicates and
+        // reports an error, which we deliberately ignore.
         let _ = bundle.add_resource(resource);
     }
 
-    /// Locales disponibles (celles pour lesquelles des messages ont été chargés).
+    /// The available locales — those for which messages have been loaded.
     pub fn available(&self) -> Vec<LanguageIdentifier> {
         self.bundles.keys().cloned().collect()
     }
 
-    /// Fixe la locale courante. On **négocie** la meilleure correspondance parmi
-    /// les locales disponibles : correspondance exacte d'abord (`fr-FR`), puis
-    /// par langue (`fr-CA` → `fr`) ; à défaut, la locale par défaut. Renvoie la
-    /// locale effectivement retenue.
+    /// Sets the current locale. The best match among the available locales is
+    /// **negotiated**: an exact match first (`fr-FR`), then by language (`fr-CA` →
+    /// `fr`), and failing that the default locale. Returns the locale actually
+    /// chosen.
     pub fn set_locale(&mut self, locale: &str) -> LanguageIdentifier {
         let requested: LanguageIdentifier = match locale.parse() {
             Ok(id) => id,
@@ -130,9 +130,9 @@ impl Localizer {
                 return self.current.clone();
             }
         };
-        // 1) correspondance exacte.
+        // 1) An exact match.
         let exact = self.bundles.keys().find(|id| **id == requested).cloned();
-        // 2) même langue (région/variante ignorées).
+        // 2) The same language, ignoring region and variant.
         let by_lang = || {
             self.bundles
                 .keys()
@@ -145,26 +145,26 @@ impl Localizer {
         self.current.clone()
     }
 
-    /// La locale courante.
+    /// The current locale.
     pub fn locale(&self) -> &LanguageIdentifier {
         &self.current
     }
 
-    /// Résout un message **sans argument**. Repli : locale courante → défaut →
-    /// la clé elle-même (jamais de panique, jamais de chaîne vide inattendue).
+    /// Resolves a message **with no arguments**. The fallback chain is current
+    /// locale → default → the key itself: never a panic, never a surprise empty string.
     pub fn get(&self, key: &str) -> String {
         self.format(key, &[])
     }
 
-    /// Résout un message **avec arguments** (`args![…]`) dans la **locale
-    /// courante**. Même repli que [`Localizer::get`].
+    /// Resolves a message **with arguments** (`args![…]`) in the **current locale**,
+    /// with the same fallback chain as [`Localizer::get`].
     pub fn format(&self, key: &str, args: &[(&str, Arg)]) -> String {
         self.format_for(&self.current, key, args)
     }
 
-    /// Résout un message dans une **locale explicite** (sans changer la locale
-    /// courante) — pratique pour une `view` pure qui reçoit la langue en
-    /// paramètre. Repli : `locale` → locale par défaut → la clé brute.
+    /// Resolves a message in an **explicit locale**, without changing the current
+    /// one — handy for a pure `view` that receives the language as a parameter. The
+    /// fallback chain is `locale` → the default locale → the raw key.
     pub fn format_for(
         &self,
         locale: &LanguageIdentifier,
@@ -178,28 +178,27 @@ impl Localizer {
                 }
             }
         }
-        // Dernier repli : la clé brute (rend le manque visible sans casser l'UI).
+        // Last resort: the raw key, which makes the gap visible without breaking the UI.
         key.to_owned()
     }
 
-    /// Parse une étiquette de locale (`"fr"`, `"fr-FR"`), ou la locale par
-    /// défaut si elle est mal formée — utilitaire pour les appelants de
-    /// [`Localizer::format_for`].
+    /// Parses a locale tag (`"fr"`, `"fr-FR"`), or returns the default locale when
+    /// it is malformed — a utility for callers of [`Localizer::format_for`].
     pub fn langid(&self, locale: &str) -> LanguageIdentifier {
         locale.parse().unwrap_or_else(|_| self.default.clone())
     }
 }
 
-/// Construit un bundle pour une locale, sans **isolation bidi** (pas de marques
-/// FSI/PDI autour des arguments) : sortie lisible et testable. La direction
-/// RTL est gérée au niveau de la mise en page (voir `Theme::direction`).
+/// Builds a bundle for a locale, without **bidi isolation** — no FSI/PDI marks
+/// around arguments — which keeps the output readable and testable. RTL direction
+/// is handled at the layout level; see `Theme::direction`.
 fn new_bundle(langid: LanguageIdentifier) -> FluentBundle<FluentResource> {
     let mut bundle = FluentBundle::new_concurrent(vec![langid]);
     bundle.set_use_isolating(false);
     bundle
 }
 
-/// Formate `key` dans `bundle` si le message existe, sinon `None`.
+/// Formats `key` in `bundle` when the message exists, `None` otherwise.
 fn format_in(
     bundle: &FluentBundle<FluentResource>,
     key: &str,
@@ -259,7 +258,7 @@ mod tests {
     #[test]
     fn negotiates_region_to_base_language() {
         let mut l = sample();
-        // fr-CA n'existe pas → négocié vers fr.
+        // fr-CA does not exist, so it is negotiated down to fr.
         let got = l.set_locale("fr-CA");
         assert_eq!(got.to_string(), "fr");
         assert_eq!(l.format("hello", args![name: "Zoé"]), "Bonjour, Zoé !");
@@ -269,9 +268,9 @@ mod tests {
     fn falls_back_to_default_then_key() {
         let mut l = sample();
         l.set_locale("fr");
-        // « only-en » n'existe qu'en anglais → repli sur la locale par défaut.
+        // "only-en" exists only in English, so it falls back to the default locale.
         assert_eq!(l.get("only-en"), "English only");
-        // Clé inexistante partout → la clé brute.
+        // A key that exists nowhere yields the raw key.
         assert_eq!(l.get("missing-key"), "missing-key");
     }
 
