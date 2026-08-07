@@ -1,17 +1,17 @@
-//! Animation : la couche **physique et cinématique** partagée par tout le
-//! framework, sans dépendance au rendu ni à la plateforme.
+//! Animation: the **physics and kinematics** layer shared by the whole framework,
+//! with no dependency on rendering or on any platform.
 //!
-//! Trois briques découplées, sur le modèle éprouvé de Flutter :
-//! - [`Simulation`] : des fonctions pures `temps → valeur` (ressort, friction,
-//!   clamp). Le *quoi* physique.
-//! - [`Curve`] / [`Tween`] : le *façonnage* d'une progression `[0,1]` et son
-//!   application à une valeur typée.
-//! - [`AnimationController`] : le *pilote* qui échantillonne une simulation frame
-//!   par frame et expose valeur + [`Status`].
+//! Three decoupled building blocks:
+//! - [`Simulation`]: pure `time → value` functions (spring, friction, clamp). The
+//!   physical *what*.
+//! - [`Curve`] / [`Tween`]: the *shaping* of a `[0,1]` progress value, and its
+//!   application to a typed value.
+//! - [`AnimationController`]: the *driver*, which samples a simulation frame by
+//!   frame and exposes a value plus a [`Status`].
 //!
-//! Le shell instancie les contrôleurs par identité (`child_id`) ; les widgets
-//! lisent la valeur courante au paint — cohérent avec « les widgets se thèment au
-//! paint ».
+//! The shell instantiates controllers by identity (`child_id`); widgets read the
+//! current value at paint time — consistent with "widgets theme themselves at
+//! paint".
 
 mod controller;
 mod curve;
