@@ -1,21 +1,21 @@
-//! Tests **au pixel** du pipeline de transformation : un calque
-//! ([`frus_core::Primitive::Layer`]) porteur d'une matrice affine est composité
-//! par le GPU, et on vérifie que les pixels atterrissent **là où la matrice le
-//! prédit**. C'est la pièce que les tests de `frus-widgets` ne peuvent pas couvrir :
-//! ils prouvent que la *bonne matrice* est émise ; ceux-ci prouvent que le shader de
-//! compositing (`composite.wgsl`) la **rend correctement** (échantillonnage à `M⁻¹`).
+//! **Pixel-level** tests of the transform pipeline: a layer
+//! ([`frus_core::Primitive::Layer`]) carrying an affine matrix is composited by the
+//! GPU, and we check that the pixels land **where the matrix says they should**. This
+//! is the piece `frus-widgets`'s tests cannot cover: those prove the *right matrix* is
+//! emitted, these prove the compositing shader (`composite.wgsl`) **renders it
+//! correctly**, sampling at `M⁻¹`.
 //!
-//! Sans adaptateur GPU, `render_scene` renvoie `None` et le test s'ignore.
+//! With no GPU adapter `render_scene` returns `None` and the test skips itself.
 //!
-//! Convention : origine haut-gauche, y vers le bas, rotation **horaire**.
+//! Convention: origin at the top left, y pointing down, rotation **clockwise**.
 
 use std::f32::consts::FRAC_PI_2;
 
 use frus_core::{Affine, Color, LayerTransform, Point, Primitive, Rect, Scene};
 use frus_test::{render_scene, Snapshot};
 
-/// Une scène : un rectangle plein `inner`, de couleur `color`, enveloppé dans un
-/// calque transformé par `m` (rendu à plat puis composité transformé).
+/// A scene: a solid `inner` rectangle in `color`, wrapped in a layer transformed by
+/// `m` — rendered flat, then composited transformed.
 fn transformed_layer(inner: Rect, color: Color, m: LayerTransform) -> Scene {
     let mut content = Scene::new();
     content.fill_rect(inner, color);
@@ -40,72 +40,72 @@ fn is_clear(px: [u8; 4]) -> bool {
     px[0] < 60 && px[1] < 60 && px[2] < 60
 }
 
-/// Faute d'adaptateur, on s'ignore proprement (comme les autres tests de rendu).
+/// With no adapter we skip cleanly, as the other render tests do.
 fn render(scene: &Scene) -> Option<Snapshot> {
     let frame = render_scene(scene, 64, 64, Color::BLACK);
     if frame.is_none() {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
     }
     frame
 }
 
-/// **Rotation.** Une barre **horizontale** tournée de +90° autour du centre devient
-/// **verticale** : ses pixels sont là où serait la barre verticale, et plus là où
-/// était l'horizontale.
+/// **Rotation.** A **horizontal** bar turned +90° about the centre becomes
+/// **vertical**: its pixels are where the vertical bar would be, and no longer where
+/// the horizontal one was.
 #[test]
 fn rotation_turns_a_horizontal_bar_vertical() {
     let red = Color::rgb(1.0, 0.0, 0.0);
-    // Barre horizontale : x ∈ [8,56], y ∈ [28,36].
+    // A horizontal bar: x ∈ [8,56], y ∈ [28,36].
     let bar = Rect::new(8.0, 28.0, 48.0, 8.0);
     let m = LayerTransform::rotation(FRAC_PI_2, Point::new(32.0, 32.0));
     let Some(frame) = render(&transformed_layer(bar, red, m)) else {
         return;
     };
 
-    // Après +90° la barre est verticale : x ∈ [28,36], y ∈ [8,56].
-    assert!(
-        is_red(frame.pixel(32, 12)),
-        "haut de la barre verticale → rouge"
-    );
+    // After +90° the bar is vertical: x ∈ [28,36], y ∈ [8,56].
+    assert!(is_red(frame.pixel(32, 12)), "top of the vertical bar → red");
     assert!(
         is_red(frame.pixel(32, 52)),
-        "bas de la barre verticale → rouge"
+        "bottom of the vertical bar → red"
     );
-    assert!(is_red(frame.pixel(32, 32)), "centre → rouge");
-    // Là où était la barre horizontale (mais plus la verticale) → fond.
+    assert!(is_red(frame.pixel(32, 32)), "centre → red");
+    // Where the horizontal bar used to be, but the vertical one is not → background.
     assert!(
         is_clear(frame.pixel(12, 32)),
-        "ancien bord gauche → fond (a tourné)"
+        "the old left edge → background, it turned"
     );
     assert!(
         is_clear(frame.pixel(52, 32)),
-        "ancien bord droit → fond (a tourné)"
+        "the old right edge → background, it turned"
     );
 }
 
-/// **Échelle uniforme.** Un petit carré ×2 autour du centre couvre une aire quatre
-/// fois plus grande : un point hors du carré d'origine mais dans son image est peint.
+/// **Uniform scale.** A small square scaled ×2 about the centre covers four times the
+/// area: a point outside the original square but inside its image is painted.
 #[test]
 fn uniform_scale_enlarges_about_center() {
     let red = Color::rgb(1.0, 0.0, 0.0);
-    // Carré 16×16 centré : x,y ∈ [24,40].
+    // A centred 16×16 square: x,y ∈ [24,40].
     let sq = Rect::new(24.0, 24.0, 16.0, 16.0);
     let m = LayerTransform::new(Affine::scale(2.0, 2.0).about(Point::new(32.0, 32.0)));
     let Some(frame) = render(&transformed_layer(sq, red, m)) else {
         return;
     };
 
-    // Image ×2 : x,y ∈ [16,48].
+    // The ×2 image: x,y ∈ [16,48].
     assert!(
         is_red(frame.pixel(20, 20)),
-        "dans l'image agrandie (hors carré d'origine) → rouge"
+        "inside the enlarged image, outside the original square → red"
     );
-    assert!(is_red(frame.pixel(32, 32)), "centre → rouge");
-    assert!(is_clear(frame.pixel(6, 6)), "hors de l'image → fond");
+    assert!(is_red(frame.pixel(32, 32)), "centre → red");
+    assert!(
+        is_clear(frame.pixel(6, 6)),
+        "outside the image → background"
+    );
 }
 
-/// **Échelle non uniforme.** `scale(3, 1)` élargit le carré en x sans toucher y :
-/// un point élargi horizontalement est peint, un point décalé en y ne l'est pas.
+/// **Non-uniform scale.** `scale(3, 1)` widens the square in x without touching y: a
+/// point widened horizontally is painted, one displaced in y is not.
 #[test]
 fn non_uniform_scale_widens_x_only() {
     let red = Color::rgb(1.0, 0.0, 0.0);
@@ -115,27 +115,28 @@ fn non_uniform_scale_widens_x_only() {
         return;
     };
 
-    // Image : x ∈ [8,56] (×3), y ∈ [24,40] (inchangé).
-    assert!(is_red(frame.pixel(12, 32)), "élargi en x → rouge");
+    // The image: x ∈ [8,56] (×3), y ∈ [24,40], unchanged.
+    assert!(is_red(frame.pixel(12, 32)), "widened in x → red");
     assert!(
         is_clear(frame.pixel(32, 12)),
-        "y non mis à l'échelle → fond au-dessus"
+        "y is not scaled → background above"
     );
     assert!(
         is_clear(frame.pixel(4, 32)),
-        "au-delà de l'élargissement → fond"
+        "beyond the widening → background"
     );
 }
 
-/// **Composition.** `scale ×2` **puis** rotation +90° (une seule matrice) : le carré
-/// agrandi *et* tourné couvre l'image attendue — l'échantillonnage `M⁻¹` compose bien.
+/// **Composition.** `scale ×2` **then** a +90° rotation, in a single matrix: the
+/// square, both enlarged *and* turned, covers the expected image — `M⁻¹` sampling does
+/// compose.
 #[test]
 fn scale_then_rotate_composes() {
     let red = Color::rgb(1.0, 0.0, 0.0);
-    // Carré 16×8 (large et court) centré : x ∈ [24,40], y ∈ [28,36].
+    // A centred 16×8 square, wide and short: x ∈ [24,40], y ∈ [28,36].
     let sq = Rect::new(24.0, 28.0, 16.0, 8.0);
     let pivot = Point::new(32.0, 32.0);
-    // échelle ×2 (→ 32×16) puis rotation +90° (→ 16 large × 32 haut).
+    // Scale ×2 (→ 32×16) then rotate +90° (→ 16 wide by 32 tall).
     let m = LayerTransform::new(
         Affine::scale(2.0, 2.0)
             .about(pivot)
@@ -145,22 +146,22 @@ fn scale_then_rotate_composes() {
         return;
     };
 
-    // Après ×2 : x ∈ [16,48], y ∈ [24,40]. Après +90° autour du centre :
-    // x ∈ [24,40], y ∈ [16,48] — haut et étroit.
+    // After ×2: x ∈ [16,48], y ∈ [24,40]. After +90° about the centre:
+    // x ∈ [24,40], y ∈ [16,48] — tall and narrow.
     assert!(
         is_red(frame.pixel(32, 20)),
-        "haut de l'image composée → rouge"
+        "top of the composed image → red"
     );
     assert!(
         is_red(frame.pixel(32, 44)),
-        "bas de l'image composée → rouge"
+        "bottom of the composed image → red"
     );
     assert!(
         is_clear(frame.pixel(12, 32)),
-        "hors de l'image étroite → fond"
+        "outside the narrow image → background"
     );
     assert!(
         is_clear(frame.pixel(52, 32)),
-        "hors de l'image étroite → fond"
+        "outside the narrow image → background"
     );
 }

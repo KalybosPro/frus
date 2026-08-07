@@ -1,6 +1,6 @@
 [package]
 name = "frus-test"
-description = "Outils de test frus : rendu headless, snapshots, goldens"
+description = "frus test tooling: headless rendering, snapshots, goldens"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -9,5 +9,5 @@ license.workspace = true
 frus-core = { path = "../frus-core" }
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
-# Lecture/écriture des images de référence (goldens).
+# Reading and writing the reference images, that is, the goldens.
 png = "0.17"

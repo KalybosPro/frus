@@ -1,5 +1,6 @@
-//! Aperçu jetable (jalon 139) : un champ multi-lignes **défilé** (scroll retenu
-//! injecté dans le runtime), rendu hors écran pour vérifier à l'œil.
+//! A throwaway preview (milestone 139): a **scrolled** multi-line field — the
+//! retained scroll is injected into the runtime — rendered offscreen to be checked by
+//! eye.
 
 use frus_core::Size;
 use frus_widgets::{build_ui, collect_ids, Container, Runtime, TextInput, Theme};
@@ -17,19 +18,19 @@ fn scrolled_multiline_matches_golden() {
     let theme = Theme::dark();
     let size = Size::new(340.0, 160.0);
 
-    // Identité du champ pour y poser un défilement retenu.
+    // The field's identity, so a retained scroll can be placed on it.
     let ids = collect_ids(&root);
     let mut runtime = Runtime::default();
-    // Le champ est le 2e nœud (Container=racine, enfant=champ).
+    // The field is the second node: Container is the root, its child is the field.
     let field_id = ids[1];
-    runtime.scroll.insert(field_id, (0.0, 44.0)); // ~deux lignes plus bas
+    runtime.scroll.insert(field_id, (0.0, 44.0)); // about two lines further down
 
     let ui = build_ui(&root, size, &runtime, &theme);
     let Some(snap) = frus_test::render_scene(ui.scene(), 340, 160, theme.background) else {
-        eprintln!("pas de GPU : aperçu ignoré");
+        eprintln!("no GPU: preview skipped");
         return;
     };
-    // Défilé de ~2 lignes : « Line three/four/five » visibles, clippées à la boîte.
+    // Scrolled by about 2 lines: "Line three/four/five" visible, clipped to the box.
     snap.assert_golden(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/goldens/multiline_scrolled.png"

@@ -1,6 +1,6 @@
-//! Tests du harnais lui-même : snapshot de scène, rendu de widgets, goldens.
+//! Tests of the harness itself: scene snapshots, widget rendering, goldens.
 //!
-//! Sans adaptateur GPU les tests s'ignorent (le harnais renvoie `None`).
+//! With no GPU adapter the tests skip themselves, the harness returning `None`.
 
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
@@ -13,8 +13,8 @@ fn golden(name: &str) -> String {
     format!("{}/tests/goldens/{name}.png", env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Une scène mixte (rect arrondi + texte décoré) reproduit son golden à
-/// l'identique — le pipeline entier est déterministe dans cet environnement.
+/// A mixed scene — a rounded rect plus decorated text — reproduces its golden
+/// exactly: the whole pipeline is deterministic in this environment.
 #[test]
 fn scene_matches_golden() {
     let mut scene = Scene::new();
@@ -32,17 +32,21 @@ fn scene_matches_golden() {
         Color::WHITE,
     );
     let Some(snapshot) = render_scene(&scene, 120, 64, Color::BLACK) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    // Sanité avant golden : le fond est noir, le rect est bien dessiné.
-    assert_eq!(snapshot.pixel(2, 2), [0, 0, 0, 255], "coin = clear");
-    assert!(snapshot.lit_pixels(16) > 100, "rect + texte dessinés");
+    // A sanity check before the golden: the background is black, the rect is drawn.
+    assert_eq!(
+        snapshot.pixel(2, 2),
+        [0, 0, 0, 255],
+        "the corner is the clear colour"
+    );
+    assert!(snapshot.lit_pixels(16) > 100, "rect and text are drawn");
     snapshot.assert_golden(golden("scene_rect_text"));
 }
 
-/// Un arbre de widgets rend comme le ferait le shell (layout + thème), et
-/// reproduit son golden.
+/// A widget tree renders the way the shell would, layout and theme included, and
+/// reproduces its golden.
 #[test]
 fn widget_tree_matches_golden() {
     let theme = Theme::dark();
@@ -53,16 +57,16 @@ fn widget_tree_matches_golden() {
             .child(Text::new("done item").strikethrough().size(14.0)),
     );
     let Some(snapshot) = render_widget(&root, 160, 80, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 50, "du texte est dessiné");
+    assert!(snapshot.lit_pixels(40) > 50, "some text is drawn");
     snapshot.assert_golden(golden("widget_column_text"));
 }
 
-/// Un **formulaire décoré** (jalon 132) : un champ en erreur (label + bordure +
-/// message rouges) au-dessus d'un champ au repos (indice + texte d'aide discrets).
-/// Reproduit son golden — les deux états de la décoration sont figés.
+/// A **decorated form** (milestone 132): a field in error, with a red label, border
+/// and message, above a field at rest, with a discreet placeholder and helper text.
+/// Reproduces its golden — both decoration states are pinned down.
 #[test]
 fn decorated_form_matches_golden() {
     let theme = Theme::dark();
@@ -85,19 +89,19 @@ fn decorated_form_matches_golden() {
             ),
     );
     let Some(snapshot) = render_widget(&root, 360, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "labels, champs et textes dessinés"
+        "labels, fields and text are drawn"
     );
     snapshot.assert_golden(golden("decorated_form"));
 }
 
-/// **Champ à contour (jalon 144)** : style `outlined`, le label flottant se pose sur la
-/// bordure du haut, ouverte d'une **encoche** derrière lui. Le premier champ est rempli
-/// (label monté, encoche ouverte) ; le second est vide (label au repos, pas d'encoche).
+/// **An outlined field (milestone 144)**: the `outlined` style, where the floating
+/// label sits on the top border, which opens a **notch** behind it. The first field is
+/// filled — label raised, notch open — and the second empty: label at rest, no notch.
 #[test]
 fn outlined_field_matches_golden() {
     let theme = Theme::dark();
@@ -119,18 +123,18 @@ fn outlined_field_matches_golden() {
             ),
     );
     let Some(snapshot) = render_widget(&root, 360, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "bordures, labels et texte dessinés"
+        "borders, labels and text are drawn"
     );
     snapshot.assert_golden(golden("outlined_field"));
 }
 
-/// **Tableau de données (jalon 145)** : en-tête triable (indicateur ▲ sur la colonne
-/// triée) et ligne sélectionnée surlignée. Reproduit son golden.
+/// **A data table (milestone 145)**: a sortable header, with a ▲ indicator on the
+/// sorted column, and a highlighted selected row. Reproduces its golden.
 #[test]
 fn data_table_matches_golden() {
     let theme = Theme::dark();
@@ -145,18 +149,18 @@ fn data_table_matches_golden() {
             .row(&["Cara", "Manager", "4"]),
     );
     let Some(snapshot) = render_widget(&root, 340, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête, lignes et textes dessinés"
+        "header, rows and text are drawn"
     );
     snapshot.assert_golden(golden("data_table"));
 }
 
-/// **Tableau à sélection multiple (jalon 148)** : colonne de cases à cocher (avec « tout
-/// cocher » en en-tête), première colonne à largeur fixe. Deux lignes cochées.
+/// **A multi-select table (milestone 148)**: a checkbox column, with a "check all" in
+/// the header, and a fixed-width first column. Two rows checked.
 #[test]
 fn data_table_multiselect_matches_golden() {
     let theme = Theme::dark();
@@ -172,21 +176,21 @@ fn data_table_multiselect_matches_golden() {
             .row(&["Cara", "Manager", "4"]),
     );
     let Some(snapshot) = render_widget(&root, 360, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "cases, en-tête et lignes dessinés"
+        "checkboxes, header and rows are drawn"
     );
     snapshot.assert_golden(golden("data_table_multiselect"));
 }
 
-/// **Aperçu de réordonnancement (jalons 155/158/159)** : en glissant l'en-tête « Role »
-/// vers la droite (sur « Score »), la colonne source est **retirée**, « Score » **coulisse**
-/// pour combler le trou (place de dépôt ouverte à droite), et une **carte fidèle**
-/// (fond + texte « Role », soulevée) suit le curseur. Reconstruit la superposition du
-/// shell (`reflow_reorder_columns` + carte fantôme). Reproduit son golden.
+/// **A reorder preview (milestones 155/158/159)**: dragging the "Role" header right,
+/// onto "Score", **removes** the source column, **slides** "Score" over to close the
+/// gap — opening the drop slot on the right — and a **faithful card**, its background
+/// and "Role" text lifted, follows the pointer. This rebuilds the shell's overlay
+/// (`reflow_reorder_columns` plus the ghost card). Reproduces its golden.
 #[test]
 fn table_reorder_preview_matches_golden() {
     use frus_widgets::{build_ui, reflow_reorder_columns, Primitive, Runtime, Size};
@@ -208,23 +212,23 @@ fn table_reorder_preview_matches_golden() {
         &theme,
     );
 
-    // En-tête « Role » (colonne 1) glissé vers la droite, curseur au-delà de « Score »
-    // (qui a donc pleinement coulissé pour combler la place de « Role »).
+    // The "Role" header, column 1, dragged right, the pointer past "Score", which has
+    // therefore slid all the way over to fill "Role"'s slot.
     let role = Point::new(16.0 + 110.0 + 2.0 + 55.0, 16.0 + 17.0);
-    let id = ui.hit(role).expect("en-tête Role cliquable");
-    let src = ui.widget_rect(id).expect("bornes de l'en-tête Role");
+    let id = ui.hit(role).expect("the Role header is clickable");
+    let src = ui.widget_rect(id).expect("the Role header's bounds");
     let dx = 150.0;
 
-    // Coulissement des colonnes voisines suivant le curseur (source retirée, « Score »
-    // comblé vers la gauche à mesure que le curseur le dépasse).
+    // The neighbouring columns slide with the pointer: the source is removed and
+    // "Score" fills leftwards as the pointer moves past it.
     let mut scene = ui.scene().clone();
     let reflowed = reflow_reorder_columns(scene.primitives(), src, role.x + dx, id.as_u64());
     scene.clear();
     for primitive in reflowed {
         scene.push_primitive(primitive);
     }
-    // Carte soulevée : ombre + face fidèle (primitives de l'en-tête translatées et
-    // dé-découpées) + bord accentué.
+    // The lifted card: a shadow, a faithful face from the header's translated and
+    // un-clipped primitives, and an accent border.
     scene.set_clip(Rect::UNBOUNDED);
     let card = src.translate(dx, -2.0);
     scene.shadow(
@@ -253,22 +257,22 @@ fn table_reorder_preview_matches_golden() {
     );
 
     let Some(snapshot) = render_scene(&scene, w, h, theme.background) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         !ghost.is_empty(),
-        "la face fidèle capture les primitives de l'en-tête"
+        "the faithful face captures the header's primitives"
     );
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "tableau réagencé + carte fantôme dessinés"
+        "the reflowed table and the ghost card are drawn"
     );
     snapshot.assert_golden(golden("table_reorder_preview"));
 }
 
-/// **Tableau à cellules-widgets (jalon 164)** : une colonne d'**avatars** et une colonne
-/// de **puces** (`Chip`), au-delà du texte. Reproduit son golden.
+/// **A table with widget cells (milestone 164)**: a column of **avatars** and one of
+/// **chips** (`Chip`), beyond mere text. Reproduces its golden.
 #[test]
 fn table_widget_cells_matches_golden() {
     let theme = Theme::dark();
@@ -286,19 +290,19 @@ fn table_widget_cells_matches_golden() {
         ]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 300, 180, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête, avatars et puces dessinés"
+        "header, avatars and chips are drawn"
     );
     snapshot.assert_golden(golden("table_widget_cells"));
 }
 
-/// **Tableau à hauteur de rangée adaptative (jalon 166)** : une rangée dont la cellule
-/// contient un grand avatar (48 px) grandit au-delà de la hauteur nominale, tandis
-/// qu'une rangée texte garde sa hauteur de confort — aucun rognage. Reproduit son golden.
+/// **A table with adaptive row heights (milestone 166)**: a row whose cell holds a
+/// large 48 px avatar grows past the nominal height, while a text row keeps its
+/// comfortable height — nothing is cropped. Reproduces its golden.
 #[test]
 fn table_adaptive_rows_matches_golden() {
     let theme = Theme::dark();
@@ -313,18 +317,18 @@ fn table_adaptive_rows_matches_golden() {
         .row(&["Bo", "editor"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 300, 180, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "grande rangée et rangée texte dessinées"
+        "the tall row and the text row are drawn"
     );
     snapshot.assert_golden(golden("table_adaptive_rows"));
 }
 
-/// **En-têtes avec icône (jalon 168)** : une icône de tête précède le libellé de la
-/// colonne (icône + texte), l'en-tête restant triable. Reproduit son golden.
+/// **Headers with icons (milestone 168)**: a leading icon precedes the column's
+/// label, icon then text, and the header stays sortable. Reproduces its golden.
 #[test]
 fn table_header_icons_matches_golden() {
     let theme = Theme::dark();
@@ -337,19 +341,19 @@ fn table_header_icons_matches_golden() {
         .row(&["Bob", "3"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 300, 160, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-têtes à icônes et données dessinés"
+        "the icon headers and the data are drawn"
     );
     snapshot.assert_golden(golden("table_header_icons"));
 }
 
-/// **En-tête à widget d'action (jalon 170)** : un bouton (« Filter ») posé à droite d'un
-/// en-tête, cliquable indépendamment — le reste de l'en-tête triant toujours (indicateur ▲
-/// sur « Name »). Reproduit son golden.
+/// **A header with an action widget (milestone 170)**: a "Filter" button set at the
+/// right of a header, clickable on its own, while the rest of the header still sorts —
+/// note the ▲ indicator on "Name". Reproduces its golden.
 #[test]
 fn table_header_action_matches_golden() {
     let theme = Theme::dark();
@@ -370,19 +374,19 @@ fn table_header_action_matches_golden() {
         .row(&["Bob", "Away"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 340, 160, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête, bouton d'action et données dessinés"
+        "header, action button and data are drawn"
     );
     snapshot.assert_golden(golden("table_header_action"));
 }
 
-/// **En-tête entièrement widget (jalon 171)** : la ligne d'en-tête est faite de widgets
-/// arbitraires — ici une puce « User » et un bouton de tri maison « Sort » — au lieu de
-/// libellés texte. Le comportement (tri) est câblé par l'application. Reproduit son golden.
+/// **A fully widget header (milestone 171)**: the header row is made of arbitrary
+/// widgets — here a "User" chip and a hand-rolled "Sort" button — instead of text
+/// labels. The behaviour, sorting, is wired by the application. Reproduces its golden.
 #[test]
 fn table_widget_header_matches_golden() {
     let theme = Theme::dark();
@@ -404,19 +408,19 @@ fn table_widget_header_matches_golden() {
         .row(&["Bob", "Away"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 340, 160, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-têtes widget et données dessinés"
+        "the widget headers and the data are drawn"
     );
     snapshot.assert_golden(golden("table_widget_header"));
 }
 
-/// **Menu de colonne (jalon 172)** : un `Menu` déposé en widget d'action d'en-tête ouvre un
-/// menu **flottant** d'actions de colonne, rendu par-dessus la grille même imbriqué dans
-/// l'en-tête — sans code spécifique côté tableau. Reproduit son golden.
+/// **A column menu (milestone 172)**: a `Menu` dropped in as a header action widget
+/// opens a **floating** menu of column actions, rendered over the grid even though it
+/// is nested in the header — with no table-specific code. Reproduces its golden.
 #[test]
 fn table_column_menu_matches_golden() {
     let theme = Theme::dark();
@@ -444,19 +448,19 @@ fn table_column_menu_matches_golden() {
         .row(&["Bob", "3"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 340, 230, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête et menu de colonne flottant dessinés"
+        "the header and the floating column menu are drawn"
     );
     snapshot.assert_golden(golden("table_column_menu"));
 }
 
-/// **Tableau virtualisé (jalon 173)** : 1000 lignes, dont seules les visibles sont
-/// construites ; l'en-tête reste épinglé au-dessus d'un viewport défilant. Reproduit son
-/// golden (la fenêtre visible du haut).
+/// **A virtualised table (milestone 173)**: 1000 rows, of which only the visible ones
+/// are built, the header staying pinned above a scrolling viewport. Reproduces its
+/// golden, which is the visible window at the top.
 #[test]
 fn table_virtualized_matches_golden() {
     let theme = Theme::dark();
@@ -469,18 +473,19 @@ fn table_virtualized_matches_golden() {
         });
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 300, 190, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête épinglé et lignes visibles dessinés"
+        "the pinned header and the visible rows are drawn"
     );
     snapshot.assert_golden(golden("table_virtualized"));
 }
 
-/// **Tableau virtualisé à cellules-widgets (jalon 176)** : 500 lignes d'avatars + puces,
-/// dont seules les visibles sont construites, sous un en-tête épinglé. Reproduit son golden.
+/// **A virtualised table with widget cells (milestone 176)**: 500 rows of avatars and
+/// chips, of which only the visible ones are built, under a pinned header. Reproduces
+/// its golden.
 #[test]
 fn table_virtual_widgets_matches_golden() {
     let theme = Theme::dark();
@@ -497,18 +502,19 @@ fn table_virtual_widgets_matches_golden() {
         });
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 300, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête, avatars et puces virtualisés dessinés"
+        "the header and the virtualised avatars and chips are drawn"
     );
     snapshot.assert_golden(golden("table_virtual_widgets"));
 }
 
-/// **Tableau virtualisé à sélection multiple (jalon 177)** : colonne de cases à cocher (avec
-/// « tout cocher » épinglé) sur des lignes virtualisées, deux lignes cochées. Reproduit son golden.
+/// **A virtualised multi-select table (milestone 177)**: a checkbox column, with a
+/// pinned "check all", over virtualised rows, two of them checked. Reproduces its
+/// golden.
 #[test]
 fn table_virtual_checkboxes_matches_golden() {
     let theme = Theme::dark();
@@ -523,19 +529,19 @@ fn table_virtual_checkboxes_matches_golden() {
         });
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 320, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "cases, en-tête et lignes virtualisées dessinés"
+        "checkboxes, header and virtualised rows are drawn"
     );
     snapshot.assert_golden(golden("table_virtual_checkboxes"));
 }
 
-/// **Tableau à colonnes gelées (jalon 178)** : la première colonne (« Name ») reste figée à
-/// gauche tandis que les colonnes de trimestres défilent horizontalement (Q3 hors cadre).
-/// Reproduit son golden (position initiale, offset horizontal nul).
+/// **A table with frozen columns (milestone 178)**: the first column, "Name", stays
+/// pinned on the left while the quarter columns scroll horizontally, Q3 falling off
+/// frame. Reproduces its golden at the initial position, horizontal offset zero.
 #[test]
 fn table_frozen_columns_matches_golden() {
     let theme = Theme::dark();
@@ -550,19 +556,19 @@ fn table_frozen_columns_matches_golden() {
         .row(&["Bob", "12", "18", "24"]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 320, 150, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "colonne gelée et colonnes défilantes dessinées"
+        "the frozen column and the scrolling ones are drawn"
     );
     snapshot.assert_golden(golden("table_frozen_columns"));
 }
 
-/// **Colonnes gelées aux deux bords (jalon 179)** : « Name » figée à gauche et « Act » figée
-/// à droite, les colonnes du milieu défilant entre les deux, avec une ombre de séparation à
-/// chaque bord de gel. Reproduit son golden.
+/// **Columns frozen at both edges (milestone 179)**: "Name" pinned left and "Act"
+/// pinned right, the middle columns scrolling between them, with a separating shadow at
+/// each frozen edge. Reproduces its golden.
 #[test]
 fn table_frozen_both_edges_matches_golden() {
     let theme = Theme::dark();
@@ -576,19 +582,19 @@ fn table_frozen_both_edges_matches_golden() {
         .row(&["Bob", "12", "18", "..."]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 340, 150, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "colonnes gelées des deux bords dessinées"
+        "the columns frozen at both edges are drawn"
     );
     snapshot.assert_golden(golden("table_frozen_both_edges"));
 }
 
-/// **Récapitulatif d'erreurs de formulaire (jalon 180)** : après une soumission invalide, une
-/// carte teintée « erreur » liste tous les messages (`Form::errors` → `ErrorSummary`), au-dessus
-/// du champ fautif. Reproduit son golden.
+/// **A form error summary (milestone 180)**: after an invalid submission, an
+/// error-tinted card lists every message (`Form::errors` → `ErrorSummary`), above the
+/// offending field. Reproduces its golden.
 #[test]
 fn form_error_summary_matches_golden() {
     use frus_widgets::form::{Form, Rule};
@@ -608,19 +614,19 @@ fn form_error_summary_matches_golden() {
         ),
     );
     let Some(snapshot) = render_widget(&root, 360, 230, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "récapitulatif d'erreurs et champ dessinés"
+        "the error summary and the field are drawn"
     );
     snapshot.assert_golden(golden("form_error_summary"));
 }
 
-/// **Formulaire multi-étapes (jalon 182)** : l'indicateur `Steps` (étape 2/3 en cours, la
-/// première terminée avec une coche) coiffe le contenu de l'étape et une barre Précédent/Suivant.
-/// Reproduit son golden.
+/// **A multi-step form (milestone 182)**: the `Steps` indicator — step 2 of 3 under
+/// way, the first complete with a tick — tops the step's content and a Back/Next bar.
+/// Reproduces its golden.
 #[test]
 fn form_wizard_matches_golden() {
     use frus_widgets::Steps;
@@ -643,18 +649,19 @@ fn form_wizard_matches_golden() {
             ),
     );
     let Some(snapshot) = render_widget(&root, 420, 280, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "indicateur d'étapes, champ et boutons dessinés"
+        "the step indicator, the field and the buttons are drawn"
     );
     snapshot.assert_golden(golden("form_wizard"));
 }
 
-/// **Calendrier borné (jalon 231)** : juillet 2026, fenêtre sélectionnable `[10, 20]` — les jours
-/// hors bornes sont désactivés (atténués, non cliquables), le 15 sélectionné. Reproduit son golden.
+/// **A bounded calendar (milestone 231)**: July 2026, with a selectable window of
+/// `[10, 20]` — the days outside are disabled, dimmed and unclickable — and the 15th
+/// selected. Reproduces its golden.
 #[test]
 fn date_bounded_matches_golden() {
     use frus_widgets::DatePicker;
@@ -670,16 +677,20 @@ fn date_bounded_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(16.0).child(picker);
     let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "calendrier borné dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "the bounded calendar is drawn"
+    );
     snapshot.assert_golden(golden("date_bounded"));
 }
 
-/// **Calendrier plage bornée (jalon 234)** : juillet 2026, plage sélectionnée 10–15 dans une
-/// fenêtre autorisée `[8, 20]` — les bornes/jours entre sont mis en avant, le hors-fenêtre est
-/// désactivé (atténué). Reproduit son golden.
+/// **A bounded range calendar (milestone 234)**: July 2026, the 10th to the 15th
+/// selected within an allowed window of `[8, 20]` — the endpoints and the days between
+/// stand out, and anything outside the window is disabled and dimmed. Reproduces its
+/// golden.
 #[test]
 fn date_range_bounded_matches_golden() {
     use frus_widgets::DatePicker;
@@ -696,16 +707,16 @@ fn date_range_bounded_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(16.0).child(picker);
     let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "plage bornée dessinée");
+    assert!(snapshot.lit_pixels(40) > 100, "the bounded range is drawn");
     snapshot.assert_golden(golden("date_range_bounded"));
 }
 
-/// **Calendrier filtré / blackout (jalon 235)** : juillet 2026, quelques jours **indisponibles**
-/// épars (prédicat `selectableDayPredicate` façon Flutter) — atténués et non cliquables, le 21
-/// sélectionné. Reproduit son golden.
+/// **A filtered, or blacked-out, calendar (milestone 235)**: July 2026 with a few
+/// scattered **unavailable** days, chosen by a selectable-day predicate — dimmed and
+/// unclickable — and the 21st selected. Reproduces its golden.
 #[test]
 fn date_blackout_matches_golden() {
     use frus_widgets::DatePicker;
@@ -727,18 +738,19 @@ fn date_blackout_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(16.0).child(picker);
     let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "calendrier avec jours blackout dessiné"
+        "the calendar with blacked-out days is drawn"
     );
     snapshot.assert_golden(golden("date_blackout"));
 }
 
-/// **Calendrier en mode plage (jalon 184)** : juillet 2026, intervalle du 10 au 15 —
-/// bornes en pastille pleine, jours intermédiaires en bande douce. Reproduit son golden.
+/// **A calendar in range mode (milestone 184)**: July 2026, the 10th to the 15th —
+/// the endpoints as solid pills, the days between as a soft band. Reproduces its
+/// golden.
 #[test]
 fn date_range_matches_golden() {
     use frus_widgets::DatePicker;
@@ -753,18 +765,19 @@ fn date_range_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(16.0).child(picker);
     let Some(snapshot) = render_widget(&root, 300, 340, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "calendrier et plage dessinés"
+        "the calendar and the range are drawn"
     );
     snapshot.assert_golden(golden("date_range"));
 }
 
-/// **Calendrier double (jalon 186)** : juillet + août 2026 côte à côte, plage du 28 juillet au
-/// 3 août — la bande de plage se poursuit d'un mois à l'autre. Reproduit son golden.
+/// **A dual calendar (milestone 186)**: July and August 2026 side by side, the range
+/// running from 28 July to 3 August — the range band carries on from one month to the
+/// next. Reproduces its golden.
 #[test]
 fn date_range_dual_matches_golden() {
     use frus_widgets::DatePicker;
@@ -779,15 +792,18 @@ fn date_range_dual_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(16.0).child(picker);
     let Some(snapshot) = render_widget(&root, 580, 320, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 200, "deux mois et plage dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 200,
+        "both months and the range are drawn"
+    );
     snapshot.assert_golden(golden("date_range_dual"));
 }
 
-/// **Plage horaire (jalon 187)** : deux sélecteurs d'heure étiquetés « Start » (09:00) et
-/// « End » (17:30), minutes par pas de 15. Reproduit son golden.
+/// **A time range (milestone 187)**: two time pickers labelled "Start" (09:00) and
+/// "End" (17:30), with minutes in steps of 15. Reproduces its golden.
 #[test]
 fn time_range_matches_golden() {
     use frus_widgets::TimeRange;
@@ -795,18 +811,15 @@ fn time_range_matches_golden() {
     let range = TimeRange::new((9, 0), (17, 30), |_, _, _| ()).minute_step(15);
     let root: Container<()> = Container::new().padding(16.0).child(range);
     let Some(snapshot) = render_widget(&root, 540, 420, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(
-        snapshot.lit_pixels(40) > 200,
-        "deux sélecteurs d'heure dessinés"
-    );
+    assert!(snapshot.lit_pixels(40) > 200, "both time pickers are drawn");
     snapshot.assert_golden(golden("time_range"));
 }
 
-/// **Couche de notifications (jalon 188)** : deux toasts empilés dans le coin bas-droit
-/// (`ToastHost`), le second portant une action « UNDO ». Reproduit son golden.
+/// **A notification layer (milestone 188)**: two toasts stacked in the bottom-right
+/// corner (`ToastHost`), the second carrying an "Undo" action. Reproduces its golden.
 #[test]
 fn toast_host_matches_golden() {
     use frus_widgets::{Toast, ToastHost, ToastPosition};
@@ -815,15 +828,15 @@ fn toast_host_matches_golden() {
         .toast(Toast::new("File uploaded").success())
         .toast(Toast::new("Message archived").action("Undo", ()));
     let Some(snapshot) = render_widget(&host, 420, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 60, "toasts empilés dessinés");
+    assert!(snapshot.lit_pixels(40) > 60, "the stacked toasts are drawn");
     snapshot.assert_golden(golden("toast_host"));
 }
 
-/// **Plage date + heure (jalon 189)** : calendrier double (28/07 → 03/08), plage horaire
-/// (09:00 → 17:30) et récapitulatif « début → fin ». Reproduit son golden.
+/// **A date-and-time range (milestone 189)**: a dual calendar (28/07 → 03/08), a time
+/// range (09:00 → 17:30) and a "start → end" summary. Reproduces its golden.
 #[test]
 fn datetime_range_matches_golden() {
     use frus_widgets::DateTimeRange;
@@ -841,19 +854,20 @@ fn datetime_range_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(16.0).child(picker);
     let Some(snapshot) = render_widget(&root, 580, 760, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 300,
-        "calendrier double, heures et récap dessinés"
+        "the dual calendar, the times and the summary are drawn"
     );
     snapshot.assert_golden(golden("datetime_range"));
 }
 
-/// **Assistant intégré, étape Review avec erreurs (jalon 190)** : l'indicateur `Steps`
-/// (Review courant), un récapitulatif d'erreurs **cliquable** (`ErrorSummary::links`) et la
-/// barre Back / Create — l'assemblage réel de l'écran assistant du démo. Reproduit son golden.
+/// **The integrated wizard, Review step with errors (milestone 190)**: the `Steps`
+/// indicator with Review current, a **clickable** error summary
+/// (`ErrorSummary::links`), and the Back / Create bar — the demo's wizard screen as it
+/// really assembles. Reproduces its golden.
 #[test]
 fn wizard_review_errors_matches_golden() {
     use frus_widgets::{ErrorSummary, Steps};
@@ -880,18 +894,18 @@ fn wizard_review_errors_matches_golden() {
             ),
     );
     let Some(snapshot) = render_widget(&root, 480, 380, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "assistant (étape Review, erreurs) dessiné"
+        "the wizard, on the Review step with errors, is drawn"
     );
     snapshot.assert_golden(golden("wizard_review_errors"));
 }
 
-/// **Bouton désactivé (jalon 191)** : « Next » actif (accent, ombre) à côté de sa version
-/// désactivée (grisée, sans ombre). Reproduit son golden.
+/// **A disabled button (milestone 191)**: an active "Next", accented and shadowed,
+/// beside its disabled version, greyed and shadowless. Reproduces its golden.
 #[test]
 fn button_disabled_matches_golden() {
     let theme = Theme::dark();
@@ -902,19 +916,16 @@ fn button_disabled_matches_golden() {
             .child(Button::new("Next").enabled(false)),
     );
     let Some(snapshot) = render_widget(&root, 260, 90, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(
-        snapshot.lit_pixels(40) > 40,
-        "les deux boutons sont dessinés"
-    );
+    assert!(snapshot.lit_pixels(40) > 40, "both buttons are drawn");
     snapshot.assert_golden(golden("button_disabled"));
 }
 
-/// **Assistant, étape Security (jalon 192)** : `Steps` (Security courant), deux mots de passe
-/// **masqués** (`TextInput::obscure`), et « Next » **désactivé** (confirmation non concordante).
-/// Reproduit son golden.
+/// **The wizard's Security step (milestone 192)**: `Steps` with Security current, two
+/// **obscured** passwords (`TextInput::obscure`), and "Next" **disabled**, the
+/// confirmation not matching. Reproduces its golden.
 #[test]
 fn wizard_password_step_matches_golden() {
     use frus_widgets::Steps;
@@ -947,16 +958,17 @@ fn wizard_password_step_matches_golden() {
             ),
     );
     let Some(snapshot) = render_widget(&root, 440, 420, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "étape mot de passe dessinée");
+    assert!(snapshot.lit_pixels(40) > 100, "the password step is drawn");
     snapshot.assert_golden(golden("wizard_password_step"));
 }
 
-/// **Assistant, mots de passe révélés + étapes par validité (jalons 194–195)** : la bascule
-/// « Hide password » démasque les champs (`obscure(false)`), et l'étape Account est marquée
-/// **terminée** (coche) via `Steps::completed` — pas seulement par position. Reproduit son golden.
+/// **The wizard with passwords revealed, and steps marked by validity (milestones
+/// 194–195)**: the "Hide password" toggle unmasks the fields (`obscure(false)`), and
+/// the Account step is marked **complete**, with a tick, through `Steps::completed` —
+/// not merely by position. Reproduces its golden.
 #[test]
 fn wizard_password_revealed_matches_golden() {
     use frus_widgets::Steps;
@@ -992,22 +1004,22 @@ fn wizard_password_revealed_matches_golden() {
             ),
     );
     let Some(snapshot) = render_widget(&root, 440, 460, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "étape révélée dessinée");
+    assert!(snapshot.lit_pixels(40) > 100, "the revealed step is drawn");
     snapshot.assert_golden(golden("wizard_password_revealed"));
 }
 
-/// **Table éditable en ligne (jalon 196)** : une grille où chaque cellule est un widget
-/// (`Table::widget_row`) — cellules statiques **cliquables** (un `Container` qui émet
-/// « éditer cette cellule ») et une cellule **en édition** rendue par un `TextInput`. Prouve
-/// que l'édition en ligne se compose sans nouveau mécanisme. Reproduit son golden.
+/// **An inline-editable table (milestone 196)**: a grid in which every cell is a
+/// widget (`Table::widget_row`) — static **clickable** cells, each a `Container` that
+/// emits "edit this cell", and one cell **being edited**, rendered by a `TextInput`.
+/// Proof that inline editing composes with no new mechanism. Reproduces its golden.
 #[test]
 fn table_editable_matches_golden() {
     use frus_widgets::Table;
     let theme = Theme::dark();
-    // Fabrique d'une cellule statique cliquable (clic → passer cette cellule en édition).
+    // A factory for a static clickable cell; clicking it puts the cell into editing.
     let cell = |value: &str| -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
         let value = value.to_string();
         Box::new(move || {
@@ -1019,7 +1031,7 @@ fn table_editable_matches_golden() {
             ) as Box<dyn frus_widgets::Widget<()>>
         })
     };
-    // Fabrique d'une cellule **en édition** : un champ de saisie lié à la valeur.
+    // A factory for a cell **being edited**: an input field bound to the value.
     let editing = |value: &str| -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
         let value = value.to_string();
         Box::new(move || {
@@ -1047,16 +1059,17 @@ fn table_editable_matches_golden() {
         ]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 560, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "grille éditable dessinée");
+    assert!(snapshot.lit_pixels(40) > 150, "the editable grid is drawn");
     snapshot.assert_golden(golden("table_editable"));
 }
 
-/// **DataTable auto-triant (jalon 232)** : un tableau texte qui **trie ses propres lignes** selon
-/// l'état `sorted(colonne, sens)` — ici par « Score » **décroissant** (tri numérique-aware), avec
-/// l'indicateur de sens sur l'en-tête. Reproduit son golden.
+/// **A self-sorting DataTable (milestone 232)**: a text table that **sorts its own
+/// rows** from the `sorted(column, direction)` state — here by "Score",
+/// **descending**, with a numeric-aware comparison and the direction indicator on the
+/// header. Reproduces its golden.
 #[test]
 fn data_table_sorted_matches_golden() {
     use frus_widgets::DataTable;
@@ -1073,16 +1086,19 @@ fn data_table_sorted_matches_golden() {
         .on_sort(|_| ());
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 480, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable trié dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "the sorted DataTable is drawn"
+    );
     snapshot.assert_golden(golden("data_table_sorted"));
 }
 
-/// **DataTable paginé (jalons 233/236)** : sept lignes triées par « Score » décroissant, pages de
-/// **3** — la page 1 (3 lignes) sous un pied « N–M of T » + [`Pagination`] + sélecteur de taille de
-/// page (3/5/10). Reproduit son golden.
+/// **A paginated DataTable (milestones 233/236)**: seven rows sorted by "Score"
+/// descending, in pages of **3** — page 1, three rows, under an "N–M of T" footer plus
+/// [`Pagination`] and a page-size selector (3/5/10). Reproduces its golden.
 #[test]
 fn data_table_paginated_matches_golden() {
     use frus_widgets::DataTable;
@@ -1106,16 +1122,20 @@ fn data_table_paginated_matches_golden() {
         .page_sizes(&[3, 5, 10], |_| ());
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 560, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "DataTable paginé dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 150,
+        "the paginated DataTable is drawn"
+    );
     snapshot.assert_golden(golden("data_table_paginated"));
 }
 
-/// **DataTable à ligne sélectionnée (jalon 239)** : le tableau trié par « Score » **décroissant**,
-/// une **ligne source** marquée `selected` — surlignée à sa **position triée**, pas à son index
-/// d'origine. Prouve la traduction index source ↔ position affichée. Reproduit son golden.
+/// **A DataTable with a selected row (milestone 239)**: the table sorted by "Score"
+/// **descending**, with one **source row** marked `selected` — highlighted at its
+/// **sorted position**, not at its original index. Proof of the source-index ↔
+/// displayed-position translation. Reproduces its golden.
 #[test]
 fn data_table_selected_matches_golden() {
     use frus_widgets::DataTable;
@@ -1126,8 +1146,8 @@ fn data_table_selected_matches_golden() {
         vec!["Carol".to_string(), "2".to_string(), "Berlin".to_string()],
         vec!["Dan".to_string(), "10".to_string(), "Rome".to_string()],
     ];
-    // Tri décroissant par score → [Bob 12, Dan 10, Ada 9, Carol 2]. La ligne **source** 3 (Dan)
-    // doit apparaître surlignée en **2e** position affichée.
+    // Sorting by score descending gives [Bob 12, Dan 10, Ada 9, Carol 2]. **Source**
+    // row 3 (Dan) must appear highlighted in the **second** displayed position.
     let table = DataTable::<()>::new(["Name", "Score", "City"], rows)
         .column_widths(&[150.0, 110.0, 150.0])
         .sorted(1, false)
@@ -1136,19 +1156,20 @@ fn data_table_selected_matches_golden() {
         .selected(&[3]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 480, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 150,
-        "DataTable avec ligne sélectionnée dessiné"
+        "the DataTable with a selected row is drawn"
     );
     snapshot.assert_golden(golden("data_table_selected"));
 }
 
-/// **DataTable à tri personnalisé (jalon 240)** : une colonne « Priority » triée **croissant** par un
-/// comparateur maison (`Low < Medium < High`). Le tri texte par défaut classerait `High, Low, Medium`
-/// (alphabétique) — ici l'ordre affiché est bien `Low, Medium, High`. Reproduit son golden.
+/// **A DataTable with a custom sort (milestone 240)**: a "Priority" column sorted
+/// **ascending** by a hand-written comparator (`Low < Medium < High`). The default text
+/// sort would order them `High, Low, Medium`, alphabetically — here the displayed order
+/// really is `Low, Medium, High`. Reproduces its golden.
 #[test]
 fn data_table_custom_sort_matches_golden() {
     use frus_widgets::DataTable;
@@ -1173,20 +1194,20 @@ fn data_table_custom_sort_matches_golden() {
         .on_sort(|_| ());
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 420, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 150,
-        "DataTable à tri personnalisé dessiné"
+        "the DataTable with a custom sort is drawn"
     );
     snapshot.assert_golden(golden("data_table_custom_sort"));
 }
 
-/// **DataTable à sélection multiple (jalon 241)** : colonne de cases à cocher coiffée d'un « tout
-/// cocher ». Le tableau est trié par « Score » décroissant `[Bob, Dan, Ada, Carol]` ; les lignes
-/// **source** 0 (Ada) et 3 (Dan) sont cochées → deux cases cochées (aux positions triées) et la case
-/// de tête **indéterminée** (2 sur 4). Reproduit son golden.
+/// **A multi-select DataTable (milestone 241)**: a checkbox column topped by a "check
+/// all". The table is sorted by "Score" descending, `[Bob, Dan, Ada, Carol]`, and
+/// **source** rows 0 (Ada) and 3 (Dan) are checked → two boxes ticked, at their sorted
+/// positions, and the header box **indeterminate**, 2 of 4. Reproduces its golden.
 #[test]
 fn data_table_checkboxes_matches_golden() {
     use frus_widgets::DataTable;
@@ -1205,19 +1226,20 @@ fn data_table_checkboxes_matches_golden() {
         .selected(&[0, 3]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 500, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 150,
-        "DataTable à cases à cocher dessiné"
+        "the DataTable with checkboxes is drawn"
     );
     snapshot.assert_golden(golden("data_table_checkboxes"));
 }
 
-/// **DataTable cherchable (jalon 242)** : un champ de recherche coiffe le tableau, dont les lignes
-/// source sont **filtrées** (sous-chaîne insensible à la casse, toutes colonnes) avant tri. La requête
-/// « ar » ne garde que `Bob (Paris)` et `Carol (Berlin)` parmi quatre. Reproduit son golden.
+/// **A searchable DataTable (milestone 242)**: a search field tops the table, whose
+/// source rows are **filtered** — a case-insensitive substring across every column —
+/// before sorting. The query "ar" keeps only `Bob (Paris)` and `Carol (Berlin)` out of
+/// four. Reproduces its golden.
 #[test]
 fn data_table_search_matches_golden() {
     use frus_widgets::DataTable;
@@ -1235,19 +1257,20 @@ fn data_table_search_matches_golden() {
         .on_sort(|_| ());
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 400, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 150,
-        "DataTable cherchable dessiné"
+        "the searchable DataTable is drawn"
     );
     snapshot.assert_golden(golden("data_table_search"));
 }
 
-/// **DataTable à actions groupées (jalon 243)** : quand des lignes sont cochées, une barre coiffe le
-/// tableau — « N selected » + les boutons d'action fournis par l'application (ici `Clear` secondaire et
-/// `Delete` danger). Deux lignes sélectionnées → « 2 selected ». Reproduit son golden.
+/// **A DataTable with bulk actions (milestone 243)**: when rows are checked a bar tops
+/// the table — "N selected" plus the action buttons the application supplies, here a
+/// secondary `Clear` and a danger `Delete`. Two rows selected gives "2 selected".
+/// Reproduces its golden.
 #[test]
 fn data_table_bulk_actions_matches_golden() {
     use frus_widgets::{Button, DataTable, Variant};
@@ -1270,19 +1293,19 @@ fn data_table_bulk_actions_matches_golden() {
         });
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 460, 250, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 150,
-        "DataTable à barre d'actions dessiné"
+        "the DataTable with an action bar is drawn"
     );
     snapshot.assert_golden(golden("data_table_bulk_actions"));
 }
 
-/// **DataTable état vide (jalon 244)** : un champ de recherche dont la requête « zzz » ne correspond à
-/// aucune ligne → sous l'en-tête, un message d'**état vide** centré (ici surchargé) remplace le corps,
-/// **sans** pied de pagination. Reproduit son golden.
+/// **A DataTable's empty state (milestone 244)**: a search field whose "zzz" query
+/// matches no row → under the header, a centred **empty-state** message, overridden
+/// here, replaces the body, **without** a pagination footer. Reproduces its golden.
 #[test]
 fn data_table_empty_matches_golden() {
     use frus_widgets::DataTable;
@@ -1298,16 +1321,19 @@ fn data_table_empty_matches_golden() {
         .empty_text("No people match your search");
     let root: Container<()> = Container::new().padding(16.0).child(table);
     let Some(snapshot) = render_widget(&root, 400, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 80, "DataTable état vide dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 80,
+        "the DataTable's empty state is drawn"
+    );
     snapshot.assert_golden(golden("data_table_empty"));
 }
 
-/// **Tree sélectionnable (jalon 246)** : un arbre de fichiers déplié — chevrons (▾/▸), indentation,
-/// **lignes de guidage** verticales vers les ancêtres, et un nœud **sélectionné** surligné
-/// (`button.rs`). Reproduit son golden.
+/// **A selectable Tree (milestone 246)**: an expanded file tree — chevrons (▾/▸),
+/// indentation, vertical **guide lines** back to the ancestors, and one **selected**
+/// node highlighted (`button.rs`). Reproduces its golden.
 #[test]
 fn tree_selected_matches_golden() {
     use frus_widgets::Tree;
@@ -1323,16 +1349,17 @@ fn tree_selected_matches_golden() {
         .node(6, 0, "Cargo.toml", false, false);
     let root: Container<()> = Container::new().padding(16.0).child(tree);
     let Some(snapshot) = render_widget(&root, 320, 240, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "arbre dessiné");
+    assert!(snapshot.lit_pixels(40) > 100, "the tree is drawn");
     snapshot.assert_golden(golden("tree_selected"));
 }
 
-/// **Kanban (jalon 247)** : trois colonnes titrées (`To do`/`Doing`/`Done`) de cartes, chacune sur un
-/// panneau thémé, avec une **zone de dépôt** au bas de chaque colonne. Le glisser-déposer inter-colonnes
-/// est câblé (mécanisme de réordonnancement) ; ce golden fige la **disposition**. Reproduit son golden.
+/// **A Kanban board (milestone 247)**: three titled columns of cards
+/// (`To do`/`Doing`/`Done`), each on a themed panel, with a **drop zone** at the bottom
+/// of every column. Cross-column drag and drop is wired through the reorder mechanism;
+/// this golden pins down the **layout**.
 #[test]
 fn kanban_matches_golden() {
     use frus_widgets::Kanban;
@@ -1343,20 +1370,21 @@ fn kanban_matches_golden() {
         .column("Done", ["Kickoff", "Research"]);
     let root: Container<()> = Container::new().padding(16.0).child(board);
     let Some(snapshot) = render_widget(&root, 760, 280, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 150, "tableau Kanban dessiné");
+    assert!(snapshot.lit_pixels(40) > 150, "the Kanban board is drawn");
     snapshot.assert_golden(golden("kanban"));
 }
 
-/// **Kanban à cartes riches (jalon 249)** : des cartes **widgets** (libellé + bouton × de suppression)
-/// et un bouton **« + Add card »** au bas de chaque colonne. Reproduit son golden.
+/// **A Kanban board with rich cards (milestone 249)**: **widget** cards, each a label
+/// plus a × delete button, and an **"+ Add card"** button at the bottom of every
+/// column. Reproduces its golden.
 #[test]
 fn kanban_rich_matches_golden() {
     use frus_widgets::{Align, Button, Flex, Kanban, Text, Variant};
     let theme = Theme::dark();
-    // Fabrique d'une carte riche : libellé à gauche, bouton × à droite.
+    // A factory for a rich card: the label on the left, the × button on the right.
     fn rich(label: &'static str) -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
         Box::new(move || {
             Box::new(
@@ -1375,18 +1403,18 @@ fn kanban_rich_matches_golden() {
         .column_widgets("Doing", [rich("Build widget")]);
     let root: Container<()> = Container::new().padding(16.0).child(board);
     let Some(snapshot) = render_widget(&root, 540, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 150,
-        "Kanban à cartes riches dessiné"
+        "the Kanban board with rich cards is drawn"
     );
     snapshot.assert_golden(golden("kanban_rich"));
 }
 
-/// **Graphique à barres (jalon 199)** : une série `(jour, valeur)` en barres mises à l'échelle
-/// du maximum, valeurs au-dessus, libellés en dessous, ligne de base. Reproduit son golden.
+/// **A bar chart (milestone 199)**: a `(day, value)` series as bars scaled to the
+/// maximum, values above, labels below, and a baseline. Reproduces its golden.
 #[test]
 fn bar_chart_matches_golden() {
     use frus_widgets::BarChart;
@@ -1399,22 +1427,23 @@ fn bar_chart_matches_golden() {
         ("Fri", 4.0),
     ])
     .height(200.0);
-    // `BarChart` remplit la largeur (Percent) : le parent doit avoir une largeur **définie**.
+    // `BarChart` fills the width (Percent), so the parent must have a **definite** width.
     let root: Container<()> = Container::new()
         .width(360.0)
         .height(240.0)
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "graphique à barres dessiné");
+    assert!(snapshot.lit_pixels(40) > 100, "the bar chart is drawn");
     snapshot.assert_golden(golden("bar_chart"));
 }
 
-/// **BarChart groupée multi-séries (jalon 212)** : deux séries nommées, barres groupées côte à côte
-/// par catégorie, échelle et axe (`grid(4)`) partagés, légende. Reproduit son golden.
+/// **A grouped multi-series BarChart (milestone 212)**: two named series, their bars
+/// grouped side by side per category, sharing a scale and an axis (`grid(4)`), with a
+/// legend. Reproduces its golden.
 #[test]
 fn bar_chart_grouped_matches_golden() {
     use frus_widgets::BarChart;
@@ -1441,15 +1470,16 @@ fn bar_chart_grouped_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "barres groupées dessinées");
+    assert!(snapshot.lit_pixels(40) > 100, "the grouped bars are drawn");
     snapshot.assert_golden(golden("bar_chart_grouped"));
 }
 
-/// **BarChart empilée multi-séries (jalon 216)** : deux séries cumulées dans une seule barre par
-/// catégorie (`stacked(true)`), échelle au total, axe (`grid(4)`) et légende. Reproduit son golden.
+/// **A stacked multi-series BarChart (milestone 216)**: two series accumulated into a
+/// single bar per category (`stacked(true)`), the scale set by the total, with an axis
+/// (`grid(4)`) and a legend. Reproduces its golden.
 #[test]
 fn bar_chart_stacked_matches_golden() {
     use frus_widgets::BarChart;
@@ -1477,16 +1507,16 @@ fn bar_chart_stacked_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "barres empilées dessinées");
+    assert!(snapshot.lit_pixels(40) > 100, "the stacked bars are drawn");
     snapshot.assert_golden(golden("bar_chart_stacked"));
 }
 
-/// **Graphique en lignes (jalon 200)** : la même série `(jour, valeur)` que la BarChart, mais
-/// tracée en polyligne (segments + marqueurs ronds), valeurs au-dessus, libellés dessous, ligne
-/// de base. Reproduit son golden.
+/// **A line chart (milestone 200)**: the same `(day, value)` series as the BarChart,
+/// but drawn as a polyline — segments plus round markers — values above, labels below,
+/// and a baseline. Reproduces its golden.
 #[test]
 fn line_chart_matches_golden() {
     let theme = Theme::dark();
@@ -1498,23 +1528,23 @@ fn line_chart_matches_golden() {
         ("Fri", 4.0),
     ])
     .height(200.0);
-    // `LineChart` remplit la largeur (Percent) : le parent doit avoir une largeur **définie**.
+    // `LineChart` fills the width (Percent), so the parent must have a **definite** width.
     let root: Container<()> = Container::new()
         .width(360.0)
         .height(240.0)
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "graphique en lignes dessiné");
+    assert!(snapshot.lit_pixels(40) > 100, "the line chart is drawn");
     snapshot.assert_golden(golden("line_chart"));
 }
 
-/// **Graphique en lignes avec axe (jalon 203)** : la même série que `line_chart`, mais avec un axe
-/// des ordonnées à 4 divisions (`grid(4)`) — lignes de grille horizontales et graduations `0..max`
-/// dans une marge à gauche, partagées avec la BarChart. Reproduit son golden.
+/// **A line chart with an axis (milestone 203)**: the same series as `line_chart`, but
+/// with a y axis of 4 divisions (`grid(4)`) — horizontal grid lines and `0..max` ticks
+/// in a left margin, shared with the BarChart. Reproduces its golden.
 #[test]
 fn line_chart_axis_matches_golden() {
     let theme = Theme::dark();
@@ -1533,15 +1563,18 @@ fn line_chart_axis_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "graphique avec axe dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "the chart with an axis is drawn"
+    );
     snapshot.assert_golden(golden("line_chart_axis"));
 }
 
-/// **Graphique en lignes avec aire (jalon 206)** : la même série, avec l'aire sous la courbe
-/// remplie (`area(true)`) et l'axe des ordonnées (`grid(4)`). Reproduit son golden.
+/// **A line chart with an area (milestone 206)**: the same series, with the area under
+/// the curve filled (`area(true)`) and the y axis (`grid(4)`). Reproduces its golden.
 #[test]
 fn line_chart_area_matches_golden() {
     let theme = Theme::dark();
@@ -1561,16 +1594,19 @@ fn line_chart_area_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "graphique avec aire dessiné");
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "the chart with an area is drawn"
+    );
     snapshot.assert_golden(golden("line_chart_area"));
 }
 
-/// **Graphique multi-séries avec légende (jalon 209)** : deux séries nommées partageant les mêmes
-/// catégories et la même échelle, tracées dans leurs couleurs, avec axe (`grid(4)`) et légende
-/// (pastille + nom). Reproduit son golden.
+/// **A multi-series chart with a legend (milestone 209)**: two named series sharing
+/// the same categories and scale, drawn in their own colours, with an axis (`grid(4)`)
+/// and a legend of swatch plus name. Reproduces its golden.
 #[test]
 fn line_chart_multi_matches_golden() {
     let theme = Theme::dark();
@@ -1596,19 +1632,19 @@ fn line_chart_multi_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "graphique multi-séries dessiné"
+        "the multi-series chart is drawn"
     );
     snapshot.assert_golden(golden("line_chart_multi"));
 }
 
-/// **Aires empilées (jalon 213)** : deux séries cumulées (`stacked(true)`) — chaque bande s'ajoute
-/// au-dessus de la précédente, l'échelle contient le total —, avec axe (`grid(4)`) et légende.
-/// Reproduit son golden.
+/// **Stacked areas (milestone 213)**: two accumulated series (`stacked(true)`) — each
+/// band adds on top of the previous one and the scale holds the total — with an axis
+/// (`grid(4)`) and a legend. Reproduces its golden.
 #[test]
 fn line_chart_stacked_matches_golden() {
     let theme = Theme::dark();
@@ -1635,16 +1671,16 @@ fn line_chart_stacked_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "aires empilées dessinées");
+    assert!(snapshot.lit_pixels(40) > 100, "the stacked areas are drawn");
     snapshot.assert_golden(golden("line_chart_stacked"));
 }
 
-/// **Légende avec série masquée (jalon 215)** : deux séries mais la seconde masquée (`hidden([1])`)
-/// — non tracée, atténuée dans la légende (la légende reste cliquable côté app). Reproduit son
-/// golden.
+/// **A legend with a hidden series (milestone 215)**: two series, the second hidden
+/// (`hidden([1])`) — not drawn, and dimmed in the legend, which the app can still make
+/// clickable. Reproduces its golden.
 #[test]
 fn line_chart_hidden_matches_golden() {
     let theme = Theme::dark();
@@ -1671,19 +1707,19 @@ fn line_chart_hidden_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "série masquée : une seule courbe"
+        "a hidden series leaves one curve"
     );
     snapshot.assert_golden(golden("line_chart_hidden"));
 }
 
-/// **Point épinglé (jalon 223)** : deux séries en lignes, le point `(Thu, Sales)` **sélectionné**
-/// (`selected(Some((3, 0)))`) reçoit un halo + un anneau d'accent persistants (sans survol).
-/// Reproduit son golden.
+/// **A pinned point (milestone 223)**: two line series, the `(Thu, Sales)` point
+/// **selected** (`selected(Some((3, 0)))`) receiving a persistent halo and accent ring,
+/// with no hover involved. Reproduces its golden.
 #[test]
 fn line_chart_selected_matches_golden() {
     let theme = Theme::dark();
@@ -1710,19 +1746,16 @@ fn line_chart_selected_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(
-        snapshot.lit_pixels(40) > 100,
-        "point épinglé mis en évidence"
-    );
+    assert!(snapshot.lit_pixels(40) > 100, "the pinned point stands out");
     snapshot.assert_golden(golden("line_chart_selected"));
 }
 
-/// **Barre épinglée (jalon 223)** : deux séries en barres groupées, la barre `(Thu, Sales)`
-/// **sélectionnée** (`selected(Some((3, 0)))`) reçoit un anneau d'accent persistant. Reproduit son
-/// golden.
+/// **A pinned bar (milestone 223)**: two grouped bar series, the `(Thu, Sales)` bar
+/// **selected** (`selected(Some((3, 0)))`) receiving a persistent accent ring.
+/// Reproduces its golden.
 #[test]
 fn bar_chart_selected_matches_golden() {
     let theme = Theme::dark();
@@ -1749,19 +1782,16 @@ fn bar_chart_selected_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(
-        snapshot.lit_pixels(40) > 100,
-        "barre épinglée mise en évidence"
-    );
+    assert!(snapshot.lit_pixels(40) > 100, "the pinned bar stands out");
     snapshot.assert_golden(golden("bar_chart_selected"));
 }
 
-/// **Barres empilées 100 % (jalon 224)** : `stacked(true).normalized(true)` — chaque colonne
-/// remplit toute la hauteur, chaque strate occupant sa proportion ; l'axe est en pourcentages.
-/// Reproduit son golden.
+/// **100% stacked bars (milestone 224)**: `stacked(true).normalized(true)` — every
+/// column fills the full height, each layer taking its share, and the axis reads in
+/// percentages. Reproduces its golden.
 #[test]
 fn bar_chart_normalized_matches_golden() {
     let theme = Theme::dark();
@@ -1789,16 +1819,16 @@ fn bar_chart_normalized_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "colonnes 100 % dessinées");
+    assert!(snapshot.lit_pixels(40) > 100, "the 100% columns are drawn");
     snapshot.assert_golden(golden("bar_chart_normalized"));
 }
 
-/// **Aires empilées 100 % (jalon 224)** : `stacked(true).normalized(true)` — chaque catégorie
-/// remplit toute la hauteur, chaque bande occupant sa proportion ; l'axe est en pourcentages.
-/// Reproduit son golden.
+/// **100% stacked areas (milestone 224)**: `stacked(true).normalized(true)` — every
+/// category fills the full height, each band taking its share, and the axis reads in
+/// percentages. Reproduces its golden.
 #[test]
 fn line_chart_normalized_matches_golden() {
     let theme = Theme::dark();
@@ -1826,15 +1856,16 @@ fn line_chart_normalized_matches_golden() {
         .padding(20.0)
         .child(chart);
     let Some(snapshot) = render_widget(&root, 400, 300, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 100, "aires 100 % dessinées");
+    assert!(snapshot.lit_pixels(40) > 100, "the 100% areas are drawn");
     snapshot.assert_golden(golden("line_chart_normalized"));
 }
 
-/// **Champ mot de passe avec œil (jalon 202)** : un `TextInput` **masqué** (`obscure`) portant
-/// l'icône « œil » suffixe (`on_suffix`) qui révèle le texte. Reproduit son golden.
+/// **A password field with an eye (milestone 202)**: an **obscured** `TextInput`
+/// carrying the suffix eye icon (`on_suffix`) that reveals the text. Reproduces its
+/// golden.
 #[test]
 fn password_eye_matches_golden() {
     let theme = Theme::dark();
@@ -1846,15 +1877,18 @@ fn password_eye_matches_golden() {
         .on_suffix(());
     let root: Container<()> = Container::new().padding(20.0).child(field);
     let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 60, "champ masqué et œil dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 60,
+        "the obscured field and the eye are drawn"
+    );
     snapshot.assert_golden(golden("password_eye"));
 }
 
-/// **Champ avec suffixe cliquable (jalon 198)** : un `TextInput` rempli portant une icône
-/// suffixe « ✕ » cliquable (`on_suffix`) qui l'efface. Reproduit son golden.
+/// **A field with a clickable suffix (milestone 198)**: a filled `TextInput` carrying
+/// a clickable "✕" suffix icon (`on_suffix`) that clears it. Reproduces its golden.
 #[test]
 fn textinput_clear_matches_golden() {
     let theme = Theme::dark();
@@ -1865,15 +1899,18 @@ fn textinput_clear_matches_golden() {
         .on_suffix(());
     let root: Container<()> = Container::new().padding(20.0).child(field);
     let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(snapshot.lit_pixels(40) > 60, "champ et suffixe dessinés");
+    assert!(
+        snapshot.lit_pixels(40) > 60,
+        "the field and the suffix are drawn"
+    );
     snapshot.assert_golden(golden("textinput_clear"));
 }
 
-/// **Snackbar avec action (jalon 185)** : une notification transitoire portant un bouton
-/// « UNDO » à droite (façon Material). Reproduit son golden.
+/// **A snackbar with an action (milestone 185)**: a transient notification carrying an
+/// "Undo" button on the right, in the Material manner. Reproduces its golden.
 #[test]
 fn snackbar_action_matches_golden() {
     use frus_widgets::Toast;
@@ -1881,19 +1918,18 @@ fn snackbar_action_matches_golden() {
     let toast = Toast::new("Message archived").action("Undo", ());
     let root: Container<()> = Container::new().padding(20.0).child(toast);
     let Some(snapshot) = render_widget(&root, 340, 90, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 60,
-        "carte, texte et action dessinés"
+        "the card, the text and the action are drawn"
     );
     snapshot.assert_golden(golden("snackbar_action"));
 }
 
-/// **Tableau redimensionnable (jalon 151)** : colonnes à largeur fixe avec une fine
-/// poignée verticale au bord droit de chaque colonne (sauf la dernière). Reproduit son
-/// golden.
+/// **A resizable table (milestone 151)**: fixed-width columns with a thin vertical
+/// handle at each column's right edge, the last one excepted. Reproduces its golden.
 #[test]
 fn data_table_resizable_matches_golden() {
     let theme = Theme::dark();
@@ -1908,18 +1944,19 @@ fn data_table_resizable_matches_golden() {
             .row(&["Cara", "Manager", "4"]),
     );
     let Some(snapshot) = render_widget(&root, 360, 200, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "en-tête, lignes et poignées dessinés"
+        "header, rows and handles are drawn"
     );
     snapshot.assert_golden(golden("data_table_resizable"));
 }
 
-/// **Sélecteur d'heure (jalon 146)** : aperçu `HH:MM`, grille des heures (0–23) et des
-/// minutes (pas de 5), case sélectionnée surlignée. Reproduit son golden.
+/// **A time picker (milestone 146)**: an `HH:MM` preview, a grid of hours (0–23) and
+/// one of minutes in steps of 5, the selected cell highlighted. Reproduces its
+/// golden.
 #[test]
 fn time_picker_matches_golden() {
     let theme = Theme::dark();
@@ -1928,17 +1965,18 @@ fn time_picker_matches_golden() {
             .padding(20.0)
             .child(TimePicker::<()>::new(9, 30, |_| (), |_| ()));
     let Some(snapshot) = render_widget(&root, 280, 400, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "aperçu, grilles et cases dessinés"
+        "the preview, the grids and the cells are drawn"
     );
     snapshot.assert_golden(golden("time_picker"));
 }
 
-/// **Sélecteur d'heure 12 h (jalon 147)** : bascule AM/PM + grille 1–12, aperçu `3:05 PM`.
+/// **A 12-hour time picker (milestone 147)**: an AM/PM toggle plus a 1–12 grid, with
+/// a `3:05 PM` preview.
 #[test]
 fn time_picker_12h_matches_golden() {
     let theme = Theme::dark();
@@ -1946,18 +1984,18 @@ fn time_picker_12h_matches_golden() {
         .padding(20.0)
         .child(TimePicker::<()>::new(15, 5, |_| (), |_| ()).hour12());
     let Some(snapshot) = render_widget(&root, 280, 420, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 100,
-        "aperçu, AM/PM et grilles dessinés"
+        "the preview, AM/PM and the grids are drawn"
     );
     snapshot.assert_golden(golden("time_picker_12h"));
 }
 
-/// **Flux date + heure (jalon 147)** : calendrier + sélecteur d'heure, coiffés d'un
-/// récapitulatif de la sélection. Reproduit son golden.
+/// **A date-and-time flow (milestone 147)**: a calendar plus a time picker, topped by
+/// a summary of the selection. Reproduces its golden.
 #[test]
 fn date_time_picker_matches_golden() {
     let theme = Theme::dark();
@@ -1975,18 +2013,18 @@ fn date_time_picker_matches_golden() {
             |_| (),
         ));
     let Some(snapshot) = render_widget(&root, 320, 640, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 200,
-        "récap, calendrier et heure dessinés"
+        "the summary, the calendar and the time are drawn"
     );
     snapshot.assert_golden(golden("date_time_picker"));
 }
 
-/// **Liste déroulante ouverte (jalon 150)** : en-tête + menu flottant, l'option
-/// sélectionnée surlignée et cochée. Reproduit son golden.
+/// **An open dropdown (milestone 150)**: a header plus a floating menu, the selected
+/// option highlighted and ticked. Reproduces its golden.
 #[test]
 fn dropdown_menu_matches_golden() {
     let theme = Theme::dark();
@@ -1997,19 +2035,19 @@ fn dropdown_menu_matches_golden() {
             .options(true, &["Small", "Medium", "Large"], |_| ()),
     );
     let Some(snapshot) = render_widget(&root, 240, 260, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 80,
-        "en-tête, options, surlignage et coche dessinés"
+        "the header, the options, the highlight and the tick are drawn"
     );
     snapshot.assert_golden(golden("dropdown_menu"));
 }
 
-/// **Autocomplétion (jalon 152)** : champ « ap » et liste flottante ; la portion
-/// correspondante (« ap ») est mise en avant dans chaque suggestion et la 2ᵉ (active)
-/// est surlignée. Reproduit son golden.
+/// **Autocomplete (milestone 152)**: an "ap" field and a floating list; the matching
+/// portion, "ap", stands out in every suggestion and the second, the active one, is
+/// highlighted. Reproduces its golden.
 #[test]
 fn autocomplete_matches_golden() {
     let theme = Theme::dark();
@@ -2022,18 +2060,18 @@ fn autocomplete_matches_golden() {
             .suggestion("grape"),
     );
     let Some(snapshot) = render_widget(&root, 260, 240, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 80,
-        "champ, suggestions, surlignage et mise en avant dessinés"
+        "the field, the suggestions, the highlight and the emphasis are drawn"
     );
     snapshot.assert_golden(golden("autocomplete"));
 }
 
-/// **Curseur de plage (jalon 156)** : deux poignées délimitant un intervalle, segment
-/// actif teinté `primary` entre elles. Reproduit son golden.
+/// **A range slider (milestone 156)**: two handles bounding an interval, with the
+/// active segment tinted `primary` between them. Reproduces its golden.
 #[test]
 fn range_slider_matches_golden() {
     let theme = Theme::dark();
@@ -2041,19 +2079,19 @@ fn range_slider_matches_golden() {
         .padding(24.0)
         .child(RangeSlider::<()>::new(0.3, 0.7).width(240.0));
     let Some(snapshot) = render_widget(&root, 300, 80, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 40,
-        "piste, segment actif et deux poignées dessinés"
+        "the track, the active segment and both handles are drawn"
     );
     snapshot.assert_golden(golden("range_slider"));
 }
 
-/// **Curseur de plage étiqueté (jalons 160/162)** : l'infobulle de valeur n'apparaît
-/// qu'au **survol / focus** d'une poignée. Ici la poignée basse est focalisée : sa bulle
-/// « 30% » et son anneau de focus s'affichent. Reproduit son golden.
+/// **A labelled range slider (milestones 160/162)**: the value tooltip appears only on
+/// **hover or focus** of a handle. Here the lower handle is focused, so its "30%"
+/// bubble and its focus ring show. Reproduces its golden.
 #[test]
 fn range_slider_labels_matches_golden() {
     use frus_widgets::{build_ui, Runtime, Size};
@@ -2065,7 +2103,7 @@ fn range_slider_labels_matches_golden() {
             .value_label(|v| format!("{}%", (v * 100.0).round() as i32)),
     );
     let (w, h) = (300u32, 110u32);
-    // Poignée basse : centre x = 24 + 0.3·240 = 96, dans la bande piste basse.
+    // The lower handle: centre x = 24 + 0.3·240 = 96, within the lower track band.
     let probe = Point::new(96.0, 62.0);
     let base = build_ui(
         &root,
@@ -2076,26 +2114,26 @@ fn range_slider_labels_matches_golden() {
     let id = base
         .draggable_at(probe)
         .map(|(id, _)| id)
-        .expect("poignée basse saisissable");
-    // Reconstruit avec la poignée basse **focalisée** (révèle la bulle + l'anneau).
+        .expect("the lower handle is grabbable");
+    // Rebuild with the lower handle **focused**, which reveals the bubble and the ring.
     let mut runtime = Runtime::default();
     runtime.input.focused = Some(id);
     let ui = build_ui(&root, Size::new(w as f32, h as f32), &runtime, &theme);
 
     let Some(snapshot) = render_scene(ui.scene(), w, h, theme.background) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 60,
-        "piste, poignées et infobulle focalisée dessinées"
+        "the track, the handles and the focused tooltip are drawn"
     );
     snapshot.assert_golden(golden("range_slider_labels"));
 }
 
-/// **Autocomplétion défilante (jalon 154)** : liste plus longue que le seuil
-/// (`max_visible(3)`) → viewport borné à 3 lignes, contenu défilable (6 suggestions).
-/// Reproduit son golden.
+/// **Scrolling autocomplete (milestone 154)**: a list longer than the threshold
+/// (`max_visible(3)`) gives a viewport bounded to 3 rows over scrollable content, six
+/// suggestions in all. Reproduces its golden.
 #[test]
 fn autocomplete_scroll_matches_golden() {
     let theme = Theme::dark();
@@ -2111,18 +2149,18 @@ fn autocomplete_scroll_matches_golden() {
             .suggestion("Colorado"),
     );
     let Some(snapshot) = render_widget(&root, 260, 220, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 80,
-        "champ et liste bornée dessinés"
+        "the field and the bounded list are drawn"
     );
     snapshot.assert_golden(golden("autocomplete_scroll"));
 }
 
-/// Un **champ mot de passe** (jalon 133) : valeur masquée par des points, icône
-/// de préfixe à gauche et de suffixe à droite. Reproduit son golden.
+/// A **password field** (milestone 133): the value masked by dots, with a prefix icon
+/// on the left and a suffix icon on the right. Reproduces its golden.
 #[test]
 fn password_field_matches_golden() {
     use frus_widgets::IconName;
@@ -2138,24 +2176,24 @@ fn password_field_matches_golden() {
             .helper("Tap the eye to reveal"),
     );
     let Some(snapshot) = render_widget(&root, 340, 130, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 80,
-        "points, icônes et textes dessinés"
+        "the dots, the icons and the text are drawn"
     );
     snapshot.assert_golden(golden("password_field"));
 }
 
-/// **Bout-en-bout (jalon 135)** : un `Form` valide des valeurs saisies et pilote
-/// le `error(...)` de chaque champ — le rendu montre le formulaire d'inscription
-/// *après une soumission invalide*. Reproduit son golden.
+/// **End to end (milestone 135)**: a `Form` validates the entered values and drives
+/// each field's `error(...)` — the rendering shows the sign-up form *after an invalid
+/// submission*. Reproduces its golden.
 #[test]
 fn validated_signup_form_matches_golden() {
     use frus_widgets::form::{Form, Rule};
 
-    // Ce que l'utilisateur aurait saisi avant de soumettre.
+    // What the user would have typed before submitting.
     let (email, password) = ("ada", "short");
     let report = Form::new()
         .field(
@@ -2172,7 +2210,7 @@ fn validated_signup_form_matches_golden() {
             Rule::min_len(8, "At least 8 characters"),
         );
 
-    // Les erreurs du rapport alimentent directement les champs.
+    // The report's errors feed the fields directly.
     let mut email_field = TextInput::<()>::new(email).width(280.0).label("Email");
     if let Some(e) = report.error("email") {
         email_field = email_field.error(e);
@@ -2193,20 +2231,20 @@ fn validated_signup_form_matches_golden() {
             .child(password_field),
     );
     let Some(snapshot) = render_widget(&root, 340, 210, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    assert!(!report.is_valid(), "les deux champs sont invalides");
+    assert!(!report.is_valid(), "both fields are invalid");
     assert_eq!(
         report.first_invalid(),
         Some("email"),
-        "le premier à focaliser"
+        "the first one to focus"
     );
     snapshot.assert_golden(golden("validated_signup_form"));
 }
 
-/// Un **champ multi-lignes** (jalon 137) : label flottant, plusieurs lignes de
-/// contenu (retours explicites) dans une boîte de `rows` lignes. Reproduit son golden.
+/// A **multi-line field** (milestone 137): a floating label and several lines of
+/// content, with explicit breaks, in a box `rows` lines tall. Reproduces its golden.
 #[test]
 fn multiline_field_matches_golden() {
     let theme = Theme::dark();
@@ -2219,18 +2257,18 @@ fn multiline_field_matches_golden() {
         .rows(4),
     );
     let Some(snapshot) = render_widget(&root, 360, 170, &theme) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     assert!(
         snapshot.lit_pixels(40) > 120,
-        "label et trois lignes de texte dessinés"
+        "the label and three lines of text are drawn"
     );
     snapshot.assert_golden(golden("multiline_field"));
 }
 
-/// Le calque **inspecteur** (contours + surlignage + fiche du widget désigné)
-/// par-dessus un arbre rendu — reproduit son golden.
+/// The **inspector** overlay — outlines, highlight, and a card for the widget being
+/// pointed at — over a rendered tree. Reproduces its golden.
 #[test]
 fn inspector_overlay_matches_golden() {
     use frus_core::Size;
@@ -2248,12 +2286,12 @@ fn inspector_overlay_matches_golden() {
     let (ui, nodes) = build_ui_inspected(&root, size, &runtime, &theme);
     assert!(
         nodes.len() >= 4,
-        "l'arbre entier est observé ({})",
+        "the whole tree is observed ({})",
         nodes.len()
     );
 
     let mut scene = ui.scene().clone();
-    // Le curseur désigne le premier texte : surlignage + fiche.
+    // The pointer designates the first text: highlight plus card.
     paint_inspector_overlay(
         &nodes,
         Some(Point::new(20.0, 18.0)),
@@ -2262,15 +2300,14 @@ fn inspector_overlay_matches_golden() {
         &mut scene,
     );
     let Some(snapshot) = frus_test::render_scene(&scene, 180, 120, theme.background) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     snapshot.assert_golden(golden("inspector_overlay"));
 }
 
-/// **RTL** : la même rangée [rouge][vert][bleu] se retourne horizontalement —
-/// le rouge (1er enfant) passe à droite. Preuve indépendante de la police du
-/// miroir de mise en page.
+/// **RTL**: the same [red][green][blue] row flips horizontally — red, the first
+/// child, moves to the right. Font-independent proof of the layout mirroring.
 #[test]
 fn rtl_mirrors_the_row() {
     let red = Color::rgb(0.9, 0.2, 0.2);
@@ -2288,33 +2325,33 @@ fn rtl_mirrors_the_row() {
             )
             .child(Container::new().width(50.0).height(40.0).color(blue))
     };
-    // LTR : rouge à gauche, bleu à droite.
+    // LTR: red on the left, blue on the right.
     let ltr_theme = Theme::dark();
     let rtl_theme = Theme::dark().rtl();
     let (Some(ltr), Some(rtl)) = (
         render_widget(&make(), 150, 40, &ltr_theme),
         render_widget(&make(), 150, 40, &rtl_theme),
     ) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     let is_red = |px: [u8; 4]| px[0] > 180 && px[1] < 120;
     let is_blue = |px: [u8; 4]| px[2] > 180 && px[0] < 120;
-    // LTR : rouge au bord gauche, bleu au bord droit.
+    // LTR: red at the left edge, blue at the right one.
     assert!(
         is_red(ltr.pixel(10, 20)) && is_blue(ltr.pixel(140, 20)),
-        "LTR normal"
+        "LTR, unflipped"
     );
-    // RTL : miroir — rouge à droite, bleu à gauche.
+    // RTL mirrors it: red on the right, blue on the left.
     assert!(
         is_red(rtl.pixel(140, 20)) && is_blue(rtl.pixel(10, 20)),
-        "RTL retourné"
+        "RTL, flipped"
     );
     rtl.assert_golden(golden("rtl_row"));
 }
 
-/// **RTL** : un tiroir de bord (`end_drawer`, côté *end* = droite en LTR)
-/// passe à **gauche** en RTL — le placement des overlays suit la direction.
+/// **RTL**: an edge drawer (`end_drawer`, the *end* side being the right under LTR)
+/// moves to the **left** under RTL — overlay placement follows the direction.
 #[test]
 fn rtl_flips_the_drawer_side() {
     use frus_widgets::Scaffold;
@@ -2342,20 +2379,23 @@ fn rtl_flips_the_drawer_side() {
         render_widget(make().as_ref(), 200, 120, &Theme::dark()),
         render_widget(make().as_ref(), 200, 120, &Theme::dark().rtl()),
     ) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     let edge = |s: &frus_test::Snapshot, x: u32| is_drawer(s.pixel(x, 60));
-    // LTR : le tiroir est ancré au bord **gauche** (côté start).
-    assert!(edge(&ltr, 2) && !edge(&ltr, 197), "LTR : tiroir à gauche");
-    // RTL : miroir — le tiroir passe au bord **droit**.
-    assert!(edge(&rtl, 197) && !edge(&rtl, 2), "RTL : tiroir à droite");
+    // LTR: the drawer is anchored to the **left**, the start side.
+    assert!(edge(&ltr, 2) && !edge(&ltr, 197), "LTR: drawer on the left");
+    // RTL mirrors it: the drawer moves to the **right** edge.
+    assert!(
+        edge(&rtl, 197) && !edge(&rtl, 2),
+        "RTL: drawer on the right"
+    );
     rtl.assert_golden(golden("rtl_drawer"));
 }
 
-/// **Opacité de groupe** (widget → walk → calque → GPU) : un `Container` à
-/// `opacity(0.5)` atténue son fond rouge par rapport au même à `opacity(1.0)`
-/// (rendu opaque, sans calque). Preuve pixel de bout en bout du fondu de groupe.
+/// **Group opacity** (widget → walk → layer → GPU): a `Container` at `opacity(0.5)`
+/// dims its red background relative to the same one at `opacity(1.0)`, which renders
+/// opaque with no layer. End-to-end pixel proof of the group fade.
 #[test]
 fn group_opacity_fades_the_box() {
     let make = |o: f32| {
@@ -2369,31 +2409,35 @@ fn group_opacity_fades_the_box() {
         render_widget(&make(1.0), 40, 40, &Theme::dark()),
         render_widget(&make(0.5), 40, 40, &Theme::dark()),
     ) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     let r_opaque = opaque.pixel(20, 20)[0];
     let r_faded = faded.pixel(20, 20)[0];
-    assert!(r_opaque > 230, "opaque → plein rouge : {r_opaque}");
+    assert!(r_opaque > 230, "opaque → full red: {r_opaque}");
     assert!(
         r_faded < r_opaque - 40,
-        "opacité de groupe 0.5 atténue le rouge : {r_faded} vs {r_opaque}"
+        "a group opacity of 0.5 dims the red: {r_faded} vs {r_opaque}"
     );
 }
 
-/// Le comparateur : identique → 0 diff ; un pixel changé → 1 diff.
+/// The comparator: identical gives 0 differences, one changed pixel gives 1.
 #[test]
 fn diff_count_is_exact() {
     let mut scene = Scene::new();
     scene.fill_rect(Rect::new(0.0, 0.0, 64.0, 64.0), Color::rgb(0.3, 0.5, 0.7));
     let Some(a) = render_scene(&scene, 64, 64, Color::BLACK) else {
-        eprintln!("aucun adaptateur GPU disponible : test ignoré");
+        eprintln!("no GPU adapter available: test skipped");
         return;
     };
     let mut b = render_scene(&scene, 64, 64, Color::BLACK).unwrap();
-    assert_eq!(a.diff_count(&b, 0), 0, "deux rendus identiques");
-    // Corrompt un pixel au-delà de la tolérance.
+    assert_eq!(a.diff_count(&b, 0), 0, "two identical renderings");
+    // Corrupt one pixel, beyond the tolerance.
     b.rgba[0] = b.rgba[0].wrapping_add(64);
     assert_eq!(a.diff_count(&b, 2), 1);
-    assert_eq!(a.diff_count(&b, 255), 0, "tolérance maximale absorbe tout");
+    assert_eq!(
+        a.diff_count(&b, 255),
+        0,
+        "the maximum tolerance absorbs everything"
+    );
 }
