@@ -1,46 +1,46 @@
-//! Identité des widgets, touches clavier et état d'interaction.
+//! Widget identity, keyboard keys and interaction state.
 //!
-//! Un [`WidgetId`] identifie un widget par sa **position** dans l'arbre (chemin
-//! racine → indices d'enfants), stable d'une frame à l'autre tant que la
-//! structure ne change pas. C'est la brique fondatrice de la reconciliation, et
-//! ce qui permet de suivre le survol, la pression et le **focus**.
+//! A [`WidgetId`] identifies a widget by its **position** in the tree (the path
+//! root → child indices), stable from one frame to the next for as long as the
+//! structure does not change. It is the founding brick of reconciliation, and
+//! what makes it possible to track hover, press and **focus**.
 
-/// Forme du **curseur système** qu'un widget peut demander pour une sous-région donnée
-/// (jalon 205). Le shell la traduit vers le curseur de la fenêtre ; les widgets restent
-/// indépendants de la couche fenêtrage.
+/// The shape of the **system cursor** a widget can request for a given sub-region
+/// (milestone 205). The shell translates it to the window's cursor; widgets stay
+/// independent of the windowing layer.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum Cursor {
-    /// Flèche par défaut.
+    /// The default arrow.
     #[default]
     Default,
-    /// Main (élément cliquable).
+    /// A hand (a clickable element).
     Pointer,
-    /// Barre verticale (zone de saisie de texte).
+    /// A vertical bar (a text entry area).
     Text,
 }
 
-/// Identité positionnelle d'un widget (hash du chemin dans l'arbre).
+/// A widget's positional identity: a hash of its path in the tree.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct WidgetId(u64);
 
 impl WidgetId {
-    /// Identité de la racine.
+    /// The root's identity.
     pub(crate) const ROOT: WidgetId = WidgetId(0xcbf29ce484222325);
 
-    /// Valeur brute de l'identité (pour tagguer les primitives).
+    /// The identity's raw value, used to tag primitives.
     pub fn as_u64(self) -> u64 {
         self.0
     }
 
-    /// Reconstruit une identité depuis sa valeur brute (inverse d'[`as_u64`]) —
-    /// pour router une action venue d'une couche externe (accessibilité).
+    /// Rebuilds an identity from its raw value (the inverse of [`as_u64`]) — to
+    /// route an action coming from an external layer (accessibility).
     ///
     /// [`as_u64`]: WidgetId::as_u64
     pub fn from_u64(raw: u64) -> WidgetId {
         WidgetId(raw)
     }
 
-    /// Dérive l'identité du `index`-ième enfant de ce widget (positionnel).
+    /// Derives the identity of this widget's `index`-th child (positional).
     pub(crate) fn child(self, index: usize) -> WidgetId {
         let mut h = self.0 ^ (index as u64).wrapping_add(0x9e37_79b9_7f4a_7c15);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
@@ -48,8 +48,8 @@ impl WidgetId {
         WidgetId(h)
     }
 
-    /// Dérive l'identité d'un enfant **par clé** (stable quel que soit sa position).
-    /// Distincte de [`WidgetId::child`] (constante et décalage différents).
+    /// Derives a child's identity **by key** (stable whatever its position).
+    /// Distinct from [`WidgetId::child`] (a different constant and shift).
     pub(crate) fn keyed(self, key: u64) -> WidgetId {
         let mut h = self.0 ^ key.wrapping_add(0x517c_c1b7_2722_0a95);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
@@ -58,90 +58,92 @@ impl WidgetId {
     }
 }
 
-/// Réponse d'un widget à une touche reçue pendant la **montée feuille→racine**
-/// (le focalisé d'abord, puis ses ancêtres tant que le résultat est `Ignored`).
+/// A widget's response to a key received during the **leaf→root bubble** (the
+/// focused one first, then its ancestors for as long as the result is `Ignored`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum KeyResponse<Msg> {
-    /// Pas concerné : la touche continue de remonter.
+    /// Not concerned: the key keeps bubbling up.
     Ignored,
-    /// Consommée (avec un message éventuel à émettre) : la montée s'arrête.
+    /// Consumed (with an optional message to emit): the bubbling stops.
     Handled(Option<Msg>),
-    /// Non consommée mais la montée s'arrête (et aucun repli n'est tenté).
+    /// Not consumed, but the bubbling stops, and no fallback is attempted.
     Skip,
 }
 
-/// Une touche transmise au widget focalisé.
+/// A key passed to the focused widget.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Key {
-    /// Texte saisi (un ou plusieurs caractères) — sert aussi au collage.
+    /// Typed text (one or more characters) — also used for pasting.
     Text(String),
-    /// Retour arrière (supprime la sélection, sinon le caractère à gauche).
+    /// Backspace (deletes the selection, otherwise the character to the left).
     Backspace,
-    /// Suppression avant (sélection, sinon caractère à droite).
+    /// Forward delete (the selection, otherwise the character to the right).
     Delete,
-    /// Entrée.
+    /// Enter.
     Enter,
-    /// Flèche gauche (`shift` : étend la sélection ; `word` : saute un mot, Ctrl).
+    /// Left arrow (`shift`: extends the selection; `word`: jumps a word, Ctrl).
     Left { shift: bool, word: bool },
-    /// Flèche droite (`shift` : étend ; `word` : saute un mot, Ctrl).
+    /// Right arrow (`shift`: extends it; `word`: jumps a word, Ctrl).
     Right { shift: bool, word: bool },
-    /// Échappement (fermer/annuler) — routé feuille→racine, jamais à l'édition.
+    /// Escape (close or cancel) — routed leaf→root, never to editing.
     Escape,
-    /// Début de ligne (`doc` : début du **champ** entier, Ctrl).
+    /// Start of line (`doc`: the start of the whole **field**, Ctrl).
     Home { shift: bool, doc: bool },
-    /// Fin de ligne (`doc` : fin du **champ** entier, Ctrl).
+    /// End of line (`doc`: the end of the whole **field**, Ctrl).
     End { shift: bool, doc: bool },
 }
 
-/// État visuel d'interaction pointeur d'un widget.
+/// A widget's visual pointer interaction state.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum Interaction {
-    /// Ni survolé ni pressé.
+    /// Neither hovered nor pressed.
     #[default]
     None,
-    /// Le pointeur est au-dessus.
+    /// The pointer is over it.
     Hovered,
-    /// Le pointeur est enfoncé sur ce widget.
+    /// The pointer is pressed on this widget.
     Pressed,
 }
 
-/// Statut complet d'un widget pour une frame : interaction pointeur, focus,
-/// curseur/sélection (champs), progressions d'animation et opacité.
+/// A widget's complete status for one frame: pointer interaction, focus,
+/// caret and selection (for fields), animation progress and opacity.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Status {
     pub interaction: Interaction,
     pub focused: bool,
-    /// Index (caractère) du curseur, si ce widget est un champ focalisé.
+    /// The caret's (character) index, if this widget is a focused field.
     pub cursor: Option<usize>,
-    /// Plage `(début, fin)` sélectionnée, en indices de caractères.
+    /// The selected `(start, end)` range, in character indices.
     pub selection: Option<(usize, usize)>,
-    /// Plage `(début, fin)` en **cours de composition** IME (texte provisoire,
-    /// souligné) ; `None` hors composition. En indices de caractères.
+    /// The `(start, end)` range **being composed** by the IME (provisional,
+    /// underlined text); `None` outside composition. In character indices.
     pub composing: Option<(usize, usize)>,
-    /// Progression de la transition de survol (`0.0..=1.0`).
+    /// The hover transition's progress (`0.0..=1.0`).
     pub hover_progress: f32,
-    /// Progression de la transition de focus (`0.0..=1.0`).
+    /// The focus transition's progress (`0.0..=1.0`).
     pub focus_progress: f32,
-    /// Opacité à appliquer (fondu d'apparition) ; `1.0` = opaque.
+    /// The opacity to apply (a fade-in); `1.0` = opaque.
     pub opacity: f32,
-    /// Valeur animée propre au widget (p. ex. `0 → 1` d'un interrupteur), pilotée
-    /// par `Widget::anim_target`.
+    /// The widget's own animated value (a switch's `0 → 1`, for instance), driven
+    /// by `Widget::anim_target`.
     pub value: f32,
-    /// Temps écoulé (secondes) depuis le démarrage — pour les animations
-    /// continues pilotées par le temps (ex. `Spinner`).
+    /// The time elapsed (in seconds) since start-up — for continuous,
+    /// time-driven animations (a `Spinner`, for instance).
     pub time: f32,
-    /// Couleur **interpolée** d'un fond animé (`Container::animated_color`), si en
-    /// transition ; `None` = pas de couleur animée (le widget utilise sa couleur).
+    /// The **interpolated** color of an animated background
+    /// (`Container::animated_color`) while in transition; `None` = no animated
+    /// color, and the widget uses its own.
     pub anim_color: Option<frus_core::Color>,
-    /// Rayon de coin **interpolé** (`Container::animated_radius`), si en
-    /// transition ; `None` = rayon fixe (le widget utilise le sien).
+    /// The **interpolated** corner radius (`Container::animated_radius`) while in
+    /// transition; `None` = a fixed radius, and the widget uses its own.
     pub anim_radius: Option<frus_core::BorderRadius>,
-    /// Défilement vertical **retenu** de ce widget (px), pour les widgets qui
-    /// défilent leur propre contenu (champ multi-lignes) ; `0` sinon.
+    /// This widget's **retained** vertical scroll (in px), for widgets that scroll
+    /// their own content (a multi-line field); `0` otherwise.
     pub scroll_y: f32,
-    /// Position **absolue** du pointeur quand il survole une **sous-région interactive** de ce
-    /// widget (jalon 208) ; `None` sinon. Le widget la ramène en local via ses `bounds` pour
-    /// surligner la zone visée (icône suffixe…). Posée par le shell d'après `cursor_icon`.
+    /// The pointer's **absolute** position when it hovers an **interactive sub-region** of
+    /// this widget (milestone 208); `None` otherwise. The widget brings it back to local
+    /// coordinates through its `bounds` to highlight the targeted zone (a suffix icon…).
+    /// Set by the shell from `cursor_icon`.
     pub hover_cursor: Option<frus_core::Point>,
 }
 
@@ -166,22 +168,23 @@ impl Default for Status {
     }
 }
 
-/// État d'entrée retenu au runtime, transmis à la construction de l'interface.
+/// The input state retained by the runtime, passed to the interface build.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct InputState {
-    /// Widget actuellement survolé.
+    /// The widget currently hovered.
     pub hovered: Option<WidgetId>,
-    /// Widget sur lequel le pointeur est enfoncé.
+    /// The widget the pointer is pressed on.
     pub pressed: Option<WidgetId>,
-    /// Widget qui a le focus clavier.
+    /// The widget that has keyboard focus.
     pub focused: Option<WidgetId>,
-    /// Position absolue du pointeur quand il survole une sous-région interactive du widget
-    /// survolé (jalon 208) ; `None` sinon. Posée par le shell (voir `Status::hover_cursor`).
+    /// The pointer's absolute position when it hovers an interactive sub-region of the
+    /// hovered widget (milestone 208); `None` otherwise. Set by the shell (see
+    /// `Status::hover_cursor`).
     pub hover_cursor: Option<frus_core::Point>,
 }
 
 impl InputState {
-    /// Statut d'un widget donné.
+    /// A given widget's status.
     pub(crate) fn status_for(&self, id: WidgetId) -> Status {
         let interaction = if self.pressed == Some(id) && self.hovered == Some(id) {
             Interaction::Pressed
@@ -204,7 +207,7 @@ impl InputState {
             anim_color: None,
             anim_radius: None,
             scroll_y: 0.0,
-            // Position du pointeur uniquement pour le widget survolé (sinon `None`).
+            // The pointer's position only for the hovered widget (otherwise `None`).
             hover_cursor: if self.hovered == Some(id) {
                 self.hover_cursor
             } else {
@@ -238,13 +241,13 @@ mod tests {
 
     #[test]
     fn keyed_is_stable_and_distinct() {
-        // Même clé sous le même parent → même identité (indépendante de la position).
+        // The same key under the same parent → the same identity (position-independent).
         assert_eq!(WidgetId::ROOT.keyed(7), WidgetId::ROOT.keyed(7));
-        // Clés différentes → identités différentes.
+        // Different keys → different identities.
         assert_ne!(WidgetId::ROOT.keyed(7), WidgetId::ROOT.keyed(8));
-        // Une clé n'entre pas en collision avec un indice positionnel de même valeur.
+        // A key does not collide with a positional index of the same value.
         assert_ne!(WidgetId::ROOT.keyed(0), WidgetId::ROOT.child(0));
-        // Parents différents → identités différentes pour la même clé.
+        // Different parents → different identities for the same key.
         assert_ne!(
             WidgetId::ROOT.child(0).keyed(7),
             WidgetId::ROOT.child(1).keyed(7)
@@ -269,7 +272,7 @@ mod tests {
         };
         assert_eq!(pressed.status_for(id).interaction, Interaction::Pressed);
 
-        // Pressé mais pointeur ailleurs → pas "Pressed".
+        // Pressed, but the pointer is elsewhere → not "Pressed".
         let moved_away = InputState {
             hovered: Some(other),
             pressed: Some(id),
@@ -277,7 +280,7 @@ mod tests {
         };
         assert_eq!(moved_away.status_for(id).interaction, Interaction::None);
 
-        // Focus indépendant de l'interaction pointeur.
+        // Focus is independent of pointer interaction.
         let focused = InputState {
             focused: Some(id),
             ..Default::default()

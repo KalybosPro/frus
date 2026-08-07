@@ -1,18 +1,18 @@
-//! Validation de formulaire — **pure**, côté application (esprit Elm).
+//! Form validation — **pure**, application-side, in the Elm spirit.
 //!
-//! Deux briques qui se combinent :
+//! Two bricks that combine:
 //!
-//! - [`Rule`] : une règle de validation d'un champ (`&str -> Option<String>`,
-//!   `Some(message)` si invalide), avec des constructeurs prêts à l'emploi
-//!   (`required`, `min_len`, `email`…) et un combinateur [`Rule::all`] (la première
-//!   règle en échec gagne).
-//! - [`Form`] : valide un **ensemble** de champs déclarés dans l'ordre, puis répond
-//!   à trois questions — tout est-il valide ? quelle est l'erreur du champ `key` ?
-//!   quel est le **premier** champ en échec (à focaliser) ?
+//! - [`Rule`]: one field's validation rule (`&str -> Option<String>`,
+//!   `Some(message)` when invalid), with ready-made constructors (`required`,
+//!   `min_len`, `email`…) and a [`Rule::all`] combinator (the first failing rule
+//!   wins).
+//! - [`Form`]: validates a **set** of fields declared in order, then answers three
+//!   questions — is everything valid? what is field `key`'s error? which is the
+//!   **first** failing field, the one to focus?
 //!
-//! Rien ici ne dessine : l'application appelle [`Form::error`] pour alimenter le
-//! `error(...)` d'un [`crate::TextInput`], et [`Form::first_invalid`] pour cibler le
-//! champ à mettre en avant. La validité reste une **fonction pure de l'état**.
+//! Nothing here draws: the application calls [`Form::error`] to feed a
+//! [`crate::TextInput`]'s `error(...)`, and [`Form::first_invalid`] to target the
+//! field to bring out. Validity stays a **pure function of the state**.
 //!
 //! ```
 //! use frus_widgets::form::{Form, Rule};
@@ -37,47 +37,47 @@ use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Une règle de validation d'un champ : rend `Some(message)` si la valeur est
-/// invalide, `None` si elle passe.
+/// One field's validation rule: returns `Some(message)` if the value is invalid,
+/// `None` if it passes.
 pub struct Rule(Box<dyn Fn(&str) -> Option<String>>);
 
 impl Rule {
-    /// Règle arbitraire depuis une closure.
+    /// An arbitrary rule from a closure.
     pub fn new(check: impl Fn(&str) -> Option<String> + 'static) -> Self {
         Self(Box::new(check))
     }
 
-    /// Applique la règle à `value`.
+    /// Applies the rule to `value`.
     pub fn check(&self, value: &str) -> Option<String> {
         (self.0)(value)
     }
 
-    /// Non vide (espaces de début/fin ignorés).
+    /// Non-empty (leading and trailing whitespace ignored).
     pub fn required(message: impl Into<String>) -> Self {
         let message = message.into();
         Self::new(move |v| (v.trim().is_empty()).then(|| message.clone()))
     }
 
-    /// Au moins `n` caractères (comptés en `char`, espaces compris).
+    /// At least `n` characters (counted as `char`s, whitespace included).
     pub fn min_len(n: usize, message: impl Into<String>) -> Self {
         let message = message.into();
         Self::new(move |v| (v.chars().count() < n).then(|| message.clone()))
     }
 
-    /// Au plus `n` caractères.
+    /// At most `n` characters.
     pub fn max_len(n: usize, message: impl Into<String>) -> Self {
         let message = message.into();
         Self::new(move |v| (v.chars().count() > n).then(|| message.clone()))
     }
 
-    /// Forme d'e-mail plausible : `local@domaine`, partie locale non vide, domaine
-    /// contenant un point non collé aux bords (heuristique, pas la RFC).
+    /// A plausible e-mail shape: `local@domain`, a non-empty local part, and a domain
+    /// containing a dot that is not flush against the edges (a heuristic, not the RFC).
     pub fn email(message: impl Into<String>) -> Self {
         let message = message.into();
         Self::new(move |v| (!is_email(v)).then(|| message.clone()))
     }
 
-    /// Combine des règles : la **première** en échec (dans l'ordre) l'emporte.
+    /// Combines rules: the **first** to fail, in order, wins.
     pub fn all(rules: impl IntoIterator<Item = Rule>) -> Self {
         let rules: Vec<Rule> = rules.into_iter().collect();
         Self::new(move |v| rules.iter().find_map(|r| r.check(v)))
@@ -90,39 +90,39 @@ fn is_email(v: &str) -> bool {
     let Some((local, domain)) = v.split_once('@') else {
         return false;
     };
-    // Une seule arobase, partie locale non vide.
+    // A single at-sign, and a non-empty local part.
     if local.is_empty() || domain.contains('@') {
         return false;
     }
-    // Domaine : au moins un point, et aucune étiquette vide (ni `.x`, ni `x.`, ni `a..b`).
+    // The domain: at least one dot, and no empty label (no `.x`, no `x.`, no `a..b`).
     domain.contains('.') && domain.split('.').all(|label| !label.is_empty())
 }
 
-/// Rapport de validation d'un ensemble de champs, dans l'ordre de déclaration.
-/// Construit par chaînage de [`Form::field`] ; se consulte ensuite. Les **valeurs** sont
-/// mémorisées pour permettre la **validation croisée** (un champ comparé à un autre).
+/// The validation report of a set of fields, in declaration order. Built by chaining
+/// [`Form::field`], then consulted. The **values** are recorded so that **cross-field
+/// validation** is possible: one field compared with another.
 #[derive(Default)]
 pub struct Form {
     fields: Vec<(&'static str, String, Option<String>)>,
 }
 
 impl Form {
-    /// Un formulaire vide (tout est valide tant qu'aucun champ n'est déclaré).
+    /// An empty form (everything is valid while no field is declared).
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Valide `value` avec `rule` et enregistre le résultat sous `key`.
+    /// Validates `value` with `rule` and records the result under `key`.
     pub fn field(mut self, key: &'static str, value: &str, rule: Rule) -> Self {
         let error = rule.check(value);
         self.fields.push((key, value.to_string(), error));
         self
     }
 
-    /// Valide un champ par une **fonction croisée** qui reçoit sa valeur **et** le formulaire
-    /// partiel (champs **déjà déclarés**) : `check(value, form)` peut consulter
-    /// [`form.value(other)`](Self::value) — mot de passe confirmé, dates cohérentes, etc.
-    /// Déclarez donc le champ référencé **avant**.
+    /// Validates a field with a **cross-field** function receiving its value **and** the
+    /// partial form (the fields **already declared**): `check(value, form)` can consult
+    /// [`form.value(other)`](Self::value) — a confirmed password, consistent dates, and
+    /// so on. So declare the referenced field **first**.
     pub fn field_with(
         mut self,
         key: &'static str,
@@ -134,8 +134,8 @@ impl Form {
         self
     }
 
-    /// Convenance de validation croisée : `value` doit **égaler** la valeur du champ `other`
-    /// (déjà déclaré) — le cas « confirmer le mot de passe ». Sinon `message`.
+    /// A cross-field convenience: `value` must **equal** field `other`'s value (already
+    /// declared) — the "confirm the password" case. Otherwise `message`.
     pub fn matches(
         self,
         key: &'static str,
@@ -149,7 +149,7 @@ impl Form {
         })
     }
 
-    /// La valeur enregistrée du champ `key` (pour la validation croisée).
+    /// Field `key`'s recorded value, for cross-field validation.
     pub fn value(&self, key: &str) -> Option<&str> {
         self.fields
             .iter()
@@ -157,12 +157,12 @@ impl Form {
             .map(|(_, v, _)| v.as_str())
     }
 
-    /// `true` si aucun champ n'est en erreur.
+    /// `true` if no field is in error.
     pub fn is_valid(&self) -> bool {
         self.fields.iter().all(|(_, _, e)| e.is_none())
     }
 
-    /// Le message d'erreur du champ `key`, s'il en a un.
+    /// Field `key`'s error message, if it has one.
     pub fn error(&self, key: &str) -> Option<&str> {
         self.fields
             .iter()
@@ -170,8 +170,8 @@ impl Form {
             .and_then(|(_, _, e)| e.as_deref())
     }
 
-    /// Tous les messages d'erreur `(clé, message)`, dans l'ordre de déclaration — pour un
-    /// **récapitulatif** en tête de formulaire (voir [`ErrorSummary`]).
+    /// Every error message as `(key, message)`, in declaration order — for a **summary**
+    /// at the head of the form (see [`ErrorSummary`]).
     pub fn errors(&self) -> Vec<(&'static str, &str)> {
         self.fields
             .iter()
@@ -179,8 +179,8 @@ impl Form {
             .collect()
     }
 
-    /// La clé du **premier** champ en erreur (ordre de déclaration) — typiquement
-    /// celui à focaliser / mettre en avant à la soumission.
+    /// The key of the **first** field in error (declaration order) — typically the
+    /// one to focus or bring out on submission.
     pub fn first_invalid(&self) -> Option<&'static str> {
         self.fields
             .iter()
@@ -189,30 +189,31 @@ impl Form {
     }
 }
 
-/// Marge intérieure du récapitulatif d'erreurs.
+/// The error summary's inner padding.
 const SUMMARY_PAD: f32 = 12.0;
 
-/// **Récapitulatif d'erreurs** : une carte teintée « erreur » listant les messages (un titre
-/// « Please fix N error(s) » puis une puce par message), à poser en tête de formulaire après
-/// une soumission invalide. Se construit depuis [`Form::errors`]. Vide si aucun message
-/// (à ne pas afficher — voir [`is_empty`](Self::is_empty)).
+/// An **error summary**: an "error"-tinted card listing the messages (a "Please fix N
+/// error(s)" title, then one bullet per message), to place at the head of a form after
+/// an invalid submission. Built from [`Form::errors`]. Empty when there is no message,
+/// and then it should not be displayed — see [`is_empty`](Self::is_empty).
 ///
-/// Les puces sont **inertes** avec [`new`](Self::new) ; avec [`links`](Self::links) chacune
-/// porte un message applicatif émis au clic — typiquement pour **focaliser** le champ fautif
-/// (via `Command::focus`), le récapitulatif servant alors de table des matières des erreurs.
+/// The bullets are **inert** with [`new`](Self::new); with [`links`](Self::links) each
+/// one carries an application message emitted on click — typically to **focus** the
+/// offending field (via `Command::focus`), the summary then acting as a table of
+/// contents of the errors.
 pub struct ErrorSummary<Msg> {
     empty: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> ErrorSummary<Msg> {
-    /// Construit le récapitulatif à partir des messages (l'ordre est conservé). Puces **inertes**.
+    /// Builds the summary from the messages (the order is preserved). **Inert** bullets.
     pub fn new(messages: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self::assemble(messages.into_iter().map(|m| (m.into(), None)).collect())
     }
 
-    /// Récapitulatif **cliquable** : chaque `(message, msg)` devient une puce qui émet `msg` au
-    /// clic (pour focaliser le champ correspondant). L'ordre est conservé.
+    /// A **clickable** summary: each `(message, msg)` becomes a bullet that emits `msg` on
+    /// click, to focus the matching field. The order is preserved.
     pub fn links(items: impl IntoIterator<Item = (impl Into<String>, Msg)>) -> Self {
         Self::assemble(
             items
@@ -240,17 +241,17 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
         Self { empty, children }
     }
 
-    /// `true` si aucun message — l'appelant peut alors ne rien afficher.
+    /// `true` when there is no message — the caller can then display nothing.
     pub fn is_empty(&self) -> bool {
         self.empty
     }
 }
 
-/// Taille de police d'une puce du récapitulatif.
+/// The font size of a summary bullet.
 const BULLET_SIZE: f32 = 13.0;
 
-/// Une ligne du récapitulatif (« • message »). **Cliquable** quand elle porte un message
-/// (elle focalise alors le champ fautif) ; simple texte sinon.
+/// One summary line ("• message"). **Clickable** when it carries a message (it then
+/// focuses the offending field); plain text otherwise.
 struct Bullet<Msg> {
     label: String,
     message: Option<Msg>,
@@ -273,7 +274,7 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Surbrillance discrète au survol/focus quand la puce est cliquable.
+        // A discreet highlight on hover or focus when the bullet is clickable.
         let highlight = status.hover_progress.max(status.focus_progress);
         if self.message.is_some() && highlight > 0.0 {
             let tint = theme.error.fade(0.12 * highlight * o);
@@ -320,7 +321,7 @@ impl<Msg: Clone> Widget<Msg> for ErrorSummary<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        // Carte teintée « erreur » (fond doux + bord), sous les lignes de texte.
+        // The "error"-tinted card (a soft background + a border), under the text lines.
         let o = status.opacity;
         let bg = theme.surface.lerp(theme.error, 0.12);
         scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.error.fade(o));
@@ -363,11 +364,11 @@ mod tests {
     #[test]
     fn all_returns_the_first_failure() {
         let rule = Rule::all([Rule::required("Required"), Rule::email("Invalid email")]);
-        // Vide → la première règle (required) l'emporte.
+        // Empty → the first rule (required) wins.
         assert_eq!(rule.check(""), Some("Required".to_string()));
-        // Non vide mais pas un e-mail → la seconde.
+        // Non-empty but not an e-mail → the second.
         assert_eq!(rule.check("nope"), Some("Invalid email".to_string()));
-        // Valide → aucune erreur.
+        // Valid → no error.
         assert_eq!(rule.check("ada@example.com"), None);
     }
 
@@ -380,11 +381,11 @@ mod tests {
         assert!(!report.is_valid());
         assert_eq!(report.error("email"), Some("Invalid email"));
         assert_eq!(report.error("password"), Some("Too short"));
-        assert_eq!(report.error("name"), None, "champ valide → pas d'erreur");
+        assert_eq!(report.error("name"), None, "a valid field → no error");
         assert_eq!(
             report.first_invalid(),
             Some("email"),
-            "premier en échec, dans l'ordre"
+            "the first to fail, in order"
         );
     }
 
@@ -397,7 +398,7 @@ mod tests {
 
     #[test]
     fn cross_field_confirm_password() {
-        // `confirm` doit égaler `password` (déclaré avant).
+        // `confirm` must equal `password`, which is declared before it.
         let report = |pw: &str, cf: &str| {
             Form::new()
                 .field("password", pw, Rule::min_len(8, "Too short"))
@@ -411,7 +412,7 @@ mod tests {
         let bad = report("secret12", "secretXX");
         assert_eq!(bad.error("confirm"), Some("Passwords do not match"));
         assert_eq!(bad.first_invalid(), Some("confirm"));
-        // `field_with` généralise : accès à une autre valeur via `form.value`.
+        // `field_with` generalises: access to another value through `form.value`.
         let dates = Form::new()
             .field("start", "10", Rule::new(|_| None))
             .field_with("end", "5", |v, form| {
@@ -430,7 +431,7 @@ mod tests {
         assert_eq!(
             report.errors(),
             vec![("email", "Invalid email"), ("password", "Too short")],
-            "les valides sont omis, l'ordre conservé",
+            "the valid ones are omitted, the order preserved",
         );
     }
 
@@ -452,12 +453,12 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        assert!(painted("Please fix 2 errors"), "titre du récapitulatif");
+        assert!(painted("Please fix 2 errors"), "the summary's title");
         assert!(
             painted("• Invalid email") && painted("• Too short"),
-            "une puce par message"
+            "one bullet per message"
         );
-        // Vide → à ne pas afficher.
+        // Empty → not to be displayed.
         assert!(ErrorSummary::<()>::new(Vec::<String>::new()).is_empty());
     }
 
@@ -473,18 +474,18 @@ mod tests {
         ]);
         assert!(!summary.is_empty());
         let kids = Widget::<Msg>::children(&summary);
-        // [0] = titre (inerte) ; [1..] = puces cliquables, dans l'ordre.
-        assert_eq!(kids[0].on_click(), None, "le titre n'est pas cliquable");
+        // [0] = the title (inert); [1..] = clickable bullets, in order.
+        assert_eq!(kids[0].on_click(), None, "the title is not clickable");
         assert_eq!(kids[1].on_click(), Some(Msg::Focus("email")));
         assert_eq!(kids[2].on_click(), Some(Msg::Focus("password")));
-        assert!(kids[1].focusable(), "une puce cliquable est focalisable");
-        // La variante inerte ne clique pas.
+        assert!(kids[1].focusable(), "a clickable bullet is focusable");
+        // The inert variant does not click.
         let inert = ErrorSummary::<Msg>::new(["Invalid email"]);
         let inert_kids = Widget::<Msg>::children(&inert);
         assert_eq!(inert_kids[1].on_click(), None);
         assert!(
             !inert_kids[1].focusable(),
-            "une puce inerte n'est pas focalisable"
+            "an inert bullet is not focusable"
         );
     }
 }

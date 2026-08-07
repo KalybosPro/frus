@@ -1,5 +1,5 @@
-//! [`DatePicker`] : un calendrier mensuel **contrôlé**, bâti sur [`crate::Grid`].
-//! Calcul de date **maison** (aucune dépendance temporelle).
+//! [`DatePicker`]: a **controlled** month calendar, built on [`crate::Grid`].
+//! Date arithmetic is **home-grown**, with no time dependency.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
@@ -14,7 +14,7 @@ use crate::widget::Widget;
 
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
-/// Écart entre les deux mois d'un calendrier double.
+/// The gap between the two months of a dual calendar.
 const DUAL_GAP: f32 = 24.0;
 
 /// Vrai si `year` est bissextile.
@@ -38,7 +38,7 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     }
 }
 
-/// Jour de la semaine (`0` = dimanche … `6` = samedi) du 1er du mois (Sakamoto).
+/// The weekday (`0` = Sunday … `6` = Saturday) of the 1st of the month (Sakamoto).
 fn first_weekday(year: i32, month: u32) -> usize {
     const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     let y = if month < 3 { year - 1 } else { year };
@@ -46,24 +46,24 @@ fn first_weekday(year: i32, month: u32) -> usize {
     (((y + y / 4 - y / 100 + y / 400 + T[m - 1] + 1) % 7 + 7) % 7) as usize
 }
 
-/// État d'une case-jour vis-à-vis de la sélection.
+/// A day cell's state with respect to the selection.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum DayMark {
-    /// Ni sélectionné ni dans une plage.
+    /// Neither selected nor within a range.
     Off,
-    /// Jour sélectionné (mode simple).
+    /// A selected day (simple mode).
     Selected,
-    /// Borne **début** d'une plage.
+    /// A range's **start** bound.
     Start,
-    /// Borne **fin** d'une plage.
+    /// A range's **end** bound.
     End,
-    /// Jour **entre** les deux bornes (bande de liaison).
+    /// A day **between** the two bounds (the connecting band).
     Between,
 }
 
-/// Marqueur de plage d'une `date` `(année, mois, jour)` vis-à-vis de `[start, end]` :
-/// borne début/fin, jour intermédiaire, ou hors plage. Les dates se comparent par tuple
-/// (année, puis mois, puis jour), donc l'ordre chronologique est celui de `<`.
+/// The range marker of a `date` `(year, month, day)` with respect to `[start, end]`:
+/// a start or end bound, an in-between day, or outside the range. Dates compare as
+/// tuples (year, then month, then day), so chronological order is the order of `<`.
 fn range_mark(
     date: (i32, u32, u32),
     start: Option<(i32, u32, u32)>,
@@ -77,11 +77,11 @@ fn range_mark(
     }
 }
 
-/// Une case-jour cliquable (vide si `day == 0`).
+/// A clickable day cell (empty when `day == 0`).
 struct Day<Msg> {
     day: u32,
     mark: DayMark,
-    /// Jour **désactivé** (hors bornes) : atténué, non cliquable — jalon 231.
+    /// A **disabled** day (outside the bounds): dimmed, not clickable — milestone 231.
     disabled: bool,
     message: Option<Msg>,
 }
@@ -104,7 +104,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             return; // case de remplissage
         }
         let o = status.opacity;
-        // Jour désactivé (hors bornes) : chiffre atténué, ni fond ni bande (jalon 231).
+        // A disabled day (outside the bounds): a dimmed figure, no background, no band.
         if self.disabled {
             let label = self.day.to_string();
             let w = frus_text::measure(&label, SIZE).width;
@@ -119,7 +119,7 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             );
             return;
         }
-        // Bande de plage (fond doux, coins carrés pour se toucher entre cases voisines).
+        // The range band (a soft background, square corners so neighbouring cells touch).
         let band = theme.primary.fade(0.18 * o);
         let half = Rect::new(bounds.x, bounds.y, bounds.width * 0.5, bounds.height);
         let right = Rect::new(
@@ -129,13 +129,13 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
             bounds.height,
         );
         match self.mark {
-            // La borne peint sa demi-bande côté intérieur pour rejoindre les jours entre.
+            // The bound paints its half-band on the inner side to meet the in-between days.
             DayMark::Start => scene.draw_rect(right, band, 0.0, 0.0, Color::TRANSPARENT),
             DayMark::End => scene.draw_rect(half, band, 0.0, 0.0, Color::TRANSPARENT),
             DayMark::Between => scene.draw_rect(bounds, band, 0.0, 0.0, Color::TRANSPARENT),
             _ => {}
         }
-        // Fond de la case (pastille pleine pour une borne/sélection, survol sinon).
+        // The cell's background (a solid pill for a bound or selection, hover otherwise).
         let (bg, fg) = match self.mark {
             DayMark::Selected | DayMark::Start | DayMark::End => (theme.primary, theme.on_primary),
             _ => {
@@ -168,10 +168,10 @@ impl<Msg: Clone> Widget<Msg> for Day<Msg> {
     }
 }
 
-/// Un calendrier mensuel (ou une paire de mois en mode [`range_dual`](DatePicker::range_dual)).
+/// A month calendar (or a pair of months in [`range_dual`](DatePicker::range_dual) mode).
 pub struct DatePicker<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
-    /// Deux mois côte à côte (double sa largeur).
+    /// Two months side by side, which doubles its width.
     dual: bool,
 }
 
@@ -192,8 +192,8 @@ const MONTHS: [&str; 12] = [
 ];
 
 impl<Msg: Clone + 'static> DatePicker<Msg> {
-    /// Crée un calendrier pour `year`/`month` (1..=12), avec le jour `selected`
-    /// éventuel. `on_select(jour)` au clic ; `on_nav(±1)` pour changer de mois.
+    /// Creates a calendar for `year`/`month` (1..=12), with an optional `selected`
+    /// day. `on_select(day)` on click; `on_nav(±1)` to change month.
     pub fn new(
         year: i32,
         month: u32,
@@ -217,11 +217,11 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
-    /// Calendrier simple **filtré par prédicat** : un jour `(année, mois, jour)` est cliquable ssi
-    /// `is_enabled(date)` est vrai — les autres sont **désactivés** (atténués, non cliquables). C'est
-    /// l'escape hatch général (façon `selectableDayPredicate` de Flutter) : jours **blackout**
-    /// isolés, week-ends interdits, bornes, ou toute combinaison. `selected`/`on_select`/`on_nav`
-    /// comme [`new`](Self::new) — jalon 235.
+    /// A simple calendar **filtered by predicate**: a day `(year, month, day)` is clickable
+    /// if and only if `is_enabled(date)` is true — the others are **disabled** (dimmed, not
+    /// clickable). This is the general escape hatch: isolated **blackout** days, forbidden
+    /// weekends, bounds, or any combination. `selected`/`on_select`/`on_nav` as in
+    /// [`new`](Self::new) — milestone 235.
     pub fn filtered(
         year: i32,
         month: u32,
@@ -247,10 +247,10 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
-    /// Calendrier simple **borné** : les jours hors `[min, max]` (dates `(année, mois, jour)`,
-    /// bornes optionnelles et **incluses**) sont **désactivés** — atténués et non cliquables.
-    /// Identique à [`new`](Self::new) pour le reste (jour `selected`, `on_select`, `on_nav`).
-    /// Utile pour interdire les dates passées, une fenêtre de réservation, etc. — jalon 231.
+    /// A simple **bounded** calendar: days outside `[min, max]` (dates `(year, month, day)`,
+    /// with optional and **inclusive** bounds) are **disabled** — dimmed and not clickable.
+    /// Identical to [`new`](Self::new) otherwise (the `selected` day, `on_select`, `on_nav`).
+    /// Useful to forbid past dates, to set a booking window, and so on — milestone 231.
     pub fn bounded(
         year: i32,
         month: u32,
@@ -280,10 +280,11 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
-    /// Calendrier en **mode plage** : met en avant l'intervalle `[start, end]` (dates
-    /// `(année, mois, jour)`) — bornes en pastille pleine, jours entre en bande douce. Une seule
-    /// borne (`end == None`) affiche juste le début (sélection en cours). `on_select(jour)`
-    /// rapporte le jour cliqué du mois affiché — l'application décide s'il devient début ou fin.
+    /// A calendar in **range mode**: it brings out the `[start, end]` interval (dates
+    /// `(year, month, day)`) — the bounds as solid pills, the days between as a soft band.
+    /// A single bound (`end == None`) shows just the start (a selection in progress).
+    /// `on_select(day)` reports the clicked day of the month shown — the application
+    /// decides whether it becomes the start or the end.
     pub fn range(
         year: i32,
         month: u32,
@@ -303,10 +304,10 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
-    /// Calendrier en **mode plage borné** : comme [`range`](Self::range), mais les jours hors
-    /// `[min, max]` (bornes optionnelles et **incluses**) sont **désactivés** — atténués et non
-    /// cliquables. Combine la mise en avant d'un intervalle sélectionné et une fenêtre de saisie
-    /// autorisée (p.ex. réserver une plage dans une période ouverte) — jalon 234.
+    /// A calendar in **bounded range mode**: like [`range`](Self::range), but days outside
+    /// `[min, max]` (optional and **inclusive** bounds) are **disabled** — dimmed and not
+    /// clickable. Combines bringing out a selected interval with an allowed input window
+    /// (booking a range within an open period, say) — milestone 234.
     #[allow(clippy::too_many_arguments)]
     pub fn range_bounded(
         year: i32,
@@ -332,11 +333,11 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         )
     }
 
-    /// Calendrier **double** : le mois `year`/`month` et le **suivant**, côte à côte, partageant
-    /// la même plage `[start, end]` — pour saisir de longues plages sans changer de mois.
-    /// `on_select((année, mois, jour))` rapporte la date **complète** du jour cliqué (le mois est
-    /// désambiguïsé), `on_nav(±1)` décale la **paire**. La bande de plage se poursuit d'un mois
-    /// à l'autre (les dates se comparent en entier — cf. [`range_mark`]).
+    /// A **dual** calendar: the `year`/`month` month and the **next**, side by side, sharing
+    /// the same `[start, end]` range — to enter long ranges without changing month.
+    /// `on_select((year, month, day))` reports the **complete** date of the day clicked (the
+    /// month is disambiguated), and `on_nav(±1)` shifts the **pair**. The range band carries
+    /// on from one month to the other (dates compare as whole values — see [`range_mark`]).
     pub fn range_dual(
         year: i32,
         month: u32,
@@ -351,7 +352,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         } else {
             (year, month + 1)
         };
-        // Partagés entre les deux mois.
+        // Shared between the two months.
         let on_select = std::rc::Rc::new(on_select);
         let on_nav = std::rc::Rc::new(on_nav);
         let (os1, os2) = (on_select.clone(), on_select);
@@ -379,8 +380,8 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         }
     }
 
-    /// Assemble l'en-tête, la ligne des jours de semaine et la grille ; `mark_of(jour)` décide de
-    /// l'état de chaque case (sélection simple ou plage).
+    /// Assembles the header, the weekday row and the grid; `mark_of(day)` decides each
+    /// cell's state (a simple selection, or a range).
     fn assemble(
         year: i32,
         month: u32,
@@ -391,7 +392,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     ) -> Self {
         let month = month.clamp(1, 12);
 
-        // En-tête : ‹ Mois Année ›.
+        // The header: ‹ Month Year ›.
         let header = Flex::row()
             .align(Align::Center)
             .gap(8.0)
@@ -411,7 +412,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
                     .on_press(on_nav(1)),
             );
 
-        // Ligne des jours de la semaine.
+        // The weekday row.
         let mut weekdays = Grid::new(7).gap(2.0);
         for wd in WEEKDAYS {
             weekdays = weekdays.cell(WeekdayCell {
@@ -419,7 +420,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             });
         }
 
-        // Grille des jours (cases vides avant le 1er).
+        // The day grid (empty cells before the 1st).
         let lead = first_weekday(year, month);
         let total = days_in_month(year, month);
         let mut grid = Grid::new(7).gap(2.0);
@@ -448,7 +449,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     }
 }
 
-/// Un en-tête de jour de semaine (non cliquable).
+/// A weekday header cell (not clickable).
 struct WeekdayCell {
     label: String,
 }
@@ -531,9 +532,9 @@ mod tests {
     #[test]
     fn builds_header_weekdays_and_grid() {
         let dp = DatePicker::new(2026, 7, Some(11), Msg::Pick, Msg::Nav);
-        // [en-tête, jours de semaine, grille].
+        // [header, weekdays, grid].
         assert_eq!(Widget::<Msg>::children(&dp).len(), 3);
-        // La grille = cases de remplissage + 31 jours ; juillet 2026 commence mercredi
+        // The grid = filler cells + 31 days; July 2026 starts on a Wednesday
         // (3 cases vides) → 3 + 31 = 34 cellules.
         let grid = &Widget::<Msg>::children(&dp)[2];
         assert_eq!(grid.children().len(), 34);
@@ -541,7 +542,7 @@ mod tests {
 
     #[test]
     fn bounded_disables_days_outside_the_range() {
-        // Fenêtre [10, 20] juillet 2026 : hors bornes = non cliquable, dans les bornes = cliquable.
+        // The window [10, 20] July 2026: outside = not clickable, inside = clickable.
         let dp = DatePicker::bounded(
             2026,
             7,
@@ -552,26 +553,22 @@ mod tests {
             Msg::Nav,
         );
         let grid = &Widget::<Msg>::children(&dp)[2];
-        // Juillet 2026 commence mercredi (3 cases vides) ; le jour `d` est à l'index 3 + (d - 1).
+        // July 2026 starts on a Wednesday (3 empty cells); day `d` sits at index 3 + (d - 1).
         let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
-        assert_eq!(at(9), None, "9 juillet désactivé (avant min)");
+        assert_eq!(at(9), None, "9 July disabled (before min)");
         assert_eq!(
             at(10),
             Some(Msg::Pick(10)),
             "10 juillet cliquable (borne min incluse)"
         );
-        assert_eq!(
-            at(15),
-            Some(Msg::Pick(15)),
-            "15 juillet cliquable (intérieur)"
-        );
+        assert_eq!(at(15), Some(Msg::Pick(15)), "15 July clickable (inside)");
         assert_eq!(
             at(20),
             Some(Msg::Pick(20)),
-            "20 juillet cliquable (borne max incluse)"
+            "20 July clickable (max bound included)"
         );
-        assert_eq!(at(21), None, "21 juillet désactivé (après max)");
-        // Sans borne max : tout ce qui est >= min est cliquable.
+        assert_eq!(at(21), None, "21 July disabled (after max)");
+        // Without a max bound: everything >= min is clickable.
         let open = DatePicker::bounded(
             2026,
             7,
@@ -591,7 +588,7 @@ mod tests {
 
     #[test]
     fn filtered_disables_days_by_predicate() {
-        // Blackout : les 12 et 18 juillet indisponibles ; tout le reste cliquable.
+        // Blackout: 12 and 18 July unavailable; everything else clickable.
         let blackout = [(2026, 7, 12), (2026, 7, 18)];
         let dp = DatePicker::filtered(
             2026,
@@ -611,7 +608,7 @@ mod tests {
 
     #[test]
     fn range_bounded_disables_days_outside_the_window() {
-        // Plage 10..15 sélectionnée, mais fenêtre de saisie autorisée [8, 20] juillet 2026.
+        // The range 10..15 is selected, but the allowed input window is [8, 20] July 2026.
         let dp = DatePicker::range_bounded(
             2026,
             7,
@@ -624,19 +621,15 @@ mod tests {
         );
         let grid = &Widget::<Msg>::children(&dp)[2];
         let at = |d: u32| grid.children()[3 + (d - 1) as usize].on_click();
-        assert_eq!(at(7), None, "7 juillet hors fenêtre (avant min)");
-        assert_eq!(at(8), Some(Msg::Pick(8)), "8 juillet cliquable (borne min)");
+        assert_eq!(at(7), None, "7 July outside the window (before min)");
+        assert_eq!(at(8), Some(Msg::Pick(8)), "8 July clickable (min bound)");
         assert_eq!(
             at(12),
             Some(Msg::Pick(12)),
-            "12 juillet cliquable (dans la plage)"
+            "12 July clickable (inside the range)"
         );
-        assert_eq!(
-            at(20),
-            Some(Msg::Pick(20)),
-            "20 juillet cliquable (borne max)"
-        );
-        assert_eq!(at(21), None, "21 juillet hors fenêtre (après max)");
+        assert_eq!(at(20), Some(Msg::Pick(20)), "20 July clickable (max bound)");
+        assert_eq!(at(21), None, "21 July outside the window (after max)");
     }
 
     #[test]
@@ -649,21 +642,21 @@ mod tests {
         assert_eq!(
             range_mark((2026, 7, 9), start, end),
             DayMark::Off,
-            "avant le début"
+            "before the start"
         );
         assert_eq!(
             range_mark((2026, 7, 16), start, end),
             DayMark::Off,
-            "après la fin"
+            "after the end"
         );
-        // Traverse les frontières de mois : juin est « entre » juin-15 et août-01.
+        // It crosses month boundaries: June is "between" June 15 and August 1.
         let cross = (Some((2026, 6, 15)), Some((2026, 8, 1)));
         assert_eq!(
             range_mark((2026, 7, 20), cross.0, cross.1),
             DayMark::Between
         );
         assert_eq!(range_mark((2026, 5, 31), cross.0, cross.1), DayMark::Off);
-        // Sélection en cours (une seule borne) : seul le début est marqué.
+        // A selection in progress (a single bound): only the start is marked.
         assert_eq!(range_mark((2026, 7, 10), start, None), DayMark::Start);
         assert_eq!(
             range_mark((2026, 7, 12), start, None),
@@ -697,7 +690,7 @@ mod tests {
             Pick(i32, u32, u32),
             Nav(i32),
         }
-        // Décembre → janvier de l'année suivante (bascule d'année).
+        // December → January of the following year (a year rollover).
         let dp = DatePicker::range_dual(
             2026,
             12,
@@ -706,14 +699,14 @@ mod tests {
             |(y, m, d)| M::Pick(y, m, d),
             M::Nav,
         );
-        // Un seul enfant : la rangée des deux mois.
+        // A single child: the row of two months.
         let row = &Widget::<M>::children(&dp);
         assert_eq!(row.len(), 1);
         let months = row[0].children();
-        assert_eq!(months.len(), 2, "deux calendriers côte à côte");
-        // Le mois de droite est janvier 2027 : cliquer son 3 rapporte la date complète.
+        assert_eq!(months.len(), 2, "two calendars side by side");
+        // The right-hand month is January 2027: clicking its 3rd reports the complete date.
         let jan_grid = &months[1].children()[2];
-        // Janvier 2027 commence un vendredi (5 cases vides) → le 3 est à l'index 5 + 2 = 7.
+        // January 2027 starts on a Friday (5 empty cells) → the 3rd is at index 5 + 2 = 7.
         assert_eq!(first_weekday(2027, 1), 5);
         assert_eq!(jan_grid.children()[7].on_click(), Some(M::Pick(2027, 1, 3)));
     }

@@ -1,5 +1,4 @@
-//! [`Transform`] : décale son enfant à la **peinture**, sans toucher la mise en
-//! page (façon `Transform.translate` de Flutter).
+//! [`Transform`]: offsets its child at **paint** time, without touching layout.
 
 use frus_core::{Alignment, Rect, Scene};
 use frus_layout::Style;
@@ -8,40 +7,40 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Transforme son enfant **à la peinture** (rendu **et** hit-test), sans changer
-/// la mise en page : les frères ne bougent pas et l'enfant peut déborder sa boîte
-/// (aucune découpe, comme Flutter).
+/// Transforms its child **at paint time** (both rendering **and** hit-testing),
+/// without changing layout: the siblings do not move, and the child may overflow
+/// its box, since there is no clipping.
 ///
-/// Deux transformations, chacune combinable à un `Tween` lu dans `view()` pour
-/// **animer** :
-/// - **`translate(dx, dy)`** — décale le sous-arbre (pastille dans un coin, entrée
-///   qui coulisse, secousse d'erreur…).
-/// - **`scale(factor)`** / **`scale_xy(sx, sy)`** — met le sous-arbre à l'échelle
-///   autour d'un pivot (par défaut le centre), uniforme ou **par axe** (étirer,
-///   aplatir) : effet « pop » d'un bouton, zoom d'une vignette.
-/// - **`rotate(radians)`** — tourne le sous-arbre autour d'un pivot (par défaut le
-///   centre) : aiguille, chevron qui bascule, spinner.
+/// Two transformations, each combinable with a `Tween` read in `view()` to
+/// **animate**:
+/// - **`translate(dx, dy)`** — offsets the subtree (a dot in a corner, an entry
+///   that slides in, an error shake…).
+/// - **`scale(factor)`** / **`scale_xy(sx, sy)`** — scales the subtree about a
+///   pivot (the centre by default), uniformly or **per axis** (stretching,
+///   flattening): a button's "pop" effect, a thumbnail zoom.
+/// - **`rotate(radians)`** — rotates the subtree about a pivot (the centre by
+///   default): a needle, a chevron that flips, a spinner.
 ///
-/// Échelle et rotation (et leur composition) sont fondues en **une seule matrice
-/// affine** portée par un calque composité transformé ; le hit-test applique la
-/// matrice **inverse** au point. Elles se **composent** dans un même widget via les
-/// enchaîneurs `and_translate`, `and_scale` / `and_scale_xy`, `and_rotate` — appliqués
-/// dans l'ordre translation → échelle → rotation (la translation la plus intérieure,
-/// via le décalage d'enfant). Ex. `Transform::scale(1.5).and_rotate(0.2)` grossit
-/// **et** tourne, exactement, sans approximation de composition.
+/// Scale and rotation (and their composition) are melted into **a single affine
+/// matrix** carried by a transformed composited layer; hit-testing applies the
+/// **inverse** matrix to the point. They **compose** within one widget through the
+/// chainers `and_translate`, `and_scale` / `and_scale_xy`, `and_rotate` — applied in
+/// the order translation → scale → rotation (the translation innermost, through the
+/// child offset). So `Transform::scale(1.5).and_rotate(0.2)` enlarges **and**
+/// rotates, exactly, with no composition approximation.
 pub struct Transform<Msg> {
     dx: f32,
     dy: f32,
-    /// `(sx, sy, pivot)` — `None` = pas d'échelle.
+    /// `(sx, sy, pivot)` — `None` = no scaling.
     scale: Option<(f32, f32, Alignment)>,
-    /// `(angle_radians, pivot)` — `None` = pas de rotation.
+    /// `(angle_radians, pivot)` — `None` = no rotation.
     rotate: Option<(f32, Alignment)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> Transform<Msg> {
-    /// Décale l'enfant de `(dx, dy)` pixels logiques (x vers la droite, y vers le
-    /// bas), sans toucher la mise en page.
+    /// Offsets the child by `(dx, dy)` logical pixels (x to the right, y downwards),
+    /// without touching layout.
     pub fn translate(dx: f32, dy: f32) -> Self {
         Self {
             dx,
@@ -52,26 +51,26 @@ impl<Msg> Transform<Msg> {
         }
     }
 
-    /// Met l'enfant à l'échelle par `factor` **autour de son centre**, sans toucher
-    /// la mise en page (`1.0` = neutre, `2.0` = double, `0.5` = moitié).
+    /// Scales the child by `factor` **about its centre**, without touching layout
+    /// (`1.0` = neutral, `2.0` = double, `0.5` = half).
     pub fn scale(factor: f32) -> Self {
         Self::scale_xy_from(factor, factor, Alignment::CENTER)
     }
 
-    /// Met l'enfant à l'échelle **par axe** (`sx` horizontal, `sy` vertical) autour
-    /// de son centre — étirer ou aplatir. `scale_xy(2.0, 1.0)` double la largeur en
-    /// gardant la hauteur.
+    /// Scales the child **per axis** (`sx` horizontal, `sy` vertical) about its
+    /// centre — stretching or flattening. `scale_xy(2.0, 1.0)` doubles the width
+    /// while keeping the height.
     pub fn scale_xy(sx: f32, sy: f32) -> Self {
         Self::scale_xy_from(sx, sy, Alignment::CENTER)
     }
 
-    /// Comme [`Transform::scale`], mais autour d'un `pivot` (ancrage dans la boîte :
-    /// `Alignment::TOP_LEFT` fixe le coin haut-gauche, etc.).
+    /// Like [`Transform::scale`], but about a `pivot` (an anchor within the box:
+    /// `Alignment::TOP_LEFT` pins the top-left corner, and so on).
     pub fn scale_from(factor: f32, pivot: Alignment) -> Self {
         Self::scale_xy_from(factor, factor, pivot)
     }
 
-    /// Échelle par axe autour d'un `pivot` (la forme la plus générale).
+    /// Per-axis scaling about a `pivot` — the most general form.
     pub fn scale_xy_from(sx: f32, sy: f32, pivot: Alignment) -> Self {
         Self {
             dx: 0.0,
@@ -82,13 +81,13 @@ impl<Msg> Transform<Msg> {
         }
     }
 
-    /// Tourne l'enfant de `radians` (sens horaire) **autour de son centre**, sans
-    /// toucher la mise en page.
+    /// Rotates the child by `radians` (clockwise) **about its centre**, without
+    /// touching layout.
     pub fn rotate(radians: f32) -> Self {
         Self::rotate_from(radians, Alignment::CENTER)
     }
 
-    /// Comme [`Transform::rotate`], mais autour d'un `pivot` (ancrage dans la boîte).
+    /// Like [`Transform::rotate`], but about a `pivot` (an anchor within the box).
     pub fn rotate_from(radians: f32, pivot: Alignment) -> Self {
         Self {
             dx: 0.0,
@@ -99,34 +98,34 @@ impl<Msg> Transform<Msg> {
         }
     }
 
-    /// **Ajoute** une translation à la transformation courante (composition) :
-    /// `Transform::scale(1.2).and_translate(0, -4)` grossit *et* remonte.
+    /// **Adds** a translation to the current transformation (composition):
+    /// `Transform::scale(1.2).and_translate(0, -4)` enlarges *and* moves up.
     pub fn and_translate(mut self, dx: f32, dy: f32) -> Self {
         self.dx = dx;
         self.dy = dy;
         self
     }
 
-    /// **Ajoute** une échelle uniforme (autour du centre) à la transformation
-    /// courante.
+    /// **Adds** a uniform scaling (about the centre) to the current
+    /// transformation.
     pub fn and_scale(self, factor: f32) -> Self {
         self.and_scale_xy(factor, factor)
     }
 
-    /// **Ajoute** une échelle par axe (autour du centre) à la transformation courante.
+    /// **Adds** a per-axis scaling (about the centre) to the current transformation.
     pub fn and_scale_xy(mut self, sx: f32, sy: f32) -> Self {
         self.scale = Some((sx, sy, Alignment::CENTER));
         self
     }
 
-    /// **Ajoute** une rotation (autour du centre) à la transformation courante :
-    /// `Transform::scale(1.5).and_rotate(0.2)` grossit *et* tourne.
+    /// **Adds** a rotation (about the centre) to the current transformation:
+    /// `Transform::scale(1.5).and_rotate(0.2)` enlarges *and* rotates.
     pub fn and_rotate(mut self, radians: f32) -> Self {
         self.rotate = Some((radians, Alignment::CENTER));
         self
     }
 
-    /// Définit l'enfant transformé.
+    /// Sets the transformed child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
@@ -136,8 +135,8 @@ impl<Msg> Transform<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
     fn style(&self) -> Style {
-        // Passe-plat : la boîte prend sa taille du contexte comme l'enfant ; le
-        // décalage n'agit qu'à la peinture (voir `transform_translate`).
+        // A pass-through: the box takes its size from the context, like the child;
+        // the offset only acts at paint time (see `transform_translate`).
         Style::default()
     }
 
@@ -146,7 +145,7 @@ impl<Msg: Clone> Widget<Msg> for Transform<Msg> {
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
-        // Widget de transformation pur : aucune décoration propre.
+        // A pure transformation widget: no decoration of its own.
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -172,8 +171,8 @@ mod tests {
     use crate::Container;
     use frus_core::{Color, Primitive, Size};
 
-    /// `Transform::translate(30, 10)` décale l'enfant (20×20) à la peinture : son
-    /// fond, normalement en haut-gauche, est peint à ~(30, 10).
+    /// `Transform::translate(30, 10)` offsets the (20×20) child at paint time: its
+    /// background, normally at the top left, is painted at about (30, 10).
     #[test]
     fn translate_offsets_the_child_at_paint() {
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -195,14 +194,14 @@ mod tests {
             .expect("le fond rouge de l'enfant");
         assert!(
             (rect.x - 30.0).abs() < 0.5 && (rect.y - 10.0).abs() < 0.5,
-            "décalé à (30, 10) : {rect:?}"
+            "offset to (30, 10): {rect:?}"
         );
     }
 
-    /// Le décalage est **purement visuel** : un frère placé après un enfant
-    /// transformé garde sa position de mise en page (le Transform n'agrandit ni ne
-    /// déplace sa boîte). Ici le 2e enfant reste à `y = 20`, malgré le décalage
-    /// vertical de 50 du 1er.
+    /// The offset is **purely visual**: a sibling placed after a transformed child
+    /// keeps its layout position (the Transform neither grows nor moves its box).
+    /// Here the 2nd child stays at `y = 20`, despite the 1st being offset 50
+    /// vertically.
     #[test]
     fn translate_does_not_affect_layout() {
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -227,17 +226,17 @@ mod tests {
                 }
                 _ => None,
             })
-            .expect("le fond vert du 2e enfant");
-        // Le 1er enfant occupe 20px de haut en layout (son décalage de 50 est visuel) :
-        // le 2e enfant suit à y = 20.
+            .expect("the 2nd child's green background");
+        // The 1st child takes 20px of height in layout (its offset of 50 is visual):
+        // the 2nd child follows at y = 20.
         assert!(
             (green_y - 20.0).abs() < 0.5,
-            "frère à sa place layout : y = {green_y}"
+            "sibling in its layout place: y = {green_y}"
         );
     }
 
-    /// Extrait l'[`Affine`] du calque transformé de la scène (le sous-arbre est peint
-    /// à plat *dans* ce calque ; la transformation est portée par sa matrice).
+    /// Extracts the [`Affine`] of the scene's transformed layer (the subtree is
+    /// painted flat *inside* that layer; the transformation is carried by its matrix).
     fn layer_affine<Msg: Clone>(ui: &crate::ui::Ui<Msg>) -> frus_core::Affine {
         ui.scene()
             .primitives()
@@ -248,11 +247,11 @@ mod tests {
                 } => Some(t.affine),
                 _ => None,
             })
-            .expect("un calque transformé")
+            .expect("a transformed layer")
     }
 
-    /// `Transform::scale(2.0)` porte une matrice qui double (partie linéaire = 2) et
-    /// laisse **le centre de l'enfant (10, 10) fixe**.
+    /// `Transform::scale(2.0)` carries a matrix that doubles (a linear part of 2) and
+    /// leaves **the child's centre (10, 10) fixed**.
     #[test]
     fn scale_grows_the_child_about_its_center() {
         use frus_core::Point;
@@ -276,8 +275,8 @@ mod tests {
         );
     }
 
-    /// `scale_from(2.0, TOP_LEFT)` met à l'échelle autour du coin haut-gauche de
-    /// l'enfant : ce coin (0, 0) reste fixe.
+    /// `scale_from(2.0, TOP_LEFT)` scales about the child's top-left corner: that
+    /// corner (0, 0) stays fixed.
     #[test]
     fn scale_from_pins_the_pivot_corner() {
         use frus_core::{Alignment, Point};
@@ -302,8 +301,8 @@ mod tests {
         );
     }
 
-    /// `Transform::scale_xy(3.0, 1.0)` porte une matrice d'échelle **par axe**
-    /// (×3 en x, ×1 en y), centre fixe.
+    /// `Transform::scale_xy(3.0, 1.0)` carries a **per-axis** scale matrix (×3 in x,
+    /// ×1 in y), with the centre fixed.
     #[test]
     fn scale_xy_stretches_per_axis() {
         use frus_core::Point;
@@ -328,8 +327,8 @@ mod tests {
         );
     }
 
-    /// `Transform::rotate(π/2)` porte une matrice de rotation pure (partie linéaire
-    /// `[0, 1, -1, 0]`) qui laisse fixe le centre de l'enfant 40×20 → (20, 10).
+    /// `Transform::rotate(π/2)` carries a pure rotation matrix (a linear part of
+    /// `[0, 1, -1, 0]`) that leaves the 40×20 child's centre fixed → (20, 10).
     #[test]
     fn rotate_emits_a_rotated_layer() {
         use frus_core::Point;
@@ -358,9 +357,9 @@ mod tests {
         );
     }
 
-    /// **Composition** : `scale(2.0).and_rotate(π/2)` fond les deux en **une seule**
-    /// matrice = rotation ∘ échelle : la partie linéaire vaut `[0, 2, -2, 0]`
-    /// (magnitude 2 = échelle, hors-diagonale = rotation).
+    /// **Composition**: `scale(2.0).and_rotate(π/2)` melts the two into **a single**
+    /// matrix = rotation ∘ scale: the linear part is `[0, 2, -2, 0]` (magnitude 2 =
+    /// the scaling, off-diagonal = the rotation).
     #[test]
     fn scale_and_rotate_compose() {
         use std::f32::consts::FRAC_PI_2;
@@ -379,14 +378,14 @@ mod tests {
                 && (m.m[1] - 2.0).abs() < 1e-3
                 && (m.m[2] + 2.0).abs() < 1e-3
                 && m.m[3].abs() < 1e-3,
-            "rotation ∘ échelle : {:?}",
+            "rotation ∘ scale: {:?}",
             m.m
         );
     }
 
-    /// Sous une transformation **alignée sur les axes** (échelle pure), les cibles de
-    /// **focus** suivent aussi : un point hors du bouton à plat mais dans son image
-    /// agrandie est bien focalisable, et son rectangle de focus est ~2× plus large.
+    /// Under an **axis-aligned** transformation (pure scaling), the **focus** targets
+    /// follow too: a point outside the flat button but inside its enlarged image is
+    /// focusable, and its focus rectangle is about 2× wider.
     #[test]
     fn axis_aligned_transform_scales_the_focus_rect() {
         use frus_core::Point;
@@ -402,12 +401,15 @@ mod tests {
         );
         let flat = flat_ui
             .focus_hit(Point::new(2.0, 2.0))
-            .expect("bouton focalisable")
+            .expect("a focusable button")
             .1;
         let cy = flat.y + flat.height / 2.0;
-        // Point juste à droite du bouton à plat (largeur 200) : hors de sa cible.
+        // A point just right of the flat button (200 wide): outside its target.
         let probe = Point::new(flat.x + flat.width + 2.0, cy);
-        assert!(flat_ui.focus_hit(probe).is_none(), "hors du bouton à plat");
+        assert!(
+            flat_ui.focus_hit(probe).is_none(),
+            "outside the flat button"
+        );
 
         let scaled_ui = crate::ui::build_ui(
             &crate::Flex::<i32>::column()
@@ -419,7 +421,7 @@ mod tests {
         );
         let (_, r) = scaled_ui
             .focus_hit(probe)
-            .expect("l'image agrandie du bouton couvre le point");
+            .expect("the button's enlarged image covers the point");
         assert!(
             (r.width - flat.width * 2.0).abs() < 1.0,
             "rectangle de focus ~2× : {} vs {}",
@@ -428,10 +430,10 @@ mod tests {
         );
     }
 
-    /// Le hit-test **contre-tourne** le point : un clic à la position *tournée* d'un
-    /// enfant cliquable l'atteint, alors que sa position d'origine (non tournée) ne
-    /// l'atteint plus. Enfant 40×20 tourné de +90° autour de (20, 10) : le point
-    /// interne (35, 10) apparaît à l'écran en (20, 25).
+    /// Hit-testing **counter-rotates** the point: a click at a clickable child's
+    /// *rotated* position reaches it, while its original (unrotated) position no
+    /// longer does. A 40×20 child rotated +90° about (20, 10): the internal point
+    /// (35, 10) appears on screen at (20, 25).
     #[test]
     fn rotate_hit_test_counter_rotates_the_point() {
         use frus_core::Point;
@@ -449,12 +451,12 @@ mod tests {
         let rt = crate::runtime::Runtime::default();
         let theme = crate::Theme::dark();
         let ui = crate::ui::build_ui(&root, Size::new(100.0, 200.0), &rt, &theme);
-        // À l'écran, le point interne (35, 10) est peint en (20, 25) après rotation.
+        // On screen, the internal point (35, 10) is painted at (20, 25) after rotation.
         assert!(
             ui.hit(Point::new(20.0, 25.0)).is_some(),
-            "clic sur la position tournée"
+            "a click on the rotated position"
         );
-        // La position d'origine (non tournée) ne recouvre plus l'enfant.
+        // The original (unrotated) position no longer covers the child.
         assert!(
             ui.hit(Point::new(35.0, 10.0)).is_none(),
             "l'ancienne position rate"

@@ -1,4 +1,4 @@
-//! [`Slider`] : un curseur de valeur `0.0..=1.0`, **contrôlé** et glissable.
+//! [`Slider`]: a `0.0..=1.0` value slider, **controlled** and draggable.
 
 use std::rc::Rc;
 
@@ -10,18 +10,18 @@ use crate::interaction::{Key, KeyResponse, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Hauteur de l'infobulle de valeur (au-dessus des poignées) et son écart à la piste.
+/// The height of the value tooltip (above the thumbs) and its gap from the track.
 const TIP_H: f32 = 20.0;
 const TIP_GAP: f32 = 6.0;
 const TIP_SIZE: f32 = 12.0;
-/// Pas clavier par défaut (sans `divisions`) : une flèche déplace de 5 %.
+/// The default keyboard step (without `divisions`): an arrow moves by 5%.
 const KEY_STEP: f32 = 0.05;
 
 const H: f32 = 24.0;
 const TRACK_H: f32 = 6.0;
 const THUMB: f32 = 18.0;
 
-/// Un curseur linéaire (valeur normalisée `0..=1`).
+/// A linear slider (a normalised `0..=1` value).
 pub struct Slider<Msg> {
     value: f32,
     width: f32,
@@ -29,7 +29,7 @@ pub struct Slider<Msg> {
 }
 
 impl<Msg> Slider<Msg> {
-    /// Crée un curseur à la valeur donnée (bornée à `0..=1`).
+    /// Creates a slider at the given value (clamped to `0..=1`).
     pub fn new(value: f32) -> Self {
         Self {
             value: value.clamp(0.0, 1.0),
@@ -38,13 +38,13 @@ impl<Msg> Slider<Msg> {
         }
     }
 
-    /// Largeur, en pixels logiques.
+    /// Width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self
     }
 
-    /// Closure produisant un message depuis la nouvelle valeur (`0..=1`).
+    /// A closure producing a message from the new value (`0..=1`).
     pub fn on_change(mut self, on_change: impl Fn(f32) -> Msg + 'static) -> Self {
         self.on_change = Some(Box::new(on_change));
         self
@@ -84,7 +84,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             0.0,
             Color::TRANSPARENT,
         );
-        // Poignée.
+        // The thumb.
         let cx = bounds.x + filled;
         scene.draw_rect(
             Rect::new(cx - THUMB * 0.5, bounds.y + (H - THUMB) * 0.5, THUMB, THUMB),
@@ -119,7 +119,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
     }
 }
 
-/// Une cale transparente et inerte (positionne les poignées le long de la piste).
+/// A transparent, inert shim that positions the thumbs along the track.
 struct Spacer {
     width: f32,
     height: f32,
@@ -145,32 +145,32 @@ impl<Msg: Clone> Widget<Msg> for Spacer {
     }
 }
 
-/// Côté d'une poignée de [`RangeSlider`].
+/// The side of a [`RangeSlider`] thumb.
 #[derive(Copy, Clone)]
 enum Side {
     Low,
     High,
 }
 
-/// Une poignée **glissable** du curseur de plage. Chaque poignée déplace **son**
-/// côté (collant : la poignée saisie reste la poignée déplacée), borné par l'autre.
+/// A **draggable** thumb of the range slider. Each thumb moves **its own** side
+/// (sticky: the thumb grabbed stays the thumb moved), bounded by the other.
 struct RangeThumb<Msg> {
     side: Side,
     low: f32,
     high: f32,
-    /// Largeur de la piste, pour convertir un delta px en fraction.
+    /// The track's width, to convert a pixel delta into a fraction.
     track: f32,
-    /// Hauteur totale (piste + éventuelle zone d'infobulle) : la poignée est dessinée
-    /// dans la bande **basse** de `H`.
+    /// Total height (the track + any tooltip zone): the thumb is drawn in the
+    /// **lower** `H` band.
     height: f32,
     divisions: Option<usize>,
-    /// Formateur d'infobulle : la bulle n'apparaît qu'au **survol / focus** de la poignée.
+    /// The tooltip formatter: the bubble only appears on **hover or focus** of the thumb.
     label: Option<Rc<dyn Fn(f32) -> String>>,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
 }
 
 impl<Msg> RangeThumb<Msg> {
-    /// Accroche `v` au palier le plus proche si `divisions` est défini.
+    /// Snaps `v` to the nearest step if `divisions` is set.
     fn snap(&self, v: f32) -> f32 {
         match self.divisions {
             Some(n) if n > 0 => (v * n as f32).round() / n as f32,
@@ -178,7 +178,7 @@ impl<Msg> RangeThumb<Msg> {
         }
     }
 
-    /// Valeur portée par cette poignée (selon son côté).
+    /// The value this thumb carries, according to its side.
     fn value(&self) -> f32 {
         match self.side {
             Side::Low => self.low,
@@ -186,8 +186,8 @@ impl<Msg> RangeThumb<Msg> {
         }
     }
 
-    /// Nouvel intervalle après un déplacement de `delta` du côté de cette poignée,
-    /// borné par l'autre (pas de croisement) et accroché.
+    /// The new interval after moving this thumb's side by `delta`, bounded by the
+    /// other (no crossing) and snapped.
     fn moved(&self, delta: f32) -> (f32, f32) {
         match self.side {
             Side::Low => (
@@ -201,7 +201,7 @@ impl<Msg> RangeThumb<Msg> {
         }
     }
 
-    /// Pas d'une flèche : un palier si `divisions`, sinon [`KEY_STEP`].
+    /// One arrow's step: a division if `divisions` is set, otherwise [`KEY_STEP`].
     fn key_step(&self) -> f32 {
         match self.divisions {
             Some(n) if n > 0 => 1.0 / n as f32,
@@ -225,7 +225,7 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Poignée dans la bande basse `H` ; anneau accentué au focus clavier.
+        // The thumb in the lower `H` band; an accented ring on keyboard focus.
         let y = bounds.y + bounds.height - H + (H - THUMB) * 0.5;
         let border = if status.focused { 3.0 } else { 2.0 };
         scene.draw_rect(
@@ -235,7 +235,7 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
             border,
             theme.primary.fade(o),
         );
-        // Infobulle révélée au survol ou au focus (zone haute réservée par le slider).
+        // The tooltip revealed on hover or focus (the upper zone the slider reserves).
         if let Some(label) = &self.label {
             let active = status.focused || status.hover_progress > 0.01;
             if active {
@@ -277,13 +277,13 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     }
 
     fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
-        // Flèches : un pas ; Début/Fin : borne min/max de ce côté (le shell propose ces
-        // touches au widget focalisé avant l'action par défaut).
+        // Arrows: one step; Home/End: this side's min/max bound (the shell offers
+        // these keys to the focused widget before the default action).
         let delta = match key {
             Key::Left { .. } => -self.key_step(),
             Key::Right { .. } => self.key_step(),
-            Key::Home { .. } => -2.0, // borné en 0 / voisin bas
-            Key::End { .. } => 2.0,   // borné en voisin haut / 1
+            Key::Home { .. } => -2.0, // clamped at 0 or the low neighbour
+            Key::End { .. } => 2.0,   // clamped at the high neighbour or 1
             _ => return KeyResponse::Ignored,
         };
         let (low, high) = self.moved(delta);
@@ -291,24 +291,24 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     }
 }
 
-/// Un curseur de **plage** : deux poignées (bas / haut) délimitant un intervalle
-/// `0.0..=1.0`, **contrôlé** et **collant** (chaque poignée déplace son côté, sans
-/// croisement). Pas discret optionnel ([`divisions`](RangeSlider::divisions)).
-/// L'application reçoit le nouvel intervalle `(low, high)`.
+/// A **range** slider: two thumbs (low and high) bounding a `0.0..=1.0` interval,
+/// **controlled** and **sticky** (each thumb moves its own side, with no crossing).
+/// An optional discrete step ([`divisions`](RangeSlider::divisions)). The
+/// application receives the new `(low, high)` interval.
 pub struct RangeSlider<Msg> {
     low: f32,
     high: f32,
     width: f32,
     divisions: Option<usize>,
-    /// Formateur d'**infobulle de valeur** : si défini, une bulle au-dessus de chaque
-    /// poignée affiche `label(valeur)` (et la hauteur réserve la place).
+    /// The **value tooltip** formatter: when set, a bubble above each thumb shows
+    /// `label(value)` (and the height reserves the room for it).
     label: Option<Rc<dyn Fn(f32) -> String>>,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> RangeSlider<Msg> {
-    /// Crée un curseur de plage (valeurs bornées à `0..=1` et ordonnées `low ≤ high`).
+    /// Creates a range slider (values clamped to `0..=1` and ordered `low ≤ high`).
     pub fn new(low: f32, high: f32) -> Self {
         let low = low.clamp(0.0, 1.0);
         let high = high.clamp(0.0, 1.0);
@@ -325,37 +325,37 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
         slider
     }
 
-    /// Largeur, en pixels logiques.
+    /// Width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self.rebuild();
         self
     }
 
-    /// Découpe la course en `n` **paliers** : les valeurs glissées s'accrochent à
-    /// `k/n`. Sans appel, la course est continue.
+    /// Splits the travel into `n` **steps**: dragged values snap to `k/n`. Without
+    /// this call, the travel is continuous.
     pub fn divisions(mut self, n: usize) -> Self {
         self.divisions = Some(n.max(1));
         self.rebuild();
         self
     }
 
-    /// Closure produisant un message depuis le nouvel intervalle `(low, high)`.
+    /// A closure producing a message from the new `(low, high)` interval.
     pub fn on_change(mut self, on_change: impl Fn(f32, f32) -> Msg + 'static) -> Self {
         self.on_change = Some(Rc::new(on_change));
         self.rebuild();
         self
     }
 
-    /// Affiche une **infobulle de valeur** au-dessus de chaque poignée, formatée par
-    /// `label(valeur)` (ex. pourcentage, prix). Réserve la place au-dessus de la piste.
+    /// Shows a **value tooltip** above each thumb, formatted by `label(value)` (a
+    /// percentage, a price…). Reserves the room above the track.
     pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
         self.label = Some(Rc::new(label));
         self.rebuild();
         self
     }
 
-    /// (Re)construit la rangée de poignées calées sur les positions `low`/`high`.
+    /// (Re)builds the row of thumbs set at the `low`/`high` positions.
     fn rebuild(&mut self) {
         let height = self.content_h();
         let thumb = |side: Side| RangeThumb {
@@ -385,7 +385,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
     }
 }
 
-/// Peint une infobulle de valeur centrée en `cx` (bord haut `top`) affichant `text`.
+/// Paints a value tooltip centred on `cx` (top edge `top`) showing `text`.
 fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut Scene) {
     let tw = frus_text::measure(&text, TIP_SIZE).width;
     let bw = tw + 12.0;
@@ -407,7 +407,7 @@ fn paint_tip(cx: f32, top: f32, text: String, theme: &Theme, o: f32, scene: &mut
 }
 
 impl<Msg> RangeSlider<Msg> {
-    /// Hauteur totale : piste seule, ou piste + zone d'infobulle si un `label` est posé.
+    /// Total height: the track alone, or the track + a tooltip zone if a `label` is set.
     fn content_h(&self) -> f32 {
         if self.label.is_some() {
             TIP_H + TIP_GAP + H
@@ -416,7 +416,7 @@ impl<Msg> RangeSlider<Msg> {
         }
     }
 
-    /// Accroche `v` au palier le plus proche si `divisions` est défini.
+    /// Snaps `v` to the nearest step if `divisions` is set.
     fn snap(&self, v: f32) -> f32 {
         match self.divisions {
             Some(n) if n > 0 => (v * n as f32).round() / n as f32,
@@ -440,7 +440,7 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Piste + segment dans la bande **basse** `H` (la zone haute accueille les bulles).
+        // Track + segment in the **lower** `H` band (the upper zone holds the bubbles).
         let base_y = bounds.y + bounds.height - H;
         let track_y = base_y + (H - TRACK_H) * 0.5;
         scene.draw_rect(
@@ -459,7 +459,7 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
             0.0,
             Color::TRANSPARENT,
         );
-        // Les infobulles sont peintes par les poignées (révélées au survol / focus).
+        // The tooltips are painted by the thumbs, revealed on hover or focus.
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -478,14 +478,14 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
     }
 
     fn draggable(&self) -> bool {
-        // La **piste** (hors poignées, qui sont au-dessus) répond au clic/glissement :
-        // la poignée la plus proche rejoint la position.
+        // The **track** (outside the thumbs, which sit above it) answers clicks and
+        // drags: the nearest thumb moves to the position.
         self.on_change.is_some()
     }
 
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         let f = self.snap(fraction.clamp(0.0, 1.0));
-        // Poignée la plus proche (bornée par l'autre, sans croisement).
+        // The nearest thumb, bounded by the other, with no crossing.
         let (low, high) = if f <= self.low {
             (f, self.high)
         } else if f >= self.high {
@@ -513,11 +513,11 @@ mod tests {
     fn drag_maps_to_value() {
         let slider = Slider::new(0.0).on_change(Msg::Value);
         assert_eq!(Widget::on_drag(&slider, 0.5), Some(Msg::Value(0.5)));
-        // Bornée.
+        // Clamped.
         assert_eq!(Widget::on_drag(&slider, 1.5), Some(Msg::Value(1.0)));
     }
 
-    /// Les deux poignées glissables de la rangée (bas, haut).
+    /// The row's two draggable thumbs (low, high).
     fn thumbs(rs: &RangeSlider<Msg>) -> Vec<&Box<dyn Widget<Msg>>> {
         let row = &Widget::<Msg>::children(rs)[0];
         row.children().iter().filter(|c| c.draggable()).collect()
@@ -539,22 +539,22 @@ mod tests {
 
     #[test]
     fn each_thumb_moves_its_own_side_and_sticks() {
-        let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range); // piste 220 px
+        let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range); // a 220 px track
         let t = thumbs(&rs);
-        assert_eq!(t.len(), 2, "deux poignées glissables");
-        // Poignée basse : +22 px = +0.1 → bas 0.3 ; haute inchangée.
+        assert_eq!(t.len(), 2, "two draggable thumbs");
+        // The low thumb: +22 px = +0.1 → low 0.3; the high one unchanged.
         let (lo, hi) = range_of(t[0].on_drag_delta(22.0));
         assert!(
             (lo - 0.3).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
-            "bas bouge ({lo}, {hi})"
+            "low moves ({lo}, {hi})"
         );
-        // Poignée haute : −22 px = −0.1 → haut 0.7 ; bas inchangé.
+        // The high thumb: −22 px = −0.1 → high 0.7; the low one unchanged.
         let (lo, hi) = range_of(t[1].on_drag_delta(-22.0));
         assert!(
             (lo - 0.2).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
-            "haut bouge ({lo}, {hi})"
+            "high moves ({lo}, {hi})"
         );
-        // Collant : la poignée basse poussée à fond s'arrête au haut (0.8), sans le pousser.
+        // Sticky: the low thumb pushed all the way stops at the high one (0.8), without moving it.
         let (lo, hi) = range_of(t[0].on_drag_delta(10_000.0));
         assert!(
             (lo - 0.8).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
@@ -568,9 +568,9 @@ mod tests {
     fn arrow_keys_move_focused_thumb_by_a_step() {
         let rs = RangeSlider::new(0.4, 0.6)
             .divisions(10)
-            .on_change(Msg::Range); // pas 0.1
+            .on_change(Msg::Range); // a step of 0.1
         let t = thumbs(&rs);
-        // Poignée basse focalisée : flèche droite +0.1 → 0.5 ; flèche gauche −0.1 → 0.3.
+        // The low thumb focused: right arrow +0.1 → 0.5; left arrow −0.1 → 0.3.
         let (lo, hi) = range_of_key(t[0].on_key(&Key::Right {
             shift: false,
             word: false,
@@ -587,24 +587,24 @@ mod tests {
             (lo - 0.3).abs() < 1e-4 && (hi - 0.6).abs() < 1e-4,
             "← ({lo}, {hi})"
         );
-        // Les poignées sont focusables (atteignables au clavier).
+        // The thumbs are focusable, so reachable from the keyboard.
         assert!(t[0].focusable() && t[1].focusable());
     }
 
     #[test]
     fn track_click_moves_nearest_thumb() {
         let rs = RangeSlider::new(0.2, 0.8).on_change(Msg::Range);
-        // La piste (le slider) est glissable et vise la poignée la plus proche.
-        assert!(Widget::<Msg>::draggable(&rs), "la piste répond au clic");
+        // The track (the slider) is draggable and targets the nearest thumb.
+        assert!(Widget::<Msg>::draggable(&rs), "the track answers clicks");
         let (lo, hi) = range_of(Widget::on_drag(&rs, 0.25));
         assert!(
             (lo - 0.25).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
-            "près du bas ({lo}, {hi})"
+            "near the low end ({lo}, {hi})"
         );
         let (lo, hi) = range_of(Widget::on_drag(&rs, 0.9));
         assert!(
             (lo - 0.2).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
-            "près du haut ({lo}, {hi})"
+            "near the high end ({lo}, {hi})"
         );
     }
 
@@ -620,18 +620,18 @@ mod tests {
             shift: false,
             doc: false,
         };
-        // Poignée basse : Début → 0 ; Fin → butée haute (0.7).
+        // The low thumb: Home → 0; End → the high stop (0.7).
         let (lo, hi) = range_of_key(t[0].on_key(&home));
         assert!(
             (lo - 0.0).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
-            "bas Début ({lo}, {hi})"
+            "low Home ({lo}, {hi})"
         );
         let (lo, hi) = range_of_key(t[0].on_key(&end));
         assert!(
             (lo - 0.7).abs() < 1e-4 && (hi - 0.7).abs() < 1e-4,
-            "bas Fin ({lo}, {hi})"
+            "low End ({lo}, {hi})"
         );
-        // Poignée haute : Fin → 1.
+        // The high thumb: End → 1.
         let (lo, hi) = range_of_key(t[1].on_key(&end));
         assert!(
             (lo - 0.3).abs() < 1e-4 && (hi - 1.0).abs() < 1e-4,
@@ -649,32 +649,29 @@ mod tests {
             Dimension::Length(v) => v,
             _ => 0.0,
         };
-        assert!(h(&tipped) > h(&plain), "l'infobulle réserve de la hauteur");
+        assert!(h(&tipped) > h(&plain), "the tooltip reserves height");
     }
 
     #[test]
     fn divisions_snap_to_steps() {
-        // 10 paliers, piste 200 px : +25 px = +0.125 depuis 0.0 → accroché à 0.1.
+        // 10 steps, a 200 px track: +25 px = +0.125 from 0.0 → snapped to 0.1.
         let rs = RangeSlider::new(0.0, 1.0)
             .width(200.0)
             .divisions(10)
             .on_change(Msg::Range);
         let (lo, _) = range_of(thumbs(&rs)[0].on_drag_delta(25.0));
-        assert!(
-            (lo - 0.1).abs() < 1e-4,
-            "accroché au palier 0.1, obtenu {lo}"
-        );
+        assert!((lo - 0.1).abs() < 1e-4, "snapped to step 0.1, got {lo}");
     }
 
     #[test]
     fn range_new_orders_and_clamps() {
-        // Bornes inversées → réordonnées ; hors [0,1] → bornées.
+        // Inverted bounds → reordered; outside [0,1] → clamped.
         let rs = RangeSlider::new(0.9, 0.1).on_change(Msg::Range);
-        // Depuis (0.1, 0.9), la poignée basse +0.05 → 0.15.
+        // From (0.1, 0.9), the low thumb +0.05 → 0.15.
         let (lo, hi) = range_of(thumbs(&rs)[0].on_drag_delta(0.05 * 220.0));
         assert!(
             (lo - 0.15).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
-            "réordonné ({lo}, {hi})"
+            "reordered ({lo}, {hi})"
         );
     }
 }

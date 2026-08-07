@@ -1,24 +1,24 @@
-//! [`AppBar`] : une **barre d'application adaptative** (façon Material).
+//! [`AppBar`]: an **adaptive application bar**, Material style.
 //!
-//! Le développeur déclare **un** titre, un `leading` optionnel et une liste
-//! d'**actions** — sans jamais dire « ceci est pour mobile / desktop ». L'AppBar
-//! décide seule, d'après la **largeur disponible**, combien d'actions tiennent en
-//! ligne et **replie le reste dans un menu overflow `⋯`**. Large écran → tout en
-//! ligne ; téléphone étroit → overflow. Un seul code, adaptation automatique.
+//! The developer declares **one** title, an optional `leading` and a list of
+//! **actions** — never saying "this is for mobile / desktop". The AppBar decides on
+//! its own, from the **available width**, how many actions fit inline and **folds
+//! the rest into a `⋯` overflow menu**. A wide screen → everything inline; a narrow
+//! phone → overflow. One piece of code, adapting automatically.
 //!
-//! **Tout est personnalisable** (défauts thémés, jamais imposés) : le titre peut
-//! être un widget arbitraire (`title_widget`) ou un texte stylé (`title_style`),
-//! une action peut être un widget arbitraire (`action_widget`, toujours en ligne),
-//! l'espacement, la taille des actions, le fond et la hauteur se surchargent.
+//! **Everything is customisable** (themed defaults, never imposed): the title can
+//! be an arbitrary widget (`title_widget`) or styled text (`title_style`), an
+//! action can be an arbitrary widget (`action_widget`, always inline), and the
+//! spacing, the action size, the background and the height can all be overridden.
 //!
 //! ```ignore
 //! AppBar::new("My Tasks")
-//!     .width(available_width)                 // la taille, pas une plateforme
+//!     .width(available_width)                 // a size, not a platform
 //!     .title_style(TextStyle::new(22.0))      // ou .title_widget(logo_row)
 //!     .leading(button("☰", Msg::ToggleMenu))
 //!     .overflow(app.menu_open, Msg::ToggleMenu)
 //!     .action("Pause", Msg::ToggleTimer)
-//!     .action_widget(Badge::new("3"))         // widget libre, jamais replié
+//!     .action_widget(Badge::new("3"))         // a free widget, never folded
 //!     .action("Settings →", Msg::OpenSettings)
 //!     .build()
 //! ```
@@ -34,34 +34,34 @@ use crate::menu::Menu;
 use crate::text::Text;
 use crate::widget::Widget;
 
-/// Taille de police du titre (défaut, surchargée par [`AppBar::title_style`]).
+/// The title's font size (the default, overridden by [`AppBar::title_style`]).
 const TITLE_SIZE: f32 = 20.0;
-/// Taille de police des actions (défaut, surchargée par [`AppBar::action_size`]).
+/// The actions' font size (the default, overridden by [`AppBar::action_size`]).
 const ACTION_SIZE: f32 = 16.0;
-/// Marge horizontale interne d'un bouton (doit suivre `button::PAD_X`).
+/// A button's inner horizontal padding (must follow `button::PAD_X`).
 const BTN_PAD_X: f32 = 20.0;
-/// Espace entre éléments de la barre (défaut, surchargé par [`AppBar::gap`]).
+/// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
 const GAP: f32 = 8.0;
-/// Largeur réservée à l'emplacement `leading` (icône de tête, façon Material).
+/// The width reserved for the `leading` slot (a leading icon, Material style).
 const LEADING_SLOT: f32 = 56.0;
-/// Marge horizontale de la barre : le contenu ne touche pas les bords (façon
-/// Material). Comptée dans le budget de repli.
+/// The bar's horizontal margin: the content does not touch the edges (Material
+/// style). Counted in the folding budget.
 const H_PAD: f32 = 8.0;
 
-/// Le titre : un texte stylé, ou n'importe quel widget (façon Flutter).
+/// The title: styled text, or any widget at all.
 enum Title<Msg> {
     Text(String),
     Widget(Box<dyn Widget<Msg>>),
 }
 
-/// Une action : libellée (repliable dans l'overflow) ou widget libre (toujours
-/// en ligne — un widget arbitraire ne peut pas devenir une ligne de menu texte).
+/// An action: labelled (foldable into the overflow) or a free widget (always
+/// inline — an arbitrary widget cannot become a text menu row).
 enum Action<Msg> {
     Labeled { label: String, message: Msg },
     Custom(Box<dyn Widget<Msg>>),
 }
 
-/// Barre d'application adaptative. Constructeur fluide terminé par [`AppBar::build`].
+/// An adaptive application bar. A fluent builder finished by [`AppBar::build`].
 pub struct AppBar<Msg> {
     title: Title<Msg>,
     title_style: TextStyle,
@@ -76,7 +76,7 @@ pub struct AppBar<Msg> {
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
-    /// Crée une barre avec un titre texte. Sans [`AppBar::width`], rien ne se replie.
+    /// Creates a bar with a text title. Without [`AppBar::width`], nothing folds.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
             title: Title::Text(title.into()),
@@ -92,42 +92,42 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         }
     }
 
-    /// **Largeur disponible** pour la barre (px logiques) : ce qui pilote le
-    /// repli. C'est une *taille*, pas un indicateur de plateforme.
+    /// The **available width** for the bar, in logical pixels: what drives the
+    /// folding. It is a *size*, not a platform indicator.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self
     }
 
-    /// Style du titre texte (taille/graisse/italique/couleur). Défaut : 20 px,
-    /// graisse medium, couleur du thème.
+    /// The text title's style (size/weight/italic/color). Default: 20 px, medium
+    /// weight, the theme's color.
     pub fn title_style(mut self, style: TextStyle) -> Self {
         self.title_style = style;
         self
     }
 
-    /// Remplace le titre par un **widget arbitraire** (logo, rangée composée…),
-    /// comme le `title: Widget` de Flutter.
+    /// Replaces the title with an **arbitrary widget** — a logo, a composed row, and
+    /// so on.
     pub fn title_widget(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.title = Title::Widget(Box::new(widget));
         self
     }
 
-    /// Élément de tête (bouton menu, retour…), optionnel.
+    /// The leading element (a menu or back button…), optional.
     pub fn leading(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.leading = Some(Box::new(widget));
         self
     }
 
-    /// Active le menu overflow : son état d'ouverture (contrôlé par l'app) et le
-    /// message de bascule (émis par le bouton `⋯` et au clic extérieur).
+    /// Enables the overflow menu: its open state (controlled by the app) and the
+    /// toggle message (emitted by the `⋯` button and on an outside click).
     pub fn overflow(mut self, open: bool, toggle: Msg) -> Self {
         self.overflow = Some((open, toggle));
         self
     }
 
-    /// Ajoute une action libellée (bouton). Affichée en ligne si elle tient,
-    /// sinon repliée dans le menu overflow.
+    /// Adds a labelled action (a button). Shown inline if it fits, otherwise folded
+    /// into the overflow menu.
     pub fn action(mut self, label: impl Into<String>, message: Msg) -> Self {
         self.actions.push(Action::Labeled {
             label: label.into(),
@@ -136,43 +136,43 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// Ajoute une action **widget libre** (badge, avatar, champ…). Toujours en
-    /// ligne — un widget arbitraire ne peut pas se replier en ligne de menu.
+    /// Adds a **free widget** action (a badge, an avatar, a field…). Always inline —
+    /// an arbitrary widget cannot fold into a menu row.
     pub fn action_widget(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.actions.push(Action::Custom(Box::new(widget)));
         self
     }
 
-    /// Taille de police des actions libellées (défaut : 16 px).
+    /// The labelled actions' font size (16 px by default).
     pub fn action_size(mut self, size: f32) -> Self {
         self.action_size = size;
         self
     }
 
-    /// Espace entre éléments de la barre (défaut : 8 px).
+    /// The space between the bar's elements (8 px by default).
     pub fn gap(mut self, gap: f32) -> Self {
         self.gap = gap;
         self
     }
 
-    /// Couleur de fond de la barre (défaut : transparente, le parent décide).
+    /// The bar's background color (transparent by default: the parent decides).
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
         self
     }
 
-    /// Hauteur imposée de la barre (défaut : hauteur naturelle du contenu).
+    /// An imposed bar height (by default, the content's natural height).
     pub fn height(mut self, height: f32) -> Self {
         self.height = Some(height);
         self
     }
 
-    /// Largeur qu'occuperait un bouton d'action pour ce libellé.
+    /// The width an action button would take for this label.
     fn action_width(label: &str, size: f32) -> f32 {
         frus_text::measure(label, size).width + BTN_PAD_X * 2.0
     }
 
-    /// Largeur déclarée d'un widget (0 si elle dépend de la mise en page).
+    /// A widget's declared width (0 if it depends on layout).
     fn widget_width(widget: &dyn Widget<Msg>) -> f32 {
         match widget.style().width {
             Dimension::Length(v) => v,
@@ -180,8 +180,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         }
     }
 
-    /// Assemble la barre en un widget prêt à afficher (rangée `leading · titre ·
-    /// ressort · actions en ligne · overflow`).
+    /// Assembles the bar into a widget ready to display (the row `leading · title ·
+    /// spring · inline actions · overflow`).
     pub fn build(self) -> Box<dyn Widget<Msg>> {
         let AppBar {
             title,
@@ -196,8 +196,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             height,
         } = self;
 
-        // Budget horizontal restant pour les actions en ligne, après le leading,
-        // le titre et les marges. Conservateur : en cas de doute, on replie.
+        // The horizontal budget left for the inline actions, after the leading, the
+        // title and the margins. Conservative: when in doubt, fold.
         let leading_w = if leading.is_some() { LEADING_SLOT } else { 0.0 };
         let title_w = match &title {
             Title::Text(content) => {
@@ -211,12 +211,12 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
             Title::Widget(widget) => Self::widget_width(widget.as_ref()),
         };
-        // La marge horizontale ampute le budget des deux côtés (le contenu ne
-        // touche pas les bords). `width` non fixé (f32::MAX) reste ~infini.
+        // The horizontal margin eats into the budget on both sides (the content does
+        // not touch the edges). An unset `width` (f32::MAX) stays roughly infinite.
         let budget = width - H_PAD * 2.0 - leading_w - title_w - gap * 3.0;
         let overflow_btn_w = Self::action_width("⋯", action_size) + gap;
 
-        // Largeur de chaque action ; les widgets libres sont **toujours** en ligne.
+        // Each action's width; free widgets are **always** inline.
         let widths: Vec<f32> = actions
             .iter()
             .map(|action| match action {
@@ -232,9 +232,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .map(|(_, w)| *w)
             .sum();
 
-        // Combien d'actions **libellées** tiennent en ligne ? Si tout tient, pas
-        // d'overflow ; sinon on réserve le bouton `⋯`, les widgets libres, et on
-        // garde autant de libellées que possible (préfixe, dans l'ordre).
+        // How many **labelled** actions fit inline? If everything fits, no overflow;
+        // otherwise reserve the `⋯` button and the free widgets, and keep as many
+        // labelled ones as possible (a prefix, in order).
         let kept_labeled = if total <= budget {
             usize::MAX
         } else {
@@ -262,7 +262,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             Title::Text(content) => row = row.child(Text::styled(content, title_style)),
             Title::Widget(widget) => row = row.child(widget),
         }
-        // Ressort : pousse les actions vers la droite.
+        // The spring: it pushes the actions to the right.
         row = row.child(Container::new().flex(1.0));
 
         let mut labeled_seen = 0;
@@ -287,7 +287,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
         if !folded.is_empty() {
             match overflow {
-                // Menu overflow contrôlé : le `⋯` ouvre, les items émettent les actions.
+                // A controlled overflow menu: `⋯` opens it, the items emit the actions.
                 Some((open, toggle)) => {
                     let mut menu = Menu::new(
                         button("⋯", toggle.clone())
@@ -301,7 +301,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                     }
                     row = row.child(menu);
                 }
-                // Pas d'overflow configuré : on affiche tout en ligne (peut déborder).
+                // No overflow configured: show everything inline (it may overflow).
                 None => {
                     for (label, message) in folded {
                         row = row.child(
@@ -314,8 +314,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
         }
 
-        // Marge horizontale (+ chrome optionnel : fond, hauteur). La rangée est
-        // toujours encadrée pour que le contenu ne touche pas les bords.
+        // The horizontal margin (+ optional chrome: background, height). The row is
+        // always framed so that the content does not touch the edges.
         let mut chrome = Container::new().padding_each(0.0, H_PAD, 0.0, H_PAD);
         if let Some(color) = background {
             chrome = chrome.color(color);
@@ -340,7 +340,7 @@ mod tests {
         C,
     }
 
-    /// Compte les boutons (rectangles avec ombre) hors items de menu flottant.
+    /// Counts the buttons (rectangles with a shadow), excluding floating menu items.
     fn inline_buttons(width: f32, open: bool) -> usize {
         let bar = AppBar::new("Title")
             .width(width)
@@ -355,7 +355,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Chaque bouton dessine une ombre (un `Rect` flouté, `blur > 0`) : on les compte.
+        // Every button draws a shadow (a blurred `Rect`, `blur > 0`), so count those.
         ui.scene()
             .primitives()
             .iter()
@@ -365,23 +365,23 @@ mod tests {
 
     #[test]
     fn wide_bar_shows_all_actions_inline() {
-        // Assez large : les 3 actions tiennent, pas de bouton overflow.
+        // Wide enough: the 3 actions fit, and there is no overflow button.
         assert_eq!(inline_buttons(1200.0, false), 3);
     }
 
     #[test]
     fn narrow_bar_collapses_into_overflow() {
-        // Étroit : au plus une ou deux actions en ligne + le bouton `⋯`.
+        // Narrow: at most one or two inline actions + the `⋯` button.
         let n = inline_buttons(300.0, false);
         assert!(
             n < 3,
-            "attendu un repli en overflow, obtenu {n} boutons en ligne"
+            "expected a fold into overflow, got {n} inline buttons"
         );
-        assert!(n >= 1, "le bouton overflow doit être présent");
+        assert!(n >= 1, "the overflow button must be present");
     }
 
-    /// La barre garde une marge horizontale : le contenu (leading à gauche,
-    /// dernière action à droite) ne touche pas les bords du viewport.
+    /// The bar keeps a horizontal margin: the content (the leading on the left, the
+    /// last action on the right) does not touch the viewport's edges.
     #[test]
     fn content_keeps_a_horizontal_margin() {
         const W: f32 = 400.0;
@@ -397,9 +397,9 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Bornes horizontales des **textes** (titre + libellés) : sans ombre,
-        // ils reflètent la position réelle du contenu (le flou des ombres, lui,
-        // déborde légitimement).
+        // The horizontal bounds of the **texts** (title + labels): having no shadow,
+        // they reflect the content's real position (a shadow's blur, by contrast,
+        // legitimately overflows).
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
         for p in ui.scene().primitives() {
@@ -411,24 +411,24 @@ mod tests {
             } = p
             {
                 min_x = min_x.min(position.x);
-                // Largeur approchée du texte (borne haute suffisante ici).
+                // An approximate text width (an upper bound is enough here).
                 max_x = max_x.max(position.x + text.chars().count() as f32 * size * 0.7);
             }
         }
         assert!(
             min_x >= H_PAD - 0.5,
-            "contenu collé au bord gauche ({min_x})"
+            "content flush against the left edge ({min_x})"
         );
         assert!(
             max_x <= W - H_PAD + 0.5,
-            "contenu débordant à droite ({max_x} > {})",
+            "content overflowing on the right ({max_x} > {})",
             W - H_PAD
         );
     }
 
     #[test]
     fn title_style_is_customizable() {
-        // Style de titre surchargé : gras 24, au lieu du défaut medium 20.
+        // An overridden title style: bold 24, instead of the default medium 20.
         let bar = AppBar::<Msg>::new("Title")
             .title_style(TextStyle::new(24.0).weight(FontWeight::Bold))
             .build();
@@ -445,7 +445,7 @@ mod tests {
                     if text == "Title" && *size == 24.0 && *weight == FontWeight::Bold
             )
         });
-        assert!(styled, "le titre doit porter le style surchargé");
+        assert!(styled, "the title must carry the overridden style");
     }
 
     #[test]
@@ -474,14 +474,14 @@ mod tests {
         );
         assert!(
             !texts.contains(&"ignored".to_string()),
-            "le titre texte est remplacé"
+            "the text title is replaced"
         );
     }
 
     #[test]
     fn custom_widget_action_never_folds() {
-        // Barre très étroite : les actions libellées se replient, mais le widget
-        // libre (non représentable en ligne de menu) reste en ligne.
+        // A very narrow bar: the labelled actions fold, but the free widget (which
+        // cannot be represented as a menu row) stays inline.
         let bar = AppBar::new("Title")
             .width(260.0)
             .overflow(false, Msg::Menu)
@@ -500,6 +500,9 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, frus_core::Primitive::Text { text, .. } if text == "★badge★"));
-        assert!(has_badge, "l'action-widget reste en ligne même à l'étroit");
+        assert!(
+            has_badge,
+            "the widget action stays inline even when cramped"
+        );
     }
 }
