@@ -1,26 +1,26 @@
-//! Chemins vectoriels : de la géométrie 2D **arbitraire** (segments droits et
-//! courbes de Bézier), remplie et/ou tracée. C'est la brique des icônes et du
-//! dessin personnalisé (`CustomPaint`), au-delà des rectangles.
+//! Vector paths: **arbitrary** 2D geometry (straight segments and Bézier curves),
+//! filled and/or stroked. This is the building block for icons and for custom
+//! drawing (`CustomPaint`), beyond what rectangles can express.
 //!
-//! Un [`Path`] est purement déclaratif — une suite de [`PathVerb`]. Il ne sait
-//! rien du GPU : `frus-gpu` le tessellise (→ triangles) au moment du rendu.
-//! Coordonnées en pixels logiques, mêmes conventions que [`crate::Rect`]
-//! (origine haut-gauche, Y vers le bas).
+//! A [`Path`] is purely declarative — a sequence of [`PathVerb`]. It knows nothing
+//! about the GPU: `frus-gpu` tessellates it into triangles at render time.
+//! Coordinates are in logical pixels, with the same conventions as [`crate::Rect`]
+//! (top-left origin, Y pointing down).
 
 use crate::{Color, Point, Rect};
 
-/// Une commande élémentaire de tracé.
+/// A single drawing command.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PathVerb {
-    /// Lève puis repose le crayon : démarre un nouveau **sous-chemin** en ce point.
+    /// Lift the pen and put it down again: starts a new **sub-path** at this point.
     MoveTo(Point),
-    /// Segment droit depuis le point courant jusqu'à `to`.
+    /// A straight segment from the current point to `to`.
     LineTo(Point),
-    /// Courbe de Bézier **quadratique** (un point de contrôle).
+    /// A **quadratic** Bézier curve (one control point).
     QuadTo { ctrl: Point, to: Point },
-    /// Courbe de Bézier **cubique** (deux points de contrôle).
+    /// A **cubic** Bézier curve (two control points).
     CubicTo { c1: Point, c2: Point, to: Point },
-    /// Ferme le sous-chemin courant (rejoint son point de départ).
+    /// Closes the current sub-path, joining it back to its starting point.
     Close,
 }
 
@@ -62,7 +62,7 @@ impl PathVerb {
     }
 }
 
-/// Un **contour** (le trait d'un tracé) : couleur et épaisseur, en pixels.
+/// An **outline** (the line a path is drawn with): colour and width, in pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Stroke {
     pub color: Color,
@@ -70,14 +70,14 @@ pub struct Stroke {
 }
 
 impl Stroke {
-    /// Un contour de couleur et d'épaisseur données.
+    /// A stroke of the given colour and width.
     pub const fn new(color: Color, width: f32) -> Self {
         Self { color, width }
     }
 }
 
-/// Un chemin vectoriel : une suite de [`PathVerb`]. Se construit façon *builder*
-/// (chaînable) ; se consomme au rendu.
+/// A vector path: a sequence of [`PathVerb`]. Built in *builder* style (chainable),
+/// and consumed at render time.
 ///
 /// ```
 /// use frus_core::{Path, Point};
@@ -94,52 +94,52 @@ pub struct Path {
 }
 
 impl Path {
-    /// Un chemin vide.
+    /// An empty path.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Démarre un sous-chemin en `p`.
+    /// Starts a sub-path at `p`.
     pub fn move_to(mut self, p: Point) -> Self {
         self.verbs.push(PathVerb::MoveTo(p));
         self
     }
 
-    /// Segment droit jusqu'à `p`.
+    /// A straight segment to `p`.
     pub fn line_to(mut self, p: Point) -> Self {
         self.verbs.push(PathVerb::LineTo(p));
         self
     }
 
-    /// Courbe quadratique (un point de contrôle `ctrl`) jusqu'à `to`.
+    /// A quadratic curve (one control point, `ctrl`) to `to`.
     pub fn quad_to(mut self, ctrl: Point, to: Point) -> Self {
         self.verbs.push(PathVerb::QuadTo { ctrl, to });
         self
     }
 
-    /// Courbe cubique (deux points de contrôle `c1`, `c2`) jusqu'à `to`.
+    /// A cubic curve (two control points, `c1` and `c2`) to `to`.
     pub fn cubic_to(mut self, c1: Point, c2: Point, to: Point) -> Self {
         self.verbs.push(PathVerb::CubicTo { c1, c2, to });
         self
     }
 
-    /// Ferme le sous-chemin courant.
+    /// Closes the current sub-path.
     pub fn close(mut self) -> Self {
         self.verbs.push(PathVerb::Close);
         self
     }
 
-    /// Les commandes du chemin, dans l'ordre.
+    /// The path's commands, in order.
     pub fn verbs(&self) -> &[PathVerb] {
         &self.verbs
     }
 
-    /// `true` si le chemin ne contient aucune commande.
+    /// `true` when the path holds no commands at all.
     pub fn is_empty(&self) -> bool {
         self.verbs.is_empty()
     }
 
-    /// Un rectangle plein (contour fermé, sens horaire).
+    /// A filled rectangle (a closed outline, clockwise).
     pub fn rect(r: Rect) -> Self {
         Self::new()
             .move_to(Point::new(r.x, r.y))
@@ -149,8 +149,8 @@ impl Path {
             .close()
     }
 
-    /// Un cercle, approximé par **quatre arcs cubiques** (constante de Bézier
-    /// `0.5523` pour un cercle exact aux nœuds).
+    /// A circle, approximated by **four cubic arcs** (the Bézier constant `0.5523`,
+    /// which is exact at the nodes).
     pub fn circle(center: Point, radius: f32) -> Self {
         const K: f32 = 0.552_284_75;
         let (cx, cy, r) = (center.x, center.y, radius);
@@ -180,15 +180,15 @@ impl Path {
             .close()
     }
 
-    /// Copie mise à l'échelle par `factor` (autour de l'origine) — conversion
-    /// logique → physique, ou adaptation d'une icône `24×24` à sa taille réelle.
+    /// A copy scaled by `factor` about the origin — used for logical-to-physical
+    /// conversion, or to fit a `24×24` icon to its real size.
     pub fn scaled(&self, factor: f32) -> Path {
         Path {
             verbs: self.verbs.iter().map(|v| v.scaled(factor)).collect(),
         }
     }
 
-    /// Copie translatée de `(dx, dy)` — pour placer une icône dans sa boîte.
+    /// A copy translated by `(dx, dy)` — used to place an icon inside its box.
     pub fn translated(&self, dx: f32, dy: f32) -> Path {
         Path {
             verbs: self.verbs.iter().map(|v| v.translated(dx, dy)).collect(),
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn rect_is_a_closed_quad() {
         let p = Path::rect(Rect::new(0.0, 0.0, 10.0, 20.0));
-        // move + 3× line + close = 5 commandes (le 4ᵉ côté est fermé par `close`).
+        // move + 3× line + close = 5 commands (`close` supplies the fourth side).
         assert_eq!(p.verbs().len(), 5);
         assert!(matches!(p.verbs().last(), Some(PathVerb::Close)));
     }

@@ -1,79 +1,79 @@
-//! **Sémantique d'accessibilité** : l'annotation par widget (rôle, libellé,
-//! valeur, état) que le framework expose aux technologies d'assistance.
+//! **Accessibility semantics**: the per-widget annotation (role, label, value,
+//! state) that the framework exposes to assistive technology.
 //!
-//! Type frus-natif, zéro-dépendance, **mappable** vers `accesskit` au bord
-//! plateforme (le shell construit un arbre AccessKit à partir de ces nœuds).
-//! On suit le conseil du §14 : *baker le libellé dans les widgets dès
-//! maintenant, brancher AccessKit ensuite.*
+//! A frus-native, dependency-free type that **maps** onto `accesskit` at the
+//! platform edge (the shell builds an AccessKit tree out of these nodes). This
+//! follows the §14 advice: *bake the label into the widgets now, wire AccessKit up
+//! afterwards.*
 
-/// Le **rôle** sémantique d'un élément (sous-ensemble aligné sur les rôles
-/// AccessKit/ARIA : ce qu'un lecteur d'écran annonce).
+/// An element's semantic **role** (a subset aligned on AccessKit/ARIA roles: what a
+/// screen reader announces).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Role {
-    /// Élément sans rôle propre (conteneur de mise en page).
+    /// An element with no role of its own (a layout container).
     #[default]
     None,
-    /// Texte statique (étiquette, paragraphe).
+    /// Static text (label, paragraph).
     Label,
-    /// En-tête / titre.
+    /// A heading or title.
     Heading,
-    /// Bouton actionnable.
+    /// An actionable button.
     Button,
-    /// Lien.
+    /// A link.
     Link,
-    /// Case à cocher (état `checked`).
+    /// A checkbox (`checked` state).
     CheckBox,
-    /// Interrupteur (état `checked`).
+    /// A switch (`checked` state).
     Switch,
-    /// Bouton radio (état `checked`).
+    /// A radio button (`checked` state).
     RadioButton,
-    /// Curseur de valeur continue (`value`/`min`/`max`).
+    /// A continuous-value slider (`value` / `min` / `max`).
     Slider,
-    /// Champ de saisie de texte (`value` = contenu).
+    /// A text input field (`value` = its contents).
     TextInput,
-    /// Image / icône décrite par son `label`.
+    /// An image or icon described by its `label`.
     Image,
-    /// Onglet.
+    /// A tab.
     Tab,
-    /// Élément de liste.
+    /// A list item.
     ListItem,
-    /// Barre de progression (`value`).
+    /// A progress bar (`value`).
     ProgressBar,
 }
 
-/// L'état coché d'un contrôle à bascule (case, interrupteur, radio).
+/// The checked state of a toggleable control (checkbox, switch, radio).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Toggled {
-    /// Non applicable (le contrôle n'est pas à bascule).
+    /// Not applicable — the control does not toggle.
     #[default]
     None,
-    /// Décoché.
+    /// Unchecked.
     False,
-    /// Coché.
+    /// Checked.
     True,
 }
 
-/// L'annotation sémantique **résolue** d'un widget, pour l'accessibilité.
+/// A widget's **resolved** semantic annotation, for accessibility.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Semantics {
-    /// Rôle annoncé.
+    /// The announced role.
     pub role: Role,
-    /// Nom accessible (ce que le lecteur d'écran lit).
+    /// Accessible name (what the screen reader reads out).
     pub label: Option<String>,
-    /// Valeur textuelle (contenu d'un champ, position d'un curseur…).
+    /// Textual value (a field's contents, a slider's position, and so on).
     pub value: Option<String>,
-    /// État coché (cases/interrupteurs/radios).
+    /// Checked state (checkboxes, switches, radios).
     pub toggled: Toggled,
-    /// Actionnable au clic (le lecteur d'écran propose « activer »).
+    /// Actionable by click — the screen reader offers "activate".
     pub clickable: bool,
-    /// Désactivé (grisé, non interactif).
+    /// Disabled (greyed out, non-interactive).
     pub disabled: bool,
-    /// Bornes numériques `(min, value, max)` pour curseurs/progressions.
+    /// Numeric bounds `(min, value, max)` for sliders and progress bars.
     pub range: Option<(f32, f32, f32)>,
 }
 
 impl Semantics {
-    /// Une annotation de rôle donné, sans autre attribut.
+    /// An annotation carrying the given role and nothing else.
     pub fn new(role: Role) -> Self {
         Self {
             role,
@@ -81,44 +81,44 @@ impl Semantics {
         }
     }
 
-    /// Fixe le nom accessible.
+    /// Sets the accessible name.
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
     }
 
-    /// Fixe la valeur textuelle.
+    /// Sets the textual value.
     pub fn value(mut self, value: impl Into<String>) -> Self {
         self.value = Some(value.into());
         self
     }
 
-    /// Marque l'état coché.
+    /// Marks the checked state.
     pub fn toggled(mut self, on: bool) -> Self {
         self.toggled = if on { Toggled::True } else { Toggled::False };
         self
     }
 
-    /// Marque l'élément actionnable.
+    /// Marks the element as actionable.
     pub fn clickable(mut self) -> Self {
         self.clickable = true;
         self
     }
 
-    /// Marque l'élément désactivé.
+    /// Marks the element as disabled.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
 
-    /// Fixe les bornes numériques `(min, value, max)`.
+    /// Sets the numeric bounds `(min, value, max)`.
     pub fn range(mut self, min: f32, value: f32, max: f32) -> Self {
         self.range = Some((min, value, max));
         self
     }
 
-    /// `true` si ce nœud porte une information utile à l'assistance (un rôle
-    /// non nul ou un libellé) — les conteneurs vides sont ignorés de l'arbre.
+    /// `true` when this node carries something useful to assistive technology — a
+    /// non-null role or a label. Empty containers are left out of the tree.
     pub fn is_meaningful(&self) -> bool {
         self.role != Role::None || self.label.is_some()
     }
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn empty_is_not_meaningful() {
         assert!(!Semantics::default().is_meaningful());
-        // Un simple libellé suffit à être exposé.
+        // A bare label is enough to be exposed.
         assert!(Semantics::default().label("x").is_meaningful());
     }
 }

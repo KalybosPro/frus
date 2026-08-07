@@ -1,29 +1,29 @@
-//! Classes de taille (breakpoints) — le socle de la responsivité.
+//! Size classes (breakpoints) — the foundation of responsive behaviour.
 //!
-//! Une `SizeClass` catégorise une largeur (en pixels **logiques**) en trois
-//! paliers, façon Material 3. L'application (et les widgets responsives) s'en
-//! servent pour adapter la disposition sans coder de seuils à la main.
+//! A `SizeClass` sorts a width (in **logical** pixels) into one of three bands, in
+//! the Material 3 style. Applications and responsive widgets use it to adapt their
+//! layout without hand-coding thresholds.
 
-/// Palier de largeur d'affichage.
+/// A display-width band.
 ///
-/// Seuils (px logiques) : `Compact` < 600, `Medium` 600–840, `Expanded` ≥ 840.
+/// Thresholds (logical px): `Compact` < 600, `Medium` 600–840, `Expanded` ≥ 840.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SizeClass {
-    /// Téléphone / fenêtre étroite (< 600).
+    /// Phone / narrow window (< 600).
     Compact,
-    /// Tablette portrait / fenêtre moyenne (600–840).
+    /// Portrait tablet / medium window (600–840).
     Medium,
-    /// Bureau / fenêtre large (≥ 840).
+    /// Desktop / wide window (≥ 840).
     Expanded,
 }
 
 impl SizeClass {
-    /// Seuil bas (inclus) du palier `Medium`, en px logiques.
+    /// Lower bound (inclusive) of the `Medium` band, in logical px.
     pub const MEDIUM: f32 = 600.0;
-    /// Seuil bas (inclus) du palier `Expanded`, en px logiques.
+    /// Lower bound (inclusive) of the `Expanded` band, in logical px.
     pub const EXPANDED: f32 = 840.0;
 
-    /// Classe correspondant à une largeur (px logiques).
+    /// The class matching a width (logical px).
     pub fn from_width(width: f32) -> SizeClass {
         if width >= Self::EXPANDED {
             SizeClass::Expanded
@@ -34,15 +34,15 @@ impl SizeClass {
         }
     }
 
-    /// Classe correspondant à une **hauteur** (px logiques), mêmes seuils.
+    /// The class matching a **height** (logical px), using the same thresholds.
     ///
-    /// Utile pour l'axe vertical : une fenêtre courte (< 600) est `Compact` en
-    /// hauteur, ce qui permet de masquer des libellés, réduire des marges, etc.
+    /// Useful on the vertical axis: a short window (< 600) is `Compact` in height,
+    /// which is a cue to hide labels, shrink margins, and so on.
     pub fn from_height(height: f32) -> SizeClass {
         Self::from_width(height)
     }
 
-    /// Rang ordinal (0 = Compact … 2 = Expanded), utile pour comparer les paliers.
+    /// Ordinal rank (0 = Compact … 2 = Expanded), handy for comparing bands.
     pub fn rank(self) -> u8 {
         match self {
             SizeClass::Compact => 0,
@@ -52,21 +52,21 @@ impl SizeClass {
     }
 }
 
-/// Orientation d'affichage, déduite du rapport largeur / hauteur.
+/// Display orientation, derived from the width-to-height ratio.
 ///
-/// Un autre **axe** de responsivité que la classe de taille : une même largeur
-/// peut être portrait (téléphone tenu droit) ou paysage (téléphone couché), ce
-/// qui appelle parfois une disposition différente.
+/// A second **axis** of responsiveness, independent of the size class: the same
+/// width can be portrait (phone held upright) or landscape (phone on its side),
+/// which sometimes calls for a different layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Orientation {
-    /// Plus haut que large (ou carré) : `height >= width`.
+    /// Taller than wide, or square: `height >= width`.
     Portrait,
-    /// Plus large que haut : `width > height`.
+    /// Wider than tall: `width > height`.
     Landscape,
 }
 
 impl Orientation {
-    /// Orientation d'une fenêtre de dimensions données (px logiques).
+    /// The orientation of a window of the given dimensions (logical px).
     pub fn from_size(width: f32, height: f32) -> Orientation {
         if width > height {
             Orientation::Landscape
@@ -75,12 +75,12 @@ impl Orientation {
         }
     }
 
-    /// `true` si portrait (plus haut que large).
+    /// `true` when portrait (taller than wide).
     pub fn is_portrait(self) -> bool {
         self == Orientation::Portrait
     }
 
-    /// `true` si paysage (plus large que haut).
+    /// `true` when landscape (wider than tall).
     pub fn is_landscape(self) -> bool {
         self == Orientation::Landscape
     }
@@ -118,7 +118,7 @@ mod tests {
     fn orientation_from_size() {
         assert_eq!(Orientation::from_size(400.0, 800.0), Orientation::Portrait);
         assert_eq!(Orientation::from_size(800.0, 400.0), Orientation::Landscape);
-        // Carré → portrait (convention `height >= width`).
+        // Square → portrait (the `height >= width` convention).
         assert_eq!(Orientation::from_size(500.0, 500.0), Orientation::Portrait);
         assert!(Orientation::from_size(400.0, 800.0).is_portrait());
         assert!(Orientation::from_size(800.0, 400.0).is_landscape());
