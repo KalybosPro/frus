@@ -1,6 +1,6 @@
 [package]
 name = "frus-image"
-description = "frus — décodage d'images (PNG/JPEG) vers ImageData"
+description = "frus — image decoding (PNG/JPEG) into ImageData"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

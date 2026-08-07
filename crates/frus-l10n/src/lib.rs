@@ -100,7 +100,7 @@ impl Localizer {
         let resource = match FluentResource::try_new(ftl.to_owned()) {
             Ok(res) => res,
             Err((res, _errors)) => {
-                debug_assert!(false, "erreurs de syntaxe Fluent dans « {locale} »");
+                debug_assert!(false, "Fluent syntax errors in \"{locale}\"");
                 res
             }
         };

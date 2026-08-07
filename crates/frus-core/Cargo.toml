@@ -1,6 +1,6 @@
 [package]
 name = "frus-core"
-description = "frus — types fondamentaux partagés (géométrie, couleur)"
+description = "frus — shared foundation types (geometry, colour)"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

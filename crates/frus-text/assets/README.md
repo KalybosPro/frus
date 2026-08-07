@@ -1,16 +1,16 @@
-# Polices embarquées
+# Bundled fonts
 
-Police de repli par défaut du framework (chargée par `frus_text::new_font_system`),
-pour un rendu de texte déterministe sur toutes les plateformes — notamment
-Android, où l'alias système « sans-serif » ne résout aucune police par défaut.
+The framework's default fallback fonts, loaded by `frus_text::new_font_system`,
+for deterministic text rendering on every platform — Android in particular, where
+the system "sans-serif" alias resolves to no default font at all.
 
-- `DejaVuSans.ttf` — famille « DejaVu Sans » (sans-serif par défaut).
-- `DejaVuSansMono.ttf` — famille « DejaVu Sans Mono » (monospace par défaut).
+- `DejaVuSans.ttf` — the "DejaVu Sans" family, the default sans-serif.
+- `DejaVuSansMono.ttf` — the "DejaVu Sans Mono" family, the default monospace.
 
 ## Licence
 
-Polices **DejaVu** (dérivées de Bitstream Vera), sous licence libre permissive
-autorisant la redistribution et l'intégration. Voir
+The **DejaVu** fonts, derived from Bitstream Vera, are under a permissive free
+licence that allows redistribution and embedding. See
 <https://dejavu-fonts.github.io/License.html>.
-Bitstream Vera Fonts Copyright © 2003 Bitstream, Inc. ; modifications DejaVu
-Copyright © leurs auteurs.
+Bitstream Vera Fonts Copyright © 2003 Bitstream, Inc.; DejaVu changes
+Copyright © their authors.

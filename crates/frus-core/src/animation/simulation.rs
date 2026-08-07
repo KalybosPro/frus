@@ -324,7 +324,7 @@ mod tests {
         let scale = analytic.abs().max(1.0);
         assert!(
             (numeric - analytic).abs() < 1e-2 * scale,
-            "dx incohérent à t={t} : numérique={numeric}, analytique={analytic}"
+            "inconsistent dx at t={t}: numeric={numeric}, analytic={analytic}"
         );
     }
 
@@ -332,19 +332,19 @@ mod tests {
     fn critical_spring_settles_without_overshoot() {
         let spring = SpringDescription::with_damping_ratio(1.0, 500.0, 1.0);
         let sim = SpringSimulation::new(spring, 0.0, 1.0, 0.0, Tolerance::default());
-        assert!((sim.x(0.0) - 0.0).abs() < 1e-5, "départ à start");
+        assert!((sim.x(0.0) - 0.0).abs() < 1e-5, "starts at start");
         // Monotonically increasing, never above 1 — no oscillation.
         let mut prev = sim.x(0.0);
         let mut t = 0.0;
         while t < 2.0 {
             let v = sim.x(t);
-            assert!(v <= 1.0 + 1e-4, "dépassement à t={t} : {v}");
-            assert!(v >= prev - 1e-4, "non monotone à t={t}");
+            assert!(v <= 1.0 + 1e-4, "overshoot at t={t}: {v}");
+            assert!(v >= prev - 1e-4, "not monotonic at t={t}");
             prev = v;
             t += 0.01;
         }
-        assert!((sim.x(2.0) - 1.0).abs() < 1e-2, "arrivée à end");
-        assert!(sim.is_done(3.0), "au repos après 3 s");
+        assert!((sim.x(2.0) - 1.0).abs() < 1e-2, "arrives at end");
+        assert!(sim.is_done(3.0), "at rest after 3 s");
         dx_matches_x(&sim, 0.2);
     }
 
@@ -359,7 +359,7 @@ mod tests {
             max = max.max(sim.x(t));
             t += 0.005;
         }
-        assert!(max > 1.05, "devrait dépasser la cible, max={max}");
+        assert!(max > 1.05, "should overshoot the target, max={max}");
         // It settles on the target in the end.
         assert!((sim.x(3.0) - 1.0).abs() < 1e-2);
         dx_matches_x(&sim, 0.1);
@@ -373,8 +373,8 @@ mod tests {
         let mut t = 0.0;
         while t < 3.0 {
             let v = sim.x(t);
-            assert!(v <= 1.0 + 1e-4, "pas de dépassement (suramorti) à t={t}");
-            assert!(v >= prev - 1e-4, "monotone à t={t}");
+            assert!(v <= 1.0 + 1e-4, "no overshoot when overdamped, at t={t}");
+            assert!(v >= prev - 1e-4, "monotonic at t={t}");
             prev = v;
             t += 0.01;
         }
@@ -398,7 +398,7 @@ mod tests {
         assert!(sim.x(10.0) <= limit + 1e-3);
         assert!(
             (sim.x(10.0) - limit).abs() < 1.0,
-            "proche de la limite après 10 s"
+            "close to the limit after 10 s"
         );
         // The velocity decays towards 0.
         assert!(sim.dx(0.0) > sim.dx(1.0));
@@ -424,7 +424,7 @@ mod tests {
         let uncapped = inner.x(10.0);
         assert!(uncapped > 100.0);
         let clamped = ClampedSimulation::new(inner, 0.0, 100.0);
-        assert_eq!(clamped.x(10.0), 100.0, "position épinglée au max");
+        assert_eq!(clamped.x(10.0), 100.0, "position pinned to the maximum");
         // The velocity stays that of the free motion, non-zero near the edge.
         assert!(clamped.dx(0.1) > 0.0);
     }

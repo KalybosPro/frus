@@ -289,7 +289,7 @@ mod tests {
         let linear = Tween::new(0.0f32, 100.0);
         let eased = linear.curved(Curve::ease_in());
         let mid = eased.animate(&ctrl).value();
-        assert!(mid < 50.0, "ease_in en deçà du milieu linéaire : {mid}");
+        assert!(mid < 50.0, "ease_in stays below the linear midpoint: {mid}");
         assert!(mid > 0.0);
         // The bounds are still reached, to the Bézier solver's tolerance.
         ctrl.set_value(0.0);

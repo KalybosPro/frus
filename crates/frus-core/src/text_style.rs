@@ -389,7 +389,7 @@ mod tests {
         let merged = base.merge(over);
         assert_eq!(merged.size, 24.0);
         assert_eq!(merged.weight, FontWeight::Bold);
-        assert_eq!(merged.color, Some(Color::WHITE), "couleur héritée");
+        assert_eq!(merged.color, Some(Color::WHITE), "colour inherited");
 
         // When `over` does specify a colour, it wins.
         let over2 = TextStyle::new(24.0).color(Color::BLACK);
@@ -418,16 +418,12 @@ mod tests {
         );
         let (t1, s1) = &runs[1];
         assert_eq!((t1.as_str(), s1.weight), ("bold", FontWeight::Bold));
-        assert_eq!(s1.size, 20.0, "le gras hérite la taille");
-        assert_eq!(s1.color, Some(Color::WHITE), "le gras hérite la couleur");
+        assert_eq!(s1.size, 20.0, "bold inherits the size");
+        assert_eq!(s1.color, Some(Color::WHITE), "bold inherits the colour");
         let (t2, s2) = &runs[2];
         assert_eq!(t2, "red italic");
         assert!(s2.italic);
-        assert_eq!(
-            s2.weight,
-            FontWeight::Regular,
-            "l'italique hérite la graisse"
-        );
+        assert_eq!(s2.weight, FontWeight::Regular, "italic inherits the weight");
         assert_eq!(s2.color, Some(Color::rgb(1.0, 0.0, 0.0)));
     }
 
@@ -446,7 +442,7 @@ mod tests {
         assert_eq!(
             runs[2].1.weight,
             FontWeight::Bold,
-            "hérite le gras du parent"
+            "inherits bold from the parent"
         );
     }
 
@@ -471,14 +467,14 @@ mod tests {
         assert!(runs[0].1.decoration.underline);
         assert!(
             runs[1].1.decoration.underline,
-            "l'enfant hérite le soulignement"
+            "the child inherits the underline"
         );
         assert_eq!(
             runs[1].1.decoration_color,
             Some(Color::rgb(1.0, 0.0, 0.0)),
-            "la couleur de décoration cascade"
+            "the decoration colour cascades"
         );
-        assert!(runs[2].1.decoration.is_none(), "annulée explicitement");
+        assert!(runs[2].1.decoration.is_none(), "explicitly cancelled");
 
         // merge: decoration is a typographic attribute, so `over`'s wins, while its
         // colour inherits the way the text colour does.

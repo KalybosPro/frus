@@ -30,5 +30,5 @@ fn main() {
         .expect("encodage PNG");
     std::io::stdout()
         .write_all(&bytes)
-        .expect("écriture stdout");
+        .expect("writing to stdout");
 }

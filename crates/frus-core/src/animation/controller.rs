@@ -432,7 +432,7 @@ mod tests {
         for _ in 0..100 {
             // about 1.6 s = 16 cycles
             ctrl.tick(0.016);
-            assert!(ctrl.is_animating(), "une boucle reste toujours animée");
+            assert!(ctrl.is_animating(), "a looping controller always animates");
             assert!(ctrl.value() >= -1e-4 && ctrl.value() <= 1.0 + 1e-4);
             max = max.max(ctrl.value());
             if ctrl.value() + 1e-3 < prev {
@@ -441,7 +441,7 @@ mod tests {
             prev = ctrl.value();
         }
         assert!(max > 0.9, "atteint le haut (max = {max})");
-        assert!(saw_restart, "redémarre (la valeur retombe)");
+        assert!(saw_restart, "it restarts: the value drops back");
     }
 
     /// `repeat(reverse)`: there and back — the value rises, then falls again.
@@ -460,7 +460,7 @@ mod tests {
             }
             prev = ctrl.value();
         }
-        assert!(went_up && came_down, "aller-retour (montée puis descente)");
+        assert!(went_up && came_down, "a round trip: up then down");
         assert!(ctrl.is_animating());
     }
 
@@ -472,14 +472,14 @@ mod tests {
         ctrl.tick(0.05);
         assert!(ctrl.is_animating());
         ctrl.stop();
-        assert!(!ctrl.is_animating(), "stop arrête la boucle");
-        assert!(!ctrl.tick(0.016), "plus rien à animer après stop");
+        assert!(!ctrl.is_animating(), "stop halts the loop");
+        assert!(!ctrl.tick(0.016), "nothing left to animate after stop");
 
         ctrl.repeat(0.1, false, Curve::Linear);
         ctrl.tick(0.05);
         ctrl.reset();
-        assert!(!ctrl.is_animating(), "reset arrête la boucle");
-        assert_eq!(ctrl.value(), 0.0, "reset ramène à la borne basse");
+        assert!(!ctrl.is_animating(), "reset halts the loop");
+        assert_eq!(ctrl.value(), 0.0, "reset returns to the lower bound");
     }
 
     #[test]

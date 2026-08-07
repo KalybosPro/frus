@@ -1,11 +1,11 @@
 [package]
 name = "frus-transforms"
-description = "frus — vitrine animée : Transform (composé), AspectRatio, FractionallySizedBox"
+description = "frus — animated showcase: composed Transform, AspectRatio, FractionallySizedBox"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
-# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+# Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
 [lib]
 crate-type = ["rlib", "cdylib"]
 

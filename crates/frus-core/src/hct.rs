@@ -369,7 +369,7 @@ mod tests {
         assert_close(mid.tone, 53.585, 0.2, "ton gris moyen");
         // Under partial adaptation CAM16 leaves a residual chroma of about 1.9 on
         // greys (reference: materialyoucolor gives 1.896). This is not a bug.
-        assert_close(mid.chroma, 1.896, 0.1, "chroma résiduel du gris");
+        assert_close(mid.chroma, 1.896, 0.1, "grey's residual chroma");
     }
 
     #[test]
@@ -407,8 +407,8 @@ mod tests {
         // colour in the gamut, preserving hue and tone.
         let color = Hct::solve(265.0, 200.0, 30.0);
         let round = Hct::from_color(color);
-        assert_close(round.tone, 30.0, 1.0, "ton préservé hors gamut");
-        assert_close(round.hue, 265.0, 4.0, "teinte préservée hors gamut");
+        assert_close(round.tone, 30.0, 1.0, "tone preserved out of gamut");
+        assert_close(round.hue, 265.0, 4.0, "hue preserved out of gamut");
         assert!(
             round.chroma > 20.0,
             "chroma maximal atteint ({})",
@@ -437,7 +437,7 @@ mod tests {
             for (a, e) in actual.iter().zip(expected.iter()) {
                 assert!(
                     (a - *e as i32).abs() <= tolerance,
-                    "solve({hue},{chroma},{tone}) = {actual:?}, référence {expected:?}"
+                    "solve({hue},{chroma},{tone}) = {actual:?}, reference {expected:?}"
                 );
             }
         }

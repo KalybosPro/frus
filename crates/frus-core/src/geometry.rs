@@ -616,7 +616,7 @@ mod tests {
         assert_eq!(
             (rtl.left, rtl.right),
             (4.0, 10.0),
-            "start passe à droite en RTL"
+            "start moves to the right under RTL"
         );
         // The vertical axis never moves.
         assert_eq!((rtl.top, rtl.bottom), (1.0, 2.0));

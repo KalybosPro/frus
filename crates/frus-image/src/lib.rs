@@ -24,7 +24,7 @@ impl DecodeError {
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "échec de décodage d'image : {}", self.0)
+        write!(f, "image decoding failed: {}", self.0)
     }
 }
 
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn png_round_trips_pixels_exactly() {
         let png = encode(&sample(), image::ImageFormat::Png);
-        let data = decode(&png).expect("décodage PNG");
+        let data = decode(&png).expect("PNG decoding");
         assert_eq!((data.width(), data.height()), (4, 3));
         let rgba = data.rgba();
         // Pixel (0,0).
@@ -90,7 +90,7 @@ mod tests {
     fn jpeg_decodes_with_correct_dimensions() {
         // JPEG is lossy, so we only check the detected format and the dimensions.
         let jpeg = encode(&sample(), image::ImageFormat::Jpeg);
-        let data = decode(&jpeg).expect("décodage JPEG");
+        let data = decode(&jpeg).expect("JPEG decoding");
         assert_eq!((data.width(), data.height()), (4, 3));
         assert_eq!(data.rgba().len(), 4 * 3 * 4);
     }
@@ -99,7 +99,7 @@ mod tests {
     fn format_is_detected_from_magic_bytes() {
         // No format hint is given: detection works from the bytes alone.
         let png = encode(&sample(), image::ImageFormat::Png);
-        assert!(png.starts_with(&[0x89, 0x50, 0x4E, 0x47]), "en-tête PNG");
+        assert!(png.starts_with(&[0x89, 0x50, 0x4E, 0x47]), "PNG header");
         assert!(decode(&png).is_ok());
     }
 

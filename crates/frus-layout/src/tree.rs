@@ -38,7 +38,7 @@ impl<T> Layout<T> {
     pub fn leaf(&mut self, style: Style, data: T) -> NodeId {
         self.tree
             .new_leaf_with_context(style.to_taffy(), data)
-            .expect("création d'une feuille de layout")
+            .expect("creating a layout leaf")
     }
 
     /// Adds a **measured** leaf: its size comes from `measure`, given the space
@@ -53,7 +53,7 @@ impl<T> Layout<T> {
     pub fn container(&mut self, style: Style, children: &[NodeId]) -> NodeId {
         self.tree
             .new_with_children(style.to_taffy(), children)
-            .expect("création d'un conteneur de layout")
+            .expect("creating a layout container")
     }
 
     /// Computes the layout from `root`, within the given available space.
@@ -179,7 +179,7 @@ impl<T> Layout<T> {
         offset_y: f32,
         out: &mut Vec<(Rect, Option<&'a T>)>,
     ) {
-        let layout = self.tree.layout(node).expect("layout du nœud");
+        let layout = self.tree.layout(node).expect("the node's layout");
         let x = offset_x + layout.location.x;
         let y = offset_y + layout.location.y;
 
@@ -188,7 +188,7 @@ impl<T> Layout<T> {
 
         let child_count = self.tree.child_count(node);
         for i in 0..child_count {
-            let child = self.tree.child_at_index(node, i).expect("enfant du nœud");
+            let child = self.tree.child_at_index(node, i).expect("the node's child");
             self.collect(child, x, y, out);
         }
     }
@@ -324,7 +324,7 @@ mod tests {
         let (text_rect, _) = rects[1];
         assert!(
             text_rect.width <= 100.0,
-            "replié à la largeur offerte : {text_rect:?}"
+            "wrapped to the offered width: {text_rect:?}"
         );
         assert!(
             text_rect.height >= 60.0,
