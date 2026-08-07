@@ -1,12 +1,13 @@
-//! Couleur RGBA en virgule flottante (composantes 0.0..=1.0).
+//! Floating-point RGBA colour (components in 0.0..=1.0).
 
 use bytemuck::{Pod, Zeroable};
 
-/// Une couleur RGBA. Les composantes sont dans `[0.0, 1.0]`.
+/// An RGBA colour. Components lie in `[0.0, 1.0]`.
 ///
-/// Les couleurs sont exprimées en **sRGB** (comme un sélecteur de couleur). La
-/// conversion en linéaire ([`Color::to_linear`]) se fait au dernier moment, à la
-/// frontière GPU, car la surface de rendu est sRGB (voir jalon colorimétrie).
+/// Colours are expressed in **sRGB**, the way a colour picker states them. The
+/// conversion to linear ([`Color::to_linear`]) happens at the last moment, at the
+/// GPU boundary, because the render surface is sRGB (see the colour-management
+/// milestone).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct Color {
@@ -21,22 +22,22 @@ impl Color {
     pub const WHITE: Self = Self::rgb(1.0, 1.0, 1.0);
     pub const TRANSPARENT: Self = Self::rgba(0.0, 0.0, 0.0, 0.0);
 
-    /// Construit une couleur opaque.
+    /// Builds an opaque colour.
     pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
-    /// Construit une couleur avec canal alpha.
+    /// Builds a colour with an alpha channel.
     pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
-    /// Construit une couleur à partir de composantes 8 bits (0..=255), opaque.
+    /// Builds an opaque colour from 8-bit components (0..=255).
     pub fn rgb8(r: u8, g: u8, b: u8) -> Self {
         Self::rgba8(r, g, b, 255)
     }
 
-    /// Construit une couleur à partir de composantes 8 bits (0..=255).
+    /// Builds a colour from 8-bit components (0..=255).
     pub fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self {
             r: r as f32 / 255.0,
@@ -46,17 +47,17 @@ impl Color {
         }
     }
 
-    /// Parse un code hexadécimal CSS (valeurs sRGB), avec ou sans `#` en tête.
+    /// Parses a CSS hex code (sRGB values), with or without a leading `#`.
     ///
-    /// Formats acceptés : `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA` (casse libre).
-    /// Retourne `None` si la chaîne est invalide. Voir [`Color::hex`] pour la
-    /// variante ergonomique (panique sur entrée invalide).
+    /// Accepted formats: `#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`, in either case.
+    /// Returns `None` if the string is invalid. See [`Color::hex`] for the
+    /// convenient variant, which panics on invalid input.
     pub fn try_hex(s: &str) -> Option<Color> {
         let s = s.strip_prefix('#').unwrap_or(s);
         if !s.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
-        // Développe les formes courtes (#RGB / #RGBA) en dupliquant chaque quartet.
+        // Expand the short forms (#RGB / #RGBA) by duplicating each nibble.
         let expand = |c: u8| (c << 4) | c;
         let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
         let nib = |i: usize| u8::from_str_radix(&s[i..i + 1], 16).ok().map(|c| expand(c));
@@ -69,30 +70,30 @@ impl Color {
         }
     }
 
-    /// Construit une couleur depuis un code hexadécimal CSS (voir [`Color::try_hex`]).
+    /// Builds a colour from a CSS hex code (see [`Color::try_hex`]).
     ///
-    /// Panique si la chaîne est invalide — pratique pour des littéraux connus
-    /// (`Color::hex("#3B82F6")`). Pour une entrée dynamique, préférer `try_hex`.
+    /// Panics if the string is invalid — convenient for known literals such as
+    /// `Color::hex("#3B82F6")`. For dynamic input, prefer `try_hex`.
     pub fn hex(s: &str) -> Color {
-        Self::try_hex(s).unwrap_or_else(|| panic!("code couleur hex invalide : {s:?}"))
+        Self::try_hex(s).unwrap_or_else(|| panic!("invalid hex colour code: {s:?}"))
     }
 
-    /// Représentation en tableau `[r, g, b, a]`, prête pour le GPU.
+    /// The `[r, g, b, a]` array form, ready for the GPU.
     pub const fn to_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
 
-    /// Multiplie l'opacité (canal alpha) par `opacity` (borné à `0.0..=1.0`).
+    /// Multiplies the opacity (alpha channel) by `opacity`, clamped to `0.0..=1.0`.
     pub fn fade(self, opacity: f32) -> Color {
         Color::rgba(self.r, self.g, self.b, self.a * opacity.clamp(0.0, 1.0))
     }
 
-    /// Remplace le canal alpha (borné à `0.0..=1.0`), sans toucher au RGB.
+    /// Replaces the alpha channel (clamped to `0.0..=1.0`), leaving RGB alone.
     pub fn with_alpha(self, alpha: f32) -> Color {
         Color::rgba(self.r, self.g, self.b, alpha.clamp(0.0, 1.0))
     }
 
-    /// Construit une couleur depuis un entier `0xAARRGGBB` (alpha en tête).
+    /// Builds a colour from an `0xAARRGGBB` integer (alpha first).
     pub fn from_argb_u32(argb: u32) -> Color {
         let a = (argb >> 24) & 0xFF;
         let r = (argb >> 16) & 0xFF;
@@ -101,14 +102,14 @@ impl Color {
         Color::rgba8(r as u8, g as u8, b as u8, a as u8)
     }
 
-    /// Luminance relative (WCAG), calculée sur les canaux **linéarisés** — la base
-    /// d'un calcul de contraste. Ignore l'alpha. Résultat dans `[0, 1]`.
+    /// Relative luminance (WCAG), computed on the **linearised** channels — the
+    /// basis of any contrast calculation. Ignores alpha. Result in `[0, 1]`.
     pub fn compute_luminance(self) -> f32 {
         let lin = self.to_linear();
         0.2126 * lin.r + 0.7152 * lin.g + 0.0722 * lin.b
     }
 
-    /// Convertit une composante sRGB (`0..1`) en linéaire.
+    /// Converts one sRGB component (`0..1`) to linear.
     fn srgb_to_linear(c: f32) -> f32 {
         if c <= 0.04045 {
             c / 12.92
@@ -117,7 +118,7 @@ impl Color {
         }
     }
 
-    /// Convertit une composante linéaire (`0..1`) en sRGB.
+    /// Converts one linear component (`0..1`) to sRGB.
     fn linear_to_srgb(c: f32) -> f32 {
         if c <= 0.0031308 {
             c * 12.92
@@ -126,9 +127,10 @@ impl Color {
         }
     }
 
-    /// Version **linéaire** de cette couleur (les valeurs `Color` sont en sRGB).
-    /// À appliquer avant l'envoi au GPU : une cible sRGB ré-encode linéaire→sRGB,
-    /// donc envoyer du linéaire restitue la couleur voulue. L'alpha est inchangé.
+    /// The **linear** version of this colour (`Color` values are sRGB). Apply this
+    /// before handing anything to the GPU: an sRGB target re-encodes linear back to
+    /// sRGB, so sending linear values reproduces the colour you asked for. Alpha is
+    /// left unchanged.
     pub fn to_linear(self) -> Color {
         Color::rgba(
             Self::srgb_to_linear(self.r),
@@ -138,7 +140,7 @@ impl Color {
         )
     }
 
-    /// Inverse de [`Color::to_linear`] : linéaire → sRGB.
+    /// The inverse of [`Color::to_linear`]: linear → sRGB.
     pub fn to_srgb(self) -> Color {
         Color::rgba(
             Self::linear_to_srgb(self.r),
@@ -148,7 +150,7 @@ impl Color {
         )
     }
 
-    /// Interpolation linéaire vers `other` (`t` borné à `0.0..=1.0`).
+    /// Linear interpolation towards `other` (`t` clamped to `0.0..=1.0`).
     pub fn lerp(self, other: Color, t: f32) -> Color {
         let t = t.clamp(0.0, 1.0);
         Color::rgba(
@@ -176,25 +178,25 @@ mod tests {
 
     #[test]
     fn srgb_linear_roundtrip_and_values() {
-        // Points fixes.
+        // Fixed points.
         assert_eq!(
             Color::rgb(0.0, 0.0, 0.0).to_linear(),
             Color::rgb(0.0, 0.0, 0.0)
         );
         let white = Color::rgb(1.0, 1.0, 1.0).to_linear();
         assert!((white.r - 1.0).abs() < 1e-4);
-        // Milieu sRGB 0.5 → ~0.214 linéaire.
+        // sRGB midpoint 0.5 → about 0.214 linear.
         let mid = Color::rgb(0.5, 0.5, 0.5).to_linear();
         assert!(
             (mid.r - 0.214).abs() < 0.005,
-            "0.5 sRGB → linéaire = {}",
+            "0.5 sRGB → linear = {}",
             mid.r
         );
-        // Aller-retour.
+        // Round trip.
         let c = Color::rgba(0.2, 0.6, 0.9, 0.5);
         let round = c.to_linear().to_srgb();
         assert!((round.r - 0.2).abs() < 1e-3 && (round.g - 0.6).abs() < 1e-3);
-        // Alpha inchangé.
+        // Alpha untouched.
         assert_eq!(c.to_linear().a, 0.5);
     }
 
@@ -202,16 +204,16 @@ mod tests {
     fn hex_parses_css_codes() {
         assert_eq!(Color::hex("#000000"), Color::BLACK);
         assert_eq!(Color::hex("#FFFFFF"), Color::WHITE);
-        // Sans '#', casse libre.
+        // No '#', either case.
         assert_eq!(Color::try_hex("ffffff"), Some(Color::WHITE));
-        // Forme courte : #RGB → #RRGGBB.
+        // Short form: #RGB → #RRGGBB.
         assert_eq!(Color::hex("#f00"), Color::rgb8(255, 0, 0));
         // Alpha.
         assert_eq!(Color::hex("#00000080").a, 128.0 / 255.0);
         assert_eq!(Color::try_hex("#0008").unwrap().a, 0x88 as f32 / 255.0);
-        // Composante concrète.
+        // A concrete component.
         assert_eq!(Color::hex("#3B82F6"), Color::rgb8(0x3B, 0x82, 0xF6));
-        // Invalides.
+        // Invalid input.
         assert_eq!(Color::try_hex("#12"), None);
         assert_eq!(Color::try_hex("#gggggg"), None);
         assert_eq!(Color::try_hex(""), None);
@@ -229,12 +231,12 @@ mod tests {
     fn with_alpha_replaces_alpha() {
         let c = Color::rgba(0.2, 0.4, 0.6, 0.8);
         assert_eq!(c.with_alpha(0.3), Color::rgba(0.2, 0.4, 0.6, 0.3));
-        assert_eq!(c.with_alpha(2.0).a, 1.0, "borné à 1");
+        assert_eq!(c.with_alpha(2.0).a, 1.0, "clamped to 1");
     }
 
     #[test]
     fn from_argb_u32_decodes_channels() {
-        // 0x80FF0000 = rouge à 50 % d'alpha.
+        // 0x80FF0000 = red at 50% alpha.
         let c = Color::from_argb_u32(0x80FF_0000);
         assert_eq!(c.r, 1.0);
         assert_eq!(c.g, 0.0);
@@ -249,7 +251,7 @@ mod tests {
         assert!((Color::WHITE.compute_luminance() - 1.0).abs() < 1e-4);
         let grey = Color::rgb(0.5, 0.5, 0.5).compute_luminance();
         assert!(grey > 0.0 && grey < 1.0);
-        // Le vert pèse plus que le rouge, lui-même plus que le bleu (WCAG).
+        // Green weighs more than red, which weighs more than blue (WCAG).
         assert!(
             Color::rgb(0.0, 1.0, 0.0).compute_luminance()
                 > Color::rgb(1.0, 0.0, 0.0).compute_luminance()
