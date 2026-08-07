@@ -1,15 +1,15 @@
-//! HTTP cross-plateforme, derrière la feature `net`.
+//! Cross-platform HTTP, behind the `net` feature.
 //!
-//! Deux niveaux d'API, une seule pour les trois plateformes (bureau, Android, Web) :
+//! Two levels of API, one of each for all three platforms — desktop, Android, Web:
 //!
-//! - [`fetch(url)`](fetch) — le **raccourci** : un GET texte, à `await` directement.
-//! - [`Request`] — le **constructeur** quand il faut plus : méthode (`POST`, `PUT`…),
-//!   **en-têtes**, **corps**, **timeout**. On termine par [`Request::send`].
+//! - [`fetch(url)`](fetch) — the **shortcut**: a text GET, to be `await`ed directly.
+//! - [`Request`] — the **builder** for when more is needed: a method (`POST`, `PUT`,
+//!   …), **headers**, a **body**, a **timeout**. Finish with [`Request::send`].
 //!
 //! ```ignore
 //! use frus_shell::{Command, Request};
 //!
-//! // GET simple.
+//! // A plain GET.
 //! Msg::Load => Command::perform_async(async {
 //!     match frus_shell::fetch("https://example.com/api").await {
 //!         Ok(body) => Msg::Loaded(body),
@@ -17,7 +17,7 @@
 //!     }
 //! }),
 //!
-//! // POST JSON avec en-tête et délai maximal.
+//! // A JSON POST with a header and a deadline.
 //! Msg::Save(json) => Command::perform_async(async move {
 //!     let res = Request::post("https://example.com/api")
 //!         .header("Content-Type", "application/json")
@@ -29,19 +29,21 @@
 //! }),
 //! ```
 //!
-//! - **Web** : le `fetch` du navigateur (`window.fetch`) via `web-sys` — asynchrone natif ;
-//!   le timeout est armé par un `AbortController` + `setTimeout`.
-//! - **Natif** : le client bloquant `ureq`, mené à terme dans le corps de la future (sur
-//!   le thread dédié de `perform_async` — bloquer ce thread est sans risque). TLS inclus.
+//! - **Web**: the browser's `fetch` (`window.fetch`) through `web-sys`, natively
+//!   asynchronous; the timeout is armed by an `AbortController` plus `setTimeout`.
+//! - **Native**: the blocking `ureq` client, driven to completion inside the future's
+//!   body, on `perform_async`'s own thread — blocking that thread is harmless. TLS
+//!   included.
 //!
-//! **JSON** (feature `json`) : [`Request::json_body`] poste une valeur `Serialize`, et
-//! [`Request::send_json`] désérialise la réponse en un `T: DeserializeOwned` — de quoi
-//! remonter un `RemoteData<T>` typé plutôt qu'un `RemoteData<String>` à re-parser.
+//! **JSON** (the `json` feature): [`Request::json_body`] posts a `Serialize` value and
+//! [`Request::send_json`] deserialises the response into a `T: DeserializeOwned` —
+//! enough to surface a typed `RemoteData<T>` rather than a `RemoteData<String>` to
+//! re-parse.
 
 use std::fmt;
 use std::time::Duration;
 
-/// Méthode HTTP d'une [`Request`].
+/// A [`Request`]'s HTTP method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
     Get,
@@ -53,7 +55,7 @@ pub enum Method {
 }
 
 impl Method {
-    /// Le verbe HTTP en toutes lettres (`"GET"`, `"POST"`…).
+    /// The HTTP verb spelled out (`"GET"`, `"POST"`, …).
     pub fn as_str(self) -> &'static str {
         match self {
             Method::Get => "GET",
@@ -66,14 +68,14 @@ impl Method {
     }
 }
 
-/// Pourquoi une requête a échoué.
+/// Why a request failed.
 #[derive(Debug, Clone)]
 pub enum FetchError {
-    /// Échec réseau / transport (DNS, connexion, TLS, timeout, requête invalide…).
+    /// A network or transport failure: DNS, connection, TLS, timeout, a bad request.
     Network(String),
-    /// La réponse a un **code d'état** non-2xx.
+    /// The response carries a non-2xx **status code**.
     Status(u16),
-    /// La réponse n'a pas pu être lue en texte (UTF-8 invalide, corps non textuel…).
+    /// The response could not be read as text: invalid UTF-8, a non-textual body.
     Decode(String),
 }
 
@@ -89,10 +91,10 @@ impl fmt::Display for FetchError {
 
 impl std::error::Error for FetchError {}
 
-/// Une requête HTTP à construire puis [`send`](Request::send).
+/// An HTTP request to build, then [`send`](Request::send).
 ///
-/// Bâtie par chaînage — méthode d'abord ([`get`](Request::get), [`post`](Request::post)…),
-/// puis en-têtes / corps / timeout au besoin :
+/// Built by chaining — the method first ([`get`](Request::get),
+/// [`post`](Request::post), …), then headers, body and timeout as needed:
 ///
 /// ```ignore
 /// Request::post(url).header("Accept", "application/json").body(payload).send().await
@@ -104,14 +106,15 @@ pub struct Request {
     headers: Vec<(String, String)>,
     body: Option<String>,
     timeout: Option<Duration>,
-    /// Erreur **différée** posée par un constructeur faillible (ex. [`json_body`](Request::json_body)
-    /// si la sérialisation échoue). Surfacée telle quelle par [`send`](Request::send), pour que
-    /// le chaînage reste fluide (motif du builder de `reqwest`).
+    /// A **deferred** error left behind by a fallible builder step — for instance
+    /// [`json_body`](Request::json_body) when serialisation fails. [`send`](Request::send)
+    /// surfaces it as is, which keeps the chaining fluent; `reqwest`'s builder does
+    /// the same.
     error: Option<FetchError>,
 }
 
 impl Request {
-    /// Une requête pour `method` vers `url` (sans en-tête, corps ni timeout).
+    /// A request for `method` to `url`, with no header, body or timeout.
     pub fn new(method: Method, url: impl Into<String>) -> Self {
         Self {
             method,
@@ -123,47 +126,47 @@ impl Request {
         }
     }
 
-    /// Raccourci : requête `GET`.
+    /// Shortcut: a `GET` request.
     pub fn get(url: impl Into<String>) -> Self {
         Self::new(Method::Get, url)
     }
-    /// Raccourci : requête `POST`.
+    /// Shortcut: a `POST` request.
     pub fn post(url: impl Into<String>) -> Self {
         Self::new(Method::Post, url)
     }
-    /// Raccourci : requête `PUT`.
+    /// Shortcut: a `PUT` request.
     pub fn put(url: impl Into<String>) -> Self {
         Self::new(Method::Put, url)
     }
-    /// Raccourci : requête `DELETE`.
+    /// Shortcut: a `DELETE` request.
     pub fn delete(url: impl Into<String>) -> Self {
         Self::new(Method::Delete, url)
     }
 
-    /// Ajoute un en-tête (cumulable : appeler plusieurs fois n'écrase rien).
+    /// Adds a header; they accumulate, so calling this again overwrites nothing.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.push((name.into(), value.into()));
         self
     }
 
-    /// Fixe le corps de la requête (texte). Le dernier appel gagne.
+    /// Sets the request's body, as text. The last call wins.
     pub fn body(mut self, body: impl Into<String>) -> Self {
         self.body = Some(body.into());
         self
     }
 
-    /// Délai maximal avant abandon (`FetchError::Network`). Sans cet appel, aucun
-    /// délai n'est imposé côté client.
+    /// The deadline before giving up (`FetchError::Network`). Without this call the
+    /// client imposes no deadline of its own.
     pub fn timeout(mut self, dur: Duration) -> Self {
         self.timeout = Some(dur);
         self
     }
 
-    /// Sérialise `body` en **JSON** comme corps de la requête, et pose l'en-tête
-    /// `Content-Type: application/json` (feature `json`).
+    /// Serialises `body` to **JSON** as the request's body, and sets the
+    /// `Content-Type: application/json` header (the `json` feature).
     ///
-    /// Le chaînage reste fluide : une erreur de sérialisation (rare) est **différée** et
-    /// ressort à [`send`](Request::send) plutôt que de rompre l'appel.
+    /// The chaining stays fluent: a serialisation error, which is rare, is **deferred**
+    /// and comes out of [`send`](Request::send) rather than breaking the call.
     ///
     /// ```ignore
     /// Request::post(url).json_body(&payload).send().await
@@ -181,10 +184,11 @@ impl Request {
         self
     }
 
-    /// Envoie la requête et **désérialise** la réponse JSON en `T` (feature `json`).
+    /// Sends the request and **deserialises** the JSON response into `T` (the `json`
+    /// feature).
     ///
-    /// Équivaut à [`send`](Request::send) suivi de `serde_json::from_str` ; un corps
-    /// illisible ou non conforme à `T` donne un [`FetchError::Decode`].
+    /// Equivalent to [`send`](Request::send) followed by `serde_json::from_str`; a body
+    /// that cannot be read, or does not match `T`, yields a [`FetchError::Decode`].
     ///
     /// ```ignore
     /// let user: User = Request::get(url).send_json().await?;
@@ -195,9 +199,9 @@ impl Request {
         decode_json(&body)
     }
 
-    /// Exécute la requête et renvoie le corps de la réponse en texte.
+    /// Runs the request and returns the response's body as text.
     ///
-    /// **Natif** : client `ureq` bloquant, exécuté dans la future.
+    /// **Native**: the blocking `ureq` client, run inside the future.
     #[cfg(not(web))]
     pub async fn send(self) -> Result<String, FetchError> {
         if let Some(err) = self.error {
@@ -223,10 +227,10 @@ impl Request {
         }
     }
 
-    /// Exécute la requête et renvoie le corps de la réponse en texte.
+    /// Runs the request and returns the response's body as text.
     ///
-    /// **Web** : `window.fetch` ; le timeout est armé par un `AbortController` +
-    /// `setTimeout`, désarmé dès la réponse reçue.
+    /// **Web**: `window.fetch`; the timeout is armed by an `AbortController` plus
+    /// `setTimeout`, and disarmed as soon as the response arrives.
     #[cfg(web)]
     pub async fn send(self) -> Result<String, FetchError> {
         if let Some(err) = self.error {
@@ -256,8 +260,8 @@ impl Request {
             init.set_body(&JsValue::from_str(b));
         }
 
-        // Timeout : un AbortController dont le signal est passé à la requête ; un
-        // setTimeout déclenche `abort()` au-delà du délai.
+        // The timeout: an AbortController whose signal is handed to the request, and
+        // a setTimeout that calls `abort()` once the deadline passes.
         let controller = if self.timeout.is_some() {
             let c = web_sys::AbortController::new()
                 .map_err(|e| FetchError::Network(format!("{e:?}")))?;
@@ -270,8 +274,8 @@ impl Request {
         let request = web_sys::Request::new_with_str_and_init(&self.url, &init)
             .map_err(|e| FetchError::Network(format!("{e:?}")))?;
 
-        // Arme le minuteur juste avant l'envoi ; on garde le `Closure` vivant jusqu'à
-        // la fin de la requête (il est désarmé avant d'être libéré).
+        // Arm the timer just before sending, and keep the `Closure` alive until the
+        // request ends; it is disarmed before being freed.
         let mut _timer_closure = None;
         let timeout_handle = if let (Some(dur), Some(controller)) = (self.timeout, controller) {
             let ms = dur.as_millis().min(i32::MAX as u128) as i32;
@@ -290,7 +294,7 @@ impl Request {
 
         let resp_val = JsFuture::from(window.fetch_with_request(&request)).await;
 
-        // Désarme le minuteur quel que soit le résultat (le `Closure` peut alors mourir).
+        // Disarm the timer whatever the outcome, after which the `Closure` may die.
         if let Some(handle) = timeout_handle {
             window.clear_timeout_with_handle(handle);
         }
@@ -313,14 +317,14 @@ impl Request {
     }
 }
 
-/// Raccourci : GET l'`url` et renvoie le corps en texte. Équivaut à
-/// `Request::get(url).send().await`. Voir la doc du module.
+/// Shortcut: GETs `url` and returns the body as text. Equivalent to
+/// `Request::get(url).send().await`. See the module documentation.
 pub async fn fetch(url: impl Into<String>) -> Result<String, FetchError> {
     Request::get(url).send().await
 }
 
-/// Désérialise un corps JSON en `T`, une erreur de parsing devenant [`FetchError::Decode`].
-/// Isolé (et testé) à part de l'E/S réseau. Voir [`Request::send_json`].
+/// Deserialises a JSON body into `T`, a parse error becoming [`FetchError::Decode`].
+/// Kept — and tested — apart from the network I/O. See [`Request::send_json`].
 #[cfg(feature = "json")]
 fn decode_json<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, FetchError> {
     serde_json::from_str(body).map_err(|err| FetchError::Decode(err.to_string()))
@@ -371,7 +375,7 @@ mod tests {
 
     #[test]
     fn fetch_shortcut_is_a_bare_get() {
-        // `fetch(url)` ne doit rien ajouter : GET, sans en-tête ni corps ni timeout.
+        // `fetch(url)` must add nothing: a GET, with no header, body or timeout.
         let r = Request::get("https://example.com");
         assert_eq!(r.method, Method::Get);
         assert!(r.headers.is_empty());
@@ -401,13 +405,13 @@ mod tests {
     #[cfg(feature = "json")]
     #[test]
     fn decode_json_maps_valid_and_invalid_bodies() {
-        let ok: Point = decode_json(r#"{"x":3,"y":4}"#).expect("corps JSON valide");
+        let ok: Point = decode_json(r#"{"x":3,"y":4}"#).expect("a valid JSON body");
         assert_eq!(ok, Point { x: 3, y: 4 });
 
         let bad = decode_json::<Point>("not json");
         assert!(
             matches!(bad, Err(FetchError::Decode(_))),
-            "corps illisible -> Decode"
+            "an unreadable body -> Decode"
         );
     }
 }

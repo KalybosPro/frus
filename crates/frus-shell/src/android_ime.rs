@@ -1,24 +1,25 @@
-//! **Pont de saisie Android** (§6, palier 2) — l'`InputConnection` qui manque
-//! à NativeActivity.
+//! The **Android input bridge** (§6, tier 2) — the `InputConnection` NativeActivity
+//! lacks.
 //!
-//! Sans elle, les IME tournent en mode dégradé (`TYPE_NULL`) : touches
-//! latines seulement — ni composition, ni swipe, ni suggestions, ni CJK.
-//! L'embedding Flutter résout ça avec une `View` Java qui fournit une vraie
-//! `InputConnection` reliée au moteur ; on suit le même chemin, sans Gradle :
+//! Without one, IMEs run in a degraded mode (`TYPE_NULL`): Latin keys only, with no
+//! composition, no swipe, no suggestions and no CJK. The way out is a Java `View`
+//! that supplies a real `InputConnection` wired to the engine, and we take that route
+//! without Gradle:
 //!
-//! 1. `FrusTextBridge.java` (View 1×1 + `BaseInputConnection`) est précompilée
-//!    en **dex embarqué** (`assets/frus_input.dex`, scripts/build-input-dex.sh) ;
-//! 2. au démarrage, le dex est chargé via `InMemoryDexClassLoader`, les
-//!    méthodes `native*` sont branchées par `RegisterNatives`, et la view est
-//!    ajoutée à l'activité ;
-//! 3. chaque opération de l'IME (commit, composition, suppression, action)
-//!    arrive sur le thread UI Java → poussée dans une **file** partagée +
-//!    réveil de la boucle winit (`AndroidAppWaker`) → le shell la draine dans
-//!    `new_events` et l'applique au champ focalisé.
+//! 1. `FrusTextBridge.java` — a 1×1 View plus a `BaseInputConnection` — is
+//!    precompiled into a **bundled dex** (`assets/frus_input.dex`, built by
+//!    scripts/build-input-dex.sh);
+//! 2. at startup the dex is loaded through `InMemoryDexClassLoader`, the `native*`
+//!    methods are wired up by `RegisterNatives`, and the view is added to the
+//!    activity;
+//! 3. every IME operation — commit, composition, deletion, action — arrives on the
+//!    Java UI thread → is pushed onto a shared **queue** and the winit loop is woken
+//!    (`AndroidAppWaker`) → the shell drains it in `new_events` and applies it to the
+//!    focused field.
 //!
-//! Le focus IME (ouverture/fermeture du clavier) passe par
-//! [`start_input`]/[`stop_input`] — la view pont prend le focus Java, l'IME
-//! lui parle, le contenu natif continue de recevoir le tactile.
+//! IME focus, meaning opening and closing the keyboard, goes through
+//! [`start_input`]/[`stop_input`]: the bridge view takes Java focus, the IME talks to
+//! it, and the native content keeps receiving touch.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -27,29 +28,30 @@ use jni::sys::{jboolean, jint, JNI_TRUE};
 use jni::{JNIEnv, JavaVM};
 use winit::platform::android::activity::AndroidApp;
 
-/// Une opération de saisie relayée par l'IME (ordre d'arrivée préservé).
+/// An input operation relayed by the IME; arrival order is preserved.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ImeEvent {
-    /// Texte **définitif** (frappe simple, swipe, suggestion choisie, émoji).
+    /// **Final** text: a plain keystroke, a swipe, a chosen suggestion, an emoji.
     Commit(String),
-    /// Texte **en composition** (remplace la composition précédente).
+    /// Text **being composed**, replacing the previous composition.
     Composing(String),
-    /// La composition courante devient définitive (telle quelle).
+    /// The current composition becomes final, as it stands.
     FinishComposing,
-    /// Suppression de `before` caractères avant le curseur, `after` après.
+    /// Deletes `before` characters ahead of the cursor and `after` behind it.
     Delete { before: u32, after: u32 },
-    /// Action d'éditeur (Entrée/OK/Recherche du clavier).
+    /// An editor action: the keyboard's Enter, OK or Search.
     Action,
-    /// Touche relayée par l'IME (`sendKeyEvent`) : déjà filtrée côté Java.
+    /// A key relayed by the IME (`sendKeyEvent`), already filtered on the Java side.
     Key { code: i32, unicode: u32 },
 }
 
-/// File des opérations (remplie sur le thread UI Java, drainée par le shell).
+/// The operation queue, filled on the Java UI thread and drained by the shell.
 static QUEUE: Mutex<Vec<ImeEvent>> = Mutex::new(Vec::new());
-/// Réveil de la boucle winit quand la file se remplit.
+/// Wakes the winit loop when the queue fills.
 static WAKER: OnceLock<Mutex<winit::platform::android::activity::AndroidAppWaker>> =
     OnceLock::new();
-/// La machine à voyager : VM + classe pont (refs globales), pour start/stop.
+/// What it takes to cross over: the VM and the bridge class, as global refs, for
+/// start and stop.
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
 
 struct Bridge {
@@ -58,16 +60,16 @@ struct Bridge {
     activity: GlobalRef,
 }
 
-// SÛRETÉ : JavaVM et les GlobalRef sont partageables entre threads (contrat JNI).
+// SAFETY: JavaVM and the GlobalRefs are shareable across threads, per the JNI contract.
 unsafe impl Send for Bridge {}
 unsafe impl Sync for Bridge {}
 
-/// Instantané de l'état d'édition du champ focalisé — le contexte que l'IME
-/// interroge (texte avant/après le curseur, sélection). Mis à jour par le
-/// shell, lu par les natives sur le thread UI Java.
+/// A snapshot of the focused field's editing state — the context the IME queries:
+/// the text before and after the cursor, and the selection. Written by the shell,
+/// read by the natives on the Java UI thread.
 #[derive(Default)]
 struct EditorState {
-    /// Caractères du champ (indices en **caractères**, pas en octets).
+    /// The field's characters; indices count **characters**, not bytes.
     chars: Vec<char>,
     cursor: usize,
     selection: Option<(usize, usize)>,
@@ -75,8 +77,8 @@ struct EditorState {
 
 static EDITOR: Mutex<Option<EditorState>> = Mutex::new(None);
 
-/// Pousse l'état d'édition du champ focalisé (appelé par le shell à chaque
-/// changement) — sert de contexte aux suggestions de l'IME.
+/// Pushes the focused field's editing state, called by the shell on every change.
+/// It is the context the IME's suggestions draw on.
 pub(crate) fn set_editor_state(text: &str, cursor: usize, selection: Option<(usize, usize)>) {
     let chars: Vec<char> = text.chars().collect();
     let cursor = cursor.min(chars.len());
@@ -87,17 +89,17 @@ pub(crate) fn set_editor_state(text: &str, cursor: usize, selection: Option<(usi
     });
 }
 
-/// Efface le contexte (le focus quitte les champs texte).
+/// Clears the context, focus having left the text fields.
 pub(crate) fn clear_editor_state() {
     *EDITOR.lock().unwrap() = None;
 }
 
-/// Le dex du pont, compilé par `scripts/build-input-dex.sh` et versionné.
+/// The bridge's dex, built by `scripts/build-input-dex.sh` and kept in the repo.
 static BRIDGE_DEX: &[u8] = include_bytes!("../assets/frus_input.dex");
 
-/// Installe le pont : charge le dex, branche les natives, ajoute la view.
-/// Sans effet (avec log) si une étape échoue — le shell retombe alors sur le
-/// mode `TYPE_NULL` (touches latines).
+/// Installs the bridge: loads the dex, wires the natives, adds the view. A failing
+/// step leaves everything untouched, with a log line, and the shell then falls back
+/// to `TYPE_NULL` mode, Latin keys only.
 pub(crate) fn install(app: &AndroidApp) {
     if BRIDGE.get().is_some() {
         return;
@@ -106,9 +108,9 @@ pub(crate) fn install(app: &AndroidApp) {
         Ok(bridge) => {
             let _ = BRIDGE.set(bridge);
             let _ = WAKER.set(Mutex::new(app.create_waker()));
-            log::info!("pont de saisie installé (InputConnection réelle)");
+            log::info!("input bridge installed (a real InputConnection)");
         }
-        Err(err) => log::warn!("pont de saisie indisponible ({err}) — mode touches"),
+        Err(err) => log::warn!("input bridge unavailable ({err}) — falling back to key mode"),
     }
 }
 
@@ -117,7 +119,7 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
     let mut env = vm.attach_current_thread_permanently()?;
     let activity = unsafe { JObject::from_raw(app.activity_as_ptr() as jni::sys::jobject) };
 
-    // 1. Charge le dex embarqué dans un class loader en mémoire.
+    // 1. Load the bundled dex into an in-memory class loader.
     let buffer =
         unsafe { env.new_direct_byte_buffer(BRIDGE_DEX.as_ptr() as *mut u8, BRIDGE_DEX.len()) }?;
     let parent = env
@@ -144,7 +146,7 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
         .l()?;
     let class: JClass = class_obj.into();
 
-    // 2. Branche les méthodes natives de la classe pont.
+    // 2. Wire up the bridge class's native methods.
     use jni::NativeMethod;
     let method = |name: &str, sig: &str, ptr: *mut std::ffi::c_void| NativeMethod {
         name: name.into(),
@@ -190,7 +192,7 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
         ],
     )?;
 
-    // 3. Ajoute la view pont à l'activité (posté sur le thread UI Java).
+    // 3. Add the bridge view to the activity, posted on the Java UI thread.
     env.call_static_method(
         &class,
         "install",
@@ -207,17 +209,17 @@ fn try_install(app: &AndroidApp) -> Result<Bridge, jni::errors::Error> {
     })
 }
 
-/// Le pont est-il opérationnel ?
+/// Is the bridge operational?
 pub(crate) fn installed() -> bool {
     BRIDGE.get().is_some()
 }
 
-/// Le focus natif entre dans un champ texte : la view pont capte l'IME.
+/// Native focus enters a text field: the bridge view captures the IME.
 pub(crate) fn start_input() {
     call_bridge("startInput");
 }
 
-/// Le focus natif quitte les champs texte : IME refermé.
+/// Native focus leaves the text fields, and the IME closes.
 pub(crate) fn stop_input() {
     call_bridge("stopInput");
 }
@@ -240,11 +242,11 @@ fn call_bridge(method: &str) {
             .map(|_| ())
         });
     if let Err(err) = result {
-        log::warn!("pont de saisie : {method} a échoué ({err})");
+        log::warn!("input bridge: {method} failed ({err})");
     }
 }
 
-/// Draine les opérations en attente (ordre d'arrivée).
+/// Drains the pending operations, in arrival order.
 pub(crate) fn drain() -> Vec<ImeEvent> {
     std::mem::take(&mut QUEUE.lock().unwrap())
 }
@@ -256,7 +258,7 @@ fn push(event: ImeEvent) {
     }
 }
 
-// --- Natives (appelées sur le thread UI Java) --------------------------------
+// --- Natives, called on the Java UI thread -----------------------------------
 
 fn jstring_to_string(env: &mut JNIEnv, text: &JString) -> String {
     env.get_string(text).map(Into::into).unwrap_or_default()
@@ -287,8 +289,8 @@ extern "system" fn native_editor_action(_env: JNIEnv, _class: JClass, _action: j
     push(ImeEvent::Action);
 }
 
-/// Filtre synchrone : `true` = touche d'édition consommée (et mise en file) ;
-/// `false` = la touche suit le chemin par défaut (Retour, navigation…).
+/// A synchronous filter: `true` means an editing key was consumed and queued,
+/// `false` means the key follows the default path — Back, navigation, and so on.
 extern "system" fn native_key(
     _env: JNIEnv,
     _class: JClass,
@@ -300,7 +302,7 @@ extern "system" fn native_key(
     const KEYCODE_ENTER: jint = 66;
     const KEYCODE_DEL: jint = 67;
     if down != JNI_TRUE {
-        // Les relâchements des touches consommées le sont aussi (symétrie).
+        // The releases of consumed keys are consumed too, for symmetry.
         return matches!(code, KEYCODE_ENTER | KEYCODE_DEL) as jboolean | (unicode > 0) as jboolean;
     }
     let handled = matches!(code, KEYCODE_ENTER | KEYCODE_DEL) || unicode > 0;
@@ -313,9 +315,9 @@ extern "system" fn native_key(
     handled as jboolean
 }
 
-// --- Contexte de saisie (lu par l'IME via l'InputConnection) -----------------
+// --- The input context, read by the IME through the InputConnection ----------
 
-/// Renvoie une `jstring` Java (ou une chaîne vide) sans propager d'erreur.
+/// Returns a Java `jstring`, or an empty string, without propagating an error.
 fn to_jstring(env: &JNIEnv, text: &str) -> jni::sys::jstring {
     env.new_string(text)
         .map(|s| s.into_raw())

@@ -1,16 +1,16 @@
-//! Reconnaissance de gestes — **palier 1** du brief (§3) : un reconnaisseur
-//! « tap-ou-appui-long » qui parle déjà le vocabulaire de l'**arène**, pour que le
-//! passage à la vraie arène (palier 2) soit une substitution, pas une réécriture.
+//! Gesture recognition — **tier 1** of the brief (§3): a "tap-or-long-press"
+//! recogniser that already speaks the **arena**'s vocabulary, so that moving to the
+//! real arena (tier 2) is a substitution rather than a rewrite.
 //!
-//! - L'**appui long** accepte **avidement** au franchissement du délai : il évince
-//!   le tap (le relâchement qui suit est avalé).
-//! - Le **tap** accepte **passivement** : il gagne si rien ne l'a évincé au
-//!   relâchement (le chemin de clic existant du shell).
-//! - Un mouvement au-delà du **slop** rejette l'appui long (le geste devient un
-//!   glissement/défilement) ; `Cancel` rejette tout.
+//! - The **long press** accepts **eagerly** once the delay elapses: it evicts the
+//!   tap, and the release that follows is swallowed.
+//! - The **tap** accepts **passively**: it wins when nothing evicted it by the time
+//!   of the release. That is the shell's existing click path.
+//! - Movement beyond the **slop** rejects the long press, the gesture having become
+//!   a drag or a scroll; `Cancel` rejects everything.
 //!
-//! La machine est **pure** (aucun accès horloge : les instants sont passés en
-//! paramètres) — donc testable au tick près.
+//! The machine is **pure** — it never reads a clock, instants come in as parameters
+//! — and so is testable down to the tick.
 
 use std::time::Duration;
 
@@ -18,21 +18,21 @@ use web_time::Instant;
 
 use frus_widgets::{FrictionSimulation, Point, Tolerance};
 
-/// Délai d'appui long (pression immobile) avant acceptation.
+/// How long a motionless press must last before the long press is accepted.
 pub(crate) const LONG_PRESS_DELAY: Duration = Duration::from_millis(500);
-/// Mouvement (px logiques) au-delà duquel l'appui long est rejeté.
+/// The movement, in logical px, beyond which the long press is rejected.
 const SLOP: f32 = 8.0;
 
-/// Décélération du fling : fraction de la vitesse conservée après 1 s
-/// (`dx(t) = v·drag^t`, la constante de friction usuelle du défilement).
+/// A fling's deceleration: the fraction of the velocity left after 1 s
+/// (`dx(t) = v·drag^t`, scrolling's usual friction constant).
 const FLING_DRAG: f32 = 0.135;
-/// Vitesse minimale (px/s) au relâchement pour déclencher un fling.
+/// The minimum release velocity, in px/s, that triggers a fling.
 const FLING_MIN_VELOCITY: f32 = 50.0;
 
-/// Destination **balistique** d'un fling de défilement : la position finale
-/// d'une [`FrictionSimulation`] amorcée à `velocity` depuis `current` — le
-/// momentum du doigt, en forme close. `None` sous le seuil de vitesse (le
-/// relâchement lent n'entraîne pas le contenu).
+/// A scroll fling's **ballistic** destination: the final position of a
+/// [`FrictionSimulation`] started at `velocity` from `current` — the finger's
+/// momentum, in closed form. `None` below the velocity threshold, since a slow
+/// release does not carry the content along.
 pub(crate) fn fling_destination(current: f32, velocity: f32) -> Option<f32> {
     if velocity.abs() < FLING_MIN_VELOCITY {
         return None;
@@ -40,20 +40,20 @@ pub(crate) fn fling_destination(current: f32, velocity: f32) -> Option<f32> {
     Some(FrictionSimulation::new(FLING_DRAG, current, velocity, Tolerance::PIXELS).final_x())
 }
 
-/// Un événement pointeur **normalisé** (souris ou doigt) : l'entrée unique du
-/// routage — palier 0 du brief, avec `Cancel` explicite.
+/// A **normalised** pointer event, mouse or finger: routing's single input — tier 0
+/// of the brief, with an explicit `Cancel`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum PointerKind {
     Down,
     Move,
     Up,
-    /// Geste interrompu (app en arrière-plan, doigt annulé) : abandonner sans
-    /// callback de succès.
+    /// The gesture was interrupted — the app went to the background, the touch was
+    /// cancelled: give up without a success callback.
     Cancel,
 }
 
-/// L'événement normalisé : sa nature, sa position **logique**, et si la source
-/// est tactile (le tactile arme le défilement au doigt).
+/// The normalised event: its nature, its **logical** position, and whether the
+/// source is touch — touch is what arms finger scrolling.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PointerEvent {
     pub kind: PointerKind,
@@ -61,20 +61,21 @@ pub(crate) struct PointerEvent {
     pub touch: bool,
 }
 
-/// États internes du reconnaisseur.
+/// The recogniser's internal states.
 #[derive(Debug)]
 enum State {
-    /// Aucun appui suivi.
+    /// No press is being tracked.
     Idle,
-    /// Appui en cours, encore candidat à l'appui long.
+    /// A press is under way and still a candidate for the long press.
     Possible { origin: Point, deadline: Instant },
-    /// L'appui long a **accepté** (tiré) : le prochain relâchement est avalé.
+    /// The long press **accepted**, that is, fired: the next release is swallowed.
     Fired,
-    /// Candidat rejeté (mouvement > slop) : l'appui continue en tap/glissement.
+    /// The candidate was rejected, movement exceeding the slop; the press carries on
+    /// as a tap or a drag.
     Rejected,
 }
 
-/// Reconnaisseur tap-ou-appui-long, une instance par pointeur actif.
+/// The tap-or-long-press recogniser, one instance per active pointer.
 pub(crate) struct PressRecognizer {
     state: State,
 }
@@ -84,8 +85,8 @@ impl PressRecognizer {
         Self { state: State::Idle }
     }
 
-    /// Appui : arme le suivi si la cible est intéressée par l'appui long
-    /// (`interested`), sinon reste inerte.
+    /// A press: arms tracking when the target cares about the long press
+    /// (`interested`), and stays inert otherwise.
     pub fn down(&mut self, at: Point, now: Instant, interested: bool) {
         self.state = if interested {
             State::Possible {
@@ -97,8 +98,8 @@ impl PressRecognizer {
         };
     }
 
-    /// Mouvement : au-delà du slop, l'appui long est rejeté (le geste est un
-    /// glissement — « accepte avidement au franchissement de slop », côté drag).
+    /// Movement: beyond the slop the long press is rejected, the gesture being a
+    /// drag — "accepts eagerly on crossing the slop", from the drag's side.
     pub fn moved(&mut self, at: Point) {
         if let State::Possible { origin, .. } = self.state {
             let (dx, dy) = (at.x - origin.x, at.y - origin.y);
@@ -108,8 +109,8 @@ impl PressRecognizer {
         }
     }
 
-    /// Échéance à laquelle l'appui long tirera, si encore candidat — à donner à
-    /// `ControlFlow::WaitUntil` pour être réveillé pile au bon moment.
+    /// The deadline at which the long press will fire, if it is still a candidate —
+    /// hand it to `ControlFlow::WaitUntil` to be woken at exactly the right moment.
     pub fn deadline(&self) -> Option<Instant> {
         match self.state {
             State::Possible { deadline, .. } => Some(deadline),
@@ -117,7 +118,7 @@ impl PressRecognizer {
         }
     }
 
-    /// Le temps a-t-il fait tirer l'appui long ? (`true` exactement une fois.)
+    /// Has time made the long press fire? `true` exactly once.
     pub fn poll(&mut self, now: Instant) -> bool {
         if let State::Possible { deadline, .. } = self.state {
             if now >= deadline {
@@ -128,15 +129,15 @@ impl PressRecognizer {
         false
     }
 
-    /// Relâchement : renvoie `true` si le clic doit être **avalé** (un appui long
-    /// a déjà accepté — il évince le tap).
+    /// A release: returns `true` when the click must be **swallowed**, a long press
+    /// having already accepted and evicted the tap.
     pub fn up(&mut self) -> bool {
         let swallow = matches!(self.state, State::Fired);
         self.state = State::Idle;
         swallow
     }
 
-    /// Interruption : abandonner sans rien émettre.
+    /// An interruption: give up without emitting anything.
     pub fn cancel(&mut self) {
         self.state = State::Idle;
     }
@@ -152,24 +153,21 @@ mod tests {
 
     #[test]
     fn fling_projects_a_friction_final_position() {
-        // Sous le seuil : pas de fling.
+        // Below the threshold there is no fling.
         assert_eq!(fling_destination(100.0, 0.0), None);
         assert_eq!(fling_destination(100.0, 30.0), None);
 
-        // Momentum : destination = position + v / ln(1/drag) (forme close).
+        // Momentum: destination = position + v / ln(1/drag), in closed form.
         let dest = fling_destination(0.0, 2000.0).expect("fling");
         let expected = 2000.0 / (1.0f32 / FLING_DRAG).ln();
         assert!(
             (dest - expected).abs() < 1.0,
-            "dest = {dest}, attendu ≈ {expected}"
+            "dest = {dest}, expected ≈ {expected}"
         );
-        assert!(
-            dest > 900.0 && dest < 1100.0,
-            "≈ 1000 px de course : {dest}"
-        );
+        assert!(dest > 900.0 && dest < 1100.0, "≈ 1000 px of travel: {dest}");
 
-        // Symétrique vers l'arrière.
-        let back = fling_destination(500.0, -2000.0).expect("fling arrière");
+        // Symmetrical, backwards.
+        let back = fling_destination(500.0, -2000.0).expect("backward fling");
         assert!((back - (500.0 - expected)).abs() < 1.0);
     }
 
@@ -180,14 +178,14 @@ mod tests {
         rec.down(Point::new(10.0, 10.0), t0, true);
         assert_eq!(rec.deadline(), Some(t0 + LONG_PRESS_DELAY));
 
-        // Avant l'échéance : rien.
+        // Before the deadline: nothing.
         assert!(!rec.poll(t0 + Duration::from_millis(499)));
-        // À l'échéance : tire, exactement une fois.
+        // At the deadline: it fires, exactly once.
         assert!(rec.poll(t0 + LONG_PRESS_DELAY));
         assert!(!rec.poll(t0 + Duration::from_millis(600)));
-        // Le relâchement qui suit est avalé (l'appui long évince le tap).
+        // The release that follows is swallowed: the long press evicts the tap.
         assert!(rec.up());
-        // Et l'état est réinitialisé.
+        // And the state is reset.
         assert!(rec.deadline().is_none());
     }
 
@@ -196,8 +194,11 @@ mod tests {
         let mut rec = PressRecognizer::new();
         let t0 = start();
         rec.down(Point::new(0.0, 0.0), t0, true);
-        assert!(!rec.up(), "tap : le clic n'est pas avalé");
-        assert!(!rec.poll(t0 + Duration::from_secs(1)), "plus rien à tirer");
+        assert!(!rec.up(), "a tap: the click is not swallowed");
+        assert!(
+            !rec.poll(t0 + Duration::from_secs(1)),
+            "nothing left to fire"
+        );
     }
 
     #[test]
@@ -205,14 +206,14 @@ mod tests {
         let mut rec = PressRecognizer::new();
         let t0 = start();
         rec.down(Point::new(0.0, 0.0), t0, true);
-        // Sous le slop : encore candidat.
+        // Below the slop: still a candidate.
         rec.moved(Point::new(4.0, 4.0));
         assert!(rec.deadline().is_some());
-        // Au-delà : rejeté, l'échéance disparaît, le temps ne tire plus.
+        // Beyond it: rejected, the deadline vanishes, time no longer fires anything.
         rec.moved(Point::new(10.0, 10.0));
         assert!(rec.deadline().is_none());
         assert!(!rec.poll(t0 + Duration::from_secs(1)));
-        assert!(!rec.up(), "le clic normal reste possible");
+        assert!(!rec.up(), "an ordinary click is still possible");
     }
 
     #[test]
