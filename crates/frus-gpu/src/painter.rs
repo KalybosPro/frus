@@ -1,6 +1,6 @@
-//! Le `Painter` : logique de dessin des primitives, indépendante de toute
-//! surface (fenêtre). Il peut donc peindre aussi bien sur une surface que sur
-//! une texture offscreen — ce qui rend le rendu testable en headless.
+//! The `Painter`: the primitive drawing logic, independent of any surface or
+//! window. It can therefore paint onto a surface or onto an offscreen texture
+//! alike, which is what makes rendering testable headlessly.
 
 use bytemuck::{Pod, Zeroable};
 use frus_core::{Color, Primitive, Scene};
@@ -8,7 +8,7 @@ use wgpu::util::DeviceExt;
 
 use crate::text::DecorationQuad;
 
-/// Sommet du quad unité (coin dans `[0,1]²`).
+/// A vertex of the unit quad, its corner in `[0,1]²`.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct QuadVertex {
@@ -26,8 +26,8 @@ impl QuadVertex {
     }
 }
 
-/// Données d'une instance transmises au GPU (une par rectangle). Construites à
-/// partir des primitives de la [`Scene`] à chaque frame.
+/// The instance data handed to the GPU, one per rectangle, built from the
+/// [`Scene`]'s primitives every frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct Instance {
@@ -35,18 +35,18 @@ struct Instance {
     color: [f32; 4],
     color2: [f32; 4],
     border_color: [f32; 4],
-    /// (réservé), border_width, blur, (réservé).
+    /// (reserved), border_width, blur, (reserved).
     params: [f32; 4],
-    /// direction du dégradé (x, y), puis (réservé, réservé).
+    /// The gradient direction (x, y), then (reserved, reserved).
     gradient: [f32; 4],
-    /// Rectangle de découpe : x, y, width, height.
+    /// The clip rectangle: x, y, width, height.
     clip: [f32; 4],
-    /// Rayons d'arrondi par coin : tl, tr, br, bl.
+    /// Corner radii, per corner: tl, tr, br, bl.
     radii: [f32; 4],
 }
 
 impl Instance {
-    /// Layout du buffer d'instances (locations 1..=8 ; la 0 est le quad unité).
+    /// The instance buffer's layout (locations 1..=8; 0 is the unit quad).
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
             1 => Float32x4,
@@ -66,7 +66,7 @@ impl Instance {
     }
 }
 
-/// Deux triangles couvrant le quad unité.
+/// Two triangles covering the unit quad.
 const QUAD_VERTICES: &[QuadVertex] = &[
     QuadVertex { pos: [0.0, 0.0] },
     QuadVertex { pos: [1.0, 0.0] },
@@ -77,19 +77,19 @@ const QUAD_VERTICES: &[QuadVertex] = &[
 ];
 const QUAD_VERTEX_COUNT: u32 = 6;
 
-/// Uniform passé au shader : la taille de la surface en pixels.
+/// The uniform handed to the shader: the surface size in pixels.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Viewport {
     size: [f32; 2],
-    // Padding pour respecter l'alignement 16 octets des uniform buffers.
+    // Padding, to respect uniform buffers' 16-byte alignment.
     _pad: [f32; 2],
 }
 
-/// Nombre d'instances alloué initialement dans le buffer.
+/// How many instances the buffer allocates to begin with.
 const INITIAL_INSTANCE_CAPACITY: usize = 128;
 
-/// Détient le pipeline et les buffers nécessaires au dessin des primitives.
+/// Holds the pipeline and the buffers needed to draw the primitives.
 pub(crate) struct Painter {
     pipeline: wgpu::RenderPipeline,
     quad_vertex_buffer: wgpu::Buffer,
@@ -97,13 +97,13 @@ pub(crate) struct Painter {
     instance_capacity: usize,
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
-    /// Tampon CPU réutilisé pour construire les instances à partir de la scène.
+    /// A reused CPU buffer for building the instances out of the scene.
     instances: Vec<Instance>,
 }
 
 impl Painter {
-    /// Construit le painter pour un format de cible donné (surface ou texture).
-    /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    /// Builds the painter for a given target format, surface or texture.
+    /// `sample_count` is the MSAA sample count; 1 means no multisampling.
     pub(crate) fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -208,7 +208,7 @@ impl Painter {
         }
     }
 
-    /// Met à jour la taille de la surface (à appeler à l'init et au resize).
+    /// Updates the surface size; call it at init and on resize.
     pub(crate) fn set_viewport(&self, queue: &wgpu::Queue, width: f32, height: f32) {
         let viewport = Viewport {
             size: [width.max(1.0), height.max(1.0)],
@@ -217,8 +217,8 @@ impl Painter {
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
 
-    /// Traduit les primitives de la scène en instances GPU et les téléverse,
-    /// en agrandissant le buffer si besoin. Renvoie le nombre d'instances.
+    /// Translates the scene's primitives into GPU instances and uploads them,
+    /// growing the buffer if needed. Returns the instance count.
     fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -248,11 +248,11 @@ impl Painter {
                     params: [0.0, *border_width, *blur, 0.0],
                     gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
                     clip: clip.to_array(),
-                    // Rayons négatifs bornés à zéro avant rendu.
+                    // Negative radii are clamped to zero before rendering.
                     radii: radius.clamped().to_array(),
                 }),
-                // Texte, chemins vectoriels et images sont rendus par leurs
-                // painters dédiés (TextPainter / PathPainter / ImagePainter).
+                // Text, vector paths and images are rendered by their own painters
+                // (TextPainter, PathPainter, ImagePainter).
                 Primitive::Text { .. }
                 | Primitive::RichText { .. }
                 | Primitive::Path { .. }
@@ -261,8 +261,8 @@ impl Painter {
             }
         }
 
-        // Quads de décoration de texte (soulignement, barré…) : des rectangles
-        // pleins, dessinés dans la passe des quads (donc sous les glyphes).
+        // Text decoration quads (underline, strikethrough): plain rectangles, drawn
+        // in the quad pass, and therefore beneath the glyphs.
         for quad in decorations {
             self.instances.push(Instance {
                 rect: quad.rect.to_array(),
@@ -298,9 +298,9 @@ impl Painter {
         count as u32
     }
 
-    /// Prépare le rendu (téléverse les instances) et renvoie leur nombre.
-    /// `decorations` : quads issus du texte (voir [`TextPainter::prepare_frame`]).
-    /// À appeler **avant** d'ouvrir le render pass.
+    /// Prepares the render by uploading the instances, and returns their count.
+    /// `decorations` are the quads coming from text (see
+    /// [`TextPainter::prepare_frame`]). Call it **before** opening the render pass.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
@@ -311,7 +311,7 @@ impl Painter {
         self.prepare(device, queue, scene, decorations)
     }
 
-    /// Dessine les rectangles dans un render pass déjà ouvert.
+    /// Draws the rectangles into an already-open render pass.
     pub(crate) fn draw<'pass>(
         &'pass self,
         pass: &mut wgpu::RenderPass<'pass>,
@@ -333,7 +333,7 @@ mod tests {
     use super::*;
     use crate::{Color, Rect};
 
-    /// Instancie un device wgpu sans surface (headless). `None` si aucun GPU.
+    /// Instantiates a surfaceless (headless) wgpu device. `None` when there is no GPU.
     fn headless_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -357,17 +357,17 @@ mod tests {
         Some((device, queue))
     }
 
-    /// Rend un rectangle rouge couvrant toute une texture offscreen, puis relit
-    /// le pixel central : il doit être rouge opaque. Preuve automatique que le
-    /// pipeline + la conversion de coordonnées fonctionnent, sans fenêtre.
+    /// Renders a red rectangle covering a whole offscreen texture, then reads the
+    /// centre pixel back: it must be opaque red. Automatic proof that the pipeline
+    /// and the coordinate conversion work, with no window involved.
     #[test]
     fn renders_red_rect_to_center_pixel() {
         let Some((device, queue)) = headless_device() else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
 
-        const SIZE: u32 = 64; // 64 * 4 = 256 octets/ligne => aligné pour la copie.
+        const SIZE: u32 = 64; // 64 * 4 = 256 bytes/row => aligned for the copy.
         let format = wgpu::TextureFormat::Rgba8Unorm;
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -416,7 +416,7 @@ mod tests {
             painter.draw(&mut pass, count);
         }
 
-        // Copie de la texture vers un buffer lisible par le CPU.
+        // Copy the texture into a CPU-readable buffer.
         let bytes_per_row = SIZE * 4;
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frus.test.readback"),
@@ -453,7 +453,9 @@ mod tests {
             let _ = tx.send(r);
         });
         device.poll(wgpu::Maintain::Wait);
-        rx.recv().expect("map_async").expect("mapping échoué");
+        rx.recv()
+            .expect("map_async")
+            .expect("buffer mapping failed");
 
         let data = slice.get_mapped_range();
         let (cx, cy) = (SIZE / 2, SIZE / 2);
@@ -463,16 +465,16 @@ mod tests {
         assert_eq!(
             pixel,
             [255, 0, 0, 255],
-            "le pixel central doit être rouge opaque"
+            "the centre pixel must be opaque red"
         );
     }
 
-    /// Un rectangle très arrondi couvrant toute la texture : le centre est
-    /// rempli, mais le coin est découpé (reste au fond noir).
+    /// A heavily rounded rectangle covering the whole texture: the centre is
+    /// filled, but the corner is cut away and stays the black background.
     #[test]
     fn rounded_rect_leaves_corner_transparent() {
         let Some((device, queue)) = headless_device() else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
 
@@ -501,7 +503,7 @@ mod tests {
         scene.draw_rect(
             Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32),
             Color::rgb(1.0, 0.0, 0.0),
-            30.0, // rayon important
+            30.0, // a large radius
             0.0,
             Color::TRANSPARENT,
         );
@@ -563,7 +565,9 @@ mod tests {
             let _ = tx.send(r);
         });
         device.poll(wgpu::Maintain::Wait);
-        rx.recv().expect("map_async").expect("mapping échoué");
+        rx.recv()
+            .expect("map_async")
+            .expect("buffer mapping failed");
 
         let data = slice.get_mapped_range();
         let px = |x: u32, y: u32| {
@@ -571,17 +575,17 @@ mod tests {
             [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]
         };
 
-        // Centre rouge, coin (0,0) découpé (noir).
+        // A red centre, with the (0,0) corner cut away and black.
         assert_eq!(px(SIZE / 2, SIZE / 2), [255, 0, 0, 255], "centre rouge");
-        assert_eq!(px(0, 0), [0, 0, 0, 255], "coin découpé");
+        assert_eq!(px(0, 0), [0, 0, 0, 255], "corner cut away");
     }
 
-    /// Rayons **par coin** : seul le coin haut-gauche arrondi est découpé, les
-    /// trois autres restent carrés — preuve du chemin GPU par readback.
+    /// **Per-corner** radii: only the rounded top-left corner is cut away, the
+    /// other three stay square — the GPU path proved by readback.
     #[test]
     fn per_corner_radius_rounds_only_selected_corners() {
         let Some((device, queue)) = headless_device() else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
 
@@ -677,7 +681,9 @@ mod tests {
             let _ = tx.send(r);
         });
         device.poll(wgpu::Maintain::Wait);
-        rx.recv().expect("map_async").expect("mapping échoué");
+        rx.recv()
+            .expect("map_async")
+            .expect("buffer mapping failed");
 
         let data = slice.get_mapped_range();
         let px = |x: u32, y: u32| {
@@ -685,20 +691,24 @@ mod tests {
             [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]
         };
 
-        // Seul le coin haut-gauche est découpé ; les trois autres sont carrés.
-        assert_eq!(px(0, 0), [0, 0, 0, 255], "haut-gauche arrondi (découpé)");
-        assert_eq!(px(SIZE - 1, 0), [255, 0, 0, 255], "haut-droit carré");
-        assert_eq!(px(0, SIZE - 1), [255, 0, 0, 255], "bas-gauche carré");
-        assert_eq!(px(SIZE - 1, SIZE - 1), [255, 0, 0, 255], "bas-droit carré");
+        // Only the top-left corner is cut away; the other three are square.
+        assert_eq!(px(0, 0), [0, 0, 0, 255], "rounded top-left, cut away");
+        assert_eq!(px(SIZE - 1, 0), [255, 0, 0, 255], "square top-right");
+        assert_eq!(px(0, SIZE - 1), [255, 0, 0, 255], "square bottom-left");
+        assert_eq!(
+            px(SIZE - 1, SIZE - 1),
+            [255, 0, 0, 255],
+            "square bottom-right"
+        );
         assert_eq!(px(SIZE / 2, SIZE / 2), [255, 0, 0, 255], "centre plein");
     }
 
-    /// Un rectangle plein rouge dont le clip ne couvre qu'un coin : le centre
-    /// (hors clip) reste au fond, le coin (dans le clip) est rouge.
+    /// A solid red rectangle whose clip covers one corner only: the centre, outside
+    /// the clip, stays background; the corner, inside it, is red.
     #[test]
     fn clip_excludes_pixels_outside() {
         let Some((device, queue)) = headless_device() else {
-            eprintln!("aucun adaptateur GPU disponible : test ignoré");
+            eprintln!("no GPU adapter available: test skipped");
             return;
         };
 
@@ -724,7 +734,7 @@ mod tests {
         painter.set_viewport(&queue, SIZE as f32, SIZE as f32);
 
         let mut scene = Scene::new();
-        // Clip limité à un carré 16x16 en haut-gauche.
+        // The clip is limited to a 16x16 square at the top left.
         scene.set_clip(Rect::new(0.0, 0.0, 16.0, 16.0));
         scene.fill_rect(
             Rect::new(0.0, 0.0, SIZE as f32, SIZE as f32),
@@ -788,7 +798,9 @@ mod tests {
             let _ = tx.send(r);
         });
         device.poll(wgpu::Maintain::Wait);
-        rx.recv().expect("map_async").expect("mapping échoué");
+        rx.recv()
+            .expect("map_async")
+            .expect("buffer mapping failed");
 
         let data = slice.get_mapped_range();
         let px = |x: u32, y: u32| {

@@ -1,13 +1,13 @@
-//! Le `PathPainter` : rendu des chemins vectoriels ([`Primitive::Path`]).
+//! The `PathPainter`: rendering of vector paths ([`Primitive::Path`]).
 //!
-//! Les chemins sont **tessellisés côté CPU** par lyon (fill et/ou stroke) en une
-//! liste de triangles indexés, puis dessinés en une passe. Chaque sommet porte
-//! sa couleur (sRGB) et son rectangle de découpe, à l'image du `Painter` des
-//! rectangles — le shader `path.wgsl` projette et découpe.
+//! Paths are **tessellated on the CPU** by lyon (fill and/or stroke) into an
+//! indexed triangle list, then drawn in a single pass. Each vertex carries its own
+//! colour (sRGB) and clip rectangle, mirroring the rectangle `Painter` — the
+//! `path.wgsl` shader projects and clips.
 //!
-//! Anti-aliasing : la géométrie tessellisée est nette ; le **lissage des bords
-//! obliques** est fourni par le MSAA de la passe (voir `compositor.rs`), le
-//! pipeline étant compilé au `sample_count` de la cible.
+//! Antialiasing: the tessellated geometry is crisp, and **oblique edges** are
+//! smoothed by the pass's MSAA (see `compositor.rs`), the pipeline being compiled
+//! at the target's `sample_count`.
 
 use bytemuck::{Pod, Zeroable};
 use frus_core::{Path, PathVerb, Primitive, Scene};
@@ -18,7 +18,7 @@ use lyon::tessellation::{
     StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
 
-/// Un sommet tessellisé : position (px), couleur (sRGB), découpe.
+/// A tessellated vertex: position (px), colour (sRGB), clip.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PathVertex {
@@ -42,8 +42,8 @@ impl PathVertex {
     }
 }
 
-/// Constructeur de sommets pour lyon : injecte couleur + découpe (constantes sur
-/// tout un chemin) dans chaque sommet produit par la tessellation.
+/// The vertex constructor handed to lyon: it injects the colour and clip — both
+/// constant over a whole path — into every vertex the tessellation produces.
 struct Ctor {
     color: [f32; 4],
     clip: [f32; 4],
@@ -71,7 +71,7 @@ impl StrokeVertexConstructor<PathVertex> for Ctor {
     }
 }
 
-/// Uniform : taille de la surface en pixels (identique au `Painter`).
+/// Uniform: the surface size in pixels, the same as the `Painter`'s.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Viewport {
@@ -82,7 +82,7 @@ struct Viewport {
 const INITIAL_VERTEX_CAPACITY: usize = 512;
 const INITIAL_INDEX_CAPACITY: usize = 1024;
 
-/// Détient le pipeline et les buffers du rendu de chemins.
+/// Holds the pipeline and buffers for path rendering.
 pub(crate) struct PathPainter {
     pipeline: wgpu::RenderPipeline,
     viewport_buffer: wgpu::Buffer,
@@ -91,15 +91,15 @@ pub(crate) struct PathPainter {
     vertex_capacity: usize,
     index_buffer: wgpu::Buffer,
     index_capacity: usize,
-    /// Géométrie CPU réutilisée d'une frame à l'autre (fill + stroke fusionnés).
+    /// CPU geometry reused from frame to frame, with fill and stroke merged.
     geometry: VertexBuffers<PathVertex, u32>,
     fill_tess: FillTessellator,
     stroke_tess: StrokeTessellator,
 }
 
 impl PathPainter {
-    /// Construit le painter pour un format de cible donné.
-    /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    /// Builds the painter for a given target format.
+    /// `sample_count` is the MSAA sample count; 1 means no multisampling.
     pub(crate) fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -207,7 +207,7 @@ impl PathPainter {
         }
     }
 
-    /// Met à jour la taille de la surface (init et resize).
+    /// Updates the surface size, at init and on resize.
     pub(crate) fn set_viewport(&self, queue: &wgpu::Queue, width: f32, height: f32) {
         let viewport = Viewport {
             size: [width.max(1.0), height.max(1.0)],
@@ -216,8 +216,8 @@ impl PathPainter {
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
 
-    /// Tessellise tous les chemins de la scène et téléverse la géométrie.
-    /// Renvoie le nombre d'**indices** à dessiner. À appeler avant le render pass.
+    /// Tessellates every path in the scene and uploads the geometry. Returns the
+    /// number of **indices** to draw. Call it before the render pass.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
@@ -304,7 +304,7 @@ impl PathPainter {
         index_count as u32
     }
 
-    /// Dessine les chemins dans un render pass déjà ouvert.
+    /// Draws the paths into an already-open render pass.
     pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, index_count: u32) {
         if index_count == 0 {
             return;
@@ -317,8 +317,8 @@ impl PathPainter {
     }
 }
 
-/// Convertit un [`Path`] frus en chemin lyon, en gérant l'ouverture/fermeture
-/// des sous-chemins (lyon exige `begin`/`end` autour de chaque contour).
+/// Converts a frus [`Path`] into a lyon path, handling sub-path opening and
+/// closing — lyon requires `begin`/`end` around every contour.
 fn to_lyon(path: &Path) -> LyonPath {
     let mut builder = LyonPath::builder();
     let mut open = false;

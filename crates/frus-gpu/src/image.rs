@@ -1,11 +1,10 @@
-//! Le `ImagePainter` : rendu des images ([`Primitive::Image`]) et **cache de
-//! textures**.
+//! The `ImagePainter`: image rendering ([`Primitive::Image`]) and the **texture
+//! cache**.
 //!
-//! Chaque image est téléversée **une fois** en texture GPU (format sRGB), mise en
-//! cache par [`frus_core::ImageData::id`] et réutilisée d'une frame à l'autre.
-//! Les textures non employées lors d'une frame sont évincées. Le dessin fait un
-//! quad instancié par image (la texture étant liée en groupe 1) ; UV, teinte et
-//! découpe sont portés par l'instance.
+//! Each image is uploaded to a GPU texture **once** (in sRGB), cached by
+//! [`frus_core::ImageData::id`] and reused from frame to frame. Textures left
+//! unused during a frame are evicted. Drawing issues one instanced quad per image,
+//! with the texture bound in group 1; UV, tint and clip all ride on the instance.
 
 use std::collections::HashMap;
 
@@ -13,7 +12,7 @@ use bytemuck::{Pod, Zeroable};
 use frus_core::{Primitive, Scene};
 use wgpu::util::DeviceExt;
 
-/// Sommet du quad unité.
+/// A vertex of the unit quad.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct QuadVertex {
@@ -41,7 +40,7 @@ const QUAD_VERTICES: &[QuadVertex] = &[
 ];
 const QUAD_VERTEX_COUNT: u32 = 6;
 
-/// Instance : rectangle de destination, UV, teinte, découpe.
+/// An instance: destination rectangle, UV, tint, clip.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Instance {
@@ -74,16 +73,16 @@ struct Viewport {
     _pad: [f32; 2],
 }
 
-/// Une texture mise en cache, avec son groupe de liaison prêt à dessiner.
+/// A cached texture, with its bind group ready to draw.
 struct CachedTexture {
     bind_group: wgpu::BindGroup,
-    /// Marqueur d'emploi de la frame courante (pour l'éviction).
+    /// A use marker for the current frame, which drives eviction.
     used: bool,
 }
 
 const INITIAL_INSTANCE_CAPACITY: usize = 32;
 
-/// Détient le pipeline, le cache de textures et le buffer d'instances.
+/// Holds the pipeline, the texture cache and the instance buffer.
 pub(crate) struct ImagePainter {
     pipeline: wgpu::RenderPipeline,
     viewport_buffer: wgpu::Buffer,
@@ -93,18 +92,18 @@ pub(crate) struct ImagePainter {
     quad_vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
-    /// Cache des textures par id d'image.
+    /// The texture cache, keyed by image id.
     cache: HashMap<u64, CachedTexture>,
-    /// Tampon CPU des instances (réutilisé).
+    /// The CPU-side instance buffer, reused across frames.
     instances: Vec<Instance>,
-    /// Id de l'image de chaque instance, dans l'ordre — pour lier la bonne
-    /// texture au dessin.
+    /// Each instance's image id, in order, so the right texture is bound at draw
+    /// time.
     frame_ids: Vec<u64>,
 }
 
 impl ImagePainter {
-    /// Construit le painter pour un format de cible donné.
-    /// `sample_count` : nombre d'échantillons MSAA (1 = pas de multi-échantillon).
+    /// Builds the painter for a given target format.
+    /// `sample_count` is the MSAA sample count; 1 means no multisampling.
     pub(crate) fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -246,7 +245,7 @@ impl ImagePainter {
         }
     }
 
-    /// Met à jour la taille de la surface.
+    /// Updates the surface size.
     pub(crate) fn set_viewport(&self, queue: &wgpu::Queue, width: f32, height: f32) {
         let viewport = Viewport {
             size: [width.max(1.0), height.max(1.0)],
@@ -255,8 +254,8 @@ impl ImagePainter {
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
 
-    /// Téléverse les nouvelles textures, construit les instances, évince les
-    /// textures inutilisées. Renvoie le nombre d'instances à dessiner.
+    /// Uploads any new textures, builds the instances and evicts unused textures.
+    /// Returns the number of instances to draw.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
@@ -294,7 +293,7 @@ impl ImagePainter {
             }
         }
 
-        // Éviction des textures non employées cette frame.
+        // Evict the textures unused during this frame.
         self.cache.retain(|_, c| c.used);
 
         let count = self.instances.len();
@@ -319,7 +318,7 @@ impl ImagePainter {
         count as u32
     }
 
-    /// Téléverse la texture d'une image si elle n'est pas déjà en cache.
+    /// Uploads an image's texture unless it is already cached.
     fn ensure_texture(
         &mut self,
         device: &wgpu::Device,
@@ -388,7 +387,7 @@ impl ImagePainter {
         );
     }
 
-    /// Dessine les images (un quad instancié par image, texture liée au dessin).
+    /// Draws the images: one instanced quad each, with the texture bound per draw.
     pub(crate) fn draw<'pass>(
         &'pass self,
         pass: &mut wgpu::RenderPass<'pass>,
