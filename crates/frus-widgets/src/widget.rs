@@ -1,4 +1,4 @@
-//! Le trait [`Widget`], générique sur le type de message émis à l'interaction.
+//! The [`Widget`] trait, generic over the message type emitted on interaction.
 
 use frus_core::{Rect, Scene, Semantics, Size};
 use frus_layout::Style;
@@ -9,70 +9,70 @@ use crate::runtime::Edit;
 use crate::scroll::Axis;
 use crate::theme::Theme;
 
-/// Axe le long duquel un widget **réordonnable** se déplace au glisser : les colonnes de `Table`
-/// glissent à l'**horizontale** (défaut), les cartes de `Kanban` à la **verticale**. Le shell adapte
-/// l'aperçu de glisser (sens du fantôme, indicateur d'insertion) selon cet axe.
+/// Axis along which a **reorderable** widget moves while dragging: `Table` columns slide
+/// **horizontally** (the default), `Kanban` cards **vertically**. The shell adapts the drag
+/// preview (ghost direction, insertion indicator) to this axis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ReorderAxis {
-    /// Réordonnancement horizontal (colonnes) — défaut.
+    /// Horizontal reordering (columns) — the default.
     #[default]
     Horizontal,
-    /// Réordonnancement vertical (cartes empilées).
+    /// Vertical reordering (stacked cards).
     Vertical,
 }
 
-/// Un widget : un élément d'interface composable.
+/// A widget: a composable interface element.
 ///
-/// `Msg` est le type de message applicatif émis lors d'une interaction (modèle
-/// à messages, façon Elm/iced).
+/// `Msg` is the application message type emitted on interaction (a message-passing
+/// model, in the Elm/iced style).
 pub trait Widget<Msg> {
-    /// Style de mise en page (transmis à `frus-layout`).
+    /// Layout style (handed to `frus-layout`).
     fn style(&self) -> Style;
 
-    /// Enfants du widget (éventuellement vide).
+    /// The widget's children (possibly empty).
     fn children(&self) -> &[Box<dyn Widget<Msg>>];
 
-    /// Peint la décoration propre du widget, selon son statut (survol / focus /
-    /// curseur / sélection) et le thème courant.
+    /// Paints the widget's own decoration, according to its status (hover / focus /
+    /// cursor / selection) and the current theme.
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene);
 
-    /// Message à émettre au clic (`None` = non cliquable).
+    /// Message to emit on click (`None` = not clickable).
     fn on_click(&self) -> Option<Msg>;
 
-    /// Clé d'identité **stable** (indépendante de la position parmi les frères).
-    /// `None` = identité positionnelle. Voir [`crate::Keyed`].
+    /// **Stable** identity key (independent of the position among siblings).
+    /// `None` = positional identity. See [`crate::Keyed`].
     fn key(&self) -> Option<u64> {
         None
     }
 
-    /// Nom **court** du widget (l'équivalent du `runtimeType` Flutter) — pour
-    /// l'inspecteur et les dumps diagnostiques. Par défaut : le nom du type
-    /// concret, sans chemin de module ni génériques (chaque implémentation
-    /// reçoit sa propre copie monomorphisée de ce corps par défaut). Les
-    /// wrappers transparents (`Box`, [`crate::Keyed`]…) délèguent au contenu.
+    /// **Short** name of the widget — for the inspector and diagnostic dumps.
+    /// Defaults to the name of the concrete type, without module path or
+    /// generics (each implementation gets its own monomorphised copy of this
+    /// default body). Transparent wrappers (`Box`, [`crate::Keyed`]…) delegate
+    /// to their content.
     fn debug_name(&self) -> &'static str {
         short_type_name::<Self>()
     }
 
-    /// **Annotation d'accessibilité** du widget (rôle, libellé, valeur, état),
-    /// exposée aux technologies d'assistance via l'arbre AccessKit. `None` =
-    /// pas de sémantique propre (conteneur de mise en page — ses enfants, eux,
-    /// peuvent en avoir). Voir [`frus_core::Semantics`].
+    /// The widget's **accessibility annotation** (role, label, value, state),
+    /// exposed to assistive technologies through the AccessKit tree. `None` =
+    /// no semantics of its own (a layout container — its children, though,
+    /// may have some). See [`frus_core::Semantics`].
     fn semantics(&self) -> Option<Semantics> {
         None
     }
 
-    /// Applique une touche au widget focalisé : mute l'état d'édition
-    /// (curseur/sélection) et renvoie un message si la **valeur** change.
+    /// Applies a key to the focused widget: mutates the edit state
+    /// (cursor/selection) and returns a message if the **value** changes.
     fn on_edit(&self, _edit: &mut Edit, _key: &Key) -> Option<Msg> {
         None
     }
 
-    /// Clic **positionnel** : un message émis selon l'endroit cliqué (coordonnées locales depuis
-    /// le coin haut-gauche du widget, dans la boîte `width × height`), **prioritaire** sur
-    /// [`on_click`](Self::on_click). Sert aux sous-régions cliquables — p. ex. l'icône **suffixe**
-    /// d'un [`crate::TextInput`] (effacer / révéler) ou un **point** de graphique (jalon 221).
-    /// `None` (défaut) = aucune sous-région ; le shell retombe alors sur `on_click`.
+    /// **Positional** click: a message emitted according to where the click landed (local
+    /// coordinates from the widget's top-left corner, within the `width × height` box), taking
+    /// **priority** over [`on_click`](Self::on_click). For clickable sub-regions — e.g. the
+    /// **suffix** icon of a [`crate::TextInput`] (clear / reveal) or a chart **point**
+    /// (milestone 221). `None` (the default) = no sub-region; the shell falls back to `on_click`.
     fn positional_click(
         &self,
         _local_x: f32,
@@ -83,10 +83,10 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Forme du **curseur système** souhaitée à la position **locale** `(local_x, local_y)` dans la
-    /// boîte `width × height` du widget (jalon 205) : `Some(Cursor::Pointer)` sur une sous-région
-    /// cliquable (icône suffixe…), `None` (défaut) = pas d'avis, le shell garde le curseur par
-    /// défaut. N'affecte pas le clic ; c'est purement l'apparence du pointeur au survol.
+    /// Shape of the **system cursor** wanted at the **local** position `(local_x, local_y)` inside
+    /// the widget's `width × height` box (milestone 205): `Some(Cursor::Pointer)` over a clickable
+    /// sub-region (a suffix icon…), `None` (the default) = no opinion, the shell keeps the default
+    /// cursor. Does not affect clicking; this is purely the pointer's appearance on hover.
     fn cursor_icon(
         &self,
         _local_x: f32,
@@ -97,13 +97,13 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Index de curseur correspondant à une position locale (px depuis le coin
-    /// haut-gauche du widget) — pour placer le curseur au clic. `local_y` choisit la
-    /// **ligne** dans un champ multi-lignes (ignoré sur une seule ligne).
+    /// Cursor index matching a local position (px from the widget's top-left
+    /// corner) — for placing the caret on click. `local_y` picks the **line** in a
+    /// multi-line field (ignored on a single line).
     ///
-    /// `width` = largeur du champ, `scroll_cursor` = curseur d'où recalculer le
-    /// **défilement** courant (le même que le rendu), pour que le clic tombe juste
-    /// même quand le texte est défilé. `None` = pas un champ texte.
+    /// `width` = the field's width, `scroll_cursor` = the cursor from which to recompute
+    /// the current **scroll** (the same one the render used), so that a click lands right
+    /// even when the text is scrolled. `None` = not a text field.
     fn cursor_at(
         &self,
         _local_x: f32,
@@ -114,33 +114,33 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Métriques de défilement d'un champ **multi-lignes**, pour une largeur de
-    /// widget et un curseur : `(hauteur du contenu, hauteur visible de la boîte,
-    /// sommet du caret, hauteur du caret)`, en espace contenu (px). Sert au shell à
-    /// enregistrer la région scrollable et à faire suivre le caret. `None` sinon.
+    /// Scroll metrics of a **multi-line** field, for a widget width and a cursor:
+    /// `(content height, visible box height, caret top, caret height)`, in content
+    /// space (px). The shell uses them to register the scrollable region and to keep
+    /// the caret in view. `None` otherwise.
     fn text_metrics(&self, _width: f32, _cursor: usize) -> Option<(f32, f32, f32, f32)> {
         None
     }
 
-    /// Cadre (boîte de saisie) d'un champ **multi-lignes** dans son rectangle `rect`
-    /// — la zone où le texte défile, sous le label. Sert à poser la barre de
-    /// défilement et la région scrollable pile sur la boîte. `None` sinon.
+    /// Frame (input box) of a **multi-line** field within its `rect` — the area where
+    /// the text scrolls, below the label. Used to place the scrollbar and the
+    /// scrollable region exactly on the box. `None` otherwise.
     fn text_viewport(&self, _rect: crate::Rect) -> Option<crate::Rect> {
         None
     }
 
-    /// Déplace le caret verticalement dans un champ multi-lignes et rend
-    /// `(nouvel index, colonne visuelle utilisée)`.
+    /// Moves the caret vertically in a multi-line field and returns
+    /// `(new index, visual column used)`.
     ///
-    /// - `down` : bas (`true`) ou haut. `page` : saut d'une **page** (hauteur
-    ///   visible) plutôt que d'une **ligne**.
-    /// - `goal_x` : colonne visuelle cible mémorisée (px) à préserver en traversant
-    ///   des lignes plus courtes ; `None` = repartir de la colonne courante. La
-    ///   valeur rendue est la colonne à re-mémoriser pour le prochain saut.
-    /// - **Ligne** : `None` si déjà à la première/dernière ligne (ou hors
-    ///   multi-lignes) — le shell fait alors naviguer le focus.
-    /// - **Page** : bornée au champ (on ne le quitte pas) ; `None` seulement hors
-    ///   multi-lignes.
+    /// - `down`: down (`true`) or up. `page`: jump by a **page** (the visible
+    ///   height) rather than by a **line**.
+    /// - `goal_x`: remembered target visual column (px) to preserve while crossing
+    ///   shorter lines; `None` = start from the current column. The returned value
+    ///   is the column to remember again for the next jump.
+    /// - **Line**: `None` if already on the first/last line (or not multi-line) —
+    ///   the shell then moves the focus instead.
+    /// - **Page**: clamped to the field (it never leaves it); `None` only when not
+    ///   multi-line.
     fn caret_vertical(
         &self,
         _width: f32,
@@ -152,330 +152,326 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Texte actuellement sélectionné (pour le copier/couper).
+    /// The currently selected text (for copy/cut).
     fn selected_text(&self, _edit: &Edit) -> Option<String> {
         None
     }
 
-    /// Valeur **complète** du champ, si ce widget est un champ texte — pour
-    /// fournir le contexte de saisie à l'IME (suggestions). `None` sinon.
+    /// The field's **whole** value, if this widget is a text field — to give the
+    /// IME its input context (suggestions). `None` otherwise.
     fn text_value(&self) -> Option<&str> {
         None
     }
 
-    /// Plage `(début, fin)` du mot autour de l'index donné (pour le double-clic).
+    /// Range `(start, end)` of the word around the given index (for double-click).
     fn word_at(&self, _index: usize) -> Option<(usize, usize)> {
         None
     }
 
-    /// Si `true`, le widget peut recevoir le focus clavier (clic ou Tab).
+    /// If `true`, the widget can take keyboard focus (click or Tab).
     fn focusable(&self) -> bool {
         false
     }
 
-    /// Si `true`, le widget dessine **lui-même** son indicateur de focus (le
-    /// pilote ne trace alors pas l'anneau générique). Ex. `TextInput`.
+    /// If `true`, the widget draws its focus indicator **itself** (the driver then
+    /// does not stroke the generic ring). E.g. `TextInput`.
     fn draws_own_focus(&self) -> bool {
         false
     }
 
-    /// Si `true`, le widget répond au glissement du pointeur (curseurs, poignées).
+    /// If `true`, the widget responds to pointer dragging (sliders, handles).
     fn draggable(&self) -> bool {
         false
     }
 
-    /// Message produit lors d'un glissement, `fraction` étant la position
-    /// horizontale relative (`0.0..=1.0`) dans les bornes du widget.
+    /// Message produced while dragging, `fraction` being the relative horizontal
+    /// position (`0.0..=1.0`) within the widget's bounds.
     fn on_drag(&self, _fraction: f32) -> Option<Msg> {
         None
     }
 
-    /// Message produit lors d'un glissement horizontal en **delta** : `dx` est
-    /// le déplacement (px logiques) depuis le dernier événement. Pour les
-    /// poignées qui **accumulent** (redimensionnement de colonne), contrairement
-    /// à [`on_drag`](Self::on_drag) (fraction absolue, ex. curseur). Le shell
-    /// l'essaie **avant** `on_drag` ; un widget n'implémente que l'un des deux.
+    /// Message produced by a horizontal drag expressed as a **delta**: `dx` is the
+    /// movement (logical px) since the last event. For handles that **accumulate**
+    /// (column resizing), unlike [`on_drag`](Self::on_drag) (an absolute fraction,
+    /// e.g. a slider). The shell tries it **before** `on_drag`; a widget implements
+    /// only one of the two.
     fn on_drag_delta(&self, _dx: f32) -> Option<Msg> {
         None
     }
 
-    /// Si ce widget est un **en-tête réordonnable**, son index de colonne. Le
-    /// shell l'utilise pour repérer la colonne **source** (à l'appui) et la colonne
-    /// **cible** (sous le curseur au relâchement) d'un glissement de réordonnancement.
+    /// If this widget is a **reorderable header**, its column index. The shell uses
+    /// it to identify the **source** column (on press) and the **target** column
+    /// (under the pointer on release) of a reordering drag.
     fn reorder_index(&self) -> Option<usize> {
         None
     }
 
-    /// Message émis quand on **dépose** cet en-tête (source) sur la colonne `to`.
-    /// Le widget connaît son propre index et le rappel `on_reorder(from, to)`.
+    /// Message emitted when this header (the source) is **dropped** on column `to`.
+    /// The widget knows its own index and the `on_reorder(from, to)` callback.
     fn on_reorder(&self, _to: usize) -> Option<Msg> {
         None
     }
 
-    /// **Axe** de déplacement de ce réordonnable (défaut [`ReorderAxis::Horizontal`]) : le shell
-    /// oriente l'aperçu de glisser (fantôme + indicateur d'insertion) en conséquence. Les cartes de
-    /// `Kanban` renvoient [`ReorderAxis::Vertical`].
+    /// Movement **axis** of this reorderable (default [`ReorderAxis::Horizontal`]): the shell
+    /// orients the drag preview (ghost + insertion indicator) accordingly. `Kanban` cards
+    /// return [`ReorderAxis::Vertical`].
     fn reorder_axis(&self) -> ReorderAxis {
         ReorderAxis::Horizontal
     }
 
-    /// Ce réordonnable peut-il être **saisi** comme source d'un glisser ? Défaut `true` pour tout
-    /// réordonnable. Une **cible seule** — la zone de dépôt en fin de colonne Kanban — renvoie
-    /// `false` : on peut y **déposer** une carte, pas la **soulever** (sinon on lèverait un fantôme
-    /// vide qui ne déplace rien).
+    /// Can this reorderable be **picked up** as a drag source? `true` by default for every
+    /// reorderable. A **target-only** slot — the drop zone at the end of a Kanban column —
+    /// returns `false`: a card can be **dropped** there, not **lifted** from it (otherwise the
+    /// drag would raise an empty ghost that moves nothing).
     fn reorder_draggable(&self) -> bool {
         true
     }
 
-    /// Texte à **énoncer** au lecteur d'écran quand ce widget est **activé** (clic
-    /// souris ou Entrée/Espace) — une région live le lit à voix haute. Décrit l'effet
-    /// **résultant** de l'activation (« Sorted by Name ascending », « All rows
-    /// selected »), pour l'utilisateur non-voyant qui ne perçoit pas le changement
-    /// visuel. `None` = rien à annoncer (défaut).
+    /// Text to **announce** to the screen reader when this widget is **activated** (mouse
+    /// click or Enter/Space) — a live region reads it out loud. Describes the effect the
+    /// activation **produced** ("Sorted by Name ascending", "All rows selected"), for the
+    /// blind user who cannot perceive the visual change. `None` = nothing to announce
+    /// (the default).
     fn announce(&self) -> Option<String> {
         None
     }
 
-    /// Si `true`, le widget est une **pile** : ses enfants sont des couches
-    /// superposées (même boîte), rendues dans l'ordre (dernière au-dessus).
+    /// If `true`, the widget is a **stack**: its children are superimposed layers
+    /// (the same box), rendered in order (the last one on top).
     fn stack(&self) -> bool {
         false
     }
 
-    /// Si `true`, le widget s'anime **en continu** (piloté par le temps, pas par
-    /// une cible) : le framework continue de redessiner. Ex. `Spinner`.
+    /// If `true`, the widget animates **continuously** (driven by time, not by a
+    /// target): the framework keeps redrawing. E.g. `Spinner`.
     fn continuous(&self) -> bool {
         false
     }
 
-    /// Si `true`, ce widget est une **frontière de repaint** : son sous-arbre est
-    /// mis en cache (primitives + cartes d'interaction) et **réutilisé tel quel**
-    /// tant que sa géométrie et l'état d'interaction de ses descendants ne
-    /// changent pas — un widget qui s'anime ailleurs ne le fait plus repeindre.
-    /// Voir [`crate::RepaintBoundary`] et `paintcache.rs`.
+    /// If `true`, this widget is a **repaint boundary**: its subtree is cached
+    /// (primitives + interaction maps) and **reused as is** as long as its geometry
+    /// and the interaction state of its descendants do not change — a widget
+    /// animating elsewhere no longer forces it to repaint.
+    /// See [`crate::RepaintBoundary`] and `paintcache.rs`.
     fn repaint_boundary(&self) -> bool {
         false
     }
 
-    /// Si le widget est un conteneur défilable, renvoie son contenu.
+    /// If the widget is a scrollable container, returns its content.
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         None
     }
 
-    /// Si le widget est une **liste virtualisée**, renvoie sa description (nombre
-    /// d'éléments, hauteur, fabrique). Seuls les éléments visibles sont construits.
+    /// If the widget is a **virtualised list**, returns its description (item count,
+    /// height, factory). Only the visible items are built.
     fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
         None
     }
 
-    /// Si le widget construit son contenu **à partir de sa boîte réelle** (façon
-    /// Flutter `LayoutBuilder`), renvoie la fabrique `taille → widget`. Le contenu
-    /// est construit à la volée : pas d'état retenu ni d'overlay (comme un élément
-    /// de liste virtualisée).
+    /// If the widget builds its content **from its actual box**, returns the
+    /// `size → widget` factory. The content is built on the fly: no retained state
+    /// and no overlay (like a virtualised list item).
     fn layout_builder(&self) -> Option<&dyn Fn(Size) -> Box<dyn Widget<Msg>>> {
         None
     }
 
-    /// Axe(s) de défilement (pour un conteneur défilable).
+    /// Scroll axis (or axes), for a scrollable container.
     fn scroll_axis(&self) -> crate::scroll::Axis {
         crate::scroll::Axis::Vertical
     }
 
-    /// Si le widget est un portail, renvoie son contenu flottant et son placement.
+    /// If the widget is a portal, returns its floating content and its placement.
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         None
     }
 
-    /// Message émis au clic sur le voile d'une modale (fermeture), le cas échéant.
+    /// Message emitted when the scrim of a modal is clicked (dismissal), if any.
     fn overlay_dismiss(&self) -> Option<Msg> {
         None
     }
 
-    /// Si `true`, l'overlay **ancré** de ce widget (menu…) **piège le focus** : Tab et les
-    /// flèches bouclent dans ses focusables tant qu'il est ouvert (motif clavier des menus).
-    /// Les overlays modaux (voilés) piègent déjà d'office ; un tooltip ou la liste d'une
-    /// autocomplétion (focus gardé sur le champ) **ne** piègent pas. Défaut : `false`.
+    /// If `true`, this widget's **anchored** overlay (a menu…) **traps focus**: Tab and the
+    /// arrow keys cycle within its focusables while it is open (the keyboard pattern of menus).
+    /// Modal (scrimmed) overlays already trap by default; a tooltip or an autocomplete list
+    /// (focus stays on the field) do **not**. Default: `false`.
     fn overlay_traps_focus(&self) -> bool {
         false
     }
 
-    /// Cible de la valeur animée propre au widget (p. ex. `1.0` interrupteur on,
-    /// `0.0` off). Le runtime fait tendre la valeur retenue vers cette cible et la
-    /// restitue via `Status::value`. `None` = pas de valeur animée.
+    /// Target of the widget's own animated value (e.g. `1.0` for a switch that is on,
+    /// `0.0` for off). The runtime drives the retained value towards this target and
+    /// hands it back through `Status::value`. `None` = no animated value.
     fn anim_target(&self) -> Option<f32> {
         None
     }
 
-    /// Durée (secondes) de la transition de la valeur animée (`anim_target`) —
-    /// façon `duration` de Flutter. Défaut : la durée standard du framework.
+    /// Duration (seconds) of the animated value's transition (`anim_target`).
+    /// Default: the framework's standard duration.
     fn anim_duration(&self) -> f32 {
         crate::runtime::ANIM_DURATION
     }
 
-    /// Courbe d'accélération de la transition de la valeur animée (`anim_target`)
-    /// — façon `curve` de Flutter (`Curves.easeInOut`…). Défaut : linéaire.
+    /// Easing curve of the animated value's transition (`anim_target`).
+    /// Default: linear.
     fn anim_curve(&self) -> frus_core::Curve {
         frus_core::Curve::Linear
     }
 
-    /// Si le widget est un **groupe d'opacité**, renvoie l'opacité (cible) `[0,1]`
-    /// appliquée à tout son sous-arbre **d'un bloc** (façon `Opacity` de Flutter) :
-    /// la marche de peinture enveloppe ses primitives dans un calque composité à
-    /// cette opacité — pas de double-superposition sur les chevauchements. `None`
-    /// = pas un groupe. Combiné à `anim_target`, l'opacité **s'anime** (fondu de
-    /// groupe, façon `AnimatedOpacity`).
+    /// If the widget is an **opacity group**, returns the (target) opacity `[0,1]`
+    /// applied to its whole subtree **as one**: the paint walk wraps its primitives
+    /// in a composited layer at that opacity — no double-blending where they
+    /// overlap. `None` = not a group. Combined with `anim_target`, the opacity
+    /// **animates** (a group fade).
     fn opacity_group(&self) -> Option<f32> {
         None
     }
 
-    /// Couleur de fond **cible** d'un fond animé (`Container::animated_color`) :
-    /// le runtime la tween (via `anim_duration`/`anim_curve`) et restitue
-    /// l'interpolée dans `Status::anim_color`. `None` = pas de couleur animée.
+    /// **Target** background colour of an animated background
+    /// (`Container::animated_color`): the runtime tweens it (through
+    /// `anim_duration`/`anim_curve`) and hands the interpolated value back in
+    /// `Status::anim_color`. `None` = no animated colour.
     fn anim_color(&self) -> Option<frus_core::Color> {
         None
     }
 
-    /// Taille **cible** d'une taille animée (`Container::animated_size`) : le
-    /// runtime la tween (via `anim_duration`/`anim_curve`) et la taille interpolée
-    /// est injectée **au layout** (voir `effective_style`). `None` = taille fixe.
+    /// **Target** size of an animated size (`Container::animated_size`): the runtime
+    /// tweens it (through `anim_duration`/`anim_curve`) and the interpolated size is
+    /// injected **at layout** (see `effective_style`). `None` = fixed size.
     fn anim_size(&self) -> Option<Size> {
         None
     }
 
-    /// Rayon de coin **cible** d'un rayon animé (`Container::animated_radius`) :
-    /// le runtime le tween et restitue l'interpolé dans `Status::anim_radius`.
-    /// `None` = rayon fixe.
+    /// **Target** corner radius of an animated radius (`Container::animated_radius`):
+    /// the runtime tweens it and hands the interpolated value back in
+    /// `Status::anim_radius`. `None` = fixed radius.
     fn anim_radius(&self) -> Option<frus_core::BorderRadius> {
         None
     }
 
-    /// Marge (padding) **cible** d'une marge animée (`Container::animated_padding`)
-    /// : le runtime la tween et la marge interpolée est injectée **au layout**
-    /// (voir `effective_style`). `None` = marge fixe.
+    /// **Target** padding of an animated padding (`Container::animated_padding`):
+    /// the runtime tweens it and the interpolated padding is injected **at layout**
+    /// (see `effective_style`). `None` = fixed padding.
     fn anim_padding(&self) -> Option<frus_core::Insets> {
         None
     }
 
-    /// **Ancrage** de l'unique enfant dans la boîte (façon `Container(alignment:)`
-    /// de Flutter) : la marche décale l'enfant dans l'espace libre selon les
-    /// fractions de l'ancrage, résolu selon la direction de lecture (physique ou
-    /// directionnel — voir [`frus_core::AlignmentGeometry`]). Étant continu, un
-    /// `Tween<Alignment>` lu dans `view()` glisse l'enfant. `None` = placement flex
-    /// par défaut.
+    /// **Alignment** of the single child within the box: the walk offsets the child
+    /// through the free space according to the alignment's fractions, resolved
+    /// against the reading direction (physical or directional — see
+    /// [`frus_core::AlignmentGeometry`]). Being continuous, a `Tween<Alignment>`
+    /// read in `view()` slides the child. `None` = default flex placement.
     fn alignment_geometry(&self) -> Option<frus_core::AlignmentGeometry> {
         None
     }
 
-    /// **Décalage de peinture** `(dx, dy)` appliqué à tout le sous-arbre du widget
-    /// (façon `Transform.translate` de Flutter) : le rendu et le hit-test sont
-    /// décalés **sans toucher la mise en page** (les frères ne bougent pas, l'enfant
-    /// peut déborder sa boîte). Continu → un `Tween` lu dans `view()` glisse le
-    /// sous-arbre. `None` = aucun décalage. Voir [`crate::Transform`].
+    /// **Paint offset** `(dx, dy)` applied to the widget's whole subtree: the render
+    /// and the hit-test are offset **without touching layout** (siblings do not move,
+    /// the child may overflow its box). Continuous → a `Tween` read in `view()` slides
+    /// the subtree. `None` = no offset. See [`crate::Transform`].
     fn transform_translate(&self) -> Option<(f32, f32)> {
         None
     }
 
-    /// **Mise à l'échelle de peinture** `(sx, sy, pivot)` de tout le sous-arbre
-    /// (façon `Transform.scale` de Flutter) : le rendu et le hit-test sont mis à
-    /// l'échelle — par axe — autour du `pivot` (un [`frus_core::Alignment`] dans la
-    /// boîte), **sans toucher la mise en page**. Reste aligné sur les axes (un rect
-    /// mis à l'échelle reste un rect). `None` = pas d'échelle. Voir [`crate::Transform`].
+    /// **Paint scaling** `(sx, sy, pivot)` of the whole subtree: the render and the
+    /// hit-test are scaled — per axis — around the `pivot` (a
+    /// [`frus_core::Alignment`] within the box), **without touching layout**. Stays
+    /// axis-aligned (a scaled rect is still a rect). `None` = no scaling.
+    /// See [`crate::Transform`].
     fn transform_scale(&self) -> Option<(f32, f32, frus_core::Alignment)> {
         None
     }
 
-    /// **Rotation de peinture** `(angle, pivot)` de tout le sous-arbre (façon
-    /// `Transform.rotate` de Flutter) : le sous-arbre est peint tourné d'`angle`
-    /// radians (sens horaire) autour du `pivot` (un [`frus_core::Alignment`] dans la
-    /// boîte), **sans toucher la mise en page**. Le rendu passe par un calque
-    /// composité tourné ; le hit-test contre-tourne le point. `None` = pas de
-    /// rotation. Voir [`crate::Transform`].
+    /// **Paint rotation** `(angle, pivot)` of the whole subtree: the subtree is
+    /// painted rotated by `angle` radians (clockwise) around the `pivot` (a
+    /// [`frus_core::Alignment`] within the box), **without touching layout**. The
+    /// render goes through a rotated composited layer; the hit-test counter-rotates
+    /// the point. `None` = no rotation. See [`crate::Transform`].
     fn transform_rotate(&self) -> Option<(f32, frus_core::Alignment)> {
         None
     }
 
-    /// **Découpe en forme** de tout le sous-arbre (façon `ClipRRect` / `ClipOval`
-    /// de Flutter) : la marche de peinture enveloppe ses primitives dans un calque
-    /// composité dont la [`frus_core::ClipShape`] (coins arrondis, ellipse) module
-    /// l'alpha — ce qui déborde la forme est gommé, bords anticrénelés. `None` =
-    /// pas de découpe en forme. Voir [`crate::ClipRRect`], [`crate::ClipOval`].
+    /// **Shape clip** of the whole subtree: the paint walk wraps its primitives in a
+    /// composited layer whose [`frus_core::ClipShape`] (rounded corners, ellipse)
+    /// modulates the alpha — whatever falls outside the shape is erased, edges
+    /// antialiased. `None` = no shape clip. See [`crate::ClipRRect`],
+    /// [`crate::ClipOval`].
     fn clip_shape(&self) -> Option<frus_core::ClipShape> {
         None
     }
 
-    /// Si le widget découpe son enfant à un **chemin arbitraire** (`ClipPath`),
-    /// renvoie le chemin en **coordonnées locales** (origine au coin haut-gauche de la
-    /// boîte). La marche le décale à l'écran, l'enveloppe dans un calque dont un masque
-    /// (le chemin) gomme l'extérieur. Prioritaire sur [`Widget::clip_shape`]. `None` =
-    /// pas de découpe par chemin. Voir [`crate::ClipPath`].
+    /// If the widget clips its child to an **arbitrary path** (`ClipPath`), returns the
+    /// path in **local coordinates** (origin at the box's top-left corner). The walk
+    /// offsets it to the screen and wraps it in a layer whose mask (the path) erases
+    /// the outside. Takes priority over [`Widget::clip_shape`]. `None` = no path clip.
+    /// See [`crate::ClipPath`].
     fn clip_path(&self) -> Option<&frus_core::Path> {
         None
     }
 
-    /// Si le widget est une **fenêtre interactive** (`InteractiveViewer`), renvoie
-    /// ses bornes d'échelle `(min, max)`. La marche de peinture rend son enfant dans
-    /// un calque transformé (échelle + translation retenues, découpé à la fenêtre) ;
-    /// le shell route glisser → pan et molette/pincement → zoom. `None` = pas une
-    /// fenêtre interactive. Voir [`crate::InteractiveViewer`].
+    /// If the widget is an **interactive viewport** (`InteractiveViewer`), returns its
+    /// scale bounds `(min, max)`. The paint walk renders its child in a transformed
+    /// layer (retained scale + translation, clipped to the viewport); the shell routes
+    /// drag → pan and wheel/pinch → zoom. `None` = not an interactive viewport.
+    /// See [`crate::InteractiveViewer`].
     fn interactive(&self) -> Option<(f32, f32)> {
         None
     }
 
-    /// Si le widget **ajuste** son enfant à sa boîte (`FittedBox`), renvoie le
-    /// [`frus_core::BoxFit`] : la marche mesure l'enfant à sa taille naturelle, le met
-    /// à l'échelle selon le fit puis le centre (calque composité, hit-test par `M⁻¹`).
-    /// `None` = pas un ajusteur. Voir [`crate::FittedBox`].
+    /// If the widget **fits** its child to its box (`FittedBox`), returns the
+    /// [`frus_core::BoxFit`]: the walk measures the child at its natural size, scales
+    /// it according to the fit and centres it (composited layer, hit-test through
+    /// `M⁻¹`). `None` = not a fitter. See [`crate::FittedBox`].
     fn fitted(&self) -> Option<frus_core::BoxFit> {
         None
     }
 
-    /// Si le widget **tourne** son enfant d'un quart de tour (`RotatedBox`), renvoie
-    /// le nombre de quarts. Contrairement à `Transform`, cela **affecte la mise en
-    /// page** : la boîte échange ses dimensions pour un nombre impair. `None` = pas un
-    /// `RotatedBox`. Voir [`crate::RotatedBox`].
+    /// If the widget **rotates** its child by quarter turns (`RotatedBox`), returns
+    /// the number of quarters. Unlike `Transform`, this **affects layout**: the box
+    /// swaps its dimensions for an odd number. `None` = not a `RotatedBox`.
+    /// See [`crate::RotatedBox`].
     fn rotated_quarter_turns(&self) -> Option<i32> {
         None
     }
 
-    /// Si le widget est un navigateur d'écrans, renvoie `(progression, push?)`.
-    /// Ses enfants (`[écran]` ou `[sortant, entrant]`) sont rendus plein-fenêtre
-    /// avec une transition glissée.
+    /// If the widget is a screen navigator, returns `(progress, push?)`. Its children
+    /// (`[screen]` or `[outgoing, incoming]`) are rendered full-window with a sliding
+    /// transition.
     fn navigator(&self) -> Option<(f32, bool)> {
         None
     }
 
-    /// Message émis par un **appui long** (pression maintenue ~500 ms sans
-    /// mouvement). L'appui long *évince* le clic : le relâchement qui le suit
-    /// n'émet pas `on_click`.
+    /// Message emitted by a **long press** (a press held ~500 ms without movement).
+    /// The long press *pre-empts* the click: the release that follows does not emit
+    /// `on_click`.
     fn on_long_press(&self) -> Option<Msg> {
         None
     }
 
-    /// Touche reçue pendant la **montée feuille→racine** : le widget focalisé la
-    /// reçoit d'abord, puis chaque ancêtre tant que la réponse est `Ignored`.
-    /// (Ex. : un `Portal` consomme `Escape` pour se fermer.)
+    /// Key received while **bubbling leaf→root**: the focused widget gets it first,
+    /// then each ancestor as long as the response is `Ignored`. (E.g. a `Portal`
+    /// consumes `Escape` to close itself.)
     fn on_key(&self, _key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
         crate::interaction::KeyResponse::Ignored
     }
 
-    /// **Mesure sous contraintes** : pour un widget dont la taille dépend de
-    /// l'espace offert (paragraphe qui se replie…), renvoie la closure branchée
-    /// sur taffy. `None` = taille fixée par `style()`. Contrat : doit être
-    /// `Some` **si et seulement si** [`Widget::measure_key`] l'est.
+    /// **Measure under constraints**: for a widget whose size depends on the space
+    /// offered (a paragraph that wraps…), returns the closure wired into taffy.
+    /// `None` = size fixed by `style()`. Contract: must be `Some` **if and only if**
+    /// [`Widget::measure_key`] is.
     fn measure(&self) -> Option<frus_layout::MeasureFn> {
         None
     }
 
-    /// Empreinte du **contenu** dont dépend [`Widget::measure`] (texte, style…),
-    /// mêlée à l'empreinte de relayout : sans elle, deux contenus différents de
-    /// même style seraient confondus par le cache et garderaient une vieille
-    /// géométrie. Contrat : `Some` si et seulement si `measure()` l'est.
+    /// Fingerprint of the **content** [`Widget::measure`] depends on (text, style…),
+    /// mixed into the relayout fingerprint: without it, two different contents with
+    /// the same style would be conflated by the cache and would keep a stale
+    /// geometry. Contract: `Some` if and only if `measure()` is.
     fn measure_key(&self) -> Option<u64> {
         None
     }
 }
 
-/// Nom de type **court** : sans chemin de module ni paramètres génériques
+/// **Short** type name: without module path or generic parameters
 /// (`frus_widgets::text::Text` → `Text`, `Container<Msg>` → `Container`).
 pub(crate) fn short_type_name<T: ?Sized>() -> &'static str {
     let full = std::any::type_name::<T>();
@@ -483,8 +479,8 @@ pub(crate) fn short_type_name<T: ?Sized>() -> &'static str {
     no_generics.rsplit("::").next().unwrap_or(no_generics)
 }
 
-/// Permet de composer un widget **déjà boxé** là où un `impl Widget` est attendu
-/// (p. ex. `Flex::child`). Délègue tout au widget contenu.
+/// Lets an **already boxed** widget be composed where an `impl Widget` is expected
+/// (e.g. `Flex::child`). Delegates everything to the contained widget.
 impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn style(&self) -> Style {
         (**self).style()

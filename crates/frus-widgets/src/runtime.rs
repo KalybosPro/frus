@@ -1,9 +1,9 @@
-//! État retenu au runtime entre les frames, **clé par identité de widget**.
+//! Runtime state retained between frames, **keyed by widget identity**.
 //!
-//! La *valeur* d'un champ reste contrôlée (état applicatif) ; ce qui vit ici est
-//! l'état d'**interaction/édition** propre aux widgets : survol/focus, offsets de
-//! défilement, et position curseur/sélection des champs. C'est la fondation
-//! d'une reconciliation par identité (posée au Jalon 6).
+//! A field's *value* stays controlled (application state); what lives here is the
+//! widgets' own **interaction/edit** state: hover/focus, scroll offsets, and the
+//! cursor/selection position of fields. This is the foundation of reconciliation
+//! by identity (laid down at Milestone 6).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -13,26 +13,26 @@ use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Rect, Size};
 use crate::interaction::{InputState, WidgetId};
 use crate::relayout::LayoutCache;
 
-/// Offsets de défilement `(x, y)`, par zone défilable.
+/// Scroll offsets `(x, y)`, per scrollable region.
 pub type ScrollState = HashMap<WidgetId, (f32, f32)>;
 
-/// État d'édition d'un champ de saisie : curseur + ancre de sélection.
+/// Edit state of an input field: cursor + selection anchor.
 ///
-/// Les indices sont en **caractères**. Ils peuvent dépasser la longueur de la
-/// valeur (p. ex. `usize::MAX` pour « fin ») : les widgets les bornent à l'usage.
+/// Indices are in **characters**. They may exceed the value's length (e.g.
+/// `usize::MAX` for "the end"): widgets clamp them at use.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Edit {
-    /// Position du curseur.
+    /// Cursor position.
     pub cursor: usize,
-    /// Ancre de sélection (`None` = pas de sélection).
+    /// Selection anchor (`None` = no selection).
     pub anchor: Option<usize>,
-    /// Plage `(début, fin)` en **cours de composition** IME (texte provisoire,
-    /// souligné à l'écran) ; `None` hors composition. En indices de caractères.
+    /// Range `(start, end)` **being composed** by the IME (provisional text,
+    /// underlined on screen); `None` outside composition. In character indices.
     pub composing: Option<(usize, usize)>,
 }
 
 impl Edit {
-    /// Plage sélectionnée `(début, fin)`, non vide, sinon `None`.
+    /// Selected range `(start, end)`, non-empty, otherwise `None`.
     pub fn selection_range(&self) -> Option<(usize, usize)> {
         self.anchor
             .map(|anchor| (anchor.min(self.cursor), anchor.max(self.cursor)))
@@ -40,26 +40,26 @@ impl Edit {
     }
 }
 
-/// Durée **par défaut** des transitions, en secondes. Un widget peut la régler
-/// via [`crate::widget::Widget::anim_duration`].
+/// **Default** transition duration, in seconds. A widget can set its own through
+/// [`crate::widget::Widget::anim_duration`].
 pub(crate) const ANIM_DURATION: f32 = 0.12;
 
-/// Raideur du ressort de défilement (px·s⁻²).
+/// Stiffness of the scroll spring (px·s⁻²).
 const SCROLL_K: f32 = 200.0;
-/// Amortissement du ressort de défilement.
+/// Damping of the scroll spring.
 const SCROLL_C: f32 = 28.0;
-/// Rappel élastique de la cible vers les bornes valides (par seconde) — rebond.
+/// Elastic pull of the target back towards the valid bounds (per second) — the bounce.
 const SCROLL_RETRACT: f32 = 14.0;
 
-/// Un axe de défilement : rappel élastique de la cible dans `[0, max]`, puis
-/// ressort de l'offset courant vers cette cible. Renvoie
-/// `(offset, vitesse, cible, en_mouvement)`.
+/// One scroll axis: elastic pull of the target back into `[0, max]`, then a spring
+/// from the current offset towards that target. Returns
+/// `(offset, velocity, target, moving)`.
 fn scroll_axis(current: f32, vel: f32, target: f32, max: f32, dt: f32) -> (f32, f32, f32, bool) {
     let clamp_t = target.clamp(0.0, max);
-    // La cible est ramenée vers la borne valide (dépassement → rebond).
+    // The target is pulled back towards the valid bound (overshoot → bounce).
     let target = target + (clamp_t - target) * (1.0 - (-SCROLL_RETRACT * dt).exp());
     let (offset, vel, _) = spring_step(current, vel, target, dt, SCROLL_K, SCROLL_C);
-    // Seuils en pixels (spring_step est calibré en fractions).
+    // Thresholds in pixels (spring_step is calibrated in fractions).
     let moving = (offset - target).abs() > 0.5 || vel.abs() > 2.0 || (target - clamp_t).abs() > 0.5;
     if moving {
         (offset, vel, target, true)
@@ -73,7 +73,7 @@ fn scroll_axis(current: f32, vel: f32, target: f32, max: f32, dt: f32) -> (f32, 
 pub struct Anim {
     pub hover: f32,
     pub focus: f32,
-    /// Opacité (1 au repos ; démarrée à 0 au montage pour le fondu d'apparition).
+    /// Opacity (1 at rest; started at 0 on mount for the fade-in).
     pub opacity: f32,
 }
 
@@ -87,24 +87,24 @@ impl Default for Anim {
     }
 }
 
-/// **Timeline** d'une valeur animée implicitement (`Widget::anim_target`) :
-/// interpole `from → to` selon la courbe et la durée du widget. `current` est la
-/// valeur restituée au paint. Un changement de cible **rebase** la timeline
-/// depuis la valeur courante (départ franc et continu, façon Flutter implicit).
+/// **Timeline** of an implicitly animated value (`Widget::anim_target`):
+/// interpolates `from → to` according to the widget's curve and duration.
+/// `current` is the value handed to the paint. A change of target **rebases** the
+/// timeline from the current value (a clean, continuous restart).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ValueAnim {
-    /// Valeur interpolée courante (ce que lit le paint).
+    /// Current interpolated value (what the paint reads).
     pub current: f32,
-    /// Valeur de départ de la transition en cours.
+    /// Starting value of the transition in progress.
     from: f32,
-    /// Cible de la transition en cours.
+    /// Target of the transition in progress.
     to: f32,
-    /// Temps écoulé (s) depuis le début de la transition.
+    /// Time elapsed (s) since the transition started.
     elapsed: f32,
 }
 
 impl ValueAnim {
-    /// Une valeur **au repos** à `v` (aucune transition en cours).
+    /// A value **at rest** at `v` (no transition in progress).
     fn settled(v: f32) -> Self {
         Self {
             current: v,
@@ -115,9 +115,9 @@ impl ValueAnim {
     }
 }
 
-/// Timeline d'une **couleur** animée (`Container::animated_color`) : interpole
-/// `from → to` par canal, selon la courbe et la durée du widget. Même modèle de
-/// rebase que [`ValueAnim`], appliqué à une couleur.
+/// Timeline of an animated **colour** (`Container::animated_color`): interpolates
+/// `from → to` per channel, according to the widget's curve and duration. Same
+/// rebase model as [`ValueAnim`], applied to a colour.
 #[derive(Copy, Clone, Debug, PartialEq)]
 struct ColorAnim {
     current: Color,
@@ -137,9 +137,9 @@ impl ColorAnim {
     }
 }
 
-/// Timeline d'une **taille** animée (`Container::animated_size`) : interpole
-/// `from → to` (largeur/hauteur) selon la courbe et la durée du widget. La taille
-/// interpolée est injectée **au layout** (pas au paint) via `effective_style`.
+/// Timeline of an animated **size** (`Container::animated_size`): interpolates
+/// `from → to` (width/height) according to the widget's curve and duration. The
+/// interpolated size is injected **at layout** (not at paint) through `effective_style`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 struct SizeAnim {
     current: Size,
@@ -159,7 +159,7 @@ impl SizeAnim {
     }
 }
 
-/// Interpolation linéaire de deux tailles (par composante).
+/// Linear interpolation of two sizes (component-wise).
 fn lerp_size(a: Size, b: Size, t: f32) -> Size {
     Size::new(
         a.width + (b.width - a.width) * t,
@@ -167,9 +167,9 @@ fn lerp_size(a: Size, b: Size, t: f32) -> Size {
     )
 }
 
-/// Timeline d'un **rayon de coin** animé (`Container::animated_radius`) :
-/// interpole `from → to` (les quatre coins) selon la courbe et la durée du
-/// widget. Propriété **picturale** : livrée au paint via `Status::anim_radius`.
+/// Timeline of an animated **corner radius** (`Container::animated_radius`):
+/// interpolates `from → to` (all four corners) according to the widget's curve and
+/// duration. A **paint** property: delivered to the paint through `Status::anim_radius`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 struct RadiusAnim {
     current: BorderRadius,
@@ -189,9 +189,9 @@ impl RadiusAnim {
     }
 }
 
-/// Timeline d'un **padding** animé (`Container::animated_padding`) : interpole
-/// `from → to` (les quatre côtés) selon la courbe et la durée du widget. La
-/// marge interpolée est injectée **au layout** (`effective_style`), comme la taille.
+/// Timeline of an animated **padding** (`Container::animated_padding`): interpolates
+/// `from → to` (all four sides) according to the widget's curve and duration. The
+/// interpolated padding is injected **at layout** (`effective_style`), like the size.
 #[derive(Copy, Clone, Debug, PartialEq)]
 struct PaddingAnim {
     current: Insets,
@@ -211,7 +211,7 @@ impl PaddingAnim {
     }
 }
 
-/// Interpolation linéaire de deux marges (par côté).
+/// Linear interpolation of two insets (per side).
 fn lerp_insets(a: Insets, b: Insets, t: f32) -> Insets {
     let mix = |x: f32, y: f32| x + (y - x) * t;
     Insets::new(
@@ -222,7 +222,7 @@ fn lerp_insets(a: Insets, b: Insets, t: f32) -> Insets {
     )
 }
 
-/// Interpolation linéaire de deux rayons (par coin).
+/// Linear interpolation of two radii (per corner).
 fn lerp_radius(a: BorderRadius, b: BorderRadius, t: f32) -> BorderRadius {
     let mix = |x: f32, y: f32| x + (y - x) * t;
     BorderRadius {
@@ -233,13 +233,13 @@ fn lerp_radius(a: BorderRadius, b: BorderRadius, t: f32) -> BorderRadius {
     }
 }
 
-/// Un pas de ressort amorti (Euler semi-implicite) faisant tendre `progress` vers
-/// `target`, amorcé par `velocity`. `stiffness`/`damping` règlent la raideur et
-/// l'amortissement (≈ `2·√stiffness` = amortissement critique, sans dépassement).
-/// Renvoie `(progress, velocity, au_repos)`.
+/// One damped-spring step (semi-implicit Euler) driving `progress` towards
+/// `target`, primed by `velocity`. `stiffness`/`damping` set the stiffness and the
+/// damping (≈ `2·√stiffness` = critical damping, no overshoot).
+/// Returns `(progress, velocity, at_rest)`.
 ///
-/// Util générique de mouvement : sert aux transitions d'écran et aux gestes
-/// (détente amorcée par la vélocité du doigt).
+/// A general-purpose motion helper: used by screen transitions and by gestures
+/// (a settle primed by the finger's velocity).
 pub fn spring_step(
     progress: f32,
     velocity: f32,
@@ -255,18 +255,18 @@ pub fn spring_step(
     (progress, velocity, at_rest)
 }
 
-/// Courbe en **ressort** (réponse indicielle d'un ressort en amortissement
-/// **critique**) remappant une progression linéaire `t ∈ [0,1]` : départ au
-/// repos (pente nulle), montée franche, arrivée douce **sans dépassement** —
-/// même sensation que les transitions d'écran, mais sous forme fermée (pas
-/// d'état de vélocité). `f(0) = 0`, `f(1) = 1`, monotone croissante.
+/// A **spring** curve (the step response of a **critically** damped spring)
+/// remapping a linear progress `t ∈ [0,1]`: starts at rest (zero slope), rises
+/// briskly, arrives gently **without overshoot** — the same feel as the screen
+/// transitions, but in closed form (no velocity state). `f(0) = 0`, `f(1) = 1`,
+/// monotonically increasing.
 pub fn spring_ease(t: f32) -> f32 {
-    // Réponse critique (`omega = 8`), désormais fournie par la couche d'animation
-    // partagée de `frus-core` : une seule source de vérité pour cette courbe.
+    // The critical response (`omega = 8`), now provided by `frus-core`'s shared
+    // animation layer: a single source of truth for this curve.
     frus_core::Curve::critical_spring().transform(t)
 }
 
-/// Fait tendre `value` vers `target` par pas de `step` ; note si ça bouge encore.
+/// Drives `value` towards `target` in steps of `step`; records whether it is still moving.
 fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
     if *value < target {
         *value = (*value + step).min(target);
@@ -278,98 +278,98 @@ fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
     }
 }
 
-/// Contexte runtime transmis à `build_ui` : tout l'état retenu entre frames.
+/// Runtime context handed to `build_ui`: all the state retained between frames.
 #[derive(Default)]
 pub struct Runtime {
-    /// Survol / pression / focus.
+    /// Hover / press / focus.
     pub input: InputState,
-    /// Offsets de défilement **courants** (rendus), par zone.
+    /// **Current** scroll offsets (the rendered ones), per region.
     pub scroll: ScrollState,
-    /// Offsets de défilement **visés** (le ressort y tend), par zone.
+    /// **Target** scroll offsets (what the spring drives towards), per region.
     pub scroll_target: ScrollState,
-    /// Vitesse de défilement (pour le ressort), par zone.
+    /// Scroll velocity (for the spring), per region.
     pub scroll_velocity: ScrollState,
-    /// Transformation retenue (échelle + translation) de chaque
-    /// [`InteractiveViewer`](crate::InteractiveViewer), par fenêtre. Absent =
-    /// identité (échelle 1, pas de translation).
+    /// Retained transform (scale + translation) of each
+    /// [`InteractiveViewer`](crate::InteractiveViewer), per viewport. Absent =
+    /// identity (scale 1, no translation).
     pub interactive: HashMap<WidgetId, crate::interactive::InteractiveView>,
-    /// Vitesse de pan (px/s) d'un *fling* en cours après relâchement, par fenêtre —
-    /// décélérée chaque frame par [`Runtime::advance_interactive`]. Absent = au repos.
+    /// Pan velocity (px/s) of a *fling* still running after release, per viewport —
+    /// decelerated every frame by [`Runtime::advance_interactive`]. Absent = at rest.
     pub interactive_velocity: HashMap<WidgetId, (f32, f32)>,
-    /// État d'édition, par champ de saisie.
+    /// Edit state, per input field.
     pub edits: HashMap<WidgetId, Edit>,
-    /// Progressions d'animation (survol/focus/opacité), par widget.
+    /// Animation progresses (hover/focus/opacity), per widget.
     pub anims: HashMap<WidgetId, Anim>,
-    /// Valeurs animées propres aux widgets (`Widget::anim_target`), par widget —
-    /// chacune une **timeline** courbée (voir [`ValueAnim`]).
+    /// The widgets' own animated values (`Widget::anim_target`), per widget — each
+    /// one a curved **timeline** (see [`ValueAnim`]).
     pub values: HashMap<WidgetId, ValueAnim>,
-    /// Couleurs de fond animées (`Container::animated_color`), par widget.
+    /// Animated background colours (`Container::animated_color`), per widget.
     colors: HashMap<WidgetId, ColorAnim>,
-    /// Tailles animées (`Container::animated_size`), par widget — injectées au layout.
+    /// Animated sizes (`Container::animated_size`), per widget — injected at layout.
     sizes: HashMap<WidgetId, SizeAnim>,
-    /// Rayons de coin animés (`Container::animated_radius`), par widget.
+    /// Animated corner radii (`Container::animated_radius`), per widget.
     radii: HashMap<WidgetId, RadiusAnim>,
-    /// Marges animées (`Container::animated_padding`), par widget — injectées au layout.
+    /// Animated paddings (`Container::animated_padding`), per widget — injected at layout.
     paddings: HashMap<WidgetId, PaddingAnim>,
-    /// Widgets présents à la frame précédente (pour détecter les montages).
+    /// Widgets present at the previous frame (to detect mounts).
     pub mounted: std::collections::HashSet<WidgetId>,
-    /// Instantanés des sous-arbres sortants, en cours de fondu de sortie :
-    /// clé d'événement → (primitives capturées, opacité restante `1 → 0`).
+    /// Snapshots of outgoing subtrees, fading out: event key → (captured
+    /// primitives, remaining opacity `1 → 0`).
     pub leaving: HashMap<u64, (Vec<Primitive>, f32)>,
-    /// Temps écoulé (secondes) depuis le démarrage, pour les animations continues.
+    /// Time elapsed (seconds) since start-up, for continuous animations.
     pub time: f32,
-    /// La dernière interaction était-elle **clavier** ? L'anneau de focus
-    /// générique n'est peint que dans ce cas (`FocusHighlightMode` : un clic ne
-    /// doit pas faire flasher d'anneau). Le focus lui-même reste actif.
+    /// Was the last interaction a **keyboard** one? The generic focus ring is only
+    /// painted in that case (`FocusHighlightMode`: a click must not flash a ring).
+    /// The focus itself stays active.
     pub focus_visible: bool,
-    /// Cache de frontière de relayout (rectangles retenus par racine de layout,
-    /// d'une frame à l'autre). Mutabilité intérieure : `build_ui` le met à jour
-    /// tout en ne tenant qu'une référence partagée au `Runtime`.
+    /// Relayout-boundary cache (rects retained per layout root, from one frame to
+    /// the next). Interior mutability: `build_ui` updates it while holding only a
+    /// shared reference to the `Runtime`.
     pub layout_cache: RefCell<LayoutCache>,
-    /// Cache de frontière de **repaint** (primitives + interactions retenues par
-    /// frontière, d'une frame à l'autre). Même mutabilité intérieure.
+    /// **Repaint**-boundary cache (primitives + interactions retained per boundary,
+    /// from one frame to the next). Same interior mutability.
     pub paint_cache: RefCell<crate::paintcache::PaintCache>,
 }
 
 impl Runtime {
-    /// Progression de survol animée d'un widget.
+    /// A widget's animated hover progress.
     pub fn hover_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.hover).unwrap_or(0.0)
     }
 
-    /// Progression de focus animée d'un widget.
+    /// A widget's animated focus progress.
     pub fn focus_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.focus).unwrap_or(0.0)
     }
 
-    /// Opacité animée d'un widget (1 par défaut).
+    /// A widget's animated opacity (1 by default).
     pub fn opacity(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.opacity).unwrap_or(1.0)
     }
 
-    /// Valeur animée d'un widget (0 par défaut).
+    /// A widget's animated value (0 by default).
     pub fn value(&self, id: WidgetId) -> f32 {
         self.values.get(&id).map(|v| v.current).unwrap_or(0.0)
     }
 
-    /// Valeur animée d'un widget, ou `default` si **aucune** valeur n'est encore
-    /// enregistrée (widget jamais animé — p. ex. rendu isolé sans boucle). Permet
-    /// d'adopter la cible immédiatement, comme au montage.
+    /// A widget's animated value, or `default` if **no** value has been recorded yet
+    /// (a widget never animated — e.g. an isolated render with no loop). Lets the
+    /// target be adopted immediately, as on mount.
     pub fn value_or(&self, id: WidgetId, default: f32) -> f32 {
         self.values.get(&id).map(|v| v.current).unwrap_or(default)
     }
 
-    /// Fixe la valeur animée d'un widget à `v` (au repos, aucune transition en
-    /// cours) — pour les rendus/tests isolés qui veulent une progression précise
-    /// sans dérouler l'animation.
+    /// Sets a widget's animated value to `v` (at rest, no transition in progress) —
+    /// for isolated renders/tests that want a precise progress without running the
+    /// animation.
     pub fn set_value(&mut self, id: WidgetId, v: f32) {
         self.values.insert(id, ValueAnim::settled(v));
     }
 
-    /// Fait tendre chaque valeur animée vers la cible déclarée par son widget
-    /// (`Widget::anim_target`). Un widget vu pour la **première** fois adopte sa
-    /// cible sans transition (pas d'animation au montage). Renvoie `true` s'il
-    /// reste une valeur en mouvement.
+    /// Drives every animated value towards the target its widget declares
+    /// (`Widget::anim_target`). A widget seen for the **first** time adopts its
+    /// target with no transition (no animation on mount). Returns `true` if a value
+    /// is still moving.
     pub fn advance_values<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
@@ -395,7 +395,7 @@ impl Runtime {
         let mut targets: Vec<(WidgetId, f32, f32, Curve)> = Vec::new();
         collect(root, WidgetId::ROOT, &mut targets);
 
-        // Oublie les valeurs des widgets disparus.
+        // Forget the values of widgets that have gone.
         let present: std::collections::HashSet<WidgetId> =
             targets.iter().map(|(id, ..)| *id).collect();
         self.values.retain(|id, _| present.contains(id));
@@ -405,7 +405,7 @@ impl Runtime {
             match self.values.entry(id) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
                     let v = e.get_mut();
-                    // Nouvelle cible : rebase la timeline depuis la valeur courante.
+                    // New target: rebase the timeline from the current value.
                     if v.to != target {
                         v.from = v.current;
                         v.to = target;
@@ -435,15 +435,16 @@ impl Runtime {
         animating
     }
 
-    /// Couleur de fond animée d'un widget, si en transition (`None` sinon).
+    /// A widget's animated background colour, if in transition (`None` otherwise).
     pub fn anim_color(&self, id: WidgetId) -> Option<Color> {
         self.colors.get(&id).map(|c| c.current)
     }
 
-    /// Fait tendre chaque couleur de fond animée vers la cible déclarée par son
-    /// widget (`Widget::anim_color`), suivant sa durée/courbe (`anim_duration`/
-    /// `anim_curve`). Montage : adopte la cible sans transition. Renvoie `true`
-    /// s'il reste une couleur en mouvement. Même modèle que [`Self::advance_values`].
+    /// Drives every animated background colour towards the target its widget
+    /// declares (`Widget::anim_color`), following its duration/curve
+    /// (`anim_duration`/`anim_curve`). On mount: adopts the target with no
+    /// transition. Returns `true` if a colour is still moving. Same model as
+    /// [`Self::advance_values`].
     pub fn advance_colors<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
@@ -506,16 +507,16 @@ impl Runtime {
         animating
     }
 
-    /// Taille animée d'un widget, si en transition (`None` sinon).
+    /// A widget's animated size, if in transition (`None` otherwise).
     pub fn anim_size(&self, id: WidgetId) -> Option<Size> {
         self.sizes.get(&id).map(|s| s.current)
     }
 
-    /// Fait tendre chaque taille animée vers la cible déclarée par son widget
-    /// (`Widget::anim_size`), suivant sa durée/courbe. Montage : adopte la cible
-    /// sans transition. Renvoie `true` s'il reste une taille en mouvement. Même
-    /// modèle que [`Self::advance_values`], mais la sortie est **consommée au
-    /// layout** (`effective_style`), pas au paint.
+    /// Drives every animated size towards the target its widget declares
+    /// (`Widget::anim_size`), following its duration/curve. On mount: adopts the
+    /// target with no transition. Returns `true` if a size is still moving. Same
+    /// model as [`Self::advance_values`], except the output is **consumed at
+    /// layout** (`effective_style`), not at paint.
     pub fn advance_sizes<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
@@ -578,15 +579,15 @@ impl Runtime {
         animating
     }
 
-    /// Rayon de coin animé d'un widget, si en transition (`None` sinon).
+    /// A widget's animated corner radius, if in transition (`None` otherwise).
     pub fn anim_radius(&self, id: WidgetId) -> Option<BorderRadius> {
         self.radii.get(&id).map(|r| r.current)
     }
 
-    /// Fait tendre chaque rayon de coin animé vers la cible déclarée par son
-    /// widget (`Widget::anim_radius`), suivant sa durée/courbe. Montage : adopte
-    /// la cible sans transition. Renvoie `true` s'il reste un rayon en mouvement.
-    /// Même modèle que [`Self::advance_colors`], appliqué à un [`BorderRadius`].
+    /// Drives every animated corner radius towards the target its widget declares
+    /// (`Widget::anim_radius`), following its duration/curve. On mount: adopts the
+    /// target with no transition. Returns `true` if a radius is still moving. Same
+    /// model as [`Self::advance_colors`], applied to a [`BorderRadius`].
     pub fn advance_radii<Msg>(&mut self, root: &dyn crate::widget::Widget<Msg>, dt: f32) -> bool {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
@@ -649,15 +650,15 @@ impl Runtime {
         animating
     }
 
-    /// Marge (padding) animée d'un widget, si en transition (`None` sinon).
+    /// A widget's animated padding, if in transition (`None` otherwise).
     pub fn anim_padding(&self, id: WidgetId) -> Option<Insets> {
         self.paddings.get(&id).map(|p| p.current)
     }
 
-    /// Fait tendre chaque marge animée vers la cible déclarée par son widget
-    /// (`Widget::anim_padding`), suivant sa durée/courbe. Montage : adopte la
-    /// cible sans transition. Renvoie `true` s'il reste une marge en mouvement.
-    /// Comme la taille, la sortie est **consommée au layout** (`effective_style`).
+    /// Drives every animated padding towards the target its widget declares
+    /// (`Widget::anim_padding`), following its duration/curve. On mount: adopts the
+    /// target with no transition. Returns `true` if a padding is still moving. Like
+    /// the size, the output is **consumed at layout** (`effective_style`).
     pub fn advance_paddings<Msg>(
         &mut self,
         root: &dyn crate::widget::Widget<Msg>,
@@ -724,8 +725,8 @@ impl Runtime {
         animating
     }
 
-    /// Fait avancer les transitions (survol/focus) de `dt` secondes vers leurs
-    /// cibles. Renvoie `true` si au moins une animation est encore en cours.
+    /// Advances the transitions (hover/focus) by `dt` seconds towards their targets.
+    /// Returns `true` if at least one animation is still running.
     pub fn advance(&mut self, dt: f32) -> bool {
         let hovered = self.input.hovered;
         let focused = self.input.focused;
@@ -748,9 +749,9 @@ impl Runtime {
             let focus_target = if Some(*id) == focused { 1.0 } else { 0.0 };
             approach(&mut anim.hover, hover_target, step, &mut animating);
             approach(&mut anim.focus, focus_target, step, &mut animating);
-            // L'opacité tend toujours vers 1 (fondu d'apparition).
+            // Opacity always tends towards 1 (the fade-in).
             approach(&mut anim.opacity, 1.0, step, &mut animating);
-            // On oublie les entrées entièrement au repos (rien à animer).
+            // Entries that are entirely at rest are forgotten (nothing to animate).
             !(hover_target == 0.0
                 && focus_target == 0.0
                 && anim.hover <= 0.0
@@ -761,10 +762,10 @@ impl Runtime {
         animating
     }
 
-    /// Fait tendre chaque offset de défilement **courant** vers sa **cible** par
-    /// un ressort (défilement lissé), avec rappel élastique aux bords (rebond).
-    /// `maxes` fournit `(max_x, max_y)` par zone (issus de la dernière frame).
-    /// Renvoie `true` s'il reste un défilement en mouvement.
+    /// Drives every **current** scroll offset towards its **target** through a
+    /// spring (smooth scrolling), with an elastic pull at the edges (the bounce).
+    /// `maxes` supplies `(max_x, max_y)` per region (from the last frame).
+    /// Returns `true` if a scroll is still moving.
     pub fn advance_scroll(&mut self, maxes: &[(WidgetId, f32, f32)], dt: f32) -> bool {
         let ids: Vec<WidgetId> = self.scroll_target.keys().copied().collect();
         let mut animating = false;
@@ -787,7 +788,7 @@ impl Runtime {
                 self.scroll_velocity.insert(id, (vx, vy));
                 animating = true;
             } else {
-                // Au repos : on nettoie l'état d'animation (l'offset courant reste).
+                // At rest: the animation state is cleared (the current offset stays).
                 self.scroll_target.remove(&id);
                 self.scroll_velocity.remove(&id);
             }
@@ -795,11 +796,11 @@ impl Runtime {
         animating
     }
 
-    /// Fait avancer le *fling* de pan des fenêtres interactives : chaque vitesse
-    /// déplace la translation (décélérée par friction exponentielle) puis est **bornée**
-    /// à sa fenêtre — toucher un bord annule la vitesse sur cet axe. `viewports` fournit
-    /// la fenêtre de chaque fenêtre interactive (issue de la frame courante). Renvoie
-    /// `true` s'il reste un fling en cours.
+    /// Advances the pan *fling* of the interactive viewports: each velocity moves the
+    /// translation (decelerated by exponential friction) and is then **clamped** to its
+    /// viewport — hitting an edge cancels the velocity on that axis. `viewports` supplies
+    /// the viewport of each interactive viewer (from the current frame). Returns `true`
+    /// if a fling is still running.
     pub fn advance_interactive(&mut self, viewports: &[(WidgetId, Rect)], dt: f32) -> bool {
         use crate::interactive::{PAN_FRICTION, PAN_MIN_VELOCITY};
         if self.interactive_velocity.is_empty() {
@@ -816,7 +817,7 @@ impl Runtime {
                 .unwrap_or((0.0, 0.0));
             let mut view = self.interactive.get(&id).copied().unwrap_or_default();
             let moved = view.pan(v.0 * dt, v.1 * dt);
-            // Bornage : un axe qui bute annule sa vitesse (pas de rebond).
+            // Clamping: an axis that hits a bound cancels its velocity (no bounce).
             if let Some((_, vp)) = viewports.iter().find(|(i, _)| *i == id) {
                 let clamped = moved.clamped(*vp);
                 if (clamped.tx - moved.tx).abs() > 1e-3 {
@@ -842,8 +843,8 @@ impl Runtime {
         animating
     }
 
-    /// Fait décroître l'opacité des sous-arbres sortants ; oublie ceux arrivés à
-    /// 0. Renvoie `true` s'il reste une sortie en cours.
+    /// Fades out the opacity of outgoing subtrees; forgets those that have reached
+    /// 0. Returns `true` if an exit is still running.
     pub fn advance_leaving(&mut self, dt: f32) -> bool {
         let step = if ANIM_DURATION > 0.0 {
             dt / ANIM_DURATION
@@ -874,18 +875,18 @@ mod tests {
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id);
 
-        // Survolé : petites étapes → la progression monte sans atteindre 1.
-        assert!(rt.advance(0.03)); // ~0.25, encore en cours
-        assert!(rt.advance(0.03)); // ~0.5, encore en cours
+        // Hovered: small steps → the progress rises without reaching 1.
+        assert!(rt.advance(0.03)); // ~0.25, still running
+        assert!(rt.advance(0.03)); // ~0.5, still running
         let p = rt.hover_progress(id);
-        assert!(p > 0.4 && p < 0.6, "progression = {p}");
+        assert!(p > 0.4 && p < 0.6, "progress = {p}");
 
-        // Grand pas : atteint 1.0 puis y reste (plus d'animation).
+        // A large step: reaches 1.0 and stays there (no more animation).
         rt.advance(1.0);
         assert_eq!(rt.hover_progress(id), 1.0);
         assert!(!rt.advance(0.03));
 
-        // Fin du survol : redescend (en cours), puis arrive à 0 et l'entrée disparaît.
+        // End of hover: falls back (still running), then reaches 0 and the entry disappears.
         rt.input.hovered = None;
         assert!(rt.advance(0.03));
         rt.advance(1.0);
@@ -907,7 +908,7 @@ mod tests {
     fn opacity_rises_to_one() {
         let id = WidgetId::ROOT.child(2);
         let mut rt = Runtime::default();
-        // Montage : démarre transparent.
+        // Mount: starts transparent.
         rt.anims.insert(
             id,
             Anim {
@@ -917,10 +918,10 @@ mod tests {
         );
         assert!(rt.advance(0.03));
         let o = rt.opacity(id);
-        assert!(o > 0.0 && o < 1.0, "opacité = {o}");
+        assert!(o > 0.0 && o < 1.0, "opacity = {o}");
         rt.advance(1.0);
         assert_eq!(rt.opacity(id), 1.0);
-        // Défaut sans entrée : opaque.
+        // Default without an entry: opaque.
         assert_eq!(rt.opacity(WidgetId::ROOT), 1.0);
     }
 
@@ -932,7 +933,7 @@ mod tests {
         assert!(!rt.advance_values(&off, 1.0));
         assert_eq!(rt.value(WidgetId::ROOT), 0.0);
 
-        // Bascule on : la valeur monte vers 1 par petits pas.
+        // Toggled on: the value rises towards 1 in small steps.
         let on: crate::Switch<()> = crate::Switch::new(true);
         assert!(rt.advance_values(&on, 0.03));
         let v = rt.value(WidgetId::ROOT);
@@ -940,14 +941,14 @@ mod tests {
         rt.advance_values(&on, 1.0);
         assert_eq!(rt.value(WidgetId::ROOT), 1.0);
 
-        // Widget disparu : la valeur est oubliée.
+        // Widget gone: the value is forgotten.
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_values(&empty, 1.0);
         assert!(rt.values.is_empty());
     }
 
-    /// Widget minimal exposant une valeur animée réglable (cible, durée, courbe)
-    /// — pour tester la timeline sans dépendre d'un widget concret.
+    /// Minimal widget exposing a tunable animated value (target, duration, curve) —
+    /// to test the timeline without depending on a concrete widget.
     struct Mock {
         target: f32,
         duration: f32,
@@ -983,13 +984,13 @@ mod tests {
         }
     }
 
-    /// La **courbe** façonne la trajectoire : à t=0.25, un *ease-in* est en
-    /// retard sur la progression linéaire, un *ease-out* en avance ; toutes
-    /// convergent vers la cible.
+    /// The **curve** shapes the trajectory: at t=0.25 an *ease-in* lags behind the
+    /// linear progress and an *ease-out* runs ahead; all of them converge on the
+    /// target.
     #[test]
     fn curve_shapes_the_value_timeline() {
         let id = WidgetId::ROOT;
-        let dt = 0.03; // t = 0.25 sur une durée de 0.12
+        let dt = 0.03; // t = 0.25 over a duration of 0.12
         let dur = 0.12;
         let sample = |curve: Curve| {
             let mut rt = Runtime::default();
@@ -1008,11 +1009,11 @@ mod tests {
         let (eout, mut rt_out) = sample(Curve::ease_out());
         let (lin, mut rt_lin) = sample(Curve::Linear);
 
-        assert!((lin - 0.25).abs() < 1e-3, "linéaire = t : {lin}");
-        assert!(ein < 0.25, "ease-in en retard : {ein}");
-        assert!(eout > 0.25, "ease-out en avance : {eout}");
+        assert!((lin - 0.25).abs() < 1e-3, "linear = t: {lin}");
+        assert!(ein < 0.25, "ease-in lags: {ein}");
+        assert!(eout > 0.25, "ease-out leads: {eout}");
 
-        // Grand pas : toutes atteignent la cible (les courbes finissent à 1).
+        // A large step: all of them reach the target (the curves end at 1).
         for rt in [&mut rt_in, &mut rt_out, &mut rt_lin] {
             rt.advance_values(
                 &Mock {
@@ -1028,8 +1029,8 @@ mod tests {
         assert_eq!(rt_lin.value(id), 1.0);
     }
 
-    /// La couleur animée **snap** au montage puis **tween** au changement de
-    /// cible, canal par canal ; le widget disparu est oublié.
+    /// The animated colour **snaps** on mount then **tweens** on a change of target,
+    /// channel by channel; a widget that has gone is forgotten.
     #[test]
     fn animated_color_tweens_between_frames() {
         let id = WidgetId::ROOT;
@@ -1043,7 +1044,7 @@ mod tests {
         assert!(!rt.advance_colors(&start, 1.0));
         assert_eq!(rt.anim_color(id), Some(red));
 
-        // Cible bleue : tween linéaire, à mi-parcours ≈ (0.5, 0, 0.5).
+        // Blue target: linear tween, halfway ≈ (0.5, 0, 0.5).
         let to_blue: crate::Container<()> =
             crate::Container::new().animated_color(blue, 0.10, Curve::Linear);
         assert!(rt.advance_colors(&to_blue, 0.05));
@@ -1057,14 +1058,14 @@ mod tests {
         rt.advance_colors(&to_blue, 1.0);
         assert_eq!(rt.anim_color(id), Some(blue));
 
-        // Widget disparu : la couleur est oubliée.
+        // Widget gone: the colour is forgotten.
         let empty: crate::Container<()> = crate::Container::new();
         rt.advance_colors(&empty, 1.0);
         assert_eq!(rt.anim_color(id), None);
     }
 
-    /// La taille animée **snap** au montage puis **tween** au changement de
-    /// cible (largeur/hauteur) ; le widget disparu est oublié.
+    /// The animated size **snaps** on mount then **tweens** on a change of target
+    /// (width/height); a widget that has gone is forgotten.
     #[test]
     fn animated_size_tweens_between_frames() {
         let id = WidgetId::ROOT;
@@ -1075,7 +1076,7 @@ mod tests {
         assert!(!rt.advance_sizes(&small, 1.0));
         assert_eq!(rt.anim_size(id), Some(Size::new(20.0, 20.0)));
 
-        // Cible 40×40 : à mi-parcours linéaire ≈ 30×30.
+        // 40×40 target: halfway through a linear tween ≈ 30×30.
         let big: crate::Container<()> =
             crate::Container::new().animated_size(40.0, 40.0, 0.10, Curve::Linear);
         assert!(rt.advance_sizes(&big, 0.05));
@@ -1093,8 +1094,8 @@ mod tests {
         assert_eq!(rt.anim_size(id), None);
     }
 
-    /// Le rayon de coin animé **snap** au montage puis **tween** au changement
-    /// de cible (par coin) ; le widget disparu est oublié.
+    /// The animated corner radius **snaps** on mount then **tweens** on a change of
+    /// target (per corner); a widget that has gone is forgotten.
     #[test]
     fn animated_radius_tweens_between_frames() {
         let id = WidgetId::ROOT;
@@ -1105,7 +1106,7 @@ mod tests {
         assert!(!rt.advance_radii(&sharp, 1.0));
         assert_eq!(rt.anim_radius(id), Some(BorderRadius::from(0.0)));
 
-        // Cible 20 : à mi-parcours linéaire ≈ 10.
+        // Target 20: halfway through a linear tween ≈ 10.
         let round: crate::Container<()> =
             crate::Container::new().animated_radius(20.0, 0.10, Curve::Linear);
         assert!(rt.advance_radii(&round, 0.05));
@@ -1124,8 +1125,8 @@ mod tests {
         assert_eq!(rt.anim_radius(id), None);
     }
 
-    /// La marge animée **snap** au montage puis **tween** au changement de cible
-    /// (par côté) ; le widget disparu est oublié.
+    /// The animated padding **snaps** on mount then **tweens** on a change of target
+    /// (per side); a widget that has gone is forgotten.
     #[test]
     fn animated_padding_tweens_between_frames() {
         let id = WidgetId::ROOT;
@@ -1150,8 +1151,8 @@ mod tests {
         assert_eq!(rt.anim_padding(id), None);
     }
 
-    /// La **durée** règle la vitesse : à `dt` égal, une transition plus courte
-    /// est plus avancée.
+    /// The **duration** sets the speed: for the same `dt`, a shorter transition is
+    /// further along.
     #[test]
     fn shorter_duration_animates_faster() {
         let id = WidgetId::ROOT;
@@ -1170,7 +1171,10 @@ mod tests {
         };
         let fast = advance(0.05); // t = 0.5
         let slow = advance(0.20); // t = 0.125
-        assert!(fast > slow, "courte durée plus avancée : {fast} vs {slow}");
+        assert!(
+            fast > slow,
+            "shorter duration further along: {fast} vs {slow}"
+        );
         assert!((fast - 0.5).abs() < 1e-3, "fast = {fast}");
         assert!((slow - 0.125).abs() < 1e-3, "slow = {slow}");
     }
@@ -1179,17 +1183,17 @@ mod tests {
     fn spring_ease_is_monotonic_no_overshoot() {
         assert!((spring_ease(0.0) - 0.0).abs() < 1e-6);
         assert!((spring_ease(1.0) - 1.0).abs() < 1e-6);
-        // Croissante et bornée à [0,1] (aucun dépassement au-delà de 1).
+        // Increasing and bounded to [0,1] (no overshoot beyond 1).
         let mut prev = 0.0;
         for i in 0..=100 {
             let v = spring_ease(i as f32 / 100.0);
-            assert!(v >= prev - 1e-6, "décroît en {i}");
-            assert!(v <= 1.0 + 1e-6, "dépasse 1 en {i}");
+            assert!(v >= prev - 1e-6, "decreases at {i}");
+            assert!(v <= 1.0 + 1e-6, "exceeds 1 at {i}");
             prev = v;
         }
-        // Déjà bien avancée à mi-parcours (arrivée douce en fin).
+        // Already well advanced at halfway (a gentle arrival at the end).
         assert!(spring_ease(0.5) > 0.7);
-        // Bornée hors domaine.
+        // Clamped outside the domain.
         assert_eq!(spring_ease(-1.0), 0.0);
         assert_eq!(spring_ease(2.0), 1.0);
     }
@@ -1207,10 +1211,10 @@ mod tests {
             }
         }
         let (_, y) = rt.scroll.get(&id).copied().unwrap();
-        assert!((y - 100.0).abs() < 1.0, "arrivé à la cible : {y}");
+        assert!((y - 100.0).abs() < 1.0, "reached the target: {y}");
         assert!(
             !rt.scroll_target.contains_key(&id),
-            "état d'animation nettoyé au repos"
+            "animation state cleared at rest"
         );
     }
 
@@ -1220,7 +1224,7 @@ mod tests {
         let id = WidgetId::ROOT;
         let vp = Rect::new(0.0, 0.0, 200.0, 200.0);
         let mut rt = Runtime::default();
-        // Contenu zoomé ×2, lancé vers la gauche à grande vitesse.
+        // Content zoomed ×2, flung leftwards at high speed.
         rt.interactive.insert(
             id,
             InteractiveView {
@@ -1234,18 +1238,18 @@ mod tests {
         let mut frames = 0;
         while rt.advance_interactive(&viewports, 0.016) {
             frames += 1;
-            assert!(frames < 1000, "le fling doit finir par s'arrêter");
+            assert!(frames < 1000, "the fling must eventually stop");
         }
         let view = rt.interactive.get(&id).copied().unwrap();
-        // Reste borné (contenu ×2 couvre la fenêtre → tx ∈ [-200, 0]).
+        // Stays clamped (content ×2 covers the viewport → tx ∈ [-200, 0]).
         assert!(
             view.tx >= -200.0 - 1e-3 && view.tx <= 0.0 + 1e-3,
-            "borné : {}",
+            "clamped: {}",
             view.tx
         );
         assert!(
             !rt.interactive_velocity.contains_key(&id),
-            "vitesse nettoyée au repos"
+            "velocity cleared at rest"
         );
     }
 
@@ -1253,7 +1257,7 @@ mod tests {
     fn scroll_overshoot_rubber_bands_back_to_max() {
         let id = WidgetId::ROOT;
         let mut rt = Runtime::default();
-        // Cible au-delà de la borne (dépassement) → doit revenir à max.
+        // Target beyond the bound (overshoot) → must come back to max.
         rt.scroll_target.insert(id, (0.0, 240.0));
         rt.scroll_velocity.insert(id, (0.0, 0.0));
         let maxes = [(id, 0.0, 200.0)];
@@ -1263,15 +1267,15 @@ mod tests {
             }
         }
         let (_, y) = rt.scroll.get(&id).copied().unwrap();
-        assert!((y - 200.0).abs() < 1.0, "revenu à la borne max : {y}");
+        assert!((y - 200.0).abs() < 1.0, "back at the max bound: {y}");
     }
 
     #[test]
     fn leaving_fades_out_and_clears() {
         let mut rt = Runtime::default();
         rt.leaving.insert(0, (Vec::new(), 1.0));
-        assert!(rt.advance_leaving(0.06)); // ~0.5, encore en cours
-        assert!(!rt.advance_leaving(0.06)); // atteint 0 → nettoyé
+        assert!(rt.advance_leaving(0.06)); // ~0.5, still running
+        assert!(!rt.advance_leaving(0.06)); // reaches 0 → cleared
         assert!(rt.leaving.is_empty());
     }
 }
