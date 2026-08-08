@@ -1,55 +1,56 @@
-# Jalon 4 — Interactivité : événements + état
+# Jalon 4 — Interactivity: events + state
 
-Rend l'UI **vivante** : les widgets réagissent au clic et reflètent un état qui
-change, via un **modèle à messages** (façon Elm/iced).
+Makes the UI **live**: widgets react to clicks and reflect changing state,
+through a **message model** (in the style of Elm/iced).
 
-## Ce qui est livré
+## What ships
 
-- **Widgets génériques `Widget<Msg>`** : un widget peut émettre un message au
-  clic (`Container::on_click(msg)`).
-- **`Ui<Msg>` + `build_ui`** : la construction produit à la fois la [`Scene`] à
-  dessiner **et** une carte de hit-test. `Ui::hit(point)` renvoie le message du
-  widget cliquable le plus au-dessus.
-- **Boucle interactive** (démo shell) : `State`, `view(&State) -> Widget<Msg>`,
-  `update(&mut State, Msg)`. La fenêtre suit le curseur et route les clics.
+- **Generic `Widget<Msg>`**: a widget can emit a message on click
+  (`Container::on_click(msg)`).
+- **`Ui<Msg>` + `build_ui`**: building produces both the [`Scene`] to draw
+  **and** a hit-test map. `Ui::hit(point)` returns the message of the topmost
+  clickable widget.
+- **Interactive loop** (demo shell): `State`, `view(&State) -> Widget<Msg>`,
+  `update(&mut State, Msg)`. The window tracks the cursor and routes clicks.
 
 ## Architecture
 
 ```
-état ──view()──► Widgets<Msg> ──build_ui──► Ui { Scene, hits }
-  ▲                                             │  scene ─► frus-gpu ─► écran
+state ──view()──► Widgets<Msg> ──build_ui──► Ui { Scene, hits }
+  ▲                                             │  scene ─► frus-gpu ─► screen
   │                                             │
-  └── update(msg) ◄── ui.hit(curseur) ◄── clic souris (winit)
+  └── update(msg) ◄── ui.hit(cursor) ◄── mouse click (winit)
 ```
 
-Le hit-test réutilise l'appariement widget ↔ rectangle absolu du pilote : on
-collecte les zones cliquables `(Rect, Msg)` en ordre préfixe ; le clic prend la
-**dernière** zone contenant le point (les enfants, peints après, sont au-dessus).
+Hit-testing reuses the driver's widget ↔ absolute rectangle pairing: clickable
+zones `(Rect, Msg)` are collected in prefix order, and a click takes the **last**
+zone containing the point (children, painted afterwards, are on top).
 
-## Décisions
+## Decisions
 
-- **Modèle à messages** plutôt que callbacks : idiomatique Rust, évite
-  `Rc<RefCell>`/emprunts croisés, testable. Widgets paramétrés par `Msg: Clone`.
-- **`frus-widgets` ne dépend pas de winit** : le hit-test prend un `Point` ; la
-  souris est traduite côté `frus-shell`.
-- **Coordonnées** : pixels physiques (le curseur winit et le viewport partagent
-  le même espace).
+- **A message model** rather than callbacks: idiomatic Rust, avoids
+  `Rc<RefCell>` and crossed borrows, and is testable. Widgets are parameterised
+  by `Msg: Clone`.
+- **`frus-widgets` does not depend on winit**: hit-testing takes a `Point`; the
+  mouse is translated on the `frus-shell` side.
+- **Coordinates**: physical pixels (the winit cursor and the viewport share the
+  same space).
 
-## Démo
+## Demo
 
-Une barre-bouton verte ; chaque clic ajoute un carré coloré à une rangée. Clic →
-`Msg::AddSquare` → `state.squares += 1` → rebuild → un carré de plus. Prouve la
-boucle événement → état → rebuild → rendu de bout en bout.
+A green bar-button; each click adds a coloured square to a row. Click →
+`Msg::AddSquare` → `state.squares += 1` → rebuild → one more square. Proves the
+event → state → rebuild → render loop end to end.
 
 ## Tests
 
-- `build_ui` peint les bons rectangles **et** mappe les bonnes zones cliquables.
-- `Ui::hit` renvoie le bon message, et le widget **le plus au-dessus** en cas de
-  recouvrement.
+- `build_ui` paints the right rectangles **and** maps the right clickable zones.
+- `Ui::hit` returns the right message, and the **topmost** widget when they
+  overlap.
 
-## Limites (prochains jalons)
+## Limits (next milestones)
 
-- États visuels **survol/pressé**, **focus**, **clavier** : nécessitent
-  l'identité des widgets entre deux frames → viendront avec la **reconciliation**.
-- Reconstruction complète de l'arbre à chaque interaction (pas encore de diff).
-- Toujours pas de **texte**.
+- **Hover/pressed** visual states, **focus** and **keyboard** all need widget
+  identity to survive between frames → they come with **reconciliation**.
+- The whole tree is rebuilt on every interaction (no diffing yet).
+- Still no **text**.

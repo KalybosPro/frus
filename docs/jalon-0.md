@@ -1,45 +1,45 @@
-# Jalon 0 — Une fenêtre + un quad coloré
+# Jalon 0 — A window + a coloured quad
 
-Premier jalon de **frus**. Il établit la boucle fondamentale de tout framework
-UI : `événement système → mise à jour → frame GPU → présentation`.
+The first milestone of **frus**. It establishes the fundamental loop of any UI
+framework: `system event → update → GPU frame → present`.
 
-## Ce qui est livré
+## What ships
 
-- Workspace Cargo (`crates/*`).
-- `frus-gpu` : contexte GPU + moteur de rendu minimal (wgpu), **sans dépendance
-  au fenêtrage**. Dessine un quad coloré via un pipeline WGSL.
-- `frus-shell` : couche plateforme (winit 0.30, `ApplicationHandler`). Crée la
-  fenêtre et pilote le renderer.
-- `frus-demo` : binaire de démonstration.
+- Cargo workspace (`crates/*`).
+- `frus-gpu`: GPU context + minimal renderer (wgpu), **with no dependency on
+  windowing**. Draws a coloured quad through a WGSL pipeline.
+- `frus-shell`: platform layer (winit 0.30, `ApplicationHandler`). Creates the
+  window and drives the renderer.
+- `frus-demo`: demonstration binary.
 
 ## Architecture
 
 ```
         winit (event loop)                 wgpu (GPU)
       ┌───────────────────┐          ┌──────────────────────┐
-OS ─► │  frus-shell        │ ─frame─► │  frus-gpu (Renderer) │ ─► écran
+OS ─► │  frus-shell        │ ─frame─► │  frus-gpu (Renderer) │ ─► screen
 event │  ApplicationHandler│ ─resize► │  pipeline + quad     │
       └───────────────────┘          └──────────────────────┘
                     └──── frus-demo (bin: cargo run) ────┘
 ```
 
-Le seam clé : `frus-gpu::Renderer::new` reçoit une `wgpu::SurfaceTarget` et non
-un type winit. La plateforme est ainsi remplaçable (Web/mobile plus tard) sans
-toucher au moteur de rendu.
+The key seam: `frus-gpu::Renderer::new` takes a `wgpu::SurfaceTarget`, not a
+winit type. That makes the platform replaceable (Web/mobile later) without
+touching the renderer.
 
-## Environnement de dev : WSL2
+## Dev environment: WSL2
 
-**Important** : sur la machine de dev Windows, **Smart App Control** est activé
-et bloque l'exécution des *build scripts* que Cargo compile (erreur système
-4551). SAC ne se désactive qu'une fois et de façon irréversible ; on a donc
-choisi de développer dans **WSL2 (Ubuntu 24.04)**, où les binaires Linux ne sont
-pas soumis à cette politique. L'affichage passe par **WSLg**.
+**Important**: on the Windows dev machine, **Smart App Control** is enabled and
+blocks execution of the *build scripts* Cargo compiles (system error 4551). SAC
+can only be turned off once, irreversibly; so we chose to develop inside
+**WSL2 (Ubuntu 24.04)**, where Linux binaries are not subject to that policy.
+Display goes through **WSLg**.
 
-Setup (déjà réalisé) :
+Setup (already done):
 
 ```sh
 wsl --install -d Ubuntu-24.04
-# dans Ubuntu :
+# inside Ubuntu:
 sudo apt-get install -y build-essential curl pkg-config \
   libwayland-dev libxkbcommon-dev libxkbcommon-x11-0 wayland-protocols \
   libx11-dev libxrandr-dev libxi-dev libxcursor-dev \
@@ -47,24 +47,24 @@ sudo apt-get install -y build-essential curl pkg-config \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ```
 
-## Lancer
+## Running
 
-Depuis WSL2, à la racine du projet :
+From WSL2, at the project root:
 
 ```sh
 bash scripts/wsl-run.sh
 ```
 
-Le script force le backend **X11** de winit (sous WSLg, Wayland en root est
-instable ; X11 via `DISPLAY=:0` est fiable) et met le répertoire de build sur
-le FS Linux.
+The script forces winit's **X11** backend (under WSLg, Wayland as root is
+unstable; X11 via `DISPLAY=:0` is reliable) and puts the build directory on the
+Linux filesystem.
 
-Résultat attendu : une fenêtre « frus — Jalon 0 » avec un carré au dégradé
-(rouge/vert/bleu/jaune) sur fond bleu nuit.
+Expected result: a window titled "frus — Jalon 0" with a gradient square
+(red/green/blue/yellow) on a midnight-blue background.
 
-> Note GPU : sous WSLg sans passthrough matériel, wgpu tombe sur le backend
-> Vulkan logiciel `llvmpipe` (Mesa). Le rendu est correct, simplement non
-> accéléré. Sur une machine Linux native, un vrai GPU sera utilisé.
+> GPU note: under WSLg without hardware passthrough, wgpu falls back to the
+> software Vulkan backend `llvmpipe` (Mesa). The rendering is correct, simply
+> not accelerated. On a native Linux machine a real GPU will be used.
 
 ## Tests
 
@@ -72,11 +72,11 @@ Résultat attendu : une fenêtre « frus — Jalon 0 » avec un carré au dégra
 cargo test
 ```
 
-`frus-gpu` inclut un test qui énumère les adaptateurs GPU sans planter
-(exécutable en CI sans écran).
+`frus-gpu` includes a test that enumerates the GPU adapters without crashing
+(runnable in CI without a display).
 
-## Notes de version
+## Version notes
 
-`wgpu` évolue vite : les versions sont épinglées dans `Cargo.toml`
-(`wgpu = "22"`, `winit = "0.30"`). Le premier `cargo build` (une fois Rust
-installé) validera l'API et ajustera les éventuels détails mineurs.
+`wgpu` moves fast: the versions are pinned in `Cargo.toml` (`wgpu = "22"`,
+`winit = "0.30"`). The first `cargo build` (once Rust is installed) will
+validate the API and adjust any minor details.

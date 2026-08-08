@@ -1,58 +1,58 @@
-# Jalon 8 — Saisie de texte + focus clavier
+# Jalon 8 — Text input + keyboard focus
 
-Ajoute un champ de saisie éditable, le focus clavier et les événements clavier.
+Adds an editable input field, keyboard focus, and keyboard events.
 
-## Position d'architecture
+## Architectural position
 
-On avait annoncé « la vraie reconciliation ». En pratique, avec le modèle
-**contrôlé** (à la iced), elle n'est pas nécessaire ici :
+We had announced "real reconciliation". In practice, with the **controlled**
+model (the iced approach), it is not needed here:
 
-- la **valeur** du champ vit dans l'état applicatif (`State`) → préservée entre
-  rebuilds sans machinerie ;
-- le **focus** est de l'état runtime, **clé par `WidgetId`** (l'identité du
-  Jalon 6), comme le survol/pression.
+- the field's **value** lives in the application state (`State`) → preserved
+  across rebuilds with no machinery;
+- **focus** is runtime state, **keyed by `WidgetId`** (the identity from
+  Jalon 6), just like hover and press.
 
-On livre donc un champ éditable complet **sans moteur de diff**. Un arbre d'état
-persistant (vraie reconciliation) ne servira qu'à de l'état non contrôlé et
-riche (navigation curseur/sélection, scroll interne, animations) : différé.
+So we ship a complete editable field **without a diffing engine**. A persistent
+state tree (real reconciliation) will only be useful for rich uncontrolled state
+(caret/selection navigation, internal scrolling, animations): deferred.
 
-## Ce qui est livré
+## What ships
 
-- **`Key`** (`Text`/`Backspace`/`Enter`) et **`Status { interaction, focused }`**
-  transmis à `Widget::paint`.
-- **`InputState.focused`** : widget qui a le focus clavier.
-- **`Widget`** : méthodes par défaut `on_key(&Key) -> Option<Msg>` et
+- **`Key`** (`Text`/`Backspace`/`Enter`) and **`Status { interaction, focused }`**
+  passed to `Widget::paint`.
+- **`InputState.focused`**: the widget holding keyboard focus.
+- **`Widget`**: default methods `on_key(&Key) -> Option<Msg>` and
   `focusable() -> bool`.
-- **`TextInput`** : champ contrôlé, focalisable, avec fond/bordure de focus et
-  curseur ; `append` + `backspace`.
-- **`Ui::focus_hit(point)`** et **`dispatch_key(arbre, focused, key)`**.
-- **Runtime** (shell) : focus posé au clic, arbre conservé pour router les
-  touches, événements clavier winit traduits en `Key`.
+- **`TextInput`**: a controlled, focusable field, with a focus background/border
+  and a caret; `append` + `backspace`.
+- **`Ui::focus_hit(point)`** and **`dispatch_key(tree, focused, key)`**.
+- **Runtime** (shell): focus set on click, tree kept in order to route keys,
+  winit keyboard events translated into `Key`.
 
-## Boucle runtime
+## Runtime loop
 
 ```
 MouseDown  → pressed = ui.hit(cursor) ; focused = ui.focus_hit(cursor) ; redraw
-KeyPressed → si focused { msg = dispatch_key(tree, focused, key) ; update ; redraw }
+KeyPressed → if focused { msg = dispatch_key(tree, focused, key) ; update ; redraw }
 Redraw     → tree = view(state) ; ui = build_ui(&tree, size, &input) ; render ;
-             conserver ui (hit-test) + tree (routage clavier)
+             keep ui (hit-testing) + tree (keyboard routing)
 ```
 
-## Démo
+## Demo
 
-Un champ « Nom : [____] » éditable au clavier (focus au clic, anneau de focus,
-curseur) et une salutation « Bonjour {nom} ! » qui se met à jour à la frappe —
-le champ étant contrôlé, sa valeur vient de l'état et y retourne via `Msg`.
+A "Name: [____]" field editable from the keyboard (focus on click, focus ring,
+caret) and a "Hello {name}!" greeting that updates as you type — the field being
+controlled, its value comes from the state and returns to it through `Msg`.
 
 ## Tests
 
-- `TextInput::on_key` : `Text("c")` puis `Backspace` produisent la bonne valeur.
-- `Ui::focus_hit` + `dispatch_key` : une touche routée vers le champ focalisé
-  produit le message d'édition attendu.
-- `focusable()` : le champ est focalisable ; statut focus indépendant du survol.
+- `TextInput::on_key`: `Text("c")` then `Backspace` produce the right value.
+- `Ui::focus_hit` + `dispatch_key`: a key routed to the focused field produces
+  the expected edit message.
+- `focusable()`: the field is focusable; focus status is independent of hover.
 
-## Limites (prochains jalons)
+## Limits (next milestones)
 
-- Pas de **navigation curseur** (flèches), de sélection, ni de copier/coller.
-- Pas de moteur de diff (inutile tant que l'état reste contrôlé).
-- Toujours pas de scroll/clipping.
+- No **caret navigation** (arrows), no selection, no copy/paste.
+- No diffing engine (needless while the state stays controlled).
+- Still no scrolling/clipping.

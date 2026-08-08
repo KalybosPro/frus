@@ -1,46 +1,46 @@
-# Jalon 3 — Arbre de widgets déclaratif
+# Jalon 3 — Declarative widget tree
 
-Introduit la couche « à la Flutter » : on décrit l'interface avec des **widgets**
-composables, traduits automatiquement en mise en page puis en rendu.
+Introduces the declarative layer: the interface is described with composable
+**widgets**, automatically translated into layout and then into rendering.
 
-## Ce qui est livré
+## What ships
 
-- **`Scene` déplacée dans `frus-core`** : liste d'affichage pure (`Primitive`),
-  indépendante du GPU. `frus-gpu` la consomme (le `Painter` construit ses
-  instances à partir des primitives) ; `frus-widgets` la produit.
-- **Nouveau crate `frus-widgets`** :
-  - trait `Widget` (style de layout, enfants, peinture),
-  - widgets de base `Container` (boîte décorée) et `Flex` (rangée/colonne),
-  - `build_scene(root, size)` : pilote widget → layout → peinture.
-- **Démo** décrite en widgets (plus aucun appel manuel au layout).
+- **`Scene` moved into `frus-core`**: a pure display list (`Primitive`),
+  independent of the GPU. `frus-gpu` consumes it (the `Painter` builds its
+  instances from the primitives); `frus-widgets` produces it.
+- **New crate `frus-widgets`**:
+  - the `Widget` trait (layout style, children, painting),
+  - the base widgets `Container` (decorated box) and `Flex` (row/column),
+  - `build_scene(root, size)`: drives widget → layout → painting.
+- **Demo** described in widgets (no manual layout calls left).
 
 ## Architecture
 
 ```
-frus-core (Scene pure) ─┬─► frus-gpu     (rend la Scene)
-                        └─► frus-widgets (produit la Scene)   [pas de dépendance GPU]
+frus-core (pure Scene) ─┬─► frus-gpu     (renders the Scene)
+                        └─► frus-widgets (produces the Scene)   [no GPU dependency]
 
-Arbre de Widgets
-   │ build_scene :
-   │   1. Widget -> nœuds frus-layout
-   │   2. compute flexbox -> rects absolus
-   │   3. chaque Widget peint sa décoration
+Widget tree
+   │ build_scene:
+   │   1. Widget -> frus-layout nodes
+   │   2. compute flexbox -> absolute rects
+   │   3. each Widget paints its decoration
    ▼
- Scene -> frus-gpu -> écran
+ Scene -> frus-gpu -> screen
 ```
 
-L'appariement widget ↔ rectangle repose sur un parcours **préfixe** identique de
-part et d'autre (l'arbre de widgets et `Layout::absolute_rects` produisent le
-même ordre), donc on peut zipper les deux.
+Pairing widget ↔ rectangle relies on an identical **prefix** walk on both sides
+(the widget tree and `Layout::absolute_rects` produce the same order), so the
+two can be zipped.
 
-## Décisions
+## Decisions
 
-- **Modèle retenu** (arbre persistant, façon Flutter) plutôt qu'immédiat, mais
-  **sans reconciliation** à ce stade (pas encore d'état à differ). L'abstraction
-  est prête à l'accueillir.
-- **`Scene` dans `frus-core`** : `frus-widgets` reste indépendant du backend de
-  rendu (pas de dépendance à wgpu). Meilleure modularité.
-- **Widgets = objets-traits** (`Box<dyn Widget>`) : composition dynamique simple.
+- **A retained model** (persistent tree) rather than immediate mode, but **with
+  no reconciliation** at this stage (there is no state to diff yet). The
+  abstraction is ready to receive it.
+- **`Scene` in `frus-core`**: `frus-widgets` stays independent of the rendering
+  backend (no wgpu dependency). Better modularity.
+- **Widgets as trait objects** (`Box<dyn Widget>`): simple dynamic composition.
 
 ## API
 
@@ -56,13 +56,13 @@ let scene = frus_widgets::build_scene(&ui, Size::new(w, h));
 
 ## Tests
 
-- `frus-core` : `Scene::fill_rect` empile la bonne primitive.
-- `frus-widgets` : un `Flex::row` `[Container(120px), Container(flex:1)]`
-  (400×100, padding 10, gap 8) → `build_scene` produit 2 primitives aux rects
-  absolus attendus (réutilise le calcul flex validé au Jalon 2).
+- `frus-core`: `Scene::fill_rect` pushes the right primitive.
+- `frus-widgets`: a `Flex::row` of `[Container(120px), Container(flex:1)]`
+  (400×100, padding 10, gap 8) → `build_scene` produces 2 primitives at the
+  expected absolute rects (reusing the flex computation validated in Jalon 2).
 
-## Limites (prochains jalons)
+## Limits (next milestones)
 
-- Pas encore d'**état** ni d'**événements** (clic, survol, saisie) — la
-  reconciliation d'arbre viendra avec.
-- Peu de widgets (`Container`, `Flex`) et de propriétés de style ; pas de texte.
+- No **state** and no **events** yet (click, hover, input) — tree reconciliation
+  will come with them.
+- Few widgets (`Container`, `Flex`) and few style properties; no text.

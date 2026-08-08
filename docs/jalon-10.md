@@ -1,58 +1,60 @@
-# Jalon 10 — Curseur, navigation, sélection et presse-papier
+# Jalon 10 — Caret, navigation, selection and clipboard
 
-Rend les champs de saisie pleinement éditables et introduit le premier **état de
-widget retenu au runtime, clé par identité**.
+Makes input fields fully editable and introduces the first **widget state
+retained by the runtime, keyed by identity**.
 
-## Décision d'architecture — un `Runtime` d'état de widgets
+## Architectural decision — a widget-state `Runtime`
 
-L'état d'interaction/édition est regroupé dans un [`Runtime`] passé à `build_ui` :
+Interaction and editing state is gathered into a [`Runtime`] passed to
+`build_ui`:
 
 ```rust
 struct Runtime {
-    input: InputState,                 // survol / pression / focus
-    scroll: ScrollState,               // offsets de défilement
-    edits: HashMap<WidgetId, Edit>,    // NOUVEAU : curseur / sélection par champ
+    input: InputState,                 // hover / press / focus
+    scroll: ScrollState,               // scroll offsets
+    edits: HashMap<WidgetId, Edit>,    // NEW: caret / selection per field
 }
-struct Edit { cursor: usize, anchor: Option<usize> }  // indices caractères
+struct Edit { cursor: usize, anchor: Option<usize> }  // character indices
 ```
 
-La **valeur** d'un champ reste contrôlée (état applicatif) ; **curseur/sélection**
-sont le premier état de widget retenu **par identité** (`WidgetId`, Jalon 6) —
-la vraie brique de reconciliation.
+A field's **value** stays controlled (application state); **caret and
+selection** are the first widget state retained **by identity** (`WidgetId`,
+Jalon 6) — the real reconciliation brick.
 
-## Ce qui est livré
+## What ships
 
-- **`Key`** enrichi : `Left/Right/Home/End{shift}`, `Delete`, en plus de
+- **`Key`** enriched: `Left/Right/Home/End{shift}`, `Delete`, on top of
   `Text/Backspace/Enter`.
-- **`Widget`** : `on_edit(&mut Edit, &Key)` (édition), `cursor_at(local_x)`
-  (placement au clic), `selected_text(&Edit)` (copie).
-- **`Status`** porte `cursor`/`selection` → le champ dessine curseur + surbrillance.
-- **`TextInput`** : insertion au curseur, navigation, sélection Shift+flèche,
-  suppression (Backspace/Delete), placement du curseur **au clic**.
-- **Presse-papier** (via `arboard`, couche shell) : **Ctrl+C/X/V**, **Ctrl+A**
-  (tout sélectionner). Le collage réutilise `Key::Text`.
-- **`find_widget(tree, id)`** : retrouve un widget par identité pour lui router
-  clavier / requêtes.
+- **`Widget`**: `on_edit(&mut Edit, &Key)` (editing), `cursor_at(local_x)`
+  (placement on click), `selected_text(&Edit)` (copying).
+- **`Status`** carries `cursor`/`selection` → the field draws the caret and the
+  highlight.
+- **`TextInput`**: insertion at the caret, navigation, Shift+arrow selection,
+  deletion (Backspace/Delete), caret placement **on click**.
+- **Clipboard** (through `arboard`, in the shell layer): **Ctrl+C/X/V**,
+  **Ctrl+A** (select all). Pasting reuses `Key::Text`.
+- **`find_widget(tree, id)`**: finds a widget by identity in order to route
+  keystrokes and queries to it.
 
-## Boucle runtime (shell)
+## Runtime loop (shell)
 
 ```
-ModifiersChanged → suit Shift / Ctrl
-MouseDown        → focus + curseur placé au point cliqué (cursor_at)
-KeyPressed       → Ctrl+C/X/V/A (presse-papier) sinon on_edit(&mut edit, key)
-                   → met à jour Runtime.edits (+ valeur via Msg) → redraw
+ModifiersChanged → tracks Shift / Ctrl
+MouseDown        → focus + caret placed at the clicked point (cursor_at)
+KeyPressed       → Ctrl+C/X/V/A (clipboard), otherwise on_edit(&mut edit, key)
+                   → updates Runtime.edits (+ the value through Msg) → redraw
 Redraw           → build_ui(&tree, size, &runtime)
 ```
 
 ## Tests
 
-- Édition : insertion au curseur ; Shift+flèche sélectionne puis Backspace
-  supprime ; Home/End bornent le curseur.
-- `selected_text` renvoie la plage sélectionnée.
-- `find_widget` + `on_edit` produisent le message d'édition attendu.
+- Editing: insertion at the caret; Shift+arrow selects and Backspace then
+  deletes; Home/End clamp the caret.
+- `selected_text` returns the selected range.
+- `find_widget` + `on_edit` produce the expected edit message.
 
 ## Simplifications (v1)
 
-- Mono-ligne ; indices **caractère** (pas grapheme/emoji composites) ; pas de
-  drag-sélection à la souris ; presse-papier best-effort (échec silencieux si
-  indisponible, p. ex. environnement sans presse-papier).
+- Single-line; **character** indices (not graphemes or composite emoji); no
+  mouse drag-selection; best-effort clipboard (silent failure when unavailable,
+  e.g. an environment with no clipboard).

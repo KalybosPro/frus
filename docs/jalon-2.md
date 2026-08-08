@@ -1,70 +1,70 @@
-# Jalon 2 — Moteur de mise en page (flexbox via taffy)
+# Jalon 2 — Layout engine (flexbox via taffy)
 
-Ajoute la couche qui transforme un **arbre de nœuds stylés** en **rectangles
-positionnés**, prêts pour le renderer. On ne positionne plus en pixels absolus :
-on décrit des règles (flex, tailles, padding, gap) qui s'adaptent à la fenêtre.
+Adds the layer that turns a **tree of styled nodes** into **positioned
+rectangles**, ready for the renderer. We no longer position in absolute pixels:
+we describe rules (flex, sizes, padding, gap) that adapt to the window.
 
-## Ce qui est livré
+## What ships
 
-- **Nouveau crate `frus-core`** : types fondamentaux partagés sans logique ni
-  dépendance (`Point`, `Size`, `Rect`, `Color`). `frus-gpu` les ré-exporte.
-- **Nouveau crate `frus-layout`** : moteur de mise en page au-dessus de
-  [taffy](https://docs.rs/taffy), **caché** derrière une API frus stable.
+- **New crate `frus-core`**: fundamental shared types, with no logic and no
+  dependencies (`Point`, `Size`, `Rect`, `Color`). `frus-gpu` re-exports them.
+- **New crate `frus-layout`**: layout engine on top of
+  [taffy](https://docs.rs/taffy), **hidden** behind a stable frus API.
   - `Style` (width/height, flex_grow, flex_direction, padding, gap),
-  - `Layout<T>` : arbre avec donnée `T` par nœud (ici une `Color`),
-  - `absolute_rects()` : rectangles en **coordonnées absolues**.
-- **Démo** pilotée par layout : colonne (barre + rangée sidebar/main), adaptée à
-  la taille de la fenêtre.
+  - `Layout<T>`: tree carrying a `T` per node (here a `Color`),
+  - `absolute_rects()`: rectangles in **absolute coordinates**.
+- **Demo** driven by layout: a column (bar + sidebar/main row), adapting to the
+  window size.
 
 ## Architecture
 
 ```
-        frus-core  (Point, Size, Rect, Color) — zéro dépendance
+        frus-core  (Point, Size, Rect, Color) — zero dependencies
         ╱        ╲
-  frus-gpu       frus-layout (wrap taffy)
+  frus-gpu       frus-layout (wraps taffy)
         ╲         ╱
           frus-shell  (layout -> Scene -> GPU)
 ```
 
-Flux d'une frame :
+The flow of a frame:
 
 ```
-arbre de nœuds (Style + Color)
+tree of nodes (Style + Color)
       │ taffy::compute_layout
       ▼
-positions relatives ──(accumulation d'offsets)──► rects ABSOLUS
+relative positions ──(accumulating offsets)──► ABSOLUTE rects
       │ Scene::fill_rect
       ▼
-   frus-gpu ─► écran
+   frus-gpu ─► screen
 ```
 
-## Décisions
+## Decisions
 
-- **taffy** pour le layout (flexbox/grid mûr, utilisé par Bevy/Zed) — réutilise
-  l'écosystème plutôt que réécrire.
-- **`frus-core` partagé** : évite le couplage `frus-layout → frus-gpu` et la
-  duplication du type `Rect`.
-- **API mince** au-dessus de taffy : `Style` frus traduit en `taffy::Style`.
-  taffy reste un détail d'implémentation remplaçable.
-- **Coordonnées absolues** calculées côté frus (taffy donne du relatif) :
-  directement rendables et testables.
+- **taffy** for layout (mature flexbox/grid, used by Bevy and Zed) — reuse the
+  ecosystem rather than rewrite it.
+- **A shared `frus-core`**: avoids the `frus-layout → frus-gpu` coupling and the
+  duplication of the `Rect` type.
+- **A thin API** on top of taffy: a frus `Style` is translated into a
+  `taffy::Style`. taffy stays a replaceable implementation detail.
+- **Absolute coordinates** computed on the frus side (taffy gives relative
+  ones): directly renderable and testable.
 
 ## Tests
 
-- `frus-core` : construction/`to_array` de `Rect`.
-- `frus-layout` : une rangée flex `[fixe 120px, grow:1]` dans 400×100 avec
-  padding 10 / gap 8 → vérifie les rects absolus (`A = (10,10,120,80)`,
+- `frus-core`: construction and `to_array` for `Rect`.
+- `frus-layout`: a flex row `[fixed 120px, grow:1]` inside 400×100 with padding
+  10 / gap 8 → checks the absolute rects (`A = (10,10,120,80)`,
   `B = (138,10,252,80)`).
 
-## Lancer
+## Running
 
 ```sh
-bash scripts/wsl-run.sh   # fenêtre : barre verte + sidebar rouge + zone bleue
-cargo test                # dans WSL
+bash scripts/wsl-run.sh   # window: green bar + red sidebar + blue area
+cargo test                # inside WSL
 ```
 
-## Limites (à traiter plus tard)
+## Limits (to be addressed later)
 
-- Sous-ensemble flexbox seulement (pas encore d'alignements, marges par côté).
-- Pas d'arbre de widgets par-dessus : la démo construit l'arbre à la main. Le
-  jalon widgets viendra s'appuyer sur cette couche.
+- A flexbox subset only (no alignment or per-side margins yet).
+- No widget tree on top: the demo builds the tree by hand. The widgets milestone
+  will come and build on this layer.

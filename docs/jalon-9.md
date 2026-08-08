@@ -1,62 +1,61 @@
-# Jalon 9 — Scroll vertical + clipping
+# Jalon 9 — Vertical scrolling + clipping
 
-Ajoute le découpage (clipping) et une zone défilable.
+Adds clipping and a scrollable area.
 
-## Ce qui est livré
+## What ships
 
-- **Clipping par primitive** : chaque `Primitive` porte un `clip: Rect` ;
-  `Scene::set_clip` fixe la découpe courante. Les rectangles sont découpés dans
-  le **fragment shader** (rejet hors clip) ; le texte via `TextArea.bounds` de
-  glyphon. Réutilisable partout (menus, cartes, viewports).
-- **`Scroll`** : conteneur à défilement vertical (viewport de taille fixe). Son
-  contenu est mis en page **à hauteur libre** (`Layout::compute_unbounded_height`)
-  puis découpé au viewport et translaté selon l'offset.
-- **Offset de scroll** : état runtime, **clé par `WidgetId`**, mis à jour à la
-  molette et borné à `[0, contenu − viewport]`.
-- **Pilote récursif** : `build_ui` porte un contexte `(translation, clip)` ;
-  `Ui::scroll_hit(point)` renvoie la zone défilable et son offset max.
+- **Per-primitive clipping**: each `Primitive` carries a `clip: Rect`;
+  `Scene::set_clip` sets the current clip. Rectangles are clipped in the
+  **fragment shader** (rejection outside the clip); text through glyphon's
+  `TextArea.bounds`. Reusable everywhere (menus, cards, viewports).
+- **`Scroll`**: a vertically scrolling container (fixed-size viewport). Its
+  content is laid out **at free height** (`Layout::compute_unbounded_height`),
+  then clipped to the viewport and translated by the offset.
+- **Scroll offset**: runtime state, **keyed by `WidgetId`**, updated by the wheel
+  and clamped to `[0, content − viewport]`.
+- **Recursive driver**: `build_ui` carries a `(translation, clip)` context;
+  `Ui::scroll_hit(point)` returns the scrollable area and its maximum offset.
 
 ## Architecture
 
 ```
-build_ui parcourt l'arbre avec un contexte { translation, clip } :
-  - widget normal : peint à (rect + translation), clip courant
-  - Scroll (feuille du layout principal) :
-        sous-layout du contenu à hauteur libre
+build_ui walks the tree with a { translation, clip } context:
+  - normal widget: paints at (rect + translation), current clip
+  - Scroll (a leaf of the main layout):
+        sub-layout of the content at free height
         translation += (0, −offset) ; clip = viewport
-        enregistre (id, viewport, hauteur_max) pour la molette
-Scene : chaque primitive porte son clip → GPU (shader / bounds glyphon)
+        records (id, viewport, max_height) for the wheel
+Scene: every primitive carries its clip → GPU (shader / glyphon bounds)
 ```
 
-Le contenu d'un `Scroll` est **exclu de la passe de layout principale** (le
-`Scroll` y est une feuille) et mis en page dans une passe dédiée à hauteur libre,
-ce qui évite que `flex-shrink` n'écrase un contenu plus grand que le viewport.
+A `Scroll`'s content is **excluded from the main layout pass** (the `Scroll` is a
+leaf there) and laid out in a dedicated pass at free height, which stops
+`flex-shrink` from crushing content taller than the viewport.
 
-## Décisions
+## Decisions
 
-- **Clip par primitive** (shader + bounds texte) plutôt que `set_scissor_rect` :
-  compatible avec notre dessin en un seul batch et avec le texte.
-- **Offset runtime clé par identité** (comme le focus) plutôt que dans l'état
-  applicatif : ce n'est pas de la donnée métier.
-- **Sous-layout à hauteur libre** pour obtenir la hauteur naturelle du contenu.
+- **Per-primitive clipping** (shader + text bounds) rather than
+  `set_scissor_rect`: compatible with our single-batch drawing and with text.
+- **Runtime offset keyed by identity** (like focus) rather than in the
+  application state: it is not business data.
+- **A sub-layout at free height** to obtain the content's natural height.
 
-## Démo
+## Demo
 
-Une **liste défilante** d'éléments (plus haute que son viewport) : la molette la
-fait défiler, les éléments sont **découpés** aux bords ; le bouton ajoute des
-éléments à la liste.
+A **scrolling list** of items (taller than its viewport): the wheel scrolls it,
+the items are **clipped** at the edges; the button adds items to the list.
 
 ## Tests
 
-- `frus-core` : `set_clip` attache le bon clip aux primitives.
-- `frus-gpu` : rendu offscreen — un rect dont le `clip` exclut le centre laisse
-  le centre au fond (le shader découpe).
-- `frus-widgets` : le contenu d'un `Scroll` est translaté de l'offset (y attendu)
-  et son clip = viewport ; l'offset max = contenu − viewport.
+- `frus-core`: `set_clip` attaches the right clip to the primitives.
+- `frus-gpu`: offscreen rendering — a rect whose `clip` excludes the centre
+  leaves the centre showing the background (the shader clips).
+- `frus-widgets`: a `Scroll`'s content is translated by the offset (expected y)
+  and its clip = the viewport; max offset = content − viewport.
 
-## Limites (prochains jalons)
+## Limits (next milestones)
 
-- **Vertical seulement**, pas de barre de défilement visible, pas d'inertie.
-- Clip **rectangulaire** (pas d'arrondi de clip).
-- Le contenu est entièrement peint puis découpé au GPU (pas de culling des
-  éléments hors-champ).
+- **Vertical only**, no visible scrollbar, no inertia.
+- **Rectangular** clip (no rounded clipping).
+- The content is painted in full and then clipped on the GPU (no culling of
+  off-screen items).

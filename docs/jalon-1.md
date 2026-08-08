@@ -1,21 +1,20 @@
-# Jalon 1 — Moteur de rendu 2D minimal (primitives)
+# Jalon 1 — Minimal 2D renderer (primitives)
 
-Transforme le renderer du Jalon 0 (un quad codé en dur) en une **API de
-primitives** : on décrit une [`Scene`] de rectangles colorés, le GPU la dessine.
+Turns the Jalon 0 renderer (a hard-coded quad) into a **primitives API**: you
+describe a [`Scene`] of coloured rectangles, and the GPU draws it.
 
-## Ce qui est livré
+## What ships
 
-- **API de dessin** dans `frus-gpu` : `Color`, `Rect`, `Scene::fill_rect`,
+- **Drawing API** in `frus-gpu`: `Color`, `Rect`, `Scene::fill_rect`,
   `Renderer::render(&Scene)`.
-- **Système de coordonnées** en pixels logiques, origine haut-gauche, Y vers le
-  bas (comme CSS/Flutter). Conversion vers NDC faite dans le shader via un
-  uniform `viewport`.
-- **Rendu instancié** : un quad unité répété pour chaque rectangle, données
-  d'instance `{rect, color}` dans un buffer qui grandit au besoin.
-- **Alpha-blending** activé.
-- **Test de rendu headless** : rend un rectangle rouge dans une texture
-  offscreen et vérifie le pixel central — preuve automatique du rendu, sans
-  fenêtre.
+- **Coordinate system** in logical pixels, origin top-left, Y downwards (the
+  usual convention for UI and for CSS). Conversion to NDC happens in the shader
+  through a `viewport` uniform.
+- **Instanced rendering**: one unit quad repeated for each rectangle, with
+  `{rect, color}` instance data in a buffer that grows on demand.
+- **Alpha blending** enabled.
+- **Headless render test**: renders a red rectangle into an offscreen texture
+  and checks the centre pixel — automatic proof of rendering, with no window.
 
 ## Architecture
 
@@ -28,47 +27,48 @@ Scene (CPU: Vec<Instance{rect, color}>)
  viewport uniform ┘        pos_px = rect.xy + quad * rect.wh
                             clip   = pixel_to_ndc(pos_px, viewport)
                             ▼
-                         N rectangles à l'écran
+                         N rectangles on screen
 ```
 
-Découpage des modules `frus-gpu` :
+How the `frus-gpu` modules are split:
 
-| Module | Rôle |
+| Module | Role |
 |---|---|
-| `color` | `Color` RGBA |
-| `geometry` | `Rect` (pixels logiques) |
-| `scene` | `Scene` + `Instance` (données GPU) |
-| `painter` | pipeline + buffers, **indépendant de toute surface** (donc testable headless) |
-| `renderer` | lie une surface (fenêtre) au `Painter`, présente les frames |
+| `color` | RGBA `Color` |
+| `geometry` | `Rect` (logical pixels) |
+| `scene` | `Scene` + `Instance` (GPU data) |
+| `painter` | pipeline + buffers, **independent of any surface** (hence testable headless) |
+| `renderer` | binds a surface (window) to the `Painter`, presents the frames |
 
-Le `Painter` étant indépendant de la surface, le même chemin de rendu sert à la
-fois pour la fenêtre et pour le test offscreen.
+Because the `Painter` is independent of the surface, the same render path serves
+both the window and the offscreen test.
 
-## Décisions
+## Decisions
 
-- **Rendu instancié** plutôt que tessellation : optimal pour des rectangles,
-  simple. La tessellation (formes complexes, courbes) viendra plus tard.
-- **Coordonnées pixels** dès maintenant : prérequis du futur moteur de layout.
-- **Uniform buffer** pour le viewport (portable) plutôt que push constants (non
-  garanties en downlevel/Web).
-- **Buffer d'instances à capacité croissante** (`next_power_of_two`) : évite les
-  réallocations quand la scène est stable.
+- **Instanced rendering** rather than tessellation: optimal for rectangles, and
+  simple. Tessellation (complex shapes, curves) comes later.
+- **Pixel coordinates** from the start: a prerequisite of the future layout
+  engine.
+- **Uniform buffer** for the viewport (portable) rather than push constants (not
+  guaranteed downlevel or on the Web).
+- **Instance buffer with growing capacity** (`next_power_of_two`): avoids
+  reallocations when the scene is stable.
 
-## Lancer / tester
+## Running / testing
 
 ```sh
-# Fenêtre de démo (3 rectangles) :
+# Demo window (3 rectangles):
 bash scripts/wsl-run.sh
 
-# Tests (dont le rendu offscreen) :
-#   dans WSL, à la racine :
+# Tests (including the offscreen rendering):
+#   inside WSL, at the root:
 cargo test
 ```
 
-## Limites connues (à traiter plus tard)
+## Known limits (to be addressed later)
 
-- Pas encore de coins arrondis, bordures, ni z-order explicite (ordre = ordre
-  d'insertion).
-- Couleurs transmises telles quelles (gestion sRGB/linéaire remise à un jalon
-  colorimétrie).
-- Un seul type de primitive (`fill_rect`).
+- No rounded corners, borders, or explicit z-order yet (order = insertion
+  order).
+- Colours passed through as-is (sRGB/linear handling deferred to a colour
+  milestone).
+- A single primitive type (`fill_rect`).
