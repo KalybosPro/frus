@@ -1,8 +1,8 @@
-//! [`TextInput`] : un champ de saisie mono-ligne, **contrôlé** (sa valeur vient
-//! de l'état applicatif), avec curseur, navigation et sélection.
+//! [`TextInput`]: a single-line input field, **controlled** (its value comes from
+//! the application state), with a caret, navigation and selection.
 //!
-//! La valeur est contrôlée ; le **curseur / la sélection** sont un état d'édition
-//! retenu au runtime ([`Edit`]), clé par identité de widget.
+//! The value is controlled; the **caret / selection** are edit state retained at
+//! runtime ([`Edit`]), keyed by widget identity.
 
 use frus_core::{FontWeight, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
@@ -17,25 +17,24 @@ use crate::widget::Widget;
 const PAD_X: f32 = 8.0;
 const PAD_Y: f32 = 6.0;
 
-/// Taille de police du label (au-dessus du champ) et du texte d'aide/erreur (en
-/// dessous) — la typographie « annexe » de la décoration.
+/// Font size of the label (above the field) and of the helper/error text (below)
+/// — the decoration's "secondary" typography.
 const LABEL_SIZE: f32 = 13.0;
 const SUB_SIZE: f32 = 12.0;
-/// Espace vertical entre le label, la boîte de saisie et la ligne d'aide/erreur.
+/// Vertical gap between the label, the input box and the helper/error line.
 const DECO_GAP: f32 = 4.0;
-/// Marge autour du label flottant dans l'**encoche** de la bordure (mode `outlined`).
+/// Margin around the floating label inside the border's **notch** (`outlined` mode).
 const NOTCH_GAP: f32 = 4.0;
 
-/// Côté d'une icône préfixe/suffixe (px logiques) et marge autour d'elle.
+/// Side of a prefix/suffix icon (logical px) and the margin around it.
 const ICON_SIZE: f32 = 20.0;
 const ICON_PAD: f32 = 6.0;
-/// Caractère de masquage par défaut d'un champ mot de passe.
+/// Default masking character of a password field.
 const OBSCURE_CHAR: char = '•';
 
-/// Un champ de saisie de texte sur une ligne, avec **décoration de formulaire**
-/// optionnelle (label, indice, texte d'aide, erreur) — le pendant frus de
-/// l'`InputDecoration` de Flutter. La **validité** reste décidée par l'application
-/// (fonction pure de l'état) ; le champ n'en affiche que le résultat via [`error`].
+/// A single-line text input field, with optional **form decoration** (label, hint,
+/// helper text, error). **Validity** stays decided by the application (a pure
+/// function of the state); the field only displays its result through [`error`].
 ///
 /// [`error`]: TextInput::error
 pub struct TextInput<Msg> {
@@ -44,43 +43,43 @@ pub struct TextInput<Msg> {
     width: Dimension,
     on_input: Option<Box<dyn Fn(String) -> Msg>>,
     on_submit: Option<Msg>,
-    /// Étiquette affichée au-dessus du champ.
+    /// Label displayed above the field.
     label: Option<String>,
-    /// Indice affiché **dans** le champ quand la valeur est vide (façon *hint*).
+    /// Hint displayed **inside** the field while the value is empty.
     placeholder: Option<String>,
-    /// Texte d'aide sous le champ (masqué quand une erreur est présente).
+    /// Helper text below the field (hidden when an error is present).
     helper: Option<String>,
-    /// Message d'erreur : quand présent, la bordure et le label passent en couleur
-    /// d'erreur et ce texte remplace l'aide sous le champ.
+    /// Error message: when present, the border and the label switch to the error
+    /// colour and this text replaces the helper below the field.
     error: Option<String>,
-    /// Masque la valeur (champ mot de passe) : chaque caractère est rendu par
-    /// [`OBSCURE_CHAR`]. L'édition porte sur la vraie valeur ; seul l'affichage change.
+    /// Masks the value (a password field): every character is rendered as
+    /// [`OBSCURE_CHAR`]. Editing acts on the real value; only the display changes.
     obscure: bool,
-    /// Icône décorative à gauche dans la boîte (façon `prefixIcon`).
+    /// Decorative icon on the left inside the box.
     prefix: Option<IconName>,
-    /// Icône décorative à droite dans la boîte (façon `suffixIcon`).
+    /// Decorative icon on the right inside the box.
     suffix: Option<IconName>,
-    /// Message émis au **clic sur l'icône suffixe** (bouton effacer / révéler…). Rend le
-    /// suffixe cliquable : le clic y émet ce message au lieu de placer le caret.
+    /// Message emitted on a **click on the suffix icon** (a clear / reveal button…). Makes
+    /// the suffix clickable: a click there emits this message instead of placing the caret.
     suffix_action: Option<Msg>,
-    /// Champ **multi-lignes** : Entrée insère un saut de ligne (au lieu de soumettre),
-    /// la boîte fait `rows` lignes de haut et défile verticalement pour suivre le caret.
+    /// **Multi-line** field: Enter inserts a line break (instead of submitting), the box
+    /// is `rows` lines tall and scrolls vertically to follow the caret.
     multiline: bool,
-    /// Nombre de lignes visibles en mode multi-lignes.
+    /// Number of visible lines in multi-line mode.
     rows: u16,
-    /// Style **contour** (façon `OutlineInputBorder`) : le label flottant se pose **sur**
-    /// la bordure du haut, qui s'ouvre d'une **encoche** derrière lui. Sinon (défaut), le
-    /// label flotte dans un bandeau réservé au-dessus de la boîte.
+    /// **Outlined** style: the floating label sits **on** the top border, which opens a
+    /// **notch** behind it. Otherwise (the default), the label floats in a band reserved
+    /// above the box.
     outlined: bool,
 }
 
-/// Un caractère « de mot » (lettre/chiffre/`_`) pour le saut de mot (Ctrl+Flèche).
+/// A "word" character (letter/digit/`_`) for word jumps (Ctrl+Arrow).
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// Prochaine frontière de mot **à gauche** de `cursor` : saute les séparateurs, puis
-/// le mot (comportement d'éditeur — on s'arrête au **début** du mot précédent).
+/// Next word boundary **to the left** of `cursor`: skips the separators, then the word
+/// (editor behaviour — it stops at the **start** of the previous word).
 fn word_boundary_left(chars: &[char], cursor: usize) -> usize {
     let mut i = cursor;
     while i > 0 && !is_word(chars[i - 1]) {
@@ -92,8 +91,8 @@ fn word_boundary_left(chars: &[char], cursor: usize) -> usize {
     i
 }
 
-/// Prochaine frontière de mot **à droite** : saute les séparateurs, puis le mot — on
-/// s'arrête **après** le mot suivant.
+/// Next word boundary **to the right**: skips the separators, then the word — it stops
+/// **after** the next word.
 fn word_boundary_right(chars: &[char], cursor: usize) -> usize {
     let len = chars.len();
     let mut i = cursor;
@@ -106,7 +105,7 @@ fn word_boundary_right(chars: &[char], cursor: usize) -> usize {
     i
 }
 
-/// Début de la **ligne logique** (après le `\n` précédent, ou 0) contenant `cursor`.
+/// Start of the **logical line** (after the previous `\n`, or 0) containing `cursor`.
 fn line_start(chars: &[char], cursor: usize) -> usize {
     let mut i = cursor;
     while i > 0 && chars[i - 1] != '\n' {
@@ -115,7 +114,7 @@ fn line_start(chars: &[char], cursor: usize) -> usize {
     i
 }
 
-/// Fin de la **ligne logique** (avant le `\n` suivant, ou fin) contenant `cursor`.
+/// End of the **logical line** (before the next `\n`, or the end) containing `cursor`.
 fn line_end(chars: &[char], cursor: usize) -> usize {
     let len = chars.len();
     let mut i = cursor;
@@ -125,7 +124,7 @@ fn line_end(chars: &[char], cursor: usize) -> usize {
     i
 }
 
-/// Déplace le curseur vers `target`, en gérant l'ancre de sélection selon Shift.
+/// Moves the caret to `target`, handling the selection anchor according to Shift.
 fn move_cursor(cursor: &mut usize, anchor: &mut Option<usize>, target: usize, shift: bool) {
     if shift {
         if anchor.is_none() {
@@ -138,7 +137,7 @@ fn move_cursor(cursor: &mut usize, anchor: &mut Option<usize>, target: usize, sh
 }
 
 impl<Msg> TextInput<Msg> {
-    /// Crée un champ affichant `value`.
+    /// Creates a field displaying `value`.
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
@@ -160,21 +159,21 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// Style **contour** : le label flottant se pose sur la bordure du haut, ouverte
-    /// d'une encoche derrière lui (façon `OutlineInputBorder` de Material).
+    /// **Outlined** style: the floating label sits on the top border, which opens a
+    /// notch behind it.
     pub fn outlined(mut self) -> Self {
         self.outlined = true;
         self
     }
 
-    /// Passe le champ en **multi-lignes** : Entrée insère un saut de ligne (au lieu de
-    /// soumettre), et la boîte affiche `rows` lignes (voir [`rows`](Self::rows)).
+    /// Switches the field to **multi-line**: Enter inserts a line break (instead of
+    /// submitting), and the box shows `rows` lines (see [`rows`](Self::rows)).
     pub fn multiline(mut self) -> Self {
         self.multiline = true;
         self
     }
 
-    /// Nombre de lignes visibles en mode multi-lignes (au moins 1). Implique
+    /// Number of visible lines in multi-line mode (at least 1). Implies
     /// [`multiline`](Self::multiline).
     pub fn rows(mut self, rows: u16) -> Self {
         self.multiline = true;
@@ -182,35 +181,35 @@ impl<Msg> TextInput<Msg> {
         self
     }
 
-    /// Masque la valeur (champ mot de passe) : chaque caractère devient un point.
-    /// L'édition reste normale ; seul l'affichage est masqué.
+    /// Masks the value (a password field): every character becomes a dot. Editing
+    /// stays normal; only the display is masked.
     pub fn obscure(mut self, obscure: bool) -> Self {
         self.obscure = obscure;
         self
     }
 
-    /// Icône décorative à gauche dans le champ (`prefixIcon`).
+    /// Decorative icon on the left inside the field.
     pub fn prefix_icon(mut self, icon: IconName) -> Self {
         self.prefix = Some(icon);
         self
     }
 
-    /// Icône décorative à droite dans le champ (`suffixIcon`).
+    /// Decorative icon on the right inside the field.
     pub fn suffix_icon(mut self, icon: IconName) -> Self {
         self.suffix = Some(icon);
         self
     }
 
-    /// Rend l'icône **suffixe cliquable** : un clic dessus émet `message` (bouton effacer,
-    /// révéler un mot de passe…) au lieu de placer le caret. Implique une icône suffixe
-    /// (à définir via [`suffix_icon`](Self::suffix_icon)).
+    /// Makes the **suffix icon clickable**: a click on it emits `message` (a clear button,
+    /// a reveal-password button…) instead of placing the caret. Implies a suffix icon
+    /// (to be set through [`suffix_icon`](Self::suffix_icon)).
     pub fn on_suffix(mut self, message: Msg) -> Self {
         self.suffix_action = Some(message);
         self
     }
 
-    /// Le point local `(x, y)` tombe-t-il sur la **zone cliquable du suffixe** (à droite de la
-    /// boîte de saisie) ? Sert à la fois à router le clic et à ne pas y placer le caret.
+    /// Does the local point `(x, y)` land on the **suffix's clickable zone** (on the right of
+    /// the input box)? Used both to route the click and to keep the caret out of it.
     fn suffix_hit(&self, local_x: f32, local_y: f32, width: f32) -> bool {
         if self.suffix.is_none() {
             return false;
@@ -221,58 +220,58 @@ impl<Msg> TextInput<Msg> {
         local_x >= zone_left && local_y >= top && local_y <= bottom
     }
 
-    /// Étiquette affichée au-dessus du champ.
+    /// Label displayed above the field.
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
     }
 
-    /// Indice affiché dans le champ tant qu'il est vide.
+    /// Hint displayed inside the field while it is empty.
     pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = Some(placeholder.into());
         self
     }
 
-    /// Texte d'aide sous le champ (remplacé par l'erreur, si présente).
+    /// Helper text below the field (replaced by the error, if present).
     pub fn helper(mut self, helper: impl Into<String>) -> Self {
         self.helper = Some(helper.into());
         self
     }
 
-    /// Marque le champ **en erreur** : bordure et label rouges, `message` affiché
-    /// sous le champ. À ne chaîner que lorsque la validation applicative échoue.
+    /// Marks the field **in error**: red border and label, `message` displayed below
+    /// the field. Chain it only when the application's validation fails.
     pub fn error(mut self, message: impl Into<String>) -> Self {
         self.error = Some(message.into());
         self
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la taille de police, en pixels.
+    /// Sets the font size, in pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
     }
 
-    /// Closure produisant un message depuis la nouvelle valeur du champ.
+    /// Closure producing a message from the field's new value.
     pub fn on_input(mut self, on_input: impl Fn(String) -> Msg + 'static) -> Self {
         self.on_input = Some(Box::new(on_input));
         self
     }
 
-    /// Message émis à la validation (touche Entrée), sans modifier la valeur.
+    /// Message emitted on submission (the Enter key), without changing the value.
     pub fn on_submit(mut self, message: Msg) -> Self {
         self.on_submit = Some(message);
         self
     }
 
-    /// La chaîne **affichée** : masquée (un point par caractère) pour un champ mot
-    /// de passe, la valeur telle quelle sinon. Même nombre de caractères que la
-    /// valeur → le caret et le hit-test restent alignés index pour index.
+    /// The **displayed** string: masked (one dot per character) for a password field,
+    /// the value as is otherwise. Same character count as the value → the caret and
+    /// the hit-test stay aligned index for index.
     fn display(&self) -> String {
         if self.obscure {
             OBSCURE_CHAR.to_string().repeat(self.value.chars().count())
@@ -281,9 +280,9 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// La chaîne **affichée** shapée une fois : caret par index, hit-test, sélection
-    /// — géométrie cohérente (kerning). `wrap_width` = largeur de repli doux
-    /// (multi-lignes) ou `None` (mono-ligne : seuls les `\n` explicites coupent).
+    /// The **displayed** string shaped once: caret by index, hit-test, selection — one
+    /// consistent geometry (kerning). `wrap_width` = the soft-wrap width (multi-line) or
+    /// `None` (single-line: only explicit `\n` break).
     fn layout(&self, wrap_width: Option<f32>) -> TextLayout {
         TextLayout::wrapped(
             &self.display(),
@@ -294,7 +293,7 @@ impl<Msg> TextInput<Msg> {
         )
     }
 
-    /// Largeur réservée à l'icône de préfixe (0 si aucune).
+    /// Width reserved for the prefix icon (0 if there is none).
     fn prefix_w(&self) -> f32 {
         if self.prefix.is_some() {
             ICON_SIZE + ICON_PAD
@@ -303,7 +302,7 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// Largeur réservée à l'icône de suffixe (0 si aucune).
+    /// Width reserved for the suffix icon (0 if there is none).
     fn suffix_w(&self) -> f32 {
         if self.suffix.is_some() {
             ICON_SIZE + ICON_PAD
@@ -312,14 +311,14 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// Largeur du texte (entre padding et icônes) pour une largeur de widget donnée.
+    /// Text width (between the padding and the icons) for a given widget width.
     fn content_width(&self, width: f32) -> f32 {
         (width - (PAD_X + self.prefix_w()) - PAD_X - self.suffix_w()).max(0.0)
     }
 
-    /// Hauteur réservée au label au-dessus de la boîte (0 si aucun label). En mode
-    /// `outlined`, le label flottant chevauche la bordure du haut : il ne faut réserver
-    /// que sa **moitié haute** (le reste mord sur la boîte), au lieu d'un bandeau plein.
+    /// Height reserved for the label above the box (0 if there is no label). In
+    /// `outlined` mode the floating label straddles the top border: only its **upper
+    /// half** must be reserved (the rest bites into the box), instead of a full band.
     fn label_block(&self) -> f32 {
         if self.label.is_some() {
             if self.outlined {
@@ -332,7 +331,7 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// Hauteur réservée à la ligne d'aide/erreur sous la boîte (0 si aucune).
+    /// Height reserved for the helper/error line below the box (0 if there is none).
     fn sub_block(&self) -> f32 {
         if self.error.is_some() || self.helper.is_some() {
             frus_text::line_height(SUB_SIZE) + DECO_GAP
@@ -341,8 +340,8 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
-    /// Hauteur de la boîte de saisie elle-même (hors décoration) : une ligne en
-    /// simple, `rows` lignes en multi-lignes.
+    /// Height of the input box itself (decoration excluded): one line in single-line
+    /// mode, `rows` lines in multi-line mode.
     fn field_height(&self) -> f32 {
         let lines = if self.multiline {
             self.rows.max(1) as f32
@@ -372,8 +371,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let has_error = self.error.is_some();
         let fp = status.focus_progress.clamp(0.0, 1.0);
 
-        // Décoration : label au-dessus, boîte de saisie au milieu, aide/erreur
-        // en dessous. La boîte est le sous-rectangle où vit toute l'édition.
+        // Decoration: label above, input box in the middle, helper/error below. The
+        // box is the sub-rectangle where all the editing lives.
         let label_block = self.label_block();
         let field = Rect::new(
             bounds.x,
@@ -382,16 +381,16 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             self.field_height(),
         );
 
-        // Label **flottant** (façon Material) : au repos (champ vide et non focalisé)
-        // il occupe la boîte, à la place de l'indice ; focalisé OU rempli, il flotte
-        // au-dessus, réduit. La progression de position/taille suit ce « flottement »
-        // (`t`) ; la **couleur** suit la focalisation (`fp`) — un champ rempli mais non
-        // focalisé garde un label discret, pas encore accentué.
+        // **Floating** label: at rest (an empty, unfocused field) it occupies the box,
+        // in the hint's place; focused OR filled, it floats above, shrunk. The
+        // position/size progress follows that "floating" (`t`); the **colour** follows
+        // the focus (`fp`) — a filled but unfocused field keeps a discreet label, not
+        // yet accented.
         let float_t = if self.value.is_empty() { fp } else { 1.0 };
         let content_left = field.x + PAD_X + self.prefix_w();
-        // Géométrie du label flottant, interpolée entre le **repos** (dans la boîte, à la
-        // place de l'indice) et la **cible flottée**. Cette cible diffère selon le style :
-        // `outlined` → sur la bordure du haut (avec encoche) ; sinon → bandeau réservé.
+        // Geometry of the floating label, interpolated between **rest** (inside the box,
+        // in the hint's place) and the **floated target**. That target differs with the
+        // style: `outlined` → on the top border (with a notch); otherwise → a reserved band.
         let label_geom = self.label.as_ref().map(|label| {
             let rest = Point::new(content_left, field.y + PAD_Y);
             let (fx, fy) = if self.outlined {
@@ -412,15 +411,15 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             };
             (label.clone(), x, y, size, color)
         });
-        // Bandeau : le label est peint **avant** la bordure (il vit au-dessus d'elle).
-        // Contour : il est peint **après** la bordure (il se pose dessus, dans l'encoche).
+        // Band: the label is painted **before** the border (it lives above it).
+        // Outlined: it is painted **after** the border (it sits on it, in the notch).
         if !self.outlined {
             if let Some((label, x, y, size, color)) = &label_geom {
                 scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
             }
         }
 
-        // Ligne d'aide/erreur sous la boîte (l'erreur prend le pas sur l'aide).
+        // Helper/error line below the box (the error takes precedence over the helper).
         let sub = self.error.as_ref().or(self.helper.as_ref());
         if let Some(sub) = sub {
             let color = if has_error { theme.error } else { theme.muted };
@@ -432,7 +431,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             );
         }
 
-        // Bordure animée selon la progression de focus (repos → focus), rouge en erreur.
+        // Border animated by the focus progress (rest → focus), red when in error.
         let border_color = if has_error {
             theme.error
         } else {
@@ -448,9 +447,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             border_color,
         );
 
-        // Contour : **encoche** du label. On masque le segment de bordure derrière le
-        // label flottant par un aplat couleur surface, puis on peint le label par-dessus.
-        // L'encoche ne s'ouvre qu'à mesure que le label monte (`float_t`).
+        // Outlined: the label's **notch**. The border segment behind the floating label
+        // is masked by a flat surface-coloured fill, then the label is painted on top.
+        // The notch only opens as the label rises (`float_t`).
         if self.outlined {
             if let Some((label, x, y, size, color)) = &label_geom {
                 if float_t > 0.01 {
@@ -467,7 +466,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             }
         }
 
-        // Icônes décoratives, centrées verticalement dans la boîte (couleur discrète).
+        // Decorative icons, vertically centred in the box (a discreet colour).
         let icon_color = theme.muted.fade(o);
         let icon_y = field.y + (field.height - ICON_SIZE) * 0.5;
         let icon_scale = ICON_SIZE / 24.0;
@@ -480,8 +479,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
         if let Some(suffix) = self.suffix {
             let x = field.x + field.width - ICON_SIZE - ICON_PAD;
-            // Surbrillance (jalon 208) : halo discret derrière le suffixe **cliquable** quand le
-            // pointeur le survole (position absolue ramenee en local via `bounds`). Purement visuel.
+            // Highlight (milestone 208): a discreet halo behind the **clickable** suffix when
+            // the pointer hovers it (the absolute position is brought back to local through
+            // `bounds`). Purely visual.
             if self.suffix_action.is_some() {
                 if let Some(hc) = status.hover_cursor {
                     if self.suffix_hit(hc.x - bounds.x, hc.y - bounds.y, bounds.width) {
@@ -502,13 +502,13 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
 
         let len = self.value.chars().count();
-        // Le contenu est inséré entre les icônes de préfixe/suffixe (le cas échéant).
+        // The content is inset between the prefix/suffix icons, where there are any.
         let left = PAD_X + self.prefix_w();
         let content_x = field.x + left;
         let content_w = self.content_width(field.width);
         let text_y = field.y + PAD_Y;
-        // Multi-lignes : le texte se **replie** à la largeur de contenu — même
-        // `max_width` pour la mesure (caret/hit) et pour le rendu → replis identiques.
+        // Multi-line: the text **wraps** at the content width — the same `max_width` for
+        // the measure (caret/hit) and for the render → identical wraps.
         let wrap = if self.multiline {
             Some(content_w)
         } else {
@@ -516,9 +516,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         };
         let layout = self.layout(wrap);
 
-        // Indice (placeholder) : affiché quand le champ est vide. S'il y a aussi un
-        // label, l'indice ne se révèle (en fondu) que lorsque le label a flotté —
-        // sinon les deux se chevaucheraient dans la boîte.
+        // Hint (placeholder): displayed when the field is empty. If there is a label as
+        // well, the hint only reveals itself (fading in) once the label has floated —
+        // otherwise the two would overlap inside the box.
         if self.value.is_empty() {
             if let Some(placeholder) = &self.placeholder {
                 let ph_alpha = if self.label.is_some() { o * fp } else { o };
@@ -533,8 +533,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             }
         }
 
-        // Défilement pour garder le caret visible : horizontal (toujours) et vertical
-        // (multi-lignes). Recalculé depuis le curseur, comme au clic (`cursor_at`).
+        // Scrolling to keep the caret visible: horizontal (always) and vertical
+        // (multi-line). Recomputed from the cursor, as on click (`cursor_at`).
         let cursor = status.cursor.unwrap_or(len).min(len);
         let caret = layout.caret_rect(cursor);
         let scroll = if status.focused {
@@ -543,25 +543,25 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             0.0
         };
         let text_x = content_x - scroll;
-        // Défilement vertical **retenu** (molette/barre, suivi du caret par le shell) ;
-        // borné au dépassement du contenu sur la boîte.
+        // **Retained** vertical scroll (wheel/scrollbar, caret-following by the shell);
+        // clamped to how far the content overflows the box.
         let vscroll = if self.multiline {
             let overflow = (layout.size().height - (field.height - PAD_Y * 2.0)).max(0.0);
             status.scroll_y.clamp(0.0, overflow)
         } else {
             0.0
         };
-        // Origine verticale du contenu (décalée par le défilement multi-lignes).
+        // Vertical origin of the content (offset by the multi-line scroll).
         let text_top = text_y - vscroll;
 
-        // Découpe au cadre de contenu (sinon le texte déborde sur les voisins).
+        // Clipped to the content frame (otherwise the text overflows onto its neighbours).
         let content_clip =
             scene
                 .current_clip()
                 .intersect(Rect::new(content_x, field.y, content_w, field.height));
         scene.set_clip(content_clip);
 
-        // Surbrillance de sélection (sous le texte).
+        // Selection highlight (below the text).
         if status.focused {
             if let Some((start, end)) = status.selection {
                 for r in layout.selection_rects(start.min(len), end.min(len)) {
@@ -577,7 +577,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             let pos = Point::new(text_x, text_top);
             let color = theme.on_surface.fade(o);
             match wrap {
-                // Multi-lignes : le rendu se replie comme la mesure.
+                // Multi-line: the render wraps just as the measure did.
                 Some(max_w) => scene.text_wrapped(
                     pos,
                     self.display(),
@@ -589,8 +589,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             }
         }
 
-        // Région de **composition** IME : soulignée (texte provisoire, façon
-        // Material/Flutter). Dessinée par-dessus le texte, sous la ligne de base.
+        // The IME **composition** region: underlined (provisional text). Drawn over the
+        // text, below the baseline.
         if status.focused {
             if let Some((start, end)) = status.composing {
                 let (start, end) = (start.min(len), end.min(len));
@@ -637,7 +637,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         width: f32,
         _height: f32,
     ) -> Option<crate::interaction::Cursor> {
-        // Main sur l'icône suffixe **active** (effacer / révéler) ; ailleurs, pas d'avis.
+        // A hand over the **active** suffix icon (clear / reveal); elsewhere, no opinion.
         if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
             Some(crate::interaction::Cursor::Pointer)
         } else {
@@ -708,8 +708,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 };
                 move_cursor(&mut cursor, &mut anchor, target, *shift);
             }
-            // Ctrl (`doc`) : bornes du champ entier ; sinon bornes de la ligne logique
-            // (identiques en champ mono-ligne).
+            // Ctrl (`doc`): the bounds of the whole field; otherwise the bounds of the
+            // logical line (identical in a single-line field).
             Key::Home { shift, doc } => {
                 let target = if *doc { 0 } else { line_start(&chars, cursor) };
                 move_cursor(&mut cursor, &mut anchor, target, *shift);
@@ -718,10 +718,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 let target = if *doc { len } else { line_end(&chars, cursor) };
                 move_cursor(&mut cursor, &mut anchor, target, *shift);
             }
-            // Échap ne concerne pas l'édition (routé feuille→racine par le shell).
+            // Escape is none of editing's business (routed leaf→root by the shell).
             Key::Escape => {}
             Key::Enter if self.multiline => {
-                // Multi-lignes : Entrée **insère un saut de ligne** (pas de soumission).
+                // Multi-line: Enter **inserts a line break** (no submission).
                 if let Some((s, e)) = selection {
                     chars.drain(s..e);
                     cursor = s;
@@ -732,7 +732,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 changed = true;
             }
             Key::Enter => {
-                // Simple : Entrée valide — n'altère pas la valeur, émet la soumission.
+                // Single-line: Enter submits — it does not alter the value, it emits the submission.
                 edit.cursor = cursor;
                 edit.anchor = anchor;
                 return self.on_submit.clone();
@@ -757,14 +757,14 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         width: f32,
         scroll_cursor: usize,
     ) -> Option<usize> {
-        // Clic sur l'icône **suffixe cliquable** : ne pas placer de caret (le shell émettra
-        // son message via `positional_click`).
+        // A click on the **clickable suffix icon**: do not place a caret (the shell will
+        // emit its message through `positional_click`).
         if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
             return None;
         }
-        // Recompose la même géométrie de contenu que le rendu (insets d'icônes et de
-        // décoration, repli, défilement horizontal), pour un clic exact. Le
-        // **défilement vertical retenu** est déjà intégré à `local_y` par le shell.
+        // Rebuilds the same content geometry as the render (icon and decoration insets,
+        // wrapping, horizontal scroll), for an exact click. The **retained vertical
+        // scroll** is already folded into `local_y` by the shell.
         let left = PAD_X + self.prefix_w();
         let content_w = self.content_width(width);
         let layout = self.layout(if self.multiline {
@@ -773,8 +773,8 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             None
         });
         let scroll = (layout.caret_rect(scroll_cursor).x - content_w).max(0.0);
-        // `local_*` sont relatifs au coin haut-gauche du **widget** (label compris) :
-        // on retire la bande du label et le padding pour tomber dans le texte.
+        // `local_*` are relative to the **widget's** top-left corner (label included):
+        // the label band and the padding are removed to land inside the text.
         let target_x = local_x - left + scroll;
         let target_y = local_y - self.label_block() - PAD_Y;
         Some(layout.hit_test(Point::new(target_x, target_y)))
@@ -794,7 +794,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         if !self.multiline {
             return None;
         }
-        // La boîte de saisie : sous le label, de la hauteur des `rows`.
+        // The input box: below the label, as tall as the `rows`.
         Some(Rect::new(
             rect.x,
             rect.y + self.label_block(),
@@ -817,9 +817,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let layout = self.layout(Some(self.content_width(width)));
         let caret = layout.caret_rect(cursor);
         let line_h = caret.height;
-        // Colonne visée : la cible mémorisée, sinon la colonne courante.
+        // Wanted column: the remembered target, otherwise the current column.
         let x = goal_x.unwrap_or(caret.x);
-        // Pas d'une ligne, ou d'une page (hauteur visible du champ, au moins 1 ligne).
+        // A step of one line, or of one page (the field's visible height, at least 1 line).
         let step = if page {
             (self.field_height() - PAD_Y * 2.0).max(line_h)
         } else {
@@ -829,11 +829,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let target_y = if down { center + step } else { center - step };
         let full = layout.size().height;
         if page {
-            // Page : on borne au champ (on n'en sort pas).
+            // Page: clamped to the field (it is never left).
             let clamped = target_y.clamp(0.0, (full - line_h * 0.5).max(0.0));
             Some((layout.hit_test(Point::new(x, clamped)), x))
         } else {
-            // Ligne : déjà à la première/dernière → le shell navigue le focus.
+            // Line: already on the first/last one → the shell moves the focus.
             if target_y < 0.0 || target_y >= full {
                 return None;
             }
@@ -847,7 +847,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
         let mut s = frus_core::Semantics::new(frus_core::Role::TextInput).value(self.value.clone());
-        // Le label annonce le champ ; une erreur s'y ajoute pour être lue.
+        // The label names the field; an error is appended to it so it gets read out.
         let label = match (&self.label, &self.error) {
             (Some(l), Some(e)) => Some(format!("{l}, {e}")),
             (Some(l), None) => Some(l.clone()),
@@ -920,8 +920,8 @@ mod tests {
 
     #[test]
     fn text_is_clipped_to_content_box() {
-        // Un texte plus long que le champ doit être découpé à sa largeur de contenu
-        // (sinon il déborde sur les widgets voisins).
+        // Text longer than the field must be clipped to its content width (otherwise it
+        // overflows onto the neighbouring widgets).
         let inp = input("a very long value that overflows the field width").width(100.0);
         let mut scene = Scene::new();
         Widget::<Msg>::paint(
@@ -938,17 +938,17 @@ mod tests {
                 frus_core::Primitive::Text { clip, .. } => Some(*clip),
                 _ => None,
             })
-            .expect("primitive de texte");
+            .expect("text primitive");
         assert!(
             (clip.width - (100.0 - PAD_X * 2.0)).abs() < 0.5,
-            "découpe = {clip:?}"
+            "clip = {clip:?}"
         );
     }
 
     #[test]
     fn composing_region_draws_an_underline() {
-        // La région composée ajoute des rectangles fins (soulignement) sous le
-        // texte, absents quand aucune composition n'est en cours.
+        // The composed region adds thin rectangles (the underline) below the text,
+        // absent when no composition is in progress.
         let inp = input("konnichiwa");
         let base = Status {
             focused: true,
@@ -985,27 +985,27 @@ mod tests {
 
     #[test]
     fn text_value_exposes_the_field_content() {
-        // Le contexte de saisie (suggestions IME) lit la valeur du champ.
+        // The input context (IME suggestions) reads the field's value.
         let inp = input("hello");
         assert_eq!(Widget::<Msg>::text_value(&inp), Some("hello"));
     }
 
     #[test]
     fn cursor_at_accounts_for_scroll() {
-        // Champ étroit + texte long → défilement quand le curseur est en fin.
+        // A narrow field + long text → scrolling once the caret is at the end.
         let inp = input("0123456789 abcdefghij");
-        // Sans défilement (curseur 0) : clic au bord gauche → index 0.
+        // Without scrolling (cursor 0): a click on the left edge → index 0.
         assert_eq!(
             Widget::<Msg>::cursor_at(&inp, PAD_X, PAD_Y, 80.0, 0),
             Some(0)
         );
-        // Défilé (curseur en fin) : clic à droite tombe sur un index plus grand
-        // qu'un clic à gauche (le décalage est bien pris en compte).
+        // Scrolled (caret at the end): a click on the right lands on a larger index than
+        // a click on the left (the offset is indeed taken into account).
         let end = inp.value.chars().count();
         let at_left = Widget::<Msg>::cursor_at(&inp, PAD_X, PAD_Y, 80.0, end).unwrap();
         let at_right = Widget::<Msg>::cursor_at(&inp, 76.0, PAD_Y, 80.0, end).unwrap();
-        assert!(at_left > 0, "défilé : le bord gauche n'est plus l'index 0");
-        assert!(at_right > at_left, "clic à droite → index plus grand");
+        assert!(at_left > 0, "scrolled: the left edge is no longer index 0");
+        assert!(at_right > at_left, "a click on the right → a larger index");
     }
 
     #[test]
@@ -1026,7 +1026,7 @@ mod tests {
     #[test]
     fn shift_arrow_selects_then_delete() {
         let inp = input("hello");
-        // Curseur en fin, Shift+Left deux fois -> sélectionne "lo".
+        // Caret at the end, Shift+Left twice -> selects "lo".
         let mut edit = Edit {
             cursor: 5,
             anchor: None,
@@ -1047,7 +1047,7 @@ mod tests {
             },
         );
         assert_eq!(edit.selection_range(), Some((3, 5)));
-        // Backspace supprime la sélection.
+        // Backspace deletes the selection.
         assert_eq!(
             inp.on_edit(&mut edit, &Key::Backspace),
             Some(Msg::Changed("hel".to_string()))
@@ -1085,7 +1085,7 @@ mod tests {
     #[test]
     fn ctrl_arrow_jumps_by_word() {
         let inp = input("foo bar baz");
-        // Depuis la fin, Ctrl+Left saute au début de "baz", puis "bar", puis "foo".
+        // From the end, Ctrl+Left jumps to the start of "baz", then "bar", then "foo".
         let mut edit = Edit {
             cursor: 11,
             anchor: None,
@@ -1098,7 +1098,7 @@ mod tests {
                 word: true,
             },
         );
-        assert_eq!(edit.cursor, 8, "début de \"baz\"");
+        assert_eq!(edit.cursor, 8, "start of \"baz\"");
         inp.on_edit(
             &mut edit,
             &Key::Left {
@@ -1106,8 +1106,8 @@ mod tests {
                 word: true,
             },
         );
-        assert_eq!(edit.cursor, 4, "début de \"bar\"");
-        // Ctrl+Right saute à la fin de "bar", puis "baz".
+        assert_eq!(edit.cursor, 4, "start of \"bar\"");
+        // Ctrl+Right jumps to the end of "bar", then "baz".
         inp.on_edit(
             &mut edit,
             &Key::Right {
@@ -1128,7 +1128,7 @@ mod tests {
 
     #[test]
     fn home_end_are_line_relative_but_ctrl_spans_the_field() {
-        // "ab\ncd\nef" : curseur au milieu de la 2e ligne (index 4, entre c et d).
+        // "ab\ncd\nef": caret in the middle of the 2nd line (index 4, between c and d).
         let inp = TextInput::<Msg>::new("ab\ncd\nef")
             .on_input(Msg::Changed)
             .rows(3);
@@ -1137,7 +1137,7 @@ mod tests {
             anchor: None,
             composing: None,
         };
-        // Home simple → début de la ligne courante (index 3), pas du champ.
+        // Plain Home → the start of the current line (index 3), not of the field.
         inp.on_edit(
             &mut edit,
             &Key::Home {
@@ -1145,8 +1145,8 @@ mod tests {
                 doc: false,
             },
         );
-        assert_eq!(edit.cursor, 3, "début de la 2e ligne");
-        // End simple → fin de la ligne courante (index 5).
+        assert_eq!(edit.cursor, 3, "start of the 2nd line");
+        // Plain End → the end of the current line (index 5).
         inp.on_edit(
             &mut edit,
             &Key::End {
@@ -1154,8 +1154,8 @@ mod tests {
                 doc: false,
             },
         );
-        assert_eq!(edit.cursor, 5, "fin de la 2e ligne");
-        // Ctrl+Home / Ctrl+End → bornes du champ entier.
+        assert_eq!(edit.cursor, 5, "end of the 2nd line");
+        // Ctrl+Home / Ctrl+End → the bounds of the whole field.
         inp.on_edit(
             &mut edit,
             &Key::Home {
@@ -1163,7 +1163,7 @@ mod tests {
                 doc: true,
             },
         );
-        assert_eq!(edit.cursor, 0, "début du champ");
+        assert_eq!(edit.cursor, 0, "start of the field");
         inp.on_edit(
             &mut edit,
             &Key::End {
@@ -1171,7 +1171,7 @@ mod tests {
                 doc: true,
             },
         );
-        assert_eq!(edit.cursor, 8, "fin du champ");
+        assert_eq!(edit.cursor, 8, "end of the field");
     }
 
     #[test]
@@ -1193,9 +1193,9 @@ mod tests {
             anchor: None,
             composing: None,
         };
-        // Entrée : émet la soumission, ne renvoie pas de changement de valeur.
+        // Enter: emits the submission, returns no value change.
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), Some(Msg::Submitted));
-        assert_eq!(edit.cursor, 3); // curseur inchangé
+        assert_eq!(edit.cursor, 3); // caret unchanged
     }
 
     #[test]
@@ -1211,8 +1211,8 @@ mod tests {
 
     #[test]
     fn obscure_masks_the_displayed_text_but_not_the_value() {
-        // Champ mot de passe : le rendu ne contient jamais la valeur en clair, mais
-        // des points ; la valeur réelle reste accessible (édition, IME).
+        // A password field: the render never contains the value in the clear, only dots;
+        // the real value stays reachable (editing, IME).
         let theme = Theme::default();
         let field = TextInput::<Msg>::new("secret").obscure(true);
         let mut scene = Scene::new();
@@ -1238,20 +1238,20 @@ mod tests {
             .collect();
         assert!(
             drawn.iter().all(|t| !t.contains("secret")),
-            "la valeur ne doit pas fuiter"
+            "the value must not leak"
         );
         assert!(
             drawn.iter().any(|t| t.chars().all(|c| c == '•')),
-            "des points sont dessinés"
+            "dots are drawn"
         );
-        // La vraie valeur reste exposée au contexte de saisie.
+        // The real value stays exposed to the input context.
         assert_eq!(Widget::<Msg>::text_value(&field), Some("secret"));
     }
 
     #[test]
     fn prefix_icon_draws_a_path_and_shifts_the_hit_test() {
-        // Une icône de préfixe dessine un chemin et décale le contenu vers la droite :
-        // un même clic tombe sur un index plus petit qu'en son absence.
+        // A prefix icon draws a path and offsets the content to the right: the same
+        // click lands on a smaller index than it would without one.
         let theme = Theme::default();
         let with_icon = input("hello world").prefix_icon(IconName::Star);
         let mut scene = Scene::new();
@@ -1267,20 +1267,20 @@ mod tests {
                 .primitives()
                 .iter()
                 .any(|p| matches!(p, frus_core::Primitive::Path { .. })),
-            "l'icône de préfixe dessine un chemin"
+            "the prefix icon draws a path"
         );
         let plain = input("hello world");
         let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, PAD_Y, 220.0, 0).unwrap();
         let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, PAD_Y, 220.0, 0).unwrap();
         assert!(
             at_icon < at_plain,
-            "le préfixe décale le contenu ({at_plain} → {at_icon})"
+            "the prefix offsets the content ({at_plain} → {at_icon})"
         );
     }
 
     #[test]
     fn multiline_enter_inserts_a_newline_instead_of_submitting() {
-        // En multi-lignes, Entrée insère « \n » (et n'émet pas la soumission).
+        // In multi-line mode, Enter inserts a "\n" (and emits no submission).
         let inp = TextInput::<Msg>::new("ab")
             .on_input(Msg::Changed)
             .multiline();
@@ -1294,7 +1294,7 @@ mod tests {
             Some(Msg::Changed("ab\n".to_string()))
         );
         assert_eq!(edit.cursor, 3);
-        // Simple ligne : Entrée soumet (comportement inchangé).
+        // Single line: Enter submits (unchanged behaviour).
         let single = input("ab").on_submit(Msg::Submitted);
         let mut edit = Edit {
             cursor: 2,
@@ -1306,10 +1306,10 @@ mod tests {
 
     #[test]
     fn multiline_wraps_long_lines_to_the_width() {
-        // Une longue ligne **sans** `\n` se replie sur plusieurs lignes visuelles :
-        // un clic bien plus bas que la 1re ligne place le curseur plus loin dans le
-        // texte (une ligne repliée sous la première), pas à l'index 0.
-        let long = "word ".repeat(30); // 150 caractères, aucune coupure explicite
+        // A long line **without** any `\n` wraps onto several visual lines: a click well
+        // below the 1st line places the caret further into the text (a wrapped line under
+        // the first one), not at index 0.
+        let long = "word ".repeat(30); // 150 characters, no explicit break
         let inp = TextInput::<Msg>::new(long.trim_end())
             .on_input(Msg::Changed)
             .rows(4)
@@ -1319,28 +1319,28 @@ mod tests {
         let wrapped =
             Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + line_h * 2.0 + 1.0, 160.0, 0)
                 .unwrap();
-        assert!(top < 10, "1re ligne : {top}");
+        assert!(top < 10, "1st line: {top}");
         assert!(
             wrapped > top,
-            "une ligne repliée plus bas → index plus loin ({top} → {wrapped})"
+            "a wrapped line further down → an index further on ({top} → {wrapped})"
         );
     }
 
     #[test]
     fn multiline_reports_overflow_and_scrolls_content() {
-        // Cinq lignes dans une boîte de deux : le contenu déborde…
+        // Five lines in a box of two: the content overflows…
         let inp = TextInput::<Msg>::new("l1\nl2\nl3\nl4\nl5")
             .on_input(Msg::Changed)
             .rows(2)
             .width(200.0);
         let (content_h, visible_h, _, _) =
-            Widget::<Msg>::text_metrics(&inp, 200.0, 0).expect("champ multi-lignes");
+            Widget::<Msg>::text_metrics(&inp, 200.0, 0).expect("a multi-line field");
         assert!(
             content_h > visible_h + 1.0,
-            "5 lignes > boîte de 2 ({content_h} vs {visible_h})"
+            "5 lines > a box of 2 ({content_h} vs {visible_h})"
         );
 
-        // …et un défilement retenu décale le texte vers le haut (position.y plus petite).
+        // …and a retained scroll shifts the text upwards (a smaller position.y).
         let text_top = |scroll: f32| {
             let mut scene = Scene::new();
             let status = Status {
@@ -1365,35 +1365,41 @@ mod tests {
                     }
                     _ => None,
                 })
-                .expect("texte du champ")
+                .expect("the field's text")
         };
-        assert!(text_top(20.0) < text_top(0.0), "défiler remonte le contenu");
+        assert!(
+            text_top(20.0) < text_top(0.0),
+            "scrolling raises the content"
+        );
     }
 
     #[test]
     fn multiline_arrows_move_the_caret_between_lines() {
-        // "abc\ndefg\nhi" : ligne 0 = indices 0..3, ligne 1 = 4..8, ligne 2 = 9..11.
+        // "abc\ndefg\nhi": line 0 = indices 0..3, line 1 = 4..8, line 2 = 9..11.
         let inp = TextInput::<Msg>::new("abc\ndefg\nhi")
             .on_input(Msg::Changed)
             .rows(3)
             .width(200.0);
-        // Depuis la 1re ligne (index 1), descendre tombe sur la 2e ligne.
+        // From the 1st line (index 1), moving down lands on the 2nd line.
         let (down, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 1, true, false, None).unwrap();
-        assert!((4..=8).contains(&down), "descend sur la 2e ligne : {down}");
-        // 1re ligne, monter → impossible (le shell navigue le focus).
+        assert!(
+            (4..=8).contains(&down),
+            "moves down to the 2nd line: {down}"
+        );
+        // 1st line, moving up → impossible (the shell moves the focus).
         assert_eq!(
             Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false, false, None),
             None
         );
-        // Dernière ligne (index 10), descendre → impossible.
+        // Last line (index 10), moving down → impossible.
         assert_eq!(
             Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true, false, None),
             None
         );
-        // 2e ligne (index 5), monter tombe sur la 1re.
+        // 2nd line (index 5), moving up lands on the 1st.
         let (up, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, false, false, None).unwrap();
-        assert!(up <= 3, "monte sur la 1re ligne : {up}");
-        // Champ mono-ligne : jamais de mouvement vertical.
+        assert!(up <= 3, "moves up to the 1st line: {up}");
+        // A single-line field: never any vertical movement.
         assert_eq!(
             Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true, false, None),
             None
@@ -1402,10 +1408,10 @@ mod tests {
 
     #[test]
     fn multiline_goal_column_survives_a_short_line() {
-        // "hello\nhi\nworld" : ligne 0 = 0..5, ligne 1 = 6..8 (courte), ligne 2 = 9..14.
-        // Partant de la colonne 5 (fin de "hello"), on descend : la 2e ligne "hi" est
-        // trop courte (bornée à sa fin), mais la colonne cible rendue reste ~celle de
-        // départ, si bien qu'on retombe sur la colonne 5 en descendant encore.
+        // "hello\nhi\nworld": line 0 = 0..5, line 1 = 6..8 (short), line 2 = 9..14.
+        // Starting from column 5 (the end of "hello") and moving down: the 2nd line "hi"
+        // is too short (so the caret is clamped to its end), but the goal column returned
+        // stays ~the starting one, so moving down again lands back on column 5.
         let inp = TextInput::<Msg>::new("hello\nhi\nworld")
             .on_input(Msg::Changed)
             .rows(3)
@@ -1413,73 +1419,76 @@ mod tests {
         let (mid, goal) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, true, false, None).unwrap();
         assert!(
             (6..=8).contains(&mid),
-            "ligne courte, bornée à sa fin : {mid}"
+            "a short line, clamped to its end: {mid}"
         );
-        // Deuxième saut en réutilisant la colonne cible : sans mémoire on serait resté
-        // borné à la fin de "hi" (col. ~2) ; ici on retombe loin dans "world" (col. ~5),
-        // preuve que la colonne d'origine est préservée par-dessus la ligne courte.
+        // A second jump reusing the goal column: without memory the caret would have
+        // stayed clamped to the end of "hi" (col. ~2); here it lands far into "world"
+        // (col. ~5), proving the original column survives the short line.
         let (low, _) =
             Widget::<Msg>::caret_vertical(&inp, 200.0, mid, true, false, Some(goal)).unwrap();
         assert!(
             (12..=14).contains(&low),
-            "colonne cible préservée dans \"world\" : {low}"
+            "goal column preserved into \"world\": {low}"
         );
     }
 
     #[test]
     fn multiline_page_jump_is_clamped_to_the_field() {
-        // Page haut/bas ne quittent jamais le champ multi-lignes : aux bornes, le
-        // curseur se cale au début / à la fin et rend `Some` (pas `None` → on reste).
+        // Page up/down never leave the multi-line field: at the bounds the caret settles
+        // at the start / at the end and returns `Some` (not `None` → the field is kept).
         let inp = TextInput::<Msg>::new("a\nb\nc\nd\ne")
             .on_input(Msg::Changed)
             .rows(2)
             .width(200.0);
-        // Depuis la dernière ligne, PgDn se cale en bas (on ne quitte pas le champ).
+        // From the last line, PgDn settles at the bottom (the field is not left).
         let (bottom, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 8, true, true, None).unwrap();
-        assert!(bottom >= 7, "PgDn borné au bas du champ : {bottom}");
-        // Depuis la 1re ligne, PgUp se cale en haut.
+        assert!(
+            bottom >= 7,
+            "PgDn clamped to the bottom of the field: {bottom}"
+        );
+        // From the 1st line, PgUp settles at the top.
         let (top, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 0, false, true, None).unwrap();
-        assert!(top <= 1, "PgUp borné au haut du champ : {top}");
+        assert!(top <= 1, "PgUp clamped to the top of the field: {top}");
     }
 
     #[test]
     fn multiline_reserves_rows_of_height() {
-        // `rows(n)` réserve n lignes ; c'est plus haut qu'un champ d'une ligne.
+        // `rows(n)` reserves n lines; that is taller than a one-line field.
         let one = match Widget::<Msg>::style(&input("x")).height {
             Dimension::Length(h) => h,
-            _ => panic!("hauteur fixe"),
+            _ => panic!("a fixed height"),
         };
         let four = match Widget::<Msg>::style(&TextInput::<Msg>::new("x").rows(4)).height {
             Dimension::Length(h) => h,
-            _ => panic!("hauteur fixe"),
+            _ => panic!("a fixed height"),
         };
         assert!(
             four > one * 2.0,
-            "4 lignes bien plus hautes qu'une ({one} → {four})"
+            "4 lines much taller than one ({one} → {four})"
         );
     }
 
     #[test]
     fn multiline_hit_test_uses_the_click_line() {
-        // Un clic sur la 2e ligne place le curseur dans « cd » (indices ≥ 3), pas
-        // dans « ab » de la 1re ligne.
+        // A click on the 2nd line places the caret inside "cd" (indices ≥ 3), not inside
+        // the "ab" of the 1st line.
         let inp = TextInput::<Msg>::new("ab\ncd")
             .on_input(Msg::Changed)
             .rows(3);
         let line_h = frus_text::line_height(inp.size);
-        // Clic haut-gauche → 1re ligne (indice ≤ 2).
+        // A top-left click → the 1st line (index ≤ 2).
         let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + 1.0, 220.0, 0).unwrap();
-        // Clic une ligne plus bas → 2e ligne (indice ≥ 3).
+        // A click one line lower → the 2nd line (index ≥ 3).
         let below =
             Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + line_h + 1.0, 220.0, 0).unwrap();
-        assert!(top <= 2, "1re ligne : {top}");
-        assert!(below >= 3, "2e ligne : {below}");
+        assert!(top <= 2, "1st line: {top}");
+        assert!(below >= 3, "2nd line: {below}");
     }
 
     #[test]
     fn floating_label_rests_in_box_then_floats_up() {
-        // Le label repose dans la boîte (grand, bas) quand le champ est vide et non
-        // focalisé, et flotte au-dessus (petit, haut) une fois focalisé.
+        // The label rests inside the box (large, low) while the field is empty and
+        // unfocused, and floats above it (small, high) once focused.
         let theme = Theme::default();
         let field = TextInput::<Msg>::new("").label("Name");
         let label_geo = |status: Status| -> (f32, f32) {
@@ -1503,7 +1512,7 @@ mod tests {
                     } if text == "Name" => Some((*size, position.y)),
                     _ => None,
                 })
-                .expect("label dessiné")
+                .expect("a painted label")
         };
         let (rest_size, rest_y) = label_geo(Status::default());
         let (float_size, float_y) = label_geo(Status {
@@ -1517,32 +1526,32 @@ mod tests {
         );
         assert!(
             float_y < rest_y,
-            "focalisé le label monte ({rest_y} → {float_y})"
+            "once focused the label rises ({rest_y} → {float_y})"
         );
     }
 
     #[test]
     fn decoration_grows_height_for_label_and_error() {
-        // Un champ nu ne réserve que la boîte ; un label + une erreur ajoutent une
-        // ligne au-dessus et une en dessous → le style est plus haut.
+        // A bare field reserves only the box; a label + an error add one line above and
+        // one below → the style is taller.
         let bare_h = match Widget::<Msg>::style(&input("x")).height {
             Dimension::Length(h) => h,
-            _ => panic!("hauteur fixe attendue"),
+            _ => panic!("a fixed height was expected"),
         };
         let decorated = input("x").label("Email").error("Required");
         let deco_h = match Widget::<Msg>::style(&decorated).height {
             Dimension::Length(h) => h,
-            _ => panic!("hauteur fixe attendue"),
+            _ => panic!("a fixed height was expected"),
         };
         assert!(
             deco_h > bare_h,
-            "label + erreur agrandissent le champ ({bare_h} → {deco_h})"
+            "label + error grow the field ({bare_h} → {deco_h})"
         );
     }
 
     #[test]
     fn error_paints_the_border_in_the_error_color() {
-        // En erreur, la bordure de la boîte passe en couleur d'erreur du thème.
+        // In error, the box's border switches to the theme's error colour.
         let theme = Theme::default();
         let field = input("x").error("bad");
         let mut scene = Scene::new();
@@ -1560,12 +1569,12 @@ mod tests {
                     if *border_width > 0.0 && *border_color == theme.error
             )
         });
-        assert!(has_error_border, "la bordure doit être en couleur d'erreur");
+        assert!(has_error_border, "the border must be in the error colour");
     }
 
     #[test]
     fn placeholder_shows_only_when_empty() {
-        // L'indice n'apparaît que si la valeur est vide.
+        // The hint only appears while the value is empty.
         let theme = Theme::default();
         let count_texts = |value: &str| {
             let field = TextInput::<Msg>::new(value).placeholder("Type here");
@@ -1596,21 +1605,21 @@ mod tests {
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let (w, y) = (220.0, 12.0);
-        let x_suffix = w - 8.0; // près du bord droit (zone du suffixe)
+        let x_suffix = w - 8.0; // near the right edge (the suffix's zone)
 
-        // Clic sur le suffixe : émet le message, et ne place PAS de caret.
+        // A click on the suffix: emits the message, and does NOT place a caret.
         assert_eq!(
             Widget::<Msg>::positional_click(&field, x_suffix, y, w, 40.0),
             Some(Msg::Submitted)
         );
         assert_eq!(Widget::<Msg>::cursor_at(&field, x_suffix, y, w, 0), None);
-        // Clic dans le corps : pas de suffixe, un caret est placé.
+        // A click in the body: no suffix, a caret is placed.
         assert_eq!(
             Widget::<Msg>::positional_click(&field, 20.0, y, w, 40.0),
             None
         );
         assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
-        // Sans `on_suffix`, l'icône reste décorative (aucun clic positionnel).
+        // Without `on_suffix` the icon stays decorative (no positional click).
         let deco = TextInput::<Msg>::new("hello")
             .suffix_icon(IconName::Close)
             .width(220.0);
@@ -1627,7 +1636,7 @@ mod tests {
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let bounds = Rect::new(0.0, 0.0, 220.0, 40.0);
-        // Compte les rectangles ~28x28 (le halo derrière l'icône suffixe).
+        // Counts the ~28x28 rectangles (the halo behind the suffix icon).
         let halos = |status: Status| {
             let mut scene = Scene::new();
             Widget::<Msg>::paint(&field, bounds, status, &Theme::default(), &mut scene);
@@ -1643,7 +1652,7 @@ mod tests {
                 })
                 .count()
         };
-        // Pointeur sur le suffixe → un halo ; ailleurs (corps) ou sans survol → aucun.
+        // Pointer over the suffix → one halo; elsewhere (the body) or without hover → none.
         let over_suffix = Status {
             hover_cursor: Some(Point::new(212.0, 20.0)),
             ..Default::default()
@@ -1652,9 +1661,9 @@ mod tests {
             hover_cursor: Some(Point::new(20.0, 20.0)),
             ..Default::default()
         };
-        assert_eq!(halos(over_suffix), 1, "halo sur le suffixe survolé");
-        assert_eq!(halos(over_body), 0, "pas de halo dans le corps");
-        assert_eq!(halos(Status::default()), 0, "pas de halo sans survol");
+        assert_eq!(halos(over_suffix), 1, "a halo on the hovered suffix");
+        assert_eq!(halos(over_body), 0, "no halo in the body");
+        assert_eq!(halos(Status::default()), 0, "no halo without hover");
     }
 
     #[test]
@@ -1665,13 +1674,13 @@ mod tests {
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let (w, h, y) = (220.0, 40.0, 12.0);
-        // Main sur le suffixe, rien dans le corps.
+        // A hand over the suffix, nothing in the body.
         assert_eq!(
             Widget::<Msg>::cursor_icon(&field, w - 8.0, y, w, h),
             Some(Cursor::Pointer)
         );
         assert_eq!(Widget::<Msg>::cursor_icon(&field, 20.0, y, w, h), None);
-        // Suffixe décoratif (sans on_suffix) : pas de main.
+        // A decorative suffix (no on_suffix): no hand.
         let deco = TextInput::<Msg>::new("hello")
             .suffix_icon(IconName::Close)
             .width(220.0);
@@ -1680,9 +1689,9 @@ mod tests {
 
     #[test]
     fn word_at_finds_word_bounds() {
-        let inp = input("bonjour le monde");
-        // index 10 tombe dans "monde" (indices 10..15) — non, "le" est 8..10.
-        assert_eq!(inp.word_at(2), Some((0, 7))); // "bonjour"
-        assert_eq!(inp.word_at(11), Some((11, 16))); // "monde"
+        let inp = input("hello there world");
+        // Any index inside a word yields that word's bounds; separators are excluded.
+        assert_eq!(inp.word_at(2), Some((0, 5))); // "hello"
+        assert_eq!(inp.word_at(13), Some((12, 17))); // "world"
     }
 }
