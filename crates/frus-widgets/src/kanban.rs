@@ -1,11 +1,11 @@
-//! [`Kanban`] : un tableau **colonnes + cartes** avec **glisser-déposer** d'une colonne à l'autre.
+//! [`Kanban`]: a **columns + cards** board with **drag and drop** between columns.
 //!
-//! Comme le reste de frus, le widget est **contrôlé** : l'application tient les colonnes et leurs
-//! cartes, et réagit à un unique message `on_move(from_col, from_pos, to_col, to_pos)` émis au dépôt
-//! d'une carte. Le glisser-déposer réutilise le mécanisme de **réordonnancement** du framework
-//! (`reorder_index` / `on_reorder`) : chaque emplacement porte un **index plat** `col * STRIDE + pos`,
-//! et la carte saisie décode l'emplacement **cible** (une autre carte, ou la zone de dépôt en bas
-//! d'une colonne) pour en déduire la destination.
+//! Like the rest of frus, the widget is **controlled**: the application holds the columns and
+//! their cards, and reacts to a single `on_move(from_col, from_pos, to_col, to_pos)` message
+//! emitted when a card is dropped. Drag and drop reuses the framework's **reordering**
+//! mechanism (`reorder_index` / `on_reorder`): every slot carries a **flat index**
+//! `col * STRIDE + pos`, and the card grabbed decodes the **target** slot (another card, or
+//! the drop zone at the bottom of a column) to work out the destination.
 
 use std::rc::Rc;
 
@@ -20,42 +20,42 @@ use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::{ReorderAxis, Widget};
 
-/// Pas d'encodage d'un emplacement `(colonne, position)` en index plat : borne le nombre de cartes
-/// par colonne (largement suffisant pour un tableau). Voir [`kanban_slot`].
+/// The encoding stride of a `(column, position)` slot into a flat index: it bounds the number
+/// of cards per column (amply enough for a board). See [`kanban_slot`].
 const STRIDE: usize = 1000;
-/// Largeur d'une colonne.
+/// A column's width.
 const COL_W: f32 = 220.0;
-/// Marge intérieure (uniforme) du panneau d'une colonne.
+/// A column panel's (uniform) inner padding.
 const COL_PAD: f32 = 12.0;
-/// Hauteur d'une carte.
+/// A card's height.
 const CARD_H: f32 = 44.0;
 
-/// Index **plat** d'un emplacement `(col, pos)` : `col * STRIDE + pos`. C'est la valeur de
-/// [`reorder_index`](Widget::reorder_index) d'une carte (source **et** cible). Réutilisable pour
-/// tester le routage du glisser-déposer.
+/// The **flat** index of a `(col, pos)` slot: `col * STRIDE + pos`. This is a card's
+/// [`reorder_index`](Widget::reorder_index) value (both source **and** target). Reusable to
+/// test the routing of drag and drop.
 pub fn kanban_slot(col: usize, pos: usize) -> usize {
-    // Au-delà de STRIDE cartes dans une colonne, `pos` déborderait sur le champ colonne (l'index
-    // plat viserait silencieusement la colonne suivante). Garde en debug ; STRIDE reste large.
+    // Past STRIDE cards in a column, `pos` would overflow into the column field (the flat
+    // index would silently target the next column). A debug guard; STRIDE stays generous.
     debug_assert!(
         pos < STRIDE,
-        "position {pos} hors borne (STRIDE = {STRIDE}) : débordement de colonne"
+        "position {pos} out of bounds (STRIDE = {STRIDE}): column overflow"
     );
     col * STRIDE + pos
 }
 
-/// Décode un index plat en `(col, pos)` (inverse de [`kanban_slot`]).
+/// Decodes a flat index into `(col, pos)` (the inverse of [`kanban_slot`]).
 fn decode(slot: usize) -> (usize, usize) {
     (slot / STRIDE, slot % STRIDE)
 }
 
-/// Une carte : source **et** cible de glisser-déposer. Peinte comme une tuile surélevée, elle affiche
-/// soit un **libellé** (carte texte), soit un **contenu widget** fourni par l'application (carte riche :
-/// libellé + étiquettes + bouton de suppression…), posé en enfant.
+/// A card: both **source** and **target** of drag and drop. Painted as a raised tile, it shows
+/// either a **label** (a text card) or **widget content** supplied by the application (a rich
+/// card: a label + tags + a delete button…), placed as a child.
 struct Card<Msg> {
     label: String,
-    /// Contenu **riche** (0 ou 1 widget) : quand présent, la carte l'héberge au lieu du libellé.
+    /// **Rich** content (0 or 1 widget): when present, the card hosts it instead of the label.
     content: Vec<Box<dyn Widget<Msg>>>,
-    /// Emplacement propre (index plat) : sert de `reorder_index` (source saisie **et** cible de dépôt).
+    /// Its own slot (a flat index): serves as `reorder_index`, both grabbed source **and** drop target.
     slot: usize,
     from_col: usize,
     from_pos: usize,
@@ -65,14 +65,14 @@ struct Card<Msg> {
 impl<Msg: Clone> Widget<Msg> for Card<Msg> {
     fn style(&self) -> Style {
         if self.content.is_empty() {
-            // Carte texte : hauteur fixe, libellé peint par la carte.
+            // A text card: a fixed height, with the label painted by the card.
             Style {
                 width: Dimension::Auto,
                 height: Dimension::Length(CARD_H),
                 ..Default::default()
             }
         } else {
-            // Carte riche : le contenu est un enfant, la carte s'adapte (plancher `CARD_H`), avec marge.
+            // A rich card: the content is a child, the card adapts (floor `CARD_H`), and has padding.
             Style {
                 width: Dimension::Auto,
                 height: Dimension::Auto,
@@ -90,7 +90,7 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Tuile surélevée ; teintée au survol (repère de préhension).
+        // A raised tile; tinted on hover, as a grab affordance.
         let base = theme.surface.lerp(theme.on_surface, 0.05);
         let fill = theme.state_layer(base, theme.on_surface, &status);
         scene.draw_rect(
@@ -100,7 +100,7 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
             1.0,
             theme.border.fade(o),
         );
-        // Libellé seulement pour une carte **texte** (une carte riche peint son propre contenu).
+        // A label only for a **text** card (a rich card paints its own content).
         if self.content.is_empty() {
             let ty = bounds.y + (bounds.height - frus_text::line_height(15.0)) * 0.5;
             scene.text(
@@ -121,7 +121,7 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
     }
 
     fn on_reorder(&self, to: usize) -> Option<Msg> {
-        // La cible `to` est l'index plat de l'emplacement survolé (autre carte ou zone de dépôt).
+        // The target `to` is the flat index of the hovered slot (another card, or a drop zone).
         let (to_col, to_pos) = decode(to);
         self.on_move
             .as_ref()
@@ -129,12 +129,12 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
     }
 
     fn reorder_axis(&self) -> ReorderAxis {
-        ReorderAxis::Vertical // les cartes glissent verticalement
+        ReorderAxis::Vertical // cards slide vertically
     }
 }
 
-/// Zone de dépôt en bas d'une colonne : cible d'insertion **en fin** de colonne (et seule cible d'une
-/// colonne vide). Non-source utile (son `on_reorder` ne déplace rien).
+/// The drop zone at the bottom of a column: the insertion target **at the end** of the column
+/// (and the only target of an empty one). Not a useful source (its `on_reorder` moves nothing).
 struct DropZone {
     slot: usize,
 }
@@ -153,7 +153,7 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        // Contour discret en pointillé simulé (bord estompé) : « déposer ici ».
+        // A discreet simulated dashed outline (a faded border): "drop here".
         scene.draw_rect(
             bounds,
             Color::TRANSPARENT,
@@ -172,7 +172,7 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
     }
 
     fn on_reorder(&self, _to: usize) -> Option<Msg> {
-        None // la zone de dépôt n'est pas une source de déplacement
+        None // the drop zone is not a move source
     }
 
     fn reorder_axis(&self) -> ReorderAxis {
@@ -180,12 +180,12 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
     }
 
     fn reorder_draggable(&self) -> bool {
-        false // cible **seule** : on y dépose, on ne la soulève pas
+        false // target **only**: you drop onto it, you do not lift it
     }
 }
 
-/// Le **panneau** d'une colonne : titre + cartes + zone de dépôt, sur un fond thémé discret. C'est
-/// un conteneur `Flex` vertical qui peint son fond (le clip du panneau contient ses cartes).
+/// A column's **panel**: title + cards + drop zone, on a discreet themed background. It is a
+/// vertical `Flex` container that paints its own background (the panel's clip holds its cards).
 struct Column<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -206,7 +206,7 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        // Fond de panneau **thémé** (défaut surchargeable via le thème) : un voile discret.
+        // The panel's **themed** background (a default overridable through the theme): a discreet veil.
         let bg = theme.surface.lerp(theme.on_surface, 0.04);
         scene.draw_rect(
             bounds,
@@ -222,7 +222,7 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
     }
 }
 
-/// Un tableau **Kanban** : des colonnes titrées de cartes, avec glisser-déposer inter-colonnes.
+/// A **Kanban** board: titled columns of cards, with drag and drop between columns.
 ///
 /// ```
 /// use frus_widgets::Kanban;
@@ -231,11 +231,11 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
 ///     .column("Doing", ["Build"])
 ///     .column("Done", ["Kickoff"]);
 /// ```
-/// Fabrique du **contenu riche** d'une carte : rappelée à chaque reconstruction (widget frais), pour
-/// des cartes au-delà du texte (libellé + étiquettes + bouton de suppression…).
+/// The factory for a card's **rich content**: called again on every rebuild (a fresh widget), for
+/// cards beyond plain text (a label + tags + a delete button…).
 pub type CardFactory<Msg> = Rc<dyn Fn() -> Box<dyn Widget<Msg>>>;
 
-/// Cartes d'une colonne : **texte** simple, ou **widgets** riches (par carte).
+/// A column's cards: plain **text**, or rich **widgets**, one per card.
 enum ColCards<Msg> {
     Text(Vec<String>),
     Widgets(Vec<CardFactory<Msg>>),
@@ -252,25 +252,25 @@ impl<Msg> ColCards<Msg> {
 
 pub struct Kanban<Msg = ()> {
     on_move: Option<Rc<dyn Fn(usize, usize, usize, usize) -> Msg>>,
-    /// Bouton « + Add card » en bas de chaque colonne (jalon 249) : `on_add(col)` à l'ajout.
+    /// A "+ Add card" button at the bottom of every column (milestone 249): `on_add(col)` on adding.
     on_add: Option<Rc<dyn Fn(usize) -> Msg>>,
-    /// Hauteur explicite de la **zone défilable des cartes** de chaque colonne (jalon 264, façon
-    /// Trello). `Some(h)` : les cartes défilent verticalement dans une région de hauteur `h` (titre
-    /// fixe au-dessus, bouton « + Add card » fixe en dessous). `None` : la colonne s'étend à la
-    /// hauteur de son contenu (comportement d'origine). Voir [`Kanban::card_area_height`].
+    /// An explicit height for each column's **scrollable card area** (milestone 264, Trello
+    /// style). `Some(h)`: the cards scroll vertically in a region of height `h` (with the title
+    /// fixed above and the "+ Add card" button fixed below). `None`: the column stretches to
+    /// the height of its content (the original behaviour). See [`Kanban::card_area_height`].
     card_area_height: Option<f32>,
-    /// Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
-    /// colonnes **remplissent** la hauteur du board (via `Row` étirée) et la zone de cartes de
-    /// chaque colonne est un `Scroll` `flex(1)` qui prend le reste puis défile. Prime sur
-    /// `card_area_height`. Voir [`Kanban::scrollable_columns`].
+    /// Per-column vertical scrolling **Trello style, with no explicit height** (milestone 266):
+    /// the columns **fill** the board's height (through a stretched `Row`) and each column's
+    /// card area is a `flex(1)` `Scroll` that takes the rest and then scrolls. It takes
+    /// precedence over `card_area_height`. See [`Kanban::scrollable_columns`].
     fill_columns: bool,
     columns: Vec<(String, ColCards<Msg>)>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Kanban<Msg> {
-    /// Crée un tableau ; `on_move(from_col, from_pos, to_col, to_pos)` est émis quand une carte est
-    /// **déposée** sur un emplacement (autre carte, ou fin d'une colonne).
+    /// Creates a board; `on_move(from_col, from_pos, to_col, to_pos)` is emitted when a card is
+    /// **dropped** onto a slot (another card, or the end of a column).
     pub fn new(on_move: impl Fn(usize, usize, usize, usize) -> Msg + 'static) -> Self {
         Self {
             on_move: Some(Rc::new(on_move)),
@@ -282,7 +282,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         }
     }
 
-    /// Ajoute une **colonne** titrée avec ses cartes (texte), dans l'ordre.
+    /// Adds a titled **column** with its (text) cards, in order.
     pub fn column(
         mut self,
         title: impl Into<String>,
@@ -294,9 +294,9 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         self
     }
 
-    /// Ajoute une colonne dont chaque carte est un **widget** (carte riche : libellé + étiquettes +
-    /// bouton de suppression…), fourni par une **fabrique** rappelée à chaque reconstruction. La carte
-    /// reste source/cible de glisser-déposer ; ses éléments cliquables (bouton ×…) captent leur clic.
+    /// Adds a column in which every card is a **widget** (a rich card: a label + tags + a delete
+    /// button…), supplied by a **factory** called again on every rebuild. The card stays a drag
+    /// and drop source and target; its clickable elements (a × button…) capture their own click.
     pub fn column_widgets(
         mut self,
         title: impl Into<String>,
@@ -308,34 +308,34 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         self
     }
 
-    /// Ajoute un bouton **« + Add card »** au bas de chaque colonne ; `on_add(col)` au clic (l'app
-    /// ajoute une carte à la colonne). Sans cet appel, aucun bouton d'ajout.
+    /// Adds a **"+ Add card"** button at the bottom of every column; `on_add(col)` on click (the
+    /// app adds a card to the column). Without this call, there is no add button.
     pub fn on_add(mut self, on_add: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_add = Some(Rc::new(on_add));
         self.rebuild();
         self
     }
 
-    /// Rend les cartes de chaque colonne **défilables verticalement** dans une région de hauteur `h`
-    /// (pixels logiques), façon Trello : le **titre** reste fixe au-dessus, le bouton « + Add card »
-    /// fixe en dessous, et seules les cartes (avec la zone de dépôt finale) défilent. Sans cet appel,
-    /// la colonne s'étend à la hauteur de son contenu.
+    /// Makes each column's cards **scroll vertically** within a region of height `h` (in logical
+    /// pixels), Trello style: the **title** stays fixed above, the "+ Add card" button fixed
+    /// below, and only the cards (with the final drop zone) scroll. Without this call, the
+    /// column stretches to the height of its content.
     ///
-    /// C'est un stopgap **contrôlé par l'application** (façon Flutter : l'app fournit la hauteur) :
-    /// un `Scroll` en `flex(1)` ne reçoit pas de hauteur exploitable tant que sa chaîne d'ancêtres ne
-    /// lui fournit pas une hauteur **définie** (jalon 263), d'où une hauteur explicite ici.
+    /// This is a stopgap **controlled by the application**, which supplies the height: a
+    /// `flex(1)` `Scroll` receives no usable height until its chain of ancestors gives it a
+    /// **definite** height (milestone 263), hence an explicit height here.
     pub fn card_area_height(mut self, h: f32) -> Self {
         self.card_area_height = Some(h);
         self.rebuild();
         self
     }
 
-    /// Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
-    /// colonnes **remplissent** la hauteur du board et la zone de cartes de chaque colonne prend le
-    /// reste (sous le titre, au-dessus du bouton « + Add card ») puis **défile**. Contrairement à
-    /// [`Kanban::card_area_height`], l'app n'a pas à calculer de hauteur : le board se pose dans un
-    /// ancêtre à **hauteur définie** (fenêtre, `Scroll` horizontal borné…) et le remplissage flex
-    /// fait le reste. Prime sur `card_area_height` si les deux sont posés.
+    /// Per-column vertical scrolling **Trello style, with no explicit height** (milestone 266):
+    /// the columns **fill** the board's height and each column's card area takes the rest
+    /// (below the title, above the "+ Add card" button) and then **scrolls**. Unlike
+    /// [`Kanban::card_area_height`], the app has no height to compute: the board sits in an
+    /// ancestor of **definite height** (a window, a bounded horizontal `Scroll`…) and the flex
+    /// fill does the rest. Takes precedence over `card_area_height` when both are set.
     pub fn scrollable_columns(mut self) -> Self {
         self.fill_columns = true;
         self.rebuild();
@@ -351,8 +351,8 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             .collect();
     }
 
-    /// Construit une colonne : titre + cartes (chacune source/cible de dépôt) + zone de dépôt finale +
-    /// éventuel bouton d'ajout.
+    /// Builds one column: title + cards (each a drop source and target) + the final drop zone +
+    /// an optional add button.
     fn build_column(&self, col: usize, title: &str, cards: &ColCards<Msg>) -> Box<dyn Widget<Msg>> {
         let make_card = |pos: usize, content: Vec<Box<dyn Widget<Msg>>>, label: String| Card {
             label,
@@ -362,8 +362,8 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             from_pos: pos,
             on_move: self.on_move.clone(),
         };
-        // Les cartes (chacune source **et** cible) + la zone de dépôt finale : c'est la partie
-        // **défilable** de la colonne (le titre et le bouton d'ajout restent fixes).
+        // The cards (each both source **and** target) + the final drop zone: this is the
+        // column's **scrollable** part (the title and the add button stay fixed).
         let mut cards_v: Vec<Box<dyn Widget<Msg>>> = Vec::new();
         match cards {
             ColCards::Text(labels) => {
@@ -377,15 +377,15 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
                 }
             }
         }
-        // Emplacement d'insertion en fin de colonne (et cible d'une colonne vide).
+        // The insertion slot at the end of the column (and the target of an empty one).
         cards_v.push(Box::new(DropZone {
             slot: kanban_slot(col, cards.len()),
         }));
 
         let mut children: Vec<Box<dyn Widget<Msg>>> =
             vec![Box::new(Text::new(title.to_string()).size(16.0))];
-        // Largeur intérieure de la colonne (largeur de colonne moins son padding). La zone de cartes
-        // défilable enveloppe les cartes dans un `Flex` vertical (une seule enfant pour le `Scroll`).
+        // The column's inner width (the column width minus its padding). The scrollable card
+        // area wraps the cards in a vertical `Flex` (a single child for the `Scroll`).
         let inner_w = COL_W - 2.0 * COL_PAD;
         let list = |cards: Vec<Box<dyn Widget<Msg>>>| {
             cards
@@ -393,9 +393,9 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
                 .fold(Flex::column().gap(8.0).width(inner_w), Flex::child_boxed)
         };
         if self.fill_columns {
-            // **Remplissage** (jalon 266) : la colonne remplit la hauteur du board (Row étirée) ;
-            // la zone de cartes en `Scroll` `flex(1)` prend le reste (sous le titre, au-dessus du
-            // bouton) puis défile. Pas de hauteur explicite : le flex fait le calcul.
+            // **Filling** (milestone 266): the column fills the board's height (a stretched Row);
+            // the card area, a `flex(1)` `Scroll`, takes the rest (below the title, above the
+            // button) and then scrolls. No explicit height: the flex does the arithmetic.
             children.push(Box::new(
                 Scroll::new()
                     .axis(Axis::Vertical)
@@ -404,7 +404,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
                     .child(list(cards_v)),
             ));
         } else if let Some(h) = self.card_area_height {
-            // Hauteur **explicite** (jalon 264) : repli quand l'ancêtre n'est pas à hauteur définie.
+            // An **explicit** height (milestone 264): the fallback when the ancestor has no definite height.
             children.push(Box::new(
                 Scroll::new()
                     .axis(Axis::Vertical)
@@ -413,10 +413,10 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
                     .child(list(cards_v)),
             ));
         } else {
-            // Colonne qui s'étend à la hauteur de son contenu (comportement d'origine, cartes nues).
+            // A column that stretches to the height of its content (the original behaviour, bare cards).
             children.extend(cards_v);
         }
-        // Bouton « + Add card » (jalon 249), si demandé.
+        // The "+ Add card" button (milestone 249), if requested.
         if let Some(on_add) = &self.on_add {
             let on_add = on_add.clone();
             children.push(Box::new(
@@ -432,10 +432,10 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
 
 impl<Msg: Clone> Widget<Msg> for Kanban<Msg> {
     fn style(&self) -> Style {
-        // Mode **remplissage** (jalon 266) : la rangée prend la hauteur de son parent
-        // (`Percent(1.0)` — l'ancêtre est à hauteur définie) et **étire** ses colonnes
-        // (`Align::Stretch`) pour que chacune remplisse ce board ; leur zone de cartes en `flex(1)`
-        // prend alors le reste puis défile. Sinon : hauteur du contenu, colonnes calées en haut.
+        // **Filling** mode (milestone 266): the row takes its parent's height (`Percent(1.0)`
+        // — the ancestor has a definite height) and **stretches** its columns
+        // (`Align::Stretch`) so each fills the board; their `flex(1)` card area then takes
+        // the rest and scrolls. Otherwise: the content's height, columns aligned to the top.
         let (align, height) = if self.fill_columns {
             (Align::Stretch, Dimension::Percent(1.0))
         } else {
@@ -473,7 +473,7 @@ mod tests {
         Del(usize),
     }
 
-    /// Collecte, en ordre d'arbre, tous les messages `on_click` non nuls d'un sous-arbre.
+    /// Collects, in tree order, every non-null `on_click` message of a subtree.
     fn collect_clicks(w: &dyn Widget<Msg>, out: &mut Vec<Msg>) {
         if let Some(m) = w.on_click() {
             out.push(m);
@@ -483,8 +483,8 @@ mod tests {
         }
     }
 
-    /// Trouve la première carte (widget avec `reorder_index`) d'un sous-arbre et renvoie
-    /// `(reorder_index, on_reorder(cible))`.
+    /// Finds a subtree's first card (a widget with a `reorder_index`) and returns
+    /// `(reorder_index, on_reorder(target))`.
     fn first_card(w: &dyn Widget<Msg>, target: usize) -> Option<(usize, Option<Msg>)> {
         if let Some(idx) = w.reorder_index() {
             return Some((idx, w.on_reorder(target)));
@@ -509,15 +509,15 @@ mod tests {
         let board = Kanban::new(Msg::Move)
             .column("To do", ["A", "B"])
             .column("Doing", ["C"]);
-        // Première carte = colonne 0, position 0 ("A") : son index plat, et le déplacement produit
-        // quand on la dépose sur l'emplacement (1, 0) de la colonne « Doing ».
+        // The first card = column 0, position 0 ("A"): its flat index, and the move produced
+        // when it is dropped onto slot (1, 0) of the "Doing" column.
         let col0 = &Widget::<Msg>::children(&board)[0];
-        let (idx, moved) = first_card(col0.as_ref(), kanban_slot(1, 0)).expect("une carte");
-        assert_eq!(idx, kanban_slot(0, 0), "index plat de la carte source");
+        let (idx, moved) = first_card(col0.as_ref(), kanban_slot(1, 0)).expect("a card");
+        assert_eq!(idx, kanban_slot(0, 0), "the source card's flat index");
         assert_eq!(
             moved,
             Some(Msg::Move(0, 0, 1, 0)),
-            "dépôt en (1,0) : déplacement inter-colonnes"
+            "a drop at (1,0): a cross-column move"
         );
     }
 
@@ -534,13 +534,13 @@ mod tests {
         assert_eq!(
             first_axis(col0.as_ref()),
             Some(ReorderAxis::Vertical),
-            "les cartes glissent verticalement"
+            "the cards slide vertically"
         );
     }
 
     #[test]
     fn rich_cards_host_content_and_add_button_is_present() {
-        // Colonne **riche** : chaque carte héberge un bouton × (suppression) ; + un bouton d'ajout.
+        // A **rich** column: each card hosts a × (delete) button; plus an add button.
         let cards: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..2)
             .map(|i| {
                 Box::new(move || {
@@ -552,35 +552,31 @@ mod tests {
             .on_add(Msg::Add)
             .column_widgets("Col", cards);
         let col0 = &Widget::<Msg>::children(&board)[0];
-        // La carte riche reste **réordonnable** (glisser câblé) et route un Move.
-        let (idx, moved) = first_card(col0.as_ref(), kanban_slot(0, 1)).expect("une carte");
-        assert_eq!(
-            idx,
-            kanban_slot(0, 0),
-            "la carte riche garde son index plat"
-        );
+        // The rich card stays **reorderable** (dragging wired up) and routes a Move.
+        let (idx, moved) = first_card(col0.as_ref(), kanban_slot(0, 1)).expect("a card");
+        assert_eq!(idx, kanban_slot(0, 0), "the rich card keeps its flat index");
         assert_eq!(
             moved,
             Some(Msg::Move(0, 0, 0, 1)),
-            "et route toujours le déplacement"
+            "and still routes the move"
         );
-        // Les clics accessibles incluent la suppression (× de chaque carte) et l'ajout (bouton colonne).
+        // The reachable clicks include deletion (each card's ×) and adding (the column button).
         let mut clicks = Vec::new();
         collect_clicks(col0.as_ref(), &mut clicks);
         assert!(
             clicks.contains(&Msg::Del(0)) && clicks.contains(&Msg::Del(1)),
-            "× de suppression par carte"
+            "a × delete per card"
         );
         assert!(
             clicks.contains(&Msg::Add(0)),
-            "bouton + Add card de la colonne"
+            "the column's + Add card button"
         );
     }
 
     #[test]
     fn cards_are_draggable_but_the_drop_zone_is_target_only() {
-        /// Renvoie `reorder_draggable` du premier réordonnable (carte) et cherche une zone de dépôt
-        /// (réordonnable **non** saisissable) dans le sous-arbre.
+        /// Returns the `reorder_draggable` of the first reorderable (a card) and looks for a
+        /// drop zone (a reorderable that is **not** grabbable) in the subtree.
         fn scan(w: &dyn Widget<Msg>, out: &mut Vec<bool>) {
             if w.reorder_index().is_some() {
                 out.push(w.reorder_draggable());
@@ -593,16 +589,16 @@ mod tests {
         let col0 = &Widget::<Msg>::children(&board)[0];
         let mut flags = Vec::new();
         scan(col0.as_ref(), &mut flags);
-        // Deux cartes saisissables + une zone de dépôt non saisissable.
+        // Two grabbable cards + one non-grabbable drop zone.
         assert_eq!(
             flags.iter().filter(|&&d| d).count(),
             2,
-            "les deux cartes sont saisissables"
+            "both cards are grabbable"
         );
         assert_eq!(
             flags.iter().filter(|&&d| !d).count(),
             1,
-            "la zone de dépôt est cible seule"
+            "the drop zone is target-only"
         );
     }
 
@@ -614,7 +610,7 @@ mod tests {
         assert_eq!(
             Widget::<Msg>::children(&board).len(),
             2,
-            "un widget par colonne"
+            "one widget per column"
         );
     }
 }

@@ -1,5 +1,5 @@
-//! [`Container`] : une boîte décorée (taille, marge, couleur, coins arrondis,
-//! bordure, clic) avec un enfant optionnel.
+//! [`Container`]: a decorated box (size, padding, color, rounded corners, border,
+//! click) with an optional child.
 
 use frus_core::{
     AlignmentGeometry, Border, BorderRadius, BoxDecoration, BoxShadow, Color, Curve, Insets,
@@ -11,19 +11,19 @@ use crate::interaction::{Interaction, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Courbe d'easing (smoothstep) pour adoucir les transitions.
+/// An easing curve (smoothstep) to soften the transitions.
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Une boîte rectangulaire décorée.
+/// A decorated rectangular box.
 pub struct Container<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
     padding: Insets,
-    /// Marge **extérieure** (autour de la boîte, hors décoration).
+    /// The **outer** margin (around the box, outside the decoration).
     margin: Insets,
     radius: BorderRadius,
     border_width: f32,
@@ -31,42 +31,41 @@ pub struct Container<Msg> {
     color: Option<Color>,
     hover_color: Option<Color>,
     pressed_color: Option<Color>,
-    /// Dégradé : (couleur de fin, direction en espace `[0,1]²`).
+    /// The gradient: (end color, direction in `[0,1]²` space).
     gradient: Option<(Color, [f32; 2])>,
-    /// Ombre : (dx, dy, flou, couleur).
+    /// The shadow: (dx, dy, blur, color).
     shadow: Option<(f32, f32, f32, Color)>,
     on_click: Option<Msg>,
     on_long_press: Option<Msg>,
-    /// Frontière de repaint : met en cache le sous-arbre peint (voir
+    /// A repaint boundary: it caches the painted subtree (see
     /// [`crate::Widget::repaint_boundary`]).
     repaint_boundary: bool,
-    /// Opacité de **groupe** `[0,1]` appliquée au sous-arbre entier (façon
-    /// `Opacity` de Flutter). `None` = opaque.
+    /// A **group** opacity `[0,1]` applied to the whole subtree. `None` = opaque.
     opacity: Option<f32>,
-    /// Si l'opacité de groupe est **animée** : `(durée, courbe)` de la transition
-    /// (façon `AnimatedOpacity`). `None` = opacité fixe (pas de transition).
+    /// When the group opacity is **animated**: the transition's `(duration, curve)`.
+    /// `None` = a fixed opacity, with no transition.
     opacity_anim: Option<(f32, Curve)>,
-    /// Si le fond est une **couleur animée** : `(cible, durée, courbe)` de la
-    /// transition (façon `AnimatedContainer`). `None` = couleur fixe.
+    /// When the background is an **animated color**: the transition's `(target,
+    /// duration, curve)`. `None` = a fixed color.
     color_anim: Option<(Color, f32, Curve)>,
-    /// Si la **taille** est animée : `(cible, durée, courbe)` — interpolée au
-    /// layout (façon `AnimatedContainer`). `None` = taille fixe.
+    /// When the **size** is animated: `(target, duration, curve)` — interpolated at
+    /// layout time. `None` = a fixed size.
     size_anim: Option<(Size, f32, Curve)>,
-    /// Si le **rayon de coin** est animé : `(cible, durée, courbe)` — interpolé au
-    /// paint (façon `AnimatedContainer`). `None` = rayon fixe.
+    /// When the **corner radius** is animated: `(target, duration, curve)` —
+    /// interpolated at paint time. `None` = a fixed radius.
     radius_anim: Option<(BorderRadius, f32, Curve)>,
-    /// Si la **marge** est animée : `(durée, courbe)` — la cible est `self.padding`,
-    /// interpolée au layout (façon `AnimatedContainer`). `None` = marge fixe.
+    /// When the **padding** is animated: `(duration, curve)` — the target is
+    /// `self.padding`, interpolated at layout time. `None` = fixed padding.
     padding_anim: Option<(f32, Curve)>,
-    /// Ancrage de l'enfant dans la boîte (façon `Container(alignment:)` de Flutter),
-    /// physique ou directionnel (résolu en RTL au rendu). `None` = comportement flex
-    /// par défaut (l'enfant s'étire pour remplir).
+    /// The child's anchoring within the box, physical or directional (resolved for
+    /// RTL at render time). `None` = the default flex behaviour, in which the child
+    /// stretches to fill.
     alignment: Option<AlignmentGeometry>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg> Container<Msg> {
-    /// Crée un conteneur vide (taille automatique, sans décoration).
+    /// Creates an empty container (automatic size, no decoration).
     pub fn new() -> Self {
         Self {
             width: Dimension::Auto,
@@ -96,10 +95,10 @@ impl<Msg> Container<Msg> {
         }
     }
 
-    /// Marge **effective** de mise en page : la marge intérieure plus, si une
-    /// bordure est visible, la place qu'elle réserve (le contenu d'une boîte
-    /// bordée n'est pas mangé par le trait). Source unique pour `style()` et pour
-    /// la **cible** d'une marge animée (`anim_padding`).
+    /// The **effective** layout padding: the inner padding plus, when a border is
+    /// visible, the room it reserves (the content of a bordered box is not eaten by
+    /// the stroke). The single source for `style()` and for the **target** of an
+    /// animated padding (`anim_padding`).
     fn effective_padding(&self) -> Insets {
         let mut padding = self.padding;
         if Border::new(self.border_width, self.border_color).is_visible() {
@@ -111,156 +110,155 @@ impl<Msg> Container<Msg> {
         padding
     }
 
-    /// Marque ce conteneur comme **frontière de repaint** : son sous-arbre est
-    /// mis en cache et réutilisé tant que sa géométrie et l'état d'interaction
-    /// de ses descendants sont stables. À poser autour de contenu **statique**
-    /// qui, sinon, serait repeint à chaque frame d'animation voisine.
+    /// Marks this container as a **repaint boundary**: its subtree is cached and
+    /// reused for as long as its geometry and its descendants' interaction state
+    /// stay stable. To be placed around **static** content that would otherwise be
+    /// repainted on every frame of a neighbouring animation.
     pub fn repaint_boundary(mut self) -> Self {
         self.repaint_boundary = true;
         self
     }
 
-    /// Fixe la largeur, en pixels logiques.
+    /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
         self
     }
 
-    /// Fixe la hauteur, en pixels logiques.
+    /// Sets the height, in logical pixels.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Dimension::Length(height);
         self
     }
 
-    /// Facteur d'expansion flex sur l'axe principal du parent.
+    /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
     }
 
-    /// Marge intérieure uniforme, en pixels logiques.
+    /// Uniform inner padding, in logical pixels.
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = Insets::uniform(padding);
         self
     }
 
-    /// Marge intérieure par côté (haut, droite, bas, gauche).
+    /// Inner padding per side (top, right, bottom, left).
     pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
         self.padding = Insets::new(top, right, bottom, left);
         self
     }
 
-    /// Marge **extérieure** uniforme (façon `Container(margin:)` de Flutter) :
-    /// espace réservé **autour** de la boîte — hors décoration, il repousse les
-    /// frères sans agrandir le fond ni la bordure.
+    /// A uniform **outer** margin: space reserved **around** the box — outside the
+    /// decoration, it pushes the siblings away without growing the background or
+    /// the border.
     pub fn margin(mut self, margin: f32) -> Self {
         self.margin = Insets::uniform(margin);
         self
     }
 
-    /// Marge extérieure par côté (haut, droite, bas, gauche).
+    /// Outer margin per side (top, right, bottom, left).
     pub fn margin_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
         self.margin = Insets::new(top, right, bottom, left);
         self
     }
 
-    /// Rayons des coins arrondis : uniforme via `f32` (`.radius(10.0)`) ou par
-    /// coin via [`BorderRadius`] (`.radius(BorderRadius::top(12.0))`).
+    /// The rounded corner radii: uniform via `f32` (`.radius(10.0)`) or per corner
+    /// via [`BorderRadius`] (`.radius(BorderRadius::top(12.0))`).
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.radius = radius.into();
         self
     }
 
-    /// Bordure : épaisseur (px) et couleur.
+    /// The border: width (in px) and color.
     pub fn border(mut self, width: f32, color: Color) -> Self {
         self.border_width = width;
         self.border_color = color;
         self
     }
 
-    /// Couleur de fond au repos.
+    /// The background color at rest.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Couleur de fond au survol.
+    /// The background color on hover.
     pub fn hover_color(mut self, color: Color) -> Self {
         self.hover_color = Some(color);
         self
     }
 
-    /// Couleur de fond lorsqu'il est pressé.
+    /// The background color when pressed.
     pub fn pressed_color(mut self, color: Color) -> Self {
         self.pressed_color = Some(color);
         self
     }
 
-    /// Dégradé linéaire du fond (`color` → `end`), `dir` en espace `[0,1]²`
-    /// (p. ex. `[0.0, 1.0]` = haut→bas).
+    /// A linear background gradient (`color` → `end`), with `dir` in `[0,1]²` space
+    /// (`[0.0, 1.0]` = top→bottom, for instance).
     pub fn gradient(mut self, end: Color, dir: [f32; 2]) -> Self {
         self.gradient = Some((end, dir));
         self
     }
 
-    /// Ombre portée : décalage `(dx, dy)`, rayon de flou et couleur.
+    /// A drop shadow: the `(dx, dy)` offset, the blur radius and the color.
     pub fn shadow(mut self, dx: f32, dy: f32, blur: f32, color: Color) -> Self {
         self.shadow = Some((dx, dy, blur, color));
         self
     }
 
-    /// Message émis lorsque le conteneur est cliqué.
+    /// The message emitted when the container is clicked.
     pub fn on_click(mut self, message: Msg) -> Self {
         self.on_click = Some(message);
         self
     }
 
-    /// Message émis par un **appui long** (pression maintenue sans mouvement).
-    /// L'appui long évince le clic.
+    /// The message emitted by a **long press** (a press held without movement). A
+    /// long press supersedes the click.
     pub fn on_long_press(mut self, message: Msg) -> Self {
         self.on_long_press = Some(message);
         self
     }
 
-    /// Définit l'enfant du conteneur.
+    /// Sets the container's child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.clear();
         self.children.push(Box::new(child));
         self
     }
 
-    /// Applique une **opacité de groupe** `[0,1]` à tout le sous-arbre, d'un bloc
-    /// (façon `Opacity` de Flutter) : le rendu passe par un calque composité, donc
-    /// pas de double-superposition sur les chevauchements. `1.0` = aucun effet.
+    /// Applies a **group opacity** `[0,1]` to the whole subtree, as one block: the
+    /// rendering goes through a composited layer, so overlaps are not
+    /// double-blended. `1.0` = no effect at all.
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = Some(opacity.clamp(0.0, 1.0));
         self
     }
 
-    /// Comme [`Container::opacity`], mais l'opacité **s'anime** vers `opacity` à
-    /// chaque changement (façon `AnimatedOpacity`), avec `duration` (secondes) et
-    /// `curve`. Le fondu porte sur le groupe entier.
+    /// Like [`Container::opacity`], but the opacity **animates** toward `opacity` on
+    /// every change, with `duration` (in seconds) and `curve`. The fade applies to
+    /// the whole group.
     pub fn animated_opacity(mut self, opacity: f32, duration: f32, curve: Curve) -> Self {
         self.opacity = Some(opacity.clamp(0.0, 1.0));
         self.opacity_anim = Some((duration, curve));
         self
     }
 
-    /// Fond dont la couleur **s'anime** vers `color` à chaque changement (façon
-    /// `AnimatedContainer`), avec `duration` (secondes) et `curve`. Le runtime
-    /// interpole depuis la couleur courante ; au montage, adopte `color` sans
-    /// transition. Note : une même boîte partage une `(durée, courbe)` entre ses
-    /// animations (opacité/couleur).
+    /// A background whose color **animates** toward `color` on every change, with
+    /// `duration` (in seconds) and `curve`. The runtime interpolates from the
+    /// current color; on mount it adopts `color` with no transition. Note: one box
+    /// shares a single `(duration, curve)` across its animations (opacity, color).
     pub fn animated_color(mut self, color: Color, duration: f32, curve: Curve) -> Self {
         self.color = Some(color);
         self.color_anim = Some((color, duration, curve));
         self
     }
 
-    /// Boîte dont la **taille** s'anime vers `width×height` à chaque changement
-    /// (façon `AnimatedContainer`), avec `duration` et `curve`. La taille
-    /// interpolée est injectée **au layout** (les enfants se replacent en
-    /// conséquence). Au montage, adopte la cible sans transition.
+    /// A box whose **size** animates toward `width×height` on every change, with
+    /// `duration` and `curve`. The interpolated size is injected **at layout time**
+    /// (the children reposition accordingly). On mount it adopts the target with no
+    /// transition.
     pub fn animated_size(mut self, width: f32, height: f32, duration: f32, curve: Curve) -> Self {
         self.width = Dimension::Length(width);
         self.height = Dimension::Length(height);
@@ -268,10 +266,10 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Boîte dont le **rayon de coin** s'anime vers `radius` à chaque changement
-    /// (façon `AnimatedContainer`), avec `duration` et `curve` — les coins se
-    /// morphent en douceur. Uniforme via `f32` ou par coin via [`BorderRadius`].
-    /// Au montage, adopte la cible sans transition.
+    /// A box whose **corner radius** animates toward `radius` on every change, with
+    /// `duration` and `curve` — the corners morph smoothly. Uniform via `f32`, or
+    /// per corner via [`BorderRadius`]. On mount it adopts the target with no
+    /// transition.
     pub fn animated_radius(
         mut self,
         radius: impl Into<BorderRadius>,
@@ -284,34 +282,33 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Boîte dont la **marge intérieure** (uniforme) s'anime vers `padding` à
-    /// chaque changement (façon `AnimatedContainer`), avec `duration` et `curve`.
-    /// La marge interpolée est injectée **au layout** (le contenu se replace). Au
-    /// montage, adopte la cible sans transition.
+    /// A box whose (uniform) **inner padding** animates toward `padding` on every
+    /// change, with `duration` and `curve`. The interpolated padding is injected
+    /// **at layout time** (the content repositions). On mount it adopts the target
+    /// with no transition.
     pub fn animated_padding(mut self, padding: f32, duration: f32, curve: Curve) -> Self {
         self.padding = Insets::uniform(padding);
         self.padding_anim = Some((duration, curve));
         self
     }
 
-    /// **Ancre l'enfant** dans la boîte (façon `Container(alignment:)` de Flutter) :
-    /// centré, en coin, sur un bord… Accepte un ancrage **physique**
-    /// ([`Alignment`](frus_core::Alignment)) ou **directionnel**
-    /// ([`AlignmentDirectional`](frus_core::AlignmentDirectional), résolu en RTL au
-    /// rendu) — les deux via `Into`. Par défaut, sans ancrage, l'enfant s'étire pour
-    /// remplir le conteneur (comportement flex) ; poser un ancrage laisse l'enfant à
-    /// sa taille naturelle et le positionne.
+    /// **Anchors the child** within the box: centred, in a corner, against an edge…
+    /// Accepts a **physical** anchor ([`Alignment`](frus_core::Alignment)) or a
+    /// **directional** one
+    /// ([`AlignmentDirectional`](frus_core::AlignmentDirectional), resolved for RTL
+    /// at render time) — both through `Into`. By default, with no anchor, the child
+    /// stretches to fill the container (the flex behaviour); setting an anchor
+    /// leaves the child at its natural size and positions it.
     pub fn alignment(mut self, alignment: impl Into<AlignmentGeometry>) -> Self {
         self.alignment = Some(alignment.into());
         self
     }
 
-    /// Applique une **décoration composite** d'un bloc (façon
-    /// `Container(decoration:)` de Flutter) : fond, dégradé, bordure, rayon et ombre
-    /// réunis dans un [`BoxDecoration`] réutilisable. Chaque partie présente écrase
-    /// le réglage correspondant ; le rayon est toujours adopté. Les animations
-    /// (couleur/rayon…) restent applicables par-dessus. (Le `spread` d'ombre n'est
-    /// pas conservé — le modèle d'ombre du conteneur n'en a pas.)
+    /// Applies a **composite decoration** as one block: background, gradient, border,
+    /// radius and shadow gathered in a reusable [`BoxDecoration`]. Each part present
+    /// overrides the corresponding setting; the radius is always adopted. The
+    /// animations (color, radius…) still apply on top. (A shadow's `spread` is not
+    /// kept — the container's shadow model has none.)
     pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
         if let Some(color) = decoration.color {
             self.color = Some(color);
@@ -347,10 +344,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             margin: self.margin,
             ..Default::default()
         };
-        // Ancrage de l'enfant : on laisse taffy le poser en **haut-gauche** de la
-        // boîte de contenu, à sa taille naturelle (Start / Start, pas d'étirement),
-        // puis la marche le décale dans l'espace libre selon les fractions de
-        // l'`Alignment` (placement manuel, fractionnel — hors du flex discret).
+        // Anchoring the child: taffy is left to place it at the **top left** of the
+        // content box, at its natural size (Start / Start, no stretching), and the
+        // walk then offsets it within the free space according to the `Alignment`'s
+        // fractions (a manual, fractional placement — outside the discrete flex).
         if self.alignment.is_some() {
             style.justify = Justify::Start;
             style.align = Align::Start;
@@ -363,9 +360,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
-        // Fond à **couleur animée** : la couleur interpolée par le runtime prime
-        // (l'interpolation survol/pressé ne s'applique pas à un fond animé).
-        // Pressé : instantané. Sinon, transition animée repos → survol.
+        // A background with an **animated color**: the color the runtime interpolates
+        // wins (the hover/press interpolation does not apply to an animated
+        // background). Pressed: instant. Otherwise, an animated rest → hover
+        // transition.
         let color = if self.color_anim.is_some() {
             status.anim_color.or(self.color)
         } else if status.interaction == Interaction::Pressed {
@@ -376,10 +374,10 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             self.color
         };
 
-        // Compose la décoration (fond/dégradé/bordure/ombre) et l'abaisse en
-        // primitives dans l'ordre fixe ombre → fond → bordure. L'opacité (fondu
-        // d'apparition) module toutes les couleurs.
-        // Rayon animé : le rayon interpolé par le runtime prime sur le fixe.
+        // Compose the decoration (background/gradient/border/shadow) and lower it into
+        // primitives in the fixed order shadow → background → border. The opacity
+        // (the fade-in) modulates every color.
+        // An animated radius: the radius the runtime interpolates wins over the fixed one.
         let radius = if self.radius_anim.is_some() {
             status.anim_radius.unwrap_or(self.radius)
         } else {
@@ -417,9 +415,8 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
         self.opacity
     }
 
-    /// Cible de l'opacité animée (uniquement si `animated_opacity` est posée) —
-    /// c'est cette valeur que le runtime tween et que la marche relit pour le
-    /// calque.
+    /// The animated opacity's target (only when `animated_opacity` is set) — this is
+    /// the value the runtime tweens and the walk reads back for the layer.
     fn anim_target(&self) -> Option<f32> {
         self.opacity_anim.as_ref().and(self.opacity)
     }
@@ -437,7 +434,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     }
 
     fn anim_padding(&self) -> Option<Insets> {
-        // Cible = la marge effective (contenu + bordure), cohérente avec `style()`.
+        // The target = the effective padding (content + border), consistent with `style()`.
         self.padding_anim.as_ref().map(|_| self.effective_padding())
     }
 
@@ -446,8 +443,8 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     }
 
     fn anim_duration(&self) -> f32 {
-        // Les animations d'une même boîte (opacité/couleur/taille/rayon/marge)
-        // partagent une durée (ordre : opacité, couleur, taille, rayon, marge).
+        // One box's animations (opacity/color/size/radius/padding) share a single
+        // duration (in the order: opacity, color, size, radius, padding).
         self.opacity_anim
             .as_ref()
             .map(|(d, _)| *d)
@@ -474,8 +471,8 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 mod tests {
     use super::*;
 
-    /// Un `Container` avec opacité de groupe < 1 fait envelopper son sous-arbre
-    /// peint dans un [`frus_core::Primitive::Layer`] à cette opacité.
+    /// A `Container` with a group opacity < 1 has its painted subtree wrapped in a
+    /// [`frus_core::Primitive::Layer`] at that opacity.
     #[test]
     fn opacity_group_wraps_subtree_in_a_layer() {
         use frus_core::{Primitive, Size};
@@ -495,15 +492,15 @@ mod tests {
             } => Some((*opacity, primitives.len())),
             _ => None,
         });
-        let (op, n) = layer.expect("un calque d'opacité de groupe");
-        assert!((op - 0.5).abs() < 1e-6, "opacité de groupe = {op}");
+        let (op, n) = layer.expect("a group opacity layer");
+        assert!((op - 0.5).abs() < 1e-6, "group opacity = {op}");
         assert!(
             n >= 1,
             "le calque enveloppe le contenu peint ({n} primitives)"
         );
     }
 
-    /// Opacité pleine (`1.0`) : aucun calque n'est émis (chemin opaque, coût nul).
+    /// Full opacity (`1.0`): no layer is emitted (the opaque path, at zero cost).
     #[test]
     fn full_opacity_emits_no_layer() {
         use frus_core::{Primitive, Size};
@@ -520,12 +517,12 @@ mod tests {
                 .primitives()
                 .iter()
                 .any(|p| matches!(p, Primitive::Layer { .. })),
-            "aucun calque à opacité pleine"
+            "no layer at full opacity"
         );
     }
 
-    /// `animated_opacity` déclare une valeur animée (le runtime la tween) avec la
-    /// durée et la courbe fournies ; `opacity` seule non (opacité fixe).
+    /// `animated_opacity` declares an animated value (the runtime tweens it) with the
+    /// duration and curve supplied; `opacity` alone does not (a fixed opacity).
     #[test]
     fn animated_opacity_declares_anim_target() {
         let animated: Container<()> = Container::new().animated_opacity(0.0, 0.3, Curve::ease_in());
@@ -534,15 +531,15 @@ mod tests {
         assert_eq!(Widget::<()>::anim_curve(&animated), Curve::ease_in());
         assert_eq!(Widget::<()>::opacity_group(&animated), Some(0.0));
 
-        // Opacité fixe : groupe oui, mais pas de valeur animée.
+        // A fixed opacity: a group, yes, but no animated value.
         let fixed: Container<()> = Container::new().opacity(0.5);
         assert_eq!(Widget::<()>::anim_target(&fixed), None);
         assert_eq!(Widget::<()>::opacity_group(&fixed), Some(0.5));
     }
 
-    /// Un fond `animated_color` peint la couleur **interpolée** par le runtime
-    /// (pas la cible) : montée au rouge, transition vers bleu à mi-parcours → le
-    /// rectangle de fond est ~ mi rouge/bleu.
+    /// An `animated_color` background paints the color the runtime **interpolates**
+    /// (not the target): mounted at red, transitioning to blue half-way → the
+    /// background rectangle is about half red, half blue.
     #[test]
     fn animated_color_paints_the_interpolated_color() {
         use frus_core::{Primitive, Size};
@@ -575,13 +572,13 @@ mod tests {
             .expect("un rectangle de fond");
         assert!(
             (color.r - 0.5).abs() < 0.1 && (color.b - 0.5).abs() < 0.1,
-            "couleur interpolée peinte : {color:?}"
+            "the interpolated color is painted: {color:?}"
         );
     }
 
-    /// Une `animated_size` **pilote la mise en page** : après avancement à
-    /// mi-parcours (20×20 → 40×40, linéaire), le rectangle de fond mesure ~30×30
-    /// (taille interpolée injectée au layout via `effective_style`).
+    /// An `animated_size` **drives the layout**: half-way through (20×20 → 40×40,
+    /// linear), the background rectangle measures about 30×30 (the interpolated
+    /// size injected into layout through `effective_style`).
     #[test]
     fn animated_size_drives_the_layout() {
         use frus_core::{Primitive, Size};
@@ -611,18 +608,18 @@ mod tests {
             .expect("un rectangle de fond");
         assert!(
             (rect.width - 30.0).abs() < 1.0,
-            "largeur interpolée : {}",
+            "interpolated width: {}",
             rect.width
         );
         assert!(
             (rect.height - 30.0).abs() < 1.0,
-            "hauteur interpolée : {}",
+            "interpolated height: {}",
             rect.height
         );
     }
 
-    /// Un `animated_radius` peint le rayon **interpolé** : montée à 0, transition
-    /// vers 20 à mi-parcours → le rectangle de fond a un rayon ~10.
+    /// An `animated_radius` paints the **interpolated** radius: mounted at 0,
+    /// transitioning to 20 half-way → the background rectangle has a radius of ~10.
     #[test]
     fn animated_radius_paints_the_interpolated_radius() {
         use frus_core::{Primitive, Size};
@@ -654,13 +651,14 @@ mod tests {
             .expect("un rectangle de fond");
         assert!(
             (radius.top_left - 10.0).abs() < 1.0,
-            "rayon interpolé : {}",
+            "interpolated radius: {}",
             radius.top_left
         );
     }
 
-    /// Un `animated_padding` **décale l'enfant au layout** : montée à 0, transition
-    /// vers 20 à mi-parcours → l'enfant est inséré de ~10 (la marge interpolée).
+    /// An `animated_padding` **insets the child at layout time**: mounted at 0,
+    /// transitioning to 20 half-way → the child is inset by ~10 (the interpolated
+    /// padding).
     #[test]
     fn animated_padding_insets_the_child_at_layout() {
         use frus_core::{Primitive, Size};
@@ -690,12 +688,12 @@ mod tests {
             .expect("le fond rouge de l'enfant");
         assert!(
             (rect.x - 10.0).abs() < 1.0 && (rect.y - 10.0).abs() < 1.0,
-            "enfant décalé de ~10 par la marge interpolée : {rect:?}"
+            "the child is inset by ~10 by the interpolated padding: {rect:?}"
         );
     }
 
-    /// `alignment(Center)` positionne l'enfant (20×20) au centre d'une boîte
-    /// 100×100 → son fond est à ~(40, 40).
+    /// `alignment(Center)` positions the (20×20) child at the centre of a 100×100 box
+    /// → its background sits at about (40, 40).
     #[test]
     fn alignment_centers_the_child() {
         use frus_core::{Alignment, Primitive, Size};
@@ -719,12 +717,12 @@ mod tests {
             .expect("le fond rouge de l'enfant");
         assert!(
             (rect.x - 40.0).abs() < 1.0 && (rect.y - 40.0).abs() < 1.0,
-            "centré : {rect:?}"
+            "centred: {rect:?}"
         );
     }
 
-    /// `alignment(BottomRight)` ancre l'enfant (20×20) au coin bas-droit d'une boîte
-    /// 100×100 → son fond est à ~(80, 80).
+    /// `alignment(BottomRight)` anchors the (20×20) child to the bottom-right corner
+    /// of a 100×100 box → its background sits at about (80, 80).
     #[test]
     fn alignment_anchors_child_to_a_corner() {
         use frus_core::{Alignment, Primitive, Size};
@@ -752,11 +750,11 @@ mod tests {
         );
     }
 
-    /// Un ancrage **fractionnel** (hors des neuf positions discrètes) place l'enfant
-    /// proportionnellement : `x = 0.5, y = -0.5` → fractions (0.75, 0.25) → dans une
-    /// boîte 100×100 avec un enfant 20×20 (libre 80×80), fond à ~(60, 20). C'est ce
-    /// que le flex discret ne pouvait pas faire — et ce qui rend `Tween<Alignment>`
-    /// visuellement continu.
+    /// A **fractional** anchor (outside the nine discrete positions) places the child
+    /// proportionally: `x = 0.5, y = -0.5` → fractions (0.75, 0.25) → in a 100×100
+    /// box with a 20×20 child (80×80 free), the background lands at about (60, 20).
+    /// This is what the discrete flex could not do — and what makes
+    /// `Tween<Alignment>` visually continuous.
     #[test]
     fn fractional_alignment_places_child_proportionally() {
         use frus_core::{Alignment, Primitive, Size};
@@ -784,8 +782,9 @@ mod tests {
         );
     }
 
-    /// Un ancrage **directionnel** suit le sens de lecture : `CENTER_START` place
-    /// l'enfant à **gauche** en LTR, à **droite** en RTL (résolu au rendu).
+    /// A **directional** anchor follows the reading direction: `CENTER_START` places
+    /// the child on the **left** in LTR, on the **right** in RTL (resolved at render
+    /// time).
     #[test]
     fn directional_alignment_flips_the_child_in_rtl() {
         use frus_core::{AlignmentDirectional, Primitive, Size};
@@ -809,16 +808,17 @@ mod tests {
         };
         assert!(
             child_x(&crate::Theme::dark()).abs() < 1.0,
-            "start à gauche en LTR"
+            "start on the left in LTR"
         );
         assert!(
             (child_x(&crate::Theme::dark().rtl()) - 80.0).abs() < 1.0,
-            "start à droite en RTL"
+            "start on the right in RTL"
         );
     }
 
-    /// `decoration(...)` applique fond, rayon et bordure d'un bloc : le fond peint la
-    /// couleur et le rayon donnés, et la bordure réserve son épaisseur au layout.
+    /// `decoration(...)` applies background, radius and border as one block: the
+    /// background paints the given color and radius, and the border reserves its
+    /// width at layout time.
     #[test]
     fn decoration_applies_composite_fields() {
         use frus_core::{BorderRadius, BoxDecoration, Primitive, Size};
@@ -830,7 +830,7 @@ mod tests {
             ..Default::default()
         };
         let root: Container<()> = Container::new().width(40.0).height(40.0).decoration(deco);
-        // La bordure réserve son épaisseur dans le padding de mise en page.
+        // The border reserves its width in the layout padding.
         assert_eq!(Widget::style(&root).padding, Insets::uniform(2.0));
 
         let rt = crate::runtime::Runtime::default();
@@ -844,8 +844,8 @@ mod tests {
                 Primitive::Rect { color, radius, .. } if color.g > 0.5 => Some((*color, *radius)),
                 _ => None,
             })
-            .expect("le fond vert décoré");
-        assert!(color.g > 0.9, "fond vert : {color:?}");
+            .expect("the decorated green background");
+        assert!(color.g > 0.9, "a green background: {color:?}");
         assert!(
             (radius.top_left - 8.0).abs() < 1e-3,
             "rayon composite : {}",
@@ -853,10 +853,10 @@ mod tests {
         );
     }
 
-    /// `margin(...)` réserve de l'espace **autour** de la boîte : il pousse les
-    /// frères et décale le fond, sans l'agrandir. Dans une colonne, un second enfant
-    /// (haut 20) de marge 10 démarre à `y = 20 (frère) + 10 (marge)` et est inséré de
-    /// 10 sur la gauche.
+    /// `margin(...)` reserves space **around** the box: it pushes the siblings away
+    /// and offsets the background without growing it. In a column, a second child
+    /// (20 tall) with a margin of 10 starts at `y = 20 (sibling) + 10 (margin)` and
+    /// is inset by 10 on the left.
     #[test]
     fn margin_pushes_siblings_and_insets() {
         use frus_core::{Primitive, Size};
@@ -882,21 +882,21 @@ mod tests {
             .expect("le fond vert du 2e enfant");
         assert!(
             (rect.y - 30.0).abs() < 0.5 && (rect.x - 10.0).abs() < 0.5,
-            "marge : poussé à y=30, inséré à x=10 : {rect:?}"
+            "margin: pushed to y=30, inset to x=10: {rect:?}"
         );
         assert!(
             (rect.height - 20.0).abs() < 0.5,
-            "la marge n'agrandit pas la boîte : {rect:?}"
+            "the margin does not grow the box: {rect:?}"
         );
     }
 
     #[test]
     fn visible_border_reserves_layout_padding() {
-        // Bordure visible : le padding de mise en page réserve son épaisseur.
+        // A visible border: the layout padding reserves its width.
         let bordered: Container<()> = Container::new().padding(4.0).border(2.0, Color::WHITE);
         assert_eq!(Widget::style(&bordered).padding, Insets::uniform(6.0));
 
-        // Sans bordure (ou invisible) : padding inchangé.
+        // With no border (or an invisible one): the padding is unchanged.
         let plain: Container<()> = Container::new().padding(4.0);
         assert_eq!(Widget::style(&plain).padding, Insets::uniform(4.0));
         let invisible: Container<()> = Container::new()

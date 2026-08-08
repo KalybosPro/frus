@@ -1,17 +1,17 @@
-//! Thème : *design tokens* (couleurs, rayon, espacement) injectés au rendu.
+//! The theme: *design tokens* (colors, radius, spacing) injected into rendering.
 //!
-//! Le thème est passé à [`crate::build_ui`] et transmis à `Widget::paint` ; les
-//! widgets l'utilisent pour leurs valeurs par défaut (couleur de texte, champ de
-//! saisie, barres de défilement…), sans empêcher une surcharge explicite.
+//! The theme is handed to [`crate::build_ui`] and passed on to `Widget::paint`;
+//! widgets use it for their default values (text color, text fields, scrollbars…),
+//! without preventing an explicit override.
 
 use frus_core::{Color, FontWeight, TextDirection, TextStyle};
 
 use crate::interaction::{Interaction, Status};
 
-/// Échelle typographique **nommée** (les 15 crans de Material 3). Les widgets
-/// choisissent un cran (`theme.text.title_medium`), jamais une taille en dur —
-/// changer l'échelle retypographie toute l'app. Les couleurs restent héritées
-/// (`None` → résolues contre le thème au paint).
+/// The **named** typographic scale (Material 3's 15 steps). Widgets pick a step
+/// (`theme.text.title_medium`), never a hardcoded size — changing the scale
+/// retypesets the whole app. The colors stay inherited (`None` → resolved against
+/// the theme at paint time).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextTheme {
     pub display_large: TextStyle,
@@ -32,8 +32,8 @@ pub struct TextTheme {
 }
 
 impl Default for TextTheme {
-    /// L'échelle Material 3 de référence (tailles en px logiques ; les crans
-    /// title/label portent une graisse medium, comme le spec).
+    /// The reference Material 3 scale (sizes in logical pixels; the title and label
+    /// steps carry a medium weight, as the spec has it).
     fn default() -> Self {
         let medium = |size: f32| TextStyle::new(size).weight(FontWeight::Medium);
         Self {
@@ -56,10 +56,10 @@ impl Default for TextTheme {
     }
 }
 
-/// Les **rôles de couleur** (Material 3) — la **source de vérité** des couleurs
-/// du thème. Les widgets référencent des rôles, jamais des couleurs littérales :
-/// changer de schéma recolore toute l'app et garantit le contraste (paires
-/// `X`/`on_X`). Écrit à la main clair/sombre ; `from_seed` (HCT) viendra après.
+/// The **color roles** (Material 3) — the **source of truth** for the theme's
+/// colors. Widgets reference roles, never literal colors: changing scheme recolors
+/// the whole app and guarantees the contrast of the `X`/`on_X` pairs. Written by
+/// hand for light and dark; `from_seed` (HCT) comes after.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ColorScheme {
     pub primary: Color,
@@ -73,31 +73,31 @@ pub struct ColorScheme {
     pub background: Color,
     pub surface: Color,
     pub on_surface: Color,
-    /// Surface tonale discrète (fonds de zones, pistes).
+    /// A discreet tonal surface (zone backgrounds, tracks).
     pub surface_variant: Color,
-    /// Contenu secondaire sur les surfaces (le `muted` historique).
+    /// Secondary content on surfaces (the historical `muted`).
     pub on_surface_variant: Color,
-    /// Surface **élevée** (panneaux flottants, menus).
+    /// An **elevated** surface (floating panels, menus).
     pub surface_container: Color,
-    /// Surface encore plus élevée (menus au-dessus de dialogues…).
+    /// A surface higher still (menus above dialogs…).
     pub surface_container_high: Color,
-    /// Surface inversée (toasts/snackbars qui tranchent sur le fond).
+    /// An inverted surface (toasts and snackbars that stand out from the background).
     pub inverse_surface: Color,
     pub on_inverse_surface: Color,
-    /// Contours au repos.
+    /// Outlines at rest.
     pub outline: Color,
-    /// Contours discrets (séparateurs fins).
+    /// Discreet outlines (thin separators).
     pub outline_variant: Color,
     pub error: Color,
     pub on_error: Color,
-    /// Voile des modales/tiroirs (l'alpha est appliqué à l'usage).
+    /// The scrim for modals and drawers (the alpha is applied at the point of use).
     pub scrim: Color,
-    /// Couleur des ombres portées (l'alpha est appliqué à l'usage).
+    /// The color of drop shadows (the alpha is applied at the point of use).
     pub shadow: Color,
 }
 
 impl ColorScheme {
-    /// Schéma sombre.
+    /// The dark scheme.
     pub fn dark() -> Self {
         Self {
             primary: Color::rgb8(96, 200, 130),
@@ -126,7 +126,7 @@ impl ColorScheme {
         }
     }
 
-    /// Schéma clair.
+    /// The light scheme.
     pub fn light() -> Self {
         Self {
             primary: Color::rgb8(46, 160, 96),
@@ -155,21 +155,21 @@ impl ColorScheme {
         }
     }
 
-    /// Génère un schéma complet depuis **une couleur graine** (Material 3
-    /// « dynamic color », via [HCT](frus_core::Hct)). La teinte de la graine
-    /// irrigue cinq palettes tonales (primaire, secondaire, tertiaire — non
-    /// exposée pour l'instant —, neutres) ; chaque rôle est un **ton** précis
-    /// de sa palette, ce qui garantit les contrastes des paires `X`/`on_X`.
+    /// Generates a complete scheme from **a seed color** (Material 3 "dynamic
+    /// color", through [HCT](frus_core::Hct)). The seed's hue feeds five tonal
+    /// palettes (primary, secondary, tertiary — not exposed for now — and the
+    /// neutrals); each role is a precise **tone** of its palette, which guarantees
+    /// the contrast of the `X`/`on_X` pairs.
     ///
-    /// Écarts assumés vis-à-vis de la spec M3 : `surface` est légèrement
-    /// décollée du `background` (nos cartes posent une surface sur le fond,
-    /// tons 12/6 en sombre, 100/98 en clair) — la spec 2023 les confond.
+    /// Deliberate departures from the M3 spec: `surface` sits slightly apart from
+    /// `background` (our cards lay a surface over the background, tones 12/6 in
+    /// dark, 100/98 in light) — the 2023 spec conflates them.
     pub fn from_seed(seed: Color, dark: bool) -> Self {
         use frus_core::{Hct, TonalPalette};
 
         let hct = Hct::from_color(seed);
-        // Chromas M3 : la primaire garde le chroma de la graine (plancher 48),
-        // les autres palettes sont des déclinaisons assourdies de la teinte.
+        // M3 chromas: the primary keeps the seed's chroma (with a floor of 48), and
+        // the other palettes are muted variations on the hue.
         let primary = TonalPalette::new(hct.hue, hct.chroma.max(48.0));
         let secondary = TonalPalette::new(hct.hue, 16.0);
         let neutral = TonalPalette::new(hct.hue, 4.0);
@@ -237,7 +237,7 @@ impl ColorScheme {
         }
     }
 
-    /// Interpole rôle à rôle vers `other` (fondu de bascule clair/sombre).
+    /// Interpolates role by role toward `other` (the light/dark switch fade).
     pub fn lerp(&self, other: &ColorScheme, t: f32) -> ColorScheme {
         let c = |a: Color, b: Color| a.lerp(b, t);
         ColorScheme {
@@ -268,60 +268,60 @@ impl ColorScheme {
     }
 }
 
-/// Ensemble de tokens de style.
+/// A set of style tokens.
 ///
-/// La [`ColorScheme`] (`theme.scheme`) est la **source de vérité** des couleurs ;
-/// les champs « à plat » (`background`, `surface`, `primary`, …) sont des **vues
-/// de commodité** sur les rôles les plus employés, dérivées du schéma — l'API
-/// historique des widgets reste intacte. `focus`/`selection` sont des accents
-/// d'interaction propres à frus (hors rôles M3).
+/// The [`ColorScheme`] (`theme.scheme`) is the **source of truth** for the colors;
+/// the "flat" fields (`background`, `surface`, `primary`, …) are **convenience
+/// views** of the most used roles, derived from the scheme — the widgets'
+/// historical API stays intact. `focus`/`selection` are interaction accents
+/// specific to frus (outside the M3 roles).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
-    /// Rôles de couleur (la source de vérité).
+    /// The color roles (the source of truth).
     pub scheme: ColorScheme,
-    /// Fond de l'application (= `scheme.background`).
+    /// The application's background (= `scheme.background`).
     pub background: Color,
-    /// Fond des surfaces (= `scheme.surface`).
+    /// The surfaces' background (= `scheme.surface`).
     pub surface: Color,
-    /// Couleur d'accent (= `scheme.primary`).
+    /// The accent color (= `scheme.primary`).
     pub primary: Color,
-    /// Texte/contenu sur `primary` (= `scheme.on_primary`).
+    /// Text and content on `primary` (= `scheme.on_primary`).
     pub on_primary: Color,
-    /// Texte par défaut sur les surfaces (= `scheme.on_surface`).
+    /// The default text on surfaces (= `scheme.on_surface`).
     pub on_surface: Color,
-    /// Texte secondaire / éléments discrets (= `scheme.on_surface_variant`).
+    /// Secondary text and discreet elements (= `scheme.on_surface_variant`).
     pub muted: Color,
-    /// Bordures au repos (= `scheme.outline`).
+    /// Borders at rest (= `scheme.outline`).
     pub border: Color,
-    /// Accent de focus (accent d'interaction frus, hors schéma).
+    /// The focus accent (a frus interaction accent, outside the scheme).
     pub focus: Color,
-    /// Surbrillance de sélection de texte (idem).
+    /// The text selection highlight (likewise).
     pub selection: Color,
-    /// Conteneur d'accent tonal (= `scheme.primary_container`).
+    /// The tonal accent container (= `scheme.primary_container`).
     pub primary_container: Color,
-    /// Contenu sur `primary_container` (= `scheme.on_primary_container`).
+    /// Content on `primary_container` (= `scheme.on_primary_container`).
     pub on_primary_container: Color,
-    /// Couleur d'erreur / danger (= `scheme.error`).
+    /// The error or danger color (= `scheme.error`).
     pub error: Color,
-    /// Contenu sur `error` (= `scheme.on_error`).
+    /// Content on `error` (= `scheme.on_error`).
     pub on_error: Color,
-    /// Variante discrète de contour (= `scheme.outline_variant`).
+    /// The discreet outline variant (= `scheme.outline_variant`).
     pub outline_variant: Color,
-    /// Échelle typographique nommée (15 crans Material).
+    /// The named typographic scale (Material's 15 steps).
     pub text: TextTheme,
-    /// Rayon de coin par défaut.
+    /// The default corner radius.
     pub radius: f32,
-    /// Unité d'espacement de base.
+    /// The base spacing unit.
     pub spacing: f32,
-    /// **Direction de lecture/mise en page** ambiante (LTR par défaut). En RTL,
-    /// le pilote retourne horizontalement la mise en page. Porté ici (contexte
-    /// ambiant threadé jusqu'au paint) en attendant un `Env` dédié (§2).
+    /// The ambient **reading and layout direction** (LTR by default). In RTL, the
+    /// driver mirrors the layout horizontally. Carried here (an ambient context
+    /// threaded down to paint) pending a dedicated `Env` (§2).
     pub direction: TextDirection,
 }
 
 impl Theme {
-    /// Construit un thème depuis un schéma : les champs plats sont **dérivés**
-    /// des rôles (une seule source de vérité).
+    /// Builds a theme from a scheme: the flat fields are **derived** from the roles,
+    /// so there is a single source of truth.
     pub fn from_scheme(scheme: ColorScheme, focus: Color, selection: Color) -> Self {
         Self {
             scheme,
@@ -346,13 +346,13 @@ impl Theme {
         }
     }
 
-    /// Le même thème en **droite-à-gauche** (arabe, hébreu…).
+    /// The same theme in **right-to-left** (Arabic, Hebrew…).
     pub fn rtl(mut self) -> Self {
         self.direction = TextDirection::Rtl;
         self
     }
 
-    /// Thème sombre.
+    /// The dark theme.
     pub fn dark() -> Self {
         Self::from_scheme(
             ColorScheme::dark(),
@@ -361,7 +361,7 @@ impl Theme {
         )
     }
 
-    /// Thème clair.
+    /// The light theme.
     pub fn light() -> Self {
         Self::from_scheme(
             ColorScheme::light(),
@@ -370,10 +370,9 @@ impl Theme {
         )
     }
 
-    /// Thème généré depuis une **couleur graine** (voir
-    /// [`ColorScheme::from_seed`]). L'anneau de focus et la sélection dérivent
-    /// de la primaire du schéma (rôles d'interaction propres à frus, hors
-    /// schéma M3).
+    /// A theme generated from a **seed color** (see [`ColorScheme::from_seed`]). The
+    /// focus ring and the selection derive from the scheme's primary (interaction
+    /// roles specific to frus, outside the M3 scheme).
     pub fn from_seed(seed: Color, dark: bool) -> Self {
         let scheme = ColorScheme::from_seed(seed, dark);
         let focus = scheme.primary;
@@ -381,12 +380,12 @@ impl Theme {
         Self::from_scheme(scheme, focus, selection)
     }
 
-    /// Applique la **state-layer** Material sur `base` : superpose la couleur de
-    /// contenu `on` à faible opacité selon l'état d'interaction — survol 8 %,
-    /// focus 10 %, pression 12 % — en tenant compte des progressions animées
-    /// (`hover_progress`/`focus_progress`). C'est la règle d'états **bakée** dans le
-    /// thème : les widgets restent déclaratifs (ils passent leur couleur de base et
-    /// leur couleur de contenu, le thème décide de l'overlay).
+    /// Applies the Material **state layer** over `base`: it overlays the content
+    /// color `on` at low opacity according to the interaction state — hover 8%,
+    /// focus 10%, press 12% — taking the animated progressions into account
+    /// (`hover_progress`/`focus_progress`). This is the state rule **baked** into
+    /// the theme: widgets stay declarative (they pass their base color and their
+    /// content color, and the theme decides on the overlay).
     pub fn state_layer(&self, base: Color, on: Color, status: &Status) -> Color {
         let mut overlay = 0.08 * status.hover_progress.clamp(0.0, 1.0)
             + 0.10 * status.focus_progress.clamp(0.0, 1.0);
@@ -398,10 +397,10 @@ impl Theme {
 }
 
 impl Theme {
-    /// Interpole vers `other` à l'avancement `t` (`0` = `self`, `1` = `other`).
-    /// Sert au fondu de thème au basculement clair/sombre. Le **schéma** est
-    /// interpolé rôle à rôle et les champs plats en sont re-dérivés (une seule
-    /// source de vérité, même en cours de fondu).
+    /// Interpolates toward `other` at progress `t` (`0` = `self`, `1` = `other`).
+    /// Used for the theme fade when switching light and dark. The **scheme** is
+    /// interpolated role by role and the flat fields are re-derived from it (a
+    /// single source of truth, even mid-fade).
     pub fn lerp(&self, other: &Theme, t: f32) -> Theme {
         let t = t.clamp(0.0, 1.0);
         let f = |a: f32, b: f32| a + (b - a) * t;
@@ -410,11 +409,11 @@ impl Theme {
             self.focus.lerp(other.focus, t),
             self.selection.lerp(other.selection, t),
         );
-        // La typographie ne participe pas au fondu (identique clair/sombre).
+        // Typography takes no part in the fade (it is identical light and dark).
         out.text = self.text;
         out.radius = f(self.radius, other.radius);
         out.spacing = f(self.spacing, other.spacing);
-        // La direction est discrète : on garde celle de la cible du fondu.
+        // Direction is discrete: keep the fade target's.
         out.direction = other.direction;
         out
     }
@@ -430,7 +429,7 @@ impl Default for Theme {
 mod tests {
     use super::*;
 
-    /// Contraste WCAG entre deux couleurs (rapport ≥ 1).
+    /// The WCAG contrast between two colors (a ratio ≥ 1).
     fn contrast(a: Color, b: Color) -> f32 {
         let (la, lb) = (a.compute_luminance() + 0.05, b.compute_luminance() + 0.05);
         if la > lb {
@@ -442,10 +441,10 @@ mod tests {
 
     #[test]
     fn from_seed_generates_contrasting_pairs() {
-        // Toute paire X / on_X doit rester lisible (≥ 4,5:1, l'exigence AA),
-        // pour n'importe quelle graine — même très peu chromatique.
+        // Every X / on_X pair must stay legible (≥ 4.5:1, the AA requirement), for
+        // any seed at all — even a barely chromatic one.
         for seed in [
-            Color::rgb8(0x42, 0x85, 0xF4), // bleu Google
+            Color::rgb8(0x42, 0x85, 0xF4), // Google blue
             Color::rgb8(0x9C, 0x27, 0xB0), // violet
             Color::rgb8(0x80, 0x80, 0x80), // gris (chroma quasi nul)
         ] {
@@ -470,8 +469,8 @@ mod tests {
 
     #[test]
     fn from_seed_light_and_dark_share_the_hue() {
-        // Les deux modes déclinent la même teinte (la primaire sombre est la
-        // version ton 80 de la primaire claire ton 40).
+        // Both modes decline the same hue (the dark primary is the tone-80 version
+        // of the tone-40 light primary).
         let seed = Color::rgb8(0x42, 0x85, 0xF4);
         let light = ColorScheme::from_seed(seed, false);
         let dark = ColorScheme::from_seed(seed, true);
@@ -495,8 +494,8 @@ mod tests {
 
     #[test]
     fn flat_fields_mirror_the_scheme() {
-        // Les champs plats sont des vues dérivées du schéma — y compris au
-        // milieu d'un fondu (le lerp passe par le schéma).
+        // The flat fields are views derived from the scheme — including mid-fade
+        // (the lerp goes through the scheme).
         for theme in [
             Theme::dark(),
             Theme::light(),
@@ -525,7 +524,7 @@ mod tests {
         let idle = Status::default();
         assert_eq!(theme.state_layer(base, on, &idle), base);
 
-        // Survolé à fond : base tirée de 8 % vers `on` (plus sombre ici).
+        // Fully hovered: the base is pulled 8% toward `on` (darker here).
         let hovered = Status {
             hover_progress: 1.0,
             ..Default::default()
@@ -533,7 +532,7 @@ mod tests {
         let h = theme.state_layer(base, on, &hovered);
         assert!(h.r < base.r && (base.r - h.r - 0.4 * 0.08).abs() < 1e-4);
 
-        // Pressé : superposition plus forte que le survol seul.
+        // Pressed: a stronger overlay than hover alone.
         let pressed = Status {
             interaction: Interaction::Pressed,
             ..Default::default()
@@ -547,7 +546,7 @@ mod tests {
         let l = Theme::light();
         assert_eq!(d.lerp(&l, 0.0).background, d.background);
         assert_eq!(d.lerp(&l, 1.0).background, l.background);
-        // Au milieu : ni l'un ni l'autre.
+        // In the middle: neither one nor the other.
         let mid = d.lerp(&l, 0.5).background;
         assert_ne!(mid, d.background);
         assert_ne!(mid, l.background);
