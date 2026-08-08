@@ -1,10 +1,10 @@
-# Ressources de localisation (français) — démo frus.
+# Localisation resources (French) — frus demo.
 app-title = Mes tâches
 add = Ajouter
 filter-all = Toutes
 filter-active = Actives
 filter-done = Terminées
-# Compteur avec pluriel (en français, 0 et 1 sont au singulier).
+# Pluralised counter (in French, 0 and 1 both take the singular).
 task-count = { $n ->
     [0] Aucune tâche
     [one] { $n } tâche

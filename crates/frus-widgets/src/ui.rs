@@ -2472,10 +2472,10 @@ mod tests {
         let first = ui.focusables[0].0;
         let second = ui.focusables[1].0;
 
-        // Sans focus : Tab → premier, Shift+Tab → dernier.
+        // With no focus: Tab -> first, Shift+Tab -> last.
         assert_eq!(ui.focus_next(None, true), Some(first));
         assert_eq!(ui.focus_next(None, false), Some(second));
-        // Bouclage.
+        // Wrap-around.
         assert_eq!(ui.focus_next(Some(first), true), Some(second));
         assert_eq!(ui.focus_next(Some(second), true), Some(first));
         assert_eq!(ui.focus_next(Some(first), false), Some(second));

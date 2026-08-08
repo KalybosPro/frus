@@ -661,7 +661,7 @@ mod tests {
         assert_eq!(
             range_mark((2026, 7, 12), start, None),
             DayMark::Off,
-            "pas de bande sans fin"
+            "no open-ended band"
         );
     }
 

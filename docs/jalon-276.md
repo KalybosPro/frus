@@ -1,37 +1,38 @@
-# Jalon 276 — Préparer le terrain iOS : des `cfg` de plateforme nommés
+# Jalon 276 — Clearing the ground for iOS: named platform `cfg`s
 
-## Objectif
+## The goal
 
-Ce jalon **ne construit pas** le shell iOS. Il enlève la mine posée sous ses pieds.
+This milestone **does not build** the iOS shell. It removes the mine laid under its feet.
 
-Jusqu'ici, « bureau » s'écrivait dans `frus-shell` **par la négative** :
+Until now, "desktop" was written in `frus-shell` **by negation**:
 
 ```rust
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 ```
 
-Tant qu'il n'existe que trois plateformes, c'est exact. Dès qu'on ajoute iOS, **iOS tombe
-dans cette branche** et hérite du presse-papier `arboard`, d'`env_logger` et d'AccessKit —
-trois choses sans backend UIKit. Le code aurait peut-être compilé, et il aurait été faux.
+While only three platforms exist, that is accurate. The moment iOS is added, **iOS falls
+into that branch** and inherits the `arboard` clipboard, `env_logger` and AccessKit — three
+things with no UIKit backend. The code might well have compiled, and it would have been
+wrong.
 
-Le défaut est structurel : la formulation encode « les autres » au lieu d'encoder « bureau ».
+The flaw is structural: the phrasing encodes "the others" instead of encoding "desktop".
 
-## Alternatives pesées
+## Alternatives weighed
 
-1. **Étendre la liste à chaque site** — `not(any(target_os = "android", target_os = "ios",
-   target_arch = "wasm32"))`. Mécanique, sans machinerie nouvelle. Rejeté : 66 sites, une
-   liste qui rallonge à chaque plateforme, et **chaque site est une occasion d'oubli**
-   silencieux. Le prochain portage (macOS natif, embarqué) rejouerait le même bug.
-2. **Features Cargo** (`--features desktop`). Rejeté : la plateforme n'est pas un choix de
-   l'utilisateur, et une feature oubliée donnerait un binaire sans presse-papier plutôt
-   qu'une erreur de compilation.
-3. **`build.rs` + `cfg_aliases`** — retenu. C'est exactement ce que font **winit et wgpu**,
-   nos deux dépendances de socle. La crate est **déjà dans l'arbre** (winit s'en sert) :
-   zéro dépendance téléchargée en plus.
+1. **Extend the list at every site** — `not(any(target_os = "android", target_os = "ios",
+   target_arch = "wasm32"))`. Mechanical, no new machinery. Rejected: 66 sites, a list that
+   grows with every platform, and **every site is an opportunity to silently forget one**.
+   The next port (native macOS, embedded) would replay the same bug.
+2. **Cargo features** (`--features desktop`). Rejected: the platform is not a user choice,
+   and a forgotten feature would give a binary with no clipboard rather than a compile
+   error.
+3. **`build.rs` + `cfg_aliases`** — chosen. It is exactly what **winit and wgpu** do, our
+   two foundation dependencies. The crate is **already in the tree** (winit uses it): zero
+   extra dependency downloaded.
 
-## Décision
+## The decision
 
-`crates/frus-shell/build.rs` nomme quatre plateformes :
+`crates/frus-shell/build.rs` names four platforms:
 
 ```rust
 web:     { target_arch = "wasm32" },
@@ -40,80 +41,80 @@ ios:     { target_os = "ios" },
 desktop: { not(any(web, android, ios)) },
 ```
 
-Ajouter une cible ne touche désormais **que ce fichier**.
+Adding a target now touches **that file alone**.
 
-> `desktop` est écrit en réutilisant les alias précédents, et non avec la liste
-> `target_os`/`target_arch` complète : sous cette dernière forme, `cfg_aliases` sature sa
-> limite de récursion (`recursion limit reached while expanding $crate::cfg_aliases!`).
+> `desktop` is written by reusing the preceding aliases rather than with the full
+> `target_os`/`target_arch` list: in the latter form, `cfg_aliases` hits its recursion
+> ceiling (`recursion limit reached while expanding $crate::cfg_aliases!`).
 
-### Deux frontières que les alias ne franchissent pas
+### Two boundaries the aliases do not cross
 
-Ce sont les deux pièges du dispositif, tous deux documentés dans le code :
+These are the two traps in the scheme, both documented in the code:
 
-- **La frontière de crate.** Les alias sont des `--cfg` passés à `frus-shell` seul. Le corps
-  de la macro `main!` s'expanse dans le crate de l'**application**, où ils n'existent pas :
-  un `#[cfg(desktop)]` y serait *toujours faux* et l'app n'aurait **aucun point d'entrée**.
-  La macro garde donc ses prédicats `target_os` / `target_arch` explicites.
-- **Cargo.** Les tables `[target.'cfg(…)'.dependencies]` sont évaluées par Cargo, qui ignore
-  ces alias. La table des dépendances bureau garde la liste littérale — avec `target_os =
-  "ios"` ajouté à la main, c'est elle qui empêche `arboard` et `accesskit_winit` d'atterrir
-  sur iOS.
+- **The crate boundary.** The aliases are `--cfg` flags passed to `frus-shell` alone. The
+  body of the `main!` macro expands in the **application's** crate, where they do not exist:
+  a `#[cfg(desktop)]` there would be *always false* and the app would have **no entry point
+  at all**. So the macro keeps its explicit `target_os` / `target_arch` predicates.
+- **Cargo.** `[target.'cfg(…)'.dependencies]` tables are evaluated by Cargo, which knows
+  nothing of these aliases. The desktop dependency table keeps the literal list — with
+  `target_os = "ios"` added by hand, and it is that table which keeps `arboard` and
+  `accesskit_winit` off iOS.
 
-### La correction de fond : `not(desktop)`, pas `any(android, web)`
+### The underlying fix: `not(desktop)`, not `any(android, web)`
 
-Le code portait des paires *implémentation / stub* de cette forme :
+The code carried implementation/stub pairs of this shape:
 
 ```rust
 #[cfg(desktop)]            pub struct Clipboard(Option<arboard::Clipboard>);
-#[cfg(any(android, web))]  pub struct Clipboard;                    // ← iOS : ni l'un ni l'autre
+#[cfg(any(android, web))]  pub struct Clipboard;                    // ← iOS: neither one
 ```
 
-Sur iOS, **aucune** des deux branches ne s'applique : le type n'existe pas. Ces trois sites
-passent à `#[cfg(not(desktop))]`, qui est la vraie intention (« tout ce qui n'est pas
-bureau ») et qui reste correct pour toute plateforme future.
+On iOS, **neither** branch applies: the type does not exist. Those three sites move to
+`#[cfg(not(desktop))]`, which is the real intent ("everything that is not desktop") and
+stays correct for any future platform.
 
-### Point d'entrée iOS
+### The iOS entry point
 
-`run()` a maintenant deux corps : `#[cfg(desktop)]` (inchangé) et `#[cfg(ios)]`, ce dernier
-sans `env_logger` (stderr n'est pas lisible sur appareil), sans presse-papier et sans
-AccessKit. **La macro `main!` n'a pas eu à changer** : son prédicat `not(any(android,
-wasm32))` couvre déjà iOS, et winit assure lui-même l'`UIApplicationMain`.
+`run()` now has two bodies: `#[cfg(desktop)]` (unchanged) and `#[cfg(ios)]`, the latter with
+no `env_logger` (stderr is not readable on device), no clipboard and no AccessKit. **The
+`main!` macro did not have to change**: its `not(any(android, wasm32))` predicate already
+covers iOS, and winit takes care of `UIApplicationMain` itself.
 
-## Vérification
+## Verification
 
-Le refactor est **sans effet** sur les trois plateformes en service — c'est sa propriété de
-sûreté, et elle est vérifiable ici :
+The refactor is **a no-op** on the three platforms in service — that is its safety property,
+and it is verifiable here:
 
-- `cargo build --workspace --all-targets` — OK ;
-- `cargo build -p frus-hello --target wasm32-unknown-unknown` — OK ;
-- `cargo test --workspace --exclude frus-gpu --exclude frus-test` — **613 tests, 0 échec**.
+- `cargo build --workspace --all-targets` — OK;
+- `cargo build -p frus-hello --target wasm32-unknown-unknown` — OK;
+- `cargo test --workspace --exclude frus-gpu --exclude frus-test` — **613 tests, 0 failures**.
 
-**iOS lui-même n'est pas vérifiable depuis la machine de développement** (Windows : ni SDK
-Apple ni linker, donc pas de compilation croisée crédible). C'est le nouveau job CI `ios`
-(`macos-latest`) qui a tranché — il est là précisément pour dire la vérité sur ce que l'on
-a écrit à l'aveugle. **Verdict : les deux cibles compilent.**
+**iOS itself cannot be verified from the development machine** (Windows: no Apple SDK and no
+linker, so no credible cross-compilation). The new `ios` CI job (`macos-latest`) settled it —
+it exists precisely to tell the truth about what was written blind. **Verdict: both targets
+compile.**
 
 ```
 aarch64-apple-ios      →  Finished `dev` profile in 1m 33s
 aarch64-apple-ios-sim  →  Finished `dev` profile in 16.17s
 ```
 
-Le log confirme le dispositif au-delà du simple « ça compile » : `objc2-ui-kit` et `metal`
-sont dans l'arbre (backend UIKit de winit, sortie Metal de wgpu), et **ni `arboard`, ni
-`accesskit_winit`, ni `env_logger` n'y sont** — l'exclusion du `Cargo.toml` a tenu, et le
-`run()` sous `#[cfg(ios)]` type-checke.
+The log confirms the arrangement beyond a bare "it compiles": `objc2-ui-kit` and `metal` are
+in the tree (winit's UIKit backend, wgpu's Metal output), and **`arboard`, `accesskit_winit`
+and `env_logger` are not** — the `Cargo.toml` exclusion held, and the `run()` under
+`#[cfg(ios)]` type-checks.
 
-Le job est donc passé **bloquant** : ce qui vient d'être acquis ne doit pas régresser
-silencieusement. Il prouve qu'iOS *compile*, pas qu'iOS *tourne*.
+The job was therefore made **blocking**: what has just been gained must not regress
+silently. It proves that iOS *compiles*, not that iOS *runs*.
 
-## Reste
+## What's left
 
-Tout le shell iOS, en fait. Ce jalon n'a fait que rendre son ajout possible sans casser le
-reste :
+All of the iOS shell, in fact. This milestone only made adding it possible without breaking
+the rest:
 
-- cycle de vie UIKit (`applicationDidEnterBackground`…) et `Lifecycle` correspondant ;
-- **safe-area insets** (encoche, indicateur d'accueil) → `WindowInsets`, comme Android ;
-- IME et clavier logiciel ;
-- logs vers `os_log` plutôt que stderr ;
-- accessibilité UIKit ;
-- empaquetage `.ipa` — le seul endroit où `cargo` n'a pas de réponse toute faite.
+- the UIKit lifecycle (`applicationDidEnterBackground`…) and the matching `Lifecycle`;
+- **safe-area insets** (notch, home indicator) → `WindowInsets`, as on Android;
+- IME and the soft keyboard;
+- logging to `os_log` rather than stderr;
+- UIKit accessibility;
+- `.ipa` packaging — the one place where `cargo` has no ready-made answer.

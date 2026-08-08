@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(
             names,
             ["Container", "Flex", "Text", "Text"],
-            "Keyed est transparent"
+            "Keyed is transparent"
         );
         let depths: Vec<usize> = nodes.iter().map(|n| n.depth).collect();
         assert_eq!(depths, [0, 1, 2, 2]);

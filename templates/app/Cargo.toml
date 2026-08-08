@@ -3,21 +3,21 @@ name = "{{project-name}}"
 version = "0.1.0"
 edition = "2021"
 
-# Bibliothèque : `rlib` pour le binaire bureau, `cdylib` (le `.so`) pour Android.
+# Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-# **Une seule dépendance** : la façade `frus` ré-exporte shell + widgets + `main!` (et
-# anyhow/log). frus n'est pas (encore) publié sur crates.io : on référence le checkout
-# local ; une fois publié, remplacer par :  frus = "0.1"
+# **A single dependency**: the `frus` facade re-exports shell + widgets + `main!` (and
+# anyhow/log). frus is not (yet) published on crates.io, so this points at the local
+# checkout; once it is published, replace it with:  frus = "0.1"
 frus = { path = "{{frus_path}}/crates/frus" }
 
-# Web (wasm) : la macro `frus::main!` engendre l'entrée `#[wasm_bindgen(start)]`.
+# Web (wasm): the `frus::main!` macro generates the `#[wasm_bindgen(start)]` entry point.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 
-# --- Empaquetage Android (cargo-apk : `cargo apk run`) ---
+# --- Android packaging (cargo-apk: `cargo apk run`) ---
 [package.metadata.android]
 package = "com.example.{{crate_name}}"
 build_targets = ["aarch64-linux-android"]

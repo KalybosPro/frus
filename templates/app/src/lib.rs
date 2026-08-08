@@ -1,18 +1,19 @@
-//! `{{project-name}}` — une application frus (le modèle Elm : état, `update`, `view`).
+//! `{{project-name}}` — a frus application (the Elm model: state, `update`, `view`).
 //!
-//! - Bureau : `cargo run`
-//! - Android : `cargo apk run`   (voir https://… le guide de démarrage)
+//! - Desktop: `cargo run`
+//! - Android: `cargo apk run`   (see https://… the getting-started guide)
 
-// Une **seule** dépendance : la façade `frus` fournit tout (couche framework + widgets + DSL).
+// A **single** dependency: the `frus` facade provides everything (framework layer +
+// widgets + DSL).
 use frus::{button, column, text, Align, Application, Command, Container, Justify, Theme, Variant, Widget};
 
-/// L'état de l'application : un simple compteur.
+/// The application state: a simple counter.
 #[derive(Default)]
 struct App {
     count: i32,
 }
 
-/// Les messages émis par l'interface.
+/// The messages the interface emits.
 #[derive(Clone)]
 enum Msg {
     Increment,
@@ -22,8 +23,8 @@ enum Msg {
 impl Application for App {
     type Message = Msg;
 
-    /// `update` est **pur** : il fait évoluer l'état et renvoie les effets
-    /// éventuels (ici aucun). Testable sans GPU ni fenêtre.
+    /// `update` is **pure**: it advances the state and returns any effects
+    /// (none here). Testable with no GPU and no window.
     fn update(&mut self, message: Msg) -> Command<Msg> {
         match message {
             Msg::Increment => self.count += 1,
@@ -32,8 +33,8 @@ impl Application for App {
         Command::none()
     }
 
-    /// `view` décrit l'interface pour l'état courant — une fonction pure de
-    /// `(état, thème, taille)`.
+    /// `view` describes the interface for the current state — a pure function of
+    /// `(state, theme, size)`.
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
         let content = column![
             text(format!("{}", self.count)).size(48.0),
@@ -47,7 +48,7 @@ impl Application for App {
         .gap(16.0)
         .align(Align::Center);
 
-        // Centré à l'écran, posé sur le fond du thème.
+        // Centred on screen, over the theme's background.
         let centered = column![content]
             .width(width)
             .height(height)
@@ -68,16 +69,16 @@ impl Application for App {
     }
 }
 
-// **Point d'entrée unique** — façon Flutter (`void main() => runApp(App())`) : une seule
-// déclaration engendre les entrées bureau / Android / Web (voir `frus::main!`). Le mince
-// binaire `src/bin/{{project-name}}.rs` appelle la `run()` ainsi produite pour le bureau.
+// **One entry point** — a single declaration generates the desktop / Android / Web
+// entries (see `frus::main!`). The thin `src/bin/{{project-name}}.rs` binary calls the
+// `run()` it produces for the desktop.
 frus::main!(App::default());
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// L'avantage Elm : `update` se teste sans GPU ni fenêtre.
+    /// The Elm advantage: `update` is testable with no GPU and no window.
     #[test]
     fn counting_is_pure() {
         let mut app = App::default();

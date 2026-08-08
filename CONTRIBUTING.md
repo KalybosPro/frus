@@ -2,7 +2,7 @@
 
 Thanks for looking. frus is early — the core is solid but the surface is wide open, so a single well-scoped PR can genuinely shape a subsystem. This document tells you how to build it, what a good change looks like here, and how to get it merged.
 
-> **Language.** Code, comments, commit messages and issues are welcome in **English or French**. Everything users see on screen must be English. The design notes in [`docs/`](docs/) are currently French; translating them is itself a welcome contribution.
+> **Language.** The repository is **English** — code, comments, documentation and commit messages. Issues and discussions are welcome in English or French. The one deliberate exception is [`README.fr.md`](README.fr.md), the French translation of the README.
 
 ---
 
@@ -90,7 +90,7 @@ RUST_LOG=frus_shell=debug,frus_gpu=info cargo run -p frus-demo
 
 ## The workflow
 
-frus is built in **milestones** (*jalons*). Each one is a single coherent step: a feature, its tests, and a design note in `docs/jalon-N.md` ([index](docs/README.md)). There are 276 of them, and together they are the project's real memory — they record not just what was built but which alternatives were rejected and why.
+frus is built in **milestones** (*jalons*). Each one is a single coherent step: a feature, its tests, and a design note in `docs/jalon-N.md` ([index](docs/README.md)). There are 277 of them, and together they are the project's real memory — they record not just what was built but which alternatives were rejected and why.
 
 You do **not** need to write a milestone note for a bug fix, a test, or a small ergonomic improvement. You **do** for anything that adds public API, changes a subsystem's shape, or makes a trade-off a future reader would question.
 
@@ -198,7 +198,7 @@ These are the standing rules the codebase is built on. A PR that violates one ne
 **Commit messages** follow Conventional Commits, and milestone commits name their milestone:
 
 ```
-feat: Jalon 276 — <what the milestone delivers>
+feat: Jalon 277 — <what the milestone delivers>
 fix: Scroll no longer clips its last child when height is Auto
 test: golden coverage for DataTable sort indicators
 docs: translate jalon-101 to English

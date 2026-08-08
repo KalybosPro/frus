@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-# `templates/app` est un gabarit `cargo generate` (fichiers `{{…}}` non
-# compilables) : jamais un membre du workspace.
+# `templates/app` is a `cargo generate` template (`{{…}}` files, not compilable):
+# never a workspace member.
 exclude = ["templates"]
 
 [workspace.package]
@@ -17,7 +17,7 @@ taffy = "0.7"
 glyphon = "0.6"
 cosmic-text = "0.12"
 lyon = "1"
-# Décodage d'images (PNG/JPEG). Formats limités pour alléger l'arbre de deps.
+# Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 arboard = "3"
 pollster = "0.3"
@@ -26,21 +26,21 @@ anyhow = "1"
 env_logger = "0.11"
 log = "0.4"
 
-# Profil de dev : compilation plus rapide sans sacrifier l'ergonomie.
+# Dev profile: faster compiles, without making the app unpleasant to use.
 [profile.dev]
 opt-level = 1
 
-# Les dépendances lourdes (wgpu, naga...) restent optimisées même en dev.
+# Heavy dependencies (wgpu, naga…) stay optimised even in dev.
 [profile.dev.package."*"]
 opt-level = 3
 
-# Profil **Web** : optimise pour la TAILLE du `.wasm` téléchargé (jalon 131).
-# Isolé du release natif (qui reste réglé pour la vitesse) — on l'active via
-# `cargo build --profile web-release --target wasm32-unknown-unknown`.
+# **Web** profile: optimises for the SIZE of the downloaded `.wasm` (milestone 131).
+# Kept separate from the native release profile (which stays tuned for speed) — select it
+# with `cargo build --profile web-release --target wasm32-unknown-unknown`.
 [profile.web-release]
 inherits = "release"
-opt-level = "z"      # priorité à la taille du code (vs "3" = vitesse)
-lto = true           # inlining inter-crates + élagage agressif du code mort
-codegen-units = 1    # une seule unité : meilleure optimisation (build plus lent)
-panic = "abort"      # supprime les tables de déroulement des panics (unwinding)
-strip = true         # retire symboles et debuginfo du binaire
+opt-level = "z"      # code size first (vs "3" = speed)
+lto = true           # cross-crate inlining + aggressive dead-code elimination
+codegen-units = 1    # a single unit: better optimisation (slower build)
+panic = "abort"      # drops the panic unwinding tables
+strip = true         # removes symbols and debuginfo from the binary

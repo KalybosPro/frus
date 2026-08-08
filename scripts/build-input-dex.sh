@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 #
-# Compile le pont de saisie Android (FrusTextBridge.java) en dex embarqué.
-# À relancer seulement quand le fichier Java change ; le dex produit est
-# versionné (crates/frus-shell/assets/frus_input.dex) pour que `cargo apk`
-# n'ait jamais besoin de javac.
+# Compile the Android input bridge (FrusTextBridge.java) into an embedded dex.
+# Only re-run this when the Java file changes; the resulting dex is checked in
+# (crates/frus-shell/assets/frus_input.dex) so that `cargo apk` never needs javac.
 #
-# Usage (dans WSL) :  bash scripts/build-input-dex.sh
+# Usage (inside WSL):  bash scripts/build-input-dex.sh
 set -eu
 
 SDK="${ANDROID_HOME:-/root/android-sdk}"
@@ -24,4 +23,4 @@ mkdir -p "$OUT_DIR/dex"
 
 mkdir -p "$ROOT/crates/frus-shell/assets"
 cp "$OUT_DIR/dex/classes.dex" "$ROOT/crates/frus-shell/assets/frus_input.dex"
-echo "OK : $(stat -c%s "$ROOT/crates/frus-shell/assets/frus_input.dex") octets"
+echo "OK: $(stat -c%s "$ROOT/crates/frus-shell/assets/frus_input.dex") bytes"

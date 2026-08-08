@@ -184,7 +184,7 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 - Presse-papier, accessibilité et live-reload sur le Web.
 - Shells iOS et macOS natif.
 - Cas limites du rendu de texte, et couverture golden plus large.
-- Documentation en anglais (les notes de conception sont en français).
+- Un site de documentation navigable, construit à partir des notes de conception.
 
 Voir [ROADMAP.md](ROADMAP.md) et les [*good first issues*](https://github.com/KalybosPro/frus/labels/good%20first%20issue).
 
@@ -209,7 +209,7 @@ En participant, vous acceptez le [Code de conduite](CODE_OF_CONDUCT.md).
 - [Démarrer](docs/getting-started.md) — écrire et lancer votre première application
 - [Architecture](ARCHITECTURE.md) — comment les crates s'assemblent
 - [Feuille de route](ROADMAP.md) — la suite, et où l'aide est souhaitée
-- [Index des notes de conception](docs/README.md) — 276 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
+- [Index des notes de conception](docs/README.md) — 277 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
 
 ## Licence
 

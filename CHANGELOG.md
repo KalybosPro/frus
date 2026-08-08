@@ -6,7 +6,7 @@ All notable changes to frus are recorded here. The format follows
 
 > **Nothing has been released yet.** frus is pre-alpha and not on crates.io; the workspace
 > is versioned `0.0.0`. Until a first release, the authoritative record of what changed and
-> *why* is the milestone notes in [`docs/jalon-*.md`](docs/) — one per step, 276 so far,
+> *why* is the milestone notes in [`docs/jalon-*.md`](docs/) — one per step, 277 so far,
 > each documenting the objective, the alternatives weighed, and the decision.
 
 ## [Unreleased]

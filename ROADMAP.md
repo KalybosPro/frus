@@ -100,7 +100,7 @@ The original brief aims at a full framework, not just a UI toolkit. These are re
 - **FFI story** — embedding frus in an existing native app, and calling native code from frus.
 - **Package/ecosystem conventions** — how a community widget library is published and discovered.
 - **Static analysis** — lints specific to frus's architecture (impure `update`, hardcoded styling, misplaced platform code).
-- **Documentation site** — the milestone notes are excellent raw material, and they are French and unindexed.
+- **Documentation site** — the milestone notes are excellent raw material, but they are unindexed and unsearchable outside `grep`.
 
 ---
 

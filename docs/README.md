@@ -1,6 +1,6 @@
 # Design notes
 
-This directory is the project's memory: **276 milestone notes** (*jalons*), one per step of
+This directory is the project's memory: **277 milestone notes** (*jalons*), one per step of
 frus's construction. Each records the objective, the alternatives that were weighed, the
 decision and its reasoning, the implementation, how it was verified, and what was
 deliberately left for later.
@@ -8,10 +8,6 @@ deliberately left for later.
 When you find yourself asking *"why on earth is it done this way?"*, the answer is almost
 always here — along with the option that was rejected and why. `grep` this directory before
 opening an issue.
-
-> **The note bodies are still being translated from French.** The titles below are English;
-> the notes themselves are being converted a batch at a time. Helping is a genuinely valuable
-> contribution — see [ROADMAP.md](../ROADMAP.md).
 
 ## Other documents
 
@@ -32,6 +28,7 @@ If you're new to the codebase, these are the notes worth reading first:
 | [129](jalon-129.md), [131](jalon-131.md) | The web target, and shrinking the wasm payload |
 | [267](jalon-267.md), [268](jalon-268.md) | The single entry point (`main!`) and the `frus` facade crate |
 | [270](jalon-270.md) – [275](jalon-275.md) | Async effects, `fetch`, `RemoteData`, typed JSON |
+| [276](jalon-276.md) | Named platform `cfg`s — how a new target gets added without breaking the others |
 
 ## All milestones
 
@@ -313,3 +310,4 @@ If you're new to the codebase, these are the notes worth reading first:
 | [273](jalon-273.md) | End-to-end network example (`frus-fetch-example`) |
 | [274](jalon-274.md) | `RemoteData<T, E>`: the Elm idiom for asynchronous data |
 | [275](jalon-275.md) | Typed JSON on `Request` (`json` feature) |
+| [276](jalon-276.md) | Clearing the ground for iOS: named platform `cfg`s |

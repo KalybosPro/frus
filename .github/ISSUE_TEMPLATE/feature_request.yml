@@ -29,9 +29,9 @@ body:
     attributes:
       label: Prior art
       description: |
-        How do Flutter, SwiftUI, Compose, iced, or egui solve this? What do they get right, and what would you do differently?
+        How do other mature UI toolkits solve this — SwiftUI, Compose, iced, egui, or anything else you have used? What do they get right, and what would you do differently?
 
-        frus's stated approach is to port the shape of what works and fix what doesn't — so "Flutter does X but it's annoying because Y" is a genuinely useful answer here.
+        frus's stated approach is to port the shape of what works and fix what doesn't — so "toolkit X does this, but it's annoying because Y" is a genuinely useful answer here.
 
   - type: textarea
     id: workaround

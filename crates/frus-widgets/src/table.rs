@@ -2100,7 +2100,7 @@ mod tests {
         );
         assert!(
             built.get() < 20 && built.get() >= 5,
-            "seules les visibles : {}",
+            "only the visible ones: {}",
             built.get()
         );
         let has = |t: &str| {

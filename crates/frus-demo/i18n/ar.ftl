@@ -1,10 +1,10 @@
-# Ressources de localisation (arabe) — démo frus. RTL + écriture arabe.
+# Localisation resources (Arabic) — frus demo. RTL + Arabic script.
 app-title = مهامي
 add = إضافة
 filter-all = الكل
 filter-active = النشطة
 filter-done = المكتملة
-# Pluriels arabes (catégories CLDR : zéro/un/deux/peu/beaucoup/autre).
+# Arabic plurals (CLDR categories: zero/one/two/few/many/other).
 task-count = { $n ->
     [0] لا مهام
     [one] مهمة واحدة

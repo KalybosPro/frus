@@ -184,7 +184,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 - Web clipboard, accessibility, and live-reload.
 - iOS and native macOS shells.
 - Text rendering edge cases, and broader golden coverage.
-- Documentation in English (the design notes are currently French).
+- A searchable documentation site built from the design notes.
 
 See [ROADMAP.md](ROADMAP.md) for the full picture and [good first issues](https://github.com/KalybosPro/frus/labels/good%20first%20issue) to get started.
 
@@ -209,7 +209,7 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 - [Getting started](docs/getting-started.md) — write and run your first app
 - [Architecture](ARCHITECTURE.md) — how the crates fit together
 - [Roadmap](ROADMAP.md) — what's next and where help is wanted
-- [Design notes index](docs/README.md) — 276 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory. *(Currently in French.)*
+- [Design notes index](docs/README.md) — 277 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
 
 ## License
 

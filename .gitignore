@@ -6,7 +6,7 @@
 Thumbs.db
 .DS_Store
 
-# Éditeurs
+# Editors
 .idea/
 .vscode/
 *.swp
@@ -14,9 +14,9 @@ Thumbs.db
 # claude
 .claude/
 CLAUDE.md
-flutter-master.zip
-flutter.md
-frus-demo.apk
 
-# Goldens : rendus de comparaison en cas d'echec (frus-test)
+# Build outputs
+*.apk
+
+# Goldens: comparison renders written when one fails (frus-test)
 *.actual.png
