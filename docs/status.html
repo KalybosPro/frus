@@ -1,7 +1,7 @@
-<title>frus — état du framework</title>
+<title>frus — framework status</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Le logo vit dans le crate du shell ; ce chemin suppose donc que le site est
-     servi depuis la **racine du dépôt**, pas depuis `docs/`. -->
+<!-- The logo lives in the shell crate, so this path assumes the site is served from the
+     **repository root**, not from `docs/`. -->
 <link rel="icon" href="../crates/frus-shell/assets/logo.png" type="image/png">
 <style>
   :root {
@@ -78,9 +78,9 @@
   /* ---- Masthead ---- */
   .masthead { padding: 8px 0 34px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
   .brandrow { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-  /* `align-self` plutôt que de passer la rangée en `center` : les puces gardent
-     leur alignement sur la ligne de base du logotype. La source est carrée avec
-     une marge transparente, d'où une taille un peu généreuse. */
+  /* `align-self` rather than centring the whole row: the chips keep their alignment on the
+     logotype's baseline. The source image is square with a transparent margin, hence a
+     slightly generous size. */
   .logo { align-self: center; width: 64px; height: 64px; flex: none; }
   .brand {
     font-family: var(--mono); font-weight: 700; font-size: clamp(44px, 11vw, 92px);
@@ -117,13 +117,13 @@
           padding: clamp(20px, 3vw, 30px); box-shadow: var(--shadow); }
 
   /* ---- Platforms ---- */
-  .plats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  @media (max-width: 720px) { .plats { grid-template-columns: 1fr; } }
+  .plats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
   .plat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px;
           position: relative; overflow: hidden; }
   .plat::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
                   background: var(--emerald); opacity: .9; }
   .plat.partial::before { background: var(--warn); }
+  .plat.early::before { background: var(--gap); }
   .plat h3 { font-family: var(--mono); font-size: 16px; margin: 6px 0 2px; letter-spacing: -.01em; }
   .plat .stack { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
   .plat p { font-size: 13.5px; color: var(--muted); margin: 12px 0 0; }
@@ -165,7 +165,7 @@
 
   /* ---- Tests ---- */
   .bars { display: flex; flex-direction: column; gap: 11px; }
-  .bar { display: grid; grid-template-columns: 120px 1fr 52px; align-items: center; gap: 14px; }
+  .bar { display: grid; grid-template-columns: 132px 1fr 52px; align-items: center; gap: 14px; }
   .bar .bname { font-family: var(--mono); font-size: 13px; }
   .bar .track { height: 12px; background: var(--raised); border: 1px solid var(--line);
                 border-radius: 7px; overflow: hidden; }
@@ -192,7 +192,7 @@
 
   /* ---- Gaps ---- */
   .gaps { display: flex; flex-direction: column; gap: 10px; }
-  .grow { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: start;
+  .grow { display: grid; grid-template-columns: 116px 1fr; gap: 16px; align-items: start;
           padding: 14px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
   .grow .gt { font-weight: 600; font-size: 14.5px; }
   .grow .gd { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
@@ -221,74 +221,82 @@
     <div class="brandrow">
       <img class="logo" src="../crates/frus-shell/assets/logo.png" alt="" width="56" height="56">
       <h1 class="brand">frus<span class="dot">.</span></h1>
-      <span class="tagchip">jalon <b>J269</b> · <span class="mono">d299a98</span></span>
+      <span class="tagchip">milestone <b>J276</b></span>
       <span class="tagchip">Rust · GPU · <b>Elm</b></span>
     </div>
-    <p class="thesis">Un framework UI Rust <span class="accent">greenfield</span> — un seul code, trois plateformes natives, l'ergonomie d'un framework moderne.</p>
+    <p class="thesis">A <span class="accent">greenfield</span> Rust UI framework — one codebase, three native platforms, the ergonomics of a modern toolkit.</p>
 
     <div class="metrics">
-      <div class="metric"><div class="v">270</div><div class="k">jalons</div></div>
-      <div class="metric"><div class="v">320</div><div class="k">commits</div></div>
-      <div class="metric"><div class="v">47,7<small>k</small></div><div class="k">lignes rust</div></div>
-      <div class="metric"><div class="v">13</div><div class="k">crates</div></div>
-      <div class="metric"><div class="v">542</div><div class="k">tests</div></div>
-      <div class="metric"><div class="v">3</div><div class="k">plateformes</div></div>
+      <div class="metric"><div class="v">277</div><div class="k">design notes</div></div>
+      <div class="metric"><div class="v">385</div><div class="k">commits</div></div>
+      <div class="metric"><div class="v">56.3<small>k</small></div><div class="k">rust lines</div></div>
+      <div class="metric"><div class="v">14</div><div class="k">crates</div></div>
+      <div class="metric"><div class="v">717</div><div class="k">tests</div></div>
+      <div class="metric"><div class="v">3</div><div class="k">platforms</div></div>
     </div>
   </header>
 
   <section class="reveal">
-    <p class="eyebrow">Couverture plateforme</p>
-    <h2>Un code, trois cibles natives</h2>
-    <p class="sub">Le même <span class="mono">Application</span> tourne partout ; seule la couche <span class="mono">frus-shell</span> connaît la plateforme.</p>
+    <p class="eyebrow">Platform coverage</p>
+    <h2>One codebase, three native targets</h2>
+    <p class="sub">The same <span class="mono">Application</span> runs everywhere; only the <span class="mono">frus-shell</span> layer knows what platform it is on.</p>
     <div class="plats">
       <div class="plat">
-        <span class="pill ok">Complet</span>
-        <h3>Bureau</h3>
+        <span class="pill ok">Complete</span>
+        <h3>Desktop</h3>
         <div class="stack">winit · wgpu · AccessKit</div>
-        <p>Windows / Linux / macOS. Presse-papier, accessibilité lecteur d'écran, live-reload en dev.</p>
+        <p>Windows / Linux / macOS. Clipboard, screen-reader accessibility, live reload in dev.</p>
       </div>
       <div class="plat">
-        <span class="pill ok">Complet</span>
+        <span class="pill ok">Complete</span>
         <h3>Android</h3>
-        <div class="stack">activité native · Vulkan</div>
-        <p>Clavier mou (IME réel : composition/swipe), insets, cycle de vie — <b>validé sur appareil</b>.</p>
+        <div class="stack">native activity · Vulkan</div>
+        <p>Soft keyboard (real IME: composition and swipe), insets, lifecycle — <b>validated on device</b>.</p>
       </div>
       <div class="plat partial">
-        <span class="pill warn">Fonctionnel</span>
+        <span class="pill warn">Functional</span>
         <h3>Web</h3>
         <div class="stack">wasm · WebGPU</div>
-        <p>Rendu, entrée, animations, souscriptions. Reste : un effet réellement <b>asynchrone</b> (fetch).</p>
+        <p>Rendering, input, animations, subscriptions, async effects and <span class="mono">fetch</span>. Clipboard, a11y and live reload are not wired.</p>
+      </div>
+      <div class="plat early">
+        <span class="pill gap">Groundwork</span>
+        <h3>iOS</h3>
+        <div class="stack">UIKit · Metal</div>
+        <p>Named platform <span class="mono">cfg</span>s, a <span class="mono">run()</span> entry point, and blocking CI for both targets. It compiles; it does not yet run.</p>
       </div>
     </div>
   </section>
 
   <section class="reveal">
     <p class="eyebrow">Architecture</p>
-    <h2>Quatre couches, du pixel à l'app</h2>
-    <p class="sub">Chaque crate a un rôle net ; les dépendances montent des fondations vers l'application.</p>
+    <h2>Four layers, from the pixel to the app</h2>
+    <p class="sub">Every crate has one clear role; dependencies point up, from the foundations towards the application.</p>
     <div class="card">
       <div class="arch">
         <div class="layer">
-          <div class="lname">Application <small>ce que le dev écrit</small></div>
+          <div class="lname">Application <small>what the developer writes</small></div>
           <div class="crates">
             <span class="crate key">frus</span>
             <span class="crate">frus-hello</span>
-            <span class="crate">gabarit</span>
+            <span class="crate">template</span>
             <span class="crate">frus-demo</span>
             <span class="crate">frus-transforms</span>
+            <span class="crate">frus-fetch-example</span>
             <span class="crate">frus-test</span>
           </div>
         </div>
         <div class="arrow">▲</div>
         <div class="layer">
-          <div class="lname">Shell <small>couche plateforme</small></div>
+          <div class="lname">Shell <small>platform layer</small></div>
           <div class="crates">
             <span class="crate key">frus-shell</span>
             <span class="crate">Application</span>
             <span class="crate">Command</span>
             <span class="crate">Subscription</span>
-            <span class="crate">cycle de vie</span>
+            <span class="crate">lifecycle</span>
             <span class="crate">IME</span>
+            <span class="crate">net</span>
             <span class="crate">main!</span>
           </div>
         </div>
@@ -297,15 +305,15 @@
           <div class="lname">Widgets <small>UI &amp; interaction</small></div>
           <div class="crates">
             <span class="crate key">frus-widgets</span>
-            <span class="crate">Ui / scène</span>
+            <span class="crate">Ui / scene</span>
             <span class="crate">interaction</span>
-            <span class="crate">réordonnancement</span>
-            <span class="crate">thème</span>
+            <span class="crate">reordering</span>
+            <span class="crate">theme</span>
           </div>
         </div>
         <div class="arrow">▲</div>
         <div class="layer">
-          <div class="lname">Fondations <small>rendu &amp; mesure</small></div>
+          <div class="lname">Foundations <small>rendering &amp; measurement</small></div>
           <div class="crates">
             <span class="crate">frus-core</span>
             <span class="crate">frus-layout</span>
@@ -320,27 +328,27 @@
   </section>
 
   <section class="reveal">
-    <p class="eyebrow">Socle technique</p>
-    <h2>Sur quoi frus s'appuie</h2>
-    <p class="sub">Un cœur mince par-dessus des crates Rust éprouvées ; tout le reste — widgets, layout, interaction — est écrit dans frus.</p>
+    <p class="eyebrow">Technical base</p>
+    <h2>What frus rests on</h2>
+    <p class="sub">A thin core over proven Rust crates; everything else — widgets, layout, interaction — is written in frus.</p>
     <div class="card">
       <div class="arch">
         <div class="layer">
-          <div class="lname">Rendu &amp; fenêtre <small>GPU · entrée</small></div>
+          <div class="lname">Rendering &amp; window <small>GPU · input</small></div>
           <div class="crates">
             <span class="crate">wgpu</span><span class="crate">winit</span><span class="crate">lyon</span>
           </div>
         </div>
         <div class="layer">
-          <div class="lname">Texte, layout &amp; images <small>shaping · flex</small></div>
+          <div class="lname">Text, layout &amp; images <small>shaping · flex</small></div>
           <div class="crates">
             <span class="crate">taffy</span><span class="crate">cosmic-text</span><span class="crate">glyphon</span><span class="crate">image</span>
           </div>
         </div>
         <div class="layer">
-          <div class="lname">Ponts plateforme <small>a11y · mobile · web</small></div>
+          <div class="lname">Platform bridges <small>a11y · mobile · web · net</small></div>
           <div class="crates">
-            <span class="crate">accesskit</span><span class="crate">android-activity</span><span class="crate">jni</span><span class="crate">wasm-bindgen</span><span class="crate">web-sys</span>
+            <span class="crate">accesskit</span><span class="crate">android-activity</span><span class="crate">jni</span><span class="crate">wasm-bindgen</span><span class="crate">web-sys</span><span class="crate">ureq</span><span class="crate">serde</span>
           </div>
         </div>
       </div>
@@ -348,116 +356,118 @@
   </section>
 
   <section class="reveal">
-    <p class="eyebrow">Capacités</p>
-    <h2>Ce qui marche aujourd'hui</h2>
-    <p class="sub">De quoi écrire une app non triviale — la logique se teste sans GPU ni fenêtre.</p>
+    <p class="eyebrow">Capabilities</p>
+    <h2>What works today</h2>
+    <p class="sub">Enough to write a non-trivial app — and the logic is testable with no GPU and no window.</p>
     <div class="caps">
       <div class="capgroup">
         <h4>Widgets</h4>
         <div class="taglist">
-          <span class="tag">Champs texte (IME)</span><span class="tag">Kanban DnD</span><span class="tag">DataTable</span>
-          <span class="tag">Grille éditable</span><span class="tag">Graphiques</span><span class="tag">Date / Time pickers</span>
-          <span class="tag">Dropdown</span><span class="tag">Listes</span><span class="tag">Arbre</span>
-          <span class="tag">Toasts</span><span class="tag">Modales / Portails</span><span class="tag">Tiroir</span>
-          <span class="tag">Navbar / Scaffold</span><span class="tag">Wizard validé</span><span class="tag">Icônes</span>
-          <span class="tag">Images</span><span class="tag">Onglets</span><span class="tag">Transforms</span>
+          <span class="tag">Text fields (IME)</span><span class="tag">Kanban DnD</span><span class="tag">DataTable</span>
+          <span class="tag">Editable grid</span><span class="tag">Charts</span><span class="tag">Date / time pickers</span>
+          <span class="tag">Dropdown</span><span class="tag">Lists</span><span class="tag">Tree</span>
+          <span class="tag">Toasts</span><span class="tag">Modals / portals</span><span class="tag">Drawer</span>
+          <span class="tag">Navbar / Scaffold</span><span class="tag">Validated wizard</span><span class="tag">Icons</span>
+          <span class="tag">Images</span><span class="tag">Tabs</span><span class="tag">Transforms</span>
         </div>
       </div>
       <div class="capgroup">
-        <h4>Mise en page</h4>
+        <h4>Layout</h4>
         <div class="taglist">
-          <span class="tag">Flex</span><span class="tag">Grille</span><span class="tag">Wrap</span>
-          <span class="tag">Scroll 1D / 2D</span><span class="tag">Fill-then-scroll</span><span class="tag">Aspect-ratio</span>
-          <span class="tag">Fitted-box</span><span class="tag">Stack</span><span class="tag">Percent / Auto / Length</span>
+          <span class="tag">Flex</span><span class="tag">Grid</span><span class="tag">Wrap</span>
+          <span class="tag">1D / 2D scrolling</span><span class="tag">Fill-then-scroll</span><span class="tag">Aspect ratio</span>
+          <span class="tag">Fitted box</span><span class="tag">Stack</span><span class="tag">Percent / Auto / Length</span>
         </div>
       </div>
       <div class="capgroup">
         <h4>Interaction</h4>
         <div class="taglist">
-          <span class="tag">Appui long · fling</span><span class="tag">Navigation à ressort</span><span class="tag">Geste retour</span>
-          <span class="tag">Réordonnancement DnD</span><span class="tag">Inertie du glisser</span><span class="tag">Focus / clavier</span>
+          <span class="tag">Long press · fling</span><span class="tag">Spring navigation</span><span class="tag">Back gesture</span>
+          <span class="tag">DnD reordering</span><span class="tag">Drag inertia</span><span class="tag">Focus / keyboard</span>
         </div>
       </div>
       <div class="capgroup g2">
-        <h4>Transverse &amp; ergonomie</h4>
+        <h4>Cross-cutting &amp; ergonomics</h4>
         <div class="taglist">
-          <span class="tag">Thème surchargeable</span><span class="tag">a11y (AccessKit)</span><span class="tag">i18n / RTL</span>
-          <span class="tag">Animations (ressorts)</span><span class="tag">Cycle de vie</span><span class="tag">Effets / souscriptions</span>
-          <span class="tag">Live-reload (dev)</span><span class="tag">Point d'entrée unique</span><span class="tag">Façade `frus`</span>
-          <span class="tag">Gabarit cargo-generate</span>
+          <span class="tag">Overridable theme</span><span class="tag">a11y (AccessKit)</span><span class="tag">i18n / RTL</span>
+          <span class="tag">Animations (springs)</span><span class="tag">Lifecycle</span><span class="tag">Effects / subscriptions</span>
+          <span class="tag">Async effects</span><span class="tag">HTTP (<span class="mono">fetch</span> / <span class="mono">Request</span>)</span><span class="tag">Typed JSON</span>
+          <span class="tag"><span class="mono">RemoteData</span></span><span class="tag">Live reload (dev)</span><span class="tag">One entry point</span>
+          <span class="tag"><span class="mono">frus</span> facade</span><span class="tag">cargo-generate template</span>
         </div>
       </div>
     </div>
   </section>
 
   <section class="reveal">
-    <p class="eyebrow">Santé des tests</p>
-    <h2>542 tests, tous verts</h2>
-    <p class="sub">Le cœur UI est couvert par des tests de logique et des <span class="mono">goldens</span> (rendu comparé au pixel).</p>
+    <p class="eyebrow">Test health</p>
+    <h2>717 tests, all green</h2>
+    <p class="sub">The UI core is covered by logic tests and by <span class="mono">goldens</span> (rendering compared pixel by pixel).</p>
     <div class="card bars" id="bars">
-      <div class="bar"><span class="bname">widgets</span><span class="track"><span class="fill" style="--w:100%"></span></span><span class="bval">396</span></div>
-      <div class="bar"><span class="bname">goldens</span><span class="track"><span class="fill" style="--w:19.4%"></span></span><span class="bval">77</span></div>
-      <div class="bar"><span class="bname">demo</span><span class="track"><span class="fill" style="--w:9.1%"></span></span><span class="bval">36</span></div>
-      <div class="bar"><span class="bname">shell</span><span class="track"><span class="fill" style="--w:6.8%"></span></span><span class="bval">27</span></div>
-      <div class="bar"><span class="bname">layout</span><span class="track"><span class="fill" style="--w:2.6%"></span></span><span class="bval">4</span></div>
-      <div class="bar"><span class="bname">hello</span><span class="track"><span class="fill" style="--w:2%"></span></span><span class="bval">2</span></div>
+      <div class="bar"><span class="bname">frus-widgets</span><span class="track"><span class="fill" style="--w:100%"></span></span><span class="bval">401</span></div>
+      <div class="bar"><span class="bname">frus-core</span><span class="track"><span class="fill" style="--w:22.2%"></span></span><span class="bval">89</span></div>
+      <div class="bar"><span class="bname">goldens</span><span class="track"><span class="fill" style="--w:21.7%"></span></span><span class="bval">87</span></div>
+      <div class="bar"><span class="bname">frus-shell</span><span class="track"><span class="fill" style="--w:9.7%"></span></span><span class="bval">39</span></div>
+      <div class="bar"><span class="bname">frus-demo</span><span class="track"><span class="fill" style="--w:9%"></span></span><span class="bval">36</span></div>
+      <div class="bar"><span class="bname">foundations</span><span class="track"><span class="fill" style="--w:12.5%"></span></span><span class="bval">50</span></div>
+      <div class="bar"><span class="bname">examples · docs</span><span class="track"><span class="fill" style="--w:3.7%"></span></span><span class="bval">15</span></div>
       <div class="legend">
-        <span><i style="background:var(--ok)"></i>tests de logique — sans GPU</span>
-        <span><i style="background:var(--rust)"></i>goldens — rendu au pixel</span>
+        <span><i style="background:var(--ok)"></i>logic tests — no GPU</span>
+        <span><i style="background:var(--rust)"></i>goldens — pixel rendering</span>
       </div>
     </div>
   </section>
 
   <section class="reveal">
-    <p class="eyebrow">Là où on vient d'arriver</p>
-    <h2>L'arc de la session : J251 → J269</h2>
-    <p class="sub">Consolidation mobile, puis deux sauts d'ergonomie majeurs.</p>
+    <p class="eyebrow">Where we have just arrived</p>
+    <h2>The arc of the session: J267 → J276</h2>
+    <p class="sub">Two ergonomic leaps, then the whole async stack, then the ground cleared for a fourth platform.</p>
     <div class="card">
       <div class="tl">
         <div class="tli">
-          <div class="range">J251 – J256</div>
-          <div class="tt">Glisser-déposer enrichi</div>
-          <div class="td">Fantôme fidèle, indicateur d'insertion, reflow des voisins, consolidation du domaine DnD.</div>
-        </div>
-        <div class="tli">
-          <div class="range">J257 – J262</div>
-          <div class="tt">Robustesse mobile</div>
-          <div class="td">Réouverture du clavier, cycle de vie applicatif complet, balayage overflow (tables défilables, textes enroulés).</div>
-        </div>
-        <div class="tli">
-          <div class="range">J263 – J266</div>
-          <div class="tt">Défilement par colonne, puis fill-then-scroll</div>
-          <div class="td">Le patron Trello complet ; d'un stopgap à hauteur explicite vers un vrai remplissage flex.</div>
-        </div>
-        <div class="tli">
           <div class="range">J267 – J268</div>
-          <div class="tt">Point d'entrée unique + façade</div>
-          <div class="td"><span class="mono">frus::main!(App::default())</span> — une déclaration, une dépendance, trois plateformes câblées.</div>
+          <div class="tt">One entry point + the facade</div>
+          <div class="td"><span class="mono">frus::main!(App::default())</span> — one declaration, one dependency, three platforms wired.</div>
         </div>
         <div class="tli">
           <div class="range">J269</div>
-          <div class="tt">compute_scroll remplit l'axe contraint</div>
-          <div class="td">Le <span class="mono">Scroll</span> se comporte comme un <span class="mono">ListView</span> : plus de conteneur « remplisseur » côté app.</div>
+          <div class="tt">compute_scroll fills the constrained axis</div>
+          <div class="td">A <span class="mono">Scroll</span> now fills the space it is given — no more "filler" container on the application side.</div>
+        </div>
+        <div class="tli">
+          <div class="range">J270 – J272</div>
+          <div class="tt">The asynchronous stack</div>
+          <div class="td"><span class="mono">perform_async</span>, a cross-platform <span class="mono">fetch</span>, then a <span class="mono">Request</span> builder (POST, headers, timeout) behind the <span class="mono">net</span> feature.</div>
+        </div>
+        <div class="tli">
+          <div class="range">J273 – J275</div>
+          <div class="tt">From the effect to the domain type</div>
+          <div class="td">An end-to-end example, the <span class="mono">RemoteData</span> idiom for the four states, and typed JSON in and out behind the <span class="mono">json</span> feature.</div>
+        </div>
+        <div class="tli">
+          <div class="range">J276</div>
+          <div class="tt">Named platform <span class="mono">cfg</span>s</div>
+          <div class="td">"Desktop" no longer means "not the others" — so adding iOS stops silently inheriting the desktop clipboard, logger and a11y backend.</div>
         </div>
       </div>
     </div>
   </section>
 
   <section class="reveal">
-    <p class="eyebrow">Ce qui reste</p>
-    <h2>Les manques, honnêtement</h2>
-    <p class="sub">Ils sont surtout côté Web asynchrone et distribution — pas dans le cœur UI.</p>
+    <p class="eyebrow">What is left</p>
+    <h2>The gaps, honestly</h2>
+    <p class="sub">They are mostly in distribution and in the platforms around the edges — not in the UI core.</p>
     <div class="gaps">
-      <div class="grow"><span class="pill warn">Partiel</span><div><div class="gt">Effet asynchrone Web</div><div class="gd">Le <span class="mono">Task</span> actuel est synchrone ; un vrai fetch réseau reste à porter (<span class="mono">spawn_local</span> est en place).</div></div></div>
-      <div class="grow"><span class="pill gap">À faire</span><div><div class="gt">Publication crates.io</div><div class="gd">Aujourd'hui en dépendances <span class="mono">path</span> locales ; viser <span class="mono">frus = "0.1"</span>.</div></div></div>
-      <div class="grow"><span class="pill gap">À faire</span><div><div class="gt">Web : presse-papier · a11y · live-reload</div><div class="gd">Désactivés sur le Web — chantiers distincts des providers natifs.</div></div></div>
-      <div class="grow"><span class="pill gap">Idée</span><div><div class="gt">Cibles iOS / macOS natives</div><div class="gd">La couche shell est isolée ; l'ajout d'une cible reste circonscrit.</div></div></div>
+      <div class="grow"><span class="pill gap">To do</span><div><div class="gt">Publishing to crates.io</div><div class="gd">Everything resolves through local <span class="mono">path</span> dependencies today; the target is <span class="mono">frus = "0.1"</span>.</div></div></div>
+      <div class="grow"><span class="pill warn">Partial</span><div><div class="gt">Web: clipboard · a11y · live reload</div><div class="gd">Disabled on the web — each one is a separate piece of work from its native provider.</div></div></div>
+      <div class="grow"><span class="pill warn">Partial</span><div><div class="gt">The iOS shell</div><div class="gd">The groundwork landed at J276 (named <span class="mono">cfg</span>s, a <span class="mono">run()</span> entry point, blocking CI). What remains is the platform integration: lifecycle, safe-area insets, IME, <span class="mono">os_log</span>, UIKit accessibility, <span class="mono">.ipa</span> packaging.</div></div></div>
+      <div class="grow"><span class="pill gap">Idea</span><div><div class="gt">A native macOS shell</div><div class="gd">winit already covers macOS as a desktop target; a native shell would be about the menu bar and platform conventions, not rendering.</div></div></div>
     </div>
   </section>
 
   <footer>
-    <span>frus · framework UI Rust cross-plateforme</span>
-    <span>état au jalon J269</span>
+    <span>frus · a cross-platform Rust UI framework</span>
+    <span>state at milestone J276</span>
   </footer>
 
 </div>
