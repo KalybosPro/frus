@@ -1,45 +1,44 @@
-# Jalon 201 — Grille éditable : navigation clavier + lignes
+# Jalon 201 — Editable grid: keyboard navigation + rows
 
-## Analyse
+## Analysis
 
-Le jalon 197 câblait une grille **cliquer-pour-éditer** : une seule cellule en `TextInput` à la
-fois. Pour un vrai mini-tableur, il manque le clavier (Tab de cellule en cellule, Entrée pour
-descendre) et la gestion des lignes (ajouter / supprimer). Plutôt que d'empiler des raccourcis sur
-le modèle « une cellule active », on adopte le modèle **tableur** : chaque cellule est **toujours
-éditable**.
+Milestone 197 wired up a **click-to-edit** grid: a single cell in a `TextInput` at a time. For a
+real mini spreadsheet, the keyboard is missing (Tab from cell to cell, Enter to go down) along with
+row management (add / remove). Rather than piling shortcuts onto the "one active cell" model, we
+adopt the **spreadsheet** model: every cell is **always editable**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Grille toujours éditable → Tab gratuit.** Chaque cellule est un `TextInput` `keyed(("grid", r,
-  c))`. Le shell navigue déjà entre **focusables** avec Tab / Maj+Tab (jalon focus), en ordre de
-  l'arbre — donc ligne par ligne, cellule par cellule. En rendant toutes les cellules focusables,
-  **Tab devient la navigation de cellule** sans une ligne de code shell : on **compose** une brique
-  existante. On supprime du même coup l'état `grid_edit` (plus de cellule « active » unique).
+- **An always-editable grid → Tab for free.** Each cell is a `keyed(("grid", r, c))` `TextInput`.
+  The shell already navigates between **focusables** with Tab / Shift+Tab (the focus milestone), in
+  tree order — so row by row, cell by cell. By making every cell focusable, **Tab becomes cell
+  navigation** with not a line of shell code: we **compose** an existing brick. That also removes
+  the `grid_edit` state (no more single "active" cell).
 
-- **Entrée = descendre d'une ligne.** `on_submit` de chaque cellule émet `GridEnter(r, c)` ;
-  `reduce` renvoie `Command::focus(("grid", r+1, c))` si la ligne suivante existe, sinon ne bouge
-  pas. La saisie passe désormais les coordonnées : `on_input` émet `GridInput(r, c, valeur)`.
+- **Enter = move down a row.** Each cell's `on_submit` emits `GridEnter(r, c)`; `reduce` returns
+  `Command::focus(("grid", r+1, c))` if the next row exists, otherwise stays put. Typing now carries
+  the coordinates: `on_input` emits `GridInput(r, c, value)`.
 
-- **Ajouter / supprimer des lignes.** Un bouton « Add row » (`GridAddRow`) pousse une ligne vide et
-  **focalise sa première cellule** ; chaque ligne porte, en dernière colonne, un bouton « ✕ »
-  (`GridDeleteRow(r)`). Ce bouton est un `Container` **non focusable** (défaut du trait) : **Tab le
-  saute**, la navigation reste de cellule à cellule.
+- **Adding / removing rows.** An "Add row" button (`GridAddRow`) pushes an empty row and **focuses
+  its first cell**; each row carries, in its last column, a "✕" button (`GridDeleteRow(r)`). That
+  button is a **non-focusable** `Container` (the trait's default): **Tab skips it**, so navigation
+  stays cell to cell.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `Msg::{GridInput(r,c,v), GridEnter(r,c), GridAddRow, GridDeleteRow(r)}`
-  (remplacent `GridEdit/GridInput/GridCommit`) ; suppression du champ `grid_edit` ; `grid_screen`
-  réécrit (cellules toujours éditables, colonne de suppression, bouton d'ajout, indice mis à jour).
+- `frus-demo/src/lib.rs`: `Msg::{GridInput(r,c,v), GridEnter(r,c), GridAddRow, GridDeleteRow(r)}`
+  (replacing `GridEdit/GridInput/GridCommit`); the `grid_edit` field removed; `grid_screen`
+  rewritten (always-editable cells, a delete column, an add button, the hint updated).
 
-## Vérification
+## Verification
 
-- **Intégration** (`grid_edit_navigate_and_resize`) : saisir met à jour la bonne case ; `GridEnter`
-  descend d'une ligne (focus demandé) et **reste** sur la dernière ; `GridAddRow` ajoute une ligne
-  vide (bonnes colonnes) et focalise ; `GridDeleteRow` retire la ligne, les suivantes remontent.
-- **Manuel** : dans la grille, Tab / Maj+Tab parcourent les cellules ; Entrée descend ; les boutons
-  gèrent les lignes.
+- **Integration** (`grid_edit_navigate_and_resize`): typing updates the right cell; `GridEnter`
+  moves down a row (a focus requested) and **stays** on the last one; `GridAddRow` adds an empty row
+  (the right columns) and focuses it; `GridDeleteRow` removes the row, the following ones move up.
+- **Manual**: in the grid, Tab / Shift+Tab walk the cells; Enter goes down; the buttons manage the
+  rows.
 
-## Reste
+## What's left
 
-- **Entrée sur la dernière ligne → créer une ligne** (au lieu de rester), navigation par flèches,
-  tri des colonnes, validation par cellule (`TextInput::error` + `Form`).
+- **Enter on the last row → create a row** (instead of staying), arrow navigation, column sorting,
+  per-cell validation (`TextInput::error` + `Form`).

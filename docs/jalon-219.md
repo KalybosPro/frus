@@ -1,37 +1,36 @@
-# Jalon 219 — Démo Charts : sélecteur de type
+# Jalon 219 — Charts demo: type selector
 
-## Analyse
+## Analysis
 
-L'écran Charts (jalon 218) n'affichait qu'un type de graphique. Un vrai tableau de bord laisse
-**choisir** la présentation. Toutes les briques existent (lignes, aires empilées, barres groupées,
-barres empilées) — il reste à les exposer derrière un sélecteur.
+The Charts screen (milestone 218) showed only one chart type. A real dashboard lets you **choose**
+the presentation. Every brick exists (lines, stacked areas, grouped bars, stacked bars) — all that is
+left is exposing them behind a selector.
 
-## Décisions techniques
+## Technical decisions
 
-- **Un `SegmentedControl` pilote le type.** État `chart_kind: usize` (0 lignes, 1 aires empilées,
-  2 barres groupées, 3 barres empilées) ; `Msg::SetChartKind` le change. Le sélecteur réutilise le
-  widget existant (même patron que le filtre de tâches).
+- **A `SegmentedControl` drives the type.** A `chart_kind: usize` state (0 lines, 1 stacked areas,
+  2 grouped bars, 3 stacked bars); `Msg::SetChartKind` changes it. The selector reuses the existing
+  widget (the same pattern as the task filter).
 
-- **Un seul constructeur, quatre variantes.** `dashboard_chart(app, height, legend)` bâtit le
-  graphique selon `chart_kind` : `LineChart` (avec `.stacked` pour l'aire empilée) ou `BarChart`
-  (avec `.stacked` pour les barres empilées). Toutes les variantes partagent **les mêmes données**
-  (`CHART_CATS` / `CHART_SERIES` / `CHART_COLORS`), l'axe, et l'état `chart_hidden` — changer de type
-  ne perd pas les séries masquées. Le paramètre `legend` prépare un graphique **compagnon** (jalon
-  220).
+- **One constructor, four variants.** `dashboard_chart(app, height, legend)` builds the chart from
+  `chart_kind`: a `LineChart` (with `.stacked` for the stacked area) or a `BarChart` (with `.stacked`
+  for stacked bars). Every variant shares **the same data** (`CHART_CATS` / `CHART_SERIES` /
+  `CHART_COLORS`), the axis, and the `chart_hidden` state — changing type does not lose the hidden
+  series. The `legend` parameter prepares for a **companion** chart (milestone 220).
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : constantes de données `CHART_CATS` / `CHART_SERIES` / `CHART_COLORS` ;
-  état `chart_kind` ; `Msg::SetChartKind` + `reduce` ; `dashboard_chart` ; `charts_screen` gagne le
+- `frus-demo/src/lib.rs`: the `CHART_CATS` / `CHART_SERIES` / `CHART_COLORS` data constants; the
+  `chart_kind` state; `Msg::SetChartKind` + `reduce`; `dashboard_chart`; `charts_screen` gains the
   `SegmentedControl`.
 
-## Vérification
+## Verification
 
-- `chart_kind_selector_switches_type_and_each_renders` : type par défaut (lignes) ; chaque type
-  (aires empilées, barres groupées, barres empilées) se sélectionne et **se rend**
-  (`primitive_count > 0`), exerçant les deux branches de `dashboard_chart`. Démo 26/26.
+- `chart_kind_selector_switches_type_and_each_renders`: the default type (lines); each type (stacked
+  areas, grouped bars, stacked bars) can be selected and **renders** (`primitive_count > 0`),
+  exercising both branches of `dashboard_chart`. Demo 26/26.
 
-## Reste
+## What's left
 
-- Persister `chart_kind` dans `save_state`, et un second graphique **compagnon** partageant la
-  visibilité (jalon 220).
+- Persisting `chart_kind` in `save_state`, and a second **companion** chart sharing the visibility
+  (milestone 220).

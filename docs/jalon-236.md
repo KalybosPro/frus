@@ -1,40 +1,42 @@
-# Jalon 236 — DataTable : taille de page + libellé « N–M of T »
+# Jalon 236 — DataTable: page size + "N–M of T" label
 
-## Analyse
+## Analysis
 
-La pagination (jalon 233) posait un sélecteur de numéros de page, mais il manquait deux repères
-usuels d'un tableau de données : **combien** de lignes sont montrées (« 1–3 of 7 ») et un moyen de
-**changer la taille de page**. Ce jalon enrichit le pied.
+Pagination (milestone 233) placed a page-number selector, but two customary data-table cues were
+missing: **how many** rows are shown ("1–3 of 7") and a way to **change the page size**. This
+milestone enriches the footer.
 
-## Décisions techniques
+## Technical decisions
 
-- **Libellé de tranche `page_range_label`, pur et public.** `N–M of T` (tiret demi-cadratin), ou
-  `0 of 0` si vide, avec la page ramenée dans l'intervalle. Réutilisable hors widget, comme
-  `sort_rows`/`page_rows`. Toujours affiché à gauche du pied quand le tableau est paginé.
+- **A pure, public `page_range_label` slice label.** `N–M of T` (an en dash), or `0 of 0` when empty,
+  with the page brought back into range. Reusable outside the widget, like `sort_rows`/`page_rows`.
+  Always shown on the left of the footer when the table is paginated.
 
-- **`.page_sizes(sizes, on_page_size)`.** Optionnel : un `SegmentedControl` des tailles proposées, à
-  droite du pied, avec la taille courante présélectionnée. `on_page_size(taille)` au changement —
-  l'app met à jour la taille (et revient en général à la page 1). Sans effet si non paginé.
+- **`.page_sizes(sizes, on_page_size)`.** Optional: a `SegmentedControl` of the offered sizes, on the
+  right of the footer, with the current size preselected. `on_page_size(size)` on change — the app
+  updates the size (and generally returns to page 1). No effect if not paginated.
 
-- **Pied = ligne flex.** `[libellé] [spacer flex] [Pagination] [sélecteur de taille?]`. Le
-  `Box<dyn Widget>` interne (jalon 233) passe de `[table, pager]` à `[table, pied]`.
+- **The footer = a flex row.** `[label] [flex spacer] [Pagination] [size selector?]`. The internal
+  `Box<dyn Widget>` (milestone 233) moves from `[table, pager]` to `[table, footer]`.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : `page_range_label` ; champs `page_sizes`/`on_page_size` ; builder
-  `page_sizes` ; `rebuild` compose le pied (libellé + pager + `SegmentedControl`).
-- `frus-widgets/src/lib.rs` : `page_range_label` ajouté au `pub use`.
+- `frus-widgets/src/datatable.rs`: `page_range_label`; the `page_sizes`/`on_page_size` fields; the
+  `page_sizes` builder; `rebuild` composes the footer (the label + the pager + the
+  `SegmentedControl`).
+- `frus-widgets/src/lib.rs`: `page_range_label` added to the `pub use`.
 
-## Vérification
+## Verification
 
-- **Widget** `page_range_label_describes_the_slice` : `1–3 of 7`, `4–6 of 7`, dernière page partielle
-  `7–7 of 7`, `0 of 0` si vide, page hors bornes ramenée.
-- **Widget** `page_size_selector_appears_in_the_footer` : pied à **3** enfants (libellé+spacer+pager),
-  **4** avec le sélecteur de taille.
-- **Golden** `data_table_paginated` (enrichi) : « 1–3 of 7 » · ‹ 1 2 3 › · 3|5|10 (3 actif).
-- Widgets 373 ; goldens 68 ; doctest OK.
+- **Widget** `page_range_label_describes_the_slice`: `1–3 of 7`, `4–6 of 7`, a partial last page
+  `7–7 of 7`, `0 of 0` when empty, an out-of-range page brought back.
+- **Widget** `page_size_selector_appears_in_the_footer`: a footer with **3** children
+  (label+spacer+pager), **4** with the size selector.
+- **Golden** `data_table_paginated` (enriched): "1–3 of 7" · ‹ 1 2 3 › · 3|5|10 (3 active).
+- Widgets 373; goldens 68; the doctest OK.
 
-## Reste
+## What's left
 
-- Wirer `DataTable` (tri + pagination + taille) dans la démo, en retirant le tri recopié du reducer.
-- Clé de tri **personnalisée** par colonne (dates, montants formatés).
+- Wiring `DataTable` (sorting + pagination + size) into the demo, removing the copied sort from the
+  reducer.
+- A **custom** sort key per column (dates, formatted amounts).

@@ -1,42 +1,42 @@
-# Jalon 213 — LineChart : aires empilées
+# Jalon 213 — LineChart: stacked areas
 
-## Analyse
+## Analysis
 
-Le jalon 209 superpose les séries (comparaison) ; pour lire un **total** et sa **composition** (part
-de chaque série dans la somme), il faut les **empiler** — les aires cumulées, classiques d'un
-graphe de répartition dans le temps.
+Milestone 209 overlays the series (comparison); to read a **total** and its **composition** (each
+series' share of the sum), they must be **stacked** — cumulative areas, the classic form of a
+composition-over-time chart.
 
-## Décisions techniques
+## Technical decisions
 
-- **`.stacked(bool)`.** Actif avec plusieurs séries, chaque série devient une **bande** entre son
-  cumul bas et son cumul haut ; les bandes s'ajoutent du bas vers le haut, le trait suit le bord
-  supérieur. Implique le remplissage (opacité `STACK_ALPHA`, plus soutenue que l'aire simple pour
-  distinguer les strates).
+- **`.stacked(bool)`.** Active with several series, each one becomes a **band** between its lower and
+  upper cumulative totals; the bands add up from the bottom, the stroke following the upper edge. It
+  implies the fill (a `STACK_ALPHA` opacity, stronger than a plain area so the strata are
+  distinguishable).
 
-- **Échelle au total.** En empilé, `max` = `stacked_max` = le maximum de la **somme** des séries par
-  catégorie — l'axe (jalon 203) contient donc la pile entière.
+- **The scale follows the total.** When stacked, `max` = `stacked_max` = the maximum of the **sum**
+  of the series per category — so the axis (milestone 203) contains the whole stack.
 
-- **Infobulle cohérente.** Au survol, l'infobulle liste la valeur **propre** de chaque série (pas le
-  cumul) ; les marqueurs accentués sont omis en empilé (une hauteur individuelle n'a pas de sens sur
-  une strate cumulée), le guide et la boîte restent.
+- **A coherent tooltip.** On hover, the tooltip lists each series' **own** value (not the cumulative
+  one); the accented markers are omitted when stacked (an individual height is meaningless on a
+  cumulative stratum), the guide and the box remain.
 
-- **Sans régression.** Sans `.stacked`, le chemin de rendu est celui des jalons 200/206/209
-  (superposition), inchangé.
+- **No regression.** Without `.stacked`, the rendering path is milestones 200/206/209's (overlaid),
+  unchanged.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : champ `stacked` + `.stacked(bool)` ; `stacked_max` ; branche
-  empilée dans le paint de `LineChart` (bandes cumulées + trait supérieur) ; garde des marqueurs
-  d'infobulle ; constante `STACK_ALPHA`.
-- `frus-test/tests/goldens.rs` : golden `line_chart_stacked`.
+- `frus-widgets/src/chart.rs`: the `stacked` field + `.stacked(bool)`; `stacked_max`; the stacked
+  branch in `LineChart`'s paint (cumulative bands + the upper stroke); the tooltip marker guard; the
+  `STACK_ALPHA` constant.
+- `frus-test/tests/goldens.rs`: the `line_chart_stacked` golden.
 
-## Vérification
+## Verification
 
-- **Unitaire** `stacked_areas_fill_a_band_per_series` : `stacked_max` = `max(2+3, 4+1) = 5` ; deux
-  bandes remplies (chemins pleins avec segments) en empilé, zéro sans.
-- **Golden** `line_chart_stacked` : deux bandes cumulées, échelle au total, légende.
+- **Unit** `stacked_areas_fill_a_band_per_series`: `stacked_max` = `max(2+3, 4+1) = 5`; two filled
+  bands (solid paths with segments) when stacked, zero without.
+- **Golden** `line_chart_stacked`: two cumulative bands, the scale at the total, a legend.
 
-## Reste
+## What's left
 
-- Empilage **normalisé** (100 %, parts relatives), aires empilées **lissées** (Bézier), et la même
-  option pour la **BarChart** (barres empilées vs groupées du jalon 212).
+- **Normalised** stacking (100%, relative shares), **smoothed** stacked areas (Bézier), and the same
+  option for **BarChart** (stacked vs milestone 212's grouped bars).

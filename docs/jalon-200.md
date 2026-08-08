@@ -1,43 +1,44 @@
-# Jalon 200 — Charts : graphique en lignes (LineChart)
+# Jalon 200 — Charts: line chart (LineChart)
 
-## Analyse
+## Analysis
 
-Le jalon 199 a ouvert le domaine « graphes » avec la [`BarChart`] : idéale pour **comparer** des
-grandeurs. Pour lire une **tendance** (une série dans le temps), la forme naturelle est la
-**polyligne** — des points reliés par des segments. C'est le deuxième widget du domaine, et le
-premier consommateur widget de `Scene::stroke_path` (contour de chemin, sans remplissage).
+Milestone 199 opened the "charts" domain with [`BarChart`]: ideal for **comparing** magnitudes. To
+read a **trend** (a series over time), the natural form is the **polyline** — points joined by
+segments. It is the domain's second widget, and the first widget-side consumer of
+`Scene::stroke_path` (a path outline, with no fill).
 
-## Décisions techniques
+## Technical decisions
 
-- **Même géométrie que la BarChart.** `LineChart` réutilise à l'identique la mise en page : bande
-  des valeurs en haut, libellés de catégorie sous la ligne de base, échelle `0..max`. Un point par
-  catégorie, centré dans sa « case », de hauteur proportionnelle à la valeur. On lit donc une
-  BarChart et une LineChart de la même série **au même endroit**.
+- **The same geometry as the BarChart.** `LineChart` reuses the layout identically: the value band
+  at the top, the category labels under the baseline, a `0..max` scale. One point per category,
+  centred in its "slot", at a height proportional to the value. So a BarChart and a LineChart of the
+  same series read **in the same place**.
 
-- **Trait vectoriel plutôt que rectangles.** La courbe est un `Path` (un `move_to` puis des
-  `line_to`) rendu par `scene.stroke_path` — le premier usage côté widgets du **contour** de chemin.
-  Chaque point porte un **marqueur** rond (`Path::circle` rempli) pour rester lisible même à plat.
+- **A vector stroke rather than rectangles.** The curve is a `Path` (a `move_to` then `line_to`s)
+  rendered by `scene.stroke_path` — the first widget-side use of a path **outline**. Each point
+  carries a round **marker** (a filled `Path::circle`) so it stays readable even when flat.
 
-- **Auto-peint, non générique, thémé (façon BarChart / Icon).** Aucun enfant, pas de `Msg` : c'est
-  une **vue** de données. `color` surcharge le trait (défaut `primary`), `height` la hauteur
-  (défaut 200) ; `width: Percent(1.0)` — le parent doit donc être **dimensionné**.
+- **Self-painted, non-generic, themed (like BarChart / Icon).** No children, no `Msg`: it is a data
+  **view**. `color` overrides the stroke (default `primary`), `height` the height (default 200);
+  `width: Percent(1.0)` — so the parent must be **sized**.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : `LineChart` (`new`, `color`, `height`) ; `paint` calcule les points,
-  trace la polyligne (`stroke_path`), pose les marqueurs (`fill_path` de cercles), les valeurs et les
-  libellés. Constantes `MARKER_R`, `LINE_W` ; réutilise `format_value` et la géométrie de la BarChart.
-- `frus-widgets/src/lib.rs` : export `LineChart`.
-- `frus-test/tests/goldens.rs` : golden `line_chart` (même série que `bar_chart`).
+- `frus-widgets/src/chart.rs`: `LineChart` (`new`, `color`, `height`); `paint` computes the points,
+  strokes the polyline (`stroke_path`), places the markers (a `fill_path` of circles), the values
+  and the labels. The `MARKER_R`, `LINE_W` constants; reuses `format_value` and the BarChart's
+  geometry.
+- `frus-widgets/src/lib.rs`: the `LineChart` export.
+- `frus-test/tests/goldens.rs`: the `line_chart` golden (the same series as `bar_chart`).
 
-## Vérification
+## Verification
 
-- **Unitaire** (`line_empty_series_paints_nothing`, `line_connects_all_points`) : série vide → rien ;
-  trois points → une polyligne tracée (chemin `stroke: Some, fill: None`) de **deux** segments, un
-  marqueur rempli par point, valeurs et libellés dessinés.
-- **Golden** `line_chart` : la série `Mon..Fri` en courbe, marqueurs, valeurs, ligne de base.
+- **Unit** (`line_empty_series_paints_nothing`, `line_connects_all_points`): an empty series →
+  nothing; three points → a stroked polyline (a `stroke: Some, fill: None` path) of **two**
+  segments, one filled marker per point, values and labels drawn.
+- **Golden** `line_chart`: the `Mon..Fri` series as a curve, markers, values, baseline.
 
-## Reste
+## What's left
 
-- **Axe des ordonnées** (graduations + grille horizontale), aire remplie sous la courbe, séries
-  multiples (légende), survol d'un point → infobulle.
+- A **y-axis** (ticks + a horizontal grid), a filled area under the curve, multiple series (a
+  legend), hovering a point → a tooltip.

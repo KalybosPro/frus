@@ -1,57 +1,58 @@
-# Jalon 182 — Formulaire multi-étapes : indicateur `Steps`
+# Jalon 182 — Multi-step form: `Steps` indicator
 
-## Analyse
+## Analysis
 
-Un formulaire long se découpe en **étapes** (assistant / wizard) : compte, profil, revue…
-L'utilisateur a besoin de savoir **où il en est** — quelles étapes sont faites, laquelle est en
-cours, lesquelles restent. C'est le rôle du `Stepper` de Material : une rangée de marqueurs
-numérotés reliés, chacun terminé / courant / à venir. Il manquait à frus.
+A long form is split into **steps** (a wizard): account, profile, review… The user needs to know
+**where they are** — which steps are done, which one is current, which remain. That is the role of
+Material's stepper: a row of linked numbered markers, each completed / current / upcoming. frus
+did not have one.
 
-Le nom `Stepper` est **déjà pris** par le sélecteur numérique −/valeur/+ (jalon antérieur) ; le
-nouvel indicateur s'appelle donc **`Steps`**.
+The name `Stepper` is **already taken** by the numeric −/value/+ picker (an earlier milestone); so
+the new indicator is called **`Steps`**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Widget purement visuel, auto-peint.** `Steps` n'a **pas d'enfants** : il peint lui-même les
-  marqueurs, connecteurs, numéros/coches et libellés dans ses `bounds` (marqueurs répartis d'un
-  bord à l'autre, `center_x`). Pas d'état interne — l'étape courante est un simple `usize`
-  fourni par l'application. Simple, déterministe, testable au pixel.
+- **A purely visual, self-painted widget.** `Steps` has **no children**: it paints the markers,
+  connectors, numbers/ticks and labels itself within its `bounds` (markers spread edge to edge,
+  `center_x`). No internal state — the current step is a plain `usize` supplied by the
+  application. Simple, deterministic, testable at the pixel level.
 
-- **Trois états lisibles.** *Terminé* (`i < current`) : rond **accent** + **coche** (icône
-  `Check` 16 px). *Courant* (`i == current`) : rond accent + **numéro** clair. *À venir* : rond
-  **surface bordé** + numéro atténué. Les connecteurs **franchis** (avant l'étape courante)
-  prennent l'accent, les autres la couleur de bord. Libellé sous chaque marqueur, atténué hors
-  étape courante. C'est exactement la grammaire visuelle du `Stepper` de Material.
+- **Three readable states.** *Completed* (`i < current`): an **accent** disc + a **tick** (a 16 px
+  `Check` icon). *Current* (`i == current`): an accent disc + a light **number**. *Upcoming*: a
+  **bordered surface** disc + a muted number. **Crossed** connectors (before the current step)
+  take the accent, the others the border colour. A label under each marker, muted outside the
+  current step. That is exactly Material's stepper visual grammar.
 
-- **Navigation & validation = applicatives.** `Steps` n'orchestre rien : l'application tient
-  l'étape courante, câble des boutons Précédent/Suivant, et valide **par étape** avec un
-  [`Form`](../crates/frus-widgets/src/form.rs) (jalons 180–181) — récapitulatif final via
-  `ErrorSummary`. Le widget reste une **vue** de la progression, pas une machine à états.
+- **Navigation & validation are app-side.** `Steps` orchestrates nothing: the application holds
+  the current step, wires Back/Next buttons, and validates **per step** with a
+  [`Form`](../crates/frus-widgets/src/form.rs) (milestones 180–181) — a final summary through
+  `ErrorSummary`. The widget stays a **view** of the progress, not a state machine.
 
-- **Personnalisable.** `current(i)` (borné au dernier index), `color(c)` surcharge l'accent
-  (marqueurs terminés/courant + connecteurs franchis) ; sinon `primary` du thème.
+- **Customisable.** `current(i)` (clamped to the last index), `color(c)` overrides the accent
+  (completed/current markers + crossed connectors); otherwise the theme's `primary`.
 
-## Implémentation
+## Implementation
 
-- `steps.rs` : `Steps { labels, current, color }` ; builders `new` / `current` / `color` ;
-  `impl<Msg> Widget<Msg>` (non générique, comme `Icon`) — `style` pleine largeur × hauteur fixe,
-  `paint` connecteurs puis marqueurs (coche `fill_path` ou numéro `text`) puis libellés.
-- `lib.rs` : `mod steps;` + `pub use steps::Steps;`.
-- `goldens.rs` : `form_wizard` (indicateur 2/3 + contenu d'étape + barre Précédent/Suivant).
+- `steps.rs`: `Steps { labels, current, color }`; the `new` / `current` / `color` builders;
+  `impl<Msg> Widget<Msg>` (non-generic, like `Icon`) — a full-width `style` × a fixed height,
+  `paint` for the connectors then the markers (a `fill_path` tick or a `text` number) then the
+  labels.
+- `lib.rs`: `mod steps;` + `pub use steps::Steps;`.
+- `goldens.rs`: `form_wizard` (a 2/3 indicator + step content + a Back/Next bar).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `current_is_clamped_to_last` (index débordant → dernier ; liste vide → 0) ;
-  `markers_reflect_progress` (2 étapes terminées → 2 coches et pas de numéros « 1 »/« 2 » ;
-  courante → « 3 » ; à venir → « 4 » ; tous les libellés dessinés).
-- **Golden** `form_wizard` **inspecté** : « Account » cochée (accent), connecteur franchi vert
-  vers « Profile » courante (« 2 »), connecteur gris vers « Review » à venir (« 3 » bordé),
-  libellés dessous, puis titre d'étape, champ et boutons Back/Next.
-- `cargo test -p frus-widgets steps::` **vert**.
+- **Unit**: `current_is_clamped_to_last` (an out-of-range index → the last; an empty list → 0);
+  `markers_reflect_progress` (2 completed steps → 2 ticks and no "1"/"2" numbers; the current one
+  → "3"; upcoming → "4"; every label drawn).
+- **Golden** `form_wizard` **inspected**: "Account" ticked (accent), a green crossed connector to
+  the current "Profile" ("2"), a grey connector to the upcoming "Review" (a bordered "3"), the
+  labels beneath, then the step title, the field and the Back/Next buttons.
+- `cargo test -p frus-widgets steps::` **green**.
 
-## Reste
+## What's left
 
-- **Marqueurs cliquables** (`on_tap(|usize| Msg)`) pour sauter à une étape déjà visitée :
-  nécessiterait des marqueurs enfants (hit-test par marqueur) — extension.
-- **Orientation verticale** (étapes empilées avec contenu déroulant sous l'étape courante,
-  autre forme du `Stepper` de Material) — extension.
+- **Clickable markers** (`on_tap(|usize| Msg)`) to jump to an already-visited step: would need
+  child markers (a hit-test per marker) — an extension.
+- **Vertical orientation** (steps stacked with the content unfolding under the current one, the
+  stepper's other form) — an extension.

@@ -1,50 +1,50 @@
-# Jalon 181 — Formulaires : récapitulatif d'erreurs cliquable
+# Jalon 181 — Forms: clickable error summary
 
-## Analyse
+## Analysis
 
-Le widget `ErrorSummary` (jalon 180) listait les erreurs d'un formulaire mais restait **inerte** :
-un utilisateur voyant « • Enter a valid email address » ne pouvait pas cliquer dessus pour
-sauter au champ fautif — il devait le retrouver à la main. Sur un long formulaire, le
-récapitulatif doit servir de **table des matières** : cliquer une puce focalise le champ.
+The `ErrorSummary` widget (milestone 180) listed a form's errors but stayed **inert**: a user
+seeing "• Enter a valid email address" could not click it to jump to the faulty field — they had
+to find it by hand. On a long form, the summary should act as a **table of contents**: clicking a
+bullet focuses the field.
 
-## Décisions techniques
+## Technical decisions
 
-- **Puces = widgets, plus des `Text`.** Chaque puce devient un petit widget `Bullet` (privé) :
-  même rendu qu'avant (texte `on_surface` sur la carte teintée) mais porteur d'un `on_click`.
-  `ErrorSummary::new(messages)` garde des puces **inertes** (`message: None`) ;
-  `ErrorSummary::links([(message, msg), …])` en fait des puces **cliquables** qui émettent
-  `msg` — typiquement `Msg::FocusField(key)` que l'application traduit en `Command::focus(key)`.
-  Les deux constructeurs partagent `assemble()` (titre « Please fix N error(s) » + puces).
+- **Bullets = widgets, no longer `Text`.** Each bullet becomes a small (private) `Bullet` widget:
+  the same rendering as before (`on_surface` text on the tinted card) but carrying an `on_click`.
+  `ErrorSummary::new(messages)` keeps the bullets **inert** (`message: None`);
+  `ErrorSummary::links([(message, msg), …])` makes them **clickable** bullets emitting `msg` —
+  typically a `Msg::FocusField(key)` that the application turns into `Command::focus(key)`. Both
+  constructors share `assemble()` (the "Please fix N error(s)" title + the bullets).
 
-- **Cliquable = focalisable + surbrillance.** Une puce cliquable est `focusable()` et expose une
-  sémantique `Role::Button` (navigation clavier + lecteurs d'écran) ; elle peint une surbrillance
-  discrète (`error.fade(0.12)`) pilotée par `status.hover_progress`/`focus_progress`. Une puce
-  inerte n'est **ni** focalisable **ni** cliquable — le récapitulatif purement informatif reste
-  identique au jalon 180 (golden inchangé à l'œil).
+- **Clickable = focusable + highlighted.** A clickable bullet is `focusable()` and exposes
+  `Role::Button` semantics (keyboard navigation + screen readers); it paints a discreet highlight
+  (`error.fade(0.12)`) driven by `status.hover_progress`/`focus_progress`. An inert bullet is
+  **neither** focusable **nor** clickable — a purely informational summary stays identical to
+  milestone 180 (the golden unchanged to the eye).
 
-- **La liaison puce → champ reste applicative.** Le framework ne « connaît » pas les champs :
-  l'application fournit le `Msg` par puce (souvent `Form::errors()` zippé avec les clés) et
-  focalise via le mécanisme de focus existant. `ErrorSummary` reste un widget de présentation.
+- **The bullet → field link stays app-side.** The framework does not "know" the fields: the
+  application supplies the `Msg` per bullet (often `Form::errors()` zipped with the keys) and
+  focuses through the existing focus mechanism. `ErrorSummary` stays a presentation widget.
 
-## Implémentation
+## Implementation
 
-- `form.rs` : `ErrorSummary::links` + `assemble()` ; widget privé `Bullet { label, message }`
-  (`style` pleine largeur, `paint` texte + surbrillance conditionnelle, `on_click`, `focusable`,
+- `form.rs`: `ErrorSummary::links` + `assemble()`; the private `Bullet { label, message }` widget
+  (a full-width `style`, `paint` for the text + a conditional highlight, `on_click`, `focusable`,
   `semantics`).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `error_summary_links_emit_focus_messages` — le titre n'est pas cliquable, chaque
-  puce émet son `Msg` dans l'ordre et est focalisable ; la variante `new` reste inerte (ni clic,
-  ni focus). Tests existants (`error_summary_lists_messages`, validation) **verts**.
-- **Golden** `form_error_summary` régénéré et **inspecté** : carte « Please fix 2 errors » + deux
-  puces claires au-dessus du champ Email — aucune régression visuelle.
-- `cargo test -p frus-widgets form::` **vert**.
+- **Unit**: `error_summary_links_emit_focus_messages` — the title is not clickable, each bullet
+  emits its `Msg` in order and is focusable; the `new` variant stays inert (no click, no focus).
+  The existing tests (`error_summary_lists_messages`, validation) **green**.
+- **Golden** `form_error_summary` regenerated and **inspected**: a "Please fix 2 errors" card +
+  two clear bullets above the Email field — no visual regression.
+- `cargo test -p frus-widgets form::` **green**.
 
-## Reste
+## What's left
 
-- **État « soumis » vs « en cours d'édition »** : n'afficher le récapitulatif / les erreurs
-  qu'après une première soumission — pilotage purement applicatif (un `bool submitted`), à
-  documenter par une recette plutôt qu'à coder dans le framework pur.
-- **Puce → surlignage du champ** (au-delà du focus) : l'application peut aussi teinter brièvement
-  le champ ciblé (déjà possible via l'état d'interaction).
+- **A "submitted" vs "editing" state**: only showing the summary / the errors after a first
+  submission — purely app-driven (a `bool submitted`), to be documented as a recipe rather than
+  coded into the pure framework.
+- **Bullet → field highlight** (beyond the focus): the application can also briefly tint the
+  targeted field (already possible through the interaction state).

@@ -1,37 +1,37 @@
-# Jalon 228 — Total au sommet des colonnes empilées absolues
+# Jalon 228 — Total on top of absolute stacked columns
 
-## Analyse
+## Analysis
 
-Une `BarChart` à série unique écrit la **valeur** au-dessus de chaque barre (lecture immédiate). Les
-barres **empilées absolues** n'avaient aucun repère chiffré : on voyait la composition mais pas le
-total de la colonne. Ce jalon rétablit la **parité** — le total au sommet de chaque colonne.
+A single-series `BarChart` writes the **value** above each bar (an immediate reading). **Absolute
+stacked** bars had no numeric cue at all: you saw the composition but not the column's total. This
+milestone restores **parity** — the total on top of each column.
 
-Réservé au mode **absolu** : en 100 % (jalon 224) la colonne est pleine par construction et déjà
-étiquetée strate par strate (jalon 227), un total « 100 % » n'apporterait rien.
+Reserved for **absolute** mode: at 100% (milestone 224) the column is full by construction and
+already labelled stratum by stratum (milestone 227), so a "100%" total would add nothing.
 
-## Décisions techniques
+## Technical decisions
 
-- **Total = cumul des séries visibles.** À la fin de la boucle des strates, `lower` vaut déjà la
-  somme des séries **visibles** de la catégorie (les masquées sont ignorées) : on l'écrit centrée
-  au-dessus de la strate supérieure, à `top_y - VALUE_SIZE - 2`, exactement comme la valeur d'une
-  barre simple (même taille `VALUE_SIZE`, même couleur `on_surface`, même décalage).
+- **The total = the sum of the visible series.** At the end of the strata loop, `lower` already holds
+  the sum of the category's **visible** series (hidden ones are skipped): we write it centred above
+  the top stratum, at `top_y - VALUE_SIZE - 2`, exactly like a plain bar's value (the same
+  `VALUE_SIZE`, the same `on_surface` colour, the same offset).
 
-- **Rien si la colonne est vide.** `lower > 0.0` évite un « 0 » flottant sur une catégorie sans
-  données visibles.
+- **Nothing if the column is empty.** `lower > 0.0` avoids a stray "0" on a category with no visible
+  data.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : dans la branche empilée de `BarChart::paint`, après les strates et
-  seulement si `!normalized`, écriture du total de la colonne au-dessus.
+- `frus-widgets/src/chart.rs`: in `BarChart::paint`'s stacked branch, after the strata and only if
+  `!normalized`, writing the column's total above.
 
-## Vérification
+## Verification
 
-- **Widget** `stacked_absolute_bars_show_the_column_total` : deux colonnes de total 5 → le texte `5`
-  apparaît **2** fois en absolu ; en 100 %, aucun total brut (parts en `%`).
-- **Golden** `bar_chart_stacked` régénéré : totaux (5, 12, 11, 12, 7) au sommet de chaque colonne.
-- Widgets 361 ; goldens 63.
+- **Widget** `stacked_absolute_bars_show_the_column_total`: two columns totalling 5 → the text `5`
+  appears **twice** in absolute mode; at 100%, no raw total (shares in `%`).
+- **Golden** `bar_chart_stacked` regenerated: the totals (5, 12, 11, 12, 7) on top of each column.
+- Widgets 361; goldens 63.
 
-## Reste
+## What's left
 
-- Sortir du domaine graphes (nouveau widget : `Calendar`/`DataTable` avancé).
-- Valeur par **strate** (dans le segment) en empilé absolu, comme le `%` en 100 %.
+- Moving out of the charts domain (a new widget: an advanced `Calendar`/`DataTable`).
+- A per-**stratum** value (inside the segment) in absolute stacked mode, like the `%` at 100%.

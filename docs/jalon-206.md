@@ -1,38 +1,37 @@
-# Jalon 206 — Charts : aire remplie sous la courbe
+# Jalon 206 — Charts: filled area under the curve
 
-## Analyse
+## Analysis
 
-La `LineChart` (jalon 200) trace la **tendance** ; pour souligner le **volume** (cumul, part), les
-graphiques Flutter/Recharts remplissent l'aire entre la courbe et la ligne de base. C'est un ajout
-naturel, réutilisant le remplissage de chemin non-zero déjà en place.
+`LineChart` (milestone 200) draws the **trend**; to emphasise **volume** (a cumulative total, a
+share), chart libraries fill the area between the curve and the baseline. It is a natural addition,
+reusing the non-zero path fill already in place.
 
-## Décisions techniques
+## Technical decisions
 
-- **Opt-in, un polygone fermé.** `.area(bool)` (défaut `false`). Quand actif, on construit un chemin
-  `Path` : depuis la ligne de base sous le premier point, on relie tous les points de la courbe, puis
-  on redescend à la ligne de base sous le dernier point. Le remplissage non-zero referme
-  automatiquement le contour.
+- **Opt-in, a closed polygon.** `.area(bool)` (default `false`). When on, we build a `Path`: from
+  the baseline below the first point, we join every point of the curve, then come back down to the
+  baseline below the last point. The non-zero fill closes the contour automatically.
 
-- **Peint dessous.** L'aire est remplie **avant** la polyligne et les marqueurs (couleur du trait
-  fortement atténuée, `AREA_ALPHA = 0.16`), donc le trait reste net par-dessus.
+- **Painted underneath.** The area is filled **before** the polyline and the markers (the stroke
+  colour heavily muted, `AREA_ALPHA = 0.16`), so the line stays crisp on top.
 
-- **Se compose avec l'axe.** L'aire et l'axe des ordonnées (jalon 203) sont indépendants : le golden
-  combine `.grid(4).area(true)`.
+- **Composes with the axis.** The area and the y-axis (milestone 203) are independent: the golden
+  combines `.grid(4).area(true)`.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : constante `AREA_ALPHA` ; champ `fill: bool` + `.area(bool)` ;
-  remplissage du polygone avant le trait dans le paint de `LineChart`.
-- `frus-test/tests/goldens.rs` : golden `line_chart_area` (`grid(4)` + `area(true)`).
+- `frus-widgets/src/chart.rs`: the `AREA_ALPHA` constant; the `fill: bool` field + `.area(bool)`;
+  filling the polygon before the stroke in `LineChart`'s paint.
+- `frus-test/tests/goldens.rs`: the `line_chart_area` golden (`grid(4)` + `area(true)`).
 
-## Vérification
+## Verification
 
-- **Unitaire** `area_fills_a_polygon_under_the_curve` : avec `.area(true)`, exactement **un** chemin
-  rempli fait de segments droits (`LineTo`) — l'aire — ; sans, **zéro** (seuls les marqueurs, des
-  cercles, sont remplis).
-- **Golden** `line_chart_area` : aire translucide sous la courbe, trait et marqueurs au-dessus.
+- **Unit** `area_fills_a_polygon_under_the_curve`: with `.area(true)`, exactly **one** filled path
+  made of straight segments (`LineTo`) — the area; without it, **zero** (only the markers, circles,
+  are filled).
+- **Golden** `line_chart_area`: a translucent area under the curve, the stroke and markers above.
 
-## Reste
+## What's left
 
-- **Séries multiples** + légende (empilées ou superposées), dégradé vertical de l'aire (plutôt
-  qu'aplat), et interpolation lissée (courbes de Bézier) entre points.
+- **Multiple series** + a legend (stacked or overlaid), a vertical gradient for the area (rather
+  than a flat fill), and smoothed interpolation (Bézier curves) between points.

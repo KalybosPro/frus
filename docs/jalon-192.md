@@ -1,49 +1,45 @@
-# Jalon 192 — Assistant : validation par étape, focus programmatique, mots de passe masqués
+# Jalon 192 — Wizard: per-step validation, programmatic focus, masked passwords
 
-## Analyse
+## Analysis
 
-L'assistant (jalon 190) laissait passer « Next » sur une étape invalide, affichait les mots de
-passe **en clair**, et ses puces d'erreurs ne faisaient que **changer d'étape** sans amener au
-champ fautif. Trois manques d'ergonomie que le framework savait déjà couvrir — il fallait les
-**câbler**.
+The wizard (milestone 190) let "Next" through on an invalid step, showed passwords **in the
+clear**, and its error bullets only **changed step** without landing on the faulty field. Three
+ergonomic gaps the framework already knew how to cover — they just had to be **wired**.
 
-## Décisions techniques
+## Technical decisions
 
-- **« Next » gouverné par la validité de l'étape.** `wizard_step_valid(form, step)` interroge le
-  `Form` (pur) : Account valide si `name`+`email` passent, Security si `password`+`confirm`
-  passent. Le bouton « Next » reçoit `.enabled(...)` (jalon 191) → **grisé et inerte** tant que
-  l'étape courante n'est pas remplie. La validité reste une **fonction pure de l'état**, pas un
-  drapeau à maintenir.
+- **"Next" governed by the step's validity.** `wizard_step_valid(form, step)` queries the (pure)
+  `Form`: Account is valid if `name`+`email` pass, Security if `password`+`confirm` pass. The
+  "Next" button gets `.enabled(...)` (milestone 191) → **greyed and inert** while the current step
+  is incomplete. Validity stays a **pure function of the state**, not a flag to maintain.
 
-- **Mots de passe masqués.** Les champs Security passent `.obscure(true)` (déjà offert par
-  `TextInput`) : l'affichage devient des points, la valeur éditée reste réelle.
+- **Masked passwords.** The Security fields pass `.obscure(true)` (already offered by
+  `TextInput`): the display becomes dots, the value being edited stays real.
 
-- **Focus programmatique par clé.** Chaque champ est enveloppé dans `keyed(("wizard", i), …)` ;
-  cliquer une puce du récapitulatif émet `WizardFocus(étape, champ)` qui **saute à l'étape** puis
-  renvoie `Command::focus(("wizard", champ))`. Le shell résout la clé contre l'arbre
-  (`keyed`/`Command::focus` hachent la clé à l'identique) et pose le curseur **dans le champ** —
-  plus seulement la bonne étape. Aucun mécanisme nouveau : le framework savait déjà focaliser par
-  clé.
+- **Programmatic focus by key.** Each field is wrapped in `keyed(("wizard", i), …)`; clicking a
+  summary bullet emits `WizardFocus(step, field)`, which **jumps to the step** then returns
+  `Command::focus(("wizard", field))`. The shell resolves the key against the tree
+  (`keyed`/`Command::focus` hash the key identically) and puts the caret **in the field** — no
+  longer just on the right step. No new mechanism: the framework already knew how to focus by key.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `Msg::WizardFocus(usize, u8)` (+ arm `reduce` → `Command::focus`) ;
-  `wizard_field_of` / `wizard_step_valid` ; `wizard_input` gagne `obscure` et l'enveloppe `keyed` ;
-  « Next » `.enabled(wizard_step_valid(...))` ; puces du récapitulatif → `WizardFocus`.
-- `goldens.rs` : `wizard_password_step` (étape Security : mots de passe masqués + « Next »
-  désactivé).
+- `frus-demo/src/lib.rs`: `Msg::WizardFocus(usize, u8)` (+ a `reduce` arm → `Command::focus`);
+  `wizard_field_of` / `wizard_step_valid`; `wizard_input` gains `obscure` and the `keyed` wrapper;
+  "Next" `.enabled(wizard_step_valid(...))`; the summary bullets → `WizardFocus`.
+- `goldens.rs`: `wizard_password_step` (the Security step: masked passwords + a disabled "Next").
 
-## Vérification
+## Verification
 
-- **Intégration** (test `wizard_flow_*` étendu) : Account invalide au départ ; `WizardFocus`
-  saute à l'étape **et** émet une demande de focus (`!cmd.is_empty()`) ; l'étape passe valide une
-  fois remplie. Les 17 tests démo restent **verts**.
-- **Golden** `wizard_password_step` **inspecté** : `Steps` (Security), deux champs en points,
-  « Back » actif à côté de « Next » grisé.
-- `cargo build -p frus-demo` **propre**.
+- **Integration** (the `wizard_flow_*` test extended): Account invalid to begin with;
+  `WizardFocus` jumps to the step **and** emits a focus request (`!cmd.is_empty()`); the step
+  becomes valid once filled in. The 17 demo tests stay **green**.
+- **Golden** `wizard_password_step` **inspected**: `Steps` (Security), two fields in dots, an
+  active "Back" next to a greyed "Next".
+- `cargo build -p frus-demo` **clean**.
 
-## Reste
+## What's left
 
-- **Marquer les étapes `Steps` par validité** (et pas seulement par position) — cohérent
-  maintenant que « Next » est gardé, mais le saut libre via `Steps::on_tap` peut désynchroniser.
-- **Révéler le mot de passe** (icône œil `suffix_icon` bascule `obscure`) — petite UX en plus.
+- **Marking the `Steps` by validity** (and not only by position) — consistent now that "Next" is
+  guarded, but free jumping through `Steps::on_tap` can desynchronise it.
+- **Revealing the password** (an eye `suffix_icon` toggling `obscure`) — a small UX addition.

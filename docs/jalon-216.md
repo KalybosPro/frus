@@ -1,37 +1,38 @@
-# Jalon 216 — BarChart : barres empilées
+# Jalon 216 — BarChart: stacked bars
 
-## Analyse
+## Analysis
 
-Le jalon 212 a donné les barres **groupées** (comparaison côte à côte). Comme la LineChart empilée
-(jalon 213), la BarChart doit aussi savoir **empiler** — une seule barre par catégorie, segmentée par
-série, pour lire un total et sa composition.
+Milestone 212 gave us **grouped** bars (side-by-side comparison). Like the stacked LineChart
+(milestone 213), BarChart must also know how to **stack** — a single bar per category, segmented by
+series, to read a total and its composition.
 
-## Décisions techniques
+## Technical decisions
 
-- **`.stacked(bool)`.** Actif avec plusieurs séries, chaque catégorie n'a plus qu'**une** barre
-  (largeur du groupe), segmentée du bas vers le haut : chaque série est un rectangle entre son cumul
-  bas et son cumul haut, dans sa couleur (segments à angles droits, radius 0, pour un empilement net).
+- **`.stacked(bool)`.** Active with several series, each category has only **one** bar (the group's
+  width), segmented from the bottom up: each series is a rectangle between its lower and upper
+  cumulative totals, in its own colour (right-angled segments, radius 0, for a crisp stack).
 
-- **Échelle au total.** `max` = `stacked_max` = le maximum de la **somme** des séries par catégorie
-  — l'axe (jalon 203) contient toute la pile. Miroir exact de `LineChart::stacked_max` (jalon 213).
+- **The scale follows the total.** `max` = `stacked_max` = the maximum of the **sum** of the series
+  per category — the axis (milestone 203) contains the whole stack. An exact mirror of
+  `LineChart::stacked_max` (milestone 213).
 
-- **Compose avec le reste.** Les séries **masquées** (jalon 215) ne comptent pas dans la pile ;
-  légende et infobulle (valeur propre de chaque série) fonctionnent à l'identique. Sans `.stacked`,
-  le rendu groupé (jalon 212) est inchangé, série unique comprise.
+- **Composes with the rest.** **Hidden** series (milestone 215) do not count towards the stack; the
+  legend and the tooltip (each series' own value) work identically. Without `.stacked`, the grouped
+  rendering (milestone 212) is unchanged, single series included.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : champ `stacked` + `.stacked(bool)` sur `BarChart` ; `stacked_max` ;
-  branche empilée dans le paint (segments cumulés par catégorie) vs branche groupée.
+- `frus-widgets/src/chart.rs`: the `stacked` field + `.stacked(bool)` on `BarChart`; `stacked_max`;
+  the stacked branch in the paint (cumulative segments per category) vs the grouped branch.
 
-## Vérification
+## Verification
 
-- **Unitaire** `stacked_bars_share_one_column_per_category` : `stacked_max = max(2+3, 4+1) = 5` ;
-  quatre segments (2 catégories × 2 séries) tous à la **pleine largeur** du groupe (empilés dans une
-  colonne, vs groupés côte à côte). Le golden `bar_chart_grouped` reste inchangé.
-- **Golden** `bar_chart_stacked` : une barre segmentée par catégorie, échelle au total.
+- **Unit** `stacked_bars_share_one_column_per_category`: `stacked_max = max(2+3, 4+1) = 5`; four
+  segments (2 categories × 2 series) all at the group's **full width** (stacked in one column, vs
+  grouped side by side). The `bar_chart_grouped` golden stays unchanged.
+- **Golden** `bar_chart_stacked`: one segmented bar per category, the scale at the total.
 
-## Reste
+## What's left
 
-- Empilage **normalisé** (100 %), coin arrondi sur le **segment supérieur** seulement, et infobulle
-  suivant le **segment exact** sous le pointeur (pas seulement la catégorie).
+- **Normalised** stacking (100%), a rounded corner on the **top segment** only, and a tooltip
+  tracking the **exact segment** under the pointer (not just the category).

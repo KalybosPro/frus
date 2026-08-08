@@ -1,37 +1,37 @@
-# Jalon 210 — Grille : Save désactivé + accès à la première faute
+# Jalon 210 — Grid: Save disabled + jump to the first error
 
-## Analyse
+## Analysis
 
-Le jalon 207 gardait la soumission dans le `reduce` (toast « Fix N errors »), mais le bouton `Save`
-restait cliquable — on n'apprenait l'échec qu'après coup, sans savoir **où** corriger. Deux
-améliorations : rendre l'invalide **inatteignable**, et offrir un **raccourci** vers la faute.
+Milestone 207 guarded submission inside `reduce` (a "Fix N errors" toast), but the `Save` button
+stayed clickable — you only learnt of the failure afterwards, without knowing **where** to correct.
+Two improvements: make the invalid state **unreachable**, and offer a **shortcut** to the fault.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Save` désactivé quand invalide.** `button(...).enabled(errors == 0)` : le bouton est grisé et
-  n'émet rien tant qu'une cellule est en faute. L'état d'invalidité devient visible *avant* le clic,
-  pas après. La garde du `reduce` (jalon 207) reste en défense.
+- **`Save` disabled when invalid.** `button(...).enabled(errors == 0)`: the button is greyed and
+  emits nothing while a cell is faulty. Invalidity becomes visible *before* the click, not after.
+  `reduce`'s guard (milestone 207) stays as a defence.
 
-- **Raccourci vers la première faute.** Quand `errors > 0`, un bouton `Go to first error` apparaît ;
-  `Msg::GridFocusError` focalise la première cellule invalide via `Command::focus(("grid", r, c))`
-  — l'utilisateur est amené droit à la correction.
+- **A shortcut to the first fault.** When `errors > 0`, a `Go to first error` button appears;
+  `Msg::GridFocusError` focuses the first invalid cell through `Command::focus(("grid", r, c))` —
+  the user is taken straight to the correction.
 
-- **Une seule règle de faute.** `grid_first_error` réutilise `grid_cell_error` (jalons 204/207),
-  parcouru ligne par ligne : même définition de validité partout.
+- **A single fault rule.** `grid_first_error` reuses `grid_cell_error` (milestones 204/207), walked
+  row by row: the same definition of validity everywhere.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `Msg::GridFocusError` ; `grid_first_error` ; arm `GridFocusError`
-  (focus) ; `grid_screen` : `Save` conditionnellement activé + bouton `Go to first error` inséré
-  dynamiquement (`Flex::child`) quand il y a des erreurs.
+- `frus-demo/src/lib.rs`: `Msg::GridFocusError`; `grid_first_error`; the `GridFocusError` arm (the
+  focus); `grid_screen`: `Save` conditionally enabled + a `Go to first error` button inserted
+  dynamically (`Flex::child`) when there are errors.
 
-## Vérification
+## Verification
 
-- `grid_focus_error_targets_the_first_faulty_cell` : `grid_first_error` pointe la première faute
-  `(1, 0)` (Name vide), `GridFocusError` émet un focus ; une fois tout corrigé, plus de cible et
-  aucune commande.
+- `grid_focus_error_targets_the_first_faulty_cell`: `grid_first_error` points at the first fault
+  `(1, 0)` (an empty Name), `GridFocusError` emits a focus; once everything is corrected, no target
+  and no command.
 
-## Reste
+## What's left
 
-- **Défiler** jusqu'à la cellule focalisée si la grille dépasse le viewport, cycler entre *toutes*
-  les fautes (pas seulement la première), et un halo bref sur la cellule visée à l'arrivée.
+- **Scrolling** to the focused cell if the grid overflows the viewport, cycling through *all* the
+  faults (not just the first), and a brief halo on the targeted cell on arrival.

@@ -1,48 +1,47 @@
-# Jalon 187 — TimePicker : plage horaire (créneau début → fin)
+# Jalon 187 — TimePicker: time range (start → end slot)
 
-## Analyse
+## Analysis
 
-`TimePicker` choisit **une** heure. Réserver un créneau, fixer des horaires d'ouverture,
-planifier une réunion : autant de cas qui demandent **deux** heures — un début et une fin. C'est
-le pendant temporel du calendrier double (jalon 186) ; il manquait à frus.
+`TimePicker` picks **one** time. Booking a slot, setting opening hours, scheduling a meeting: all
+call for **two** times — a start and an end. It is the temporal counterpart of the dual calendar
+(milestone 186); frus did not have it.
 
-## Décisions techniques
+## Technical decisions
 
-- **Composition de deux `TimePicker`.** `TimeRange` pose deux sélecteurs étiquetés « Start » et
-  « End » côte à côte (chacun une colonne `[label, TimePicker]` dans une `Flex::row`). Toute la
-  logique (grilles 24 h/12 h, aperçu, pas des minutes) est **réutilisée** telle quelle — aucune
-  duplication.
+- **Composing two `TimePicker`s.** `TimeRange` places two pickers labelled "Start" and "End" side
+  by side (each a `[label, TimePicker]` column in a `Flex::row`). All the logic (24 h/12 h grids,
+  the preview, the minute step) is **reused** as is — no duplication.
 
-- **Un seul rappel taggé.** Plutôt que quatre closures (heure/minute × début/fin), `TimeRange`
-  prend **un** `on_change(Endpoint, TimeField, u32)` : chaque `TimePicker` interne enveloppe ses
-  `on_hour`/`on_minute` pour préfixer la **borne** (`Start`/`End`) et le **champ** (`Hour`/
-  `Minute`). Le rappel est mis en `Rc` pour alimenter les deux sélecteurs ; les valeurs restent en
-  **24 h** (comme `TimePicker`). L'application reçoit un message unique et décide comment
-  actualiser son état (et, si besoin, contraindre fin ≥ début — logique applicative).
+- **A single tagged callback.** Rather than four closures (hour/minute × start/end), `TimeRange`
+  takes **one** `on_change(Endpoint, TimeField, u32)`: each internal `TimePicker` wraps its
+  `on_hour`/`on_minute` to prefix the **endpoint** (`Start`/`End`) and the **field**
+  (`Hour`/`Minute`). The callback is put in an `Rc` to feed both pickers; the values stay in
+  **24-hour** form (as in `TimePicker`). The application receives a single message and decides how
+  to update its state (and, if needed, to constrain end ≥ start — app-side logic).
 
-- **Options propagées.** `hour12()` et `minute_step(n)` s'appliquent aux **deux** sélecteurs via
-  `rebuild` (mêmes réglages de part et d'autre).
+- **Options propagated.** `hour12()` and `minute_step(n)` apply to **both** pickers through
+  `rebuild` (the same settings on either side).
 
-## Implémentation
+## Implementation
 
-- `timepicker.rs` : `enum Endpoint { Start, End }`, `enum TimeField { Hour, Minute }` ;
-  `TimeRange<Msg>` (`new`/`hour12`/`minute_step`, `rebuild` construit les deux colonnes taggées,
-  `Rc` du rappel partagé) ; `impl Widget` (rangée, sans peinture propre).
-- `lib.rs` : `pub use timepicker::{Endpoint, TimeField, TimeRange}`.
-- `goldens.rs` : `time_range` (Start 09:00 / End 17:30, minutes par pas de 15).
+- `timepicker.rs`: `enum Endpoint { Start, End }`, `enum TimeField { Hour, Minute }`;
+  `TimeRange<Msg>` (`new`/`hour12`/`minute_step`, `rebuild` builds the two tagged columns, an `Rc`
+  for the shared callback); `impl Widget` (a row, with no painting of its own).
+- `lib.rs`: `pub use timepicker::{Endpoint, TimeField, TimeRange}`.
+- `goldens.rs`: `time_range` (Start 09:00 / End 17:30, minutes in steps of 15).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `range_builds_start_and_end_pickers` (deux colonnes ; minutes pas de 15 → 4
-  cases ; cliquer 09 h côté End émet `Set(End, Hour, 9)`) ; `hour12_applies_to_both_pickers`
-  (section heures 12 h = label + AM/PM + grille des deux côtés). Tests `TimePicker` existants
-  **verts**.
-- **Golden** `time_range` **inspecté** : « Start » 09:00 (heure 09 + minute 00 surlignées),
-  « End » 17:30 (heure 17 + minute 30), minutes 00/15/30/45.
-- `cargo test -p frus-widgets timepicker::` **vert**.
+- **Unit**: `range_builds_start_and_end_pickers` (two columns; a 15-minute step → 4 cells;
+  clicking 09 h on the End side emits `Set(End, Hour, 9)`); `hour12_applies_to_both_pickers` (the
+  12-hour hours section = a label + AM/PM + the grid on both sides). The existing `TimePicker`
+  tests **green**.
+- **Golden** `time_range` **inspected**: "Start" 09:00 (hour 09 + minute 00 highlighted), "End"
+  17:30 (hour 17 + minute 30), minutes 00/15/30/45.
+- `cargo test -p frus-widgets timepicker::` **green**.
 
-## Reste
+## What's left
 
-- **Contrainte fin ≥ début** intégrée (griser les heures antérieures de la borne End) — pour
-  l'instant à la charge de l'application.
-- **Durée** dérivée affichée entre les deux (ex. « 8 h 30 ») — extension de présentation.
+- A built-in **end ≥ start constraint** (greying out earlier hours on the End side) — for now the
+  application's responsibility.
+- A derived **duration** shown between the two (e.g. "8 h 30") — a presentation extension.

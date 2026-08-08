@@ -1,36 +1,36 @@
-# Jalon 225 — Désépinglage au re-clic
+# Jalon 225 — Unpinning on a second click
 
-## Analyse
+## Analysis
 
-Depuis les jalons 221–223, cliquer un point/barre l'épingle (détail dans un `Chip`) et le met en
-évidence (halo/anneau). Mais rien ne permettait de **retirer** la sélection : une fois épinglé, le
-tableau de bord restait marqué jusqu'au clic d'un autre élément. Le geste manquant, standard d'un
-sélecteur : **re-cliquer** l'élément déjà sélectionné pour le désélectionner.
+Since milestones 221–223, clicking a point/bar pins it (the detail in a `Chip`) and highlights it (a
+halo/ring). But there was no way to **remove** the selection: once pinned, the dashboard stayed marked
+until another element was clicked. The missing gesture, standard for a selector: **re-click** the
+already-selected element to deselect it.
 
-## Décisions techniques
+## Technical decisions
 
-- **Bascule côté app, pas côté widget.** Les graphiques rapportent un clic via `on_point` ; c'est à
-  l'application de décider qu'un second clic sur le **même** `(catégorie, série)` annule la sélection.
-  `reduce(ChartPoint)` compare la cible à `chart_sel` : si elle est déjà sélectionnée, on remet
-  `chart_sel` et `chart_pin` à `None` ; sinon on épingle comme avant. Le widget n'a pas changé — la
-  mise en évidence disparaît d'elle-même dès que `selected` repasse à `None`.
+- **The toggle app-side, not widget-side.** The charts report a click through `on_point`; it is up to
+  the application to decide that a second click on the **same** `(category, series)` cancels the
+  selection. `reduce(ChartPoint)` compares the target to `chart_sel`: if it is already selected, we
+  reset `chart_sel` and `chart_pin` to `None`; otherwise we pin as before. The widget did not change —
+  the highlight disappears on its own as soon as `selected` goes back to `None`.
 
-- **Indice mis à jour.** Le texte d'aide passe à « click a point to pin it, or again to unpin ».
+- **The hint updated.** The help text becomes "click a point to pin it, or again to unpin".
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `reduce(Msg::ChartPoint)` bascule (désépingle si `chart_sel == Some((cat,
-  s))`, épingle sinon) ; texte d'indication actualisé.
+- `frus-demo/src/lib.rs`: `reduce(Msg::ChartPoint)` toggles (unpins if
+  `chart_sel == Some((cat, s))`, pins otherwise); the hint text updated.
 
-## Vérification
+## Verification
 
-- **Démo** `re_clicking_a_selected_point_unpins_it` : `ChartPoint(2, 1)` épingle
-  (`chart_sel = Some((2, 1))`, détail présent) ; un second `ChartPoint(2, 1)` **désépingle**
-  (`chart_sel = None`, détail effacé) ; `ChartPoint(0, 0)` ré-épingle un autre point.
-- Les tests existants (`clicking_a_point_pins_its_detail`, `clicking_a_point_marks_it_selected`)
-  cliquent des points **distincts** : inchangés. Démo 32 ; widgets/goldens non touchés.
+- **Demo** `re_clicking_a_selected_point_unpins_it`: `ChartPoint(2, 1)` pins
+  (`chart_sel = Some((2, 1))`, the detail present); a second `ChartPoint(2, 1)` **unpins**
+  (`chart_sel = None`, the detail cleared); `ChartPoint(0, 0)` pins another point again.
+- The existing tests (`clicking_a_point_pins_its_detail`, `clicking_a_point_marks_it_selected`) click
+  **distinct** points: unchanged. Demo 32; the widgets/goldens untouched.
 
-## Reste
+## What's left
 
-- Étiquettes de **pourcentage** dans l'infobulle en mode 100 % (aujourd'hui : valeurs brutes).
-- Sortir du domaine graphes (nouveau widget : `Calendar`/`DataTable` avancé).
+- **Percentage** labels in the tooltip in 100% mode (today: raw values).
+- Moving out of the charts domain (a new widget: an advanced `Calendar`/`DataTable`).

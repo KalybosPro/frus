@@ -1,43 +1,43 @@
-# Jalon 227 — Libellé de part (%) dans chaque strate (barres 100 %)
+# Jalon 227 — Share label (%) in each band (100% bars)
 
-## Analyse
+## Analysis
 
-En empilage 100 % (jalon 224), les strates montrent les proportions, mais la valeur exacte n'était
-lisible qu'au survol (jalon 226). Pour un graphique à barres 100 %, l'usage est d'écrire la **part
-(%) directement dans chaque strate** : lecture immédiate, sans interaction.
+In 100% stacking (milestone 224), the strata show the proportions, but the exact value was only
+readable on hover (milestone 226). For a 100% bar chart, the convention is to write the **share (%)
+directly inside each stratum**: an immediate reading, with no interaction.
 
-Réservé aux **barres** : chaque strate est un rectangle discret qui accueille un label centré. Les
-aires empilées (lignes) n'ont pas cette découpe nette par catégorie — un label par bande/catégorie
-surchargerait ; elles gardent la part au survol (jalon 226).
+Reserved for **bars**: each stratum is a discrete rectangle that can host a centred label. Stacked
+areas (lines) have no such clean per-category division — one label per band/category would clutter
+them; they keep the share on hover (milestone 226).
 
-## Décisions techniques
+## Technical decisions
 
-- **Part au centre de la strate.** Dans la branche empilée de `BarChart::paint`, en mode 100 %,
-  chaque segment visible reçoit `{part}%` (arrondie) centré horizontalement (sur `cx`) et
-  verticalement (milieu de `[y_top, y_bottom]`).
+- **The share at the stratum's centre.** In `BarChart::paint`'s stacked branch, in 100% mode, each
+  visible segment gets `{share}%` (rounded) centred horizontally (on `cx`) and vertically (the middle
+  of `[y_top, y_bottom]`).
 
-- **Seuil de hauteur.** Le label n'est tracé que si la strate mesure au moins `STRATA_LABEL_SIZE + 4`
-  px — une part trop fine reste sans texte (illisible sinon), la valeur restant accessible au survol.
+- **A height threshold.** The label is only drawn if the stratum is at least `STRATA_LABEL_SIZE + 4`
+  px tall — too thin a share stays untexted (it would be unreadable otherwise), the value staying
+  available on hover.
 
-- **Texte lisible sur fond saturé.** Couleur `theme.on_primary` (le rôle « texte sur surface
-  colorée » du thème), conforme à la directive « customizable like Flutter » : dérivé du thème, donc
-  surchargéable, jamais une couleur codée en dur.
+- **Text readable over a saturated background.** The colour is `theme.on_primary` (the theme's "text
+  on a coloured surface" role), in line with the customisability rule: derived from the theme, so
+  overridable, never a hardcoded colour.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : constante `STRATA_LABEL_SIZE` ; la branche empilée de `BarChart`
-  écrit la part `%` au centre de chaque strate assez haute quand `normalized`.
+- `frus-widgets/src/chart.rs`: the `STRATA_LABEL_SIZE` constant; `BarChart`'s stacked branch writes
+  the `%` share at the centre of each stratum tall enough, when `normalized`.
 
-## Vérification
+## Verification
 
-- **Widget** `normalized_bars_label_each_strata_with_its_percentage` : 2 catégories × 2 séries
-  visibles = **4** strates étiquetées en 100 % (sans axe : aucune graduation `%` parasite), **0** en
-  absolu.
-- **Golden** `bar_chart_normalized` régénéré : chaque colonne affiche ses parts (60 %/40 %, 64 %/36 %…)
-  sommant à 100 %, texte blanc lisible sur les fills.
-- Widgets 360 ; goldens 63.
+- **Widget** `normalized_bars_label_each_strata_with_its_percentage`: 2 categories × 2 visible series
+  = **4** labelled strata at 100% (with no axis: no stray `%` ticks), **0** in absolute mode.
+- **Golden** `bar_chart_normalized` regenerated: each column shows its shares (60%/40%, 64%/36%…)
+  summing to 100%, white text readable over the fills.
+- Widgets 360; goldens 63.
 
-## Reste
+## What's left
 
-- Sortir du domaine graphes (nouveau widget : `Calendar`/`DataTable` avancé).
-- Libellé de **valeur** au sommet des barres empilées **absolues** (parité avec les barres simples).
+- Moving out of the charts domain (a new widget: an advanced `Calendar`/`DataTable`).
+- A **value** label on top of **absolute** stacked bars (parity with plain bars).

@@ -1,37 +1,36 @@
-# Jalon 194 — Assistant : révéler le mot de passe
+# Jalon 194 — Wizard: revealing the password
 
-## Analyse
+## Analysis
 
-Les champs mot de passe de l'assistant (jalon 192) étaient toujours masqués : impossible de
-**vérifier** ce qu'on tape — source d'erreurs et de frustration. Il manquait la bascule
-« afficher / masquer » classique.
+The wizard's password fields (milestone 192) were always masked: there was no way to **check**
+what you were typing — a source of errors and frustration. The classic "show / hide" toggle was
+missing.
 
-## Décisions techniques
+## Technical decisions
 
-- **Composition, pas de nouveau mécanisme.** `TextInput::obscure(bool)` existait déjà (jalon
-  antérieur) ; il suffit de piloter son argument par un état applicatif `wizard_reveal` et
-  d'ajouter un bouton bascule. Une seule bascule révèle **les deux** champs de l'étape Security
-  (mot de passe + confirmation), cohérent (on compare deux saisies).
+- **Composition, no new mechanism.** `TextInput::obscure(bool)` already existed (an earlier
+  milestone); it is enough to drive its argument from a `wizard_reveal` application state and add a
+  toggle button. A single toggle reveals **both** fields of the Security step (password +
+  confirmation), which is consistent (you are comparing two entries).
 
-- **Bascule texte plutôt qu'icône œil.** Le jeu d'icônes est *rempli* (sans contour) : un « œil »
-  reconnaissable y est coûteux, et une icône **dans** le champ demanderait un routage de clic
-  positionnel côté shell (le trait `Widget` n'expose pas de clic positionnel). Un bouton
-  « Show password » / « Hide password » sous les champs est clair, offre une grande cible, et
-  reste 100 % composable.
+- **A text toggle rather than an eye icon.** The icon set is *filled* (no outlines): a recognisable
+  "eye" is expensive there, and an icon **inside** the field would require positional click routing
+  shell-side (the `Widget` trait exposes no positional click). A "Show password" / "Hide password"
+  button below the fields is clear, offers a large target, and stays 100% composable.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : état `wizard_reveal` ; `Msg::WizardToggleReveal` (+ arm `reduce`) ;
-  l'étape Security passe `obscure = !wizard_reveal` aux deux champs et ajoute le bouton bascule.
-- `goldens.rs` : `wizard_password_revealed` (mots de passe visibles + « Hide password »).
+- `frus-demo/src/lib.rs`: the `wizard_reveal` state; `Msg::WizardToggleReveal` (+ a `reduce` arm);
+  the Security step passes `obscure = !wizard_reveal` to both fields and adds the toggle button.
+- `goldens.rs`: `wizard_password_revealed` (visible passwords + "Hide password").
 
-## Vérification
+## Verification
 
-- **Golden** `wizard_password_revealed` **inspecté** : « secret12 » lisible dans les deux champs,
-  bouton « Hide password ». (L'état masqué reste couvert par `wizard_password_step`, jalon 192.)
-- Les 18 tests démo restent **verts** ; `cargo build -p frus-demo` **propre**.
+- **Golden** `wizard_password_revealed` **inspected**: "secret12" readable in both fields, a "Hide
+  password" button. (The masked state is still covered by `wizard_password_step`, milestone 192.)
+- The 18 demo tests stay **green**; `cargo build -p frus-demo` **clean**.
 
-## Reste
+## What's left
 
-- **Icône œil dans le champ** (`suffix_icon` cliquable) : demande une icône œil (contour) et un
-  routage de clic positionnel du suffixe côté shell — extension framework distincte.
+- **An eye icon in the field** (a clickable `suffix_icon`): requires an outline eye icon and
+  positional click routing for the suffix shell-side — a separate framework extension.

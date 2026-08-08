@@ -1,37 +1,37 @@
-# Jalon 234 — DatePicker plage bornée (range + fenêtre [min, max])
+# Jalon 234 — Bounded-range DatePicker (range + [min, max] window)
 
-## Analyse
+## Analysis
 
-Le jalon 231 a borné le calendrier **simple** (`bounded`). Le mode **plage** (`range`), lui, laissait
-encore tous les jours cliquables — impossible d'imposer une fenêtre de saisie à une sélection
-d'intervalle (réserver une plage à l'intérieur d'une période ouverte, par exemple). Ce jalon comble
-la parité : un mode plage **borné**.
+Milestone 231 bounded the **single** calendar (`bounded`). **Range** mode (`range`) still left every
+day clickable — there was no way to impose an entry window on an interval selection (booking a range
+inside an open period, say). This milestone closes the parity gap: a **bounded** range mode.
 
-## Décisions techniques
+## Technical decisions
 
-- **`range_bounded(start, end, min, max)`.** Superset de `range` : mêmes marques de plage
-  (bornes en pastille, jours entre en bande douce) **plus** le prédicat `enabled` du jalon 231 —
-  un jour est cliquable ssi `min <= date <= max` (bornes optionnelles, incluses). Aucune
-  infrastructure nouvelle : réutilise `assemble(enabled)` et `range_mark`.
+- **`range_bounded(start, end, min, max)`.** A superset of `range`: the same range marks (endpoints
+  as pills, the days between as a soft band) **plus** milestone 231's `enabled` predicate — a day is
+  clickable iff `min <= date <= max` (optional, inclusive bounds). No new infrastructure: it reuses
+  `assemble(enabled)` and `range_mark`.
 
-- **Combinaison propre.** La mise en avant (plage sélectionnée) et l'activation (fenêtre autorisée)
-  sont **orthogonales** : un jour peut être « entre » les bornes de la plage tout en étant hors
-  fenêtre (donc désactivé), et inversement. Chacune est calculée indépendamment.
+- **A clean combination.** Highlighting (the selected range) and enabling (the allowed window) are
+  **orthogonal**: a day can be "between" the range's endpoints while being outside the window (hence
+  disabled), and vice versa. Each is computed independently.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datepicker.rs` : nouveau constructeur `range_bounded` (mark = `range_mark`,
-  enabled = test `[min, max]`).
+- `frus-widgets/src/datepicker.rs`: the new `range_bounded` constructor (mark = `range_mark`,
+  enabled = the `[min, max]` test).
 
-## Vérification
+## Verification
 
-- **Widget** `range_bounded_disables_days_outside_the_window` : plage 10–15 dans une fenêtre `[8, 20]`
-  → 7 et 21 non cliquables, 8/12/20 cliquables (dont un jour « entre », le 12, bien actif).
-- **Golden** `date_range_bounded` : fenêtre 8–20 active, plage 10–15 mise en avant, hors-fenêtre
-  atténué.
-- Widgets 370 ; goldens 67 (`date_range`/`date_bounded` inchangés).
+- **Widget** `range_bounded_disables_days_outside_the_window`: a 10–15 range inside an `[8, 20]`
+  window → the 7th and the 21st not clickable, the 8th/12th/20th clickable (including the 12th, a day
+  "between", correctly active).
+- **Golden** `date_range_bounded`: the 8–20 window active, the 10–15 range highlighted, outside the
+  window muted.
+- Widgets 370; goldens 67 (`date_range`/`date_bounded` unchanged).
 
-## Reste
+## What's left
 
-- Jours **blackout** arbitraires (prédicat/ensemble de dates isolées, pas seulement un intervalle).
-- Wirer les calendriers bornés dans la démo (écran date).
+- Arbitrary **blackout** days (a predicate/set of isolated dates, not just an interval).
+- Wiring the bounded calendars into the demo (the date screen).

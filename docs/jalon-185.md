@@ -1,53 +1,55 @@
-# Jalon 185 — Snackbar : action + file d'attente
+# Jalon 185 — Snackbar: action + queue
 
-## Analyse
+## Analysis
 
-`Toast` (notification transitoire) n'était qu'une **carte statique** : pas d'**action** (le
-« UNDO » du Snackbar Material qui permet d'annuler l'opération), et l'application devait gérer
-seule l'**empilement** et l'**auto-fermeture**. Deux manques pour un vrai système de
-notifications : une action optionnelle, et une file « une à la fois » qui expire toute seule.
+`Toast` (a transient notification) was only a **static card**: no **action** (the Material
+snackbar's "UNDO", which lets you reverse the operation), and the application had to handle
+**stacking** and **auto-dismissal** by itself. Two gaps for a real notification system: an optional
+action, and a "one at a time" queue that expires on its own.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Toast<Msg>` générique + action.** Porter un message d'action impose de généraliser `Toast`
-  (auparavant `impl<Msg> Widget for Toast` non générique). `action(label, msg)` ajoute un
-  **bouton texte en capitales** (widget privé `ActionButton`) à droite, émettant `msg` au clic
-  (focalisable, sémantique `Role::Button`). Sans action, `children` est vide et le rendu reste
-  **identique** (le démo, qui infère `Msg`, compile sans changement). La carte se place alors en
-  rangée (`justify: End`, `align: Center`) pour poser l'action à droite ; le texte reste peint
-  par `Toast` à gauche.
+- **A generic `Toast<Msg>` + an action.** Carrying an action message forces `Toast` to become
+  generic (previously a non-generic `impl<Msg> Widget for Toast`). `action(label, msg)` adds an
+  **uppercased text button** (the private `ActionButton` widget) on the right, emitting `msg` on
+  click (focusable, `Role::Button` semantics). With no action, `children` is empty and the
+  rendering stays **identical** (the demo, which infers `Msg`, compiles unchanged). The card then
+  lays out as a row (`justify: End`, `align: Center`) to place the action on the right; the text
+  is still painted by `Toast` on the left.
 
-- **File d'attente pure `SnackbarQueue<T>`.** Dans l'esprit de [`Form`](../crates/frus-widgets/src/form.rs) :
-  aucune peinture, juste de l'état. Une `VecDeque<(T, secondes)>` dont l'**avant** est la
-  notification visible. `push(item, seconds)` empile ; `tick(dt)` décompte **la tête** et la
-  retire à expiration (rendant `true` si la notification visible a changé) — l'auto-fermeture
-  Material **sans minuterie côté widget**, pilotée par la boucle de l'application ; `dismiss()`
-  ferme la courante (clic sur l'action) et rend sa charge ; `current()` donne l'affichée. `T` est
-  la charge applicative (texte, type, message d'action).
+- **A pure `SnackbarQueue<T>`.** In the spirit of
+  [`Form`](../crates/frus-widgets/src/form.rs): no painting, just state. A
+  `VecDeque<(T, seconds)>` whose **front** is the visible notification. `push(item, seconds)`
+  enqueues; `tick(dt)` counts **the head** down and removes it on expiry (returning `true` if the
+  visible notification changed) — Material's auto-dismissal **with no timer widget-side**, driven
+  by the application's loop; `dismiss()` closes the current one (a click on the action) and yields
+  its payload; `current()` gives the displayed one. `T` is the application's payload (text, kind,
+  action message).
 
-- **Séparation nette.** Le widget dessine, la file ordonnance. L'application relie les deux :
-  `queue.current()` → un `Toast`, `tick(dt)` chaque frame, `dismiss()` sur l'action.
+- **A clean separation.** The widget draws, the queue schedules. The application links the two:
+  `queue.current()` → a `Toast`, `tick(dt)` each frame, `dismiss()` on the action.
 
-## Implémentation
+## Implementation
 
-- `toast.rs` : `Toast<Msg>` (+ `action`, `action_w`, `children`) ; widget privé `ActionButton` ;
-  `accent` déplacé dans un `impl<Msg>` sans borne `'static` (appelé depuis `paint`) ;
+- `toast.rs`: `Toast<Msg>` (+ `action`, `action_w`, `children`); the private `ActionButton`
+  widget; `accent` moved into an `impl<Msg>` with no `'static` bound (called from `paint`);
   `SnackbarQueue<T>` (`new`/`push`/`current`/`tick`/`dismiss`/`is_empty`/`len`).
-- `lib.rs` : `pub use toast::SnackbarQueue`.
-- `goldens.rs` : `snackbar_action`.
+- `lib.rs`: `pub use toast::SnackbarQueue`.
+- `goldens.rs`: `snackbar_action`.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `action_is_clickable_and_uppercased` (sans action → aucun enfant ; avec →
-  bouton « UNDO » cliquable et focalisable) ; `queue_shows_one_at_a_time_and_expires` (une seule
-  visible, décompte de la tête, relais à l'expiration, fermeture manuelle, file vide inerte).
-  Le test de peinture existant reste **vert**.
-- **Golden** `snackbar_action` **inspecté** : carte à barre d'accent, texte, action « UNDO » à
-  droite en couleur d'accent.
-- `cargo test -p frus-widgets toast::` **vert**.
+- **Unit**: `action_is_clickable_and_uppercased` (no action → no children; with one → a clickable,
+  focusable "UNDO" button); `queue_shows_one_at_a_time_and_expires` (only one visible, the head
+  counted down, handover on expiry, manual dismissal, an empty queue inert). The existing painting
+  test stays **green**.
+- **Golden** `snackbar_action` **inspected**: an accent-barred card, the text, the "UNDO" action on
+  the right in the accent colour.
+- `cargo test -p frus-widgets toast::` **green**.
 
-## Reste
+## What's left
 
-- **Bouton de fermeture (croix)** intégré au widget, en plus de l'action — variante Material.
-- **Transitions d'entrée/sortie** (glissement/fondu) pilotées par la couche d'animation existante.
-- **Positionnement/pile** (haut, bas, coins) : déjà à la main de l'application via un overlay.
+- A **close button (cross)** built into the widget, on top of the action — a Material variant.
+- **Enter/exit transitions** (slide/fade) driven by the existing animation layer.
+- **Positioning/stacking** (top, bottom, corners): already in the application's hands through an
+  overlay.

@@ -1,48 +1,48 @@
-# Jalon 186 — DatePicker : calendrier double (longues plages)
+# Jalon 186 — DatePicker: dual calendar (long ranges)
 
-## Analyse
+## Analysis
 
-Le mode plage (jalon 184) tient dans **un** mois. Or une plage franchit souvent la frontière —
-« du 28 juillet au 3 août » — et l'utilisateur doit alors naviguer d'un mois à l'autre à
-l'aveugle, sans voir les deux bornes ensemble. Le date-range picker de Material affiche **deux
-mois côte à côte** ; il manquait à frus.
+Range mode (milestone 184) fits within **one** month. But a range often crosses the boundary —
+"28 July to 3 August" — and the user then has to navigate from month to month blind, without
+seeing both endpoints together. The established date-range picker shows **two months side by
+side**; frus did not have it.
 
-## Décisions techniques
+## Technical decisions
 
-- **Composition de deux `DatePicker::range`.** `range_dual(year, month, …)` construit le mois
-  demandé **et le suivant** (avec bascule d'année décembre → janvier), chacun un
-  `DatePicker::range` partageant la **même** plage `[start, end]`, puis les pose dans une
-  `Flex::row`. Aucune logique de plage dupliquée : la bande **traverse** naturellement la
-  frontière car `range_mark` compare des dates **complètes** `(année, mois, jour)` (jalon 184).
+- **Composing two `DatePicker::range`s.** `range_dual(year, month, …)` builds the requested month
+  **and the next** (with a December → January year rollover), each a `DatePicker::range` sharing
+  the **same** `[start, end]` range, then places them in a `Flex::row`. No range logic duplicated:
+  the band **crosses** the boundary naturally because `range_mark` compares **full**
+  `(year, month, day)` dates (milestone 184).
 
-- **Désambiguïsation du mois cliqué.** En mode simple, `on_select` rend le **jour** (le mois est
-  celui affiché). En double, `on_select` rend la **date complète** `(année, mois, jour)` : chaque
-  mois enveloppe son `on_select(day)` interne en `on_select((son_année, son_mois, day))`. Le
-  rappel partagé (`on_select`, `on_nav`) est mis en `Rc` pour alimenter les deux mois ; `on_nav`
-  décale la **paire**.
+- **Disambiguating the clicked month.** In single mode, `on_select` yields the **day** (the month
+  being the displayed one). In dual mode, `on_select` yields the **full date**
+  `(year, month, day)`: each month wraps its internal `on_select(day)` into
+  `on_select((its_year, its_month, day))`. The shared callback (`on_select`, `on_nav`) is put in an
+  `Rc` to feed both months; `on_nav` shifts the **pair**.
 
-- **Un drapeau `dual` pour la largeur.** `DatePicker` gagne un champ `dual` : `style()` renvoie
-  `2 × largeur_mois + écart` en double, la largeur d'un mois sinon. Le reste (grille, cases,
-  peinture) est **inchangé** — le mode double n'est qu'un agencement de deux calendriers simples.
+- **A `dual` flag for the width.** `DatePicker` gains a `dual` field: `style()` returns
+  `2 × month_width + gap` in dual mode, one month's width otherwise. The rest (grid, cells,
+  painting) is **unchanged** — dual mode is just an arrangement of two single calendars.
 
-## Implémentation
+## Implementation
 
-- `datepicker.rs` : `DatePicker::range_dual` (mois + suivant, `Rc` partagé, `Flex::row`) ; champ
-  `dual` (+ largeur dans `style`) ; `assemble` initialise `dual: false`.
-- `goldens.rs` : `date_range_dual` (juillet + août 2026, plage 28/07 → 03/08).
+- `datepicker.rs`: `DatePicker::range_dual` (the month + the next, a shared `Rc`, a `Flex::row`);
+  the `dual` field (+ the width in `style`); `assemble` initialises `dual: false`.
+- `goldens.rs`: `date_range_dual` (July + August 2026, the range 28/07 → 03/08).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `range_dual_shows_two_consecutive_months` — un seul enfant (la rangée), deux
-  calendriers ; bascule décembre 2026 → janvier 2027 ; cliquer le 3 janvier du mois de droite
-  rapporte `(2027, 1, 3)` (date complète, à l'index attendu). Tests des jalons 184 **verts**.
-- **Golden** `date_range_dual` **inspecté** : juillet (28 début + 29–31 en bande), août (1–2 en
-  bande, 3 fin) — la plage se poursuit à travers la frontière de mois.
-- `cargo test -p frus-widgets datepicker::` **vert**.
+- **Unit**: `range_dual_shows_two_consecutive_months` — a single child (the row), two calendars; a
+  December 2026 → January 2027 rollover; clicking 3 January in the right-hand month reports
+  `(2027, 1, 3)` (the full date, at the expected index). Milestone 184's tests **green**.
+- **Golden** `date_range_dual` **inspected**: July (the 28th as the start + 29–31 banded), August
+  (1–2 banded, the 3rd as the end) — the range continues across the month boundary.
+- `cargo test -p frus-widgets datepicker::` **green**.
 
-## Reste
+## What's left
 
-- **Navigation partagée** : chaque mois porte ses propres flèches ‹ › (quatre au total) ; une
-  barre de navigation unique au-dessus de la paire serait plus sobre (extension d'agencement).
-- **Aperçu au survol** (bande provisoire jusqu'au jour survolé pendant la saisie) — l'état de
-  survol existe déjà, à câbler applicativement.
+- **Shared navigation**: each month carries its own ‹ › arrows (four in total); a single
+  navigation bar above the pair would be tidier (a layout extension).
+- **A hover preview** (a provisional band up to the hovered day during entry) — the hover state
+  already exists, to be wired app-side.

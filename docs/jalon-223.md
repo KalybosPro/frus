@@ -1,52 +1,52 @@
-# Jalon 223 — Point/barre épinglé mis en évidence (halo + anneau persistants)
+# Jalon 223 — Pinned point/bar highlighted (persistent halo + ring)
 
-## Analyse
+## Analysis
 
-Les jalons 221/222 rendent points et barres **cliquables** et épinglent le détail dans un `Chip`.
-Mais rien, dans le graphique, ne montrait **quel** élément était la source de l'épingle : l'accent au
-survol (jalon 211/217) disparaît dès que le pointeur quitte la zone. Il manquait une mise en évidence
-**persistante** de la sélection courante.
+Milestones 221/222 make points and bars **clickable** and pin the detail in a `Chip`. But nothing in
+the chart showed **which** element the pin came from: the hover accent (milestones 211/217) vanishes
+as soon as the pointer leaves the area. A **persistent** highlight of the current selection was
+missing.
 
-## Décisions techniques
+## Technical decisions
 
-- **`.selected(Option<(catégorie, série)>)` sur les deux graphiques.** Signature en `Option` pour
-  brancher directement l'état de l'app (`Option<(usize, usize)>`). `None` = rien mis en évidence.
-  Champ purement additif : par défaut `None`, le paint est **inchangé** (goldens saufs).
+- **`.selected(Option<(category, series)>)` on both charts.** An `Option` signature so the app's state
+  (`Option<(usize, usize)>`) plugs straight in. `None` = nothing highlighted. A purely additive field:
+  `None` by default, the paint **unchanged** (the goldens safe).
 
-- **`LineChart` : halo + anneau sur le marqueur.** Après le tracé des séries (donc au-dessus), si un
-  point est sélectionné — hors mode empilé, hors série masquée —, on pose un halo translucide
-  (`MARKER_R + 6`, `α·0.22`) puis un anneau plein (`MARKER_R + 3`, 2 px) dans la couleur de la série.
-  Indépendant du survol : la mise en évidence reste tant que la sélection tient.
+- **`LineChart`: a halo + a ring on the marker.** After plotting the series (so on top), if a point is
+  selected — outside stacked mode, outside a hidden series — we lay down a translucent halo
+  (`MARKER_R + 6`, `α·0.22`) then a solid ring (`MARKER_R + 3`, 2 px) in the series' colour.
+  Independent of hover: the highlight stays as long as the selection holds.
 
-- **`BarChart` : anneau contrasté autour de la barre.** Le rectangle de la barre/strate sélectionnée
-  est **capturé** pendant la boucle de paint (même géométrie que le tracé), puis un anneau dilaté de
-  2,5 px, à bordure 2 px en `on_surface` (couleur contrastée, lisible sur toute barre colorée), est
-  tracé après coup. Fonctionne en groupé **et** en empilé.
+- **`BarChart`: a contrasting ring around the bar.** The selected bar/stratum's rectangle is
+  **captured** during the paint loop (the same geometry as the plot), then a ring dilated by 2.5 px,
+  with a 2 px `on_surface` border (a contrasting colour, readable over any coloured bar), is drawn
+  afterwards. It works both grouped **and** stacked.
 
-- **L'app retient la sélection.** `Msg::ChartPoint(cat, série)` pose désormais aussi
-  `chart_sel = Some((cat, série))` ; `dashboard_chart` passe `.selected(app.chart_sel)` au graphique
-  **principal** (lignes ou barres). Cliquer un point/barre l'entoure aussitôt.
+- **The app retains the selection.** `Msg::ChartPoint(cat, series)` now also sets
+  `chart_sel = Some((cat, series))`; `dashboard_chart` passes `.selected(app.chart_sel)` to the
+  **main** chart (lines or bars). Clicking a point/bar rings it immediately.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : champ `selected` + builder `.selected` sur `BarChart` et `LineChart` ;
-  `BarChart::paint` capture `sel_rect` et trace l'anneau ; `LineChart::paint` trace halo + anneau sur
-  le marqueur sélectionné.
-- `frus-demo/src/lib.rs` : état `chart_sel` ; `reduce(ChartPoint)` le renseigne ; les deux branches de
-  `dashboard_chart` câblent `.selected(app.chart_sel)`.
+- `frus-widgets/src/chart.rs`: the `selected` field + the `.selected` builder on `BarChart` and
+  `LineChart`; `BarChart::paint` captures `sel_rect` and draws the ring; `LineChart::paint` draws the
+  halo + ring on the selected marker.
+- `frus-demo/src/lib.rs`: the `chart_sel` state; `reduce(ChartPoint)` fills it; both branches of
+  `dashboard_chart` wire `.selected(app.chart_sel)`.
 
-## Vérification
+## Verification
 
-- **Widget** `selected_bar_draws_a_persistent_ring` : la barre épinglée ajoute un rectangle à bordure
-  (0 sans sélection, 1 avec) ; une série masquée épinglée n'en ajoute pas.
-- **Widget** `selected_point_draws_a_persistent_ring` : le point épinglé ajoute un cercle **contour**
-  (0 sans sélection, 1 avec) ; série masquée épinglée : aucun.
-- **Démo** `clicking_a_point_marks_it_selected` : `ChartPoint(3, 0)` → `chart_sel = Some((3, 0))`,
-  suit le dernier clic.
-- **Goldens** `line_chart_selected` + `bar_chart_selected` (61 au total) : halo/anneau visibles.
-- Widgets 355, démo 30, shell 25 ; suite verte.
+- **Widget** `selected_bar_draws_a_persistent_ring`: the pinned bar adds a bordered rectangle (0
+  without a selection, 1 with); a pinned hidden series adds none.
+- **Widget** `selected_point_draws_a_persistent_ring`: the pinned point adds a **stroked** circle (0
+  without a selection, 1 with); a pinned hidden series: none.
+- **Demo** `clicking_a_point_marks_it_selected`: `ChartPoint(3, 0)` → `chart_sel = Some((3, 0))`,
+  following the last click.
+- **Goldens** `line_chart_selected` + `bar_chart_selected` (61 in total): the halo/ring visible.
+- Widgets 355, demo 30, shell 25; the suite green.
 
-## Reste
+## What's left
 
-- Normaliser l'empilage en **100 %** (proportions plutôt que valeurs absolues).
-- Un **désépinglage** (re-clic sur l'élément sélectionné pour effacer `chart_sel`/`chart_pin`).
+- Normalising stacking to **100%** (proportions rather than absolute values).
+- **Unpinning** (a re-click on the selected element to clear `chart_sel`/`chart_pin`).

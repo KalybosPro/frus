@@ -1,46 +1,46 @@
-# Jalon 217 — Charts : halo pulsant animé au survol
+# Jalon 217 — Charts: animated pulsing halo on hover
 
-## Analyse
+## Analysis
 
-Le survol met déjà en avant le point visé (jalon 211) via un marqueur accentué **statique**. Un
-retour **animé** (halo qui pulse) attire mieux l'œil. C'est le premier usage d'animation **continue**
-dans le domaine graphes — la brique `continuous()` + `Status::time` (celle du `Spinner`).
+Hovering already highlights the targeted point (milestone 211) through a **static** accented marker.
+**Animated** feedback (a pulsing halo) catches the eye better. It is the first use of a **continuous**
+animation in the charts domain — the `continuous()` + `Status::time` brick (the `Spinner`'s).
 
-## Décisions techniques
+## Technical decisions
 
-- **Opt-in via `.animated(bool)`.** Désactivé par défaut. Quand actif, `continuous()` renvoie `true`
-  (repaint continu) et le point survolé émet un **halo** : un cercle qui grandit (`PULSE_GROW`) et
-  s'estompe sur un cycle (`PULSE_SPEED`), dérivé de `Status::time`. Le halo est peint **sous** le
-  marqueur plein.
+- **Opt-in through `.animated(bool)`.** Off by default. When on, `continuous()` returns `true`
+  (continuous repaint) and the hovered point emits a **halo**: a circle that grows (`PULSE_GROW`) and
+  fades over a cycle (`PULSE_SPEED`), derived from `Status::time`. The halo is painted **under** the
+  solid marker.
 
-- **Réutilise l'infra existante.** Aucune nouvelle plomberie runtime : `continuous()` pilote déjà le
-  repaint continu (prouvé par `Spinner`), `Status::time` fournit le temps écoulé. Le halo ne s'affiche
-  qu'au survol (dans le bloc infobulle) et hors mode empilé (où la hauteur individuelle n'a pas de
-  sens).
+- **Reuses the existing infrastructure.** No new runtime plumbing: `continuous()` already drives
+  continuous repainting (proven by `Spinner`), `Status::time` supplies the elapsed time. The halo only
+  shows on hover (inside the tooltip block) and outside stacked mode (where an individual height is
+  meaningless).
 
-- **Coût maîtrisé.** Le repaint continu n'est demandé **que** si `.animated` est posé — un graphique
-  fixe reste à coût nul.
+- **A controlled cost.** Continuous repainting is requested **only** if `.animated` is set — a static
+  chart stays free.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : champ `animated` + `.animated(bool)` sur `LineChart` ;
-  `continuous()` renvoie `animated` ; halo pulsant dans le bloc infobulle ; constantes
-  `PULSE_SPEED` / `PULSE_GROW`.
+- `frus-widgets/src/chart.rs`: the `animated` field + `.animated(bool)` on `LineChart`;
+  `continuous()` returns `animated`; the pulsing halo in the tooltip block; the `PULSE_SPEED` /
+  `PULSE_GROW` constants.
 
-## Vérification
+## Verification
 
-- `animated_pulse_adds_a_halo_and_requests_continuous_repaint` : `continuous()` suit `animated` ; au
-  survol, le graphique animé dessine **un cercle de plus** (le halo) que le graphique fixe.
-  (Animation continue au survol : non *goldenable* via `render_widget` ; couverte par ce test.)
+- `animated_pulse_adds_a_halo_and_requests_continuous_repaint`: `continuous()` follows `animated`; on
+  hover, the animated chart draws **one circle more** (the halo) than the static one. (A continuous
+  animation on hover: not *goldenable* through `render_widget`; covered by this test.)
 
-## Note d'exécution
+## A note on running it
 
-Le binaire de test fraîchement compilé a été **bloqué par Smart App Control** (os error 4551) au
-lancement natif — le gotcha connu de cette machine. Tests exécutés via **WSL** (ELF Linux, hors SAC),
-la logique du chart étant pure (pas de GPU requis).
+The freshly compiled test binary was **blocked by Smart App Control** (os error 4551) when launched
+natively — this machine's known gotcha. The tests were run through **WSL** (a Linux ELF, outside
+SAC), the chart's logic being pure (no GPU required).
 
-## Reste
+## What's left
 
-- **Pulse sur la BarChart** (contour de la barre survolée) et surtout le **pulse « à l'arrivée » sur
-  une cellule de grille** (jalon 214) : un one-shot déclenché par le focus, qui demande une primitive
-  d'animation transitoire au runtime (non encore disponible) plutôt qu'un `continuous()` permanent.
+- A **pulse on BarChart** (the hovered bar's outline) and above all the **"on arrival" pulse on a
+  grid cell** (milestone 214): a one-shot triggered by the focus, which requires a transient
+  animation primitive in the runtime (not yet available) rather than a permanent `continuous()`.

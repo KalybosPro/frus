@@ -1,44 +1,44 @@
-# Jalon 202 — Icône œil + révélation du mot de passe dans le champ
+# Jalon 202 — Eye icon + password reveal inside the field
 
-## Analyse
+## Analysis
 
-Le jalon 198 a rendu l'icône **suffixe** d'un `TextInput` cliquable (`on_suffix`), et notait qu'il
-manquait une **icône œil** (contour) pour révéler un mot de passe *dans* le champ — le geste
-attendu partout. L'assistant d'inscription révélait bien les mots de passe, mais via un bouton
-« Show / Hide password » **à côté** des champs. On rapatrie l'action dans le champ, avec l'icône
-idoine.
+Milestone 198 made a `TextInput`'s **suffix** icon clickable (`on_suffix`), and noted that an
+(outline) **eye icon** was missing to reveal a password *inside* the field — the gesture expected
+everywhere. The sign-up wizard did reveal passwords, but through a "Show / Hide password" button
+**next to** the fields. We bring the action back into the field, with the proper icon.
 
-## Décisions techniques
+## Technical decisions
 
-- **Deux icônes, `Eye` et `EyeOff`** (façon Material `visibility` / `visibility_off`). Le jeu
-  d'icônes est **rempli** (règle non-zero) ; un œil, lui, est un **anneau** creux avec une pupille.
-  On l'obtient sans changer le moteur : contour externe (amande) + contour interne **parcouru à
-  l'envers** (winding opposé → l'ouverture s'annule à 0 = transparent) + pupille pleine (winding non
-  nul au centre). L'ouverture est ainsi garantie **quel que soit** le sens absolu de tracé.
-  `EyeOff` ajoute une barre diagonale (masqué).
+- **Two icons, `Eye` and `EyeOff`** (the usual visibility / visibility-off pair). The icon set is
+  **filled** (the non-zero rule); an eye, though, is a hollow **ring** with a pupil. We get it
+  without changing the engine: an outer contour (the almond) + an inner contour **traced in
+  reverse** (the opposite winding → the opening cancels to 0 = transparent) + a solid pupil (a
+  non-zero winding at the centre). The opening is therefore guaranteed **whatever** the absolute
+  drawing direction. `EyeOff` adds a diagonal bar (hidden).
 
-- **Révélation dans le champ.** `wizard_input` prend un paramètre `eye: Option<bool>` : `Some(révélé)`
-  pose l'icône suffixe (`EyeOff` si révélé, sinon `Eye`) et `on_suffix(WizardToggleReveal)`. Les deux
-  champs mot de passe de l'assistant l'utilisent ; le bouton externe « Show / Hide » disparaît. Le
-  masquage (`obscure`) reste piloté par `wizard_reveal`, l'icône ne fait que **basculer** cet état.
+- **Revealing inside the field.** `wizard_input` takes an `eye: Option<bool>` parameter:
+  `Some(revealed)` places the suffix icon (`EyeOff` if revealed, otherwise `Eye`) and
+  `on_suffix(WizardToggleReveal)`. Both of the wizard's password fields use it; the external "Show /
+  Hide" button goes away. Masking (`obscure`) is still driven by `wizard_reveal`, the icon only
+  **toggles** that state.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/icons.rs` : variantes `IconName::{Eye, EyeOff}` + `eye(off)` (anneau opposé +
-  pupille, barre optionnelle) ; helper `push_verb` pour recopier le cercle de la pupille.
-- `frus-demo/src/lib.rs` : `wizard_input` gagne `eye: Option<bool>` (icône suffixe + `on_suffix`) ;
-  l'étape « Security » passe `Some(app.wizard_reveal)` aux deux champs et perd le bouton externe.
-- `frus-test/tests/goldens.rs` : golden `password_eye` (champ masqué + œil suffixe).
+- `frus-widgets/src/icons.rs`: the `IconName::{Eye, EyeOff}` variants + `eye(off)` (the opposite
+  ring + the pupil, an optional bar); the `push_verb` helper to copy the pupil's circle.
+- `frus-demo/src/lib.rs`: `wizard_input` gains `eye: Option<bool>` (the suffix icon + `on_suffix`);
+  the "Security" step passes `Some(app.wizard_reveal)` to both fields and loses the external button.
+- `frus-test/tests/goldens.rs`: the `password_eye` golden (a masked field + the suffix eye).
 
-## Vérification
+## Verification
 
-- **Unitaire** (`eye_is_a_ring_with_a_pupil_and_off_adds_a_slash`) : `Eye` = 3 sous-chemins fermés
-  (deux amandes + pupille) ; `EyeOff` = 4 (avec la diagonale) ; les deux figurent dans le test
-  « toute icône produit un chemin non vide ».
-- **Golden** `password_eye` : champ « Password » masqué (points) avec l'icône œil à droite.
-- **Manuel** : à l'étape Security, l'œil dans le champ révèle / masque les deux mots de passe.
+- **Unit** (`eye_is_a_ring_with_a_pupil_and_off_adds_a_slash`): `Eye` = 3 closed subpaths (two
+  almonds + the pupil); `EyeOff` = 4 (with the diagonal); both appear in the "every icon produces a
+  non-empty path" test.
+- **Golden** `password_eye`: a masked "Password" field (dots) with the eye icon on the right.
+- **Manual**: on the Security step, the eye in the field reveals / masks both passwords.
 
-## Reste
+## What's left
 
-- **Survol du suffixe** (curseur main, surbrillance de l'œil) ; icône œil dans les champs mot de
-  passe hors assistant (connexion, réglages).
+- **Hovering the suffix** (a hand cursor, highlighting the eye); an eye icon in password fields
+  outside the wizard (sign-in, settings).

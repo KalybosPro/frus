@@ -1,44 +1,44 @@
-# Jalon 237 — Démo : écran Tableau de données (DataTable câblé)
+# Jalon 237 — Demo: Data table screen (DataTable wired in)
 
-## Analyse
+## Analysis
 
-`DataTable` (jalons 232/233/236) était testé isolément mais absent de l'application. Ce jalon
-l'**ancre dans la démo** : un nouvel écran en lecture seule qui trie et pagine un vrai jeu de
-données, câblé à l'état — la preuve d'ergonomie de bout en bout.
+`DataTable` (milestones 232/233/236) was tested in isolation but absent from the application. This
+milestone **anchors it in the demo**: a new read-only screen that sorts and paginates a real data
+set, wired to the state — end-to-end proof of ergonomics.
 
-Contraste voulu avec la **grille éditable** (route `Grid`) : celle-ci trie côté reducer
-(`app.grid.sort_by`) parce que ses cellules sont des `TextInput` liés à l'index de ligne. Le
-`DataTable`, lui, est en lecture seule et **trie son affichage lui-même** — l'app ne recopie aucun
-tri.
+A deliberate contrast with the **editable grid** (the `Grid` route): that one sorts reducer-side
+(`app.grid.sort_by`) because its cells are `TextInput`s bound to the row index. `DataTable`, being
+read-only, **sorts its own display** — the app copies no sorting at all.
 
-## Décisions techniques
+## Technical decisions
 
-- **Nouvelle route `Data`** (index 6) : ajoutée à l'`enum`, au dispatch `screen`, à
-  `save_state`/`restore_state` (live-reload) et au tiroir (« Data table → »).
+- **A new `Data` route** (index 6): added to the `enum`, to the `screen` dispatch, to
+  `save_state`/`restore_state` (live reload) and to the drawer ("Data table →").
 
-- **État minimal : `(data_sort, data_page, data_page_size)`.** Le reducer ne fait que basculer le
-  sens de tri, changer de page, changer de taille — **jamais** réordonner les données. `DataSort` et
-  `DataPageSize` ramènent à la page 1. Les `0` (défauts dérivés) sont coercés en valeurs de départ
-  (page 1, taille 5) dans l'écran.
+- **Minimal state: `(data_sort, data_page, data_page_size)`.** The reducer only flips the sort
+  direction, changes page, changes size — it **never** reorders the data. `DataSort` and
+  `DataPageSize` return to page 1. The `0`s (derived defaults) are coerced to starting values (page 1,
+  size 5) in the screen.
 
-- **`data_screen`.** `DataTable::new(headers, rows).on_sort(DataSort).paginated(page, per, DataPage)
-  .page_sizes([5,10], DataPageSize)`, plus `.sorted(col, asc)` si un tri est actif. Jeu de 12 lignes
-  (nom, rôle, score) → pagination réelle.
+- **`data_screen`.**
+  `DataTable::new(headers, rows).on_sort(DataSort).paginated(page, per, DataPage).page_sizes([5,10], DataPageSize)`,
+  plus `.sorted(col, asc)` if a sort is active. A set of 12 rows (name, role, score) → real
+  pagination.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `Route::Data` + plomberie ; champs d'état + `Msg::{DataSort, DataPage,
-  DataPageSize}` + arms de reduce ; `DATA_PEOPLE` + `data_screen` ; entrée de tiroir ; import
-  `DataTable`.
+- `frus-demo/src/lib.rs`: `Route::Data` + the plumbing; the state fields +
+  `Msg::{DataSort, DataPage, DataPageSize}` + the reduce arms; `DATA_PEOPLE` + `data_screen`; the
+  drawer entry; the `DataTable` import.
 
-## Vérification
+## Verification
 
-- **Démo** `data_table_screen_sorts_and_paginates_without_touching_data` : l'écran se rend ; premier
-  clic d'en-tête = croissant, re-clic = décroissant, le tri ramène à la page 1 ; changer la taille
-  ramène à la page 1. Les données source ne sont jamais réordonnées (le widget trie l'affichage).
-- Démo 33 ; widgets/goldens inchangés.
+- **Demo** `data_table_screen_sorts_and_paginates_without_touching_data`: the screen renders; a first
+  header click = ascending, a re-click = descending, sorting returns to page 1; changing the size
+  returns to page 1. The source data is never reordered (the widget sorts the display).
+- Demo 33; the widgets/goldens unchanged.
 
-## Reste
+## What's left
 
-- Wirer un `DatePicker` **filtré/borné** dans la démo (jalon 238).
-- Un état « ligne sélectionnée » (`on_select_row`) sur l'écran data.
+- Wiring a **filtered/bounded** `DatePicker` into the demo (milestone 238).
+- A "selected row" state (`on_select_row`) on the data screen.

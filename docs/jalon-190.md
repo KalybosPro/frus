@@ -1,61 +1,61 @@
-# Jalon 190 — Assistant d'inscription intégré (démo bout en bout)
+# Jalon 190 — Integrated sign-up wizard (end-to-end demo)
 
-## Analyse
+## Analysis
 
-Beaucoup de briques récentes n'existaient que « en vitrine » (goldens isolés) : indicateur
-`Steps` cliquable (182/183), formulaire `Form` + récapitulatif d'erreurs cliquable `ErrorSummary`
-(180/181), notification `Toast`/`SnackbarQueue`/`ToastHost` (185/188). Il fallait **prouver
-qu'elles s'assemblent en une app réelle** — pas juste côte à côte dans un test, mais reliées à un
-état, une navigation et des messages. C'est le rôle de cette intégration dans `frus-demo`.
+Many recent bricks existed only "in the showcase" (isolated goldens): the clickable `Steps`
+indicator (182/183), the `Form` + the clickable `ErrorSummary` (180/181), the
+`Toast`/`SnackbarQueue`/`ToastHost` notifications (185/188). We had to **prove they assemble into
+a real app** — not just side by side in a test, but tied to a state, a navigation and messages.
+That is the role of this integration in `frus-demo`.
 
-## Décisions techniques
+## Technical decisions
 
-- **Un assistant multi-étapes comme nouvelle route.** `Route::Wizard` s'ajoute à la pile
-  d'écrans (accessible depuis le tiroir). L'état tient dans quelques champs de `TodoApp`
-  (`wizard_step`, quatre valeurs, `wizard_submitted`) — `#[derive(Default)]` couvre l'init, aucun
-  site de construction à toucher.
+- **A multi-step wizard as a new route.** `Route::Wizard` joins the screen stack (reachable from
+  the drawer). The state lives in a few `TodoApp` fields (`wizard_step`, four values,
+  `wizard_submitted`) — `#[derive(Default)]` covers initialisation, no construction site to touch.
 
-- **Chaque brique à sa place, reliée par des messages.**
-  - `Steps(["Account","Security","Review"]).current(step).on_tap(Msg::WizardStep)` : l'indicateur
-    **pilote** la navigation (marqueur cliqué → saut d'étape, jalon 183).
-  - `Form` (pur) est **reconstruit à la volée** depuis l'état à chaque rendu **et** à la
-    soumission — mêmes règles, une seule source de vérité (`wizard_form`). La validation croisée
-    `matches` relie `confirm` à `password`.
-  - Les erreurs des champs ne s'affichent **qu'après** une première soumission (`wizard_submitted`)
-    — l'état « soumis vs en cours d'édition » évoqué au jalon 181, ici concret.
-  - Sur l'étape Review, `ErrorSummary::links` transforme chaque erreur en **puce cliquable** qui
-    saute à l'étape du champ fautif (`wizard_step_of` → `Msg::WizardStep`), reliant 181 et 183.
-  - À la soumission valide, une **notification** de succès s'affiche via `ToastHost`
-    (bas-centre, fondu d'entrée, jalon 188) et l'assistant se réinitialise.
+- **Each brick in its place, linked by messages.**
+  - `Steps(["Account","Security","Review"]).current(step).on_tap(Msg::WizardStep)`: the indicator
+    **drives** the navigation (a clicked marker → a step jump, milestone 183).
+  - `Form` (pure) is **rebuilt on the fly** from the state at each render **and** on submission —
+    the same rules, a single source of truth (`wizard_form`). The `matches` cross-field validation
+    ties `confirm` to `password`.
+  - Field errors only show **after** a first submission (`wizard_submitted`) — the "submitted vs
+    editing" state raised in milestone 181, made concrete here.
+  - On the Review step, `ErrorSummary::links` turns each error into a **clickable bullet** that
+    jumps to the faulty field's step (`wizard_step_of` → `Msg::WizardStep`), linking 181 and 183.
+  - On a valid submission, a success **notification** shows through `ToastHost` (bottom centre, a
+    fade-in, milestone 188) and the wizard resets.
 
-- **La logique de flux est pure et testée.** `reduce` gère `WizardStep/Input/Back/Next/Submit` ;
-  `Submit` bifurque sur `wizard_form(app).is_valid()` (notifier + reset, ou révéler les erreurs et
-  aller à Review). Aucun état caché : tout dérive des champs.
+- **The flow logic is pure and tested.** `reduce` handles
+  `WizardStep/Input/Back/Next/Submit`; `Submit` branches on `wizard_form(app).is_valid()` (notify +
+  reset, or reveal the errors and go to Review). No hidden state: everything derives from the
+  fields.
 
-- **Bonus vitrine.** Le toast existant du démo (« Saved ») passe lui aussi par `ToastHost`.
+- **A showcase bonus.** The demo's existing toast ("Saved") now goes through `ToastHost` too.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `Route::Wizard` (+ `save_state`/`restore_state`) ; 5 `Msg` ; champs
-  `wizard_*` ; arms `reduce` ; `wizard_form` / `wizard_step_of` / `wizard_input` / `wizard_screen` ;
-  entrée tiroir ; rendu du toast via `ToastHost`.
-- `goldens.rs` : `wizard_review_errors` (étape Review avec récapitulatif d'erreurs — l'assemblage
-  réel).
+- `frus-demo/src/lib.rs`: `Route::Wizard` (+ `save_state`/`restore_state`); 5 `Msg`s; the
+  `wizard_*` fields; the `reduce` arms; `wizard_form` / `wizard_step_of` / `wizard_input` /
+  `wizard_screen`; the drawer entry; the toast rendered through `ToastHost`.
+- `goldens.rs`: `wizard_review_errors` (the Review step with the error summary — the real
+  assembly).
 
-## Vérification
+## Verification
 
-- **Intégration** (`wizard_flow_validates_navigates_and_notifies`) : l'écran se rend ;
-  soumission vide → `submitted`, saut à Review, pas de toast ; remplissage valide → toast
-  « Account created » + assistant réinitialisé ; navigation par étapes bornée. Les 16 tests démo
-  existants restent **verts** (17 au total).
-- **Golden** `wizard_review_errors` **inspecté** : `Steps` (Review), « Please fix 2 errors »
-  cliquable, résumé, Back / Create account.
-- `cargo build -p frus-demo` **propre** (zéro warning).
+- **Integration** (`wizard_flow_validates_navigates_and_notifies`): the screen renders; an empty
+  submission → `submitted`, a jump to Review, no toast; a valid fill-in → an "Account created"
+  toast + the wizard reset; step navigation clamped. The 16 existing demo tests stay **green** (17
+  in total).
+- **Golden** `wizard_review_errors` **inspected**: `Steps` (Review), a clickable "Please fix 2
+  errors", the summary, Back / Create account.
+- `cargo build -p frus-demo` **clean** (zero warnings).
 
-## Reste
+## What's left
 
-- **Focus du champ fautif** (au-delà du saut d'étape) : câbler `Command::focus(key)` sur clic de
-  puce — nécessite des clés de focus stables sur les `TextInput`.
-- **Validation par étape** (bloquer « Next » tant que l'étape courante est invalide) — variante
-  d'ergonomie.
-- **Masquage du mot de passe** (`TextInput` obscurci) — fonctionnalité widget distincte.
+- **Focusing the faulty field** (beyond the step jump): wiring `Command::focus(key)` to a bullet
+  click — requires stable focus keys on the `TextInput`s.
+- **Per-step validation** (blocking "Next" while the current step is invalid) — an ergonomics
+  variant.
+- **Password masking** (an obscured `TextInput`) — a separate widget feature.

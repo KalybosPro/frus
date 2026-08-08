@@ -1,43 +1,46 @@
-# Jalon 233 — Pagination interne du DataTable
+# Jalon 233 — The DataTable's internal pagination
 
-## Analyse
+## Analysis
 
-Le `DataTable` (jalon 232) trie ses lignes mais les affiche **toutes**. Pour un vrai tableau de
-données, il faut les **paginer** : n'afficher qu'une tranche et offrir un sélecteur de page. Le
-`Pagination` existe déjà comme contrôle pur (numéros de page) ; ce jalon le **compose** avec le
-`DataTable`, qui découpe lui-même la tranche.
+`DataTable` (milestone 232) sorts its rows but shows them **all**. For a real data table, they must
+be **paginated**: show only a slice and offer a page selector. `Pagination` already exists as a pure
+control (page numbers); this milestone **composes** it with `DataTable`, which slices the page
+itself.
 
-## Décisions techniques
+## Technical decisions
 
-- **Helpers purs `page_count` / `page_rows`, publics.** `page_count(len, per)` = nombre de pages
-  (au moins 1) ; `page_rows(rows, current, per)` = la tranche de la page (1-indexée, ramenée dans
-  l'intervalle si elle déborde). Réutilisables hors widget, comme `sort_rows`.
+- **Pure `page_count` / `page_rows` helpers, public.** `page_count(len, per)` = the number of pages
+  (at least 1); `page_rows(rows, current, per)` = the page's slice (1-indexed, brought back into range
+  if it overflows). Reusable outside the widget, like `sort_rows`.
 
-- **`.paginated(current, per_page, on_page)`.** Découpe la tranche sur les lignes **déjà triées**
-  (tri d'abord, page ensuite) et pose un [`Pagination`](crate::Pagination) sous le tableau ; le
-  nombre de pages est calculé sur le **total** trié. `on_page(page)` remonte le clic — l'app garde la
-  page courante (modèle contrôlé).
+- **`.paginated(current, per_page, on_page)`.** Slices from the **already sorted** rows (sort first,
+  then page) and places a [`Pagination`](crate::Pagination) under the table; the page count is
+  computed on the sorted **total**. `on_page(page)` reports the click — the app holds the current page
+  (the controlled model).
 
-- **`inner` devient `Box<dyn Widget>`.** Pour coiffer le `Table` d'un `Pagination`, le rendu interne
-  passe d'un `Table` à un `Box<dyn Widget>` : soit le `Table` seul, soit une `Flex` colonne
-  `[table, pager]`. La délégation `Widget` (style/children/paint/on_click/stack) vise ce `Box`.
+- **`inner` becomes a `Box<dyn Widget>`.** To top the `Table` with a `Pagination`, the internal
+  rendering moves from a `Table` to a `Box<dyn Widget>`: either the `Table` alone, or a `Flex` column
+  `[table, pager]`. The `Widget` delegation (style/children/paint/on_click/stack) targets that `Box`.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : `page_count`, `page_rows` ; champs `page`/`on_page` ; builder
-  `paginated` ; `rebuild` découpe la page et compose `Table` + `Pagination` ; `inner: Box<dyn Widget>`.
-- `frus-widgets/src/lib.rs` : `page_count`, `page_rows` ajoutés au `pub use`.
+- `frus-widgets/src/datatable.rs`: `page_count`, `page_rows`; the `page`/`on_page` fields; the
+  `paginated` builder; `rebuild` slices the page and composes `Table` + `Pagination`;
+  `inner: Box<dyn Widget>`.
+- `frus-widgets/src/lib.rs`: `page_count`, `page_rows` added to the `pub use`.
 
-## Vérification
+## Verification
 
-- **Widget** `pagination_slices_rows_and_counts_pages` : 7 lignes / 3 = 3 pages ; page 1 = `[1,2,3]`,
-  page 3 = `[7]`, page hors bornes ramenée à la dernière.
-- **Widget** `data_table_with_pagination_builds_table_and_pager` : l'arbre a **2** enfants (table +
-  sélecteur).
-- **Golden** `data_table_paginated` : top 3 par Score décroissant (15, 12, 10) + sélecteur ‹ 1 2 3 ›.
-- Widgets 369 ; goldens 66.
+- **Widget** `pagination_slices_rows_and_counts_pages`: 7 rows / 3 = 3 pages; page 1 = `[1,2,3]`,
+  page 3 = `[7]`, an out-of-range page brought back to the last.
+- **Widget** `data_table_with_pagination_builds_table_and_pager`: the tree has **2** children (the
+  table + the selector).
+- **Golden** `data_table_paginated`: the top 3 by Score descending (15, 12, 10) + a ‹ 1 2 3 ›
+  selector.
+- Widgets 369; goldens 66.
 
-## Reste
+## What's left
 
-- Wirer `DataTable` (tri + pagination) dans la démo, en retirant le tri recopié du reducer de grille.
-- Sélecteur de **taille de page** ; libellé « N–M sur T ».
+- Wiring `DataTable` (sorting + pagination) into the demo, removing the copied sort from the grid's
+  reducer.
+- A **page size** selector; an "N–M of T" label.

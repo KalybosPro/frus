@@ -1,42 +1,42 @@
-# Jalon 204 — Grille : tri par en-tête + validation par cellule
+# Jalon 204 — Grid: header sorting + per-cell validation
 
-## Analyse
+## Analysis
 
-Le jalon 201 a fait de la grille un vrai tableur clavier (cellules toujours éditables, Tab/Entrée,
-ajout/suppression de lignes). Manquaient les deux gestes qu'attend tout tableur : **trier** en
-cliquant un en-tête, et **signaler** une saisie invalide. La `Table` sait déjà émettre `on_sort` et
-afficher une flèche de tri (`sorted`) ; il ne reste qu'à câbler la démo.
+Milestone 201 turned the grid into a real keyboard spreadsheet (always-editable cells, Tab/Enter,
+adding/removing rows). Two gestures every spreadsheet is expected to have were missing: **sorting**
+by clicking a header, and **flagging** invalid input. `Table` already knows how to emit `on_sort`
+and show a sort arrow (`sorted`); all that was left was wiring the demo.
 
-## Décisions techniques
+## Technical decisions
 
-- **Tri piloté par l'application.** `Table::on_sort(Msg::GridSort)` rend les en-têtes cliquables ;
-  `reduce` bascule croissant/décroissant sur la colonne cliquée et **trie les lignes** (comparaison
-  insensible à la casse). La flèche d'en-tête suit l'état via `.sorted(col, asc)`. La `Table` ne
-  trie jamais elle-même — elle n'émet que la colonne (jalon 199).
+- **Sorting driven by the application.** `Table::on_sort(Msg::GridSort)` makes the headers
+  clickable; `reduce` flips ascending/descending on the clicked column and **sorts the rows** (a
+  case-insensitive comparison). The header arrow follows the state through `.sorted(col, asc)`.
+  `Table` never sorts by itself — it only emits the column (milestone 199).
 
-- **Validation pure par cellule.** `grid_cell_error(col, value) -> Option<&str>` : `Name` (col 0)
-  obligatoire, `Email` (col 2) doit contenir `@` et `.` une fois saisi. La cellule invalide passe
-  par `TextInput::error(...)` (bordure + message, déjà au widget). Fonction pure, testable sans
-  rendu.
+- **Pure per-cell validation.** `grid_cell_error(col, value) -> Option<&str>`: `Name` (col 0) is
+  required, `Email` (col 2) must contain `@` and `.` once filled in. An invalid cell goes through
+  `TextInput::error(...)` (a border + a message, already in the widget). A pure function, testable
+  without rendering.
 
-- **Entrée sur la dernière ligne crée une ligne.** Prolonge le jalon 201 : `GridEnter` sur la
-  dernière ligne pousse une ligne vide et y descend le focus, au lieu de rester en place — la saisie
-  continue au clavier sans toucher la souris.
+- **Enter on the last row creates a row.** Extending milestone 201: `GridEnter` on the last row
+  pushes an empty row and moves the focus down into it, instead of staying put — typing continues
+  from the keyboard without touching the mouse.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `Msg::GridSort(usize)` ; champ `grid_sort: Option<(usize, bool)>` ;
-  arms `GridSort` (tri) et `GridEnter` (création en fin) ; `grid_cell_error` ; `grid_screen` câble
-  `on_sort` + `sorted` + `error` par cellule ; indice mis à jour.
+- `frus-demo/src/lib.rs`: `Msg::GridSort(usize)`; the `grid_sort: Option<(usize, bool)>` field; the
+  `GridSort` (sorting) and `GridEnter` (creation at the end) arms; `grid_cell_error`; `grid_screen`
+  wires `on_sort` + `sorted` + a per-cell `error`; the hint updated.
 
-## Vérification
+## Verification
 
-- `grid_edit_navigate_and_resize` : mis à jour — Entrée sur la dernière ligne **crée** une ligne.
-- `grid_sort_toggles_and_validates` : tri col 0 croissant puis décroissant (ordre vérifié) ;
-  `grid_cell_error` sur Name vide, email malformé, et les cas valides (email vide toléré).
+- `grid_edit_navigate_and_resize`: updated — Enter on the last row **creates** a row.
+- `grid_sort_toggles_and_validates`: sorting col 0 ascending then descending (the order checked);
+  `grid_cell_error` on an empty Name, a malformed email, and the valid cases (an empty email
+  tolerated).
 
-## Reste
+## What's left
 
-- Tri **numérique** pour les colonnes chiffrées (ici tout est texte), tri stable multi-colonnes,
-  validation croisée entre lignes (unicité d'email), et blocage de la soumission tant qu'une cellule
-  est en erreur.
+- **Numeric** sorting for numeric columns (everything is text here), stable multi-column sorting,
+  cross-row validation (email uniqueness), and blocking submission while a cell is in error.

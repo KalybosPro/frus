@@ -1,46 +1,46 @@
-# Jalon 209 — Charts : séries multiples + légende
+# Jalon 209 — Charts: multiple series + legend
 
-## Analyse
+## Analysis
 
-La `LineChart` ne traçait qu'une série. Comparer (ventes vs coûts, cette année vs l'an dernier)
-demande **plusieurs séries** partageant les mêmes catégories et la même échelle, plus une **légende**
-pour les distinguer. C'est la brique qui fait passer le graphe de démo à outil réel.
+`LineChart` only drew one series. Comparing (sales vs costs, this year vs last) calls for
+**several series** sharing the same categories and the same scale, plus a **legend** to tell them
+apart. It is the brick that takes the chart from a demo to a real tool.
 
-## Décisions techniques
+## Technical decisions
 
-- **Série principale + additionnelles, alignées par index.** `new(...)` fournit les catégories et la
-  première série ; `.series(name, color, values)` en ajoute d'autres (valeurs alignées par index).
-  `.name(...)` nomme la principale. Rétro-compatible : sans `.series`, le rendu est celui du jalon
-  200/206.
+- **A main series + additional ones, aligned by index.** `new(...)` supplies the categories and the
+  first series; `.series(name, color, values)` adds others (values aligned by index). `.name(...)`
+  names the main one. Backwards compatible: without `.series`, the rendering is milestone 200/206's.
 
-- **Couleur explicite par série additionnelle** (façon customisable Flutter) : pas de palette cachée
-  imposée — l'appelant fournit la couleur, la principale garde `color`/`theme.primary`.
+- **An explicit colour per additional series** (the customisable line): no hidden palette imposed —
+  the caller supplies the colour, the main one keeps `color`/`theme.primary`.
 
-- **Échelle et axe communs.** `max_value` englobe **toutes** les séries ; grille et graduations
-  (jalon 203) sont partagées, si bien que les courbes sont directement comparables.
+- **A shared scale and axis.** `max_value` spans **all** the series; the grid and ticks (milestone
+  203) are shared, so the curves are directly comparable.
 
-- **Moins de bruit en multi-séries.** Les libellés de valeur par point (jalon 200) et l'aire (jalon
-  206) ne s'affichent qu'en **série unique** ; en multi-séries, on s'appuie sur l'axe et la légende.
+- **Less noise with multiple series.** The per-point value labels (milestone 200) and the area
+  (milestone 206) only show with a **single series**; with several, we rely on the axis and the
+  legend.
 
-- **Légende.** `.legend(bool)` dessine une bande en haut (pastille de couleur + nom par série), et
-  réserve `LEGEND_H` au-dessus de la zone de tracé. Ne s'affiche que si activée **et** au moins une
-  série est nommée.
+- **The legend.** `.legend(bool)` draws a band at the top (a colour swatch + a name per series), and
+  reserves `LEGEND_H` above the plot area. It only shows if enabled **and** at least one series is
+  named.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : champs `name` / `extra` / `legend` sur `LineChart` ; builders
-  `.name` / `.series` / `.legend` ; `max_value` sur toutes les séries ; `has_legend` ; paint
-  restructuré (boucle par série + bande de légende) ; constantes `LEGEND_*`.
-- `frus-test/tests/goldens.rs` : golden `line_chart_multi` (2 séries + axe + légende).
+- `frus-widgets/src/chart.rs`: the `name` / `extra` / `legend` fields on `LineChart`; the `.name` /
+  `.series` / `.legend` builders; `max_value` across every series; `has_legend`; the paint
+  restructured (a loop per series + the legend band); the `LEGEND_*` constants.
+- `frus-test/tests/goldens.rs`: the `line_chart_multi` golden (2 series + the axis + the legend).
 
-## Vérification
+## Verification
 
-- **Unitaire** `multi_series_draws_each_line_and_a_legend` : deux polylignes, deux pastilles
-  `~10x10`, et les noms `Sales`/`Costs` en légende. `max_value_spans_all_series` : l'échelle prend
-  bien le max de la série additionnelle.
-- **Golden** `line_chart_multi` : deux courbes colorées, légende en haut, axe partagé.
+- **Unit** `multi_series_draws_each_line_and_a_legend`: two polylines, two `~10x10` swatches, and
+  the `Sales`/`Costs` names in the legend. `max_value_spans_all_series`: the scale does take the
+  additional series' maximum.
+- **Golden** `line_chart_multi`: two coloured curves, the legend at the top, a shared axis.
 
-## Reste
+## What's left
 
-- Séries **empilées** (aires cumulées), **BarChart** groupée/empilée multi-séries, et légende
-  cliquable pour masquer/afficher une série.
+- **Stacked** series (cumulative areas), a grouped/stacked multi-series **BarChart**, and a
+  clickable legend to hide/show a series.

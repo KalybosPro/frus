@@ -1,42 +1,41 @@
-# Jalon 211 — Charts : infobulle de sous-région au survol
+# Jalon 211 — Charts: sub-region tooltip on hover
 
-## Analyse
+## Analysis
 
-Le jalon 208 a plombé la position du pointeur (`Status::hover_cursor`) et le halo du suffixe. La même
-infrastructure permet le geste attendu d'un graphe : **survoler** pour lire la valeur exacte sous le
-pointeur. C'était l'objectif final annoncé — réutiliser `hover_cursor` pour une infobulle.
+Milestone 208 plumbed the pointer's position through (`Status::hover_cursor`) and the suffix halo.
+The same infrastructure enables the gesture a chart is expected to have: **hover** to read the exact
+value under the pointer. That was the stated end goal — reusing `hover_cursor` for a tooltip.
 
-## Décisions techniques
+## Technical decisions
 
-- **Réutilise `cursor_icon` (jalon 205) comme déclencheur.** `LineChart::cursor_icon` renvoie
-  `Some(Cursor::Default)` quand le pointeur est dans la **zone de tracé** — sans changer la forme du
-  curseur (un graphe n'est pas cliquable), mais en amenant le shell à poser `hover_cursor`. Hors
-  zone : `None`. Aucune machinerie nouvelle.
+- **Reuses `cursor_icon` (milestone 205) as the trigger.** `LineChart::cursor_icon` returns
+  `Some(Cursor::Default)` when the pointer is inside the **plot area** — without changing the cursor
+  shape (a chart is not clickable), but leading the shell to set `hover_cursor`. Outside the area:
+  `None`. No new machinery.
 
-- **Infobulle multi-séries.** Au survol, `paint` trouve la **catégorie la plus proche** en x, trace
-  un guide vertical, accentue le marqueur de chaque série à cette catégorie, et dessine une boîte
-  listant la catégorie puis, par série, sa pastille + sa valeur. En série unique, la ligne se réduit
-  à la valeur.
+- **A multi-series tooltip.** On hover, `paint` finds the **nearest category** in x, draws a vertical
+  guide, accents each series' marker at that category, and draws a box listing the category then,
+  per series, its swatch + its value. With a single series, the line reduces to the value.
 
-- **Boîte auto-placée.** Dimensionnée au plus long libellé, posée à droite du guide et repliée à
-  gauche si elle déborderait, ancrée en haut de la zone — jamais hors cadre.
+- **A self-placing box.** Sized to the longest label, placed to the right of the guide and folded
+  left if it would overflow, anchored at the top of the area — never out of frame.
 
-- **Sans coût au repos.** `hover_cursor` reste `None` tant que le pointeur n'est pas sur la zone de
-  tracé : pas de repaint, les goldens (rendus sans survol) sont inchangés.
+- **No cost at rest.** `hover_cursor` stays `None` while the pointer is off the plot area: no
+  repaint, the goldens (rendered without hover) unchanged.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : `LineChart::cursor_icon` (suivi sur la zone de tracé) ; bloc
-  infobulle en fin de `paint` (guide + marqueurs accentués + boîte) ; constante `TOOLTIP_SIZE`.
+- `frus-widgets/src/chart.rs`: `LineChart::cursor_icon` (tracking over the plot area); the tooltip
+  block at the end of `paint` (the guide + accented markers + the box); the `TOOLTIP_SIZE` constant.
 
-## Vérification
+## Verification
 
-- `hovering_the_plot_shows_a_tooltip_guide` : un guide vertical apparaît quand `hover_cursor` est
-  sur la zone, aucun sans survol ; `cursor_icon` répond `Some(Default)` dans la zone, `None`
-  au-dessus. (L'infobulle n'existant qu'au survol, elle n'est pas *goldenable* via `render_widget` ;
-  couverte par ce test unitaire.)
+- `hovering_the_plot_shows_a_tooltip_guide`: a vertical guide appears when `hover_cursor` is over
+  the area, none without hover; `cursor_icon` answers `Some(Default)` inside the area, `None` above
+  it. (Since the tooltip only exists on hover, it is not *goldenable* through `render_widget`;
+  covered by this unit test.)
 
-## Reste
+## What's left
 
-- Même infobulle pour la **BarChart** (barre sous le pointeur), suivre le point le plus proche en
-  distance 2D (pas seulement en x), et une **transition** d'apparition/disparition du survol.
+- The same tooltip for **BarChart** (the bar under the pointer), tracking the nearest point in 2D
+  distance (not just in x), and an appearance/disappearance **transition** on hover.

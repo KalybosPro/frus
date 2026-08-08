@@ -1,51 +1,51 @@
-# Jalon 183 — Indicateur `Steps` : marqueurs cliquables
+# Jalon 183 — `Steps` indicator: clickable markers
 
-## Analyse
+## Analysis
 
-`Steps` (jalon 182) affichait la progression d'un assistant mais restait **passif** : on ne
-pouvait pas cliquer un marqueur pour **revenir** à une étape déjà visitée (revoir/corriger). Le
-`Stepper` de Material rend ses en-têtes d'étape cliquables (`onStepTapped`) — c'était le manque.
+`Steps` (milestone 182) showed a wizard's progress but stayed **passive**: you could not click a
+marker to **go back** to an already-visited step (to review/correct). Material's stepper makes its
+step headers tappable — that was the gap.
 
-## Décisions techniques
+## Technical decisions
 
-- **Superposition de zones cliquables, rendu intact.** `Steps` s'auto-peint (connecteurs,
-  marqueurs, libellés) sans enfants — je ne voulais pas casser ce rendu au pixel. `on_tap` ajoute
-  **une** rangée de « hotspots » **transparents** (un par étape, taille d'un marqueur) posée par
-  dessus : elle ne dessine rien mais capte clic et focus clavier. Le golden `form_wizard` reste
-  donc **identique** (vérifié sans régénération).
+- **An overlay of click zones, the rendering untouched.** `Steps` paints itself (connectors,
+  markers, labels) with no children — and I did not want to break that pixel rendering. `on_tap`
+  adds **one** row of **transparent** hotspots (one per step, the size of a marker) laid over it:
+  it draws nothing but catches clicks and keyboard focus. So the `form_wizard` golden stays
+  **identical** (verified without regenerating).
 
-- **Alignement exact par `SpaceBetween`.** Les hotspots sont une `Flex::row().justify(SpaceBetween)`
-  de boîtes de diamètre `MARKER_D`. Sur toute la largeur, `SpaceBetween` place le centre de la
-  boîte `i` en `R + i·(W − 2R)/(n − 1)` — **exactement** la formule `center_x` des marqueurs
-  peints. Les zones cliquables coïncident donc pile avec les ronds, sans coordonnées codées en
-  dur ni second calcul à maintenir.
+- **Exact alignment through `SpaceBetween`.** The hotspots are a
+  `Flex::row().justify(SpaceBetween)` of boxes of diameter `MARKER_D`. Across the full width,
+  `SpaceBetween` puts box `i`'s centre at `R + i·(W − 2R)/(n − 1)` — **exactly** the painted
+  markers' `center_x` formula. The click zones therefore coincide precisely with the discs, with
+  no hardcoded coordinates and no second calculation to maintain.
 
-- **`Steps` devient générique.** Porter un `on_tap(|usize| Msg)` impose un `Steps<Msg>` (au lieu
-  du `impl<Msg> Widget for Steps` non générique du jalon 182). Chaque hotspot est un widget privé
-  `Hotspot { label, message }` : `on_click` émet l'index, `focusable`, sémantique `Role::Button`
-  (le libellé de l'étape). Sans `on_tap`, `children` est **vide** → aucun surcoût, comportement
-  du jalon 182 conservé.
+- **`Steps` becomes generic.** Carrying an `on_tap(|usize| Msg)` forces a `Steps<Msg>` (instead of
+  milestone 182's non-generic `impl<Msg> Widget for Steps`). Each hotspot is a private
+  `Hotspot { label, message }` widget: `on_click` emits the index, `focusable`, `Role::Button`
+  semantics (the step's label). Without `on_tap`, `children` is **empty** → no overhead,
+  milestone 182's behaviour preserved.
 
-## Implémentation
+## Implementation
 
-- `steps.rs` : `Steps<Msg>` (+ champ `children`), builder `on_tap` (construit la rangée de
-  hotspots), `center_x` déplacé dans un `impl<Msg>` sans borne `'static` (appelé depuis `paint`),
-  widget privé `Hotspot`.
-- Rendu (`paint`) et `center_x` inchangés : la géométrie est partagée entre marqueurs peints et
-  hotspots.
+- `steps.rs`: `Steps<Msg>` (+ a `children` field), the `on_tap` builder (which builds the hotspot
+  row), `center_x` moved into an `impl<Msg>` with no `'static` bound (called from `paint`), the
+  private `Hotspot` widget.
+- The rendering (`paint`) and `center_x` unchanged: the geometry is shared between the painted
+  markers and the hotspots.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `on_tap_overlays_clickable_hotspots` — sans `on_tap`, aucun enfant ; avec, une
-  rangée de trois hotspots dont chacun émet `Msg::Go(i)` et est focalisable. Tests du jalon 182
-  (`current_is_clamped_to_last`, `markers_reflect_progress`) **verts**.
-- **Golden** `form_wizard` **inchangé** (test repassé sans `FRUS_UPDATE_GOLDENS`) : la
-  superposition n'altère pas le rendu.
-- Doctest `Steps` (annoté `Steps<()>`) **vert**.
+- **Unit**: `on_tap_overlays_clickable_hotspots` — with no `on_tap`, no children; with it, a row
+  of three hotspots each emitting `Msg::Go(i)` and focusable. Milestone 182's tests
+  (`current_is_clamped_to_last`, `markers_reflect_progress`) **green**.
+- **Golden** `form_wizard` **unchanged** (the test rerun without `FRUS_UPDATE_GOLDENS`): the
+  overlay does not alter the rendering.
+- The `Steps` doctest (annotated `Steps<()>`) **green**.
 
-## Reste
+## What's left
 
-- **Verrouiller les étapes futures** : n'autoriser le saut que vers les étapes déjà atteintes
-  (l'application filtre déjà en choisissant les `Msg` émis, mais un mode intégré serait pratique).
-- **Orientation verticale** (étapes empilées, contenu sous l'étape courante) — toujours en
-  extension (cf. jalon 182).
+- **Locking future steps**: only allowing jumps to steps already reached (the application already
+  filters by choosing which `Msg`s it emits, but a built-in mode would be handy).
+- **Vertical orientation** (stacked steps, the content under the current one) — still an extension
+  (see milestone 182).

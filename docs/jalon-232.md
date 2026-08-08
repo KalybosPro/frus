@@ -1,47 +1,48 @@
-# Jalon 232 — DataTable auto-triant (widget réutilisable)
+# Jalon 232 — Self-sorting DataTable (reusable widget)
 
-## Analyse
+## Analysis
 
-Le `Table` est purement contrôlé : il émet la colonne cliquée (`on_sort`), affiche l'indicateur
-`sorted(...)`, mais **ne trie pas** — l'application réordonne ses lignes elle-même. Résultat : la
-logique de tri (comparaison, sens, casse) est recopiée à la main dans chaque reducer (cf. la grille
-de la démo). Ce jalon ouvre le domaine **DataTable** : un tableau qui **trie ses propres données**
-pour l'affichage, tout en restant contrôlé.
+`Table` is purely controlled: it emits the clicked column (`on_sort`), shows the `sorted(...)`
+indicator, but **does not sort** — the application reorders its rows itself. As a result, the sorting
+logic (comparison, direction, case) is copied by hand into every reducer (see the demo's grid). This
+milestone opens the **DataTable** domain: a table that **sorts its own data** for display, while
+staying controlled.
 
-## Décisions techniques
+## Technical decisions
 
-- **`sort_rows` / `compare_cells` — logique pure, publique.** `compare_cells(a, b)` compare
-  **numériquement** si les deux cellules se lisent comme des nombres, sinon lexicalement **insensible
-  à la casse**. `sort_rows(rows, col, asc)` renvoie une copie triée. Fonctions libres exportées :
-  réutilisables aussi hors widget (un reducer peut trier ses données de la même façon).
+- **`sort_rows` / `compare_cells` — pure, public logic.** `compare_cells(a, b)` compares
+  **numerically** if both cells read as numbers, otherwise lexically and **case-insensitively**.
+  `sort_rows(rows, col, asc)` returns a sorted copy. Exported free functions: reusable outside the
+  widget too (a reducer can sort its data the same way).
 
-- **`DataTable` encapsule le tri d'affichage.** On lui passe les lignes brutes et l'état
-  `sorted(col, sens)` ; il reconstruit un `Table` interne avec les lignes déjà triées + l'indicateur,
-  et lui relaie `on_sort`. L'état de tri reste **dans l'app** (modèle contrôlé) — seule la
-  transformation d'affichage est encapsulée.
+- **`DataTable` encapsulates display sorting.** You pass it the raw rows and the `sorted(col,
+  direction)` state; it rebuilds an internal `Table` with the rows already sorted + the indicator, and
+  forwards `on_sort` to it. The sort state stays **in the app** (the controlled model) — only the
+  display transformation is encapsulated.
 
-- **Composition, pas héritage.** `DataTable` **délègue** les cinq méthodes `Widget` que `Table`
-  surcharge (`style`, `children`, `paint` vide, `on_click`, `stack`) à un `Table` interne reconstruit
-  à chaque builder — même motif de `rebuild()` que `Table`. Type par défaut `Msg = ()` pour
-  l'ergonomie.
+- **Composition, not inheritance.** `DataTable` **delegates** the five `Widget` methods `Table`
+  overrides (`style`, `children`, an empty `paint`, `on_click`, `stack`) to an internal `Table`
+  rebuilt at each builder — the same `rebuild()` pattern as `Table`. A `Msg = ()` default type for
+  ergonomics.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` (nouveau) : `compare_cells`, `sort_rows`, `DataTable` (builders
-  `column_widths`, `sorted`, `on_sort` ; `rebuild` interne).
-- `frus-widgets/src/lib.rs` : `mod datatable;` + `pub use datatable::{compare_cells, sort_rows, DataTable};`.
+- `frus-widgets/src/datatable.rs` (new): `compare_cells`, `sort_rows`, `DataTable` (the
+  `column_widths`, `sorted`, `on_sort` builders; the internal `rebuild`).
+- `frus-widgets/src/lib.rs`: `mod datatable;` +
+  `pub use datatable::{compare_cells, sort_rows, DataTable};`.
 
-## Vérification
+## Verification
 
-- **Widget** `sort_rows_is_numeric_aware_and_case_insensitive` : colonne numérique 2 < 9 < 10 (et
-  non "10" < "2" < "9"), colonne texte alice < Bob < Carol, sens décroissant inversé.
+- **Widget** `sort_rows_is_numeric_aware_and_case_insensitive`: a numeric column 2 < 9 < 10 (and not
+  "10" < "2" < "9"), a text column alice < Bob < Carol, the descending direction reversed.
 - **Widget** `compare_cells_prefers_numbers_then_text`, `data_table_builds_a_non_empty_tree`.
-- **Doctest** du `DataTable`.
-- **Golden** `data_table_sorted` : tri par « Score » décroissant (12, 10, 9, 2) + indicateur « ▼ ».
-- Widgets 367 ; goldens 65.
+- The `DataTable` **doctest**.
+- **Golden** `data_table_sorted`: sorted by "Score" descending (12, 10, 9, 2) + the "▼" indicator.
+- Widgets 367; goldens 65.
 
-## Reste
+## What's left
 
-- **Pagination** interne (tranche de page + `Pagination` sous le tableau).
-- Wirer `DataTable` dans la démo (remplacer le tri recopié du reducer de grille).
-- Clé de tri **personnalisée** par colonne (dates, montants formatés).
+- Internal **pagination** (a page slice + a `Pagination` under the table).
+- Wiring `DataTable` into the demo (replacing the copied sort in the grid's reducer).
+- A **custom** sort key per column (dates, formatted amounts).

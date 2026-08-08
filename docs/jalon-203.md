@@ -1,41 +1,41 @@
-# Jalon 203 — Charts : axe des ordonnées + grille (partagé)
+# Jalon 203 — Charts: y-axis + grid (shared)
 
-## Analyse
+## Analysis
 
-Les jalons 199/200 ont donné les barres et la courbe, mais sans **repère de lecture** : impossible
-d'estimer une valeur sans son étiquette. Un axe des ordonnées (graduations + lignes de grille
-horizontales) répond à ça, et doit être **commun** aux deux graphiques — ils partagent déjà leur
-géométrie.
+Milestones 199/200 gave us bars and a curve, but with **no reading reference**: there was no way to
+estimate a value without its label. A y-axis (ticks + horizontal grid lines) answers that, and it
+must be **common** to both charts — they already share their geometry.
 
-## Décisions techniques
+## Technical decisions
 
-- **Un axe partagé, opt-in.** Une fonction libre `draw_grid(...)` trace `divisions` lignes
-  horizontales réparties entre la ligne de base et le haut de la zone de tracé, chacune étiquetée de
-  sa valeur (`0..max`) alignée à droite dans une marge de gauche. `BarChart` et `LineChart` gagnent
-  le même `.grid(divisions)` (défaut `0` = aucun axe) et appellent `draw_grid` avant de peindre.
+- **A shared, opt-in axis.** A free `draw_grid(...)` function draws `divisions` horizontal lines
+  spread between the baseline and the top of the plot area, each labelled with its value (`0..max`)
+  right-aligned in a left margin. `BarChart` and `LineChart` both gain the same `.grid(divisions)`
+  (default `0` = no axis) and call `draw_grid` before painting.
 
-- **Non-cassant.** Sans `.grid(...)`, `axis_width` renvoie `0`, la zone de tracé reste pleine
-  largeur et le rendu est **identique** aux jalons 199/200 (leurs goldens sont inchangés). Avec un
-  axe, une marge `Y_AXIS_W` décale barres et points vers la droite pour loger les graduations.
+- **Non-breaking.** Without `.grid(...)`, `axis_width` returns `0`, the plot area stays full width
+  and the rendering is **identical** to milestones 199/200 (their goldens are unchanged). With an
+  axis, a `Y_AXIS_W` margin shifts the bars and points right to make room for the ticks.
 
-- **La grille se lit derrière.** Lignes de grille en `theme.border` atténué, graduations en
-  `theme.muted` : présentes sans masquer les données (façon Flutter).
+- **The grid reads behind.** Grid lines in a muted `theme.border`, ticks in `theme.muted`: present
+  without masking the data.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : constantes `Y_AXIS_W`, `AXIS_SIZE` ; fonctions libres `axis_width`
-  et `draw_grid` ; champ `grid: usize` + `.grid(n)` sur `BarChart` **et** `LineChart` ; paints
-  décalés de la marge d'axe (`plot_left`, `plot_w`).
-- `frus-test/tests/goldens.rs` : golden `line_chart_axis` (`grid(4)`).
+- `frus-widgets/src/chart.rs`: the `Y_AXIS_W`, `AXIS_SIZE` constants; the free `axis_width` and
+  `draw_grid` functions; the `grid: usize` field + `.grid(n)` on `BarChart` **and** `LineChart`;
+  paints shifted by the axis margin (`plot_left`, `plot_w`).
+- `frus-test/tests/goldens.rs`: the `line_chart_axis` golden (`grid(4)`).
 
-## Vérification
+## Verification
 
-- **Unitaire** (`grid_draws_horizontal_lines_and_axis_labels`, `no_grid_by_default_keeps_full_width`)
-  : avec `grid(4)`, au moins 5 lignes fines (4 grille + base) et les graduations `0` et `8` sont
-  dessinées ; sans grille, aucune graduation.
-- **Golden** `line_chart_axis` : la série `Mon..Fri` avec grille horizontale et échelle à gauche.
+- **Unit** (`grid_draws_horizontal_lines_and_axis_labels`, `no_grid_by_default_keeps_full_width`):
+  with `grid(4)`, at least 5 thin lines (4 grid + the baseline) and the `0` and `8` ticks are drawn;
+  with no grid, no ticks at all.
+- **Golden** `line_chart_axis`: the `Mon..Fri` series with a horizontal grid and the scale on the
+  left.
 
-## Reste
+## What's left
 
-- **Aire remplie** sous la courbe, **séries multiples** + légende, graduations « rondes » (pas
-  d'échelle jolis multiples), axe des abscisses libellé indépendant du nombre de points.
+- A **filled area** under the curve, **multiple series** + a legend, "round" ticks (a nice-multiples
+  scale), an x-axis labelled independently of the number of points.

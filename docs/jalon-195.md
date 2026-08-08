@@ -1,44 +1,43 @@
-# Jalon 195 — Steps : état « terminé » par validité
+# Jalon 195 — Steps: "completed" state driven by validity
 
-## Analyse
+## Analysis
 
-`Steps` (jalons 182–183) marquait une étape « terminée » (coche) **uniquement par position**
-(`i < current`). Or dans un assistant gardé (jalon 192, « Next » bloqué tant qu'une étape est
-invalide), une étape *passée* peut redevenir **invalide** (retour en arrière + saut libre via
-`on_tap`) : l'indicateur mentait alors en la montrant cochée. Il fallait marquer les étapes par
-**validité**, pas par position.
+`Steps` (milestones 182–183) marked a step "completed" (a tick) **by position alone**
+(`i < current`). But in a guarded wizard (milestone 192, "Next" blocked while a step is invalid), a
+*past* step can become **invalid** again (going back + a free jump through `on_tap`): the indicator
+then lied by showing it ticked. Steps had to be marked by **validity**, not by position.
 
-## Décisions techniques
+## Technical decisions
 
-- **Un masque « terminé » explicite, optionnel.** `Steps::completed([bool, …])` fixe, par étape,
-  si elle est terminée — typiquement la validité calculée par le `Form`. Sans cet appel, on garde
-  la règle par défaut `i < current` : **tous les usages existants et leurs goldens sont
-  inchangés** (rétrocompatible).
+- **An explicit, optional "completed" mask.** `Steps::completed([bool, …])` sets, per step, whether
+  it is done — typically the validity computed by the `Form`. Without that call, the default
+  `i < current` rule holds: **every existing use and its goldens are unchanged** (backwards
+  compatible).
 
-- **Un seul point de décision.** Toute la peinture (coche vs numéro, connecteur franchi ou non)
-  passe par `is_done(i)` : masque s'il est fourni, `i < current` sinon. L'**étape courante**
-  affiche toujours son **numéro** (même si valide) — on ne coche que les *autres* étapes
-  terminées, comme le `Stepper` de Material.
+- **A single decision point.** All the painting (a tick vs a number, a crossed connector or not)
+  goes through `is_done(i)`: the mask if one is supplied, `i < current` otherwise. The **current
+  step** always shows its **number** (even when valid) — we only tick the *other* completed steps,
+  as Material's stepper does.
 
-## Implémentation
+## Implementation
 
-- `steps.rs` : champ `completed` (+ builder `completed`) ; `is_done` (dans le bloc `impl<Msg>`
-  sans borne, appelé depuis `paint`) ; connecteur et marqueur utilisent `is_done` au lieu de
+- `steps.rs`: the `completed` field (+ the `completed` builder); `is_done` (in the unbounded
+  `impl<Msg>` block, called from `paint`); the connector and the marker use `is_done` instead of
   `i < current`.
-- `frus-demo/src/lib.rs` : l'assistant passe `.completed([valide_0, valide_1, tout_valide])`
-  (mêmes prédicats que le garde « Next »).
+- `frus-demo/src/lib.rs`: the wizard passes `.completed([valid_0, valid_1, all_valid])` (the same
+  predicates as the "Next" guard).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `completed_mask_overrides_position` — sans masque, `is_done = i < current` ;
-  avec masque, indépendant de la position (étape 0 invalide non cochée bien que `i < current`,
-  étape 2 valide cochée bien que `i > current`) ; masque plus court → manquants non terminés.
-  Les tests des jalons 182–183 restent **verts**.
-- **Golden** `wizard_password_revealed` (jalon 194) **inspecté** : l'étape Account apparaît
-  **cochée** via `completed`, l'étape courante (Security) en numéro. Les goldens `form_wizard` /
-  `wizard_*` (sans `completed`) sont **inchangés**.
+- **Unit**: `completed_mask_overrides_position` — with no mask, `is_done = i < current`; with a
+  mask, independent of position (an invalid step 0 not ticked despite `i < current`, a valid step 2
+  ticked despite `i > current`); a shorter mask → the missing ones not completed. Milestones
+  182–183's tests stay **green**.
+- **Golden** `wizard_password_revealed` (milestone 194) **inspected**: the Account step shows
+  **ticked** through `completed`, the current step (Security) as a number. The `form_wizard` /
+  `wizard_*` goldens (without `completed`) are **unchanged**.
 
-## Reste
+## What's left
 
-- **Verrouiller le saut vers une étape non atteinte** (au-delà du marquage visuel) — le garde
-  « Next » couvre l'avance séquentielle, mais `on_tap` autorise encore le saut libre.
+- **Locking jumps to a step not yet reached** (beyond the visual marking) — the "Next" guard covers
+  sequential progress, but `on_tap` still allows free jumping.

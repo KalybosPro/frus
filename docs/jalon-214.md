@@ -1,37 +1,36 @@
-# Jalon 214 — Grille : cycle entre les fautes
+# Jalon 214 — Grid: cycling through the errors
 
-## Analyse
+## Analysis
 
-Le jalon 210 menait à la **première** cellule fautive ; sur une grille qui en compte plusieurs,
-l'utilisateur voulait ensuite passer à la **suivante**, et ainsi de suite. Le bouton devient un
-**cycle** sur toutes les fautes.
+Milestone 210 led to the **first** faulty cell; on a grid with several, the user then wanted to move
+to the **next**, and so on. The button becomes a **cycle** through every fault.
 
-## Décisions techniques
+## Technical decisions
 
-- **Cycle avec bouclage.** `Next error` (ex-`Go to first error`) focalise la faute **suivant** la
-  dernière visée, en ordre ligne par ligne, et **reboucle** sur la première après la dernière. La
-  position visée est mémorisée dans `grid_error_cursor`.
+- **A cycle that wraps.** `Next error` (formerly `Go to first error`) focuses the fault **after** the
+  last one targeted, in row-by-row order, and **wraps** to the first after the last. The targeted
+  position is remembered in `grid_error_cursor`.
 
-- **Une seule énumération des fautes.** `grid_faults` liste toutes les cellules invalides (ordre
-  ligne par ligne) via `grid_cell_error` ; `grid_first_error` (jalon 210) et `grid_next_error` en
-  dérivent — la règle de validité reste unique.
+- **A single enumeration of the faults.** `grid_faults` lists every invalid cell (in row-by-row
+  order) through `grid_cell_error`; `grid_first_error` (milestone 210) and `grid_next_error` derive
+  from it — the validity rule stays single.
 
-- **Retour visuel à l'arrivée.** `Command::focus` place le focus clavier sur la cellule visée :
-  l'anneau de focus existant la met en évidence. (Un *halo bref* dédié demanderait une animation
-  transitoire — laissé au Reste.)
+- **Visual feedback on arrival.** `Command::focus` puts the keyboard focus on the targeted cell: the
+  existing focus ring highlights it. (A dedicated *brief halo* would require a transient animation —
+  left in What's left.)
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : champ `grid_error_cursor` ; `grid_faults` ; `grid_next_error`
-  (bouclage) ; `grid_first_error` délègue ; `GridFocusError` cycle ; bouton renommé `Next error`.
+- `frus-demo/src/lib.rs`: the `grid_error_cursor` field; `grid_faults`; `grid_next_error` (with
+  wrapping); `grid_first_error` delegates; `GridFocusError` cycles; the button renamed `Next error`.
 
-## Vérification
+## Verification
 
-- `grid_next_error_cycles_through_all_faults` : sur trois fautes `(0,0)`, `(0,2)`, `(1,2)`, quatre
-  appels successifs donnent `(0,0) → (0,2) → (1,2) → (0,0)` (bouclage). Le test du jalon 210 reste
-  vert (`grid_first_error` inchangé fonctionnellement).
+- `grid_next_error_cycles_through_all_faults`: over three faults `(0,0)`, `(0,2)`, `(1,2)`, four
+  successive calls give `(0,0) → (0,2) → (1,2) → (0,0)` (wrapping). Milestone 210's test stays green
+  (`grid_first_error` functionally unchanged).
 
-## Reste
+## What's left
 
-- **Halo bref** (pulse animé) sur la cellule à l'arrivée, **défiler** jusqu'à elle si la grille
-  dépasse le viewport, et sauter la faute **courante** si on la corrige avant de cycler.
+- A **brief halo** (an animated pulse) on the cell upon arrival, **scrolling** to it if the grid
+  overflows the viewport, and skipping the **current** fault if it is corrected before cycling on.

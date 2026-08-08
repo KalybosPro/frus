@@ -1,37 +1,38 @@
-# Jalon 226 — Pourcentages dans l'infobulle en mode 100 %
+# Jalon 226 — Percentages in the tooltip in 100% mode
 
-## Analyse
+## Analysis
 
-L'empilage 100 % (jalon 224) montre des **proportions** : les strates remplissent toute la hauteur et
-l'axe est en pourcentages. Mais l'infobulle de survol continuait d'afficher les **valeurs brutes** —
-incohérent avec ce que le graphique met en avant, et sans donner la part exacte survolée.
+100% stacking (milestone 224) shows **proportions**: the strata fill the whole height and the axis is
+in percentages. But the hover tooltip still showed **raw values** — inconsistent with what the chart
+foregrounds, and without giving the exact hovered share.
 
-## Décisions techniques
+## Technical decisions
 
-- **`format_measure(value, percent_of)` partagé.** Une fonction libre formate une mesure d'infobulle :
-  la valeur brute seule (`None`), ou `valeur (part%)` quand un dénominateur 100 % est fourni. Les deux
-  graphiques l'utilisent — la valeur reste visible, la part est ajoutée entre parenthèses.
+- **A shared `format_measure(value, percent_of)`.** A free function formats a tooltip measure: the
+  raw value alone (`None`), or `value (share%)` when a 100% denominator is supplied. Both charts use
+  it — the value stays visible, the share is added in parentheses.
 
-- **Dénominateur = total de la catégorie survolée.** Dans chaque infobulle, `percent_of` vaut
-  `Some(category_total(hi))` en mode 100 % (respecte `hidden`, borné), `None` sinon. La part affichée
-  est donc bien relative à la colonne/catégorie sous le pointeur, cohérente avec les strates.
+- **The denominator = the hovered category's total.** In each tooltip, `percent_of` is
+  `Some(category_total(hi))` in 100% mode (respecting `hidden`, clamped), `None` otherwise. So the
+  displayed share is indeed relative to the column/category under the pointer, consistent with the
+  strata.
 
-- **Aucun impact hors survol.** Le changement est confiné au chemin infobulle (`status.hover_cursor`) :
-  les goldens (rendus sans survol) sont inchangés.
+- **No impact outside hover.** The change is confined to the tooltip path (`status.hover_cursor`): the
+  goldens (rendered without hover) are unchanged.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : fonction `format_measure` ; les infobulles de `BarChart` et
-  `LineChart` calculent `percent_of` selon `normalized` et formatent chaque mesure via `format_measure`.
+- `frus-widgets/src/chart.rs`: the `format_measure` function; `BarChart`'s and `LineChart`'s tooltips
+  compute `percent_of` from `normalized` and format each measure through `format_measure`.
 
-## Vérification
+## Verification
 
-- **Widget** `normalized_bar_tooltip_shows_percentages` : survol de la catégorie A (deux séries à 2)
-  → l'infobulle contient `(50%)` en 100 %, aucun `%` en absolu.
-- **Widget** `normalized_line_tooltip_shows_percentages` : idem pour les aires empilées.
-- Widgets 359 ; goldens 63 inchangés (chemin infobulle hors rendu golden).
+- **Widget** `normalized_bar_tooltip_shows_percentages`: hovering category A (two series at 2) → the
+  tooltip contains `(50%)` at 100%, no `%` in absolute mode.
+- **Widget** `normalized_line_tooltip_shows_percentages`: the same for the stacked areas.
+- Widgets 359; the 63 goldens unchanged (the tooltip path is outside golden rendering).
 
-## Reste
+## What's left
 
-- Sortir du domaine graphes (nouveau widget : `Calendar`/`DataTable` avancé).
-- Un **libellé de part** directement sur les strates (dans la barre/bande) en mode 100 %.
+- Moving out of the charts domain (a new widget: an advanced `Calendar`/`DataTable`).
+- A **share label** directly on the strata (inside the bar/band) in 100% mode.

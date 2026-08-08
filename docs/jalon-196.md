@@ -1,44 +1,44 @@
-# Jalon 196 — Table : édition en ligne des cellules
+# Jalon 196 — Table: inline cell editing
 
-## Analyse
+## Analysis
 
-`Table` savait afficher du texte, des widgets, des cases à cocher, geler des colonnes,
-virtualiser… mais l'**édition en ligne** (cliquer une cellule pour la saisir, façon tableur)
-n'avait jamais été démontrée. La question : faut-il un nouveau mécanisme, ou est-ce déjà
-composable ?
+`Table` could show text, widgets and checkboxes, freeze columns, virtualise… but **inline editing**
+(clicking a cell to type into it, spreadsheet style) had never been demonstrated. The question: does
+it need a new mechanism, or is it already composable?
 
-## Décisions techniques
+## Technical decisions
 
-- **Aucun nouveau mécanisme — pure composition.** `Table::widget_row` accepte déjà une cellule
-  comme **widget arbitraire** (fabrique `Fn() -> Box<dyn Widget>`). L'édition en ligne se réduit
-  donc à un choix de widget par cellule, piloté par l'état applicatif :
-  - cellule **au repos** : un [`Container`] cliquable (`on_click`) affichant la valeur — le clic
-    émet « éditer la cellule (ligne, colonne) » ;
-  - cellule **en édition** : un [`TextInput`] lié à la valeur (`on_input` → maj, `on_submit` →
-    valider).
-  L'application tient un `editing: Option<(row, col)>` et échange le widget de la cellule visée.
-  Rien à ajouter au framework : `Container::on_click` + `TextInput` + `widget_row` suffisent.
+- **No new mechanism — pure composition.** `Table::widget_row` already accepts a cell as an
+  **arbitrary widget** (a `Fn() -> Box<dyn Widget>` factory). Inline editing therefore reduces to a
+  choice of widget per cell, driven by application state:
+  - a cell **at rest**: a clickable [`Container`] (`on_click`) showing the value — the click emits
+    "edit cell (row, column)";
+  - a cell **being edited**: a [`TextInput`] bound to the value (`on_input` → update, `on_submit` →
+    commit).
+  The application holds an `editing: Option<(row, col)>` and swaps the targeted cell's widget.
+  Nothing to add to the framework: `Container::on_click` + `TextInput` + `widget_row` suffice.
 
-- **Ce jalon est une preuve de capacité.** Il fixe le motif (et le verrouille par un golden)
-  plutôt que d'ajouter du code : la flexibilité de `Table` (jalons data-table) rend l'édition en
-  ligne « gratuite ». Le câblage interactif complet (état `editing`, commit/annulation) est un
-  branchement applicatif direct de ce motif.
+- **This milestone is a proof of capability.** It pins the pattern down (and locks it with a
+  golden) rather than adding code: `Table`'s flexibility (the data-table milestones) makes inline
+  editing "free". The full interactive wiring (the `editing` state, commit/cancel) is a direct
+  application of this pattern.
 
-## Implémentation
+## Implementation
 
-- `goldens.rs` : `table_editable` — une grille 3 colonnes où toutes les cellules sont des
-  `Container` cliquables **sauf** une, rendue par un `TextInput` (cellule en cours d'édition).
+- `goldens.rs`: `table_editable` — a 3-column grid where every cell is a clickable `Container`
+  **except** one, rendered by a `TextInput` (the cell being edited).
 
-## Vérification
+## Verification
 
-- **Golden** `table_editable` **inspecté** : la cellule « Cryptographer » (ligne 2, colonne
-  Role) est un champ de saisie bordé ; toutes les autres sont du texte statique cliquable —
-  l'édition en ligne se compose sans code framework.
+- **Golden** `table_editable` **inspected**: the "Cryptographer" cell (row 2, Role column) is a
+  bordered input field; all the others are clickable static text — inline editing composes with no
+  framework code.
 
-## Reste
+## What's left
 
-- **Câblage interactif dans le démo** : route/section « grille éditable » avec `editing:
-  Option<(row, col)>`, `on_input`/`on_submit` reliés — application directe du motif.
-- **Navigation clavier entre cellules** (Tab/Entrée pour passer à la cellule suivante) — au
-  niveau applicatif, ou un futur mode « grille » intégré à `Table`.
-- **Validation par cellule** (bordure d'erreur) — réutilise `TextInput::error` + `Form`.
+- **Interactive wiring in the demo**: an "editable grid" route/section with
+  `editing: Option<(row, col)>`, `on_input`/`on_submit` connected — a direct application of the
+  pattern.
+- **Keyboard navigation between cells** (Tab/Enter to move to the next cell) — app-level, or a
+  future "grid" mode built into `Table`.
+- **Per-cell validation** (an error border) — reusing `TextInput::error` + `Form`.

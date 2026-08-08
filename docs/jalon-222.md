@@ -1,45 +1,45 @@
-# Jalon 222 — Clic sur une barre : détail épinglé (BarChart::on_point)
+# Jalon 222 — Clicking a bar: pinned detail (BarChart::on_point)
 
-## Analyse
+## Analysis
 
-Le jalon 221 a rendu les **points** d'une `LineChart` cliquables (`on_point(cat, série)`), mais les
-`BarChart` restaient inertes : un tableau de bord qui bascule en « barres groupées » ou « barres
-empilées » perdait l'interaction. Ce jalon donne aux barres la **parité** avec les points de ligne.
+Milestone 221 made a `LineChart`'s **points** clickable (`on_point(cat, series)`), but `BarChart`s
+stayed inert: a dashboard switching to "grouped bars" or "stacked bars" lost the interaction. This
+milestone brings bars to **parity** with line points.
 
-## Décisions techniques
+## Technical decisions
 
-- **`BarChart::on_point(cat, série)`.** Symétrique de `LineChart::on_point`. Après le test de
-  légende, `positional_click` reconstruit la géométrie du paint et cherche le **rectangle** (barre
-  groupée ou strate empilée) qui contient le point local ; renvoie `on_point(catégorie, série)`.
+- **`BarChart::on_point(cat, series)`.** A mirror of `LineChart::on_point`. After the legend test,
+  `positional_click` rebuilds the paint's geometry and looks for the **rectangle** (a grouped bar or a
+  stacked stratum) containing the local point; it returns `on_point(category, series)`.
 
-- **Hit-test des deux dispositions.** En **groupé**, chaque série `j` occupe une sous-barre
-  `[bx, bx + draw_w]` (avec le facteur `inner = 0.86` et le décalage `(bar_w - draw_w)/2`, identiques
-  au paint) de hauteur `(valeur/max)·plot_h`. En **empilé**, chaque strate est un segment pleine
-  largeur `[sbx, sbx + group_w]` entre son cumul bas et haut. Une série **masquée** ne compte pas
-  (barre non tracée = non cliquable), exactement comme au paint.
+- **Hit-testing both layouts.** When **grouped**, each series `j` occupies a sub-bar
+  `[bx, bx + draw_w]` (with the `inner = 0.86` factor and the `(bar_w - draw_w)/2` offset, identical
+  to the paint) of height `(value/max)·plot_h`. When **stacked**, each stratum is a full-width segment
+  `[sbx, sbx + group_w]` between its lower and upper cumulative totals. A **hidden** series does not
+  count (an unplotted bar = not clickable), exactly as in the paint.
 
-- **L'app réutilise `Msg::ChartPoint`.** Le message et le formatage `série · catégorie = valeur`
-  (jalon 221) sont indépendants de la famille : brancher `.on_point(Msg::ChartPoint)` sur la
-  `BarChart` du tableau de bord suffit à épingler le détail au clic d'une barre.
+- **The app reuses `Msg::ChartPoint`.** The message and the `series · category = value` formatting
+  (milestone 221) are family-independent: wiring `.on_point(Msg::ChartPoint)` onto the dashboard's
+  `BarChart` is enough to pin the detail on a bar click.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : `BarChart` gagne le champ `on_point` + le builder `.on_point` ;
-  `positional_click` passe de « légende seule » à « légende **puis** barres » (structure identique à
-  `LineChart`), avec le hit-test groupé/empilé et le respect de `hidden`.
-- `frus-demo/src/lib.rs` : la branche `BarChart` de `dashboard_chart` câble
-  `.on_point(Msg::ChartPoint)` quand la légende est active (graphique principal).
+- `frus-widgets/src/chart.rs`: `BarChart` gains the `on_point` field + the `.on_point` builder;
+  `positional_click` moves from "legend only" to "legend **then** bars" (the same structure as
+  `LineChart`), with the grouped/stacked hit-test and respect for `hidden`.
+- `frus-demo/src/lib.rs`: `dashboard_chart`'s `BarChart` branch wires `.on_point(Msg::ChartPoint)`
+  when the legend is on (the main chart).
 
-## Vérification
+## Verification
 
-- **Widget** `clicking_a_bar_emits_category_and_series` : clic au centre de la 2e barre de la
-  catégorie A (série additionnelle) → `(0, 1)` ; au-dessus de la barre → `None` ; en empilé, clic bas
-  de colonne → strate `0` ; barre d'une série **masquée** → `None`.
-- **Démo** `grouped_bars_are_clickable_in_dashboard` : le graphique principal en barres groupées
-  émet `ChartPoint` sur au moins un point de sa zone (balayage, indépendant des constantes internes).
-- Widgets 353, démo 29 ; goldens sans régression (changement additif, paint inchangé).
+- **Widget** `clicking_a_bar_emits_category_and_series`: a click at the centre of category A's 2nd bar
+  (the additional series) → `(0, 1)`; above the bar → `None`; when stacked, a click at the bottom of
+  the column → stratum `0`; a bar of a **hidden** series → `None`.
+- **Demo** `grouped_bars_are_clickable_in_dashboard`: the main chart in grouped bars emits
+  `ChartPoint` on at least one point of its area (a sweep, independent of the internal constants).
+- Widgets 353, demo 29; the goldens with no regression (an additive change, the paint unchanged).
 
-## Reste
+## What's left
 
-- Une barre/point **épinglé mis en évidence** (anneau persistant) dans le graphique — jalon 223.
-- Normaliser l'empilage en **100 %** (proportions plutôt que valeurs absolues).
+- A **highlighted pinned** bar/point (a persistent ring) in the chart — milestone 223.
+- Normalising stacking to **100%** (proportions rather than absolute values).

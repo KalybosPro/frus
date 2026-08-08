@@ -1,41 +1,41 @@
-# Jalon 229 — Valeur dans chaque strate (barres empilées absolues)
+# Jalon 229 — Value in each band (absolute stacked bars)
 
-## Analyse
+## Analysis
 
-Le jalon 227 écrit la part (`%`) dans chaque strate en mode 100 % ; le jalon 228 le total au sommet
-d'une colonne empilée absolue. Manquait le pendant naturel : la **valeur** de chaque strate, à
-l'intérieur du segment, en empilé absolu — pour lire la composition sans survol, comme le `%` le fait
-en 100 %.
+Milestone 227 writes the share (`%`) in each stratum at 100%; milestone 228 the total on top of an
+absolute stacked column. The natural counterpart was missing: each stratum's **value**, inside the
+segment, in absolute stacked mode — to read the composition without hovering, as the `%` does at
+100%.
 
-## Décisions techniques
+## Technical decisions
 
-- **Un seul chemin de libellé de strate.** La branche empilée écrit désormais un libellé centré dans
-  chaque strate assez haute, quel que soit le mode : la **part (`%`)** en 100 %, la **valeur brute**
-  en absolu. Même seuil (`STRATA_LABEL_SIZE + 4`), même couleur (`on_primary`, lisible sur fond
-  saturé), même centrage. Le comportement 100 % (jalon 227) est **inchangé** — seul l'absolu gagne
-  le libellé.
+- **One stratum-label path.** The stacked branch now writes a centred label in each stratum tall
+  enough, whatever the mode: the **share (`%`)** at 100%, the **raw value** in absolute mode. The same
+  threshold (`STRATA_LABEL_SIZE + 4`), the same colour (`on_primary`, readable over a saturated
+  background), the same centring. The 100% behaviour (milestone 227) is **unchanged** — only absolute
+  mode gains the label.
 
-- **Cohabite avec le total (jalon 228).** Total au sommet + valeur par strate = lecture complète
-  (composition **et** somme), sans redondance : le total est au-dessus de la colonne, les valeurs
-  dedans.
+- **Coexists with the total (milestone 228).** The total on top + the per-stratum value = a complete
+  reading (composition **and** sum), without redundancy: the total is above the column, the values
+  inside it.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/chart.rs` : le libellé de strate de la branche empilée passe de « `%` si
-  `normalized` » à « `%` si `normalized`, sinon `format_value(value)` » (le garde de hauteur est
-  désormais commun aux deux modes).
+- `frus-widgets/src/chart.rs`: the stacked branch's stratum label moves from "`%` if `normalized`" to
+  "`%` if `normalized`, otherwise `format_value(value)`" (the height guard is now common to both
+  modes).
 
-## Vérification
+## Verification
 
-- **Widget** `stacked_absolute_bars_label_each_strata_with_its_value` : les valeurs de strates
-  (`3`, `4`, `6`) sont présentes, et les totaux de colonne (`7`, `11`) restent au sommet.
-- Les tests 100 % existants (`normalized_bars_label_each_strata_with_its_percentage`) restent verts
-  (comportement normalisé préservé).
-- **Golden** `bar_chart_stacked` régénéré : chaque strate porte sa valeur (3/2, 7/5, 5/6, 8/4, 4/3),
-  total au sommet.
-- Widgets 362 ; goldens 63.
+- **Widget** `stacked_absolute_bars_label_each_strata_with_its_value`: the strata values (`3`, `4`,
+  `6`) are present, and the column totals (`7`, `11`) stay on top.
+- The existing 100% tests (`normalized_bars_label_each_strata_with_its_percentage`) stay green (the
+  normalised behaviour preserved).
+- **Golden** `bar_chart_stacked` regenerated: each stratum carries its value (3/2, 7/5, 5/6, 8/4,
+  4/3), the total on top.
+- Widgets 362; goldens 63.
 
-## Reste
+## What's left
 
-- Sortir du domaine graphes (nouveau widget : `Calendar`/`DataTable` avancé).
-- Valeur par strate pour les **aires empilées** (lignes) — aujourd'hui au survol seulement.
+- Moving out of the charts domain (a new widget: an advanced `Calendar`/`DataTable`).
+- A per-stratum value for the **stacked areas** (lines) — today on hover only.
