@@ -1,6 +1,6 @@
-//! Le pilote : parcourt l'arbre en portant un contexte (translation + découpe),
-//! produit la [`Scene`] et les cartes de hit-test (clic, focus, scroll), et
-//! permet de retrouver un widget par identité pour lui router clavier/édition.
+//! The driver: walks the tree carrying a context (translation + clip), produces the
+//! [`Scene`] and the hit-test maps (click, focus, scroll), and makes it possible to find a
+//! widget by identity so that keyboard/edit events can be routed to it.
 
 use std::hash::{Hash, Hasher};
 
@@ -14,22 +14,22 @@ use crate::runtime::Runtime;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Facteur de parallaxe de l'écran arrière lors d'une transition (0 = fixe,
-/// 1 = suit à l'identique). Donne la profondeur d'une navigation native.
+/// Parallax factor of the screen behind during a transition (0 = fixed, 1 = follows
+/// exactly). It is what gives a native navigation its depth.
 const NAV_PARALLAX: f32 = 0.3;
 
-/// Épaisseur d'une barre de défilement, en pixels.
+/// Thickness of a scrollbar, in pixels.
 const BAR_SIZE: f32 = 10.0;
-/// Longueur minimale d'une poignée.
+/// Minimum length of a thumb.
 const MIN_THUMB: f32 = 28.0;
 
-/// Une poignée de barre de défilement (pour le hit-test au drag).
+/// A scrollbar thumb (for hit-testing a drag).
 #[derive(Copy, Clone, Debug)]
 pub struct Scrollbar {
     pub id: WidgetId,
     pub vertical: bool,
     pub thumb: Rect,
-    /// Début et longueur de la piste, le long de l'axe.
+    /// Start and length of the track, along the axis.
     pub track_start: f32,
     pub track_len: f32,
     pub thumb_len: f32,
@@ -37,7 +37,7 @@ pub struct Scrollbar {
     pub max: f32,
 }
 
-/// Direction de navigation du focus aux flèches.
+/// Direction of arrow-key focus navigation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FocusDirection {
     Up,
@@ -51,26 +51,25 @@ struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
     msg: Msg,
-    /// Transformation **inverse** (écran → repère à plat) d'un sous-arbre transformé
-    /// (`Transform::scale`/`rotate`/composition) : le point de test lui est appliqué
-    /// pour retrouver le repère non transformé où vit `rect`. `None` = rectangle
-    /// aligné sur les axes, non transformé (cas courant).
+    /// **Inverse** transform (screen → the flat frame) of a transformed subtree
+    /// (`Transform::scale`/`rotate`/a composition): the test point is passed through it to
+    /// get back to the untransformed frame where `rect` lives. `None` = an axis-aligned,
+    /// untransformed rect (the common case).
     xform: Option<Affine>,
 }
 
 impl<Msg> Hit<Msg> {
-    /// `true` si `point` (en coordonnées écran) tombe dans la cible, en tenant
-    /// compte d'une éventuelle transformation du sous-arbre.
+    /// `true` when `point` (in screen coordinates) falls inside the target, taking any
+    /// transform on the subtree into account.
     fn contains(&self, point: Point) -> bool {
         let p = self.xform.map_or(point, |inv| inv.apply(point));
         self.rect.contains(p)
     }
 }
 
-/// Sortie peinte d'un sous-arbre de frontière de repaint, mise en cache (voir
-/// `paintcache.rs`) et rejouée telle quelle sur un *hit*. Effacée derrière un
-/// `Box<dyn Any>` dans le cache ; redescendue vers `Msg` ici (une seule
-/// instance de `Msg` par app → le `downcast` réussit toujours).
+/// The painted output of a repaint-boundary subtree, cached (see `paintcache.rs`) and
+/// replayed as is on a *hit*. Erased behind a `Box<dyn Any>` in the cache; brought back down
+/// to `Msg` here (one `Msg` instance per app → the `downcast` always succeeds).
 #[derive(Clone)]
 struct BoundaryData<Msg> {
     prims: Vec<frus_core::Primitive>,
@@ -83,8 +82,8 @@ struct BoundaryData<Msg> {
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
-/// Longueurs des collectes du builder à l'entrée d'une frontière : bornes
-/// basses des tranches à capturer à la sortie.
+/// Lengths of the builder's collections on entering a boundary: the lower bounds of the
+/// slices to capture on the way out.
 struct Snapshot {
     scene: usize,
     hits: usize,
@@ -98,10 +97,10 @@ struct Snapshot {
     focus_scope_start: Option<usize>,
 }
 
-/// Bornes basses des registres d'**interaction** au début d'une composition transformée (calque
-/// échelle/rotation) : on ne re-mappe que ce que le sous-arbre vient d'ajouter. Distinct de
-/// [`Snapshot`] (cache de frontière) car il **inclut `reorderables`** — ceux-ci ne sont jamais mis
-/// en cache mais doivent bien être transformés. Voir [`transform_interaction_registries`].
+/// Lower bounds of the **interaction** registries at the start of a transformed composition
+/// (a scale/rotation layer): only what the subtree has just added is re-mapped. Distinct from
+/// [`Snapshot`] (the boundary cache) because it **includes `reorderables`** — those are never
+/// cached but do have to be transformed. See [`transform_interaction_registries`].
 struct XformBase {
     hits: usize,
     long_presses: usize,
@@ -112,13 +111,12 @@ struct XformBase {
     semantics: usize,
 }
 
-/// Nombre de nœuds du sous-arbre **si** il est « plat » — c.-à-d. si la
-/// frontière et **tous** ses descendants empruntent la branche de parcours par
-/// défaut (enfants en préfixe) : ni défilable, ni navigateur, ni liste
-/// virtualisée, ni `layout_builder`, ni pile, ni overlay, ni animation continue.
-/// Ce comptage suit alors **exactement** l'ordre des rectangles du walk, ce qui
-/// garantit une empreinte et une rejoue bit-à-bit correctes. `None` = sous-arbre
-/// non cachable (on repeint intégralement — repli sûr).
+/// Node count of the subtree **if** it is "plain" — that is, if the boundary and **all** its
+/// descendants take the default walk branch (children in prefix order): not scrollable, not a
+/// navigator, not a virtualised list, no `layout_builder`, not a stack, no overlay, no
+/// continuous animation. The count then follows the walk's rect order **exactly**, which is
+/// what makes the fingerprint and the bit-for-bit replay correct. `None` = a subtree that
+/// cannot be cached (it is repainted in full — the safe fallback).
 fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
     if widget.continuous()
         || widget.scroll_content().is_some()
@@ -130,8 +128,8 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.layout_builder().is_some()
         || widget.stack()
         || widget.overlay().is_some()
-        // Un réordonnable (carte Kanban, en-tête glissable) : ses bornes alimentent le registre
-        // des réordonnables, non caché — on ne met donc pas son sous-arbre en cache de peinture.
+        // A reorderable (a Kanban card, a draggable header): its bounds feed the reorderables
+        // registry, which is not cached — so its subtree is not put in the paint cache.
         || widget.reorder_index().is_some()
     {
         return None;
@@ -143,14 +141,14 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
     Some(n)
 }
 
-/// Quantifie un flottant `[0,1]` pour l'empreinte (indépendant des micro-écarts
-/// binaires : deux progressions visuellement identiques ⇒ même empreinte).
+/// Quantises a `[0,1]` float for the fingerprint (independent of tiny binary differences: two
+/// visually identical progresses ⇒ the same fingerprint).
 fn quant(x: f32) -> i32 {
     (x * 4096.0).round() as i32
 }
 
-/// Ajoute à `h` tout ce que la peinture lit dans un `Status`, **sauf** le temps
-/// (exclu : une frontière cachable n'a aucun widget `continuous`).
+/// Adds to `h` everything the paint reads from a `Status`, **except** the time (excluded: a
+/// cacheable boundary holds no `continuous` widget).
 fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     (s.interaction as u8).hash(h);
     s.focused.hash(h);
@@ -161,58 +159,59 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
     quant(s.focus_progress).hash(h);
     quant(s.opacity).hash(h);
     quant(s.value).hash(h);
-    // Survol de sous-région (jalon 208) : un changement de position repeint la surbrillance.
+    // Sub-region hover (milestone 208): a change of position repaints the highlight.
     s.hover_cursor.map(|p| (quant(p.x), quant(p.y))).hash(h);
 }
 
-/// Résultat de la construction d'une interface pour une frame donnée.
+/// The result of building an interface for one frame.
 pub struct Ui<Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
-    /// Cibles d'appui long (id, bornes visibles, message).
+    /// Long-press targets (id, visible bounds, message).
     long_presses: Vec<Hit<Msg>>,
-    /// Messages de fermeture des overlays, du dessous vers le **dessus**.
+    /// Overlay dismissal messages, from the bottom to the **top**.
     dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
-    /// **Scope de focus** : index du premier focusable de l'overlay modal le
-    /// plus au-dessus — Tab/flèches/focus au clic sont piégés à partir de là
-    /// (`None` = pas de modale, tous les focusables participent).
+    /// **Focus scope**: index of the topmost modal overlay's first focusable —
+    /// Tab/arrows/click-to-focus are trapped from there on (`None` = no modal, every
+    /// focusable takes part).
     focus_scope_start: Option<usize>,
     /// (id, viewport, offset max x, offset max y)
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
-    /// **Réordonnables** (en-têtes de colonne, cartes Kanban) : (id, bornes visibles). Repérés
-    /// indépendamment du clic — une carte n'est pas cliquable mais reste saisissable/cible de dépôt.
+    /// **Reorderables** (column headers, Kanban cards): (id, visible bounds). Tracked
+    /// independently of clicking — a card is not clickable but can still be picked up and
+    /// dropped onto.
     reorderables: Vec<(WidgetId, Rect)>,
-    /// Fenêtres interactives (`InteractiveViewer`) : (id, fenêtre écran). Le shell y
-    /// route le pan (glisser) et le zoom (molette / pincement).
+    /// Interactive viewports (`InteractiveViewer`): (id, the screen viewport). The shell
+    /// routes panning (dragging) and zooming (wheel / pinch) to them.
     interactives: Vec<(WidgetId, Rect)>,
     wants_animation: bool,
-    /// Arbre d'accessibilité : nœuds sémantiques (id, bornes, annotation),
-    /// dans l'ordre de peinture. Le shell le mappe vers AccessKit.
+    /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
+    /// shell maps it onto AccessKit.
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
-    /// La scène à envoyer au renderer.
+    /// The scene to hand to the renderer.
     pub fn scene(&self) -> &Scene {
         &self.scene
     }
 
-    /// L'**arbre d'accessibilité** de la frame : chaque nœud porteur de sens
-    /// avec ses bornes à l'écran et son annotation ([`frus_core::Semantics`]).
-    /// Ordre de peinture (= ordre de lecture). Le shell le pousse à AccessKit.
+    /// The frame's **accessibility tree**: every meaningful node with its bounds on screen and
+    /// its annotation ([`frus_core::Semantics`]). Paint order (= reading order). The shell
+    /// pushes it to AccessKit.
     pub fn semantics(&self) -> &[(WidgetId, Rect, frus_core::Semantics)] {
         &self.semantics
     }
 
-    /// `true` si un widget s'anime en continu (le framework doit redessiner).
+    /// `true` when a widget animates continuously (the framework must redraw).
     pub fn wants_animation(&self) -> bool {
         self.wants_animation
     }
 
-    /// Identité du widget cliquable le plus au-dessus contenant `point`.
+    /// Identity of the topmost clickable widget containing `point`.
     pub fn hit(&self, point: Point) -> Option<WidgetId> {
         self.hits
             .iter()
@@ -221,7 +220,7 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|hit| hit.id)
     }
 
-    /// Message associé à un widget cliquable donné.
+    /// The message tied to a given clickable widget.
     pub fn msg_for(&self, id: WidgetId) -> Option<Msg> {
         self.hits
             .iter()
@@ -229,12 +228,12 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|hit| hit.msg.clone())
     }
 
-    /// Message de fermeture de l'overlay **le plus au-dessus** (pour Échap).
+    /// Dismissal message of the **topmost** overlay (for Escape).
     pub fn top_dismiss(&self) -> Option<Msg> {
         self.dismisses.last().cloned()
     }
 
-    /// Message d'**appui long** de la cible la plus au-dessus contenant `point`.
+    /// **Long-press** message of the topmost target containing `point`.
     pub fn long_press_at(&self, point: Point) -> Option<Msg> {
         self.long_presses
             .iter()
@@ -243,7 +242,7 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|hit| hit.msg.clone())
     }
 
-    /// Widget focalisable le plus au-dessus contenant `point` : (id, ses bornes).
+    /// Topmost focusable widget containing `point`: (id, its bounds).
     pub fn focus_hit(&self, point: Point) -> Option<(WidgetId, Rect)> {
         self.focus_pool()
             .iter()
@@ -252,8 +251,8 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
-    /// Les focusables **participants** : ceux du scope modal le plus au-dessus
-    /// s'il y en a un (piège à focus), sinon tous.
+    /// The **participating** focusables: those of the topmost modal scope when there is one
+    /// (a focus trap), otherwise all of them.
     fn focus_pool(&self) -> &[(WidgetId, Rect)] {
         match self.focus_scope_start {
             Some(start) => &self.focusables[start.min(self.focusables.len())..],
@@ -261,17 +260,17 @@ impl<Msg: Clone> Ui<Msg> {
         }
     }
 
-    /// Focusable le plus proche dans la **direction** donnée (navigation aux
-    /// flèches, politique géométrique) : parmi les focusables dont le centre est
-    /// du bon côté, minimise la distance sur l'axe principal avec une pénalité
-    /// sur l'écart transversal. `None` si rien dans cette direction.
+    /// Nearest focusable in the given **direction** (arrow navigation, a geometric policy):
+    /// among the focusables whose centre lies on the right side, it minimises the distance
+    /// along the main axis with a penalty on the cross-axis offset. `None` when there is
+    /// nothing in that direction.
     pub fn focus_directional(
         &self,
         current: WidgetId,
         direction: FocusDirection,
     ) -> Option<WidgetId> {
-        // Le point de départ peut être hors scope (focus d'avant l'ouverture) ;
-        // les **candidats**, eux, sont piégés dans le scope.
+        // The starting point may be outside the scope (focus from before it opened); the
+        // **candidates**, though, are trapped inside it.
         let from = self
             .focusables
             .iter()
@@ -286,16 +285,16 @@ impl<Msg: Clone> Ui<Msg> {
                 continue;
             }
             let (cx, cy) = center(rect);
-            // (avance dans la direction, écart transversal)
+            // (how far ahead in the direction, the cross-axis offset)
             let (ahead, cross) = match direction {
                 FocusDirection::Right => (cx - fx, (cy - fy).abs()),
                 FocusDirection::Left => (fx - cx, (cy - fy).abs()),
                 FocusDirection::Down => (cy - fy, (cx - fx).abs()),
                 FocusDirection::Up => (fy - cy, (cx - fx).abs()),
             };
-            // Dans un **cône** autour de la direction (pas un simple demi-plan) :
-            // un candidat quasi aligné transversalement mais à peine « devant »
-            // (largeurs légèrement différentes) n'est pas une cible directionnelle.
+            // Inside a **cone** around the direction (not a plain half-plane): a candidate
+            // almost aligned on the cross axis but barely "ahead" (slightly different widths)
+            // is not a directional target.
             if ahead <= 0.5 || cross > ahead * 3.0 {
                 continue;
             }
@@ -307,16 +306,16 @@ impl<Msg: Clone> Ui<Msg> {
         best.map(|(id, _)| id)
     }
 
-    /// Focusable suivant/précédent dans l'ordre d'arbre (avec bouclage), pour la
-    /// navigation Tab. Sans focus courant, renvoie le premier (ou dernier).
+    /// Next/previous focusable in tree order (wrapping), for Tab navigation. With no current
+    /// focus, returns the first (or the last).
     pub fn focus_next(&self, current: Option<WidgetId>, forward: bool) -> Option<WidgetId> {
         let pool = self.focus_pool();
         if pool.is_empty() {
             return None;
         }
         let n = pool.len();
-        // Un focus courant **hors scope** (pris avant l'ouverture de la modale)
-        // est traité comme « aucun » : Tab entre dans le piège.
+        // A current focus **outside the scope** (taken before the modal opened) is treated as
+        // "none": Tab enters the trap.
         match current.and_then(|c| pool.iter().position(|(id, _)| *id == c)) {
             Some(i) => {
                 let j = if forward {
@@ -330,7 +329,7 @@ impl<Msg: Clone> Ui<Msg> {
         }
     }
 
-    /// Zone défilable la plus au-dessus contenant `point` : (id, max x, max y).
+    /// Topmost scrollable area containing `point`: (id, max x, max y).
     pub fn scroll_hit(&self, point: Point) -> Option<(WidgetId, f32, f32)> {
         self.scrollables
             .iter()
@@ -339,17 +338,17 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
     }
 
-    /// Cadre d'un widget **focusable** `id`, s'il est présent cette frame — pour que
-    /// le shell retrouve la géométrie du champ focalisé (déplacement vertical du caret).
+    /// Frame of a **focusable** widget `id`, when it is present this frame — so the shell can
+    /// find the focused field's geometry (vertical caret movement).
     pub fn widget_rect(&self, id: WidgetId) -> Option<Rect> {
         self.focusables
             .iter()
             .find(|(fid, _)| *fid == id)
             .map(|(_, rect)| *rect)
-            // Repli sur le registre des **réordonnables**. Les cartes Kanban (et les en-têtes
-            // réordonnables mais **non** triables) ne sont pas focusables : sans ce repli, le shell
-            // ne trouve pas leurs bornes, et tout l'aperçu de glisser **vertical** (fantôme, ligne
-            // d'insertion, réagencement) comme le routage *insert-after* restent lettre morte.
+            // Falls back to the **reorderables** registry. Kanban cards (and headers that are
+            // reorderable but **not** sortable) are not focusable: without this fallback the
+            // shell cannot find their bounds, and the whole **vertical** drag preview (ghost,
+            // insertion line, reflow) as well as the *insert-after* routing stay dead.
             .or_else(|| {
                 self.reorderables
                     .iter()
@@ -358,14 +357,14 @@ impl<Msg: Clone> Ui<Msg> {
             })
     }
 
-    /// Les identités de **tous** les widgets focusables de la frame (scope compris) —
-    /// pour que le shell détecte la **disparition** du focus (overlay fermé) et le restaure.
+    /// The identities of **every** focusable widget of the frame (the scope included) — so
+    /// the shell can detect the focus **disappearing** (an overlay closed) and restore it.
     pub fn focusable_ids(&self) -> impl Iterator<Item = WidgetId> + '_ {
         self.focusables.iter().map(|(id, _)| *id)
     }
 
-    /// Cadre (viewport) de la zone défilable `id`, s'il existe — pour que le shell
-    /// retrouve la largeur/hauteur d'un champ multi-lignes (suivi du caret).
+    /// Frame (viewport) of the scrollable area `id`, when there is one — so the shell can find
+    /// a multi-line field's width/height (caret following).
     pub fn scrollable_viewport(&self, id: WidgetId) -> Option<Rect> {
         self.scrollables
             .iter()
@@ -373,8 +372,8 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(_, rect, _, _)| *rect)
     }
 
-    /// Bornes de défilement `(id, max_x, max_y)` de chaque zone défilable, pour
-    /// piloter l'inertie côté framework.
+    /// Scroll bounds `(id, max_x, max_y)` of every scrollable area, to drive the inertia on
+    /// the framework's side.
     pub fn scrollable_maxes(&self) -> Vec<(WidgetId, f32, f32)> {
         self.scrollables
             .iter()
@@ -382,7 +381,7 @@ impl<Msg: Clone> Ui<Msg> {
             .collect()
     }
 
-    /// Poignée de barre de défilement sous `point` (pour démarrer un glissement).
+    /// Scrollbar thumb under `point` (to start a drag).
     pub fn scrollbar_at(&self, point: Point) -> Option<Scrollbar> {
         self.scrollbars
             .iter()
@@ -391,7 +390,7 @@ impl<Msg: Clone> Ui<Msg> {
             .copied()
     }
 
-    /// Widget glissable le plus au-dessus sous `point` : (id, ses bornes).
+    /// Topmost draggable widget under `point`: (id, its bounds).
     pub fn draggable_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
         self.draggables
             .iter()
@@ -400,8 +399,8 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
-    /// Widget **réordonnable** le plus au-dessus sous `point` : son id. Base du glisser-déposer de
-    /// réordonnancement (source à l'appui, cible au dépôt) — indépendant de la cliquabilité.
+    /// Topmost **reorderable** widget under `point`: its id. The basis of reordering
+    /// drag-and-drop (the source on press, the target on drop) — independent of clickability.
     pub fn reorderable_at(&self, point: Point) -> Option<WidgetId> {
         self.reorderables
             .iter()
@@ -410,8 +409,8 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, _)| *id)
     }
 
-    /// Fenêtre **interactive** (`InteractiveViewer`) la plus au-dessus sous `point` :
-    /// (id, sa fenêtre écran). Le shell y route le pan et le zoom.
+    /// Topmost **interactive** viewport (`InteractiveViewer`) under `point`: (id, its screen
+    /// viewport). The shell routes panning and zooming to it.
     pub fn interactive_at(&self, point: Point) -> Option<(WidgetId, Rect)> {
         self.interactives
             .iter()
@@ -420,17 +419,16 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
-    /// Fenêtres interactives `(id, fenêtre écran)`, pour piloter l'inertie (fling) et
-    /// le bornage du pan côté framework.
+    /// Interactive viewports `(id, screen viewport)`, to drive the inertia (fling) and the
+    /// clamping of the pan on the framework's side.
     pub fn interactive_bounds(&self) -> Vec<(WidgetId, Rect)> {
         self.interactives.clone()
     }
 }
 
-/// Identité du `index`-ième enfant : **par clé** si l'enfant en déclare une
-/// (stable quel que soit sa position), sinon **positionnelle**. Doit être utilisée
-/// partout où l'on dérive une identité d'enfant (rendu, collecte, recherche,
-/// animations) pour rester cohérent.
+/// Identity of the `index`-th child: **by key** when the child declares one (stable whatever
+/// its position), **positional** otherwise. It must be used everywhere a child identity is
+/// derived (render, collection, lookup, animations) so they all stay consistent.
 pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<Msg>) -> WidgetId {
     match child.key() {
         Some(key) => parent.keyed(key),
@@ -438,12 +436,11 @@ pub(crate) fn child_id<Msg>(parent: WidgetId, index: usize, child: &dyn Widget<M
     }
 }
 
-/// Style **effectif** d'un widget pour le layout : son `style()`, dont la taille
-/// est **remplacée par la taille interpolée** du runtime si le widget est animé
-/// (`Widget::anim_size` + `Container::animated_size`). C'est le seul point où la
-/// taille animée entre dans la mise en page — utilisé **à l'identique** par
-/// [`build_layout`] et par l'empreinte du cache (`hash_node`), garantissant leur
-/// cohérence (le cache s'invalide tant que la taille bouge).
+/// A widget's **effective** style for layout: its `style()`, whose size is **replaced by the
+/// runtime's interpolated size** when the widget is animated (`Widget::anim_size` +
+/// `Container::animated_size`). This is the only place where an animated size enters layout —
+/// used **identically** by [`build_layout`] and by the cache fingerprint (`hash_node`), which
+/// is what keeps them consistent (the cache stays invalid for as long as the size moves).
 pub(crate) fn effective_style<Msg>(
     widget: &dyn Widget<Msg>,
     id: WidgetId,
@@ -464,18 +461,18 @@ pub(crate) fn effective_style<Msg>(
     style
 }
 
-/// Construit l'arbre de layout principal (un défilable est une **feuille**).
-/// `id`/`runtime` servent à injecter la taille animée via [`effective_style`],
-/// en suivant **exactement** le schéma d'identités du walk (`child_id`).
+/// Builds the main layout tree (a scrollable is a **leaf**). `id`/`runtime` are what inject
+/// the animated size through [`effective_style`], following the walk's identity scheme
+/// (`child_id`) **exactly**.
 pub(crate) fn build_layout<Msg>(
     widget: &dyn Widget<Msg>,
     id: WidgetId,
     runtime: &Runtime,
     layout: &mut Layout<()>,
 ) -> NodeId {
-    // `RotatedBox` : feuille dont la boîte est la taille **naturelle** de l'enfant,
-    // dimensions **échangées** pour un quart de tour impair (la rotation affecte la
-    // mise en page). L'enfant lui-même est posé à part (au rendu).
+    // `RotatedBox`: a leaf whose box is the child's **natural** size, with its dimensions
+    // **swapped** for an odd quarter turn (the rotation does affect layout). The child itself
+    // is laid out separately (at render time).
     if let Some(q) = widget.rotated_quarter_turns() {
         let mut style = effective_style(widget, id, runtime);
         if let Some(child) = widget.children().first() {
@@ -490,9 +487,9 @@ pub(crate) fn build_layout<Msg>(
         }
         return layout.leaf(style, ());
     }
-    // Défilables, fenêtres interactives, ajusteurs (`FittedBox`), navigateurs, listes
-    // virtualisées et piles : contenu mis en page à part (couches / écrans / éléments
-    // indépendants, ou enfant posé à sa taille naturelle).
+    // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
+    // lists and stacks: their content is laid out separately (independent layers / screens /
+    // items, or a child laid out at its natural size).
     if widget.scroll_content().is_some()
         || widget.interactive().is_some()
         || widget.fitted().is_some()
@@ -503,7 +500,7 @@ pub(crate) fn build_layout<Msg>(
     {
         return layout.leaf(effective_style(widget, id, runtime), ());
     }
-    // Un portail ne met en page que son ancre (enfant 0) ; l'overlay est différé.
+    // A portal only lays out its anchor (child 0); the overlay is deferred.
     if widget.overlay().is_some() {
         let anchor_w = widget.children()[0].as_ref();
         let anchor = build_layout(anchor_w, child_id(id, 0, anchor_w), runtime, layout);
@@ -511,8 +508,8 @@ pub(crate) fn build_layout<Msg>(
     }
     let children = widget.children();
     if children.is_empty() {
-        // Feuille à mesure sous contraintes (paragraphe qui se replie…) : taffy
-        // interroge la closure pendant le calcul.
+        // A leaf measured under constraints (a paragraph that wraps…): taffy calls the
+        // closure during the computation.
         if let Some(measure) = widget.measure() {
             return layout.measured_leaf(effective_style(widget, id, runtime), (), measure);
         }
@@ -534,9 +531,9 @@ pub(crate) fn build_layout<Msg>(
     }
 }
 
-/// Taille **naturelle** (intrinsèque) d'un sous-arbre : mise en page sous des axes
-/// libres (`MaxContent`), sans contrainte imposée. Sert à `RotatedBox` (dimensions à
-/// échanger) et — au rendu — à `FittedBox` (facteur d'ajustement).
+/// **Natural** (intrinsic) size of a subtree: laid out under free axes (`MaxContent`), with
+/// no imposed constraint. Used by `RotatedBox` (the dimensions to swap) and — at render time
+/// — by `FittedBox` (the fit factor).
 pub(crate) fn natural_size<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime) -> Size {
     let mut layout = Layout::new();
     let node = build_layout(widget, id, runtime, &mut layout);
@@ -554,16 +551,16 @@ struct Builder<'a, Msg> {
     long_presses: Vec<Hit<Msg>>,
     dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
-    /// Début du scope de focus de l'overlay modal le plus au-dessus.
+    /// Start of the topmost modal overlay's focus scope.
     focus_scope_start: Option<usize>,
     scrollables: Vec<(WidgetId, Rect, f32, f32)>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
     reorderables: Vec<(WidgetId, Rect)>,
     interactives: Vec<(WidgetId, Rect)>,
-    /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
-    /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
-    /// voile qui se fond) ; elle vaut `1.0` pour les overlays non animés.
+    /// Deferred overlays: (content, id, the anchor's bounds, placement, dismissal, progress
+    /// `0..=1`). The progress animates the appearance (a drawer sliding in, a scrim fading);
+    /// it is `1.0` for overlays that are not animated.
     overlays: Vec<(
         &'a dyn Widget<Msg>,
         WidgetId,
@@ -573,35 +570,33 @@ struct Builder<'a, Msg> {
         f32,
         bool,
     )>,
-    /// Un widget demande une animation continue (pilotée par le temps).
+    /// A widget is asking for a continuous, time-driven animation.
     wants_animation: bool,
     available: Size,
     runtime: &'a Runtime,
     theme: &'a Theme,
-    /// Collecte de l'inspecteur (`Some` seulement quand il est actif) : un
-    /// nœud par widget peint, dans l'ordre de peinture.
+    /// The inspector's collection (`Some` only while it is on): one node per painted widget,
+    /// in paint order.
     inspector: Option<Vec<crate::inspector::InspectorNode>>,
-    /// Profondeur courante du walk (pour l'indentation du dump et le nuancier
-    /// des contours de l'inspecteur).
+    /// Current depth of the walk (for the dump's indentation and the palette of the
+    /// inspector's outlines).
     depth: usize,
-    /// Direction de mise en page : en RTL, les rectangles de chaque racine sont
-    /// **retournés** horizontalement autour de la largeur de la racine.
+    /// Layout direction: in RTL, each root's rects are **mirrored** horizontally about the
+    /// root's width.
     rtl: bool,
-    /// Nœuds d'accessibilité collectés pendant le walk (ordre de peinture).
+    /// Accessibility nodes collected during the walk (paint order).
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
 impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
-    /// Rectangles d'une racine de layout, via le cache de relayout retenu dans le
-    /// runtime (recalcule via taffy seulement si style/structure/contraintes ont
-    /// changé). Emprunt mutable bref : la `Vec` renvoyée est possédée.
+    /// A layout root's rects, through the relayout cache retained in the runtime (it only
+    /// recomputes through taffy when the style/structure/constraints have changed). A brief
+    /// mutable borrow: the `Vec` returned is owned.
     ///
-    /// En **RTL**, taffy calcule en LTR (canonique, mis en cache), puis on
-    /// **miroite** chaque rectangle autour de la largeur de la racine (le 1ᵉʳ
-    /// rect) : les rangées s'inversent, l'alignement et les marges se
-    /// retournent — sans toucher aux widgets. Le texte, lui, se dessine
-    /// normalement dans sa boîte déplacée (le bidi *interne* est géré par
-    /// cosmic-text).
+    /// In **RTL**, taffy computes in LTR (canonical, and cached), then each rect is
+    /// **mirrored** about the root's width (the 1st rect): the rows reverse, the alignment
+    /// and the margins flip — without touching the widgets. The text itself is drawn
+    /// normally inside its moved box (the *internal* bidi is handled by cosmic-text).
     fn cached_rects(&self, key: WidgetId, root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
         let mut rects = self
             .runtime
@@ -612,8 +607,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects
     }
 
-    /// Retourne horizontalement les rectangles d'une racine (RTL). Le premier
-    /// rect est la racine elle-même : sa largeur est l'axe de symétrie.
+    /// Mirrors a root's rects horizontally (RTL). The first rect is the root itself: its
+    /// width is the axis of symmetry.
     fn mirror(&self, rects: &mut [Rect]) {
         if !self.rtl {
             return;
@@ -621,17 +616,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let Some(root) = rects.first().copied() else {
             return;
         };
-        // Axe : les rects sont relatifs à la racine (origine à root.x).
+        // The axis: the rects are relative to the root (origin at root.x).
         for r in rects.iter_mut() {
             r.x = root.x + (root.width - (r.x - root.x) - r.width);
         }
     }
 
-    /// Empreinte 64-bit de tout ce que la peinture d'un sous-arbre de frontière
-    /// lit **sans** reconstruire la `view` : le `Status` de chaque descendant
-    /// (dans l'ordre du walk) et les rectangles absolus du sous-arbre. Empreinte
-    /// + génération inchangées ⇒ peinture bit-à-bit identique. Le temps est
-    /// exclu (une frontière cachable ne contient aucun widget `continuous`).
+    /// 64-bit fingerprint of everything painting a boundary subtree reads **without**
+    /// rebuilding the `view`: each descendant's `Status` (in walk order) and the subtree's
+    /// absolute rects. An unchanged fingerprint + generation ⇒ a bit-for-bit identical paint.
+    /// The time is excluded (a cacheable boundary holds no `continuous` widget).
     fn boundary_fingerprint(
         &self,
         widget: &dyn Widget<Msg>,
@@ -653,9 +647,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         h.finish()
     }
 
-    /// Ajoute à `h` le `Status` de `widget` puis, récursivement, de ses enfants
-    /// — **exactement** le schéma d'identités du walk (`child_id`), donc aligné
-    /// sur l'ordre dans lequel `walk_node` les peint.
+    /// Adds `widget`'s `Status` to `h`, then its children's, recursively — following the
+    /// walk's identity scheme (`child_id`) **exactly**, so it lines up with the order in which
+    /// `walk_node` paints them.
     fn hash_statuses<H: Hasher>(&self, widget: &dyn Widget<Msg>, id: WidgetId, h: &mut H) {
         hash_status(&self.full_status(id), h);
         for (i, child) in widget.children().iter().enumerate() {
@@ -663,8 +657,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    /// Longueurs courantes des collectes du builder : la borne basse des tranches
-    /// à capturer pour une frontière (voir [`capture_since`](Self::capture_since)).
+    /// Current lengths of the builder's collections: the lower bound of the slices to capture
+    /// for a boundary (see [`capture_since`](Self::capture_since)).
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             scene: self.scene.primitives().len(),
@@ -680,10 +674,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    /// Capture la sortie produite depuis `snap` (les *tranches de queue* des
-    /// collectes) en une [`BoundaryData`]. Renvoie `None` — donc **non
-    /// cachable** — si le sous-arbre a poussé un overlay ou touché le scope de
-    /// focus modal (état global non capturable ici).
+    /// Captures the output produced since `snap` (the collections' *tail slices*) into a
+    /// [`BoundaryData`]. Returns `None` — hence **not cacheable** — when the subtree pushed an
+    /// overlay or touched the modal focus scope (global state that cannot be captured here).
     fn capture_since(&self, snap: &Snapshot) -> Option<BoundaryData<Msg>> {
         if self.overlays.len() != snap.overlays || self.focus_scope_start != snap.focus_scope_start
         {
@@ -701,8 +694,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         })
     }
 
-    /// Rejoue une frontière depuis le cache : primitives déjà formées (découpe/
-    /// propriétaire baked) et cartes d'interaction, ajoutées telles quelles.
+    /// Replays a boundary from the cache: primitives already formed (clip/owner baked in) and
+    /// interaction maps, appended as is.
     fn splice_boundary(&mut self, data: BoundaryData<Msg>) {
         for p in data.prims {
             self.scene.push_primitive(p);
@@ -716,7 +709,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.semantics.extend(data.semantics);
     }
 
-    /// Bornes basses des registres d'interaction **avant** un sous-arbre composité transformé.
+    /// Lower bounds of the interaction registries **before** a transformed composited subtree.
     fn xform_base(&self) -> XformBase {
         XformBase {
             hits: self.hits.len(),
@@ -729,15 +722,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    /// Applique la transformation de calque `matrix` aux entrées de registre **ajoutées depuis**
-    /// `base` : le point de test des cibles de clic / appui long passe par `M⁻¹` (sans écraser une
-    /// transformation intérieure déjà posée) ; et si `matrix` conserve l'alignement sur les axes
-    /// (échelle/translation, sans rotation), les **rectangles** de focus / défilement / glisser /
-    /// **réordonnancement** / accessibilité sont mappés exactement par `M` (sinon laissés tels
-    /// quels — le clic reste juste via `M⁻¹`). **Facteur commun** des deux sites de composition
-    /// transformée (frontière de `walk` et `emit_transformed_child`) : un seul endroit à tenir à
-    /// jour, qui n'oublie aucun registre (le jalon 250 avait justement oublié `reorderables` dans
-    /// l'un des deux).
+    /// Applies the layer transform `matrix` to the registry entries **added since** `base`:
+    /// the test point of click / long-press targets goes through `M⁻¹` (without overwriting an
+    /// inner transform already set); and when `matrix` preserves axis alignment
+    /// (scale/translation, no rotation), the **rects** of focus / scrolling / dragging /
+    /// **reordering** / accessibility are mapped exactly by `M` (otherwise they are left as
+    /// they are — the click stays correct through `M⁻¹`). The **shared factor** of the two
+    /// transformed-composition sites (`walk`'s boundary and `emit_transformed_child`): one
+    /// place to keep up to date, which forgets no registry (milestone 250 had forgotten
+    /// `reorderables` in exactly one of the two).
     fn transform_interaction_registries(&mut self, base: &XformBase, matrix: Affine) {
         let inverse = matrix.inverse();
         for h in &mut self.hits[base.hits..] {
@@ -765,12 +758,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    /// Point d'entrée du parcours d'un nœud. Si le nœud est une **frontière de
-    /// repaint** cachable, tente de rejouer son sous-arbre depuis le cache de
-    /// peinture ; sinon (ou sur *miss*), délègue au parcours complet
-    /// [`walk_node`](Self::walk_node) en capturant sa sortie pour la prochaine
-    /// frame. Toutes les récursions passent par ici → les frontières imbriquées
-    /// sont mises en cache elles aussi.
+    /// Entry point for walking a node. When the node is a cacheable **repaint boundary**, it
+    /// tries to replay its subtree from the paint cache; otherwise (or on a *miss*) it
+    /// delegates to the full walk [`walk_node`](Self::walk_node), capturing its output for the
+    /// next frame. Every recursion goes through here → nested boundaries get cached too.
     fn walk(
         &mut self,
         widget: &'a dyn Widget<Msg>,
@@ -780,11 +771,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects: &[Rect],
         index: &mut usize,
     ) {
-        // Groupe d'opacité (Opacity/AnimatedOpacity) : on peint le sous-arbre
-        // normalement puis on **draine** sa plage de primitives dans un calque
-        // composité à l'opacité de groupe (façon `saveLayer` de Flutter — pas de
-        // double-superposition). L'opacité animée est la valeur tweenée par le
-        // runtime ; sinon la cible fixe. Opaque (≈1) : aucun calque (coût nul).
+        // An opacity group: the subtree is painted normally, then its range of primitives is
+        // **drained** into a composited layer at the group's opacity — so overlaps do not
+        // double-blend. The animated opacity is the value the runtime tweened; otherwise the
+        // fixed target. Opaque (≈1): no layer at all (zero cost).
         if let Some(target) = widget.opacity_group() {
             let opacity = self.runtime.value_or(id, target).clamp(0.0, 1.0);
             if opacity < 0.999 {
@@ -801,24 +791,22 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 });
                 return;
             }
-            // Totalement opaque : rendu normal (pas de calque inutile).
+            // Fully opaque: an ordinary render (no pointless layer).
         }
 
-        // Découpe **en forme** (`ClipRRect` / `ClipOval`) : on peint le sous-arbre
-        // normalement, borné à la boîte du widget, puis on **draine** ses primitives
-        // dans un calque composité dont la forme (arrondi / ellipse) module l'alpha —
-        // les coins débordants sont gommés au compositing (façon `ClipRRect` de
-        // Flutter). La boîte de la forme est le rectangle de découpe du calque.
-        // Découpe en forme : `ClipPath` (chemin arbitraire, prioritaire) ou
-        // `ClipRRect`/`ClipOval` (forme analytique). Le chemin local est **décalé à la
-        // position écran** de la boîte.
+        // **Shape** clipping: the subtree is painted normally, bounded to the widget's box,
+        // then its primitives are **drained** into a composited layer whose shape (rounded
+        // corners / ellipse) modulates the alpha — the overflowing corners are erased at
+        // compositing time. The shape's box is the layer's clip rect. Two sources: `ClipPath`
+        // (an arbitrary path, taking priority) or `ClipRRect`/`ClipOval` (an analytic shape).
+        // The local path is **offset to the box's screen position**.
         if widget.clip_path().is_some() || widget.clip_shape().is_some() {
             let box_rect = rects[*index].translate(translation.0, translation.1);
             let shape = widget
                 .clip_path()
                 .map(|p| ClipShape::Path(p.translated(box_rect.x, box_rect.y)))
                 .or_else(|| widget.clip_shape())
-                .expect("clip_path ou clip_shape est Some");
+                .expect("clip_path or clip_shape is Some");
             let clip_box = clip.intersect(box_rect);
             let start = self.scene.primitives().len();
             self.walk_node(widget, id, translation, clip_box, rects, index);
@@ -834,20 +822,19 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             return;
         }
 
-        // Transformations de peinture composables (`Transform` : échelle et/ou
-        // rotation ; la translation, elle, passe par le décalage d'enfant). On fond
-        // échelle et rotation en **une seule matrice affine** `M`, on peint le
-        // sous-arbre **à plat**, puis on l'enveloppe dans un calque composité
-        // transformé par `M`. Le hit-test applique `M⁻¹` au point. La translation,
-        // appliquée en amont via `child_offset`, est la plus intérieure.
+        // Composable paint transforms (`Transform`: scale and/or rotation; translation goes
+        // through the child offset instead). Scale and rotation are melted into **a single
+        // affine matrix** `M`, the subtree is painted **flat**, then wrapped in a composited
+        // layer transformed by `M`. The hit-test applies `M⁻¹` to the point. The translation,
+        // applied upstream through `child_offset`, is the innermost one.
         let scale = widget
             .transform_scale()
             .filter(|(sx, sy, _)| (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4);
         let rotate = widget.transform_rotate().filter(|(a, _)| a.abs() > 1e-4);
         if scale.is_some() || rotate.is_some() {
-            // Pivots pris sur la boîte de l'**enfant** (nœud suivant dans l'ordre
-            // préfixe) : c'est lui qu'on transforme, et sa boîte épouse le contenu
-            // même quand la boîte du Transform est étirée par le parent.
+            // The pivots are taken on the **child's** box (the next node in prefix order): it
+            // is the child that gets transformed, and its box hugs the content even when the
+            // Transform's own box is stretched by the parent.
             let basis = rects.get(*index + 1).copied().unwrap_or(rects[*index]);
             let box_rect = basis.translate(translation.0, translation.1);
             let pivot_of = |align: frus_core::Alignment| {
@@ -856,8 +843,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     box_rect.y + box_rect.height * align.fraction_y(),
                 )
             };
-            // Composition : échelle (autour de son pivot) **puis** rotation (autour du
-            // sien). En RTL, le monde est retourné → sens de rotation inversé.
+            // The composition: scale (about its own pivot) **then** rotation (about its own).
+            // In RTL the world is mirrored → the rotation direction is inverted.
             let mut matrix = Affine::IDENTITY;
             if let Some((sx, sy, pivot_align)) = scale {
                 matrix = matrix.then(Affine::scale(sx, sy).about(pivot_of(pivot_align)));
@@ -870,8 +857,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let p0 = self.scene.primitives().len();
             let base = self.xform_base();
             self.walk_node(widget, id, translation, clip, rects, index);
-            // Enveloppe la plage de primitives — peinte à plat — dans un calque
-            // transformé par `M` (échelle/rotation appliquées au compositing).
+            // Wraps the range of primitives — painted flat — in a layer transformed by `M`
+            // (scale/rotation applied at compositing time).
             let group = self.scene.split_off(p0);
             self.scene.push_primitive(Primitive::Layer {
                 primitives: group,
@@ -881,21 +868,21 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 transform: Some(LayerTransform::new(matrix)),
                 owner: id.as_u64(),
             });
-            // Contre-transforme le hit-test et mappe les rectangles d'interaction du sous-arbre.
+            // Counter-transforms the hit-test and maps the subtree's interaction rects.
             self.transform_interaction_registries(&base, matrix);
             return;
         }
 
-        // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne
-        // met en cache que hors inspection.
+        // The inspector wants a full walk (it collects every node); caching only happens
+        // outside inspection.
         if self.inspector.is_none() && widget.repaint_boundary() {
             if let Some(count) = plain_subtree_len(widget) {
                 let start = *index;
                 let sub = &rects[start..start + count];
                 let fp = self.boundary_fingerprint(widget, id, translation, sub);
 
-                // Hit : même génération (config) + même empreinte (état+géométrie)
-                // ⇒ la peinture serait identique. On clone la sortie et la rejoue.
+                // Hit: the same generation (config) + the same fingerprint (state+geometry)
+                // ⇒ the paint would be identical. The output is cloned and replayed.
                 let hit = {
                     let mut pc = self.runtime.paint_cache.borrow_mut();
                     pc.get(id, fp).and_then(|(rc, any)| {
@@ -910,8 +897,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     return;
                 }
 
-                // Miss : peint normalement, en capturant la sortie du sous-arbre
-                // (primitives + cartes d'interaction) pour la prochaine frame.
+                // Miss: paints normally, capturing the subtree's output (primitives +
+                // interaction maps) for the next frame.
                 let snap = self.snapshot();
                 self.walk_node(widget, id, translation, clip, rects, index);
                 self.runtime.paint_cache.borrow_mut().note_miss();
@@ -927,12 +914,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.walk_node(widget, id, translation, clip, rects, index);
     }
 
-    /// Peint un enfant **à plat** (posé à part, à `translation`, avec ses propres
-    /// rectangles) puis l'enveloppe dans un calque composité transformé par `matrix`,
-    /// découpé à `clip`. Le hit-test contre-transforme le point (`M⁻¹`) ; si `matrix`
-    /// reste alignée sur les axes (échelle/translation), les bornes de focus /
-    /// défilement / glisser / accessibilité sont aussi transformées. Facteur commun de
-    /// `InteractiveViewer`, `RotatedBox` et `FittedBox`.
+    /// Paints a child **flat** (laid out separately, at `translation`, with its own rects)
+    /// then wraps it in a composited layer transformed by `matrix` and clipped to `clip`. The
+    /// hit-test counter-transforms the point (`M⁻¹`); when `matrix` stays axis-aligned
+    /// (scale/translation), the focus / scroll / drag / accessibility bounds are transformed
+    /// too. The shared factor of `InteractiveViewer`, `RotatedBox` and `FittedBox`.
     fn emit_transformed_child(
         &mut self,
         child: &'a dyn Widget<Msg>,
@@ -981,7 +967,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
-        // Un widget a pu resserrer la découpe (ex. TextInput) : on la restaure.
+        // A widget may have tightened the clip (TextInput, for one): it is restored here.
         self.scene.set_clip(clip);
         self.draw_focus_ring(draw_rect, &status, widget);
 
@@ -1012,13 +998,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if widget.reorder_index().is_some() {
                 self.reorderables.push((id, visible));
             }
-            // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
+            // The accessibility tree: nodes that carry meaning (a role or a label).
             if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
                 self.semantics.push((id, visible, sem));
             }
-            // Champ **multi-lignes** dont le contenu déborde : région scrollable
-            // (molette/inertie via la machinerie générique ; le shell suit le caret)
-            // + une barre de défilement glissable (souris et tactile).
+            // A **multi-line** field whose content overflows: a scrollable region (wheel and
+            // inertia through the generic machinery; the shell follows the caret) plus a
+            // draggable scrollbar (mouse and touch).
             if let Some(vp) = widget.text_viewport(draw_rect) {
                 if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0)
                 {
@@ -1043,8 +1029,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let children = widget.children();
             let w = bounds.width;
             if children.len() >= 2 {
-                // Transition : deux écrans décalés. L'écran « arrière » (offset
-                // négatif) se déplace moins (parallaxe) → sensation de profondeur.
+                // A transition: two offset screens. The screen "behind" (a negative offset)
+                // moves less (parallax) → the sense of depth.
                 let dir = if forward { 1.0 } else { -1.0 };
                 let raw = [-progress * w * dir, (1.0 - progress) * w * dir];
                 let off = [
@@ -1059,7 +1045,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         raw[1]
                     },
                 ];
-                // Ordre de profondeur : le plus décalé à gauche (arrière) d'abord.
+                // Depth order: the one offset furthest left (the back one) goes first.
                 let (back, front) = if off[0] <= off[1] { (0, 1) } else { (1, 0) };
                 self.render_screen(
                     children[back].as_ref(),
@@ -1068,7 +1054,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     off[back],
                     clip,
                 );
-                // Assombrit l'écran arrière proportionnellement à son recouvrement.
+                // Darkens the screen behind in proportion to how far it is covered.
                 let coverage = (off[back].abs() / (w * NAV_PARALLAX)).min(1.0);
                 if coverage > 0.0 {
                     let scrim =
@@ -1095,10 +1081,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
             }
         } else if widget.interactive().is_some() {
-            // Fenêtre **interactive** (`InteractiveViewer`) : l'enfant remplit la
-            // fenêtre à l'échelle 1, puis on lui applique la transformation retenue
-            // (échelle + translation, gestes du shell) via **un seul calque** portant
-            // à la fois la matrice `M` et la découpe à la fenêtre.
+            // An **interactive** viewport (`InteractiveViewer`): the child fills the viewport
+            // at scale 1, then the retained transform (scale + translation, from the shell's
+            // gestures) is applied to it through **a single layer** carrying both the matrix
+            // `M` and the clip to the viewport.
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
             self.interactives.push((id, viewport));
@@ -1128,11 +1114,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
             }
         } else if let Some(q) = widget.rotated_quarter_turns() {
-            // `RotatedBox` : l'enfant, mesuré à sa taille **naturelle**, est centré dans
-            // la boîte (dimensions échangées pour un quart impair, cf. `build_layout`)
-            // puis tourné autour du centre. La rotation, appliquée au compositing, ne
-            // reste pas alignée sur les axes pour un quart impair (bornes de focus
-            // laissées telles quelles — le clic, lui, reste juste via `M⁻¹`).
+            // `RotatedBox`: the child, measured at its **natural** size, is centred in the box
+            // (with the dimensions swapped for an odd quarter, see `build_layout`) then rotated
+            // about the centre. The rotation, applied at compositing time, does not stay
+            // axis-aligned for an odd quarter (the focus bounds are left as they are — the
+            // click itself stays correct through `M⁻¹`).
             let box_rect = draw_rect;
             if let Some(child) = widget.children().first() {
                 let child = child.as_ref();
@@ -1162,9 +1148,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
             }
         } else if let Some(fit) = widget.fitted() {
-            // `FittedBox` : l'enfant, mesuré à sa taille **naturelle**, est mis à
-            // l'échelle selon le `BoxFit` (uniforme, sauf `Fill`), centré, découpé à la
-            // boîte. L'échelle reste alignée sur les axes → les bornes de focus suivent.
+            // `FittedBox`: the child, measured at its **natural** size, is scaled according to
+            // the `BoxFit` (uniformly, except for `Fill`), centred and clipped to the box. The
+            // scale stays axis-aligned → the focus bounds follow.
             let box_rect = draw_rect;
             let content_clip = clip.intersect(box_rect);
             if let Some(child) = widget.children().first() {
@@ -1232,7 +1218,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &mut content_index,
             );
 
-            // Barres de défilement, par-dessus le contenu (non découpées par lui).
+            // Scrollbars, over the content (not clipped by it).
             self.scene.set_clip(clip);
             if max_y > 0.0 {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
@@ -1241,7 +1227,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.add_scrollbar(id, viewport, false, offset_x, max_x);
             }
         } else if let Some(vlist) = widget.virtual_list() {
-            // Liste virtualisée : ne construire/poser/peindre que la fenêtre visible.
+            // A virtualised list: only build/lay out/paint the visible window.
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
             let (_, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
@@ -1280,8 +1266,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
             }
         } else if let Some(build) = widget.layout_builder() {
-            // Construit le contenu à partir de la boîte réelle, puis le met en page
-            // et le rend à l'intérieur (comme un élément de liste : sans état retenu).
+            // Builds the content from the actual box, then lays it out and renders it inside
+            // (like a list item: with no retained state).
             let bounds = draw_rect;
             let content_clip = clip.intersect(bounds);
             let child = build(Size::new(bounds.width, bounds.height));
@@ -1302,7 +1288,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &mut child_index,
             );
         } else if widget.stack() {
-            // Pile : chaque couche remplit la boîte, rendue dans l'ordre.
+            // A stack: each layer fills the box, rendered in order.
             let bounds = draw_rect;
             let layer_clip = clip.intersect(bounds);
             for (i, layer) in widget.children().iter().enumerate() {
@@ -1322,7 +1308,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
             }
         } else if let Some((content, placement)) = widget.overlay() {
-            // Ancre (enfant 0) rendue inline ; overlay (enfant 1) différé.
+            // The anchor (child 0) is rendered inline; the overlay (child 1) is deferred.
             self.walk(
                 widget.children()[0].as_ref(),
                 child_id(id, 0, widget.children()[0].as_ref()),
@@ -1331,13 +1317,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 rects,
                 index,
             );
-            // Progression d'apparition : pour un overlay animé (tiroir), la valeur
-            // interpolée par le runtime ; sinon `1.0` (affiché d'emblée). Sans
-            // valeur enregistrée (rendu isolé), on adopte la cible immédiatement.
+            // The appearance progress: for an animated overlay (a drawer), the value the
+            // runtime interpolated; otherwise `1.0` (shown at once). With no value recorded
+            // (an isolated render), the target is adopted immediately.
             let target = widget.anim_target().unwrap_or(1.0);
             let progress = self.runtime.value_or(id, target);
-            // Un tooltip ne s'affiche que si l'ancre est survolée ; un overlay animé
-            // disparaît une fois sa progression retombée à zéro.
+            // A tooltip only shows while the anchor is hovered; an animated overlay disappears
+            // once its progress has fallen back to zero.
             let visible = match placement {
                 Placement::Tooltip => self.runtime.input.hovered == Some(id.child(0)),
                 _ => true,
@@ -1355,9 +1341,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
         } else {
             let children = widget.children();
-            // Ancrage fractionnel (`Container::alignment`) + décalage de peinture
-            // (`Transform::translate`) : décalent le sous-arbre. `(0, 0)` sinon →
-            // parcours flex normal.
+            // Fractional alignment (`Container::alignment`) + paint offset
+            // (`Transform::translate`): both offset the subtree. `(0, 0)` otherwise → the
+            // ordinary flex walk.
             let extra = self.child_offset(widget, id, rect, rects, *index, children);
             for (child_index, child) in children.iter().enumerate() {
                 self.walk(
@@ -1373,11 +1359,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.depth -= 1;
     }
 
-    /// Décalage à appliquer au sous-arbre d'un enfant : somme de l'**ancrage
-    /// fractionnel** (`Widget::alignment`, un enfant unique glissé dans l'espace
-    /// libre) et du **décalage de peinture** (`Transform::translate`, tout le
-    /// sous-arbre décalé sans toucher la mise en page). `(0, 0)` par défaut. Étant
-    /// ajouté à la translation du walk, ce décalage suit primitives **et** hit-test.
+    /// Offset to apply to a child's subtree: the sum of the **fractional alignment**
+    /// (`Widget::alignment`, a single child slid through the free space) and the **paint
+    /// offset** (`Transform::translate`, the whole subtree offset without touching layout).
+    /// `(0, 0)` by default. Since it is added to the walk's translation, this offset follows
+    /// both the primitives **and** the hit-test.
     fn child_offset(
         &self,
         widget: &dyn Widget<Msg>,
@@ -1389,13 +1375,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     ) -> (f32, f32) {
         let mut off = (0.0, 0.0);
 
-        // Ancrage fractionnel : vise un enfant unique (façon Flutter). taffy a posé
-        // l'enfant en haut-gauche (Start/Start) à sa taille naturelle ; on le glisse
-        // de `libre × fraction`.
+        // Fractional alignment: it targets a single child. taffy laid the child out at the
+        // top left (Start/Start) at its natural size; it is then slid by `free × fraction`.
         if let (Some(geo), 1) = (widget.alignment_geometry(), children.len()) {
-            // Résout l'ancrage (physique ou directionnel) selon le sens de lecture ;
-            // `resolve` produit un `Alignment` physique que la suite (avec sa
-            // correction RTL) traite uniformément.
+            // Resolves the alignment (physical or directional) against the reading direction;
+            // `resolve` produces a physical `Alignment` that the rest (with its RTL correction)
+            // handles uniformly.
             let direction = if self.rtl {
                 frus_core::TextDirection::Rtl
             } else {
@@ -1406,17 +1391,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let pad = effective_style(widget, id, self.runtime).padding;
             let free_w = (container.width - pad.left - pad.right - child.width).max(0.0);
             let free_h = (container.height - pad.top - pad.bottom - child.height).max(0.0);
-            // En RTL, taffy pose l'enfant à gauche puis `mirror` l'a renvoyé à
-            // droite : la base est donc déjà l'ancrage droit. On retranche 1 pour que
-            // la fraction reste **physique** (x = +1 ⇒ droite dans les deux sens).
+            // In RTL, taffy lays the child out on the left and `mirror` has sent it back to
+            // the right: the baseline is therefore already right-aligned. 1 is subtracted so
+            // the fraction stays **physical** (x = +1 ⇒ the right in both directions).
             let fx = align.fraction_x() - if self.rtl { 1.0 } else { 0.0 };
             off.0 += free_w * fx;
             off.1 += free_h * align.fraction_y();
         }
 
-        // Décalage de peinture (`Transform::translate`) : en RTL, l'axe x du monde
-        // est retourné, donc un décalage +x logique (« vers la fin ») pointe vers la
-        // gauche — on inverse le signe pour rester cohérent avec le sens de lecture.
+        // Paint offset (`Transform::translate`): in RTL the world's x axis is mirrored, so a
+        // logical +x offset ("towards the end") points left — the sign is inverted to stay
+        // consistent with the reading direction.
         if let Some((tx, ty)) = widget.transform_translate() {
             off.0 += if self.rtl { -tx } else { tx };
             off.1 += ty;
@@ -1425,9 +1410,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         off
     }
 
-    /// Enregistre le widget dans la collecte de l'inspecteur (si active) et
-    /// ouvre un niveau de profondeur — chaque chemin de rendu le referme en
-    /// fin de fonction (`self.depth -= 1`).
+    /// Records the widget in the inspector's collection (when it is on) and opens a depth
+    /// level — every render path closes it again at the end of the function
+    /// (`self.depth -= 1`).
     fn inspect_enter(&mut self, widget: &dyn Widget<Msg>, id: WidgetId, draw_rect: Rect) {
         if let Some(nodes) = &mut self.inspector {
             nodes.push(crate::inspector::InspectorNode {
@@ -1440,8 +1425,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.depth += 1;
     }
 
-    /// Statut complet d'un widget : interaction pointeur + focus + progressions
-    /// d'animation + curseur/sélection éventuels.
+    /// A widget's full status: pointer interaction + focus + animation progresses + the
+    /// cursor/selection when there is one.
     fn full_status(&self, id: WidgetId) -> crate::interaction::Status {
         let mut status = self.runtime.input.status_for(id);
         status.hover_progress = self.runtime.hover_progress(id);
@@ -1462,15 +1447,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         status
     }
 
-    /// Anneau de focus générique (widgets qui ne gèrent pas le leur).
+    /// The generic focus ring (for widgets that do not draw their own).
     fn draw_focus_ring(
         &mut self,
         draw_rect: Rect,
         status: &crate::interaction::Status,
         widget: &dyn Widget<Msg>,
     ) {
-        // L'anneau générique n'apparaît que si la dernière interaction était
-        // **clavier** (`focus_visible`) — un clic ne fait pas flasher d'anneau.
+        // The generic ring only appears when the last interaction was a **keyboard** one
+        // (`focus_visible`) — a click must not flash a ring.
         if status.focused
             && self.runtime.focus_visible
             && widget.focusable()
@@ -1493,8 +1478,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    /// Rend un **élément de liste virtualisée** : construit à la volée, il ne peut
-    /// pas différer d'overlay (d'où un rendu propre, sans les branches spéciales).
+    /// Renders a **virtualised list item**: built on the fly, it cannot defer an overlay
+    /// (hence a render of its own, without the special branches).
     fn render_item(
         &mut self,
         widget: &dyn Widget<Msg>,
@@ -1546,16 +1531,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if widget.reorder_index().is_some() {
                 self.reorderables.push((id, visible));
             }
-            // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
+            // The accessibility tree: nodes that carry meaning (a role or a label).
             if let Some(sem) = widget.semantics().filter(|s| s.is_meaningful()) {
                 self.semantics.push((id, visible, sem));
             }
         }
 
         let children = widget.children();
-        // Ancrage fractionnel + décalage de peinture, comme dans le walk principal
-        // (un enfant de liste virtualisée / `layout_builder` peut être un conteneur
-        // ancré ou transformé).
+        // Fractional alignment + paint offset, as in the main walk (a virtualised-list /
+        // `layout_builder` child may itself be an aligned or transformed container).
         let extra = self.child_offset(widget, id, rect, rects, *index, children);
         for (child_index, child) in children.iter().enumerate() {
             self.render_item(
@@ -1570,7 +1554,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.depth -= 1;
     }
 
-    /// Met en page un écran plein-fenêtre et le rend décalé de `off_x`.
+    /// Lays out a full-window screen and renders it offset by `off_x`.
     fn render_screen(
         &mut self,
         screen: &'a dyn Widget<Msg>,
@@ -1596,16 +1580,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         );
     }
 
-    /// Traite les overlays différés : sous-layout, positionnement et rendu
-    /// **au-dessus** de tout (leurs zones cliquables priment). Peut engendrer
-    /// d'autres overlays (portails imbriqués).
+    /// Processes the deferred overlays: sub-layout, positioning and rendering **above**
+    /// everything (their clickable areas win). May spawn further overlays (nested portals).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
         while let Some((content, oid, anchor, placement, dismiss, progress, traps)) =
             self.overlays.pop()
         {
-            // Les tiroirs glissent selon une **courbe en ressort** (arrivée douce),
-            // pas linéairement ; les autres overlays gardent leur progression brute.
+            // Drawers slide along a **spring curve** (a gentle arrival), not linearly; the
+            // other overlays keep their raw progress.
             let progress = if matches!(
                 placement,
                 Placement::Left | Placement::Right | Placement::Bottom
@@ -1614,13 +1597,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             } else {
                 progress
             };
-            // Taille naturelle du contenu. Un tiroir (`Left`) est contraint en
-            // hauteur à la fenêtre (son panneau `Percent(1.0)` se déploie),
-            // largeur libre ; les autres overlays prennent leur taille naturelle.
+            // The content's natural size. A drawer (`Left`) is constrained in height to the
+            // window (so its `Percent(1.0)` panel unfolds) with a free width; the other
+            // overlays take their natural size.
             let (free_x, free_y) = match placement {
                 Placement::Left | Placement::Right => (true, false),
-                // La feuille est pleine-largeur (contrainte à la fenêtre), hauteur
-                // naturelle : son panneau `Percent(1.0)` en largeur se déploie.
+                // The sheet is full-width (constrained to the window) with its natural height:
+                // its `Percent(1.0)` panel unfolds across the width.
                 Placement::Bottom => (false, true),
                 _ => (true, true),
             };
@@ -1634,11 +1617,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 .copied()
                 .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
 
-            // Glissements d'un tiroir depuis le bord gauche / droit.
+            // A drawer's slide-in from the left / right edge.
             let from_left = -(1.0 - progress) * size.width;
             let from_right = self.available.width - progress * size.width;
-            // Menu/tooltip ancré : aligné au bord **de départ** de l'ancre — en
-            // RTL, ce bord est la droite (le menu s'ouvre vers la gauche).
+            // An anchored menu/tooltip: aligned to the anchor's **start** edge — in RTL that
+            // edge is the right one (the menu opens leftwards).
             let anchor_x = if self.rtl {
                 anchor.x + anchor.width - size.width
             } else {
@@ -1651,21 +1634,21 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     (self.available.height - size.height) * 0.5,
                 ),
                 Placement::Tooltip => (anchor_x, anchor.y - size.height - 6.0),
-                // `Left` = tiroir du côté **start** ; en RTL, start = droite.
+                // `Left` = a drawer on the **start** side; in RTL, start = the right.
                 Placement::Left if self.rtl => (from_right, 0.0),
                 Placement::Left => (from_left, 0.0),
-                // `Right` = côté **end** ; en RTL, end = gauche.
+                // `Right` = the **end** side; in RTL, end = the left.
                 Placement::Right if self.rtl => (from_left, 0.0),
                 Placement::Right => (from_right, 0.0),
-                // La feuille glisse depuis le bas : le bord bas reste collé à la
-                // fenêtre, décalée de `(1-progress)·hauteur` vers le bas.
+                // The sheet slides up from the bottom: its bottom edge stays flush with the
+                // window, offset downwards by `(1-progress)·height`.
                 Placement::Bottom => (0.0, self.available.height - progress * size.height),
             };
 
-            // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
-            // le recale à l'intérieur de la fenêtre.
+            // Auto-flip: when an anchored overlay overflows an edge, it is flipped / nudged
+            // back inside the window.
             if matches!(placement, Placement::Below | Placement::Tooltip) {
-                // Débordement vertical → basculer de l'autre côté de l'ancre.
+                // A vertical overflow → flip to the other side of the anchor.
                 if placement == Placement::Below
                     && pos.1 + size.height > self.available.height
                     && anchor.y - size.height - 4.0 >= 0.0
@@ -1677,7 +1660,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 {
                     pos.1 = anchor.y + anchor.height + 6.0;
                 }
-                // Débordement horizontal → recaler dans la fenêtre.
+                // A horizontal overflow → nudge back inside the window.
                 if pos.0 + size.width > self.available.width {
                     pos.0 = (self.available.width - size.width).max(0.0);
                 }
@@ -1690,18 +1673,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 placement,
                 Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
             ) {
-                // Voile derrière la modale / le tiroir (rôle `scrim`), modulé par
-                // la progression (fondu synchronisé avec le glissement).
+                // The scrim behind the modal / the drawer (the `scrim` role), modulated by the
+                // progress (a fade synchronised with the slide).
                 self.scene.set_owner(0);
                 self.scene.set_clip(window);
                 self.scene
                     .fill_rect(window, self.theme.scheme.scrim.with_alpha(0.5 * progress));
             }
 
-            // Fermeture au clic **hors** du contenu (modale, menu…) : un hit plein
-            // écran ajouté **avant** le contenu, donc battu par lui au recouvrement.
-            // La fermeture est aussi mémorisée pour Échap (le dernier rendu = le
-            // plus au-dessus).
+            // Dismissal on a click **outside** the content (a modal, a menu…): a full-screen
+            // hit added **before** the content, so the content beats it where they overlap.
+            // The dismissal is also remembered for Escape (the last one rendered = the
+            // topmost).
             if let Some(msg) = dismiss {
                 self.dismisses.push(msg.clone());
                 self.hits.push(Hit {
@@ -1712,10 +1695,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 });
             }
 
-            // Overlay **modal** (voilé) ou **ancré piégeant** (menu) : ses focusables forment
-            // un **scope** qui piège Tab/flèches/focus au clic. Le dernier rendu (le plus
-            // au-dessus) l'emporte ; les overlays ancrés non piégeants (tooltip, liste
-            // d'autocomplétion) ne piègent pas.
+            // A **modal** (scrimmed) or **trapping anchored** (menu) overlay: its focusables
+            // form a **scope** that traps Tab/arrows/click-to-focus. The last one rendered (the
+            // topmost) wins; anchored overlays that do not trap (a tooltip, an autocomplete
+            // list) leave the focus alone.
             let modal = matches!(
                 placement,
                 Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
@@ -1731,8 +1714,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 }
 
 impl<Msg: Clone> Builder<'_, Msg> {
-    /// Dessine une barre de défilement (piste + poignée) et l'enregistre pour
-    /// le hit-test au glissement.
+    /// Draws a scrollbar (track + thumb) and registers it for hit-testing a drag.
     fn add_scrollbar(
         &mut self,
         id: WidgetId,
@@ -1794,8 +1776,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
     }
 }
 
-/// Traduit un arbre de widgets en [`Ui`] pour une taille, un état runtime et un
-/// thème donnés.
+/// Turns a widget tree into a [`Ui`] for a given size, runtime state and theme.
 pub fn build_ui<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
@@ -1805,9 +1786,9 @@ pub fn build_ui<'a, Msg: Clone + 'static>(
     build_ui_impl(root, available, runtime, theme, false).0
 }
 
-/// Comme [`build_ui`], en collectant aussi les **nœuds d'inspection** (un par
-/// widget peint : nom, boîte, profondeur) — la matière de l'inspecteur runtime
-/// et du dump diagnostique. À réserver aux frames où l'inspecteur est actif.
+/// Like [`build_ui`], but it also collects the **inspection nodes** (one per painted widget:
+/// name, box, depth) — the raw material of the runtime inspector and of the diagnostic dump.
+/// Reserve it for the frames where the inspector is on.
 pub fn build_ui_inspected<'a, Msg: Clone + 'static>(
     root: &'a dyn Widget<Msg>,
     available: Size,
@@ -1854,7 +1835,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         rtl: theme.direction.is_rtl(),
         semantics: Vec::new(),
     };
-    // Racine mirroitée en RTL (comme toute racine de layout).
+    // The root is mirrored in RTL (like every layout root).
     builder.mirror(&mut rects);
     let mut index = 0;
     builder.walk(
@@ -1866,16 +1847,16 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         &mut index,
     );
 
-    // Overlays (menus flottants, modales, tooltips) par-dessus tout le reste.
-    // (Leur walk repart de la profondeur 0 : des racines pour l'inspecteur.)
+    // Overlays (floating menus, modals, tooltips) above everything else. (Their walk restarts
+    // from depth 0: roots as far as the inspector is concerned.)
     builder.process_overlays();
 
-    // Fin de frame : oublie les racines de layout et les frontières de repaint
-    // des widgets disparus, et fige les compteurs de diagnostic des caches.
+    // End of frame: forget the layout roots and repaint boundaries of widgets that have gone,
+    // and freeze the caches' diagnostic counters.
     runtime.layout_cache.borrow_mut().end_frame();
     runtime.paint_cache.borrow_mut().end_frame();
 
-    // Rejoue les sous-arbres sortants, en fondu, par-dessus la scène courante.
+    // Replays the outgoing subtrees, fading out, over the current scene.
     builder.scene.set_clip(Rect::UNBOUNDED);
     for (_, (primitives, opacity)) in &runtime.leaving {
         for primitive in primitives {
@@ -1901,9 +1882,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     (ui, builder.inspector)
 }
 
-/// Collecte les identités de tous les widgets de l'arbre (ordre préfixe),
-/// selon le même schéma positionnel que [`build_ui`]. Sert à détecter les
-/// montages/démontages entre deux frames.
+/// Collects the identities of every widget in the tree (prefix order), following the same
+/// positional scheme as [`build_ui`]. Used to detect mounts/unmounts between two frames.
 pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, out: &mut Vec<WidgetId>) {
         out.push(id);
@@ -1916,12 +1896,13 @@ pub fn collect_ids<Msg>(root: &dyn Widget<Msg>) -> Vec<WidgetId> {
     out
 }
 
-/// Identités du **sous-arbre** enraciné en `root_id` — le widget `widget` ayant cette identité —,
-/// soit `[root_id, …descendants]`, dérivées par le même schéma positionnel que [`collect_ids`].
+/// Identities of the **subtree** rooted at `root_id` — `widget` being the widget with that
+/// identity — that is `[root_id, …descendants]`, derived by the same positional scheme as
+/// [`collect_ids`].
 ///
-/// Sert au **fantôme de glisser** : les primitives d'une carte **riche** sont peintes par ses
-/// enfants (autres propriétaires que la carte). Pour capter tout son visuel, le shell rassemble les
-/// primitives de **tout** le sous-arbre, pas seulement celles de la carte elle-même.
+/// Used by the **drag ghost**: a **rich** card's primitives are painted by its children (owners
+/// other than the card itself). To capture all of its visuals, the shell gathers the primitives
+/// of the **whole** subtree, not only the card's own.
 pub fn subtree_ids<Msg>(widget: &dyn Widget<Msg>, root_id: WidgetId) -> Vec<WidgetId> {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, out: &mut Vec<WidgetId>) {
         out.push(id);
@@ -1934,9 +1915,9 @@ pub fn subtree_ids<Msg>(widget: &dyn Widget<Msg>, root_id: WidgetId) -> Vec<Widg
     out
 }
 
-/// Identité du **premier** widget déclarant la clé `key` (hash), ou `None`. Sert au
-/// shell à résoudre une demande de focus par clé (`Command::focus`) : l'application
-/// enveloppe un champ dans `keyed(k, …)`, puis focalise par `k`.
+/// Identity of the **first** widget declaring the key `key` (a hash), or `None`. It is how the
+/// shell resolves a focus-by-key request (`Command::focus`): the application wraps a field in
+/// `keyed(k, …)`, then focuses by `k`.
 pub fn find_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<WidgetId> {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, key: u64) -> Option<WidgetId> {
         if widget.key() == Some(key) {
@@ -1952,9 +1933,8 @@ pub fn find_by_key<Msg>(root: &dyn Widget<Msg>, key: u64) -> Option<WidgetId> {
     walk(root, WidgetId::ROOT, key)
 }
 
-/// Retrouve le widget d'identité `target` dans l'arbre (identités positionnelles).
-/// Chemin de la **racine jusqu'au widget** d'identité `target` (`[racine, …,
-/// cible]`), pour la montée feuille→racine des touches. Vide si introuvable.
+/// Path from the **root down to the widget** with identity `target` (`[root, …, target]`), for
+/// the leaf→root bubbling of keys. Empty when it cannot be found.
 pub fn find_path<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Vec<&dyn Widget<Msg>> {
     fn walk<'a, Msg>(
         widget: &'a dyn Widget<Msg>,
@@ -2027,20 +2007,20 @@ mod tests {
         let rt = Runtime::default();
         let tree = crate::Flex::column()
             .child(Text::new("Titre"))
-            .child(Button::new("Valider").on_press(Msg::A))
+            .child(Button::new("Submit").on_press(Msg::A))
             .child(Checkbox::new(true).on_toggle(|_| Msg::B));
         let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
         let sem = ui.semantics();
-        // Un nœud par widget porteur de sens (le Flex conteneur est ignoré).
+        // One node per meaningful widget (the containing Flex is skipped).
         let roles: Vec<Role> = sem.iter().map(|(_, _, s)| s.role).collect();
         assert!(roles.contains(&Role::Label));
         assert!(roles.contains(&Role::Button));
         assert!(roles.contains(&Role::CheckBox));
-        // Le bouton porte son libellé et est actionnable.
+        // The button carries its label and is actionable.
         let button = sem.iter().find(|(_, _, s)| s.role == Role::Button).unwrap();
-        assert_eq!(button.2.label.as_deref(), Some("Valider"));
+        assert_eq!(button.2.label.as_deref(), Some("Submit"));
         assert!(button.2.clickable);
-        // La case cochée reflète son état.
+        // The checked box mirrors its state.
         let check = sem
             .iter()
             .find(|(_, _, s)| s.role == Role::CheckBox)
@@ -2072,7 +2052,7 @@ mod tests {
     #[test]
     fn rtl_mirrors_row_horizontally() {
         let size = Size::new(400.0, 100.0);
-        // A = bouton fixe 120 px (à gauche en LTR), B = reste flexible.
+        // A = a fixed 120 px button (on the left in LTR), B = the flexible remainder.
         let ltr = build_ui(
             &clickable_sample(),
             size,
@@ -2087,12 +2067,12 @@ mod tests {
         );
         let hit = |ui: &Ui<Msg>, x: f32| ui.hit(Point::new(x, 50.0)).and_then(|id| ui.msg_for(id));
 
-        // LTR : le bouton A occupe le bord gauche.
+        // LTR: button A takes the left edge.
         assert_eq!(hit(&ltr, 40.0), Some(Msg::A));
         assert_eq!(hit(&ltr, 360.0), Some(Msg::B));
-        // RTL : tout est retourné — A passe à droite, B occupe la gauche.
-        assert_eq!(hit(&rtl, 360.0), Some(Msg::A), "A à droite en RTL");
-        assert_eq!(hit(&rtl, 40.0), Some(Msg::B), "B à gauche en RTL");
+        // RTL: everything is mirrored — A moves to the right, B takes the left.
+        assert_eq!(hit(&rtl, 360.0), Some(Msg::A), "A on the right in RTL");
+        assert_eq!(hit(&rtl, 40.0), Some(Msg::B), "B on the left in RTL");
     }
 
     #[test]
@@ -2103,7 +2083,7 @@ mod tests {
                 .child(crate::Text::new(text).wrap())
                 .child(Container::new().height(10.0).on_click(Msg::A))
         };
-        // Position du suiveur cliquable : premier y touché en balayant.
+        // Position of the clickable follower: the first y hit while sweeping.
         let follower_y = |ui: &Ui<Msg>| {
             (0..600)
                 .map(|y| y as f32)
@@ -2112,10 +2092,10 @@ mod tests {
         };
 
         let rt = Runtime::default();
-        let long = "un paragraphe assez long pour se replier sur plusieurs lignes";
+        let long = "a rather long paragraph that will wrap onto several lines";
         let ui = build_ui(&tree(long), Size::new(120.0, 600.0), &rt, &Theme::default());
 
-        // Le rendu du paragraphe porte sa largeur de repli (≤ colonne).
+        // The paragraph's render carries its wrap width (≤ the column).
         let max_w = ui
             .scene()
             .primitives()
@@ -2124,17 +2104,20 @@ mod tests {
                 Primitive::Text { max_width, .. } => *max_width,
                 _ => None,
             })
-            .expect("paragraphe replié");
-        assert!(max_w <= 120.5, "repli à la largeur de la colonne : {max_w}");
+            .expect("a wrapped paragraph");
+        assert!(max_w <= 120.5, "wrapped to the column width: {max_w}");
 
-        // Le texte replié occupe plusieurs lignes : le suiveur est repoussé.
+        // The wrapped text takes several lines: the follower is pushed down.
         let y_long = follower_y(&ui);
-        assert!(y_long > 30.0, "suiveur repoussé par le repli : {y_long}");
+        assert!(
+            y_long > 30.0,
+            "the follower is pushed down by the wrap: {y_long}"
+        );
 
-        // MÊME structure/styles, contenu différent, MÊME runtime (cache chaud) :
-        // la clé de mesure doit invalider le cache — sinon vieux rectangles.
+        // The SAME structure/styles, different content, the SAME runtime (a warm cache): the
+        // measure key must invalidate the cache — otherwise the rects would be stale.
         let ui2 = build_ui(
-            &tree("court"),
+            &tree("short"),
             Size::new(120.0, 600.0),
             &rt,
             &Theme::default(),
@@ -2142,7 +2125,7 @@ mod tests {
         let y_short = follower_y(&ui2);
         assert!(
             y_short < y_long,
-            "contenu plus court → suiveur plus haut (cache invalidé) : {y_short} vs {y_long}"
+            "shorter content → a higher follower (the cache was invalidated): {y_short} vs {y_long}"
         );
     }
 
@@ -2150,19 +2133,19 @@ mod tests {
     fn relayout_cache_reuses_the_root_layout_across_frames() {
         let rt = Runtime::default();
         let size = Size::new(400.0, 100.0);
-        // Frame 1 : rien en cache → recalcul (au moins la racine).
+        // Frame 1: nothing cached → a recomputation (at least the root).
         let _ = build_ui(&clickable_sample(), size, &rt, &Theme::default());
         let (hits1, misses1) = rt.layout_cache.borrow().last_frame_stats();
-        assert_eq!(hits1, 0, "1re frame : aucune réutilisation");
-        assert!(misses1 >= 1, "1re frame : au moins un calcul");
+        assert_eq!(hits1, 0, "1st frame: nothing reused");
+        assert!(misses1 >= 1, "1st frame: at least one computation");
 
-        // Frame 2 : même arbre, mêmes contraintes → la racine est réutilisée.
+        // Frame 2: the same tree, the same constraints → the root is reused.
         let _ = build_ui(&clickable_sample(), size, &rt, &Theme::default());
         let (hits2, misses2) = rt.layout_cache.borrow().last_frame_stats();
-        assert_eq!(hits2, 1, "2e frame : racine réutilisée");
-        assert_eq!(misses2, 0, "2e frame : aucun recalcul");
+        assert_eq!(hits2, 1, "2nd frame: the root is reused");
+        assert_eq!(misses2, 0, "2nd frame: nothing recomputed");
 
-        // Frame 3 : fenêtre redimensionnée → contraintes changées → recalcul.
+        // Frame 3: the window is resized → the constraints change → a recomputation.
         let _ = build_ui(
             &clickable_sample(),
             Size::new(500.0, 100.0),
@@ -2176,7 +2159,7 @@ mod tests {
     #[test]
     fn modal_traps_tab_arrows_and_pointer_focus() {
         use crate::portal::{Placement, Portal};
-        // Fond : deux boutons focusables ; modale ouverte : deux boutons aussi.
+        // The background: two focusable buttons; the open modal: two buttons as well.
         let dialog = Flex::<Msg>::row()
             .child(Button::new("ok").on_press(Msg::C))
             .child(Button::new("no").on_press(Msg::D));
@@ -2195,8 +2178,8 @@ mod tests {
             &Theme::default(),
         );
 
-        // Tab entre dans le piège (premier focusable de la modale), et y boucle.
-        let first = ui.focus_next(None, true).expect("premier du scope");
+        // Tab enters the trap (the modal's first focusable) and cycles inside it.
+        let first = ui.focus_next(None, true).expect("the scope's first");
         assert_eq!(ui.msg_for(first), Some(Msg::C));
         let second = ui.focus_next(Some(first), true).expect("suivant");
         assert_eq!(ui.msg_for(second), Some(Msg::D));
@@ -2204,24 +2187,24 @@ mod tests {
         assert_eq!(
             ui.msg_for(wrapped),
             Some(Msg::C),
-            "Tab boucle dans la modale"
+            "Tab cycles inside the modal"
         );
 
-        // Les flèches restent dans le scope : rien au-dessus du dialogue.
+        // The arrows stay inside the scope: there is nothing above the dialog.
         assert_eq!(ui.focus_directional(first, FocusDirection::Up), None);
         let right = ui
             .focus_directional(first, FocusDirection::Right)
-            .expect("droite");
+            .expect("to the right");
         assert_eq!(ui.msg_for(right), Some(Msg::D));
 
-        // Le focus au pointeur ignore le fond (le bouton bg1 est en haut-gauche).
+        // Click-to-focus ignores the background (the bg1 button is at the top left).
         assert_eq!(
             ui.focus_hit(Point::new(10.0, 10.0)),
             None,
             "fond hors scope"
         );
 
-        // Sans modale : pas de piège, Tab commence au fond.
+        // Without a modal: no trap, Tab starts at the background.
         let open_less: Flex<Msg> = Flex::column()
             .child(Button::new("bg1").on_press(Msg::A))
             .child(Button::new("bg2").on_press(Msg::B));
@@ -2252,8 +2235,8 @@ mod tests {
             &Theme::default(),
         );
 
-        // Tab entre dans les items du menu et y **boucle** (fond et ancre hors scope).
-        let first = ui.focus_next(None, true).expect("premier du scope");
+        // Tab enters the menu's items and **cycles** inside (background and anchor are out of scope).
+        let first = ui.focus_next(None, true).expect("the scope's first");
         assert_eq!(ui.msg_for(first), Some(Msg::B));
         let second = ui.focus_next(Some(first), true).expect("suivant");
         assert_eq!(ui.msg_for(second), Some(Msg::C));
@@ -2261,16 +2244,16 @@ mod tests {
         assert_eq!(
             ui.msg_for(wrapped),
             Some(Msg::B),
-            "Tab boucle dans le menu ouvert"
+            "Tab cycles inside the open menu"
         );
-        // Le fond (haut-gauche) est hors du scope pendant que le menu est ouvert.
+        // The background (top left) is out of scope while the menu is open.
         assert_eq!(
             ui.focus_hit(Point::new(10.0, 10.0)),
             None,
             "fond hors scope"
         );
 
-        // Menu **fermé** : aucun piège, Tab commence au fond.
+        // The menu **closed**: no trap, Tab starts at the background.
         let closed: Flex<Msg> = Flex::column()
             .child(Button::new("bg").on_press(Msg::A))
             .child(Menu::new(
@@ -2285,17 +2268,13 @@ mod tests {
             &Theme::default(),
         );
         let f = ui2.focus_next(None, true).expect("premier");
-        assert_eq!(
-            ui2.msg_for(f),
-            Some(Msg::A),
-            "sans menu ouvert, pas de piège"
-        );
+        assert_eq!(ui2.msg_for(f), Some(Msg::A), "with no open menu, no trap");
     }
 
     #[test]
     fn escape_infrastructure_finds_path_and_topmost_dismiss() {
         use crate::portal::{Placement, Portal};
-        // Un portail ouvert (modale avec fermeture) autour d'un ancrage cliquable.
+        // An open portal (a modal with a dismissal) around a clickable anchor.
         let anchor = Container::<Msg>::new()
             .width(50.0)
             .height(30.0)
@@ -2315,21 +2294,21 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // La fermeture du dessus est celle du portail.
+        // The topmost dismissal is the portal's.
         assert_eq!(ui.top_dismiss(), Some(Msg::C));
 
-        // Focus « dans le dialogue » : le chemin racine→contenu passe par le
-        // portail, qui consomme Échap en montée. (Le contenu Center 80×40 est
-        // centré dans 300×200 → son centre est à (150, 100).)
+        // Focus "inside the dialog": the root→content path goes through the portal, which
+        // consumes Escape while bubbling. (The Center content, 80×40, is centred in 300×200 →
+        // its centre is at (150, 100).)
         let inner = ui
             .hit(Point::new(150.0, 100.0))
             .expect("contenu de la modale");
         let path = find_path(&tree, inner);
-        assert!(path.len() >= 3, "racine, portail, contenu : {}", path.len());
+        assert!(path.len() >= 3, "root, portal, content: {}", path.len());
         assert_eq!(
             path.last().unwrap().on_click(),
             Some(Msg::B),
-            "la cible ferme le chemin"
+            "the target closes the path"
         );
         let consumed = path
             .iter()
@@ -2341,7 +2320,7 @@ mod tests {
         assert_eq!(
             consumed,
             Some(Some(Msg::C)),
-            "le portail consomme Échap en montée"
+            "the portal consumes Escape while bubbling"
         );
 
         // Chemin introuvable → vide ; pas d'overlay → pas de fermeture.
@@ -2358,8 +2337,8 @@ mod tests {
 
     #[test]
     fn long_press_targets_are_collected_topmost_first() {
-        // Un conteneur à appui long contenant un enfant à appui long : le point
-        // dans l'enfant renvoie le message de l'enfant (le plus au-dessus).
+        // A long-press container holding a long-press child: a point inside the child returns
+        // the child's message (the topmost one).
         let tree: Container<Msg> = Container::new()
             .width(200.0)
             .height(100.0)
@@ -2409,14 +2388,14 @@ mod tests {
         );
         let id_a = base.hit(Point::new(50.0, 50.0)).unwrap();
 
-        // Sans progression : couleur de base (rouge).
+        // Without any progress: the base colour (red).
         if let Primitive::Rect { color, .. } = base.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(1.0, 0.0, 0.0));
         } else {
-            panic!("attendu un rectangle");
+            panic!("expected a rect");
         }
 
-        // Progression pleine : couleur de survol (vert).
+        // Full progress: the hover colour (green).
         let mut rt = Runtime::default();
         rt.input.hovered = Some(id_a);
         rt.anims.insert(
@@ -2435,15 +2414,15 @@ mod tests {
         if let Primitive::Rect { color, .. } = ui.scene().primitives()[0] {
             assert_eq!(color, Color::rgb(0.0, 1.0, 0.0));
         } else {
-            panic!("attendu un rectangle");
+            panic!("expected a rect");
         }
     }
 
     #[test]
     fn multiline_field_registers_as_scrollable_when_overflowing() {
-        // Un champ multi-lignes dont le contenu dépasse `rows` s'enregistre comme
-        // zone défilable (avec `max_y > 0`) — c'est ce que la molette et la barre
-        // ciblent. Un champ court, lui, ne s'enregistre pas.
+        // A multi-line field whose content exceeds `rows` registers itself as a scrollable
+        // area (with `max_y > 0`) — which is what the wheel and the scrollbar target. A short
+        // field does not register.
         let tall = TextInput::<Msg>::new("a\nb\nc\nd\ne\nf")
             .on_input(Msg::Edited)
             .rows(2)
@@ -2452,8 +2431,8 @@ mod tests {
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(220.0, 240.0), &rt, &Theme::default());
         let maxes = ui.scrollable_maxes();
-        assert_eq!(maxes.len(), 1, "le champ débordant s'enregistre");
-        assert!(maxes[0].2 > 0.0, "max_y > 0 (contenu débordant)");
+        assert_eq!(maxes.len(), 1, "the overflowing field registers");
+        assert!(maxes[0].2 > 0.0, "max_y > 0 (overflowing content)");
 
         let short = TextInput::<Msg>::new("a\nb")
             .on_input(Msg::Edited)
@@ -2463,15 +2442,15 @@ mod tests {
         let ui = build_ui(&tree, Size::new(220.0, 240.0), &rt, &Theme::default());
         assert!(
             ui.scrollable_maxes().is_empty(),
-            "un champ court ne défile pas"
+            "a short field does not scroll"
         );
     }
 
     #[test]
     fn only_text_inputs_place_a_cursor() {
-        // Invariant du correctif de clic (J39) : un bouton focusable ne renvoie PAS
-        // de curseur (`cursor_at` = None), donc le shell ne démarre pas de sélection
-        // texte dessus et ne capture pas le clic. Seuls les champs texte en posent un.
+        // The invariant of the click fix (milestone 39): a focusable button returns NO cursor
+        // (`cursor_at` = None), so the shell does not start a text selection on it and does not
+        // capture the click. Only text fields place one.
         let button = Button::<Msg>::new("x").on_press(Msg::A);
         assert_eq!(Widget::<Msg>::cursor_at(&button, 10.0, 5.0, 200.0, 0), None);
         let input = TextInput::<Msg>::new("hi").on_input(Msg::Edited);
@@ -2489,7 +2468,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        assert_eq!(ui.focusables.len(), 2, "les deux boutons sont focusables");
+        assert_eq!(ui.focusables.len(), 2, "both buttons are focusable");
         let first = ui.focusables[0].0;
         let second = ui.focusables[1].0;
 
@@ -2523,26 +2502,26 @@ mod tests {
         let with_button = Flex::<Msg>::column().child(Button::new("x").on_press(Msg::A));
         assert!(
             count_ring(&with_button, true) >= 1,
-            "un bouton focalisé au clavier a un anneau générique"
+            "a button focused with the keyboard has a generic ring"
         );
-        // Focus obtenu au pointeur : pas d'anneau (FocusHighlightMode).
+        // Focus taken with the pointer: no ring (FocusHighlightMode).
         assert_eq!(
             count_ring(&with_button, false),
             0,
-            "un clic ne fait pas flasher d'anneau"
+            "a click does not flash a ring"
         );
 
         let with_input = Flex::<Msg>::column().child(TextInput::new("hi").on_input(Msg::Edited));
         assert_eq!(
             count_ring(&with_input, true),
             0,
-            "le champ gère son propre focus"
+            "the field draws its own focus"
         );
     }
 
     #[test]
     fn arrow_focus_navigates_geometrically() {
-        // Grille 2×2 de boutons ; on identifie chaque cible par son message.
+        // A 2×2 grid of buttons; each target is identified by its message.
         let grid: Flex<Msg> = Flex::column()
             .child(
                 Flex::row()
@@ -2563,20 +2542,20 @@ mod tests {
         let top_left = ui.focus_next(None, true).expect("premier focusable");
         assert_eq!(ui.msg_for(top_left), Some(Msg::A));
 
-        // Droite : a → b ; bas : a → c ; et rien à gauche de a.
+        // Right: a → b; down: a → c; and nothing to the left of a.
         let right = ui
             .focus_directional(top_left, FocusDirection::Right)
-            .expect("droite");
+            .expect("to the right");
         assert_eq!(ui.msg_for(right), Some(Msg::B));
         let down = ui
             .focus_directional(top_left, FocusDirection::Down)
-            .expect("bas");
+            .expect("downwards");
         assert_eq!(ui.msg_for(down), Some(Msg::C));
         assert_eq!(ui.focus_directional(top_left, FocusDirection::Left), None);
-        // Diagonale contrôlée : depuis b, bas → d (aligné), pas c.
+        // The diagonal is kept in check: from b, down → d (aligned), not c.
         let down_right = ui
             .focus_directional(right, FocusDirection::Down)
-            .expect("bas depuis b");
+            .expect("down from b");
         assert_eq!(ui.msg_for(down_right), Some(Msg::D));
     }
 
@@ -2595,10 +2574,10 @@ mod tests {
                     Primitive::Rect { color, owner, .. } if *color == c => Some(*owner),
                     _ => None,
                 })
-                .expect("primitive présente")
+                .expect("the primitive is there")
         };
 
-        // Liste [rouge(clé 1), vert(clé 2), bleu(clé 3)].
+        // The list [red(key 1), green(key 2), blue(key 3)].
         let full = Flex::<Msg>::column()
             .child(Keyed::new(1u64, colored(red)))
             .child(Keyed::new(2u64, colored(green)))
@@ -2610,7 +2589,7 @@ mod tests {
             &Theme::default(),
         );
 
-        // Liste [rouge(1), bleu(3)] : le vert du milieu est retiré → bleu passe de l'indice 2 à 1.
+        // The list [red(1), blue(3)]: the green in the middle is removed → blue goes from index 2 to 1.
         let removed = Flex::<Msg>::column()
             .child(Keyed::new(1u64, colored(red)))
             .child(Keyed::new(3u64, colored(blue)));
@@ -2621,10 +2600,10 @@ mod tests {
             &Theme::default(),
         );
 
-        // L'identité (owner) du bleu (clé 3) est INCHANGÉE malgré le décalage de position.
+        // Blue's identity (owner, key 3) is UNCHANGED despite the shift in position.
         assert_eq!(owner_of(&ui_full, blue), owner_of(&ui_removed, blue));
 
-        // Sans clé, l'identité positionnelle du 2e enfant CHANGE (indice 2 vs 1).
+        // Without a key, the 2nd child's positional identity DOES change (index 2 vs 1).
         let unkeyed_full = Flex::<Msg>::column()
             .child(colored(red))
             .child(colored(green))
@@ -2649,8 +2628,8 @@ mod tests {
 
     #[test]
     fn center_overlay_scrim_click_dismisses() {
-        // Une modale Center avec `.dismiss` : cliquer le voile (hors contenu)
-        // renvoie le message de fermeture ; cliquer le contenu ne le renvoie pas.
+        // A Center modal with `.dismiss`: clicking the scrim (outside the content) returns the
+        // dismissal message; clicking the content does not.
         let modal = Container::<Msg>::new()
             .width(100.0)
             .height(60.0)
@@ -2665,8 +2644,8 @@ mod tests {
             &Theme::default(),
         );
 
-        // Coin supérieur gauche : sur le voile → ferme.
-        let corner = ui.hit(Point::new(5.0, 5.0)).expect("voile cliquable");
+        // The top-left corner: on the scrim → it dismisses.
+        let corner = ui.hit(Point::new(5.0, 5.0)).expect("a clickable scrim");
         assert_eq!(ui.msg_for(corner), Some(Msg::A));
     }
 
@@ -2678,9 +2657,9 @@ mod tests {
             .child(TextInput::new("hi").width(200.0).on_input(Msg::Edited));
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(300.0, 80.0), &rt, &Theme::default());
-        let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ");
+        let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("the field");
 
-        let widget = find_widget(&tree, id).expect("widget trouvé");
+        let widget = find_widget(&tree, id).expect("the widget was found");
         let mut edit = Edit {
             cursor: 2,
             anchor: None,
@@ -2694,8 +2673,8 @@ mod tests {
 
     #[test]
     fn find_by_key_resolves_a_keyed_field_to_its_focus_id() {
-        // Deux champs nommés : `find_by_key` retrouve l'identité de focus de chacun
-        // (celle que le hit-test attribuerait), et distingue les clés.
+        // Two named fields: `find_by_key` finds each one's focus identity (the one the
+        // hit-test would assign), and it tells the keys apart.
         fn hash(k: &str) -> u64 {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -2712,25 +2691,25 @@ mod tests {
                 TextInput::new("").on_input(Msg::Edited),
             ));
 
-        let email = find_by_key(&tree, hash("email")).expect("email trouvé");
-        let password = find_by_key(&tree, hash("password")).expect("password trouvé");
-        assert_ne!(email, password, "clés distinctes → identités distinctes");
-        // L'identité résolue est bien l'identité par clé (stable, indépendante de la
+        let email = find_by_key(&tree, hash("email")).expect("email was found");
+        let password = find_by_key(&tree, hash("password")).expect("password was found");
+        assert_ne!(email, password, "distinct keys → distinct identities");
+        // The identity resolved is indeed the by-key identity (stable, independent of the
         // position).
         assert_eq!(email, WidgetId::ROOT.keyed(hash("email")));
         assert!(
             find_by_key(&tree, hash("absent")).is_none(),
-            "clé inconnue → None"
+            "an unknown key → None"
         );
 
-        // Et surtout : c'est **exactement** l'identité que le hit-test de focus
-        // attribuerait à ce champ — donc poser ce focus route bien vers lui.
+        // And above all: it is **exactly** the identity the focus hit-test would assign to
+        // that field — so setting this focus really does route to it.
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(300.0, 200.0), &rt, &Theme::default());
         let (hit_id, _) = ui
             .focus_hit(Point::new(10.0, 10.0))
-            .expect("champ email sous le curseur");
-        assert_eq!(email, hit_id, "find_by_key == identité de focus du champ");
+            .expect("the email field under the cursor");
+        assert_eq!(email, hit_id, "find_by_key == the field's focus identity");
     }
 
     #[test]
@@ -2774,37 +2753,38 @@ mod tests {
         let board = Kanban::new(|_, _, _, _| Msg::A).column("To do", ["Card A"]);
         let rt = Runtime::default();
         let ui = build_ui(&board, Size::new(400.0, 300.0), &rt, &Theme::default());
-        // La carte **et** la zone de dépôt sont enregistrées comme réordonnables.
+        // The card **and** the drop zone are registered as reorderables.
         assert!(
             ui.reorderables.len() >= 2,
-            "carte + zone de dépôt dans le registre des réordonnables"
+            "the card + the drop zone are in the reorderables registry"
         );
-        // Un point sur la carte est **saisissable** (réordonnable) mais **non cliquable** — c'est tout
-        // l'intérêt du registre : sans lui, `ui.hit` seul ne trouverait pas la carte.
+        // A point on the card can be **picked up** (it is reorderable) but is **not clickable**
+        // — which is the whole point of the registry: without it, `ui.hit` alone would never
+        // find the card.
         let (card_id, card) = ui.reorderables[0];
         let p = Point::new(card.x + 5.0, card.y + 5.0);
         assert!(
             ui.reorderable_at(p).is_some(),
-            "la carte est saisissable au point"
+            "the card can be picked up at that point"
         );
         assert!(
             ui.hit(p).is_none(),
-            "…mais pas cliquable (absente du registre de hits)"
+            "…but it is not clickable (absent from the hit registry)"
         );
-        // `widget_rect` doit retrouver la carte **via le repli réordonnable** (elle n'est pas
-        // focusable) : sinon l'aperçu de glisser vertical du shell ne démarre jamais.
+        // `widget_rect` must find the card **through the reorderable fallback** (it is not
+        // focusable): otherwise the shell's vertical drag preview never starts.
         assert_eq!(
             ui.widget_rect(card_id),
             Some(card),
-            "widget_rect retombe sur le registre réordonnable"
+            "widget_rect falls back to the reorderables registry"
         );
     }
 
     #[test]
     fn reorderables_inside_a_scroll_are_still_registered() {
-        // Scénario des jalons 258/260 : le board (avec ses cartes réordonnables) est **enveloppé
-        // dans un `Scroll`**. Les réordonnables doivent rester enregistrés — sinon glisser une carte
-        // ne s'engage plus dès que le board défile.
+        // The milestone 258/260 scenario: the board (with its reorderable cards) is **wrapped
+        // in a `Scroll`**. The reorderables must stay registered — otherwise dragging a card
+        // stops engaging as soon as the board scrolls.
         use crate::{Axis, Kanban, Scroll};
         let board = Kanban::new(|_, _, _, _| Msg::A).column("To do", ["Card A"]);
         let scrolled = Scroll::new()
@@ -2816,18 +2796,18 @@ mod tests {
         let ui = build_ui(&scrolled, Size::new(400.0, 300.0), &rt, &Theme::default());
         assert!(
             ui.reorderables.len() >= 2,
-            "carte + zone de dépôt réordonnables même dans un Scroll (obtenu : {})",
+            "the card + the drop zone stay reorderable even inside a Scroll (got {})",
             ui.reorderables.len()
         );
     }
 
     #[test]
     fn reorderables_inside_a_per_column_card_scroll_are_still_registered() {
-        // Jalon 264 : `card_area_height` place les cartes de chaque colonne dans un `Scroll`
-        // **vertical à hauteur explicite** (façon Trello). C'est exactement le cas qui *s'effondrait*
-        // au jalon 263 (flex-scroll sans hauteur d'ancêtre définie → cartes découpées à zéro, plus
-        // réordonnables). Avec une hauteur **définie**, les cartes visibles doivent rester
-        // enregistrées comme réordonnables — garde-fou contre une régression du glisser par colonne.
+        // Milestone 264: `card_area_height` puts each column's cards inside a **vertical
+        // `Scroll` with an explicit height**. This is exactly the case that *collapsed* at
+        // milestone 263 (a flex scroll with no defined ancestor height → cards clipped to zero
+        // and no longer reorderable). With a **defined** height the visible cards must stay
+        // registered as reorderables — a guard against a regression of per-column dragging.
         use crate::Kanban;
         let board = Kanban::new(|_, _, _, _| Msg::A)
             .card_area_height(220.0)
@@ -2836,30 +2816,32 @@ mod tests {
         let ui = build_ui(&board, Size::new(400.0, 300.0), &rt, &Theme::default());
         assert!(
             ui.reorderables.len() >= 3,
-            "2 cartes + zone de dépôt réordonnables dans un scroll vertical à hauteur définie \
-             (obtenu : {})",
+            "2 cards + the drop zone stay reorderable inside a vertical scroll with a defined height \
+             (got {})",
             ui.reorderables.len()
         );
     }
 
     #[test]
     fn scrollable_columns_fill_the_board_height_then_scroll() {
-        // Jalon 266 : `Kanban::scrollable_columns()` fait **remplir** aux colonnes la hauteur du
-        // board (posé dans un ancêtre à hauteur définie), et chaque colonne défile ses cartes
-        // verticalement **sans hauteur explicite** (le flex fait le calcul, plus de stopgap J264).
-        // On vérifie qu'au moins une colonne a un `Scroll` vertical dont le viewport **remplit** la
-        // hauteur (bien plus que le défaut 200) et **défile** (max_y > 0), preuve du fill-then-scroll.
+        // Milestone 266: `Kanban::scrollable_columns()` makes the columns **fill** the board's
+        // height (laid out in an ancestor with a defined height), and each column scrolls its
+        // cards vertically **with no explicit height** (the flex does the arithmetic, so the
+        // milestone 264 stopgap is gone). This checks that at least one column has a vertical
+        // `Scroll` whose viewport **fills** the height (far more than the default 200) and
+        // **scrolls** (max_y > 0), which is the proof of fill-then-scroll.
         use crate::{Axis, Container, Flex, Kanban, Scroll};
-        // Assez de cartes pour **déborder** le viewport rempli (sinon max_y = 0 : rien à défiler).
+        // Enough cards to **overflow** the filled viewport (otherwise max_y = 0: nothing to scroll).
         let long: Vec<String> = (0..24).map(|i| format!("card {i}")).collect();
         let board = Kanban::new(|_, _, _, _| Msg::A)
             .scrollable_columns()
             .column("To do", long);
-        // Imbrication de `board_screen` : le board dans un **simple `Container` à padding** (la marge
-        // visuelle), lui-même dans un Scroll horizontal `flex(1)`, dans un écran (Flex colonne) à
-        // hauteur bornée. Ce `Container` `Auto` **s'effondrait** au jalon 266 (d'où le contournement
-        // `Flex` `flex(1)`) ; depuis que `compute_scroll` **remplit l'axe contraint**, il remplit la
-        // hauteur du viewport et le board suit — plus besoin de conteneur « remplisseur ».
+        // `board_screen`'s nesting: the board inside a **plain `Container` with padding** (the
+        // visual margin), itself inside a horizontal `flex(1)` Scroll, inside a screen (a Flex
+        // column) of bounded height. That `Auto` `Container` **collapsed** at milestone 266
+        // (hence the `Flex` `flex(1)` workaround); since `compute_scroll` **fills the
+        // constrained axis**, it fills the viewport's height and the board follows — no filler
+        // container needed any more.
         let padded = Container::<Msg>::new().padding(24.0).child(board);
         let scroll_h = Scroll::new()
             .axis(Axis::Horizontal)
@@ -2873,14 +2855,14 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Un scroll **vertical** de colonne : viewport haut (remplit) et défilable.
+        // A column's **vertical** scroll: a tall viewport (it fills) and it scrolls.
         let filled = ui
             .scrollables
             .iter()
             .any(|(_, vp, _mx, my)| vp.height > 300.0 && *my > 0.0);
         assert!(
             filled,
-            "une colonne remplit la hauteur du board puis défile (scrollables: {:?})",
+            "a column fills the board's height then scrolls (scrollables: {:?})",
             ui.scrollables
         );
     }
@@ -2888,26 +2870,26 @@ mod tests {
     #[test]
     fn subtree_ids_covers_a_widget_and_its_descendants() {
         use crate::Text;
-        // Racine (Container) > Flex(colonne) > [Text, Text].
+        // Root (Container) > Flex(column) > [Text, Text].
         let tree: Container<Msg> = Container::new().child(
             Flex::<Msg>::column()
                 .child(Text::new("a"))
                 .child(Text::new("b")),
         );
         let all = collect_ids(&tree);
-        // Depuis la racine : identique à `collect_ids` (même parcours positionnel).
+        // From the root: identical to `collect_ids` (the same positional walk).
         assert_eq!(subtree_ids(&tree, WidgetId::ROOT), all);
-        // Le sous-arbre d'un enfant commence par sa propre identité et reste un sous-ensemble
-        // **strict** de l'arbre (le fantôme d'une carte riche capte ainsi tout son contenu).
+        // A child's subtree starts with its own identity and stays a **strict** subset of the
+        // tree (which is how a rich card's ghost captures all of its content).
         let flex_id = all[1];
         let sub = subtree_ids(Widget::children(&tree)[0].as_ref(), flex_id);
         assert_eq!(
             sub[0], flex_id,
-            "le sous-arbre commence par l'identité fournie"
+            "the subtree starts with the identity supplied"
         );
         assert!(
             sub.len() < all.len() && sub.iter().all(|i| all.contains(i)),
-            "sous-ensemble de l'arbre incluant les descendants"
+            "a subset of the tree including the descendants"
         );
     }
 
@@ -2918,12 +2900,12 @@ mod tests {
                     return (*rect, *clip);
                 }
             }
-            panic!("aucun rectangle");
+            panic!("no rect at all");
         }
     }
 
-    /// Un sous-arbre statique sous `RepaintBoundary` (contenu mêlé texte +
-    /// boîtes) — assez pour produire plusieurs primitives.
+    /// A static subtree under `RepaintBoundary` (mixed content: text + boxes) — enough to
+    /// produce several primitives.
     fn boundary_tree() -> Container<Msg> {
         use crate::Text;
         Container::new().repaint_boundary().child(
@@ -2941,28 +2923,28 @@ mod tests {
         let theme = Theme::default();
         let rt = Runtime::default();
 
-        // Frame 1 : rien en cache → 1 miss (peinture complète), sous-arbre capturé.
+        // Frame 1: nothing cached → 1 miss (a full paint), the subtree is captured.
         let ui1 = build_ui(&tree, size, &rt, &theme);
-        // On compare les **primitives** (l'état ambiant transitoire de la scène —
-        // découpe/propriétaire courants — n'est pas rendu).
+        // The **primitives** are what is compared (the scene's transient ambient state — the
+        // current clip/owner — is not rendered).
         let dbg1 = format!("{:?}", ui1.scene().primitives());
         assert_eq!(rt.paint_cache.borrow().last_frame_stats(), (0, 1));
 
-        // Frame 2 : même génération + même état → la frontière est réutilisée.
+        // Frame 2: the same generation + the same state → the boundary is reused.
         let ui2 = build_ui(&tree, size, &rt, &theme);
         let dbg2 = format!("{:?}", ui2.scene().primitives());
         assert_eq!(
             rt.paint_cache.borrow().last_frame_stats(),
             (1, 0),
-            "frontière réutilisée"
+            "the boundary is reused"
         );
         assert_eq!(
             dbg1, dbg2,
-            "la scène rejouée est bit-à-bit identique au repaint complet"
+            "the replayed scene is bit-for-bit identical to the full repaint"
         );
-        // Les cartes d'interaction sont aussi rejouées (le clic reste routable).
+        // The interaction maps are replayed too (a click stays routable).
         assert_eq!(ui1.hits.len(), ui2.hits.len());
-        assert!(!ui2.hits.is_empty(), "le hit du sous-arbre est bien rejoué");
+        assert!(!ui2.hits.is_empty(), "the subtree's hit is indeed replayed");
     }
 
     #[test]
@@ -2974,13 +2956,13 @@ mod tests {
 
         build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
 
-        // Reconstruction de la `view` (config potentiellement changée).
+        // The `view` is rebuilt (the config may have changed).
         rt.paint_cache.borrow_mut().bump_generation();
         build_ui(&tree, size, &rt, &theme); // frame 2
         assert_eq!(
             rt.paint_cache.borrow().last_frame_stats(),
             (0, 1),
-            "génération périmée → repaint complet"
+            "a stale generation → a full repaint"
         );
     }
 
@@ -2993,8 +2975,8 @@ mod tests {
 
         build_ui(&tree, size, &rt, &theme); // frame 1 : miss + capture
 
-        // Sans reconstruction, mais l'état d'interaction d'un descendant change
-        // (survol animé de la frontière) → l'empreinte diffère → repaint.
+        // No rebuild, but a descendant's interaction state changes (the boundary's animated
+        // hover) → the fingerprint differs → a repaint.
         rt.anims.insert(
             WidgetId::ROOT,
             crate::Anim {
@@ -3007,10 +2989,10 @@ mod tests {
         assert_eq!(
             rt.paint_cache.borrow().last_frame_stats(),
             (0, 1),
-            "état d'interaction changé → repaint complet"
+            "the interaction state changed → a full repaint"
         );
 
-        // Une fois l'état stabilisé, la frontière se réutilise de nouveau.
+        // Once the state has settled, the boundary is reused again.
         build_ui(&tree, size, &rt, &theme); // frame 3
         assert_eq!(rt.paint_cache.borrow().last_frame_stats(), (1, 0));
     }
