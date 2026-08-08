@@ -1,51 +1,50 @@
-# Jalon 263 — Défilement vertical par colonne : blocage layout + garde-fou réordonnables-dans-Scroll
+# Jalon 263 — Per-column vertical scrolling: layout blocker + reorderables-inside-Scroll guard
 
-## Objectif visé
+## The goal
 
-Compléter le patron Trello : chaque **colonne** défile ses cartes **verticalement**, indépendamment
-(scroll horizontal du board au jalon 260 + scroll vertical par colonne ici).
+To complete the Trello pattern: each **column** scrolls its cards **vertically**, independently (the
+board's horizontal scroll in milestone 260 + per-column vertical scrolling here).
 
-## Ce qui s'est passé
+## What happened
 
-Tentative : envelopper la liste de cartes de chaque colonne dans un `Scroll { axis: Vertical,
-flex: 1 }`, colonnes étirées à la hauteur du board. Résultat : le `Scroll` interne **s'effondre** — les
-cartes disparaissent (leur rectangle visible est nul, donc elles ne sont plus ni peintes ni
-**enregistrées comme réordonnables**).
+The attempt: wrapping each column's card list in a `Scroll { axis: Vertical, flex: 1 }`, with the columns
+stretched to the board's height. The result: the inner `Scroll` **collapses** — the cards disappear
+(their visible rectangle is null, so they are neither painted nor **registered as reorderable**).
 
-**Cause (limite du layout frus).** Un `Scroll` en `flex(1)` n'obtient une hauteur exploitable que si la
-**chaîne d'ancêtres** lui fournit une hauteur **définie**. Or ici : board `Row` (hauteur `Auto`) →
-colonne (`Auto`/`Percent`) → `Scroll` `flex(1)`. `align: Stretch` et `Percent(1.0)` **ne suffisent
-pas** : la hauteur étirée n'est pas traitée comme une base définie pour le flex interne (le viewport du
-scroll est bien calculé — 196×248 dans le registre — mais son contenu est découpé à zéro). Il manque à
-frus une primitive « **remplir la hauteur disponible puis défiler** » (façon `Expanded` + `ListView`)
-que `Scroll`/`Flex` n'offrent pas encore de façon fiable. La tentative a donc été **remisée**.
+**The cause (a frus layout limit).** A `Scroll` at `flex(1)` only gets a usable height if the **ancestor
+chain** supplies it with a **defined** height. But here: the board `Row` (an `Auto` height) → the column
+(`Auto`/`Percent`) → the `Scroll` at `flex(1)`. `align: Stretch` and `Percent(1.0)` **are not enough**:
+the stretched height is not treated as a defined basis for the inner flex (the scroll's viewport is
+computed correctly — 196×248 in the registry — but its content is cut to zero). frus lacks a "**fill the
+available height then scroll**" primitive that `Scroll`/`Flex` do not yet offer reliably. So the attempt
+was **shelved**.
 
-## Découverte importante (et garde-fou)
+## An important discovery (and a guard)
 
-En instrumentant, constat : **les réordonnables placés dans un `Scroll` interne n'étaient pas
-enregistrés**. Cela a soulevé une crainte sérieuse — les jalons 258/260 **enveloppent le board (avec
-ses cartes) dans un `Scroll` horizontal**, et je n'avais **re-testé le glisser au doigt qu'avant** cet
-enveloppement. Vérification : un test dédié montre que **le board dans un `Scroll` horizontal enregistre
-bien ses cartes réordonnables** (`>= 2`). Donc **258/260 n'ont pas cassé le glisser** — l'effondrement
-était **spécifique** au `Scroll` **vertical en `flex(1)` sans hauteur d'ancêtre définie**, pas au fait
-d'être dans un `Scroll`.
+While instrumenting, a finding: **reorderables placed inside an inner `Scroll` were not being
+registered**. That raised a serious worry — milestones 258/260 **wrap the board (with its cards) in a
+horizontal `Scroll`**, and I had only re-tested finger dragging **before** that wrapping. Checked: a
+dedicated test shows that **a board inside a horizontal `Scroll` does register its cards as
+reorderable** (`>= 2`). So **258/260 did not break dragging** — the collapse was **specific** to a
+**vertical** `Scroll` at `flex(1)` with no defined ancestor height, not to being inside a `Scroll` at
+all.
 
-Le test `reorderables_inside_a_scroll_are_still_registered` est **conservé** comme garde-fou : il
-protège le glisser du board-dans-scroll contre une régression future.
+The `reorderables_inside_a_scroll_are_still_registered` test is **kept** as a guard: it protects the
+board-in-a-scroll's dragging against a future regression.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/ui.rs` : test `reorderables_inside_a_scroll_are_still_registered` (board enveloppé
-  dans un `Scroll` horizontal → cartes toujours réordonnables). La tentative sur `kanban.rs` a été
-  **entièrement annulée** (structure de colonne inchangée).
+- `frus-widgets/src/ui.rs`: the `reorderables_inside_a_scroll_are_still_registered` test (a board wrapped
+  in a horizontal `Scroll` → the cards still reorderable). The attempt on `kanban.rs` was **entirely
+  reverted** (the column structure unchanged).
 
-## Vérification
+## Verification
 
-- **Widgets 394** (dont le garde-fou) ; kanban 7. *(Doctests bloqués au **runtime** par SAC — os error
-  4551, environnement, pas une régression : ils compilent.)*
+- **Widgets 394** (including the guard); kanban 7. *(The doctests were blocked at **runtime** by SAC —
+  os error 4551, an environment issue, not a regression: they compile.)*
 
-## Reste
+## What's left
 
-- **Défilement vertical par colonne** : rouvrir quand frus aura une primitive « fill-then-scroll »
-  fiable (ou via une **hauteur de colonne explicite** passée par l'app en solution d'attente).
-- Inertie verticale du glisser.
+- **Per-column vertical scrolling**: to be reopened once frus has a reliable "fill-then-scroll"
+  primitive (or through an **explicit column height** passed by the app as a stopgap).
+- Vertical drag inertia.

@@ -1,56 +1,56 @@
-# Jalon 274 — `RemoteData<T, E>` : l'idiome Elm pour une donnée asynchrone
+# Jalon 274 — `RemoteData<T, E>`: the Elm idiom for asynchronous data
 
-## Objectif
+## The goal
 
-Dans l'exemple du jalon 273, l'écran écrivait **à la main** une machine à états
-`Idle/Loading/Loaded/Failed`. C'est le motif que **toute** app réseau réécrit — et qu'on rate
-souvent (un `Option<Result<T, E>>` ambigu, ou deux booléens `loading`/`error`
-désynchronisables). Ce jalon livre l'idiome Elm consacré, [`RemoteData`], comme **type de
-framework** (`frus::RemoteData`), puis refactore l'exemple dessus.
+In milestone 273's example, the screen wrote an `Idle/Loading/Loaded/Failed` state machine **by hand**.
+That is the pattern **every** network app rewrites — and often gets wrong (an ambiguous
+`Option<Result<T, E>>`, or two `loading`/`error` booleans that can drift apart). This milestone ships
+the established Elm idiom, [`RemoteData`], as a **framework type** (`frus::RemoteData`), then refactors
+the example onto it.
 
-## Le type
+## The type
 
 ```rust
 pub enum RemoteData<T, E = String> {
-    NotAsked,   // rien demandé encore (état initial, Default)
-    Loading,    // requête en vol
-    Success(T), // la donnée est arrivée
-    Failure(E), // la requête a échoué
+    NotAsked,   // nothing requested yet (the initial state, Default)
+    Loading,    // a request in flight
+    Success(T), // the data arrived
+    Failure(E), // the request failed
 }
 ```
 
-Les quatre états sont **exclusifs** ; replier dessus dans la `view` force le compilateur à
-traiter chacun. `E` vaut `String` par défaut (le cas courant après `FetchError::to_string()`).
+The four states are **exclusive**; matching on it in the `view` forces the compiler to handle each. `E`
+defaults to `String` (the common case after a `FetchError::to_string()`).
 
-**Méthodes** : `from_result(Result<T, E>)` (le pont depuis un effet), `is_loading` /
-`is_success` / `is_failure`, `value() -> Option<&T>`, `error() -> Option<&E>`,
-`as_ref() -> RemoteData<&T, &E>` (replier sans consommer), `map` / `map_err` (transformer un
-seul cas — ex. décoder un corps en type métier).
+**Methods**: `from_result(Result<T, E>)` (the bridge from an effect), `is_loading` / `is_success` /
+`is_failure`, `value() -> Option<&T>`, `error() -> Option<&E>`, `as_ref() -> RemoteData<&T, &E>`
+(matching without consuming), `map` / `map_err` (transforming a single case — e.g. decoding a body into
+a domain type).
 
-## Avant / après (dans `frus-fetch-example`)
+## Before / after (in `frus-fetch-example`)
 
 ```rust
-// Avant : enum maison + deux match dans update.
+// Before: a bespoke enum + two match arms in update.
 enum Status { Idle, Loading, Loaded(String), Failed(String) }
 Msg::Got(Ok(body)) => self.status = Status::Loaded(body.trim().to_string()),
 Msg::Got(Err(err)) => self.status = Status::Failed(err),
 
-// Après : un seul type de framework, un seul pont.
+// After: one framework type, one bridge.
 joke: RemoteData<String>,
 Msg::Got(res) => self.joke = RemoteData::from_result(res.map(|b| b.trim().to_string())),
 ```
 
-La `view` replie `self.joke.as_ref()` sur les quatre variantes — plus de type ad hoc à
-maintenir par écran.
+The `view` matches `self.joke.as_ref()` across the four variants — no more ad-hoc type to maintain per
+screen.
 
-## Vérification
+## Verification
 
-- **6 tests** sur `RemoteData` : `Default` = `NotAsked`, `from_result` (Ok/Err),
-  prédicats + accesseurs, `map` (ne touche que `Success`), `map_err` (ne touche que
-  `Failure`), `as_ref` (emprunte sans déplacer).
-- **`frus-fetch-example`** refactoré : ses 2 tests passent, builds bureau **et** wasm OK.
+- **6 tests** on `RemoteData`: `Default` = `NotAsked`, `from_result` (Ok/Err), the predicates +
+  accessors, `map` (touching only `Success`), `map_err` (touching only `Failure`), `as_ref` (borrowing
+  without moving).
+- **`frus-fetch-example`** refactored: its 2 tests pass, the desktop **and** wasm builds OK.
 
-## Reste
+## What's left
 
-- Un helper `view` qui replie un `RemoteData` en widgets (squelette de chargement, encart
-  d'erreur standard) — au besoin. Le type, lui, est là et suffit à structurer l'état.
+- A `view` helper that folds a `RemoteData` into widgets (a loading skeleton, a standard error panel) —
+  as needed. The type itself is there and is enough to structure the state.

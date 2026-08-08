@@ -1,71 +1,71 @@
-# Jalon 254 — Revue transverse du glisser-déposer : correctifs Table + Kanban
+# Jalon 254 — Cross-cutting drag-and-drop review: Table + Kanban fixes
 
-## Analyse
+## Analysis
 
-Revue croisée du domaine **glisser-déposer/réordonnancement** (shell + `reorder.rs` + `kanban.rs` +
-`table.rs` + le registre `reorderables`), pour lever les défauts réels — pas seulement du style. Elle a
-mis au jour un **bug d'intégration critique** qui rendait **inopérants en application** les jalons
-248–253 côté Kanban, plus plusieurs bugs de correction/accessibilité désormais atteignables.
+A cross-cutting review of the **drag-and-drop/reordering** domain (the shell + `reorder.rs` +
+`kanban.rs` + `table.rs` + the `reorderables` registry), to lift the real defects — not just style. It
+uncovered a **critical integration bug** that made milestones 248–253 **inoperative in the application**
+on the Kanban side, plus several correctness/accessibility bugs now reachable.
 
-## Correctifs
+## Fixes
 
-### 1. `widget_rect` retombe sur le registre réordonnable (**critique**)
-`Ui::widget_rect` ne cherchait que dans `focusables`. Or les **cartes Kanban** (et les en-têtes
-réordonnables mais **non triables**) ne sont pas focusables : `widget_rect` renvoyait `None`, donc
-`paint_reorder_preview` **sortait aussitôt** (`let Some(src) = ui.widget_rect(id) else { return }`) — ni
-fantôme, ni ligne d'insertion, ni réagencement vertical — **et** le routage *insert-after* retombait
-sur `false`. Autrement dit, tout l'aperçu vertical (jalons 251–253) ne s'exécutait jamais à la souris.
-`widget_rect` a désormais un **repli** sur le registre `reorderables` (dont les bornes existaient déjà).
-Cela répare aussi le cas d'un en-tête de `Table` réordonnable **sans** tri.
+### 1. `widget_rect` falls back on the reorderable registry (**critical**)
+`Ui::widget_rect` only searched `focusables`. But **Kanban cards** (and headers that are reorderable but
+**not sortable**) are not focusable: `widget_rect` returned `None`, so `paint_reorder_preview`
+**returned immediately** (`let Some(src) = ui.widget_rect(id) else { return }`) — no ghost, no insertion
+line, no vertical reflow — **and** the *insert-after* routing fell back to `false`. In other words, the
+entire vertical preview (milestones 251–253) never ran with the mouse. `widget_rect` now has a
+**fallback** on the `reorderables` registry (whose bounds already existed). That also fixes the case of
+a `Table` header that is reorderable **without** sorting.
 
-### 2. Annonce du lecteur d'écran dépendante de l'axe
-Le dépôt annonçait toujours `« Column moved to position {to+1} »`. Pour une carte, `to` est un index
-**plat** (`col×STRIDE+pos`) → annonce absurde (« position 1001 ») et mauvais nom. Désormais :
-horizontal → position de colonne (1-based) ; vertical → `« Card moved »` (sans numéro dénué de sens).
+### 2. A screen-reader announcement that depends on the axis
+The drop always announced "Column moved to position {to+1}". For a card, `to` is a **flat** index
+(`col×STRIDE+pos`) → an absurd announcement ("position 1001") and the wrong noun. Now: horizontal → the
+column position (1-based); vertical → "Card moved" (with no meaningless number).
 
-### 3. Dépôt d'une carte **sur elle-même**
-Le garde `to != from` laissait passer un dépôt en **moitié basse** de la carte saisie (où `to = from+1`)
-→ message de déplacement **nul** + annonce parasites (le reducer les annulait ensuite). Ajout d'un garde
-`self_drop` (cible == source) qui neutralise le dépôt sur soi, quelle que soit la moitié.
+### 3. Dropping a card **onto itself**
+The `to != from` guard let through a drop on the grabbed card's **lower half** (where `to = from+1`) → a
+**null** move message + a stray announcement (the reducer then cancelled them). A `self_drop` guard
+(target == source) was added, neutralising a drop on oneself whichever half it lands in.
 
-### 4. Ressort horizontal borné à l'axe horizontal
-Le ressort `reorder_x` (coulissement lissé des colonnes) était avancé pour **tout** glisser
-réordonnable, y compris vertical où il est **inutilisé** — calcul mort, et `reorder_animating` scrutait
-le mauvais axe. Il est désormais gardé à l'axe **horizontal** (nouvel accès `dragged_reorder_axis`).
+### 4. The horizontal spring restricted to the horizontal axis
+The `reorder_x` spring (the columns' smoothed slide) was advanced for **every** reorder drag, including
+vertical ones where it is **unused** — dead computation, and `reorder_animating` was watching the wrong
+axis. It is now guarded to the **horizontal** axis (a new `dragged_reorder_axis` accessor).
 
-### 5. La zone de dépôt n'est plus une **source** de glisser
-`reorderable_at` (côté shell, à l'appui) démarrait un glisser sur n'importe quel réordonnable, y compris
-une `DropZone` — on soulevait un fantôme vide qui ne déplaçait rien. Nouvelle méthode de trait
-`reorder_draggable()` (défaut `true`) ; `DropZone` renvoie `false`. Le **dépôt** continue de la viser
-(via `Ui::reorderable_at`), seule la **saisie** l'ignore.
+### 5. A drop zone is no longer a drag **source**
+`reorderable_at` (shell-side, on press) started a drag on any reorderable, including a `DropZone` — you
+lifted an empty ghost that moved nothing. A new `reorder_draggable()` trait method (default `true`);
+`DropZone` returns `false`. The **drop** still targets it (through `Ui::reorderable_at`), only the
+**grab** ignores it.
 
-### 6. Garde de débordement `STRIDE`
-`kanban_slot(col, pos)` porte un `debug_assert!(pos < STRIDE)` : au-delà, `pos` déborderait sur le champ
-colonne (l'index plat viserait silencieusement la colonne suivante).
+### 6. A `STRIDE` overflow guard
+`kanban_slot(col, pos)` carries a `debug_assert!(pos < STRIDE)`: beyond that, `pos` would overflow into
+the column field (the flat index would silently target the next column).
 
-## Vérification
+## Verification
 
-- **Widgets 392** : `widget_rect` retombe sur le registre (carte retrouvée là où `focusables` échoue) ;
-  cartes saisissables **et** zone de dépôt cible-seule (`reorder_draggable`).
-- **Shell 27** ; **goldens 77 inchangés** (l'aperçu n'existe qu'en glisser) ; **démo (lib) 36** ;
+- **Widgets 392**: `widget_rect` falls back on the registry (a card found where `focusables` fails);
+  cards grabbable **and** the drop zone target-only (`reorder_draggable`).
+- **Shell 27**; **goldens 77 unchanged** (the preview only exists during a drag); **demo (lib) 36**;
   doctests 6.
-- Les correctifs d'annonce/self-drop/ressort vivent dans le `pointer_up`/tick du shell (méthode à état),
-  non isolables en test pur sans harnais complet ; leur logique est simple et documentée, et le pivot
-  `widget_rect` (qui les débloque) est couvert.
+- The announcement/self-drop/spring fixes live in the shell's `pointer_up`/tick (a stateful method), not
+  isolable as pure tests without a full harness; their logic is simple and documented, and the
+  `widget_rect` pivot (which unblocks them) is covered.
 
 ## Notes
 
-- Le rendu **live** du glisser reste non inspecté au GPU ici ; mais le bug critique n°1 explique
-  pourquoi les jalons 251–253 ne pouvaient pas se voir en application — il est levé.
-- La revue a aussi relevé des points de **consolidation/style** non traités ici (voir Reste).
+- The **live** drag rendering remains uninspected on a GPU here; but critical bug #1 explains why
+  milestones 251–253 could not be seen in the application — it is lifted.
+- The review also raised **consolidation/style** points not addressed here (see What's left).
 
-## Reste
+## What's left
 
-- **Style** : couleur d'ombre du fantôme (`Color::BLACK.fade`), décalage/flou et rayon d'insertion sont
-  des littéraux dans la peinture DnD — à porter sur le thème (règle « customizable like Flutter »).
-- **Consolidation** : factoriser les deux boucles de parcours quasi identiques d'`ui.rs`
-  (`focusables/scrollables/draggables/reorderables/semantics`) et unifier `reflow_reorder_columns` /
-  `reflow_reorder_cards` (même idée sur axes transposés).
-- **Couverture** : test du réagencement **même-colonne** (chevauchement source/cible → décalage net nul),
-  et harnais shell pour les branches de routage (`insert-after`, self-drop, annonce).
-- Inertie/ressort **vertical** du coulissement (parité avec l'horizontal).
+- **Style**: the ghost's shadow colour (`Color::BLACK.fade`), the offset/blur and the insertion radius
+  are literals in the DnD painting — to be moved onto the theme (the customisability rule).
+- **Consolidation**: factoring out `ui.rs`'s two near-identical walk loops
+  (`focusables/scrollables/draggables/reorderables/semantics`) and unifying `reflow_reorder_columns` /
+  `reflow_reorder_cards` (the same idea on transposed axes).
+- **Coverage**: a test of the **same-column** reflow (source/target overlap → a net zero shift), and a
+  shell harness for the routing branches (`insert-after`, self-drop, the announcement).
+- **Vertical** inertia/spring for the slide (parity with the horizontal).

@@ -1,53 +1,53 @@
-# Jalon 241 — DataTable : sélection multiple (cases à cocher)
+# Jalon 241 — DataTable: multiple selection (checkboxes)
 
-## Analyse
+## Analysis
 
-Le `Table` de base offre déjà une **sélection multiple** : une colonne de cases à cocher coiffée d'un
-« tout cocher » (`checkboxes(on_check, on_check_all)`), l'état coché reflétant `selected`. Mais, comme
-pour la sélection simple (jalon 239), le `Table` raisonne en **positions affichées** : sous tri +
-pagination du `DataTable`, la case de la 2ᵉ ligne affichée ne coche pas la 2ᵉ ligne source.
+The base `Table` already offers **multiple selection**: a checkbox column topped by a "check all"
+(`checkboxes(on_check, on_check_all)`), the checked state reflecting `selected`. But, as with single
+selection (milestone 239), `Table` reasons in **displayed positions**: under `DataTable`'s sorting +
+pagination, the 2nd displayed row's box does not check the 2nd source row.
 
-Ce jalon expose la sélection multiple au niveau du `DataTable`, avec la **même traduction** position
-affichée ↔ index source déjà en place pour le tri, la page et la sélection simple.
+This milestone exposes multiple selection at the `DataTable` level, with the **same** displayed
+position ↔ source index mapping already in place for sorting, paging and single selection.
 
-## Décisions techniques
+## Technical decisions
 
-- **`checkboxes(on_check, on_check_all)`.** `on_check(ligne_source)` reçoit l'index de la **ligne
-  source** (traduit via `page_indices`, comme `on_select_row`) ; `on_check_all` est un message
-  transmis tel quel — l'application décide ce que « tout » recouvre (toutes les lignes source, ou la
-  page). L'état coché **réutilise** [`selected`](DataTable::selected) : mêmes index source, même
-  traduction vers les positions visibles.
+- **`checkboxes(on_check, on_check_all)`.** `on_check(source_row)` receives the **source row**'s index
+  (mapped through `page_indices`, like `on_select_row`); `on_check_all` is a message passed through as
+  is — the application decides what "all" covers (every source row, or the page). The checked state
+  **reuses** [`selected`](DataTable::selected): the same source indices, the same mapping to visible
+  positions.
 
-- **Coexiste avec `on_select_row` (façon Gmail).** La case gère la **sélection groupée** (surlignage +
-  coche), tandis qu'un clic sur le **corps** de la ligne reste un clic de ligne (focus/détail). Les
-  deux ciblent des cellules différentes (case vs texte) — le hit-test du plus profond les sépare.
+- **Coexists with `on_select_row` (the mail-client pattern).** The box handles **group selection**
+  (highlight + tick), while a click on the row's **body** stays a row click (focus/detail). The two
+  target different cells (the box vs the text) — the deepest hit-test separates them.
 
-- **Modèle contrôlé.** L'ensemble coché vit dans l'app (`data_checked: Vec<usize>` d'index source) ;
-  le widget ne fait que traduire et afficher.
+- **Controlled.** The checked set lives in the app (`data_checked: Vec<usize>` of source indices); the
+  widget only maps and displays.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : champs `on_check`/`on_check_all` + builder `checkboxes` ; `rebuild`
-  câble `Table::checkboxes` avec la traduction position → source ; test
-  `checkbox_click_reports_the_source_row_through_sort_and_page` (page 2 d'un tri croissant → la case
-  renvoie l'index source, sentinelle `999` de la case de tête filtrée).
-- `frus-demo/src/lib.rs` : état `data_checked` + `Msg::{DataCheck, DataCheckAll}` (toggle / tout
-  cocher-décocher) ; `data_screen` câble `.checkboxes(...).selected(&data_checked)` en plus du clic de
-  ligne, avec un résumé « N checked ».
+- `frus-widgets/src/datatable.rs`: the `on_check`/`on_check_all` fields + the `checkboxes` builder;
+  `rebuild` wires `Table::checkboxes` with the position → source mapping; the
+  `checkbox_click_reports_the_source_row_through_sort_and_page` test (page 2 of an ascending sort → the
+  box returns the source index, the header box's `999` sentinel filtered out).
+- `frus-demo/src/lib.rs`: the `data_checked` state + `Msg::{DataCheck, DataCheckAll}` (toggle / check
+  all-uncheck all); `data_screen` wires `.checkboxes(...).selected(&data_checked)` alongside the row
+  click, with an "N checked" summary.
 
-## Vérification
+## Verification
 
-- **Widgets** `checkbox_click…` : page 2 (taille 2) d'un tri croissant `[1,2,0]` → la case renvoie
-  l'index source `0`.
-- **Golden** `data_table_checkboxes` : tri « Score » décroissant `[Bob, Dan, Ada, Carol]`, lignes
-  **source** 0 (Ada) et 3 (Dan) cochées → deux cases cochées à leurs positions triées (2ᵉ/3ᵉ) et la
-  case de tête **indéterminée** (2 sur 4) — inspecté visuellement.
-- **Démo** `data_table_screen_…` étendu : toggle d'une ligne (coche/décoche), « tout cocher » = 12
-  lignes, re-« tout cocher » = tout décocher.
-- Widgets 376 ; goldens 71 ; démo 34 ; shell compile.
+- **Widgets** `checkbox_click…`: page 2 (size 2) of an ascending `[1,2,0]` sort → the box returns the
+  source index `0`.
+- **Golden** `data_table_checkboxes`: sorted by "Score" descending `[Bob, Dan, Ada, Carol]`, the
+  **source** rows 0 (Ada) and 3 (Dan) checked → two boxes checked at their sorted positions (2nd/3rd)
+  and the header box **indeterminate** (2 of 4) — visually inspected.
+- **Demo** `data_table_screen_…` extended: toggling a row (check/uncheck), "check all" = 12 rows,
+  "check all" again = uncheck everything.
+- Widgets 376; goldens 71; demo 34; the shell compiles.
 
-## Reste
+## What's left
 
-- **Filtre/recherche** au-dessus du `DataTable` (l'app filtre les lignes source ; le widget
-  trie/pagine/sélectionne le sous-ensemble) — jalon 242.
-- Actions **groupées** (barre d'actions quand des lignes sont cochées).
+- A **filter/search** above `DataTable` (the app filters the source rows; the widget
+  sorts/paginates/selects the subset) — milestone 242.
+- **Bulk** actions (an action bar when rows are checked).

@@ -1,39 +1,40 @@
-# Jalon 245 — Démo : confirmation avant suppression groupée
+# Jalon 245 — Demo: confirmation before a bulk delete
 
-## Analyse
+## Analysis
 
-Le `Delete` groupé (jalon 243) supprime **immédiatement** les lignes cochées — irréversible et sans
-filet. La démo dispose déjà d'un motif de **confirmation modale** (effacement des tâches terminées :
-`Portal` + `Card` centrée, fermable au clic extérieur). Ce jalon applique le même motif au `Delete` du
-tableau de données, pour boucler proprement le domaine.
+Bulk `Delete` (milestone 243) removes the checked rows **immediately** — irreversible and with no
+safety net. The demo already has a **modal confirmation** pattern (clearing completed tasks: a `Portal`
++ a centred `Card`, dismissable by an outside click). This milestone applies the same pattern to the
+data table's `Delete`, to close the domain off cleanly.
 
-## Décisions techniques
+## Technical decisions
 
-- **Réutilise le motif existant.** `Portal::new(écran).overlay(carte, Placement::Center)
-  .dismiss(Msg::DataCancelDelete)` — identique à la confirmation d'effacement, pour une UX cohérente.
+- **Reuses the existing pattern.**
+  `Portal::new(screen).overlay(card, Placement::Center).dismiss(Msg::DataCancelDelete)` — identical to
+  the clear confirmation, for a consistent UX.
 
-- **Le bouton n'agit plus directement.** Dans la barre d'actions, `Delete` émet désormais
-  `Msg::DataAskDelete` (ouvre la modale) au lieu de `Msg::DataDeleteChecked`. La modale porte les deux
-  issues : `Cancel` (`DataCancelDelete`) et `Delete` (`DataDeleteChecked`, la suppression réelle).
+- **The button no longer acts directly.** In the action bar, `Delete` now emits `Msg::DataAskDelete`
+  (opening the modal) instead of `Msg::DataDeleteChecked`. The modal carries both outcomes: `Cancel`
+  (`DataCancelDelete`) and `Delete` (`DataDeleteChecked`, the real deletion).
 
-- **Navigation bloquée pendant la modale.** `can_go_back` inclut `!data_confirm_delete`, comme les
-  autres modales — le geste/bouton retour ne navigue pas tant que la confirmation est ouverte.
+- **Navigation blocked while the modal is open.** `can_go_back` includes `!data_confirm_delete`, like
+  the other modals — the back gesture/button does not navigate while the confirmation is open.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : état `data_confirm_delete` ; `Msg::{DataAskDelete, DataCancelDelete}`
-  (+ `DataDeleteChecked` remet le drapeau à zéro) ; `data_confirm_content(count)` (carte « Delete
-  selected rows? » + Cancel/Delete) ; `data_screen` fait émettre `DataAskDelete` au bouton et enrobe
-  l'écran d'un `Portal` quand la modale est ouverte ; `can_go_back` mis à jour.
+- `frus-demo/src/lib.rs`: the `data_confirm_delete` state; `Msg::{DataAskDelete, DataCancelDelete}`
+  (+ `DataDeleteChecked` resets the flag); `data_confirm_content(count)` (a "Delete selected rows?" card
+  + Cancel/Delete); `data_screen` makes the button emit `DataAskDelete` and wraps the screen in a
+  `Portal` when the modal is open; `can_go_back` updated.
 
-## Vérification
+## Verification
 
-- **Démo** `data_table_screen_…` étendu : `DataAskDelete` ouvre la modale (rien n'est supprimé) ;
-  `DataCancelDelete` la ferme sans supprimer ; `DataAskDelete` puis `DataDeleteChecked` supprime la
-  ligne cochée et referme la modale.
-- Démo 34 ; shell compile (widgets/goldens inchangés).
+- **Demo** `data_table_screen_…` extended: `DataAskDelete` opens the modal (nothing is deleted);
+  `DataCancelDelete` closes it without deleting; `DataAskDelete` then `DataDeleteChecked` deletes the
+  checked row and closes the modal.
+- Demo 34; the shell compiles (the widgets/goldens unchanged).
 
-## Reste
+## What's left
 
-- Un nouveau domaine de widgets : `Tree` view (arbre extensible, sélection) ou `Kanban`
-  (colonnes + cartes, glisser-déposer).
+- A new widget domain: a `Tree` view (an expandable tree, selection) or a `Kanban` (columns + cards,
+  drag and drop).

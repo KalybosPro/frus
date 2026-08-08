@@ -1,54 +1,53 @@
-# Jalon 248 — Kanban : aperçu de dépôt vertical
+# Jalon 248 — Kanban: vertical drop preview
 
-## Analyse
+## Analysis
 
-Le glisser-déposer des cartes (jalon 247) route correctement le déplacement, mais l'**aperçu** de
-glisser du shell était conçu pour les colonnes de `Table` : le fantôme ne suit que l'axe **horizontal**
-(`dx`) et les voisins se réagencent en colonnes. Pour une carte que l'on glisse **verticalement**, le
-fantôme ne descendait pas et aucun repère d'insertion n'apparaissait.
+The cards' drag and drop (milestone 247) routes the move correctly, but the shell's **drag preview**
+was designed for `Table` columns: the ghost only follows the **horizontal** axis (`dx`) and the
+neighbours reflow as columns. For a card dragged **vertically**, the ghost did not move down and no
+insertion cue appeared.
 
-Ce jalon donne au shell un **indice d'axe** par widget réordonnable et une branche d'aperçu **verticale**.
+This milestone gives the shell an **axis hint** per reorderable widget and a **vertical** preview
+branch.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Widget::reorder_axis() -> ReorderAxis`** (défaut `Horizontal`). Additif : les colonnes de `Table`
-  gardent l'aperçu horizontal existant sans changement ; les cartes (et zones de dépôt) de `Kanban`
-  renvoient `Vertical`.
+- **`Widget::reorder_axis() -> ReorderAxis`** (default `Horizontal`). Additive: `Table` columns keep the
+  existing horizontal preview unchanged; `Kanban`'s cards (and drop zones) return `Vertical`.
 
-- **Branche verticale de l'aperçu.** Pour un axe vertical, le shell : (1) fait suivre le fantôme en
-  **2D** (`dx, dy`) au lieu de `dx` seul ; (2) **n'applique pas** le réagencement horizontal des
-  colonnes ; (3) pose une **ligne d'insertion** (bandeau `primary`) au bord supérieur de l'emplacement
-  survolé (carte ou zone de dépôt).
+- **A vertical preview branch.** For a vertical axis, the shell: (1) makes the ghost follow in **2D**
+  (`dx, dy`) instead of `dx` alone; (2) **does not apply** the horizontal column reflow; (3) lays down
+  an **insertion line** (a `primary` band) at the top edge of the hovered slot (a card or a drop zone).
 
-- **Géométrie pure et testable.** La position de la ligne est calculée par `drop_insertion_line(target,
-  thickness)` — fonction pure, testée sans GPU (comme `draw_ghost_card`).
+- **Pure, testable geometry.** The line's position is computed by
+  `drop_insertion_line(target, thickness)` — a pure function, tested without a GPU (like
+  `draw_ghost_card`).
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/widget.rs` : enum `ReorderAxis` + méthode `reorder_axis` (défaut `Horizontal`) +
-  transfert dans l'impl `Box<dyn Widget>` ; export.
-- `frus-widgets/src/kanban.rs` : `Card` et `DropZone` renvoient `ReorderAxis::Vertical` ; test
-  `cards_declare_vertical_reorder_axis`.
-- `frus-shell/src/app.rs` : `paint_reorder_preview` branche sur l'axe (fantôme 2D + ligne d'insertion
-  en vertical, comportement horizontal inchangé) ; helper `reorder_drop_line` + fonction pure
-  `drop_insertion_line` ; test `insertion_line_sits_on_the_target_top_edge`.
+- `frus-widgets/src/widget.rs`: the `ReorderAxis` enum + the `reorder_axis` method (default
+  `Horizontal`) + forwarding in the `Box<dyn Widget>` impl; the export.
+- `frus-widgets/src/kanban.rs`: `Card` and `DropZone` return `ReorderAxis::Vertical`; the
+  `cards_declare_vertical_reorder_axis` test.
+- `frus-shell/src/app.rs`: `paint_reorder_preview` branches on the axis (a 2D ghost + the insertion line
+  when vertical, the horizontal behaviour unchanged); the `reorder_drop_line` helper + the pure
+  `drop_insertion_line` function; the `insertion_line_sits_on_the_target_top_edge` test.
 
-## Vérification
+## Verification
 
-- **Widgets** : les cartes/zones déclarent l'axe **vertical**.
-- **Shell** : `drop_insertion_line` place le bandeau sur le bord supérieur de la cible, à sa largeur.
-- **Non-régression** : la branche horizontale (colonnes de `Table`) est inchangée — tests shell et
-  goldens `Table` inchangés.
-- Widgets 385 ; shell 26 ; goldens 76 ; démo 36.
+- **Widgets**: the cards/zones declare the **vertical** axis.
+- **Shell**: `drop_insertion_line` puts the band on the target's top edge, at its width.
+- **No regression**: the horizontal branch (`Table` columns) is unchanged — the shell tests and the
+  `Table` goldens unchanged.
+- Widgets 385; shell 26; goldens 76; demo 36.
 
 ## Notes
 
-- L'aperçu de glisser est un état **runtime** du shell (il n'apparaît que pendant un glissement) : il
-  n'est pas capturable par un golden (rendu d'arbre **statique**). Les parties **pures** (axe, géométrie
-  de la ligne) sont couvertes par des tests ; le rendu **live** n'est pas inspecté au GPU dans cet
-  environnement.
+- The drag preview is shell **runtime** state (it only appears during a drag): it cannot be captured by
+  a golden (a **static** tree render). The **pure** parts (the axis, the line's geometry) are covered by
+  tests; the **live** rendering is not inspected on a GPU in this environment.
 
-## Reste
+## What's left
 
-- Cartes **riches** (widgets) + ajout/suppression de carte dans le Kanban.
-- Indicateur d'insertion **inter-cartes** plus fin (au-dessus/au-dessous selon la moitié survolée).
+- **Rich** cards (widgets) + adding/removing a card in the Kanban.
+- A finer **between-cards** insertion cue (above/below depending on the hovered half).

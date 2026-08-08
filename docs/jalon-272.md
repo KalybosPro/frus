@@ -1,22 +1,21 @@
-# Jalon 272 — `Request` : POST, en-têtes et timeout sur `fetch` (feature `net`)
+# Jalon 272 — `Request`: POST, headers and timeout on `fetch` (`net` feature)
 
-## Objectif
+## The goal
 
-Le jalon 271 a livré le socle : `fetch(url)`, un **GET texte** cross-plateforme. Une vraie
-app a besoin de plus — **poster** un corps, **fixer des en-têtes** (`Content-Type`,
-`Authorization`…), **borner l'attente** par un timeout. Ce jalon ajoute un **constructeur
-de requête** qui couvre tout ça, sans casser le raccourci `fetch`.
+Milestone 271 shipped the foundation: `fetch(url)`, a cross-platform **text GET**. A real app needs
+more — **posting** a body, **setting headers** (`Content-Type`, `Authorization`…), **bounding** the wait
+with a timeout. This milestone adds a **request builder** covering all of that, without breaking the
+`fetch` shorthand.
 
-## API
+## The API
 
-Deux niveaux, une seule signature de sortie (`Result<String, FetchError>`) pour les trois
-cibles :
+Two levels, one output signature (`Result<String, FetchError>`) for all three targets:
 
 ```rust
 use frus::{Command, Request};
 use std::time::Duration;
 
-// Raccourci inchangé : GET texte.
+// The shorthand, unchanged: a text GET.
 Msg::Load => Command::perform_async(async {
     match frus::fetch("https://example.com/api").await {
         Ok(body) => Msg::Loaded(body),
@@ -24,7 +23,7 @@ Msg::Load => Command::perform_async(async {
     }
 }),
 
-// POST JSON, en-tête, délai maximal.
+// A JSON POST, a header, a deadline.
 Msg::Save(json) => Command::perform_async(async move {
     let res = Request::post("https://example.com/api")
         .header("Content-Type", "application/json")
@@ -36,38 +35,37 @@ Msg::Save(json) => Command::perform_async(async move {
 }),
 ```
 
-- `Request::{get, post, put, delete}(url)` ou `Request::new(Method, url)`.
-- `.header(name, value)` — **cumulable** (plusieurs appels n'écrasent rien).
-- `.body(text)` — corps de la requête (le dernier appel gagne).
-- `.timeout(Duration)` — délai avant abandon (rendu en `FetchError::Network`).
+- `Request::{get, post, put, delete}(url)` or `Request::new(Method, url)`.
+- `.header(name, value)` — **cumulative** (several calls overwrite nothing).
+- `.body(text)` — the request's body (the last call wins).
+- `.timeout(Duration)` — the deadline before giving up (returned as a `FetchError::Network`).
 - `.send().await -> Result<String, FetchError>`.
-- `fetch(url)` reste, et vaut exactement `Request::get(url).send().await`.
+- `fetch(url)` remains, and is exactly `Request::get(url).send().await`.
 
-`Method` : `Get`, `Post`, `Put`, `Delete`, `Patch`, `Head` (`as_str()` → verbe HTTP).
+`Method`: `Get`, `Post`, `Put`, `Delete`, `Patch`, `Head` (`as_str()` → the HTTP verb).
 
-## Implémentation par plateforme
+## Implementation per platform
 
-- **Natif** : `ureq::request(method, url)`, `.set(name, value)` par en-tête, `.timeout(dur)`,
-  puis `.send_string(body)` si un corps est fourni, sinon `.call()`.
-- **Web** : `window.fetch` via un `web_sys::Request` bâti depuis un `RequestInit` (méthode,
-  `Headers`, corps). Le **timeout** est armé par un `AbortController` dont le signal est passé
-  à la requête ; un `setTimeout` déclenche `abort()` au-delà du délai, et le minuteur est
-  **désarmé** (`clearTimeout`) dès la réponse reçue.
+- **Native**: `ureq::request(method, url)`, `.set(name, value)` per header, `.timeout(dur)`, then
+  `.send_string(body)` if a body is supplied, otherwise `.call()`.
+- **Web**: `window.fetch` through a `web_sys::Request` built from a `RequestInit` (the method,
+  `Headers`, the body). The **timeout** is armed by an `AbortController` whose signal is passed to the
+  request; a `setTimeout` fires `abort()` past the deadline, and the timer is **disarmed**
+  (`clearTimeout`) as soon as the response arrives.
 
-Même chaînage, la seule différence est cachée derrière deux `#[cfg]`.
+The same chaining; the only difference is hidden behind two `#[cfg]`s.
 
-## Vérification
+## Verification
 
-- **Build natif `--features net`** : `frus-shell` et la façade `frus` compilent (ureq + rustls).
-- **Build wasm `--features net`** (`--target wasm32-unknown-unknown`) : compile — les bindings
-  `Request`/`RequestInit`/`Headers`/`AbortController`/`AbortSignal` sont ajoutés aux features
-  `web-sys`.
-- **Tests** (4) : `error_display_is_readable`, `method_verbs`,
-  `builder_accumulates_headers_body_and_timeout`, `fetch_shortcut_is_a_bare_get`. Un aller-retour
-  réseau réel dépend du réseau/navigateur — non exécuté ici ; le transport est délégué à
-  `ureq`/`web-sys`.
+- **The native `--features net` build**: `frus-shell` and the `frus` facade compile (ureq + rustls).
+- **The wasm `--features net` build** (`--target wasm32-unknown-unknown`): compiles — the
+  `Request`/`RequestInit`/`Headers`/`AbortController`/`AbortSignal` bindings were added to the `web-sys`
+  features.
+- **Tests** (4): `error_display_is_readable`, `method_verbs`,
+  `builder_accumulates_headers_body_and_timeout`, `fetch_shortcut_is_a_bare_get`. A real network round
+  trip depends on the network/a browser — not run here; the transport is delegated to `ureq`/`web-sys`.
 
-## Reste
+## What's left
 
-- Flux (corps non bufferisé), réponses binaires, redirections fines — au besoin. Le cœur
-  (méthode + en-têtes + corps + timeout) est là.
+- Streaming (an unbuffered body), binary responses, fine-grained redirects — as needed. The core (the
+  method + headers + a body + a timeout) is there.

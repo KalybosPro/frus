@@ -1,57 +1,57 @@
-# Jalon 264 — Défilement vertical par colonne (façon Trello), via hauteur explicite
+# Jalon 264 — Per-column vertical scrolling (Trello style), via an explicit height
 
-## Objectif
+## The goal
 
-Compléter le patron Trello amorcé aux jalons 258/260 : le board défile **horizontalement** (rangée de
-colonnes), et **chaque colonne** défile ses cartes **verticalement**, indépendamment. Le jalon 263
-avait constaté que l'approche naturelle (`Scroll` en `flex(1)`) **s'effondre** faute d'une hauteur
-d'ancêtre définie — les cartes disparaissent et ne sont plus réordonnables. Ce jalon livre la
-fonctionnalité par le **stopgap documenté** : une hauteur **explicite** fournie par l'application.
+To complete the Trello pattern begun in milestones 258/260: the board scrolls **horizontally** (the row
+of columns), and **each column** scrolls its cards **vertically**, independently. Milestone 263 found
+that the natural approach (a `Scroll` at `flex(1)`) **collapses** for want of a defined ancestor height
+— the cards disappear and are no longer reorderable. This milestone ships the feature through the
+**documented stopgap**: an **explicit** height supplied by the application.
 
-## Décision : hauteur explicite fournie par l'app (façon Flutter)
+## The decision: an explicit height supplied by the app
 
-Plutôt que d'attendre une primitive « fill-then-scroll » dans le moteur de layout, l'**application**
-fournit la hauteur de la zone de cartes — comme Flutter demande souvent une contrainte de hauteur
-définie pour un `ListView` imbriqué (`SizedBox`, `Expanded` dans une `Column` bornée…). C'est
-**contrôlé** et surchargeable : sans l'appel, la colonne garde son comportement d'origine (hauteur du
-contenu).
+Rather than waiting for a "fill-then-scroll" primitive in the layout engine, the **application**
+supplies the card area's height — as a nested scrolling list often requires a defined height constraint.
+It is **controlled** and overridable: without the call, the column keeps its original behaviour (the
+content's height).
 
-## Implémentation
+## Implementation
 
-- **`frus-widgets/src/kanban.rs`** :
-  - `Kanban::card_area_height(h)` (nouveau) : rend les cartes de chaque colonne **défilables
-    verticalement** dans une région de hauteur `h`. `build_column` compose alors la colonne en trois
-    zones — **titre fixe** au-dessus, **cartes + zone de dépôt** dans un
-    `Scroll { axis: Vertical, height: h }`, **bouton « + Add card » fixe** en dessous. Sans l'appel
-    (`card_area_height == None`), les cartes restent des enfants directs de la colonne (inchangé).
-  - Constante `COL_PAD = 12` (extraite du padding du panneau) : sert au calcul de la largeur
-    intérieure `COL_W − 2·COL_PAD` donnée au `Scroll` et à sa liste.
-- **`frus-widgets/src/flex.rs`** : `Flex::child_boxed(Box<dyn Widget>)` (nouveau) — ajoute un enfant
-  déjà boxé, pour composer une liste construite dynamiquement (`Vec<Box<dyn Widget>>`).
-- **`frus-demo/src/lib.rs`** (`board_screen`) : calcule `card_area = (height − BOARD_CHROME).max(160)`
-  (réserve navbar + hint + paddings + titre + bouton d'ajout ; plancher pour ne jamais s'effondrer sur
-  petit écran) et le passe via `.card_area_height(card_area)`.
+- **`frus-widgets/src/kanban.rs`**:
+  - `Kanban::card_area_height(h)` (new): makes each column's cards **vertically scrollable** within a
+    region of height `h`. `build_column` then composes the column in three zones — a **fixed title**
+    above, the **cards + the drop zone** inside a `Scroll { axis: Vertical, height: h }`, a **fixed
+    "+ Add card" button** below. Without the call (`card_area_height == None`), the cards stay direct
+    children of the column (unchanged).
+  - The `COL_PAD = 12` constant (extracted from the panel's padding): used to compute the inner width
+    `COL_W − 2·COL_PAD` given to the `Scroll` and to its list.
+- **`frus-widgets/src/flex.rs`**: `Flex::child_boxed(Box<dyn Widget>)` (new) — adds an already boxed
+  child, to compose a dynamically built list (`Vec<Box<dyn Widget>>`).
+- **`frus-demo/src/lib.rs`** (`board_screen`): computes
+  `card_area = (height − BOARD_CHROME).max(160)` (reserving the navbar + the hint + the paddings + the
+  title + the add button; a floor so it never collapses on a small screen) and passes it through
+  `.card_area_height(card_area)`.
 
-## Vérification
+## Verification
 
-- **Desktop** : compile ; widgets **395** (dont le nouveau garde-fou), kanban inchangé, goldens **77**
-  inchangés.
-- **Garde-fou (unitaire)** : `reorderables_inside_a_per_column_card_scroll_are_still_registered` — une
-  colonne à `card_area_height` définie place ses cartes dans un `Scroll` **vertical à hauteur définie**
-  (le cas même qui s'effondrait au jalon 263) ; les cartes visibles restent **réordonnables**
-  (≥ 3 : 2 cartes + zone de dépôt). Complète `reorderables_inside_a_scroll_are_still_registered`
-  (board dans un scroll horizontal, jalon 263).
-- **Appareil** : à confirmer au doigt (défilement vertical d'une colonne + glisser d'une carte dans une
-  colonne défilée). Le rendu et le défilement effectifs ne sont vérifiables que sur GPU/appareil.
+- **Desktop**: compiles; widgets **395** (including the new guard), kanban unchanged, goldens **77**
+  unchanged.
+- **The guard (unit)**: `reorderables_inside_a_per_column_card_scroll_are_still_registered` — a column
+  with a defined `card_area_height` puts its cards in a **vertical `Scroll` with a defined height** (the
+  very case that collapsed in milestone 263); the visible cards stay **reorderable** (≥ 3: 2 cards + the
+  drop zone). It complements `reorderables_inside_a_scroll_are_still_registered` (a board in a
+  horizontal scroll, milestone 263).
+- **On device**: to be confirmed by finger (a column's vertical scrolling + dragging a card within a
+  scrolled column). The actual rendering and scrolling can only be verified on a GPU/device.
 
-## Limite connue
+## A known limitation
 
-La hauteur est **explicite** (fournie par l'app), pas encore dérivée d'un « remplir la hauteur
-disponible puis défiler » automatique. Les cartes défilées **hors** de la région visible ne sont pas
-enregistrées comme réordonnables (attendu : on ne dépose pas sur une carte hors écran sans défiler
-d'abord). Une primitive fill-then-scroll fiable dans le moteur de layout rendrait le stopgap inutile.
+The height is **explicit** (supplied by the app), not yet derived from an automatic "fill the available
+height then scroll". Cards scrolled **outside** the visible region are not registered as reorderable
+(expected: you do not drop onto an off-screen card without scrolling first). A reliable fill-then-scroll
+primitive in the layout engine would make the stopgap unnecessary.
 
-## Reste
+## What's left
 
-- Primitive « fill-then-scroll » dans le layout (supprimerait le besoin d'une hauteur explicite).
-- Inertie verticale du glisser (parité avec le ressort horizontal).
+- A "fill-then-scroll" primitive in the layout (which would remove the need for an explicit height).
+- Vertical drag inertia (parity with the horizontal spring).

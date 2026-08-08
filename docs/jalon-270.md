@@ -1,22 +1,22 @@
-# Jalon 270 — Effets **asynchrones** (`perform_async` / `run_async`)
+# Jalon 270 — **Asynchronous** effects (`perform_async` / `run_async`)
 
-## Objectif
+## The goal
 
-Jusqu'ici, une `Command` ne portait que des tâches **synchrones** (`FnOnce() -> Option<Msg>`) : sur le
-Web (mono-thread), elles s'exécutaient en microtâche sans pouvoir `await` — donc **pas de vrai
-`fetch`**. Ce jalon ajoute une forme **asynchrone** : une `Command` peut porter une **future** qui
-s'attend réellement, pilotée par le navigateur sur le Web et menée à terme sur un thread en natif.
+Until now, a `Command` only carried **synchronous** tasks (`FnOnce() -> Option<Msg>`): on the Web
+(single-threaded), they ran as a microtask with no way to `await` — so **no real `fetch`**. This
+milestone adds an **asynchronous** form: a `Command` can carry a **future** that genuinely awaits,
+driven by the browser on the Web and run to completion on a thread natively.
 
-## API
+## The API
 
-- `Command::perform_async(future)` — la valeur de la future devient un message.
-- `Command::run_async(future)` — future à effet de bord ; `Option<Msg>` (`None` = aucun message).
+- `Command::perform_async(future)` — the future's value becomes a message.
+- `Command::run_async(future)` — a side-effecting future; `Option<Msg>` (`None` = no message).
 
 ```rust
 fn update(&mut self, msg: Msg) -> Command<Msg> {
     match msg {
         Msg::Load => Command::perform_async(async {
-            let body = fetch("/api/data").await;   // await réel (fetch sur le Web)
+            let body = fetch("/api/data").await;   // a real await (fetch on the Web)
             Msg::Loaded(body)
         }),
         Msg::Loaded(_) => Command::none(),
@@ -24,42 +24,42 @@ fn update(&mut self, msg: Msg) -> Command<Msg> {
 }
 ```
 
-## Exécution par plateforme
+## Execution per platform
 
-- **Web** (`wasm32`) : `wasm_bindgen_futures::spawn_local` pilote la future — le navigateur est le
-  réacteur, un `fetch` (`JsFuture`) `await` sans bloquer la boucle. Le message revient par le proxy.
-- **Natif** : la future part sur son **propre thread** et est menée à terme par `pollster::block_on`.
-  Parfait pour une future **autonome** (calcul, canal, minuterie pilotée). Une **E/S réseau réelle**
-  (qui exige un réacteur) s'appuie sur le **runtime async de l'application** — le framework n'impose
-  aucun runtime.
+- **Web** (`wasm32`): `wasm_bindgen_futures::spawn_local` drives the future — the browser is the
+  reactor, a `fetch` (a `JsFuture`) awaits without blocking the loop. The message comes back through the
+  proxy.
+- **Native**: the future goes onto its **own thread** and is run to completion by `pollster::block_on`.
+  Perfect for a **self-contained** future (a computation, a channel, a driven timer). **Real network
+  I/O** (which needs a reactor) leans on the **application's async runtime** — the framework imposes no
+  runtime.
 
-### Bornes `Send` par plateforme
+### `Send` bounds per platform
 
-Le type de tâche asynchrone est **conditionnel** : `Future + Send + 'static` en natif (elle traverse
-un thread), `Future + 'static` sur le Web (les futures du navigateur — `JsFuture` — ne sont **pas**
-`Send`, et n'en ont pas besoin en mono-thread). Les deux signatures de `perform_async` / `run_async`
-sont donc `#[cfg]`-gardées.
+The async task type is **conditional**: `Future + Send + 'static` natively (it crosses a thread),
+`Future + 'static` on the Web (browser futures — `JsFuture` — are **not** `Send`, and do not need to be
+when single-threaded). So both `perform_async` / `run_async` signatures are `#[cfg]`-guarded.
 
-## Implémentation
+## Implementation
 
-- **`frus-shell/src/command.rs`** : champ `async_tasks: Vec<AsyncTask<Msg>>` (alias `#[cfg]`-gardé),
-  méthodes `perform_async` / `run_async` (deux variantes par plateforme), `batch` / `is_empty` /
-  `into_parts` étendus.
-- **`frus-shell/src/app.rs`** (`run_command`) : draine `async_tasks` — `thread::spawn` +
-  `pollster::block_on` en natif, `spawn_local` sur le Web ; message renvoyé par le proxy, comme les
-  tâches synchrones.
+- **`frus-shell/src/command.rs`**: the `async_tasks: Vec<AsyncTask<Msg>>` field (a `#[cfg]`-guarded
+  alias), the `perform_async` / `run_async` methods (two variants per platform), `batch` / `is_empty` /
+  `into_parts` extended.
+- **`frus-shell/src/app.rs`** (`run_command`): drains `async_tasks` — `thread::spawn` +
+  `pollster::block_on` natively, `spawn_local` on the Web; the message returned through the proxy, like
+  the synchronous tasks.
 
-## Vérification
+## Verification
 
-- **Compilation** : `frus-shell` compile (tests inclus, `--no-run`).
-- **Tests** (natif) : `perform_async_yields_a_message` (`block_on(async { 7 })` → `Some(7)`),
+- **Compilation**: `frus-shell` compiles (tests included, `--no-run`).
+- **Tests** (native): `perform_async_yields_a_message` (`block_on(async { 7 })` → `Some(7)`),
   `run_async_may_produce_nothing`, `batch_combines_sync_and_async_tasks`.
-  *(L'exécution locale des binaires de test est bloquée par SAC cette session — os error 4551,
-  environnement ; la compilation, elle, passe. Voir la note SAC du projet.)*
-- **Web** : chemin `spawn_local` structurellement identique à l'ancien (déjà en place au jalon 130) ;
-  vérifiable en navigateur.
+  *(Running the test binaries locally is blocked by SAC this session — os error 4551, an environment
+  issue; compilation itself passes. See the project's SAC note.)*
+- **Web**: the `spawn_local` path is structurally identical to the old one (already in place in
+  milestone 130); verifiable in a browser.
 
-## Reste
+## What's left
 
-- Un **helper `fetch` cross-plateforme** (web-sys `fetch` ↔ un client natif) — pour l'instant, l'app
-  fournit la future ; le framework ne fait que la piloter.
+- A **cross-platform `fetch` helper** (web-sys `fetch` ↔ a native client) — for now, the app supplies
+  the future; the framework only drives it.

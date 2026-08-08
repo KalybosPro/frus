@@ -1,51 +1,50 @@
-# Jalon 259 — Contrat de cycle de vie de l'application (façon Flutter)
+# Jalon 259 — Application lifecycle contract
 
-## Analyse
+## Analysis
 
-Le framework gérait le cycle de vie de la **surface** (winit `resumed`/`suspended` : (re)création et
-destruction du renderer/fenêtre — indispensable sur Android où la surface GPU est invalide en
-arrière-plan), mais **n'exposait rien à l'application**. Contrairement à Flutter
-(`didChangeAppLifecycleState`), le `Application` ne pouvait pas réagir au passage premier plan ↔
-arrière-plan (suspendre un minuteur/capteur, persister avant fermeture).
+The framework handled the **surface**'s lifecycle (winit's `resumed`/`suspended`: (re)creating and
+destroying the renderer/window — essential on Android where the GPU surface is invalid in the
+background), but **exposed nothing to the application**. Unlike the established lifecycle callback, the
+`Application` could not react to going foreground ↔ background (suspending a timer/sensor, persisting
+before closing).
 
-## Décisions techniques
+## Technical decisions
 
-- **Enum `Lifecycle`** (façon `AppLifecycleState`) : `Resumed` (premier plan, interactif), `Inactive`
-  (visible mais non focalisé), `Paused` (arrière-plan, surface perdue), `Detached` (fermeture
-  imminente).
-- **Hook `Application::on_lifecycle(state)`** (défaut : rien).
-- **Notification aux transitions seulement.** Le shell mémorise l'état courant (`lifecycle`) et
-  n'appelle `on_lifecycle` qu'au **changement** (`set_lifecycle`).
-- **Câblage** : `resumed` → `Resumed` ; `suspended` → `Paused` ; nouveau `exiting` → `Detached` ;
-  `WindowEvent::Focused(true/false)` → `Resumed`/`Inactive` **sans** écraser `Paused`/`Detached`
-  (le premier plan décide du focus, l'arrière-plan/fermeture décide du reste).
+- **A `Lifecycle` enum**: `Resumed` (foreground, interactive), `Inactive` (visible but unfocused),
+  `Paused` (background, the surface lost), `Detached` (closing imminent).
+- **An `Application::on_lifecycle(state)` hook** (default: nothing).
+- **Notified on transitions only.** The shell remembers the current state (`lifecycle`) and only calls
+  `on_lifecycle` on a **change** (`set_lifecycle`).
+- **Wiring**: `resumed` → `Resumed`; `suspended` → `Paused`; the new `exiting` → `Detached`;
+  `WindowEvent::Focused(true/false)` → `Resumed`/`Inactive` **without** overwriting `Paused`/`Detached`
+  (the foreground decides focus, the background/closing decides the rest).
 
-## Implémentation
+## Implementation
 
-- `frus-shell/src/application.rs` : `enum Lifecycle` + `fn on_lifecycle` ; export dans `lib.rs`.
-- `frus-shell/src/app.rs` : champ `lifecycle` (init `Detached`), `set_lifecycle` (change-tracké),
-  appels dans `resumed`/`suspended`/`exiting` et l'arm `WindowEvent::Focused`.
-- `frus-demo/src/lib.rs` : `on_lifecycle` trace l'état et met `background = Paused|Detached` ; la
-  **souscription** du chrono est gardée par `!background` → le minuteur se **suspend** en arrière-plan
-  et **reprend** au retour (le framework arrête/relance la souscription par diff).
+- `frus-shell/src/application.rs`: the `Lifecycle` enum + `fn on_lifecycle`; the export in `lib.rs`.
+- `frus-shell/src/app.rs`: the `lifecycle` field (initialised to `Detached`), `set_lifecycle`
+  (change-tracked), calls in `resumed`/`suspended`/`exiting` and the `WindowEvent::Focused` arm.
+- `frus-demo/src/lib.rs`: `on_lifecycle` logs the state and sets `background = Paused|Detached`; the
+  stopwatch's **subscription** is guarded by `!background` → the timer **suspends** in the background and
+  **resumes** on return (the framework stops/restarts the subscription by diffing).
 
-## Vérification
+## Verification
 
-- **Desktop** : compile ; shell 27 ; démo (lib) 36.
-- **Appareil** (Huawei STK-L21) : séquence **confirmée** en logcat en tâche de fond puis retour :
-  `Resumed → Inactive → Paused` (appui HOME) puis `Resumed` (retour). Le chrono ne tourne plus en
-  `Paused`.
+- **Desktop**: compiles; shell 27; demo (lib) 36.
+- **On device** (Huawei STK-L21): the sequence **confirmed** in logcat going to the background then
+  returning: `Resumed → Inactive → Paused` (pressing HOME) then `Resumed` (on return). The stopwatch no
+  longer runs while `Paused`.
 
 ## Notes
 
-- `Inactive` s'appuie sur `WindowEvent::Focused` (fiable sur bureau ; sur Android on observe bien
-  `Inactive` juste avant `Paused` lors du passage en tâche de fond).
-- Pas encore : `Hidden` (état Flutter intermédiaire), ni restauration d'état **après mort du
-  processus** (distinct du live-reload `save_state`/`restore_state`, réservé au dev).
+- `Inactive` rests on `WindowEvent::Focused` (reliable on desktop; on Android we do observe `Inactive`
+  right before `Paused` when going to the background).
+- Not there yet: a `Hidden` intermediate state, nor state restoration **after the process dies**
+  (distinct from the live-reload `save_state`/`restore_state`, which is dev-only).
 
-## Reste
+## What's left
 
-- Rework du **défilement Kanban** façon Flutter : scroll **horizontal** du board + scroll **vertical
-  par colonne** (au lieu du pan 2D `Axis::Both` du jalon 258).
-- Balayage overflow des autres écrans ; polish DnD (réagencement même-colonne, inertie verticale,
-  ombre `Card`/`Toast`).
+- Reworking the **Kanban scrolling**: a **horizontal** board scroll + a **per-column vertical** scroll
+  (instead of milestone 258's 2D `Axis::Both` pan).
+- An overflow sweep of the other screens; DnD polish (same-column reflow, vertical inertia, the
+  `Card`/`Toast` shadow).

@@ -1,13 +1,13 @@
-# Jalon 271 — Helper `fetch` cross-plateforme (feature `net`)
+# Jalon 271 — Cross-platform `fetch` helper (`net` feature)
 
-## Objectif
+## The goal
 
-Le jalon 270 a donné le **mécanisme** d'effet asynchrone (`Command::perform_async`) mais laissait
-l'app fournir la future — donc toucher `web-sys` / un client HTTP elle-même. Ce jalon livre le
-**helper manquant** : un GET HTTP **cross-plateforme**, `frus::fetch(url).await`, une seule signature
-pour les trois cibles.
+Milestone 270 gave us the **mechanism** for an asynchronous effect (`Command::perform_async`) but left
+the app to supply the future — so to touch `web-sys` / an HTTP client itself. This milestone ships the
+**missing helper**: a **cross-platform** HTTP GET, `frus::fetch(url).await`, one signature for all three
+targets.
 
-## API
+## The API
 
 ```rust
 use frus::{Command, fetch};
@@ -20,37 +20,37 @@ Msg::Load => Command::perform_async(async {
 }),
 ```
 
-- `async fn fetch(url: impl Into<String>) -> Result<String, FetchError>` — GET, corps en texte.
-- `FetchError` : `Network(String)` (transport/DNS/TLS), `Status(u16)` (non-2xx), `Decode(String)`
-  (corps illisible). Implémente `Display` + `Error`.
+- `async fn fetch(url: impl Into<String>) -> Result<String, FetchError>` — a GET, the body as text.
+- `FetchError`: `Network(String)` (transport/DNS/TLS), `Status(u16)` (non-2xx), `Decode(String)` (an
+  unreadable body). It implements `Display` + `Error`.
 
-## Implémentation par plateforme
+## Implementation per platform
 
-- **Web** (`wasm32`) : `window.fetch` via `web-sys` (+ feature `Response`), `await` réel — la future
-  n'est **pas** `Send`, ce que tolère le `perform_async` du Web.
-- **Natif** : le client bloquant **`ureq`** (TLS rustls inclus), exécuté **dans le corps de la
-  future** — menée à terme sur le thread dédié de `perform_async`, où bloquer est sans risque. La
-  future reste `Send`.
+- **Web** (`wasm32`): `window.fetch` through `web-sys` (+ the `Response` feature), a real `await` — the
+  future is **not** `Send`, which the Web's `perform_async` tolerates.
+- **Native**: the blocking **`ureq`** client (rustls TLS included), executed **inside the future's
+  body** — run to completion on `perform_async`'s dedicated thread, where blocking is safe. The future
+  stays `Send`.
 
-Même signature, la seule différence est cachée derrière deux `#[cfg]`.
+The same signature; the only difference is hidden behind two `#[cfg]`s.
 
-## Derrière une feature (opt-in)
+## Behind a feature (opt-in)
 
-- **`frus-shell`** : `[features] net = ["dep:ureq"]` ; `ureq` est une dépendance **native optionnelle**
-  ; module `net` et ré-exports (`fetch`, `FetchError`) gardés `#[cfg(feature = "net")]`.
-- **`frus`** (façade) : `[features] net = ["frus-shell/net"]` + ré-export `frus::{fetch, net,
-  FetchError}`.
-- **Par défaut, `net` est éteinte** : une app qui ne réseau pas n'embarque **ni `ureq` ni sa pile
-  TLS**. On l'active avec `frus = { path = "…", features = ["net"] }`.
+- **`frus-shell`**: `[features] net = ["dep:ureq"]`; `ureq` is an **optional native** dependency; the
+  `net` module and the re-exports (`fetch`, `FetchError`) are `#[cfg(feature = "net")]`-guarded.
+- **`frus`** (the facade): `[features] net = ["frus-shell/net"]` + the
+  `frus::{fetch, net, FetchError}` re-export.
+- **`net` is off by default**: an app that does no networking embeds **neither `ureq` nor its TLS
+  stack**. You turn it on with `frus = { path = "…", features = ["net"] }`.
 
-## Vérification
+## Verification
 
-- **Build par défaut** (`net` éteinte) : `frus-shell` compile, inchangé — aucun coût.
-- **Build `--features net`** : `frus-shell` compile avec `ureq` + rustls.
-- **Test** : `error_display_is_readable` (format des `FetchError`). Un GET réel dépend du réseau/d'un
-  navigateur — non exécuté ici (et binaires de test bloqués par SAC cette session) ; la logique de
-  transport est déléguée à `ureq`/`web-sys`.
+- **The default build** (`net` off): `frus-shell` compiles, unchanged — no cost.
+- **The `--features net` build**: `frus-shell` compiles with `ureq` + rustls.
+- **Test**: `error_display_is_readable` (the `FetchError` formatting). A real GET depends on the
+  network/a browser — not run here (and the test binaries are blocked by SAC this session); the
+  transport logic is delegated to `ureq`/`web-sys`.
 
-## Reste
+## What's left
 
-- En-têtes, **POST**/corps, timeouts, flux — au besoin. Le socle (`fetch` GET) est là.
+- Headers, **POST**/bodies, timeouts, streaming — as needed. The foundation (a GET `fetch`) is there.

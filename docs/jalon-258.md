@@ -1,53 +1,55 @@
-# Jalon 258 — Respect du viewport : board Kanban défilable + texte enroulé (fin du débordement)
+# Jalon 258 — Respecting the viewport: scrollable Kanban board + wrapped text (end of overflow)
 
-## Analyse
+## Analysis
 
-Constat **sur appareil** : des éléments **sortent de l'écran**. Deux cas concrets sur l'écran Kanban
-(téléphone ~393 px logiques de large) :
-1. Le **board** est une rangée de colonnes de **largeur fixe** (`COL_W = 220` × 3 + gaps ≈ 452 px)
-   **sans défilement** → la ou les dernières colonnes débordent à droite, hors écran.
-2. Le **hint** est un texte **une seule ligne** non enroulé → il déborde à droite (« …drag a card to
-   mo— » coupé).
+Observed **on device**: elements **run off the screen**. Two concrete cases on the Kanban screen (a
+phone ~393 logical px wide):
+1. The **board** is a row of **fixed-width** columns (`COL_W = 220` × 3 + gaps ≈ 452 px) **with no
+   scrolling** → the last column (or columns) overflows to the right, off-screen.
+2. The **hint** is a **single-line**, unwrapped text → it overflows to the right ("…drag a card to
+   mo—" cut off).
 
-Comme Flutter, le framework doit **borner le contenu au viewport** et le rendre **défilable** quand il
-dépasse, et **enrouler** le texte.
+The framework must **bound content to the viewport** and make it **scrollable** when it exceeds it, and
+**wrap** text.
 
-## Décisions techniques
+## Technical decisions
 
-- **Board défilable en 2D.** Le board est placé dans un `Scroll { axis: Both, width: viewport,
-  flex: 1 }` qui **remplit l'espace** sous la barre (même patron que l'écran Settings :
-  `Scroll::new().width(width).flex(1.0)`). Contenu plus large **ou** plus haut que le viewport → il
-  défile. Le `padding` est **dans** le contenu défilé (marge visuelle conservée).
-- **Cohabitation glisser/défiler.** Inchangée et correcte : à l'appui sur une **carte**, le shell arme
-  `Drag::Reorder` (jalon 250) **avant** le repli de défilement tactile (gardé par `drag.is_none()`,
-  jalon 254) ; à l'appui sur une **zone vide**, c'est un défilement. Donc glisser une carte réordonne,
-  glisser le vide fait défiler — comportement attendu.
-- **Texte enroulé.** Le hint utilise `Text::wrap()` (déjà offert par le widget : `measure_wrapped` à la
-  largeur proposée) ; posé dans un `Container` de la largeur de l'écran → il s'enroule sur 2 lignes au
-  lieu de déborder.
+- **A 2D scrollable board.** The board is placed in a
+  `Scroll { axis: Both, width: viewport, flex: 1 }` that **fills the space** below the bar (the same
+  pattern as the Settings screen: `Scroll::new().width(width).flex(1.0)`). Content wider **or** taller
+  than the viewport → it scrolls. The `padding` is **inside** the scrolled content (the visual margin
+  preserved).
+- **Drag/scroll coexistence.** Unchanged and correct: on pressing a **card**, the shell arms
+  `Drag::Reorder` (milestone 250) **before** the touch-scroll fallback (guarded by `drag.is_none()`,
+  milestone 254); on pressing an **empty area**, it is a scroll. So dragging a card reorders, dragging
+  the emptiness scrolls — the expected behaviour.
+- **Wrapped text.** The hint uses `Text::wrap()` (already offered by the widget: `measure_wrapped` at
+  the proposed width); placed in a screen-width `Container` → it wraps onto 2 lines instead of
+  overflowing.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `board_screen` — board dans `Scroll::new().axis(Axis::Both).width(width)
-  .flex(1.0)`, hint `.wrap()` dans un `Container` pleine largeur ; import `Axis`.
+- `frus-demo/src/lib.rs`: `board_screen` — the board in
+  `Scroll::new().axis(Axis::Both).width(width).flex(1.0)`, the hint `.wrap()` in a full-width
+  `Container`; the `Axis` import.
 
-## Vérification
+## Verification
 
-- **Desktop** : compile ; démo (lib) 36 (logique de réduction inchangée).
-- **Appareil** (Huawei STK-L21) : **confirmé par capture** — barre de défilement horizontale présente ;
-  défiler révèle successivement les colonnes « To do », « Doing », « Done » (plus rien hors écran) ; le
-  hint s'affiche sur **2 lignes**, non coupé.
+- **Desktop**: compiles; demo (lib) 36 (the reduce logic unchanged).
+- **On device** (Huawei STK-L21): **confirmed by screenshot** — a horizontal scrollbar present;
+  scrolling reveals "To do", "Doing", "Done" in turn (nothing left off-screen); the hint shows on **2
+  lines**, not cut off.
 
 ## Notes
 
-- La règle générale (« borner au viewport + défiler ») s'applique au-delà de cet écran ; ce jalon
-  traite le cas **signalé** (Kanban). Balayage des autres écrans à la demande.
-- Le patron `Scroll{Both, width, flex(1)}` est le pendant multi-axes du patron vertical déjà utilisé
-  (Settings) — bon candidat à un helper « écran défilable » si le besoin se répète.
+- The general rule ("bound to the viewport + scroll") applies beyond this screen; this milestone handles
+  the **reported** case (Kanban). Sweeping the other screens on request.
+- The `Scroll{Both, width, flex(1)}` pattern is the multi-axis counterpart of the vertical pattern
+  already in use (Settings) — a good candidate for a "scrollable screen" helper if the need recurs.
 
-## Reste
+## What's left
 
-- Balayer les autres écrans pour tout débordement résiduel (largeur des tableaux, longues étiquettes…).
-- Contrat de **cycle de vie** façon Flutter (enum d'états + hook `on_lifecycle`, câblé sur
-  `resumed`/`suspended` + Android `onPause`/`onStop`).
-- Couverture réagencement même-colonne ; inertie verticale ; ombre `Card`/`Toast` sur le thème.
+- Sweeping the other screens for any residual overflow (table widths, long labels…).
+- A **lifecycle** contract (a state enum + an `on_lifecycle` hook, wired onto `resumed`/`suspended` +
+  Android's `onPause`/`onStop`).
+- Same-column reflow coverage; vertical inertia; the `Card`/`Toast` shadow on the theme.

@@ -1,35 +1,36 @@
-# Jalon 238 — Démo : calendrier filtré (week-ends grisés)
+# Jalon 238 — Demo: filtered calendar (weekends greyed out)
 
-## Analyse
+## Analysis
 
-Le `DatePicker::filtered` (jalon 235) permet de désactiver des jours par prédicat, mais la démo
-utilisait encore le calendrier simple. Ce jalon l'**ancre dans l'app** avec le cas le plus parlant :
-une bascule « Weekdays only » qui grise les **week-ends**.
+`DatePicker::filtered` (milestone 235) allows days to be disabled by predicate, but the demo was still
+using the plain calendar. This milestone **anchors it in the app** with the most telling case: a
+"Weekdays only" toggle that greys out **weekends**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Bascule `Switch` contrôlée.** Un état `weekdays_only` piloté par `Msg::SetWeekdaysOnly` ; la
-  vitrine (route Settings) affiche l'interrupteur au-dessus du calendrier.
+- **A controlled `Switch` toggle.** A `weekdays_only` state driven by `Msg::SetWeekdaysOnly`; the
+  showcase (the Settings route) shows the switch above the calendar.
 
-- **`demo_calendar(app)`.** Renvoie `DatePicker::filtered(..., |(y,m,d)| !is_weekend(y,m,d), ...)`
-  quand la bascule est active, sinon `DatePicker::new(...)`. Démontre le prédicat sur des données
-  réelles, sans toucher au widget.
+- **`demo_calendar(app)`.** Returns `DatePicker::filtered(..., |(y,m,d)| !is_weekend(y,m,d), ...)`
+  when the toggle is on, otherwise `DatePicker::new(...)`. It demonstrates the predicate on real data,
+  without touching the widget.
 
-- **Calcul de week-end maison.** `weekday` (Sakamoto, 0 = dimanche) + `is_weekend` (samedi/dimanche)
-  dans la démo — aucune dépendance temporelle, cohérent avec l'esprit du `DatePicker`.
+- **Our own weekend computation.** `weekday` (Sakamoto, 0 = Sunday) + `is_weekend`
+  (Saturday/Sunday) in the demo — no time dependency, consistent with the `DatePicker`'s spirit.
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : état `weekdays_only` + `Msg::SetWeekdaysOnly` + arm de reduce ; helpers
-  `weekday`/`is_weekend` ; `demo_calendar` ; `Switch` + calendrier conditionnel dans `settings_screen`.
+- `frus-demo/src/lib.rs`: the `weekdays_only` state + `Msg::SetWeekdaysOnly` + the reduce arm; the
+  `weekday`/`is_weekend` helpers; `demo_calendar`; the `Switch` + the conditional calendar in
+  `settings_screen`.
 
-## Vérification
+## Verification
 
-- **Démo** `calendar_weekdays_only_filters_weekends` : `is_weekend` correct (4–5 juillet 2026 =
-  week-end, 6 = lundi) ; la bascule met `weekdays_only`, la vitrine se rend filtrée puis non filtrée.
-- Démo 34 ; workspace (shell) compile ; widgets/goldens inchangés.
+- **Demo** `calendar_weekdays_only_filters_weekends`: `is_weekend` correct (4–5 July 2026 = a weekend,
+  the 6th = a Monday); the toggle sets `weekdays_only`, the showcase renders filtered then unfiltered.
+- Demo 34; the workspace (shell) compiles; the widgets/goldens unchanged.
 
-## Reste
+## What's left
 
-- Un état « ligne sélectionnée » sur l'écran data (`on_select_row`).
-- Clé de tri **personnalisée** par colonne du `DataTable` (dates, montants formatés).
+- A "selected row" state on the data screen (`on_select_row`).
+- A **custom** sort key per `DataTable` column (dates, formatted amounts).

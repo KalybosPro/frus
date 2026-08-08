@@ -1,49 +1,48 @@
-# Jalon 251 — Fantôme de glisser incluant le contenu d'une carte riche
+# Jalon 251 — Drag ghost including a rich card's content
 
-## Analyse
+## Analysis
 
-Le fantôme du glisser-déposer (jalons 248, 250) recopie, translatées et dé-découpées, les primitives
-de l'élément saisi. Le filtre retenait les primitives dont le **propriétaire** est exactement la carte
-saisie (`p.owner() == id`). Cela suffit pour une carte **texte** (la carte peint elle-même son fond et
-son libellé), mais **pas** pour une carte **riche** : son contenu (libellé, étiquettes, bouton ×) est
-peint par des **enfants**, sous d'autres propriétaires. Résultat : le fantôme d'une carte riche ne
-montrait qu'une **tuile vide** — limitation notée au jalon 250.
+The drag-and-drop ghost (milestones 248, 250) copies, translated and un-clipped, the primitives of the
+grabbed element. The filter kept the primitives whose **owner** is exactly the grabbed card
+(`p.owner() == id`). That is enough for a **text** card (the card paints its own background and label),
+but **not** for a **rich** card: its content (a label, tags, an × button) is painted by **children**,
+under other owners. As a result, a rich card's ghost showed only an **empty tile** — the limitation
+noted in milestone 250.
 
-## Décisions techniques
+## Technical decisions
 
-- **Fantôme = primitives de tout le sous-arbre.** Plutôt que la seule carte, le shell rassemble les
-  primitives de **tous** les widgets du sous-arbre de l'élément saisi (la carte **et** ses enfants).
-  L'ordre de peinture est préservé (fond d'abord, contenu ensuite), donc le fantôme est fidèle.
+- **The ghost = the whole subtree's primitives.** Rather than the card alone, the shell gathers the
+  primitives of **every** widget in the grabbed element's subtree (the card **and** its children). The
+  paint order is preserved (the background first, the content next), so the ghost is faithful.
 
-- **Nouvel utilitaire `subtree_ids(widget, root_id)`** dans `frus-widgets` : les identités du
-  sous-arbre enraciné en `root_id`, dérivées par le **même schéma positionnel** que `collect_ids`
-  (`child_id(id, index, child)`). Le shell en fait un ensemble de propriétaires et filtre la scène
-  dessus.
+- **A new `subtree_ids(widget, root_id)` utility** in `frus-widgets`: the identities of the subtree
+  rooted at `root_id`, derived by the **same positional scheme** as `collect_ids`
+  (`child_id(id, index, child)`). The shell turns it into a set of owners and filters the scene on it.
 
-- **Repli sûr** : si l'arbre est indisponible, on retombe sur l'ancien comportement (propriétaire =
-  la carte seule).
+- **A safe fallback**: if the tree is unavailable, we fall back on the old behaviour (owner = the card
+  alone).
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/ui.rs` : `pub fn subtree_ids` (+ export dans `lib.rs`). Test
-  `subtree_ids_covers_a_widget_and_its_descendants` (depuis la racine ≡ `collect_ids` ; depuis un
-  enfant : commence par son identité, sous-ensemble strict de l'arbre).
-- `frus-shell/src/app.rs` : `paint_reorder_preview` calcule l'ensemble des propriétaires via
-  `subtree_ids` et filtre les primitives du fantôme dessus.
+- `frus-widgets/src/ui.rs`: `pub fn subtree_ids` (+ the export in `lib.rs`). The
+  `subtree_ids_covers_a_widget_and_its_descendants` test (from the root ≡ `collect_ids`; from a child:
+  starts with its identity, a strict subset of the tree).
+- `frus-shell/src/app.rs`: `paint_reorder_preview` computes the owner set through `subtree_ids` and
+  filters the ghost's primitives on it.
 
-## Vérification
+## Verification
 
-- **Widgets 387** ; **shell 26**. Le mécanisme (`subtree_ids`) est couvert par test unitaire :
-  l'ensemble des propriétaires du fantôme contient bien la carte **et** ses descendants.
-- **Non-régression** : aucun rendu statique modifié — le fantôme n'existe que pendant un glisser
-  engagé, hors des goldens ; goldens inchangés.
+- **Widgets 387**; **shell 26**. The mechanism (`subtree_ids`) is covered by a unit test: the ghost's
+  owner set does contain the card **and** its descendants.
+- **No regression**: no static rendering changed — the ghost only exists during an engaged drag,
+  outside the goldens; the goldens unchanged.
 
 ## Notes
 
-- Le fantôme reste un état **runtime** (glisser en cours), non inspecté au GPU dans cet environnement.
-  Ce jalon corrige la **composition** du fantôme (source des primitives) ; sa vérification porte sur
-  la logique de collecte du sous-arbre.
+- The ghost remains **runtime** state (a drag in progress), not inspected on a GPU in this environment.
+  This milestone fixes the ghost's **composition** (the source of its primitives); its verification
+  covers the subtree collection logic.
 
-## Reste
+## What's left
 
-- Indicateur d'insertion **inter-cartes** (au-dessus/au-dessous selon la moitié survolée).
+- A **between-cards** insertion cue (above/below depending on the hovered half).

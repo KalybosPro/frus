@@ -1,59 +1,58 @@
-# Jalon 266 — Fill-then-scroll : défilement vertical par colonne **sans hauteur explicite**
+# Jalon 266 — Fill-then-scroll: per-column vertical scrolling **without an explicit height**
 
-## Objectif
+## The goal
 
-Remplacer le **stopgap** du jalon 264 (l'app calcule et passe une hauteur de colonne via
-`Kanban::card_area_height`) par un vrai **remplissage** façon Flutter (`Expanded` + `ListView`) : la
-colonne prend la hauteur disponible du board, puis ses cartes **défilent**. L'app n'a plus de hauteur
-à calculer.
+To replace milestone 264's **stopgap** (the app computes and passes a column height through
+`Kanban::card_area_height`) with genuine **filling**: the column takes the board's available height,
+then its cards **scroll**. The app has no height left to compute.
 
-## Cause racine du blocage (jalon 263), enfin élucidée
+## The root cause of the blocker (milestone 263), finally understood
 
-Un `Scroll` est un **nœud feuille** taffy (crates/frus-widgets/src/ui.rs, `build_layout` :
-`scroll_content().is_some()` → `layout.leaf(...)`) : son contenu est mis en page **à part**. En mise
-en page principale, le `Scroll` est donc une feuille **sans contenu mesuré** — sa base flex vaut 0. Or
-`Scroll::new()` posait `height: Length(200)` par défaut : en mode `flex(1)` **sans hauteur explicite**,
-cette hauteur restait une **base flexible de 200 px** — le viewport ne « remplissait » pas, il exigeait
-200 px de libre pour grandir. Et surtout : `flex_grow` ne distribue de l'espace **que si le parent
-direct a une taille d'axe principal définie**. Dès qu'un maillon de la chaîne (colonne, rangée,
-`Container` englobant) était en hauteur `Auto` (donc calée sur son contenu), il n'y avait **aucun
-espace libre** à distribuer → le `Scroll` s'effondrait à 0. Ce n'était **pas** une limite du moteur :
-c'est la contrainte de Flutter aussi (un `Expanded` n'a de sens que dans un `Flex` à extent borné).
+A `Scroll` is a taffy **leaf node** (crates/frus-widgets/src/ui.rs, `build_layout`:
+`scroll_content().is_some()` → `layout.leaf(...)`): its content is laid out **separately**. In the main
+layout, the `Scroll` is therefore a leaf **with no measured content** — its flex basis is 0. But
+`Scroll::new()` set `height: Length(200)` by default: in `flex(1)` mode **without an explicit height**,
+that height stayed a **flexible basis of 200 px** — the viewport did not "fill", it demanded 200 px of
+free space to grow into. And above all: `flex_grow` only distributes space **if the direct parent has a
+defined main-axis size**. As soon as one link in the chain (the column, the row, an enclosing
+`Container`) was at `Auto` height (hence sized to its content), there was **no free space** to
+distribute → the `Scroll` collapsed to 0. This was **not** an engine limitation: it is the same
+constraint everywhere (a "fill the remaining space" child only makes sense inside a flex with a bounded
+extent).
 
-Preuve empirique (tests jetables, puis convertis en garde-fou) : une chaîne **entièrement à hauteur
-définie et remplissante** donne au `Scroll` `flex(1)` un viewport égal au reste (ex. 300 − titre − pied
-= 260) qui **défile** le débordement (`max_y` > 0). Un `Container` à hauteur `Auto` intercalé le
-**recasse** (viewport 0).
+Empirical proof (throwaway tests, later turned into a guard): a chain **entirely at a defined, filling
+height** gives the `flex(1)` `Scroll` a viewport equal to the remainder (e.g. 300 − title − footer = 260)
+that **scrolls** the overflow (`max_y` > 0). Interposing an `Auto`-height `Container` **breaks it again**
+(a viewport of 0).
 
-## Correctifs
+## The fixes
 
-- **`frus-widgets/src/scroll.rs`** — la primitive : `Scroll` retient si sa taille a été **fixée**
-  (`width_explicit` / `height_explicit`). En mode `flex` (`flex_grow > 0`), une dimension d'**axe de
-  défilement non fixée** passe à `Auto` (base 0) au lieu de la valeur par défaut, pour que `flex_grow`
-  **remplisse** au lieu de réserver 200. (`.width()` / `.height()` marquent la dimension comme fixée.)
-- **`frus-widgets/src/kanban.rs`** — `Kanban::scrollable_columns()` (nouveau) active le mode
-  remplissage : la `Row` prend `height: Percent(1.0)` (l'ancêtre est à hauteur définie) et **étire**
-  ses colonnes (`Align::Stretch`) ; la zone de cartes de chaque colonne devient un `Scroll` vertical
-  `flex(1)` (base 0) — titre fixe au-dessus, bouton « + Add card » fixe en dessous. Prime sur
-  `card_area_height` (jalon 264), conservé comme repli quand aucun ancêtre n'est à hauteur définie. Le
-  **mode par défaut est inchangé** (cartes nues, colonnes calées en haut) : le golden Kanban ne bouge
-  pas.
-- **`frus-demo/src/lib.rs`** (`board_screen`) — passe à `.scrollable_columns()` (plus de calcul de
-  hauteur). La marge visuelle vient d'un **`Flex` `flex(1)` + padding** enveloppant le `Scroll`
-  horizontal (et non plus d'un `Container` : un box à hauteur `Auto` **casserait** la chaîne — un
-  `Flex` `flex(1)` remplit, lui, la hauteur définie de l'écran).
+- **`frus-widgets/src/scroll.rs`** — the primitive: `Scroll` remembers whether its size was **set**
+  (`width_explicit` / `height_explicit`). In `flex` mode (`flex_grow > 0`), an unset dimension on the
+  **scrolling axis** goes to `Auto` (a basis of 0) instead of the default value, so `flex_grow`
+  **fills** instead of reserving 200. (`.width()` / `.height()` mark the dimension as set.)
+- **`frus-widgets/src/kanban.rs`** — `Kanban::scrollable_columns()` (new) enables fill mode: the `Row`
+  takes `height: Percent(1.0)` (the ancestor is at a defined height) and **stretches** its columns
+  (`Align::Stretch`); each column's card area becomes a `flex(1)` vertical `Scroll` (a basis of 0) — a
+  fixed title above, a fixed "+ Add card" button below. It takes precedence over `card_area_height`
+  (milestone 264), kept as a fallback when no ancestor is at a defined height. The **default mode is
+  unchanged** (bare cards, columns aligned at the top): the Kanban golden does not move.
+- **`frus-demo/src/lib.rs`** (`board_screen`) — moves to `.scrollable_columns()` (no more height
+  computation). The visual margin comes from a **`Flex` at `flex(1)` + padding** wrapping the horizontal
+  `Scroll` (and no longer a `Container`: an `Auto`-height box would **break** the chain — a `flex(1)`
+  `Flex`, by contrast, fills the screen's defined height).
 
-## Vérification
+## Verification
 
-- **Desktop** : compile ; widgets **396** (dont le garde-fou
-  `scrollable_columns_fill_the_board_height_then_scroll` : le `Scroll` d'une colonne remplit la hauteur
-  du board — viewport > 300, bien au-delà du défaut 200 — **et** défile, `max_y` > 0) ; goldens **77**
-  **inchangés** (mode par défaut préservé) ; shell **27**.
-- **Appareil** : à confirmer au doigt (colonnes pleine hauteur atteignant le bas du board ; chaque
-  colonne défile ses cartes ; glisser toujours opérant).
+- **Desktop**: compiles; widgets **396** (including the
+  `scrollable_columns_fill_the_board_height_then_scroll` guard: a column's `Scroll` fills the board's
+  height — a viewport > 300, well beyond the 200 default — **and** scrolls, `max_y` > 0); goldens **77**
+  **unchanged** (the default mode preserved); shell **27**.
+- **On device**: to be confirmed by finger (full-height columns reaching the bottom of the board; each
+  column scrolling its cards; dragging still working).
 
-## Reste
+## What's left
 
-- Éventuellement, faire **remplir** le contenu d'un `Scroll` sur l'axe **contraint** (façon Flutter,
-  contrainte croisée serrée) directement dans `compute_scroll`, ce qui éviterait d'avoir à envelopper
-  dans un `Flex` `flex(1)` côté app. Non nécessaire pour l'instant.
+- Possibly making a `Scroll`'s content **fill** the **constrained** axis (a tight cross-axis constraint)
+  directly in `compute_scroll`, which would avoid having to wrap in a `flex(1)` `Flex` app-side. Not
+  necessary for now.

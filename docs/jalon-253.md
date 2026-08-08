@@ -1,54 +1,54 @@
-# Jalon 253 — Décalage des cartes voisines à l'insertion verticale (le « trou »)
+# Jalon 253 — Neighbouring cards shift on vertical insertion (the "gap")
 
-## Analyse
+## Analysis
 
-À l'horizontale (colonnes de `Table`), l'aperçu de réordonnancement **réagence** les voisines
-(`reflow_reorder_columns`, jalon précédent) : le trou de la colonne soulevée se referme, la place de
-dépôt s'ouvre, le tout **suivant le curseur**. À la **verticale** (cartes Kanban), l'aperçu ne posait
-qu'une **ligne d'insertion** (jalons 248, 252) : les cartes restaient figées, sans « trou » sous la
-barre. Ce jalon apporte le **pendant vertical** du réagencement.
+Horizontally (`Table` columns), the reorder preview **reflows** the neighbours
+(`reflow_reorder_columns`, an earlier milestone): the lifted column's gap closes, the drop slot opens,
+all of it **following the cursor**. **Vertically** (Kanban cards), the preview only laid down an
+**insertion line** (milestones 248, 252): the cards stayed frozen, with no "gap" under the bar. This
+milestone brings the **vertical counterpart** of the reflow.
 
-## Décisions techniques
+## Technical decisions
 
-- **`reflow_reorder_cards`** dans `frus-widgets::reorder`, jumeau vertical de `reflow_reorder_columns`,
-  **purement géométrique** (aucune connaissance de l'arbre) :
-  - la **colonne source** (bande x de la carte soulevée) voit ses cartes situées **sous** la carte
-    soulevée **remonter** d'un cran → le trou se referme ;
-  - la **colonne cible** (bande x de la ligne d'insertion) voit ce qui est **au niveau/en dessous**
-    de la ligne **descendre** d'un cran → la place s'ouvre.
-- **Cran = hauteur de la carte** (`src.height`). Un bloc plus **haut** que `1.5×` ce cran est un fond
-  de colonne/page (pas une carte) : laissé en place — pendant strict du garde `max_cell` horizontal.
-- **Pas de cisaillement.** Chaque primitive coulisse selon le **centre** de ses bornes. Les lignes
-  d'insertion se posant aux **bords** des cartes (jamais en plein centre), toutes les primitives d'une
-  même carte tombent du même côté → la carte bouge d'un bloc (y compris une carte **riche**,
-  multi-primitives).
-- **Réutilise `owners`** (jalon 251) : le sous-arbre de la carte soulevée est retiré de l'aperçu (elle
-  flotte déjà en fantôme).
+- **`reflow_reorder_cards`** in `frus-widgets::reorder`, the vertical twin of
+  `reflow_reorder_columns`, **purely geometric** (with no knowledge of the tree):
+  - the **source column** (the lifted card's x band) has the cards **below** the lifted one **move up**
+    one notch → the gap closes;
+  - the **target column** (the insertion line's x band) has whatever is **at/below** the line **move
+    down** one notch → the slot opens.
+- **A notch = the card's height** (`src.height`). A block **taller** than `1.5×` that notch is a
+  column/page background (not a card): left in place — the strict counterpart of the horizontal
+  `max_cell` guard.
+- **No shearing.** Each primitive slides according to the **centre** of its bounds. Since the insertion
+  lines sit at the cards' **edges** (never right at a centre), all of a card's primitives fall on the
+  same side → the card moves as a block (including a **rich**, multi-primitive card).
+- **Reuses `owners`** (milestone 251): the lifted card's subtree is removed from the preview (it is
+  already floating as the ghost).
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/reorder.rs` : `pub fn reflow_reorder_cards(prims, src, line, lifted)` (+ export).
-  Tests : `lifting_a_card_closes_the_source_gap`, `insertion_line_opens_a_hole_in_the_target_column`
-  (source **et** cible, colonnes distinctes), `tall_backgrounds_stay_put`.
-- `frus-shell/src/app.rs` : la branche **verticale** de `paint_reorder_preview` réagence la scène via
-  `reflow_reorder_cards` (comme la branche horizontale), puis pose la ligne d'insertion par-dessus. Le
-  calcul de `owners` remonte avant le `match` (partagé fantôme + réagencement).
+- `frus-widgets/src/reorder.rs`: `pub fn reflow_reorder_cards(prims, src, line, lifted)` (+ the export).
+  Tests: `lifting_a_card_closes_the_source_gap`, `insertion_line_opens_a_hole_in_the_target_column`
+  (the source **and** the target, distinct columns), `tall_backgrounds_stay_put`.
+- `frus-shell/src/app.rs`: the **vertical** branch of `paint_reorder_preview` reflows the scene through
+  `reflow_reorder_cards` (like the horizontal branch), then lays the insertion line on top. The `owners`
+  computation moves above the `match` (shared by the ghost + the reflow).
 
-## Vérification
+## Verification
 
-- **Widgets 391** (+3) : le réagencement est couvert par des tests **purs** — remontée en colonne
-  source, ouverture du trou en colonne cible, immobilité des grands fonds.
-- **Non-régression** : l'aperçu n'existe qu'en glisser (hors goldens) — **goldens 77 inchangés** ;
-  démo 36 ; shell 27. L'axe **horizontal** est intact (branche séparée).
+- **Widgets 391** (+3): the reflow is covered by **pure** tests — the lift in the source column, the gap
+  opening in the target column, tall backgrounds staying put.
+- **No regression**: the preview only exists during a drag (outside the goldens) — **goldens 77
+  unchanged**; demo 36; shell 27. The **horizontal** axis is intact (a separate branch).
 
 ## Notes
 
-- Le coulissement est **immédiat** (proportionnel à la position), sans le lissage à ressort de
-  l'horizontal (`reorder_x`) — affinage possible (inertie verticale).
-- Comme les jalons 250–252, le rendu **live** du glisser reste un état runtime non inspecté au GPU
-  ici ; la vérification porte sur la géométrie pure du réagencement.
+- The slide is **immediate** (proportional to the position), without the horizontal spring smoothing
+  (`reorder_x`) — a possible refinement (vertical inertia).
+- As in milestones 250–252, the **live** drag rendering remains runtime state not inspected on a GPU
+  here; the verification covers the reflow's pure geometry.
 
-## Reste
+## What's left
 
-- Inertie/ressort vertical du coulissement (parité avec l'horizontal).
-- Consolidation/revue transverse du domaine glisser-déposer (Table + Kanban).
+- Vertical inertia/spring for the slide (parity with the horizontal).
+- A cross-cutting consolidation/review of the drag-and-drop domain (Table + Kanban).

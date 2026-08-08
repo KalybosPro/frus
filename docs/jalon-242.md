@@ -1,50 +1,50 @@
-# Jalon 242 — DataTable : recherche/filtre
+# Jalon 242 — DataTable: search/filter
 
-## Analyse
+## Analysis
 
-Le `DataTable` encapsule déjà des **transforms d'affichage** — tri (jalon 232), pagination (233/236),
-et la traduction de sélection à travers eux (239/241). La recherche en est un de plus : filtrer les
-lignes source à celles qui correspondent à une requête, **avant** tri et pagination. En le plaçant en
-amont du même pipeline d'index source, la sélection (simple ou multiple) continue de fonctionner sur le
-sous-ensemble visible, sans code supplémentaire.
+`DataTable` already encapsulates **display transforms** — sorting (milestone 232), pagination
+(233/236), and the selection mapping across them (239/241). Search is one more: filtering the source
+rows down to those matching a query, **before** sorting and pagination. Placing it upstream of the same
+source-index pipeline means selection (single or multiple) keeps working on the visible subset, with no
+extra code.
 
-## Décisions techniques
+## Technical decisions
 
-- **`searchable(query, on_query)`.** Un champ de recherche (un [`TextInput`]) coiffe le tableau ;
-  `on_query(texte)` remonte chaque frappe à l'application (qui met à jour `query` et, en général,
-  revient à la page 1). Le widget ne stocke pas la requête : elle vient de l'app à chaque rendu
-  (modèle contrôlé).
+- **`searchable(query, on_query)`.** A search field (a [`TextInput`]) tops the table; `on_query(text)`
+  reports each keystroke to the application (which updates `query` and, generally, returns to page 1).
+  The widget does not store the query: it comes from the app at each render (the controlled model).
 
-- **Filtre en tête de `sorted_order`.** Le pipeline d'index commence par ne garder que les lignes
-  correspondantes (`row_matches`), puis trie, puis découpe la page. `page_indices` reste une liste
-  d'**index source** (sous-ensemble) → la traduction position affichée ↔ source (clic, case,
-  surlignage) et le total du pied (« N–M of <filtré> ») suivent automatiquement.
+- **The filter at the head of `sorted_order`.** The index pipeline starts by keeping only the matching
+  rows (`row_matches`), then sorts, then slices the page. `page_indices` stays a list of **source
+  indices** (a subset) → the displayed position ↔ source mapping (a click, a box, the highlight) and the
+  footer's total ("N–M of <filtered>") follow automatically.
 
-- **`row_matches(row, query)`.** Sous-chaîne **insensible à la casse** sur **toutes** les colonnes ;
-  requête vide/blanche = tout passe. Fonction publique réutilisable (un reducer peut filtrer pareil).
+- **`row_matches(row, query)`.** A **case-insensitive** substring over **every** column; an
+  empty/blank query lets everything through. A public, reusable function (a reducer can filter the same
+  way).
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : helper `row_matches` ; champs `query`/`on_query` + builder
-  `searchable` ; filtre en tête de `sorted_order` ; `rebuild` coiffe le bloc d'un `TextInput` quand
-  `on_query` est posé. Tests `row_matches_is_case_insensitive_substring_over_all_cells` et
-  `search_filters_rows_before_sort_and_keeps_source_indices` (requête « a » → filtré puis trié en
-  index source `[2, 0]`).
-- `frus-widgets/src/lib.rs` : ré-export de `row_matches`.
-- `frus-demo/src/lib.rs` : état `data_query` + `Msg::DataSearch` (met à jour le filtre, page → 1) ;
-  `data_screen` câble `.searchable(app.data_query, Msg::DataSearch)`.
+- `frus-widgets/src/datatable.rs`: the `row_matches` helper; the `query`/`on_query` fields + the
+  `searchable` builder; the filter at the head of `sorted_order`; `rebuild` tops the block with a
+  `TextInput` when `on_query` is set. The `row_matches_is_case_insensitive_substring_over_all_cells` and
+  `search_filters_rows_before_sort_and_keeps_source_indices` tests (the query "a" → filtered then sorted
+  into the source indices `[2, 0]`).
+- `frus-widgets/src/lib.rs`: re-exporting `row_matches`.
+- `frus-demo/src/lib.rs`: the `data_query` state + `Msg::DataSearch` (updates the filter, page → 1);
+  `data_screen` wires `.searchable(app.data_query, Msg::DataSearch)`.
 
-## Vérification
+## Verification
 
-- **Widgets** : `row_matches` (casse, sous-chaîne, colonnes, vide) ; `search_filters…` (filtre en
-  amont du tri, index source préservés).
-- **Golden** `data_table_search` : champ « ar » + seules `Bob (Paris)` et `Carol (Berlin)` parmi
-  quatre — inspecté visuellement.
-- **Démo** `data_table_screen_…` étendu : la frappe met à jour `data_query` et ramène à la page 1.
-- Widgets 378 ; goldens 72 ; démo 34 ; shell compile.
+- **Widgets**: `row_matches` (case, substring, columns, empty); `search_filters…` (the filter upstream
+  of the sort, the source indices preserved).
+- **Golden** `data_table_search`: an "ar" field + only `Bob (Paris)` and `Carol (Berlin)` out of four —
+  visually inspected.
+- **Demo** `data_table_screen_…` extended: typing updates `data_query` and returns to page 1.
+- Widgets 378; goldens 72; demo 34; the shell compiles.
 
-## Reste
+## What's left
 
-- Actions **groupées** (barre d'actions quand des lignes sont cochées).
-- Message **« aucun résultat »** quand le filtre vide le tableau.
-- Un nouveau domaine de widgets (`Tabs`/`Tree`/`Kanban`).
+- **Bulk** actions (an action bar when rows are checked).
+- A **"no results"** message when the filter empties the table.
+- A new widget domain (`Tabs`/`Tree`/`Kanban`).

@@ -1,50 +1,48 @@
-# Jalon 243 — DataTable : barre d'actions groupées
+# Jalon 243 — DataTable: bulk action bar
 
-## Analyse
+## Analysis
 
-Une fois la sélection multiple en place (jalon 241), l'usage attendu est d'**agir** sur les lignes
-cochées : supprimer, exporter, déplacer… Les tableaux Material affichent alors une **barre d'actions
-contextuelle** — « N selected » et les boutons d'action — qui n'apparaît que lorsqu'une sélection
-existe. Ce jalon l'ajoute au `DataTable`, en laissant l'application fournir les boutons (slot).
+Once multiple selection is in place (milestone 241), the expected use is to **act** on the checked
+rows: delete, export, move… Material tables then show a **contextual action bar** — "N selected" and
+the action buttons — which only appears when a selection exists. This milestone adds it to `DataTable`,
+leaving the application to supply the buttons (a slot).
 
-## Décisions techniques
+## Technical decisions
 
-- **`bulk_actions(make)`.** Une **fabrique** de widgets d'action (rappelée à la reconstruction, comme
-  les actions d'en-tête du `Table`) : l'application construit ses [`Button`](crate::Button) avec les
-  variantes et messages voulus. Le widget ne fige aucun style d'action — il ne fournit que
-  l'**emplacement** et le compteur.
+- **`bulk_actions(make)`.** A **factory** of action widgets (called back at rebuild time, like
+  `Table`'s header actions): the application builds its [`Button`](crate::Button)s with the variants and
+  messages it wants. The widget freezes no action style — it supplies only the **slot** and the counter.
 
-- **Visible seulement avec une sélection.** La barre est rendue **au-dessus** du tableau (sous le champ
-  de recherche s'il existe) uniquement si [`selected`](DataTable::selected) est non vide ; sinon, rien.
-  Le libellé « N selected » compte les lignes sélectionnées (toutes pages confondues).
+- **Visible only with a selection.** The bar is rendered **above** the table (below the search field if
+  there is one) only if [`selected`](DataTable::selected) is non-empty; otherwise, nothing. The "N
+  selected" label counts the selected rows (across all pages).
 
-- **Modèle contrôlé, actions honnêtes.** Les messages émis par les boutons sont traités par l'app.
-  Dans la démo, `Delete` **supprime réellement** les lignes cochées : les données du tableau passent
-  dans l'état (`data_rows`, `None` = jeu de départ) et sont modifiées, la sélection et le focus étant
-  remis à zéro.
+- **A controlled model, honest actions.** The messages the buttons emit are handled by the app. In the
+  demo, `Delete` **really deletes** the checked rows: the table's data moves into the state
+  (`data_rows`, `None` = the starting set) and is modified, with the selection and the focus reset.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : champ `bulk_actions` + builder ; `rebuild` préfixe le bloc d'une
-  barre `Flex` (« N selected » + spacer + widgets d'action) quand une sélection existe ; test
-  `bulk_actions_bar_shows_only_with_a_selection` (une action sentinelle apparaît avec sélection,
-  disparaît sans).
-- `frus-demo/src/lib.rs` : `data_rows: Option<Vec<…>>` + helper `TodoApp::data_rows` ; `Msg::{
-  DataClearChecked, DataDeleteChecked}` (Clear vide la sélection ; Delete retire les lignes cochées,
-  en index décroissant, puis remet sélection/focus à zéro) ; `DataCheckAll` compte sur les lignes
-  courantes ; `data_screen` câble `.bulk_actions(|| [Clear, Delete])`.
+- `frus-widgets/src/datatable.rs`: the `bulk_actions` field + the builder; `rebuild` prefixes the block
+  with a `Flex` bar ("N selected" + a spacer + the action widgets) when a selection exists; the
+  `bulk_actions_bar_shows_only_with_a_selection` test (a sentinel action appears with a selection,
+  disappears without).
+- `frus-demo/src/lib.rs`: `data_rows: Option<Vec<…>>` + the `TodoApp::data_rows` helper;
+  `Msg::{DataClearChecked, DataDeleteChecked}` (Clear empties the selection; Delete removes the checked
+  rows, in descending index order, then resets the selection/focus); `DataCheckAll` counts on the
+  current rows; `data_screen` wires `.bulk_actions(|| [Clear, Delete])`.
 
-## Vérification
+## Verification
 
-- **Widgets** `bulk_actions_bar…` : barre absente sans sélection, présente (action émettable) dès
-  qu'une ligne est sélectionnée.
-- **Golden** `data_table_bulk_actions` : deux lignes cochées → « 2 selected » + `Clear` (secondaire) et
-  `Delete` (danger) au-dessus du tableau — inspecté visuellement.
-- **Démo** `data_table_screen_…` étendu : Clear vide la sélection sans toucher le focus ; Delete retire
-  la ligne cochée (12 → 11) et remet sélection/focus à zéro.
-- Widgets 379 ; goldens 73 ; démo 34 ; shell compile.
+- **Widgets** `bulk_actions_bar…`: the bar absent with no selection, present (with an emittable action)
+  as soon as a row is selected.
+- **Golden** `data_table_bulk_actions`: two rows checked → "2 selected" + `Clear` (secondary) and
+  `Delete` (danger) above the table — visually inspected.
+- **Demo** `data_table_screen_…` extended: Clear empties the selection without touching the focus;
+  Delete removes the checked row (12 → 11) and resets the selection/focus.
+- Widgets 379; goldens 73; demo 34; the shell compiles.
 
-## Reste
+## What's left
 
-- **État vide** : message « No results » quand le filtre/les données vident le tableau — jalon 244.
-- Confirmation avant `Delete` (dialogue) dans la démo.
+- An **empty state**: a "No results" message when the filter/the data empties the table — milestone 244.
+- A confirmation before `Delete` (a dialog) in the demo.

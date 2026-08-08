@@ -1,51 +1,52 @@
-# Jalon 240 — DataTable : clé de tri personnalisée par colonne
+# Jalon 240 — DataTable: custom sort key per column
 
-## Analyse
+## Analysis
 
-Le `DataTable` trie ses lignes avec [`compare_cells`] : **numérique** si les deux cellules se lisent
-comme des nombres, sinon **texte insensible à la casse**. Cela suffit pour « Name » ou « Score », mais
-échoue dès qu'une colonne porte des valeurs que ce défaut classe mal :
+`DataTable` sorts its rows with [`compare_cells`]: **numerically** if both cells read as numbers,
+otherwise **case-insensitive text**. That is enough for "Name" or "Score", but it fails as soon as a
+column carries values the default classifies badly:
 
-- **priorités** (`High`/`Medium`/`Low`) → triées alphabétiquement (`High, Low, Medium`), pas sémantiquement ;
-- **dates formatées** (`Mar 2024`) → tri lexical ≠ chronologique ;
-- **montants formatés** (`$1.2M`, `$950k`) → ne parsent pas en nombre, donc tri texte erroné.
+- **priorities** (`High`/`Medium`/`Low`) → sorted alphabetically (`High, Low, Medium`), not
+  semantically;
+- **formatted dates** (`Mar 2024`) → a lexical sort ≠ a chronological one;
+- **formatted amounts** (`$1.2M`, `$950k`) → do not parse as numbers, so an incorrect text sort.
 
-Ce jalon laisse l'application fournir un **comparateur par colonne**, tout en gardant le modèle
-contrôlé (l'état de tri reste `(colonne, sens)` dans l'app).
+This milestone lets the application supply a **per-column comparator**, while keeping the controlled
+model (the sort state stays `(column, direction)` in the app).
 
-## Décisions techniques
+## Technical decisions
 
-- **`sort_with(col, cmp)`.** Un comparateur `Fn(&str, &str) -> Ordering` par colonne, stocké dans un
-  `Vec<Option<…>>` indexé (comme les actions d'en-tête du `Table`). Il définit l'ordre **croissant** ;
-  le sens (`sorted(_, ascending)`) s'applique par-dessus (inversion si décroissant).
+- **`sort_with(col, cmp)`.** A `Fn(&str, &str) -> Ordering` comparator per column, stored in an indexed
+  `Vec<Option<…>>` (like `Table`'s header actions). It defines the **ascending** order; the direction
+  (`sorted(_, ascending)`) applies on top (reversed when descending).
 
-- **Intégré à `sorted_order` (jalon 239).** Le tri d'index consulte le comparateur de la colonne triée
-  s'il existe, sinon retombe sur `compare_cells`. La traduction index source ↔ position affichée (donc
-  la sélection et la pagination) fonctionne à l'identique — c'est le **même** tri d'index.
+- **Integrated into `sorted_order` (milestone 239).** The index sort consults the sorted column's
+  comparator if there is one, otherwise falls back on `compare_cells`. The source index ↔ displayed
+  position mapping (hence selection and pagination) works identically — it is the **same** index sort.
 
-- **Local au widget.** Le comparateur n'affecte que le tri d'affichage du `DataTable` ; le helper
-  réutilisable [`sort_rows`] (tri par défaut) reste inchangé pour les reducers qui l'utilisent.
+- **Local to the widget.** The comparator only affects `DataTable`'s display sort; the reusable
+  [`sort_rows`] helper (the default sort) stays unchanged for the reducers that use it.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : champ `comparators` + builder `sort_with` ; `sorted_order` choisit
-  comparateur personnalisé ou défaut ; test `custom_comparator_orders_a_column_semantically`
-  (`Low < Medium < High` via la collecte des messages `on_click` → l'ordre affiché est sémantique,
-  pas alphabétique).
-- `frus-demo/src/lib.rs` : colonne **« Level »** ajoutée à `DATA_PEOPLE` (`High`/`Medium`/`Low`) +
-  helper `level_rank` ; `data_screen` câble `.sort_with(3, |a,b| level_rank(a).cmp(&level_rank(b)))` ;
-  le détail de ligne affiche la priorité.
+- `frus-widgets/src/datatable.rs`: the `comparators` field + the `sort_with` builder; `sorted_order`
+  picks the custom comparator or the default; the `custom_comparator_orders_a_column_semantically` test
+  (`Low < Medium < High`, through collecting the `on_click` messages → the displayed order is semantic,
+  not alphabetical).
+- `frus-demo/src/lib.rs`: a **"Level"** column added to `DATA_PEOPLE` (`High`/`Medium`/`Low`) + the
+  `level_rank` helper; `data_screen` wires
+  `.sort_with(3, |a,b| level_rank(a).cmp(&level_rank(b)))`; the row detail shows the priority.
 
-## Vérification
+## Verification
 
-- **Widgets** `custom_comparator…` : trois lignes `High/Low/Medium` triées croissant → index source
-  `[1,2,0]` (Low, Medium, High), et non `[0,1,2]` du tri texte.
-- **Golden** `data_table_custom_sort` : colonne « Priority » triée croissant → affichage
-  `Low, Medium, High` (et non `High, Low, Medium`) — inspecté visuellement.
-- **Démo** `data_table_screen_…` étendu : `level_rank` sémantique ; trier la colonne Level se rend.
-- Widgets 375 ; goldens 70 ; démo 34 ; shell compile.
+- **Widgets** `custom_comparator…`: three `High/Low/Medium` rows sorted ascending → the source indices
+  `[1,2,0]` (Low, Medium, High), and not `[0,1,2]` from the text sort.
+- **Golden** `data_table_custom_sort`: the "Priority" column sorted ascending → the display reads
+  `Low, Medium, High` (and not `High, Low, Medium`) — visually inspected.
+- **Demo** `data_table_screen_…` extended: a semantic `level_rank`; sorting the Level column renders.
+- Widgets 375; goldens 70; demo 34; the shell compiles.
 
-## Reste
+## What's left
 
-- Sélection **multiple** dans le `DataTable` (cases à cocher, comme le `Table`).
-- Un **filtre**/recherche au-dessus du `DataTable` (l'app filtre les lignes source).
+- **Multiple** selection in `DataTable` (checkboxes, like `Table`).
+- A **filter**/search above `DataTable` (the app filters the source rows).

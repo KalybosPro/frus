@@ -1,45 +1,45 @@
-# Jalon 244 — DataTable : état vide (« No results »)
+# Jalon 244 — DataTable: empty state ("No results")
 
-## Analyse
+## Analysis
 
-Avec la recherche (jalon 242) et le Delete groupé (jalon 243), le tableau peut se retrouver **sans
-aucune ligne à afficher** : filtre trop restrictif, ou toutes les lignes supprimées. Un corps vide
-surmonté d'un pied « 0 of 0 » est déroutant ; les tableaux soignés affichent un **message d'état
-vide**. Ce jalon l'ajoute au `DataTable`.
+With search (milestone 242) and bulk Delete (milestone 243), the table can end up with **no rows at
+all** to show: too restrictive a filter, or every row deleted. An empty body topped by a "0 of 0"
+footer is confusing; polished tables show an **empty state message**. This milestone adds one to
+`DataTable`.
 
-## Décisions techniques
+## Technical decisions
 
-- **Détection en un point.** Le pipeline d'index (`sorted_order` → filtre → tri → page) donne déjà le
-  **total** de lignes visibles. Quand il vaut `0`, `rebuild` bascule sur la disposition « vide » :
-  l'**en-tête** (les colonnes restent lisibles) surmonte un **message centré**, et le **pied de
-  pagination est retiré** (un pager sur zéro ligne n'apporte rien).
+- **Detection at a single point.** The index pipeline (`sorted_order` → filter → sort → page) already
+  yields the **total** of visible rows. When it is `0`, `rebuild` switches to the "empty" layout: the
+  **header** (the columns stay readable) tops a **centred message**, and the **pagination footer is
+  removed** (a pager over zero rows adds nothing).
 
-- **Message surchargeable.** Défaut **« No results »** ; `empty_text(...)` permet un texte adapté
-  (« No people match your search ») — cohérent avec la ligne de conduite « personnalisable comme
-  Flutter » (défaut thémé, surcharge libre).
+- **An overridable message.** The default is **"No results"**; `empty_text(...)` allows a fitting text
+  ("No people match your search") — in line with the customisability rule (a themed default, free
+  override).
 
-- **Automatique.** Aucune API supplémentaire à câbler côté application : dès que les données/filtre
-  ne montrent rien, l'état vide apparaît.
+- **Automatic.** No extra API to wire app-side: as soon as the data/filter shows nothing, the empty
+  state appears.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/datatable.rs` : champ `empty_text` (défaut « No results ») + builder ; branche
-  `total == 0` dans `rebuild` (en-tête + message centré, sans pied) ; test
-  `empty_filter_drops_rows_and_pager` (filtre « zzz » → aucune ligne cliquable **et** pager retiré —
-  sinon son unique bouton de page émettrait un message).
-- `frus-demo/src/lib.rs` : `data_screen` surcharge `.empty_text("No people match your search")` ;
-  test étendu (un filtre sans résultat se rend quand même).
+- `frus-widgets/src/datatable.rs`: the `empty_text` field (defaulting to "No results") + the builder;
+  the `total == 0` branch in `rebuild` (the header + a centred message, with no footer); the
+  `empty_filter_drops_rows_and_pager` test (a "zzz" filter → no clickable row **and** the pager removed
+  — otherwise its single page button would emit a message).
+- `frus-demo/src/lib.rs`: `data_screen` overrides `.empty_text("No people match your search")`; the test
+  extended (a filter with no results still renders).
 
-## Vérification
+## Verification
 
-- **Widgets** `empty_filter_drops_rows_and_pager` : filtre sans résultat → ni ligne ni pager, arbre
-  non vide (en-tête + message).
-- **Golden** `data_table_empty` : champ « zzz », en-tête conservé, « No people match your search »
-  centré, aucun pied — inspecté visuellement.
-- **Démo** `data_table_screen_…` étendu : un filtre sans résultat se rend (état vide).
-- Widgets 380 ; goldens 74 ; démo 34 ; shell compile.
+- **Widgets** `empty_filter_drops_rows_and_pager`: a filter with no results → neither a row nor a pager,
+  a non-empty tree (the header + the message).
+- **Golden** `data_table_empty`: a "zzz" field, the header preserved, "No people match your search"
+  centred, no footer — visually inspected.
+- **Demo** `data_table_screen_…` extended: a filter with no results renders (the empty state).
+- Widgets 380; goldens 74; demo 34; the shell compiles.
 
-## Reste
+## What's left
 
-- Confirmation avant `Delete` (dialogue) dans la démo.
-- Un nouveau domaine de widgets (`Tabs` avancé, `Tree` view, `Kanban`).
+- A confirmation before `Delete` (a dialog) in the demo.
+- A new widget domain (an advanced `Tabs`, a `Tree` view, a `Kanban`).

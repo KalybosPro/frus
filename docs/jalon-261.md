@@ -1,39 +1,39 @@
-# Jalon 261 — Finitions DnD : ombres `Card`/`Toast` thémées + test de réagencement même-colonne
+# Jalon 261 — DnD polish: themed `Card`/`Toast` shadows + same-column reorder test
 
-## Analyse
+## Analysis
 
-Reliquats relevés aux jalons 255/256 : (1) `Card` et `Toast` peignaient leur ombre avec un **noir codé
-en dur** (`Color::rgba(0,0,0,0.3)`), alors que `Button` et le fantôme de glisser (jalon 255) tirent la
-leur de `theme.scheme.shadow` — incohérent avec la règle « customizable like Flutter » ; (2) le
-réagencement vertical (`reflow_reorder_cards`) n'avait **pas** de test pour le cas **même colonne**
-(source et cible dans la même bande x).
+Leftovers raised in milestones 255/256: (1) `Card` and `Toast` painted their shadow with a **hardcoded
+black** (`Color::rgba(0,0,0,0.3)`), whereas `Button` and the drag ghost (milestone 255) take theirs from
+`theme.scheme.shadow` — inconsistent with the customisability rule; (2) the vertical reflow
+(`reflow_reorder_cards`) had **no** test for the **same column** case (source and target in the same x
+band).
 
-## Décisions techniques
+## Technical decisions
 
-- **Ombres thémées.** `Card` et `Toast` prennent `theme.scheme.shadow.with_alpha(0.30)` au lieu d'un
-  noir littéral. `scheme.shadow` **étant** noir dans les thèmes fournis, le rendu est **identique** —
-  dé-codage-en-dur, surchargeable via le thème (les widgets deviennent thémables).
-- **Test même-colonne.** Documente le comportement correct d'un réagencement intra-colonne : la carte
-  soulevée en haut, insertion après la 2e carte → la carte **au-dessus de la ligne remonte** d'un cran
-  (comble le trou), celle **sous la ligne reste** (décalage `+cran`/`−cran` net **nul**), la place de
-  dépôt s'ouvrant juste au-dessus d'elle. La colonne voisine ne bouge pas.
-- **Inertie verticale : non retenue.** Le ressort horizontal (`reorder_x`) lisse le coulissement des
-  colonnes voisines ; l'équivalent vertical serait un pur agrément **runtime** (non inspectable au GPU
-  ici) au bénéfice marginal — laissé de côté (voir Reste) plutôt qu'ajouter du code non vérifiable.
+- **Themed shadows.** `Card` and `Toast` take `theme.scheme.shadow.with_alpha(0.30)` instead of a literal
+  black. Since `scheme.shadow` **is** black in the themes we ship, the rendering is **identical** — a
+  de-hardcoding, overridable through the theme (the widgets become themable).
+- **A same-column test.** It documents the correct behaviour of an in-column reflow: with the lifted card
+  at the top and the insertion after the 2nd card → the card **above the line moves up** one notch
+  (closing the gap), the one **below the line stays** (a net `+notch`/`−notch` shift of **zero**), the
+  drop slot opening just above it. The neighbouring column does not move.
+- **Vertical inertia: not adopted.** The horizontal spring (`reorder_x`) smooths the neighbouring
+  columns' slide; the vertical equivalent would be pure **runtime** polish (not inspectable on a GPU
+  here) with marginal benefit — set aside (see What's left) rather than adding unverifiable code.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/card.rs` : ombre `theme.scheme.shadow` (import `Color` retiré, devenu inutile).
-- `frus-widgets/src/toast.rs` : ombre `theme.scheme.shadow`.
-- `frus-widgets/src/reorder.rs` : test `same_column_reflow_lifts_upper_cards_and_holds_the_rest`.
+- `frus-widgets/src/card.rs`: a `theme.scheme.shadow` shadow (the `Color` import dropped, now unused).
+- `frus-widgets/src/toast.rs`: a `theme.scheme.shadow` shadow.
+- `frus-widgets/src/reorder.rs`: the `same_column_reflow_lifts_upper_cards_and_holds_the_rest` test.
 
-## Vérification
+## Verification
 
-- **Widgets 393** (+1) ; **goldens 77 inchangés** (les ombres `Card`/`Toast` apparaissent dans des
-  goldens — le dé-codage est pixel-identique, aucune régression) ; aucun avertissement.
+- **Widgets 393** (+1); **goldens 77 unchanged** (the `Card`/`Toast` shadows do appear in goldens — the
+  de-hardcoding is pixel-identical, no regression); no warnings.
 
-## Reste
+## What's left
 
-- Inertie/ressort **vertical** du coulissement des cartes (parité avec l'horizontal) — agrément runtime.
-- Défilement **vertical par colonne** du Kanban (patron Flutter complet).
-- Balayage overflow des autres écrans (Data table, Grid, Charts, Wizard — audit fait).
+- **Vertical** inertia/spring for the cards' slide (parity with the horizontal) — runtime polish.
+- **Per-column vertical** Kanban scrolling (the full pattern).
+- An overflow sweep of the other screens (Data table, Grid, Charts, Wizard — the audit is done).

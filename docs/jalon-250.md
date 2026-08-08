@@ -1,57 +1,57 @@
-# Jalon 250 — Registre des réordonnables (glisser des cartes fonctionnel)
+# Jalon 250 — Reorderables registry (card dragging works)
 
-## Analyse
+## Analysis
 
-Le glisser-déposer de réordonnancement du shell repérait ses cibles via le registre des widgets
-**cliquables** (`ui.hit`). Les en-têtes de `Table` marchent car ils sont cliquables (tri), mais les
-**cartes Kanban** et leurs **zones de dépôt** n'ont **pas** d'action de clic : elles n'entraient donc
-dans aucun registre, et le shell ne pouvait ni les saisir ni les cibler. Le déplacement (`on_move`,
-jalons 247–249) était correct en logique mais **ne s'engageait pas** à la souris.
+The shell's drag-to-reorder located its targets through the registry of **clickable** widgets
+(`ui.hit`). `Table` headers work because they are clickable (sorting), but **Kanban cards** and their
+**drop zones** have **no** click action: they entered no registry at all, so the shell could neither
+grab nor target them. The move (`on_move`, milestones 247–249) was logically correct but **did not
+engage** with the mouse.
 
-Ce jalon ajoute un **registre des réordonnables** distinct du clic.
+This milestone adds a **reorderables registry** separate from clicking.
 
-## Décisions techniques
+## Technical decisions
 
-- **Nouveau registre `reorderables: Vec<(WidgetId, Rect)>`** dans `Ui`, peuplé pour tout widget dont
-  `reorder_index()` est `Some` — indépendamment de sa cliquabilité. Accès `Ui::reorderable_at(point)`.
+- **A new `reorderables: Vec<(WidgetId, Rect)>` registry** in `Ui`, populated for every widget whose
+  `reorder_index()` is `Some` — regardless of its clickability. Accessed through
+  `Ui::reorderable_at(point)`.
 
-- **Collecté comme `interactives`, pas caché.** Plutôt que d'étendre le cache de peinture
-  (`BoundaryData`/`Snapshot`), on **désactive** la mise en cache d'un sous-arbre contenant un
-  réordonnable (via `plain_subtree_len`), exactement comme pour un `InteractiveViewer` ou un `Scroll` :
-  le registre est donc reconstruit à chaque frame, toujours à jour. Les blocs de **transformation**
-  (échelle/rotation) transforment aussi les bornes des réordonnables (parité avec `draggables`).
+- **Collected like `interactives`, not cached.** Rather than extending the paint cache
+  (`BoundaryData`/`Snapshot`), we **disable** caching for a subtree containing a reorderable (through
+  `plain_subtree_len`), exactly as for an `InteractiveViewer` or a `Scroll`: so the registry is rebuilt
+  every frame, always up to date. **Transform** blocks (scale/rotation) also transform the
+  reorderables' bounds (parity with `draggables`).
 
-- **Le shell utilise le registre.** `reorderable_at` (source à l'appui), la **cible** au dépôt, et la
-  **ligne d'insertion** (aperçu vertical, jalon 248) lisent désormais `ui.reorderable_at` au lieu de
+- **The shell uses the registry.** `reorderable_at` (the source on press), the **target** on drop, and
+  the **insertion line** (the vertical preview, milestone 248) now read `ui.reorderable_at` instead of
   `ui.hit`.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/src/ui.rs` : champ `reorderables` (`Ui` + `Builder`) + init + assemblage ; collecte
-  `if reorder_index().is_some()` dans les deux boucles de parcours ; transformation des bornes dans les
-  deux blocs `Transform` ; `plain_subtree_len` exclut les réordonnables du cache ; accès
-  `reorderable_at`. Test `kanban_cards_are_reorderable_without_being_clickable` (une carte est
-  saisissable au point **et** absente du registre de clics).
-- `frus-shell/src/app.rs` : `reorderable_at`, la cible de dépôt et `reorder_drop_line` passent par
+- `frus-widgets/src/ui.rs`: the `reorderables` field (`Ui` + `Builder`) + init + assembly; the
+  `if reorder_index().is_some()` collection in both walk loops; transforming the bounds in both
+  `Transform` blocks; `plain_subtree_len` excludes reorderables from the cache; the `reorderable_at`
+  accessor. The `kanban_cards_are_reorderable_without_being_clickable` test (a card is grabbable at the
+  point **and** absent from the click registry).
+- `frus-shell/src/app.rs`: `reorderable_at`, the drop target and `reorder_drop_line` go through
   `ui.reorderable_at`.
 
-## Vérification
+## Verification
 
-- **Widgets** : la carte Kanban est enregistrée comme réordonnable sans être cliquable ; `reorderable_at`
-  la retrouve là où `ui.hit` ne trouve rien.
-- **Non-régression** : le registre n'émet aucune primitive (mêmes pixels) — goldens inchangés ; les
-  en-têtes de `Table` (réordonnables **si** `on_reorder`) empruntent le même chemin qu'avant côté clic.
-- Widgets 387 ; shell 26 ; goldens 77 ; démo 36.
+- **Widgets**: the Kanban card is registered as reorderable without being clickable; `reorderable_at`
+  finds it where `ui.hit` finds nothing.
+- **No regression**: the registry emits no primitive (the same pixels) — the goldens unchanged;
+  `Table` headers (reorderable **if** `on_reorder`) take the same path as before on the click side.
+- Widgets 387; shell 26; goldens 77; demo 36.
 
 ## Notes
 
-- L'**engagement** du glisser (source/cible/route) est désormais correct et couvert par des tests
-  unitaires (registre + `reorderable_at` + logique `on_move`). Le rendu **live** du glisser (fantôme +
-  ligne d'insertion) reste un état runtime non inspecté au GPU dans cet environnement ; le fantôme d'une
-  carte **riche** ne capture que la tuile (le contenu, peint par des enfants, a un autre propriétaire) —
-  affinage possible.
+- Drag **engagement** (source/target/routing) is now correct and covered by unit tests (the registry +
+  `reorderable_at` + the `on_move` logic). The **live** drag rendering (the ghost + the insertion line)
+  remains runtime state not inspected on a GPU in this environment; a **rich** card's ghost only
+  captures the tile (the content, painted by children, has a different owner) — a possible refinement.
 
-## Reste
+## What's left
 
-- Fantôme d'aperçu incluant le **contenu** d'une carte riche.
-- Indicateur d'insertion **inter-cartes** (au-dessus/au-dessous selon la moitié survolée).
+- A preview ghost including a rich card's **content**.
+- A **between-cards** insertion cue (above/below depending on the hovered half).

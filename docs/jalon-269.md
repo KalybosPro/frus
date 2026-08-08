@@ -1,48 +1,48 @@
-# Jalon 269 — `compute_scroll` **remplit l'axe contraint** (fin du conteneur remplisseur)
+# Jalon 269 — `compute_scroll` **fills the constrained axis** (end of the filler container)
 
-## Objectif
+## The goal
 
-Au jalon 266, faire remplir aux colonnes Kanban la hauteur du board imposait à l'app un contournement :
-envelopper le `Scroll` horizontal dans un `Flex` `flex(1)` (un simple `Container` à hauteur `Auto`
-**s'effondrait**). La cause : le **contenu** d'un défilable ne remplissait pas le viewport sur son axe
-**transverse** (contraint) — il se calait sur son contenu, privant tout enfant `flex(1)`/`Percent` de
-base définie. Ce jalon corrige la **racine** : `compute_scroll` remplit désormais l'axe contraint,
-façon `ListView` de Flutter (contrainte transverse serrée). Les apps n'ont plus besoin du remplisseur.
+In milestone 266, making the Kanban columns fill the board's height forced a workaround on the app:
+wrapping the horizontal `Scroll` in a `flex(1)` `Flex` (a plain `Auto`-height `Container`
+**collapsed**). The cause: a scrollable's **content** did not fill the viewport on its **cross**
+(constrained) axis — it sized to its content, denying any `flex(1)`/`Percent` child a defined basis.
+This milestone fixes the **root**: `compute_scroll` now fills the constrained axis (a tight cross-axis
+constraint, as a scrolling list does). Apps no longer need the filler.
 
-## Le correctif (`frus-layout/src/tree.rs`)
+## The fix (`frus-layout/src/tree.rs`)
 
-Dans `compute_scroll`, avant le calcul : si le défilement est **mono-axe** (un axe libre, l'autre
-contraint) et que la dimension **racine** sur l'axe contraint est `Auto`, on la fixe à la taille du
-viewport (`Length`). Le contenu prend donc la taille transverse du viewport ; l'axe **libre** (celui du
-défilement) garde sa taille naturelle (`MaxContent`).
+In `compute_scroll`, before the computation: if the scrolling is **single-axis** (one axis free, the
+other constrained) and the **root** dimension on the constrained axis is `Auto`, we set it to the
+viewport's size (`Length`). So the content takes the viewport's cross size; the **free** axis (the
+scrolling one) keeps its natural size (`MaxContent`).
 
-Garde-fous de portée :
+Scope guards:
 
-- **Mono-axe seulement** : `fill_w = !free_x && free_y` (défilement vertical → remplit la largeur) ;
-  `fill_h = !free_y && free_x` (horizontal → remplit la hauteur). La **mise en page définie** (deux
-  axes contraints, `Constraints::definite`) et le **défilement 2D** (deux axes libres) ne sont **pas**
-  touchés — pas de régression des écrans/fenêtre/modales ni des tables défilables en X **et** Y.
-- **`Auto` seulement** : une dimension **explicite** (`Length`/`Percent`) de la racine du contenu est
-  **respectée**.
+- **Single-axis only**: `fill_w = !free_x && free_y` (vertical scrolling → fills the width);
+  `fill_h = !free_y && free_x` (horizontal → fills the height). **Definite layout** (both axes
+  constrained, `Constraints::definite`) and **2D scrolling** (both axes free) are **untouched** — no
+  regression for screens/windows/modals, nor for tables scrollable in X **and** Y.
+- **`Auto` only**: an **explicit** dimension (`Length`/`Percent`) on the content's root is **respected**.
 
-## Simplification côté app
+## Simplification app-side
 
-- **`frus-demo`** (`board_screen`) : le board revient à un **simple** `Container::new().padding(24).
-  child(board)` dans le `Scroll` horizontal — la structure d'avant le jalon 266, qui s'effondrait, et
-  qui **fonctionne** désormais. Le contournement `Flex` `flex(1)` est retiré.
-- `Kanban::scrollable_columns()` garde son `height: Percent(1.0)` (il remplit la zone de contenu du
-  `Container`, lui-même rempli par `compute_scroll`).
+- **`frus-demo`** (`board_screen`): the board goes back to a **plain**
+  `Container::new().padding(24).child(board)` inside the horizontal `Scroll` — the structure from before
+  milestone 266, the one that used to collapse, and that **works** now. The `flex(1)` `Flex` workaround
+  is removed.
+- `Kanban::scrollable_columns()` keeps its `height: Percent(1.0)` (it fills the `Container`'s content
+  area, itself filled by `compute_scroll`).
 
-## Vérification
+## Verification
 
-- **Desktop** : `frus-layout` 4, `frus-widgets` 396, `frus-shell` 27, `frus-demo` 36, goldens **77** —
-  tous verts (aucune régression : la mise en page définie et le défilement 2D sont exclus du
-  remplissage). Le garde-fou `scrollable_columns_fill_the_board_height_then_scroll` passe désormais
-  avec un **`Container`** (le cas même qui s'effondrait au jalon 266), preuve du correctif.
-- **Appareil** : APK `frus-demo` reconstruit — à confirmer que les colonnes remplissent toujours la
-  hauteur et défilent (structure app simplifiée, résultat identique).
+- **Desktop**: `frus-layout` 4, `frus-widgets` 396, `frus-shell` 27, `frus-demo` 36, goldens **77** —
+  all green (no regression: definite layout and 2D scrolling are excluded from the filling). The
+  `scrollable_columns_fill_the_board_height_then_scroll` guard now passes with a **`Container`** (the
+  very case that collapsed in milestone 266), proof of the fix.
+- **On device**: the `frus-demo` APK rebuilt — still to confirm that the columns fill the height and
+  scroll (a simplified app structure, an identical result).
 
-## Reste
+## What's left
 
-- RAS. Le remplissage transverse par défaut rapproche `Scroll` du `ListView`/`SingleChildScrollView`
-  de Flutter (contrainte transverse serrée, axe de défilement libre).
+- Nothing outstanding. Cross-axis filling by default brings `Scroll` in line with the established
+  scrolling-view behaviour (a tight cross-axis constraint, a free scrolling axis).

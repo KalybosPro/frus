@@ -1,46 +1,45 @@
-# Jalon 260 — Défilement Kanban façon Flutter : axe horizontal intentionnel (fin du pan 2D)
+# Jalon 260 — Kanban scrolling: a deliberate horizontal axis (end of the 2D pan)
 
-## Analyse
+## Analysis
 
-Le jalon 258 avait corrigé le débordement du board en le rendant défilable en **2D** (`Axis::Both`).
-Remarque utilisateur, juste : **façon Flutter**, une page ne défile pas librement en diagonale — le
-défilement est **intentionnel, par axe**, via un scroller configuré pour cet axe. Le patron Flutter
-d'un board (type Trello) : un **scroller horizontal** pour la **rangée de colonnes**, et un **scroller
-vertical par colonne** pour ses cartes — deux scrollers distincts, pas un pan 2D.
+Milestone 258 had fixed the board's overflow by making it scrollable in **2D** (`Axis::Both`). A user
+remark, and a fair one: a page does not scroll freely on the diagonal — scrolling is **deliberate, per
+axis**, through a scroller configured for that axis. The established pattern for a board (Trello style):
+a **horizontal scroller** for the **row of columns**, and a **per-column vertical scroller** for its
+cards — two distinct scrollers, not a 2D pan.
 
-## Décisions techniques
+## Technical decisions
 
-- **Board = scroller horizontal.** `Scroll { axis: Horizontal, width: viewport, flex: 1 }` : la rangée
-  de colonnes défile **gauche/droite** uniquement ; verticalement, le contenu est **borné au viewport**
-  (les colonnes s'alignent en haut). Plus de composante verticale au geste → plus de pan diagonal.
-- **Défilement vertical par colonne : différé.** Le vrai patron Flutter (chaque colonne = liste
-  verticale indépendante) demande de donner aux colonnes une **hauteur définie** (sinon le `Scroll`
-  interne s'effondre — cf. le piège de dimensionnement du `Scroll`). Les colonnes de la démo **tiennent**
-  verticalement aujourd'hui ; on garde donc le scroller horizontal seul et on note le vertical-par-colonne
-  comme suite (changement de layout du widget `Kanban` + regénération des goldens).
+- **The board = a horizontal scroller.** `Scroll { axis: Horizontal, width: viewport, flex: 1 }`: the
+  row of columns scrolls **left/right** only; vertically, the content is **bounded to the viewport** (the
+  columns align at the top). No vertical component to the gesture → no more diagonal panning.
+- **Per-column vertical scrolling: deferred.** The full pattern (each column = an independent vertical
+  list) requires giving the columns a **defined height** (otherwise the inner `Scroll` collapses — see
+  the `Scroll` sizing gotcha). The demo's columns **fit** vertically today; so we keep the horizontal
+  scroller alone and note per-column vertical scrolling as a follow-up (a layout change to the `Kanban`
+  widget + regenerating the goldens).
 
-## Implémentation
+## Implementation
 
-- `frus-demo/src/lib.rs` : `board_screen` — `Axis::Both` → `Axis::Horizontal`.
+- `frus-demo/src/lib.rs`: `board_screen` — `Axis::Both` → `Axis::Horizontal`.
 
-## Vérification
+## Verification
 
-- **Desktop** : compile ; démo (lib) 36.
-- **Appareil** (Huawei STK-L21) : **confirmé par capture** (relance propre) — barre de défilement
-  **horizontale**, colonnes **alignées en haut** (aucun pan vertical), défiler révèle « To do / Doing /
-  Done », hint sur 2 lignes. *(Un premier cliché montrait un rémanent de l'écran précédent : simple
-  artefact de transition dû à des taps enchaînés trop vite ; disparaît à la relance propre — pas un
-  bug.)*
-- Les goldens `kanban`/`kanban_rich` rendent le **widget** directement (inchangé) → non affectés.
+- **Desktop**: compiles; demo (lib) 36.
+- **On device** (Huawei STK-L21): **confirmed by screenshot** (on a clean relaunch) — a **horizontal**
+  scrollbar, the columns **aligned at the top** (no vertical panning), scrolling reveals "To do / Doing /
+  Done", the hint on 2 lines. *(A first shot showed a remnant of the previous screen: a plain transition
+  artefact from taps chained too quickly; it goes away on a clean relaunch — not a bug.)*
+- The `kanban`/`kanban_rich` goldens render the **widget** directly (unchanged) → unaffected.
 
 ## Notes
 
-- Cohabitation glisser/défiler inchangée : glisser une **carte** réordonne (drag armé avant le repli de
-  défilement, jalon 254) ; glisser une **zone vide** fait défiler horizontalement.
+- Drag/scroll coexistence unchanged: dragging a **card** reorders (the drag armed before the touch-scroll
+  fallback, milestone 254); dragging an **empty area** scrolls horizontally.
 
-## Reste
+## What's left
 
-- **Vertical par colonne** (patron Flutter complet) : hauteur définie des colonnes + `Scroll` vertical
-  interne, testé en remplissant une colonne de cartes ; regénérer les goldens Kanban.
-- Balayage overflow des autres écrans ; polish DnD (réagencement même-colonne, inertie verticale, ombre
-  `Card`/`Toast`).
+- **Per-column vertical scrolling** (the full pattern): a defined column height + an inner vertical
+  `Scroll`, tested by filling a column with cards; regenerating the Kanban goldens.
+- An overflow sweep of the other screens; DnD polish (same-column reflow, vertical inertia, the
+  `Card`/`Toast` shadow).

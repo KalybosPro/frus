@@ -1,18 +1,17 @@
-# Jalon 273 — Exemple réseau de bout en bout (`frus-fetch-example`)
+# Jalon 273 — End-to-end network example (`frus-fetch-example`)
 
-## Objectif
+## The goal
 
-Les jalons 270–272 ont bâti la pile réseau (effets async, `fetch`, `Request` avec
-POST/en-têtes/timeout) mais **aucun écran ne l'exerçait**. Ce jalon livre le petit exemple
-manquant : **charger une API et l'afficher**, avec les états **chargement → donnée → erreur** —
-le pendant frus du `FutureBuilder` de Flutter.
+Milestones 270–272 built the network stack (async effects, `fetch`, `Request` with
+POST/headers/timeout) but **no screen exercised it**. This milestone ships the small missing example:
+**loading an API and displaying it**, with the **loading → data → error** states.
 
-C'est aussi la preuve de l'ergonomie revendiquée : **une seule dépendance** (`frus`, feature
-`net`), **un seul point d'entrée** (`frus::main!`), et le modèle Elm au complet.
+It is also proof of the ergonomics we claim: **a single dependency** (`frus`, the `net` feature), **a
+single entry point** (`frus::main!`), and the full Elm model.
 
-## L'écran
+## The screen
 
-Un bouton lance la requête ; l'écran peint le statut courant :
+A button fires the request; the screen paints the current status:
 
 ```rust
 enum Status { Idle, Loading, Loaded(String), Failed(String) }
@@ -37,27 +36,25 @@ fn update(&mut self, msg: Msg) -> Command<Msg> {
 }
 ```
 
-- **`update` reste pur** : la seule impureté (le réseau) est reléguée dans la `Command` ;
-  quand la future se résout, le shell rappelle `update` avec `Got(...)`. Testable sans GPU.
-- **`view` ne peint que l'état** : bouton + rendu du `Status`.
+- **`update` stays pure**: the only impurity (the network) is confined to the `Command`; when the future
+  resolves, the shell calls `update` back with `Got(...)`. Testable with no GPU.
+- **`view` only paints the state**: a button + the `Status` rendering.
 
-## L'API interrogée
+## The API queried
 
-`https://icanhazdadjoke.com/` avec l'en-tête `Accept: text/plain` — une blague en **texte
-simple** (pas de JSON à parser). L'endpoint autorise les requêtes navigateur (**CORS**), donc
-l'exemple fonctionne aussi **sur le Web**, pas seulement bureau/Android. En-tête + timeout
-exercent le `Request` du jalon 272.
+`https://icanhazdadjoke.com/` with the `Accept: text/plain` header — a joke in **plain text** (no JSON
+to parse). The endpoint allows browser requests (**CORS**), so the example also works **on the Web**,
+not just desktop/Android. The header + the timeout exercise milestone 272's `Request`.
 
-## Vérification
+## Verification
 
-- **Build bureau** : `cargo build -p frus-fetch-example` — compile.
-- **Build wasm** (`--target wasm32-unknown-unknown`) : compile.
-- **Tests** (2) : `fetch_enters_loading_and_emits_an_effect` (bascule en `Loading` **et**
-  renvoie un effet non vide), `result_messages_drive_the_state` (`Ok` → `Loaded` rogné,
-  `Err` → `Failed`). L'aller-retour réseau réel se lance à la main (`cargo run -p
-  frus-fetch-example`) — non exécuté ici.
+- **The desktop build**: `cargo build -p frus-fetch-example` — compiles.
+- **The wasm build** (`--target wasm32-unknown-unknown`): compiles.
+- **Tests** (2): `fetch_enters_loading_and_emits_an_effect` (switches to `Loading` **and** returns a
+  non-empty effect), `result_messages_drive_the_state` (`Ok` → a trimmed `Loaded`, `Err` → `Failed`).
+  The real network round trip is run by hand (`cargo run -p frus-fetch-example`) — not run here.
 
-## Lancer
+## Running it
 
 ```
 cargo run -p frus-fetch-example
