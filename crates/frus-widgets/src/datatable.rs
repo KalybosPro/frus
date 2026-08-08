@@ -554,7 +554,7 @@ mod tests {
         // Header + rows → a non-empty render tree.
         assert!(
             !Widget::<()>::children(&dt).is_empty(),
-            "le DataTable produit un arbre"
+            "the DataTable produces a tree"
         );
     }
 

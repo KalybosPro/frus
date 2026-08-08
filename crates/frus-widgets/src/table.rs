@@ -1,11 +1,11 @@
-//! [`Table`] : un tableau de données texte à **rangées `Flex`** (colonnes de largeur
-//! **fixe ou flexible**). En-tête **triable** au clic (indicateur de sens), lignes
-//! **sélectionnables**, et **sélection multiple** optionnelle via une colonne de cases à
-//! cocher coiffée d'un « tout cocher ».
+//! [`Table`]: a text data grid built from **`Flex` rows** (columns of **fixed or flexible**
+//! width). A header that **sorts** on click (with a direction indicator), **selectable**
+//! rows, and optional **multi-selection** through a checkbox column topped by a
+//! "check all" box.
 //!
-//! Comme le reste de frus, tri et sélection sont **décidés par l'application** : le
-//! tableau émet un message au clic (`on_sort`, `on_select_row`, `on_check`,
-//! `on_check_all`) et n'affiche que l'état qu'on lui passe (`sorted`, `selected`).
+//! As everywhere else in frus, sorting and selection are **decided by the application**: the
+//! table emits a message on click (`on_sort`, `on_select_row`, `on_check`, `on_check_all`)
+//! and displays nothing but the state it is handed (`sorted`, `selected`).
 
 use std::rc::Rc;
 
@@ -24,16 +24,16 @@ use crate::widget::Widget;
 const ROW_H: f32 = 34.0;
 const PAD_X: f32 = 10.0;
 const SIZE: f32 = 15.0;
-/// Écart entre rangées et entre cellules (doit coïncider avec la géométrie des poignées).
+/// Gap between rows and between cells (must match the geometry of the handles).
 const ROW_GAP: f32 = 2.0;
-/// Largeur de la colonne des cases à cocher (sélection multiple).
+/// Width of the checkbox column (multi-selection).
 const CHECK_W: f32 = 40.0;
-/// Côté de la case à cocher dessinée.
+/// Side of the drawn checkbox.
 const BOX: f32 = 18.0;
-/// Largeur de la **zone de préhension** d'une poignée de redimensionnement.
+/// Width of a resize handle's **grab zone**.
 const HANDLE_W: f32 = 8.0;
 
-/// Fond commun d'une cellule selon son rôle et l'interaction (facteur partagé).
+/// Shared background of a cell, by its role and the interaction (a shared factor).
 fn cell_background(
     header: bool,
     selected: bool,
@@ -55,9 +55,9 @@ fn cell_background(
     }
 }
 
-/// Style d'une cellule : largeur de colonne (fixe ou flexible), et hauteur **adaptative**
-/// — un plancher `ROW_H` (confort minimal) qui grandit avec le contenu. Comme la rangée
-/// aligne ses cellules en `Stretch`, toutes suivent la plus haute (aucun rognage).
+/// Style of a cell: the column width (fixed or flexible), and an **adaptive** height — a
+/// `ROW_H` floor (a minimum comfort) that grows with the content. Since the row aligns its
+/// cells with `Stretch`, they all follow the tallest one (nothing is clipped).
 fn cell_style(width: Dimension) -> Style {
     let flex_grow = if matches!(width, Dimension::Length(_)) {
         0.0
@@ -73,31 +73,31 @@ fn cell_style(width: Dimension) -> Style {
     }
 }
 
-/// Côté d'une icône d'en-tête (grille `24×24` mise à l'échelle).
+/// Side of a header icon (a `24×24` grid, scaled).
 const ICON: f32 = 16.0;
-/// Écart entre l'icône d'en-tête et son libellé.
+/// Gap between a header icon and its label.
 const ICON_GAP: f32 = 6.0;
 
-/// Une cellule texte (en-tête ou donnée), thémée au rendu.
+/// A text cell (a header or a data cell), themed at render time.
 struct Cell<Msg> {
     label: String,
     width: Dimension,
     header: bool,
     selected: bool,
-    /// Index de ligne (cellule de donnée) : sert à énoncer « Row N selected » au lecteur
-    /// d'écran. `None` pour un en-tête.
+    /// Row index (on a data cell): used to announce "Row N selected" to the screen
+    /// reader. `None` on a header.
     row: Option<usize>,
-    /// Icône **de tête** (en-tête uniquement) : peinte avant le libellé (icône + texte).
+    /// **Leading** icon (headers only): painted before the label (icon + text).
     icon: Option<IconName>,
-    /// Indicateur de tri de l'en-tête : `Some(true)` = ▲, `Some(false)` = ▼.
+    /// The header's sort indicator: `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
-    /// En-tête **réordonnable** : `(index de colonne, nombre de colonnes, rappel
-    /// on_reorder(from, to))`. Le nombre de colonnes borne le réordonnancement clavier.
+    /// **Reorderable** header: `(column index, column count, the on_reorder(from, to)
+    /// callback)`. The column count bounds keyboard reordering.
     reorder: Option<(usize, usize, Rc<dyn Fn(usize, usize) -> Msg>)>,
-    /// **Widget d'action** d'en-tête (0 ou 1) : un bouton (filtre, menu…) posé à droite,
-    /// **enfant** de la cellule. Il capte son propre clic (hit-test du plus profond),
-    /// le reste de l'en-tête continuant de trier — d'où un `Vec` pour l'exposer via
+    /// The header's **action widget** (0 or 1): a button (a filter, a menu…) placed on the
+    /// right, a **child** of the cell. It captures its own click (deepest-first hit-test)
+    /// while the rest of the header goes on sorting — hence a `Vec`, to expose it through
     /// [`children`](Widget::children).
     action: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -105,8 +105,8 @@ struct Cell<Msg> {
 impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     fn style(&self) -> Style {
         let base = cell_style(self.width);
-        // Avec un widget d'action, il se pose à **droite** (le libellé restant peint à
-        // gauche) et centré verticalement.
+        // With an action widget, it sits on the **right** (the label goes on being painted
+        // on the left) and is vertically centred.
         if self.action.is_empty() {
             base
         } else {
@@ -138,7 +138,7 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         };
         let ty = bounds.y + (bounds.height - frus_text::line_height(SIZE)) * 0.5;
 
-        // Icône de tête (en-tête) : peinte à gauche, le libellé décalé à sa suite.
+        // Leading icon (headers): painted on the left, the label shifted after it.
         let mut text_x = bounds.x + PAD_X;
         if let Some(icon) = self.icon {
             let iy = bounds.y + (bounds.height - ICON) * 0.5;
@@ -180,8 +180,8 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        // Seuls les en-têtes triables prennent le focus clavier (Entrée/Espace = trier) ;
-        // les cellules de données restent cliquables à la souris sans encombrer le Tab.
+        // Only sortable headers take keyboard focus (Enter/Space = sort); data cells stay
+        // clickable with the mouse without cluttering the Tab cycle.
         self.header && self.message.is_some()
     }
 
@@ -194,14 +194,14 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     }
 
     fn announce(&self) -> Option<String> {
-        // En-tête triable : énonce le tri **résultant** au lecteur d'écran (bascule du
-        // sens courant : croissant par défaut, sinon on l'inverse — schéma Material usuel).
+        // A sortable header: announces the **resulting** sort to the screen reader (it flips
+        // the current direction: ascending by default, otherwise inverted — the usual pattern).
         if self.header && self.message.is_some() {
             let ascending = !matches!(self.sort, Some(true));
             let dir = if ascending { "ascending" } else { "descending" };
             return Some(format!("Sorted by {} {}", self.label, dir));
         }
-        // Cellule de donnée sélectionnable : énonce l'état **résultant** de la ligne.
+        // A selectable data cell: announces the row's **resulting** state.
         if let (false, Some(row), true) = (self.header, self.row, self.message.is_some()) {
             let verb = if self.selected {
                 "deselected"
@@ -214,8 +214,8 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        // En-tête : annoncé aux lecteurs d'écran (libellé + position s'il est réordonnable,
-        // pour que l'utilisateur perçoive un déplacement de colonne en re-parcourant).
+        // A header: announced to screen readers (label + position when it is reorderable, so
+        // that a user perceives a column move when going through them again).
         if !self.header {
             return None;
         }
@@ -227,8 +227,8 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
     }
 
     fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
-        // Ctrl+Flèches (Left/Right avec `word`) sur un en-tête focalisé : déplace la
-        // colonne d'un cran (borné). Les flèches nues laissent naviguer le focus.
+        // Ctrl+Arrows (Left/Right with `word`) on a focused header: moves the column by one
+        // step (clamped). Bare arrows let the focus navigate instead.
         let Some((col, columns, cb)) = self.reorder.as_ref() else {
             return KeyResponse::Ignored;
         };
@@ -239,16 +239,16 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         };
         match to {
             Some(to) => KeyResponse::Handled(Some(cb(*col, to))),
-            None => KeyResponse::Ignored, // au bord : laisse le focus naviguer
+            None => KeyResponse::Ignored, // at the edge: let the focus navigate
         }
     }
 }
 
-/// Une cellule case à cocher (colonne de sélection multiple).
+/// A checkbox cell (the multi-selection column).
 struct CheckCell<Msg> {
     checked: bool,
-    /// État **indéterminé** (certaines lignes cochées, pas toutes) — case du « tout
-    /// cocher ». Prime l'affichage décoché ; ignoré si `checked`.
+    /// The **indeterminate** state (some rows checked, not all) — the "check all" box.
+    /// It takes precedence over the unchecked look; ignored when `checked`.
     indeterminate: bool,
     header: bool,
     selected: bool,
@@ -283,7 +283,7 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
                 0.0,
                 Color::TRANSPARENT,
             );
-            // Coche : l'icône Check remplie, centrée dans la case.
+            // The tick: the filled Check icon, centred in the box.
             let scale = (BOX - 4.0) / 24.0;
             let inset = (BOX - 24.0 * scale) * 0.5;
             let path = IconName::Check
@@ -292,7 +292,7 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
                 .translated(bx + inset, by + inset);
             scene.fill_path(&path, theme.on_primary.fade(o));
         } else if self.indeterminate {
-            // Indéterminé : case pleine barrée d'un tiret (façon Material).
+            // Indeterminate: a filled box crossed by a dash.
             scene.draw_rect(
                 box_rect,
                 theme.primary.fade(o),
@@ -316,8 +316,8 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
     }
 
     fn announce(&self) -> Option<String> {
-        // Case à cocher : énonce l'état **résultant** de la bascule (cochée → on
-        // décoche). La case d'en-tête agit sur **toutes** les lignes.
+        // A checkbox: announces the **resulting** state of the toggle (checked → it will be
+        // unchecked). The header's box acts on **every** row.
         self.message.as_ref()?;
         let selecting = !self.checked;
         Some(match (self.header, selecting) {
@@ -329,34 +329,34 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
     }
 }
 
-/// Fabrique d'un widget de cellule : **rappelée à chaque reconstruction** (le tableau
-/// se rebâtit après chaque réglage), donc elle produit un widget **frais** à chaque fois.
-/// Permet des cellules riches (avatars, puces, boutons d'action) au-delà du texte.
+/// Factory of a cell widget: **called again on every rebuild** (the table rebuilds itself
+/// after each setting), so it produces a **fresh** widget every time. This is what allows
+/// rich cells (avatars, chips, action buttons) beyond plain text.
 pub type CellFactory<Msg> = std::rc::Rc<dyn Fn() -> Box<dyn Widget<Msg>>>;
 
-/// Contenu d'une ligne de données : texte simple, ou widgets (par colonne).
+/// Content of a data row: plain text, or widgets (one per column).
 enum RowKind<Msg> {
     Text(Vec<String>),
     Widgets(Vec<CellFactory<Msg>>),
 }
 
-/// Fabrique de contenu d'une ligne **virtualisée**, par index : textes (une valeur par
-/// colonne) ou widgets (un par colonne). Partagée (`Rc`) pour être capturée dans la
-/// fabrique `'static` de la liste virtualisée.
+/// Factory for the content of a **virtualised** row, by index: texts (one value per column)
+/// or widgets (one per column). Shared (`Rc`) so it can be captured in the virtualised
+/// list's `'static` factory.
 #[derive(Clone)]
 enum VirtualBuild<Msg> {
     Text(std::rc::Rc<dyn Fn(usize) -> Vec<String>>),
     Widgets(std::rc::Rc<dyn Fn(usize) -> Vec<Box<dyn Widget<Msg>>>>),
 }
 
-/// Une cellule **widget** : un contenu arbitraire (centré, avec le fond de cellule et,
-/// si la ligne est sélectionnable, le clic de sélection). Le contenu se peint par-dessus.
+/// A **widget** cell: arbitrary content (centred, with the cell background and, when the row
+/// is selectable, the selection click). The content paints on top.
 struct WidgetCell<Msg> {
     width: Dimension,
     selected: bool,
-    /// Cellule d'**en-tête** (fond d'en-tête) plutôt qu'une cellule de donnée.
+    /// A **header** cell (with the header background) rather than a data cell.
     header: bool,
-    /// Index de ligne : pour énoncer « Row N selected » au lecteur d'écran.
+    /// Row index: to announce "Row N selected" to the screen reader.
     row: usize,
     message: Option<Msg>,
     content: Vec<Box<dyn Widget<Msg>>>,
@@ -389,7 +389,7 @@ impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
     }
 
     fn announce(&self) -> Option<String> {
-        // Ligne-widget sélectionnable : énonce l'état **résultant** de la sélection.
+        // A selectable widget row: announces the selection's **resulting** state.
         self.message.as_ref()?;
         let verb = if self.selected {
             "deselected"
@@ -400,19 +400,19 @@ impl<Msg: Clone> Widget<Msg> for WidgetCell<Msg> {
     }
 }
 
-/// Largeur du dégradé d'**ombre de séparation** d'une colonne gelée.
+/// Width of a frozen column's **separation shadow** gradient.
 const FROZEN_SHADOW_W: f32 = 8.0;
 
-/// Calque d'**ombre de séparation** des colonnes gelées : un dégradé (scrim → transparent)
-/// posé au bord intérieur du bloc figé, par-dessus la zone défilante — repère visuel du gel.
-/// **Inerte** (ne capte aucun clic) : les cellules dessous restent cliquables.
+/// The frozen columns' **separation shadow** layer: a gradient (scrim → transparent) placed
+/// at the inner edge of the pinned block, over the scrolling area — the visual cue of the
+/// freeze. **Inert** (it captures no click): the cells beneath stay clickable.
 struct FrozenShadow {
-    /// Taille du calque (il remplit la pile) — sinon `Auto` le réduirait à 0×0.
+    /// Size of the layer (it fills the stack) — otherwise `Auto` would shrink it to 0×0.
     width: f32,
     height: f32,
-    /// Abscisse du bord droit du bloc figé de **gauche** (l'ombre part vers la droite).
+    /// x of the right edge of the **left** pinned block (the shadow runs rightwards).
     left: Option<f32>,
-    /// Abscisse du bord gauche du bloc figé de **droite** (l'ombre part vers la gauche).
+    /// x of the left edge of the **right** pinned block (the shadow runs leftwards).
     right: Option<f32>,
 }
 
@@ -467,9 +467,9 @@ impl<Msg: Clone> Widget<Msg> for FrozenShadow {
     }
 }
 
-/// Un espace transparent et **inerte** (ni cliquable, ni glissable) : cale les
-/// poignées de redimensionnement sur les bords de colonnes sans bloquer les clics
-/// (le calque de poignées flotte au-dessus de la grille).
+/// A transparent, **inert** space (neither clickable nor draggable): it wedges the resize
+/// handles onto the column edges without blocking clicks (the handle layer floats above
+/// the grid).
 struct Spacer {
     width: f32,
     height: f32,
@@ -495,10 +495,9 @@ impl<Msg: Clone> Widget<Msg> for Spacer {
     }
 }
 
-/// Une **poignée de redimensionnement** de colonne : fine barre verticale au bord
-/// droit d'une colonne. Glissée horizontalement, elle émet `on_resize(col, dx)` où
-/// `dx` est le déplacement (px) depuis le dernier événement — l'application
-/// **accumule** la largeur. Le calque de poignées flotte au-dessus de la grille.
+/// A column **resize handle**: a thin vertical bar at a column's right edge. Dragged
+/// horizontally, it emits `on_resize(col, dx)` where `dx` is the movement (px) since the last
+/// event — the application **accumulates** the width. The handle layer floats above the grid.
 struct ResizeHandle<Msg> {
     col: usize,
     height: f32,
@@ -520,8 +519,8 @@ impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // Ligne de préhension centrée : discrète au repos, teintée `primary` et
-        // épaissie au survol / pendant le glissement.
+        // A centred grab line: discreet at rest, tinted `primary` and thickened on hover /
+        // while being dragged.
         let t = status.hover_progress;
         let color = theme.border.lerp(theme.primary, t);
         let lw = 1.0 + t; // 1 px → 2 px
@@ -544,7 +543,7 @@ impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
     }
 
     fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
-        // Un delta nul (appui, mouvement vertical pur) ne change rien.
+        // A zero delta (a press, or purely vertical movement) changes nothing.
         if dx == 0.0 {
             None
         } else {
@@ -553,21 +552,21 @@ impl<Msg: Clone> Widget<Msg> for ResizeHandle<Msg> {
     }
 }
 
-/// Un tableau de données à colonnes fixes ou flexibles (voir le module).
+/// A data grid with fixed or flexible columns (see the module).
 pub struct Table<Msg> {
     columns: usize,
     headers: Vec<String>,
-    /// Icône de tête par colonne d'en-tête (icône + libellé). Manquante = aucune.
+    /// Leading icon per header column (icon + label). Missing = none.
     header_icons: Vec<Option<IconName>>,
-    /// En-tête **entièrement widget** (par colonne) : remplace la ligne d'en-tête texte.
-    /// Vide = en-tête texte classique. Le tri/réordonnancement automatique ne s'applique
-    /// pas à ces en-têtes — l'application câble le comportement dans ses widgets.
+    /// A **fully widget** header (per column): it replaces the text header row. Empty = the
+    /// ordinary text header. Automatic sorting/reordering does not apply to these headers —
+    /// the application wires the behaviour into its own widgets.
     header_widgets: Vec<CellFactory<Msg>>,
-    /// Widget d'action par colonne d'en-tête (bouton de filtre/menu), fabriqué à chaque
-    /// reconstruction. `None` = aucun. Posé à droite de l'en-tête, il capte son clic.
+    /// Action widget per header column (a filter/menu button), built again on every rebuild.
+    /// `None` = none. Placed on the right of the header, it captures its own click.
     header_actions: Vec<Option<CellFactory<Msg>>>,
     rows: Vec<RowKind<Msg>>,
-    /// Largeur par colonne : `> 0` = fixe (px), `<= 0` = flexible (part égale).
+    /// Width per column: `> 0` = fixed (px), `<= 0` = flexible (an equal share).
     widths: Vec<f32>,
     total_width: Option<f32>,
     sort: Option<(usize, bool)>,
@@ -576,24 +575,24 @@ pub struct Table<Msg> {
     on_select: Option<Rc<dyn Fn(usize) -> Msg>>,
     on_check: Option<Rc<dyn Fn(usize) -> Msg>>,
     on_check_all: Option<Msg>,
-    /// Rappel de redimensionnement (colonne, delta px). Actif seulement si toutes
-    /// les colonnes sont de largeur **fixe** (géométrie des bords connue).
+    /// Resize callback (column, delta px). Only active when every column has a **fixed**
+    /// width (the geometry of the edges is then known).
     on_resize: Option<Rc<dyn Fn(usize, f32) -> Msg>>,
-    /// Rappel de réordonnancement (`on_reorder(from, to)`) : glisser un en-tête sur
-    /// un autre déplace la colonne. Nécessite aussi `on_sort` (en-têtes cliquables).
+    /// Reorder callback (`on_reorder(from, to)`): dragging a header onto another moves the
+    /// column. Also requires `on_sort` (clickable headers).
     on_reorder: Option<Rc<dyn Fn(usize, usize) -> Msg>>,
-    /// Mode **virtualisé** : `(nombre de lignes, hauteur du viewport, fabrique de la ligne
-    /// par index — textes ou widgets)`. Seules les lignes **visibles** sont construites
-    /// (défilement interne), pour des grilles de milliers de lignes. Exclut `rows`.
+    /// **Virtualised** mode: `(row count, viewport height, row factory by index — texts or
+    /// widgets)`. Only the **visible** rows are built (internal scrolling), for grids of
+    /// thousands of rows. Excludes `rows`.
     virtual_data: Option<(usize, f32, VirtualBuild<Msg>)>,
-    /// Colonnes **gelées** `(gauche, droite)` : figées aux deux bords tandis que le milieu
-    /// défile horizontalement. Nécessite une largeur totale et des colonnes toutes **fixes**.
+    /// **Frozen** columns `(left, right)`: pinned at both edges while the middle scrolls
+    /// horizontally. Requires a total width and columns that are all **fixed**.
     frozen: (usize, usize),
     root: Box<dyn Widget<Msg>>,
 }
 
-/// Dimension d'une colonne depuis les largeurs : fixe si `> 0`, flexible sinon
-/// (facteur partagé entre la construction directe et la construction virtualisée).
+/// Dimension of a column from the widths: fixed when `> 0`, flexible otherwise (a factor
+/// shared by the direct build and the virtualised one).
 fn col_dimension(widths: &[f32], c: usize) -> Dimension {
     match widths.get(c).copied().unwrap_or(0.0) {
         w if w > 0.0 => Dimension::Length(w),
@@ -602,7 +601,7 @@ fn col_dimension(widths: &[f32], c: usize) -> Dimension {
 }
 
 impl<Msg: Clone + 'static> Table<Msg> {
-    /// Crée un tableau de `columns` colonnes (flexibles, largeurs égales par défaut).
+    /// Creates a table of `columns` columns (flexible, of equal width by default).
     pub fn new(columns: usize) -> Self {
         let columns = columns.max(1);
         Self {
@@ -628,19 +627,19 @@ impl<Msg: Clone + 'static> Table<Msg> {
         }
     }
 
-    /// Définit la ligne d'en-tête (une étiquette par colonne).
+    /// Sets the header row (one label per column).
     pub fn header(mut self, labels: &[&str]) -> Self {
         self.headers = labels.iter().map(|s| s.to_string()).collect();
         self.rebuild();
         self
     }
 
-    /// Remplace la ligne d'en-tête par des **en-têtes entièrement widget** (un par
-    /// colonne) — pour des grilles très personnalisées (bouton de tri maison, filtre
-    /// intégré, deux lignes de titre…). Le tri et le réordonnancement **automatiques** ne
-    /// s'appliquent pas ici : l'application câble le comportement dans les widgets fournis
-    /// (p.ex. un bouton émettant son propre message de tri). Chaque fabrique est rappelée à
-    /// la reconstruction (widget frais). Exclut [`header`](Self::header) (dernier appelé gagne).
+    /// Replaces the header row with **fully widget headers** (one per column) — for heavily
+    /// customised grids (a bespoke sort button, an embedded filter, a two-line title…).
+    /// **Automatic** sorting and reordering do not apply here: the application wires the
+    /// behaviour into the widgets it supplies (e.g. a button emitting its own sort message).
+    /// Each factory is called again on every rebuild (a fresh widget). Excludes
+    /// [`header`](Self::header) (the last one called wins).
     pub fn widget_header(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
         self.header_widgets = cells.into_iter().map(std::rc::Rc::from).collect();
         self.headers.clear();
@@ -648,25 +647,25 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Donne une **icône de tête** à des colonnes d'en-tête (icône + libellé) :
-    /// `None` laisse la colonne sans icône. L'en-tête reste **triable** et
-    /// **réordonnable** comme un en-tête texte (l'icône est purement décorative).
+    /// Gives header columns a **leading icon** (icon + label): `None` leaves the column
+    /// without one. The header stays **sortable** and **reorderable** just like a text
+    /// header (the icon is purely decorative).
     pub fn header_icons(mut self, icons: &[Option<IconName>]) -> Self {
         self.header_icons = icons.iter().copied().collect();
         self.rebuild();
         self
     }
 
-    /// Pose un **widget d'action** (bouton de filtre, menu…) à droite de l'en-tête de la
-    /// colonne `col`. C'est un **enfant** de la cellule : il capte son propre clic (hit-test
-    /// du plus profond), tandis que le reste de l'en-tête **trie** et se **réordonne**
-    /// comme d'habitude. La fabrique est rappelée à chaque reconstruction (widget frais).
+    /// Places an **action widget** (a filter button, a menu…) on the right of column `col`'s
+    /// header. It is a **child** of the cell: it captures its own click (deepest-first
+    /// hit-test), while the rest of the header **sorts** and **reorders** as usual. The
+    /// factory is called again on every rebuild (a fresh widget).
     ///
-    /// **Menu de colonne** : passez ici un [`Menu`](crate::Menu) ou un
-    /// [`Dropdown`](crate::Dropdown). Son menu **flottant** est rendu même **imbriqué** dans
-    /// l'en-tête (l'overlay est collecté à n'importe quelle profondeur), atteignable au
-    /// **Tab** et piloté flèches/Entrée, et fermé par Échap / clic extérieur — sans code
-    /// spécifique côté tableau (l'application pilote l'état ouvert/fermé du menu).
+    /// **Column menu**: pass a [`Menu`](crate::Menu) or a [`Dropdown`](crate::Dropdown) here.
+    /// Its **floating** menu is rendered even when **nested** inside the header (overlays are
+    /// collected at any depth), reachable with **Tab** and driven by the arrows/Enter, and
+    /// closed by Escape / an outside click — with no table-specific code (the application
+    /// drives the menu's open/closed state).
     pub fn header_action(
         mut self,
         col: usize,
@@ -682,7 +681,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Ajoute une ligne de données (une valeur **texte** par colonne).
+    /// Adds a data row (one **text** value per column).
     pub fn row(mut self, cells: &[&str]) -> Self {
         self.rows
             .push(RowKind::Text(cells.iter().map(|s| s.to_string()).collect()));
@@ -690,14 +689,14 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Ajoute une ligne dont chaque cellule est un **widget** (avatar, puce, bouton
-    /// d'action…), fourni par une **fabrique** rappelée à chaque reconstruction. La
-    /// ligne reste sélectionnable (fond au clic hors des zones cliquables internes).
+    /// Adds a row whose every cell is a **widget** (an avatar, a chip, an action button…),
+    /// supplied by a **factory** called again on every rebuild. The row stays selectable
+    /// (a background on click, outside the internal clickable zones).
     ///
-    /// **Tri d'une colonne-widget** : le tableau ne sait pas comparer des widgets — il
-    /// n'émet que la colonne cliquée (`on_sort`). C'est l'**application** qui fournit la
-    /// clé : au message de tri, elle ordonne ses données par le champ correspondant à la
-    /// colonne (p.ex. le nom derrière un avatar), puis repasse les lignes déjà triées.
+    /// **Sorting a widget column**: the table cannot compare widgets — it only emits the
+    /// column that was clicked (`on_sort`). The **application** supplies the key: on the sort
+    /// message it orders its own data by the field matching that column (e.g. the name behind
+    /// an avatar), then hands the already-sorted rows back.
     pub fn widget_row(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
         self.rows.push(RowKind::Widgets(
             cells.into_iter().map(std::rc::Rc::from).collect(),
@@ -706,16 +705,16 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Fixe la largeur totale du tableau, en pixels logiques (les colonnes flexibles se
-    /// partagent l'espace restant).
+    /// Sets the table's total width, in logical pixels (the flexible columns share what is
+    /// left).
     pub fn width(mut self, width: f32) -> Self {
         self.total_width = Some(width);
         self.rebuild();
         self
     }
 
-    /// Largeur **fixe** de chaque colonne, en pixels (`0` ou moins = colonne flexible).
-    /// Les entrées manquantes laissent la colonne flexible.
+    /// **Fixed** width of each column, in pixels (`0` or less = a flexible column). Missing
+    /// entries leave the column flexible.
     pub fn column_widths(mut self, widths: &[f32]) -> Self {
         for (i, w) in widths.iter().enumerate().take(self.columns) {
             self.widths[i] = *w;
@@ -724,30 +723,30 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Rend les en-têtes **cliquables** : `on_sort(colonne)` au clic sur un en-tête.
+    /// Makes the headers **clickable**: `on_sort(column)` on a click on a header.
     pub fn on_sort(mut self, on_sort: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_sort = Some(Box::new(on_sort));
         self.rebuild();
         self
     }
 
-    /// Indique la colonne triée et son sens (`true` = croissant) → affiche l'indicateur.
+    /// States the sorted column and its direction (`true` = ascending) → shows the indicator.
     pub fn sorted(mut self, column: usize, ascending: bool) -> Self {
         self.sort = Some((column, ascending));
         self.rebuild();
         self
     }
 
-    /// Rend les lignes **cliquables** : `on_select_row(ligne)` au clic sur une ligne.
+    /// Makes the rows **clickable**: `on_select_row(row)` on a click on a row.
     pub fn on_select_row(mut self, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_select = Some(Rc::new(on_select));
         self.rebuild();
         self
     }
 
-    /// Active la **sélection multiple** : une colonne de cases à cocher (à gauche) coiffée
-    /// d'une case « tout cocher ». `on_check(ligne)` bascule une ligne, `on_check_all`
-    /// bascule toutes les lignes. L'état coché reflète [`selected`](Self::selected).
+    /// Turns on **multi-selection**: a checkbox column (on the left) topped by a "check all"
+    /// box. `on_check(row)` toggles one row, `on_check_all` toggles every row. The checked
+    /// state mirrors [`selected`](Self::selected).
     pub fn checkboxes(
         mut self,
         on_check: impl Fn(usize) -> Msg + 'static,
@@ -759,38 +758,38 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// **Gèle** les `n` premières colonnes : elles restent **figées** à gauche tandis que le
-    /// reste **défile horizontalement** (l'en-tête des colonnes défilantes suit ses colonnes),
-    /// avec une **ombre de séparation** au bord du gel. Pour de larges grilles où l'on garde un
-    /// identifiant en vue. Nécessite une [`width`](Self::width) totale et des colonnes **toutes
-    /// fixes** ([`column_widths`](Self::column_widths)) — sinon sans effet. Tableaux **texte** ;
-    /// non combiné avec virtualisation / cases à cocher / redimensionnement / réordonnancement.
+    /// **Freezes** the first `n` columns: they stay **pinned** on the left while the rest
+    /// **scrolls horizontally** (the scrolling columns' header follows its columns), with a
+    /// **separation shadow** at the freeze edge. For wide grids where an identifier must stay
+    /// in view. Requires a total [`width`](Self::width) and columns that are **all fixed**
+    /// ([`column_widths`](Self::column_widths)) — otherwise it does nothing. **Text** tables
+    /// only; not combined with virtualisation / checkboxes / resizing / reordering.
     pub fn frozen_columns(mut self, n: usize) -> Self {
         self.frozen.0 = n;
         self.rebuild();
         self
     }
 
-    /// **Gèle** les `m` **dernières** colonnes (figées à **droite** — colonnes d'actions,
-    /// totaux…), le milieu défilant. Se combine avec [`frozen_columns`](Self::frozen_columns)
-    /// (gel des deux bords). Mêmes conditions et exclusions.
+    /// **Freezes** the **last** `m` columns (pinned on the **right** — action columns,
+    /// totals…), the middle scrolling. Combines with
+    /// [`frozen_columns`](Self::frozen_columns) (both edges frozen). Same conditions and
+    /// exclusions.
     pub fn frozen_columns_right(mut self, m: usize) -> Self {
         self.frozen.1 = m;
         self.rebuild();
         self
     }
 
-    /// Passe le tableau en mode **virtualisé** : `count` lignes de données, dont seules les
-    /// **visibles** sont construites/mises en page/peintes (défilement vertical interne dans
-    /// un viewport de `viewport_height` px). `build(index)` fournit les **textes** de la
-    /// ligne (une valeur par colonne). Indispensable pour les grandes grilles (milliers de
-    /// lignes) : coût par frame ∝ lignes visibles, pas au total. L'en-tête reste **épinglé**.
+    /// Switches the table to **virtualised** mode: `count` data rows, of which only the
+    /// **visible** ones are built/laid out/painted (internal vertical scrolling inside a
+    /// viewport of `viewport_height` px). `build(index)` supplies the row's **texts** (one
+    /// value per column). Indispensable for large grids (thousands of rows): the per-frame
+    /// cost is ∝ the visible rows, not the total. The header stays **pinned**.
     ///
-    /// Sélection : [`on_select_row`](Self::on_select_row) et [`selected`](Self::selected)
-    /// fonctionnent sur les lignes visibles ; la **sélection multiple**
-    /// ([`checkboxes`](Self::checkboxes)) est aussi prise en charge (colonne de cases +
-    /// « tout cocher » épinglé). Non combiné avec redimensionnement / réordonnancement —
-    /// ignorés en mode virtualisé. Exclut [`row`](Self::row).
+    /// Selection: [`on_select_row`](Self::on_select_row) and [`selected`](Self::selected) work
+    /// on the visible rows; **multi-selection** ([`checkboxes`](Self::checkboxes)) is
+    /// supported too (a checkbox column + a pinned "check all"). Not combined with resizing /
+    /// reordering — they are ignored in virtualised mode. Excludes [`row`](Self::row).
     pub fn virtual_rows(
         mut self,
         count: usize,
@@ -803,10 +802,10 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Comme [`virtual_rows`](Self::virtual_rows), mais chaque ligne est faite de **widgets**
-    /// (avatars, puces, boutons…) : `build(index)` renvoie un widget par colonne. Seules les
-    /// lignes visibles sont construites. Sélection au clic **et** cases à cocher ; l'en-tête
-    /// reste épinglé. Mêmes exclusions (redimensionnement / réordonnancement).
+    /// Like [`virtual_rows`](Self::virtual_rows), but every row is made of **widgets**
+    /// (avatars, chips, buttons…): `build(index)` returns one widget per column. Only the
+    /// visible rows are built. Click selection **and** checkboxes; the header stays pinned.
+    /// Same exclusions (resizing / reordering).
     pub fn virtual_widget_rows(
         mut self,
         count: usize,
@@ -823,41 +822,41 @@ impl<Msg: Clone + 'static> Table<Msg> {
         self
     }
 
-    /// Rend les colonnes **redimensionnables** à la souris : une fine poignée au
-    /// bord droit de chaque colonne (sauf la dernière) émet `on_resize(colonne,
-    /// delta_px)` quand on la glisse. L'application **accumule** la largeur, p.ex.
-    /// `widths[col] = (widths[col] + delta).max(MIN)`, et la repasse via
-    /// [`column_widths`](Self::column_widths). N'a d'effet que si **toutes** les
-    /// colonnes ont une largeur fixe (bords connus).
+    /// Makes the columns **resizable** with the mouse: a thin handle at each column's right
+    /// edge (except the last) emits `on_resize(column, delta_px)` when dragged. The
+    /// application **accumulates** the width, e.g.
+    /// `widths[col] = (widths[col] + delta).max(MIN)`, and hands it back through
+    /// [`column_widths`](Self::column_widths). Only has an effect when **every** column has a
+    /// fixed width (so the edges are known).
     pub fn on_resize(mut self, on_resize: impl Fn(usize, f32) -> Msg + 'static) -> Self {
         self.on_resize = Some(Rc::new(on_resize));
         self.rebuild();
         self
     }
 
-    /// Rend les colonnes **réordonnables** : glisser un en-tête (au-delà du seuil) et
-    /// le déposer sur un autre émet `on_reorder(from, to)` ; l'application permute
-    /// l'ordre de ses colonnes. Un simple **clic** trie toujours (`on_sort`). Sans
-    /// effet si les en-têtes ne sont pas cliquables.
+    /// Makes the columns **reorderable**: dragging a header (past the threshold) and dropping
+    /// it on another emits `on_reorder(from, to)`; the application permutes its own column
+    /// order. A plain **click** still sorts (`on_sort`). Does nothing when the headers are
+    /// not clickable.
     pub fn on_reorder(mut self, on_reorder: impl Fn(usize, usize) -> Msg + 'static) -> Self {
         self.on_reorder = Some(Rc::new(on_reorder));
         self.rebuild();
         self
     }
 
-    /// Indique les lignes sélectionnées (surlignées, cases cochées).
+    /// States the selected rows (highlighted, their boxes checked).
     pub fn selected(mut self, rows: &[usize]) -> Self {
         self.selected = rows.to_vec();
         self.rebuild();
         self
     }
 
-    /// Dimension de la colonne `c` : fixe si `widths[c] > 0`, flexible sinon.
+    /// Dimension of column `c`: fixed when `widths[c] > 0`, flexible otherwise.
     fn col_width(&self, c: usize) -> Dimension {
         col_dimension(&self.widths, c)
     }
 
-    /// Une rangée `Flex`, à la largeur totale du tableau si fixée.
+    /// One `Flex` row, at the table's total width when one is set.
     fn new_row(&self) -> Flex<Msg> {
         let row = Flex::row().gap(ROW_GAP);
         match self.total_width {
@@ -866,8 +865,8 @@ impl<Msg: Clone + 'static> Table<Msg> {
         }
     }
 
-    /// Nombre de lignes de données : le compte **virtualisé** s'il est défini, sinon les
-    /// lignes matérialisées. (En virtualisé, `rows` est vide.)
+    /// Number of data rows: the **virtualised** count when one is set, otherwise the
+    /// materialised rows. (In virtualised mode, `rows` is empty.)
     fn row_count(&self) -> usize {
         self.virtual_data
             .as_ref()
@@ -875,34 +874,31 @@ impl<Msg: Clone + 'static> Table<Msg> {
             .unwrap_or(self.rows.len())
     }
 
-    /// Nombre de lignes sélectionnées **dans la plage** (indices `< row_count`). Suppose des
-    /// indices uniques et valides (contrat de [`selected`](Self::selected)) — O(sélection),
-    /// donc viable même pour une grille virtualisée de millions de lignes.
+    /// Number of selected rows **within range** (indices `< row_count`). Assumes unique, valid
+    /// indices ([`selected`](Self::selected)'s contract) — O(selection), so it stays viable
+    /// even for a virtualised grid of millions of rows.
     fn selected_count(&self) -> usize {
         let n = self.row_count();
         self.selected.iter().filter(|&&r| r < n).count()
     }
 
-    /// True si toutes les lignes sont sélectionnées (pour le « tout cocher »).
+    /// True when every row is selected (for the "check all" box).
     fn all_selected(&self) -> bool {
         let n = self.row_count();
         n > 0 && self.selected_count() == n
     }
 
-    /// True si **certaines** lignes (pas toutes) sont sélectionnées → « tout cocher »
-    /// indéterminé.
+    /// True when **some** rows (not all) are selected → an indeterminate "check all".
     fn some_selected(&self) -> bool {
         let s = self.selected_count();
         s > 0 && s < self.row_count()
     }
 
-    /// Régénère l'arbre (rangées + cellules) depuis les données et l'état courants.
-    /// L'ordre des appels du builder n'importe pas : l'état final est cohérent.
-    /// Calque de poignées (une par bord de colonne, sauf la dernière) à superposer
-    /// à la grille. `None` si non redimensionnable ou colonnes non toutes fixes.
+    /// The handle layer (one per column edge, except the last), to be laid over the grid.
+    /// `None` when the table is not resizable, or when the columns are not all fixed.
     fn resize_overlay(&self, total_h: f32) -> Option<Flex<Msg>> {
         let on_resize = self.on_resize.as_ref()?;
-        // Géométrie des bords connue seulement si toutes les colonnes sont fixes.
+        // The edges are only known when every column is fixed.
         if !(0..self.columns).all(|c| self.widths.get(c).copied().unwrap_or(0.0) > 0.0) {
             return None;
         }
@@ -911,12 +907,12 @@ impl<Msg: Clone + 'static> Table<Msg> {
         } else {
             0.0
         };
-        // Rangée à gap nul : les écarts sont matérialisés par des cales.
+        // A row with no gap: the spacing is materialised by spacers.
         let mut row = Flex::row();
         let mut consumed = 0.0f32;
         let mut edge = base;
         for c in 0..self.columns {
-            edge += self.widths[c]; // bord droit de la colonne c
+            edge += self.widths[c]; // right edge of column c
             if c + 1 < self.columns {
                 let handle_left = edge - HANDLE_W * 0.5;
                 row = row
@@ -931,13 +927,13 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     });
                 consumed = handle_left + HANDLE_W;
             }
-            edge += ROW_GAP; // écart inter-colonnes
+            edge += ROW_GAP; // the inter-column gap
         }
         Some(row)
     }
 
-    /// Cellule d'en-tête pour le mode **colonnes gelées** (libellé + icône + tri, sans
-    /// action ni réordonnancement).
+    /// Header cell for **frozen columns** mode (label + icon + sorting, with no action and
+    /// no reordering).
     fn frozen_header_cell(&self, c: usize) -> Cell<Msg> {
         let sort = self.sort.filter(|(col, _)| *col == c).map(|(_, asc)| asc);
         Cell {
@@ -954,8 +950,8 @@ impl<Msg: Clone + 'static> Table<Msg> {
         }
     }
 
-    /// Construit un **bloc de colonnes** (en-tête + rangées texte) pour les colonnes `cols`,
-    /// à la largeur `w`. Suppose des rangées **texte** (validé en amont).
+    /// Builds a **block of columns** (header + text rows) for the columns `cols`, at width
+    /// `w`. Assumes **text** rows (validated upstream).
     fn frozen_block(
         &self,
         cols: std::ops::Range<usize>,
@@ -993,11 +989,11 @@ impl<Msg: Clone + 'static> Table<Msg> {
         col
     }
 
-    /// Construit la disposition **colonnes gelées** : bloc figé à gauche et/ou à droite, le
-    /// milieu dans un défilement horizontal (en-tête compris), avec une **ombre de séparation**
-    /// à chaque bord de gel. `None` si les conditions ne sont pas réunies (pas de largeur
-    /// totale, colonnes non toutes fixes, comptes hors bornes, ou combinaison non prise en
-    /// charge : virtualisation / cases / lignes-widgets) → repli sur la disposition normale.
+    /// Builds the **frozen columns** layout: a pinned block on the left and/or the right, the
+    /// middle inside a horizontal scroll (header included), with a **separation shadow** at
+    /// each freeze edge. `None` when the conditions are not met (no total width, columns not
+    /// all fixed, counts out of range, or an unsupported combination: virtualisation /
+    /// checkboxes / widget rows) → it falls back to the ordinary layout.
     fn build_frozen(&self) -> Option<Box<dyn Widget<Msg>>> {
         let (left, right) = self.frozen;
         if (left == 0 && right == 0) || self.virtual_data.is_some() || self.on_check.is_some() {
@@ -1010,7 +1006,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
         if !(0..self.columns).all(|c| self.widths.get(c).copied().unwrap_or(0.0) > 0.0) {
             return None;
         }
-        // Colonnes gelées : texte uniquement (contenu hors écran non retenu).
+        // Frozen columns: text only (off-screen content is not retained).
         if self.rows.iter().any(|r| !matches!(r, RowKind::Text(_))) {
             return None;
         }
@@ -1037,7 +1033,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             0.0
         };
 
-        // Écarts entre blocs présents (le milieu défilant est toujours là).
+        // Gaps between the blocks that are present (the scrolling middle is always there).
         let gaps = (left > 0) as usize + (right > 0) as usize;
         let viewport_w = (total_width - left_w - right_w - gaps as f32 * ROW_GAP).max(0.0);
 
@@ -1056,7 +1052,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             row = row.child(self.frozen_block(mid_end..self.columns, right_w, header_present));
         }
 
-        // Ombre de séparation au bord intérieur de chaque bloc gelé (par-dessus le défilant).
+        // A separation shadow at each pinned block's inner edge (over the scrolling part).
         let shadow = FrozenShadow {
             width: total_width,
             height: total_h,
@@ -1073,7 +1069,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     }
 
     fn rebuild(&mut self) {
-        // Colonnes gelées : disposition dédiée (bloc figé + défilement horizontal du reste).
+        // Frozen columns: a dedicated layout (a pinned block + horizontal scrolling for the rest).
         if let Some(root) = self.build_frozen() {
             self.root = root;
             return;
@@ -1082,7 +1078,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
         let checks = self.on_check.is_some();
         let mut col = Flex::column().gap(ROW_GAP);
 
-        // Rangée d'en-tête (si étiquettes texte, en-têtes widget, ou cases à cocher).
+        // The header row (when there are text labels, widget headers, or checkboxes).
         let widget_headers = !self.header_widgets.is_empty();
         if !self.headers.is_empty() || widget_headers || checks {
             let mut hrow = self.new_row();
@@ -1096,8 +1092,8 @@ impl<Msg: Clone + 'static> Table<Msg> {
                 });
             }
             if widget_headers {
-                // En-têtes entièrement widget : chaque cellule héberge le widget fourni
-                // (fond d'en-tête, contenu centré). Tri/réordonnancement câblés par l'app.
+                // Fully widget headers: each cell hosts the widget supplied (header
+                // background, centred content). Sorting/reordering are wired by the app.
                 for (c, make) in self.header_widgets.iter().enumerate() {
                     hrow = hrow.child(WidgetCell {
                         width: self.col_width(c),
@@ -1139,10 +1135,9 @@ impl<Msg: Clone + 'static> Table<Msg> {
             col = col.child(hrow);
         }
 
-        // Mode virtualisé : l'en-tête épinglé au-dessus d'une **liste virtualisée** de
-        // rangées de données (seules les visibles sont construites). Les paramètres
-        // nécessaires à chaque rangée sont **capturés** (clones) dans la fabrique de la
-        // liste, qui reste `'static` — donc pas d'accès à `self` dans la closure.
+        // Virtualised mode: the pinned header above a **virtualised list** of data rows (only
+        // the visible ones are built). Every parameter a row needs is **captured** (cloned)
+        // into the list's factory, which stays `'static` — so the closure cannot reach `self`.
         if let Some((count, viewport_height, build)) = self.virtual_data.clone() {
             let columns = self.columns;
             let widths = self.widths.clone();
@@ -1157,7 +1152,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                 if let Some(w) = total_width {
                     row = row.width(w);
                 }
-                // Colonne de sélection multiple (comme l'en-tête « tout cocher » épinglé).
+                // The multi-selection column (like the pinned "check all" header).
                 if let Some(check) = &on_check {
                     row = row.child(CheckCell {
                         checked: is_selected,
@@ -1209,7 +1204,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             return;
         }
 
-        // Rangées de données.
+        // The data rows.
         for (r, row) in self.rows.iter().enumerate() {
             let selected = self.selected.contains(&r);
             let mut drow = self.new_row();
@@ -1256,10 +1251,10 @@ impl<Msg: Clone + 'static> Table<Msg> {
             col = col.child(drow);
         }
 
-        // Hauteur totale de la grille (rangées + écarts) : pour caler le calque de
-        // poignées, qui court sur toute la hauteur. Basée sur `ROW_H` (le plancher
-        // adaptatif) : exacte pour un tableau texte — le cas du redimensionnement, où
-        // les colonnes sont toutes fixes ; une rangée-widget plus haute la sous-estime.
+        // Total height of the grid (rows + gaps): to size the handle layer, which runs the
+        // whole height. Based on `ROW_H` (the adaptive floor): exact for a text table — which
+        // is the resizing case, where every column is fixed; a taller widget row makes it an
+        // under-estimate.
         let header_present = !self.headers.is_empty() || widget_headers || checks;
         let n = header_present as usize + self.rows.len();
         let total_h = if n > 0 {
@@ -1303,9 +1298,8 @@ impl<Msg: Clone> Widget<Msg> for Table<Msg> {
     }
 
     fn stack(&self) -> bool {
-        // Quand le tableau est redimensionnable, la racine est une pile (grille +
-        // calque de poignées) : on relaie le drapeau pour que les couches se
-        // superposent au lieu de s'aligner.
+        // When the table is resizable the root is a stack (the grid + the handle layer): the
+        // flag is relayed so the layers superimpose instead of lining up.
         Widget::<Msg>::stack(&self.root)
     }
 }
@@ -1322,9 +1316,9 @@ mod tests {
             .header(&["Nom", "Note"])
             .row(&["Ada", "5"])
             .row(&["Bob", "3"]);
-        // 1 en-tête + 2 rangées de données.
+        // 1 header + 2 data rows.
         assert_eq!(Widget::<()>::children(&table).len(), 3);
-        // Chaque rangée a 2 cellules.
+        // Each row has 2 cells.
         assert_eq!(Widget::<()>::children(&table)[0].children().len(), 2);
 
         let ui = build_ui(
@@ -1382,7 +1376,7 @@ mod tests {
             .selected(&[0])
             .row(&["Ada", "5"])
             .row(&["Bob", "3"]);
-        // Chaque rangée a 3 cellules : case + 2 colonnes.
+        // Each row has 3 cells: the checkbox + 2 columns.
         assert_eq!(Widget::<Msg>::children(&table)[0].children().len(), 3);
 
         let ui = build_ui(
@@ -1392,15 +1386,15 @@ mod tests {
             &Theme::default(),
         );
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
-        // Case « tout cocher » dans l'en-tête (colonne de gauche).
+        // The "check all" box in the header (the left column).
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 0.5), Some(Msg::CheckAll));
-        // Case de la 2e ligne de données (r=1).
+        // The box on the 2nd data row (r=1).
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 2.5), Some(Msg::Check(1)));
     }
 
     #[test]
     fn select_all_is_indeterminate_on_partial_selection() {
-        // Case « tout cocher » de l'en-tête = 1re cellule de la 1re rangée.
+        // The header's "check all" box = the 1st cell of the 1st row.
         let header_check = |sel: &[usize]| {
             let table = Table::<Msg>::new(2)
                 .header(&["A", "B"])
@@ -1409,14 +1403,14 @@ mod tests {
                 .row(&["x", "1"])
                 .row(&["y", "2"]);
             let row0 = &Widget::<Msg>::children(&table)[0];
-            // Peindre la cellule pour lire son état via les primitives serait lourd ; on
-            // teste plutôt les helpers directement.
+            // Painting the cell to read its state from the primitives would be heavy; the
+            // helpers are tested directly instead.
             let _ = row0;
             (table.all_selected(), table.some_selected())
         };
-        assert_eq!(header_check(&[]), (false, false), "rien coché");
-        assert_eq!(header_check(&[0]), (false, true), "partiel → indéterminé");
-        assert_eq!(header_check(&[0, 1]), (true, false), "tout coché");
+        assert_eq!(header_check(&[]), (false, false), "nothing checked");
+        assert_eq!(header_check(&[0]), (false, true), "partial → indeterminate");
+        assert_eq!(header_check(&[0, 1]), (true, false), "all checked");
     }
 
     #[test]
@@ -1433,8 +1427,8 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Deux en-têtes triables sont focusables ; les cellules de données ne le sont pas.
-        // On compte les focusables en parcourant le cycle Tab.
+        // Two sortable headers are focusable; the data cells are not. The focusables are
+        // counted by walking the Tab cycle.
         let first = ui.focus_next(None, true);
         let mut count = 0;
         let mut cur = first;
@@ -1446,10 +1440,7 @@ mod tests {
             }
             cur = next;
         }
-        assert_eq!(
-            count, 2,
-            "seuls les 2 en-têtes prennent le focus (got {count})"
-        );
+        assert_eq!(count, 2, "only the 2 headers take focus (got {count})");
     }
 
     #[test]
@@ -1459,20 +1450,20 @@ mod tests {
             .header(&["A", "B"])
             .on_resize(Msg::Resize)
             .row(&["x", "y"]);
-        // Racine = pile ; le calque 1 est la rangée de poignées.
+        // Root = a stack; layer 1 is the row of handles.
         assert_eq!(Widget::<Msg>::children(&table).len(), 2);
         let overlay = &Widget::<Msg>::children(&table)[1];
-        // Une seule poignée (bord entre les 2 colonnes) parmi les cales.
+        // A single handle (the edge between the 2 columns) among the spacers.
         let handle = overlay
             .children()
             .iter()
             .find(|c| c.draggable())
-            .expect("une poignée de redimensionnement");
-        // Le glissement émet un delta accumulable ; un delta nul ne fait rien.
+            .expect("a resize handle");
+        // Dragging emits an accumulable delta; a zero delta does nothing.
         assert_eq!(handle.on_drag_delta(12.0), Some(Msg::Resize(0, 12.0)));
         assert_eq!(handle.on_drag_delta(0.0), None);
 
-        // La poignée est atteignable comme draggable au bord de la 1re colonne (x≈100).
+        // The handle is reachable as a draggable at the 1st column's edge (x≈100).
         let ui = build_ui(
             &table,
             Size::new(220.0, 120.0),
@@ -1481,24 +1472,24 @@ mod tests {
         );
         assert!(
             ui.draggable_at(Point::new(100.0, 20.0)).is_some(),
-            "poignée saisissable au bord"
+            "the handle can be grabbed at the edge"
         );
-        // Hors des colonnes fixes, pas d'overlay : une largeur flexible le désactive.
+        // Outside fixed columns there is no overlay: one flexible width turns it off.
         let flex = Table::<Msg>::new(2)
             .header(&["A", "B"])
             .on_resize(Msg::Resize)
             .row(&["x", "y"]);
-        // Grille nue (en-tête + 1 rangée), aucun calque de poignées superposé.
+        // A bare grid (header + 1 row), with no handle layer over it.
         assert_eq!(
             Widget::<Msg>::children(&flex).len(),
             2,
-            "colonnes flexibles : pas de calque de poignées"
+            "flexible columns: no handle layer"
         );
         assert!(
             Widget::<Msg>::children(&flex)
                 .iter()
                 .all(|r| r.children().iter().all(|c| !c.draggable())),
-            "aucune poignée sans largeurs fixes",
+            "no handle without fixed widths",
         );
     }
 
@@ -1512,13 +1503,13 @@ mod tests {
             .row(&["x", "y", "z"]);
         let hrow = &Widget::<Msg>::children(&table)[0];
         let cells = hrow.children();
-        // Chaque en-tête connaît sa colonne (source/cible) et produit Reorder(from, to).
+        // Each header knows its column (source/target) and produces Reorder(from, to).
         assert_eq!(cells[0].reorder_index(), Some(0));
         assert_eq!(cells[2].reorder_index(), Some(2));
         assert_eq!(cells[0].on_reorder(2), Some(Msg::Reorder(0, 2)));
-        // Le clic trie toujours (tap = tri, glissé = réordonner).
+        // A click still sorts (tap = sort, drag = reorder).
         assert_eq!(cells[1].on_click(), Some(Msg::Sort(1)));
-        // Les cellules de données ne sont pas réordonnables.
+        // Data cells are not reorderable.
         let drow = &Widget::<Msg>::children(&table)[1];
         assert_eq!(drow.children()[0].reorder_index(), None);
     }
@@ -1541,7 +1532,7 @@ mod tests {
             shift: false,
             word: true,
         };
-        // Colonne du milieu (1) : Ctrl+Gauche → 0, Ctrl+Droite → 2.
+        // The middle column (1): Ctrl+Left → 0, Ctrl+Right → 2.
         assert_eq!(
             cells[1].on_key(&ctrl_left),
             KeyResponse::Handled(Some(Msg::Reorder(1, 0)))
@@ -1550,10 +1541,10 @@ mod tests {
             cells[1].on_key(&ctrl_right),
             KeyResponse::Handled(Some(Msg::Reorder(1, 2)))
         );
-        // Aux bords : ignoré (le focus navigue). Col 0 à gauche, col 2 à droite.
+        // At the edges: ignored (the focus navigates). Col 0 leftwards, col 2 rightwards.
         assert_eq!(cells[0].on_key(&ctrl_left), KeyResponse::Ignored);
         assert_eq!(cells[2].on_key(&ctrl_right), KeyResponse::Ignored);
-        // Flèche nue (sans Ctrl) : ignorée → navigation de focus.
+        // A bare arrow (no Ctrl): ignored → focus navigation.
         assert_eq!(
             cells[1].on_key(&Key::Left {
                 shift: false,
@@ -1573,10 +1564,10 @@ mod tests {
             .row(&["x", "y", "z"]);
         let sem = Widget::<Msg>::children(&table)[0].children()[1]
             .semantics()
-            .expect("en-tête annoncé");
+            .expect("an announced header");
         assert_eq!(sem.label.as_deref(), Some("B"));
         assert_eq!(sem.value.as_deref(), Some("column 2 of 3"));
-        // Les cellules de données ne portent pas de sémantique d'en-tête.
+        // Data cells carry no header semantics.
         assert!(Widget::<Msg>::children(&table)[1].children()[0]
             .semantics()
             .is_none());
@@ -1593,7 +1584,7 @@ mod tests {
                 Box::new(|| Box::new(Text::new("Ada"))),
                 Box::new(|| Box::new(Text::new("admin"))),
             ]);
-        // En-tête + 1 rangée de 2 cellules-widgets, chacune contenant son widget.
+        // A header + 1 row of 2 widget cells, each holding its own widget.
         let rows = Widget::<Msg>::children(&table);
         assert_eq!(rows.len(), 2);
         let drow = &rows[1];
@@ -1601,10 +1592,10 @@ mod tests {
         assert_eq!(
             drow.children()[0].children().len(),
             1,
-            "la cellule contient un widget"
+            "the cell holds a widget"
         );
 
-        // Le contenu (« admin ») est bien rendu, et la ligne reste sélectionnable.
+        // The content ("admin") is indeed rendered, and the row stays selectable.
         let ui = build_ui(
             &table,
             Size::new(240.0, 120.0),
@@ -1616,20 +1607,16 @@ mod tests {
             .primitives()
             .iter()
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "admin"));
-        assert!(has_admin, "le widget de cellule est peint");
+        assert!(has_admin, "the cell widget is painted");
         let click = ui
             .hit(Point::new(30.0, ROW_H * 1.5))
             .and_then(|id| ui.msg_for(id));
-        assert_eq!(
-            click,
-            Some(Msg::Select(0)),
-            "la ligne-widget est sélectionnable"
-        );
+        assert_eq!(click, Some(Msg::Select(0)), "the widget row is selectable");
     }
 
     #[test]
     fn header_icon_shifts_label_and_paints() {
-        // Une icône de tête recule le libellé de l'en-tête (icône + texte).
+        // A leading icon pushes the header's label back (icon + text).
         let name_x = |icons: bool| {
             let mut t = Table::<Msg>::new(2).width(240.0).header(&["Name", "Score"]);
             if icons {
@@ -1653,14 +1640,14 @@ mod tests {
         let (plain, iconed) = (name_x(false), name_x(true));
         assert!(
             iconed >= plain + ICON,
-            "libellé décalé derrière l'icône : {iconed} vs {plain}"
+            "the label is shifted behind the icon: {iconed} vs {plain}"
         );
-        // La colonne sans icône (« Score ») n'est pas décalée.
+        // The column without an icon ("Score") is not shifted.
     }
 
     #[test]
     fn sort_and_selection_are_announced() {
-        // En-tête triable : le tri résultant énonce le sens basculé.
+        // A sortable header: the resulting sort announces the flipped direction.
         let unsorted = Table::<Msg>::new(2)
             .header(&["Name", "Score"])
             .on_sort(Msg::Sort);
@@ -1670,24 +1657,24 @@ mod tests {
             head(&unsorted, 0).as_deref(),
             Some("Sorted by Name ascending")
         );
-        // Déjà croissant → un clic passe en décroissant.
+        // Already ascending → a click switches to descending.
         let asc = Table::<Msg>::new(2)
             .header(&["Name", "Score"])
             .on_sort(Msg::Sort)
             .sorted(0, true);
         assert_eq!(head(&asc, 0).as_deref(), Some("Sorted by Name descending"));
 
-        // Cases à cocher : l'état résultant de la bascule.
+        // Checkboxes: the resulting state of the toggle.
         let table = Table::<Msg>::new(2)
             .header(&["Name", "Score"])
             .checkboxes(Msg::Check, Msg::CheckAll)
             .selected(&[0])
             .row(&["Ada", "5"])
             .row(&["Bob", "3"]);
-        // Case « tout cocher » (en-tête, partiel) → cocher toutes.
+        // The "check all" box (header, partial) → check them all.
         let all = Widget::<Msg>::children(&table)[0].children()[0].announce();
         assert_eq!(all.as_deref(), Some("All rows selected"));
-        // Ligne 0 (cochée) → décocher ; ligne 1 (décochée) → cocher.
+        // Row 0 (checked) → uncheck; row 1 (unchecked) → check.
         let row0 = Widget::<Msg>::children(&table)[1].children()[0].announce();
         let row1 = Widget::<Msg>::children(&table)[2].children()[0].announce();
         assert_eq!(row0.as_deref(), Some("Row deselected"));
@@ -1697,7 +1684,7 @@ mod tests {
     #[test]
     fn header_action_widget_captures_its_click() {
         use frus_core::Color;
-        // Un bouton d'action posé dans l'en-tête, cliquable indépendamment du tri.
+        // An action button placed in the header, clickable independently of the sorting.
         struct Btn;
         impl Widget<Msg> for Btn {
             fn style(&self) -> Style {
@@ -1722,13 +1709,13 @@ mod tests {
             .header(&["Name", "Score"])
             .on_sort(Msg::Sort)
             .header_action(1, || Box::new(Btn));
-        // La cellule d'en-tête de la colonne 1 porte le widget d'action.
+        // Column 1's header cell carries the action widget.
         assert_eq!(
             Widget::<Msg>::children(&table)[0].children()[1]
                 .children()
                 .len(),
             1,
-            "l'en-tête colonne 1 porte l'action",
+            "column 1's header carries the action",
         );
         let ui = build_ui(
             &table,
@@ -1740,18 +1727,22 @@ mod tests {
             ui.hit(Point::new(x, ROW_H * 0.5))
                 .and_then(|id| ui.msg_for(id))
         };
-        // Clic à droite (sur le bouton, centré ~218) → action ; ailleurs → tri.
-        assert_eq!(click(218.0), Some(Msg::Filter), "le bouton capte son clic");
+        // A click on the right (on the button, centred ~218) → the action; elsewhere → sorting.
+        assert_eq!(
+            click(218.0),
+            Some(Msg::Filter),
+            "the button captures its click"
+        );
         assert_eq!(
             click(130.0),
             Some(Msg::Sort(1)),
-            "le reste de l'en-tête trie"
+            "the rest of the header sorts"
         );
     }
 
     #[test]
     fn row_click_selection_is_announced() {
-        // Cliquer une ligne (texte ou widget) énonce l'état résultant, avec le numéro.
+        // Clicking a row (text or widget) announces the resulting state, with its number.
         let table = Table::<Msg>::new(2)
             .header(&["Name", "Tag"])
             .on_select_row(Msg::Select)
@@ -1762,17 +1753,17 @@ mod tests {
                 Box::new(|| Box::new(crate::Text::new("editor"))),
             ]);
         let rows = Widget::<Msg>::children(&table);
-        // Ligne texte 0 (non sélectionnée) → « selected » ; cellule quelconque de la ligne.
+        // Text row 0 (not selected) → "selected"; any cell of the row will do.
         assert_eq!(
             rows[1].children()[0].announce().as_deref(),
             Some("Row 1 selected")
         );
-        // Ligne widget 1 (sélectionnée) → « deselected ».
+        // Widget row 1 (selected) → "deselected".
         assert_eq!(
             rows[2].children()[0].announce().as_deref(),
             Some("Row 2 deselected")
         );
-        // Sans sélection possible, aucune annonce.
+        // With no selection possible, there is no announcement.
         let plain = Table::<Msg>::new(1).header(&["N"]).row(&["x"]);
         assert_eq!(
             Widget::<Msg>::children(&plain)[1].children()[0].announce(),
@@ -1783,7 +1774,7 @@ mod tests {
     #[test]
     fn widget_row_grows_to_tall_content() {
         use frus_core::Color;
-        // Un widget plus haut que ROW_H : la rangée s'adapte au lieu de le rogner.
+        // A widget taller than ROW_H: the row adapts instead of clipping it.
         struct Tall(f32);
         impl Widget<Msg> for Tall {
             fn style(&self) -> Style {
@@ -1817,8 +1808,8 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // La barre rouge (le widget haut) est peinte à sa pleine hauteur : la cellule,
-        // et donc la rangée, l'ont suivie (pas de rognage à ROW_H).
+        // The red bar (the tall widget) is painted at its full height: the cell, and so the
+        // row, followed it (no clipping to ROW_H).
         let bar_h = ui.scene().primitives().iter().find_map(|p| match p {
             Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => {
                 Some(rect.height)
@@ -1827,20 +1818,20 @@ mod tests {
         });
         assert!(
             bar_h.unwrap_or(0.0) >= tall - 1.0,
-            "la rangée suit le contenu haut: {bar_h:?}"
+            "the row follows the tall content: {bar_h:?}"
         );
         assert!(
             tall - 1.0 > ROW_H,
-            "le contenu dépasse bien la hauteur nominale"
+            "the content does exceed the nominal height"
         );
     }
 
     #[test]
     fn header_action_menu_opens_as_column_menu() {
         use crate::{Button, Menu};
-        // Un Menu déposé en widget d'action d'en-tête = un menu de colonne : son overlay
-        // flottant est collecté **même imbriqué** dans l'en-tête, et se ferme (Échap / clic
-        // extérieur). Les items sont focusables → navigables au clavier.
+        // A Menu dropped in as a header action widget = a column menu: its floating overlay is
+        // collected **even when nested** in the header, and it closes (Escape / an outside
+        // click). The items are focusable → navigable with the keyboard.
         let table = Table::<Msg>::new(2)
             .width(240.0)
             .header(&["Name", "Score"])
@@ -1862,13 +1853,13 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // L'overlay du menu (imbriqué) est bien collecté → fermable.
+        // The menu's (nested) overlay is indeed collected → dismissible.
         assert_eq!(
             ui.top_dismiss(),
             Some(Msg::CheckAll),
-            "l'overlay du menu de colonne est collecté"
+            "the column menu's overlay is collected"
         );
-        // Le menu flotte et se peint (ses items sont rendus par-dessus la grille).
+        // The menu floats and paints (its items are rendered over the grid).
         let painted = |t: &str| {
             ui.scene()
                 .primitives()
@@ -1877,7 +1868,7 @@ mod tests {
         };
         assert!(
             painted("Sort ascending"),
-            "le menu de colonne flotte et se peint"
+            "the column menu floats and paints"
         );
     }
 
@@ -1891,13 +1882,13 @@ mod tests {
                 Box::new(|| Box::new(Button::new("Sort").on_press(Msg::Sort(1)))),
             ])
             .row(&["Ada", "5"]);
-        // En-tête = 1re rangée : 2 cellules-widgets, chacune hébergeant son widget.
+        // Header = the 1st row: 2 widget cells, each hosting its own widget.
         let rows = Widget::<Msg>::children(&table);
         assert_eq!(rows[0].children().len(), 2);
         assert_eq!(
             rows[0].children()[0].children().len(),
             1,
-            "l'en-tête widget contient son widget"
+            "the widget header holds its widget"
         );
 
         let ui = build_ui(
@@ -1906,7 +1897,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Le libellé « Name » (widget d'en-tête) est peint.
+        // The "Name" label (a header widget) is painted.
         let painted = |t: &str| {
             ui.scene()
                 .primitives()
@@ -1915,16 +1906,16 @@ mod tests {
         };
         assert!(
             painted("Name") && painted("Sort"),
-            "les widgets d'en-tête sont peints"
+            "the header widgets are painted"
         );
-        // Le bouton d'en-tête maison émet **son** message (pas de tri automatique).
+        // The bespoke header button emits **its** message (no automatic sorting).
         let click = ui
             .hit(Point::new(180.0, ROW_H * 0.5))
             .and_then(|id| ui.msg_for(id));
         assert_eq!(
             click,
             Some(Msg::Sort(1)),
-            "l'app câble le tri dans son widget d'en-tête"
+            "the app wires the sorting into its own header widget"
         );
     }
 
@@ -1948,41 +1939,41 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Viewport 200 / ROW_H ≈ 6 lignes visibles (+ marge) — jamais 5000.
+        // Viewport 200 / ROW_H ≈ 6 visible rows (+ a margin) — never 5000.
         assert!(
             built.get() < 20,
-            "seules les lignes visibles sont construites : {}",
+            "only the visible rows are built: {}",
             built.get()
         );
         assert!(
             built.get() >= 5,
-            "au moins la fenêtre visible : {}",
+            "at least the visible window: {}",
             built.get()
         );
-        // En-tête **épinglé** + première ligne visible peints.
+        // The **pinned** header + the first visible row are painted.
         let has = |t: &str| {
             ui.scene()
                 .primitives()
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        assert!(has("Name"), "en-tête épinglé au-dessus de la liste");
-        assert!(has("R0"), "première ligne virtualisée construite");
-        // Le défilement couvre tout le contenu (5000 × ROW_H − viewport).
+        assert!(has("Name"), "the header is pinned above the list");
+        assert!(has("R0"), "the first virtualised row is built");
+        // The scroll spans the whole content (5000 × ROW_H − the viewport).
         let maxes = ui.scrollable_maxes();
-        assert_eq!(maxes.len(), 1, "un viewport défilable");
+        assert_eq!(maxes.len(), 1, "one scrollable viewport");
         assert_eq!(
             maxes[0].2,
             5000.0 * ROW_H - 200.0,
-            "borne de défilement = contenu total"
+            "the scroll bound = the total content"
         );
-        // Une ligne visible reste cliquable (sélection).
+        // A visible row stays clickable (selection).
         let click = ui
             .hit(Point::new(20.0, ROW_H + 15.0))
             .and_then(|id| ui.msg_for(id));
         assert!(
             matches!(click, Some(Msg::Select(_))),
-            "ligne virtualisée cliquable : {click:?}"
+            "a virtualised row is clickable: {click:?}"
         );
     }
 
@@ -1997,35 +1988,35 @@ mod tests {
             .frozen_columns(1)
             .row(&["Ada", "1", "2"])
             .row(&["Bob", "3", "4"]);
-        // Racine = pile [rangée de blocs, ombre] ; la rangée porte bloc figé + défilant.
+        // Root = a stack [row of blocks, shadow]; the row carries the pinned block + the scrolling one.
         let ui = build_ui(
             &table,
             Size::new(240.0, 160.0),
             &Runtime::default(),
             &Theme::default(),
         );
-        // Défilement **horizontal** : contenu (120+120) plus large que le viewport restant.
+        // **Horizontal** scrolling: the content (120+120) is wider than the remaining viewport.
         let maxes = ui.scrollable_maxes();
-        assert_eq!(maxes.len(), 1, "une zone défilable");
+        assert_eq!(maxes.len(), 1, "one scrollable area");
         assert!(maxes[0].1 > 0.0, "max horizontal > 0 : {:?}", maxes[0]);
-        // Cellule **gelée** cliquable (sélection) ; en-tête **défilant** triable — l'ombre au
-        // bord du gel ne bloque pas les clics.
+        // A **frozen** cell is clickable (selection); a **scrolling** header sorts — the
+        // shadow at the freeze edge does not block clicks.
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         assert_eq!(
             click(40.0, ROW_H * 1.5),
             Some(Msg::Select(0)),
-            "cellule gelée sélectionne"
+            "a frozen cell selects"
         );
         assert_eq!(
             click(90.0, ROW_H * 0.5),
             Some(Msg::Sort(1)),
-            "en-tête défilant trie"
+            "a scrolling header sorts"
         );
     }
 
     #[test]
     fn freezing_both_edges_pins_left_and_right_columns() {
-        // 4 colonnes : gel 1 à gauche, 1 à droite → la colonne 2 (milieu) défile.
+        // 4 columns: 1 frozen on the left, 1 on the right → column 2 (the middle) scrolls.
         let table = Table::<Msg>::new(4)
             .width(260.0)
             .column_widths(&[70.0, 120.0, 120.0, 70.0])
@@ -2041,23 +2032,23 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Le milieu (A + B = 240) déborde du viewport restant → défilement horizontal.
+        // The middle (A + B = 240) overflows the remaining viewport → horizontal scrolling.
         let maxes = ui.scrollable_maxes();
         assert_eq!(maxes.len(), 1);
-        assert!(maxes[0].1 > 0.0, "milieu défilant : {:?}", maxes[0]);
-        // En-tête figé à droite (« Act », colonne 3) triable, tout à droite du tableau.
+        assert!(maxes[0].1 > 0.0, "the middle scrolls: {:?}", maxes[0]);
+        // The header pinned on the right ("Act", column 3) sorts, at the far right of the table.
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
         let right = click(225.0, ROW_H * 0.5);
         assert_eq!(
             right,
             Some(Msg::Sort(3)),
-            "colonne gelée à droite : {right:?}"
+            "the column frozen on the right: {right:?}"
         );
-        // En-tête figé à gauche (« Name », colonne 0) triable.
+        // The header pinned on the left ("Name", column 0) sorts.
         assert_eq!(
             click(30.0, ROW_H * 0.5),
             Some(Msg::Sort(0)),
-            "colonne gelée à gauche"
+            "the column frozen on the left"
         );
     }
 
@@ -2076,13 +2067,13 @@ mod tests {
             &Theme::default(),
         );
         let click = |x: f32, y: f32| ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id));
-        // « Tout cocher » dans l'en-tête épinglé.
+        // "Check all" in the pinned header.
         assert_eq!(click(CHECK_W * 0.5, ROW_H * 0.5), Some(Msg::CheckAll));
-        // Case de la première ligne visible (colonne de gauche, sous l'en-tête).
+        // The box on the first visible row (the left column, below the header).
         let row_check = click(CHECK_W * 0.5, ROW_H + 15.0);
         assert!(
             matches!(row_check, Some(Msg::Check(_))),
-            "case de ligne virtualisée : {row_check:?}"
+            "a virtualised row's box: {row_check:?}"
         );
     }
 
@@ -2118,15 +2109,15 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        assert!(has("Item"), "en-tête épinglé");
-        assert!(has("W0"), "widget de la première ligne construit");
-        // La ligne-widget virtualisée reste sélectionnable (la cellule capte le clic).
+        assert!(has("Item"), "the header is pinned");
+        assert!(has("W0"), "the first row's widget is built");
+        // The virtualised widget row stays selectable (the cell captures the click).
         let click = ui
             .hit(Point::new(20.0, ROW_H + 15.0))
             .and_then(|id| ui.msg_for(id));
         assert!(
             matches!(click, Some(Msg::Select(_))),
-            "ligne-widget cliquable : {click:?}"
+            "the widget row is clickable: {click:?}"
         );
     }
 
@@ -2134,7 +2125,7 @@ mod tests {
     fn fixed_column_width_is_applied() {
         let table = Table::<()>::new(2)
             .width(300.0)
-            .column_widths(&[80.0]) // 1re colonne fixe à 80, 2e flexible
+            .column_widths(&[80.0]) // 1st column fixed at 80, 2nd flexible
             .header(&["A", "B"])
             .row(&["x", "y"]);
         let ui = build_ui(
@@ -2143,7 +2134,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // La 1re colonne d'en-tête ("A") occupe 80 px : "B" démarre au-delà de 80 + gap.
+        // The 1st header column ("A") takes 80 px: "B" starts beyond 80 + the gap.
         let text_x = |t: &str| {
             ui.scene().primitives().iter().find_map(|p| match p {
                 Primitive::Text { text, position, .. } if text == t => Some(position.x),
@@ -2151,6 +2142,6 @@ mod tests {
             })
         };
         let (ax, bx) = (text_x("A").unwrap(), text_x("B").unwrap());
-        assert!(bx >= ax + 80.0, "colonne fixe de 80 : bx={bx} ax={ax}");
+        assert!(bx >= ax + 80.0, "a fixed column of 80: bx={bx} ax={ax}");
     }
 }
