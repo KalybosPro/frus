@@ -308,7 +308,7 @@ mod tests {
         let expected = crate::spring_ease(0.5) * DRAWER_WIDTH;
         assert!(
             (edge - expected).abs() < 2.0,
-            "bord droit attendu ≈ {expected}, obtenu {edge}"
+            "right edge expected ≈ {expected}, got {edge}"
         );
     }
 

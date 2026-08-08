@@ -3,7 +3,7 @@
 //!
 //! Unlike the composites, `Grid` is a **plain container**: the layout is
 //! done by the layout engine (taffy's CSS Grid), so
-//! `cell()` n'est qu'un ajout d'enfant.
+//! `cell()` is nothing more than adding a child.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};

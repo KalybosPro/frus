@@ -111,7 +111,7 @@ mod tests {
                 assert_eq!(c.r, 1.0);
                 assert_eq!(c.g, 0.0);
             }
-            _ => panic!("attendu un chemin rempli"),
+            _ => panic!("expected a filled path"),
         }
     }
 

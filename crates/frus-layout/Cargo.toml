@@ -1,6 +1,6 @@
 [package]
 name = "frus-layout"
-description = "frus — moteur de mise en page (flexbox) au-dessus de taffy"
+description = "frus — layout engine (flexbox) on top of taffy"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

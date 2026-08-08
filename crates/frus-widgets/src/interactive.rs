@@ -367,7 +367,7 @@ mod tests {
                 _ => None,
             })
             .expect("un calque interactif");
-        assert!(has_xform, "le calque porte la matrice de transformation");
+        assert!(has_xform, "the layer carries the transform matrix");
         assert!(
             clip.width <= 200.5 && clip.height <= 200.5,
             "clipped to the viewport: {clip:?}"
@@ -405,7 +405,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .expect("le marqueur vert");
+            .expect("the green marker");
         assert!(
             (marker_y - 150.0).abs() < 0.5,
             "the sibling follows the viewport (150 tall), not overlapping: y = {marker_y}"

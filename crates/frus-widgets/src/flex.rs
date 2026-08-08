@@ -103,7 +103,7 @@ impl<Msg> Flex<Msg> {
         self
     }
 
-    /// Ajoute un enfant.
+    /// Adds a child.
     pub fn child(mut self, child: impl Widget<Msg> + 'static) -> Self {
         self.children.push(Box::new(child));
         self

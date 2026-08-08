@@ -19,8 +19,8 @@ use crate::widget::Widget;
 /// half the smaller dimension (beyond that the corners meet — a stadium).
 ///
 /// ```ignore
-/// ClipRRect::new(12.0).child(Image::asset("photo.png"))              // uniforme
-/// ClipRRect::rounded(BorderRadius::top(16.0)).child(header)          // haut arrondi
+/// ClipRRect::new(12.0).child(Image::asset("photo.png"))              // uniform
+/// ClipRRect::rounded(BorderRadius::top(16.0)).child(header)          // top rounded
 /// ```
 pub struct ClipRRect<Msg> {
     radius: BorderRadius,
@@ -322,7 +322,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .expect("le fond vert du 2e enfant");
+            .expect("the 2nd child's green background");
         assert!(
             (green_y - 20.0).abs() < 0.5,
             "sibling in its layout place: y = {green_y}"

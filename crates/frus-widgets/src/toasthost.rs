@@ -44,7 +44,7 @@ impl ToastPosition {
         }
     }
 
-    /// Alignement horizontal (axe transverse) : gauche / centre / droite.
+    /// Horizontal alignment (the cross axis): left / centre / right.
     fn align(self) -> Align {
         match self {
             ToastPosition::TopStart | ToastPosition::BottomStart => Align::Start,
@@ -155,8 +155,11 @@ mod tests {
     fn position_maps_to_justify_and_align() {
         let host = ToastHost::<()>::new(ToastPosition::BottomEnd).toast(Text::new("x"));
         let style = Widget::<()>::style(&host);
-        assert!(matches!(style.justify, Justify::End), "bas → justify End");
-        assert!(matches!(style.align, Align::End), "droite → align End");
+        assert!(
+            matches!(style.justify, Justify::End),
+            "bottom → justify End"
+        );
+        assert!(matches!(style.align, Align::End), "right → align End");
         assert_eq!(Widget::<()>::children(&host).len(), 1);
 
         let top_center = Widget::<()>::style(&ToastHost::<()>::new(ToastPosition::TopCenter));

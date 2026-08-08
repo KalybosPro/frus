@@ -23,7 +23,7 @@ pub struct RotatedBox<Msg> {
 }
 
 impl<Msg> RotatedBox<Msg> {
-    /// Tourne l'enfant de `quarter_turns` quarts de tour horaires.
+    /// Rotates the child by `quarter_turns` clockwise quarter turns.
     pub fn new(quarter_turns: i32) -> Self {
         Self {
             quarter_turns,

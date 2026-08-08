@@ -237,7 +237,7 @@ mod tests {
         let lines: Vec<&str> = dump.lines().collect();
         assert!(
             lines[0].starts_with("Container"),
-            "racine sans indentation : {dump}"
+            "the root is not indented: {dump}"
         );
         assert!(
             lines[1].starts_with("  Text"),
@@ -261,7 +261,7 @@ mod tests {
         let base = ui.scene().len();
         let mut scene = ui.scene().clone();
         paint_overlay(&nodes, None, Size::new(120.0, 60.0), &theme, &mut scene);
-        assert_eq!(scene.len(), base + nodes.len(), "un contour par widget");
+        assert_eq!(scene.len(), base + nodes.len(), "one outline per widget");
 
         let mut scene = ui.scene().clone();
         paint_overlay(

@@ -427,7 +427,7 @@ impl Runtime {
                     }
                 }
                 std::collections::hash_map::Entry::Vacant(e) => {
-                    // Montage : adopte la cible sans transition.
+                    // Mount: adopts the target with no transition.
                     e.insert(ValueAnim::settled(target));
                 }
             }
@@ -928,7 +928,7 @@ mod tests {
     #[test]
     fn value_snaps_on_mount_then_animates() {
         let mut rt = Runtime::default();
-        // Montage d'un interrupteur off : adopte la cible (0) sans animation.
+        // Mounting a switch that is off: adopts the target (0) with no animation.
         let off: crate::Switch<()> = crate::Switch::new(false);
         assert!(!rt.advance_values(&off, 1.0));
         assert_eq!(rt.value(WidgetId::ROOT), 0.0);
@@ -937,7 +937,7 @@ mod tests {
         let on: crate::Switch<()> = crate::Switch::new(true);
         assert!(rt.advance_values(&on, 0.03));
         let v = rt.value(WidgetId::ROOT);
-        assert!(v > 0.0 && v < 1.0, "valeur = {v}");
+        assert!(v > 0.0 && v < 1.0, "value = {v}");
         rt.advance_values(&on, 1.0);
         assert_eq!(rt.value(WidgetId::ROOT), 1.0);
 
@@ -1038,7 +1038,7 @@ mod tests {
         let blue = Color::rgb(0.0, 0.0, 1.0);
         let mut rt = Runtime::default();
 
-        // Montage au rouge : adopte la cible sans transition.
+        // Mounting on red: adopts the target with no transition.
         let start: crate::Container<()> =
             crate::Container::new().animated_color(red, 0.10, Curve::Linear);
         assert!(!rt.advance_colors(&start, 1.0));

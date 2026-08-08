@@ -1,0 +1,1434 @@
+=== crates\frus-core\src\decoration.rs (1)
+    263          // 2/3) Background (flat or gradient) plus border, in a single primitive.
+=== crates\frus-core\src\path.rs (4)
+      1  //! Vector paths: **arbitrary** 2D geometry (straight segments and Bézier curves),
+     19      /// A **quadratic** Bézier curve (one control point).
+     21      /// A **cubic** Bézier curve (two control points).
+    152      /// A circle, approximated by **four cubic arcs** (the Bézier constant `0.5523`,
+=== crates\frus-core\src\scene.rs (1)
+    483                  // encloses the Bézier controls and so is never smaller than the curve.
+=== crates\frus-core\src\animation\curve.rs (3)
+     15      /// A cubic Bézier defined by its two control points `(x1,y1)` and `(x2,y2)` —
+    111  /// Evaluates the `y` coordinate of a cubic Bézier `cubic-bezier(x1, y1, x2, y2)`
+    116      // A 1D cubic Bézier: anchors 0 and 1, controls p1 and p2.
+=== crates\frus-core\src\animation\tween.rs (1)
+    294          // The bounds are still reached, to the Bézier solver's tolerance.
+=== crates\frus-demo\src\lib.rs (580)
+      1  //! Application exemple : une **liste de tâches** écrite avec frus, en tant que
+      2  //! **consommateur externe** du framework (implémente [`frus_shell::Application`]).
+      4  //! Deux points d'entrée pour le même code :
+      6  //! - Android : la bibliothèque `cdylib` expose `android_main`, appelé par
+      7  //!   l'activité native.
+     16  /// Le localiseur de la démo : anglais + français, chargés une seule fois depuis
+     17  /// des ressources Fluent embarquées (`i18n/*.ftl`).
+     29  /// Les langues proposées par la démo (étiquette du menu, code de locale). La
+     30  /// dernière, l'arabe, est **droite-à-gauche** : la sélectionner retourne aussi
+     32  const LANGS: [(&str, &str); 3] = [("English", "en"), ("Français", "fr"), ("العربية", "ar")];
+     34  /// La langue d'index `lang` s'écrit-elle de droite à gauche ?
+     39  /// Traduit une clé sans argument dans la langue d'index `lang`.
+     45  /// Traduit une clé avec un argument numérique `n` (pluriels CLDR).
+     63  /// Logo de démo **décodé** depuis un PNG embarqué (jalon 91), partagé pour tout
+     64  /// le process via `OnceLock` — décodé une fois, mis en cache par identité côté
+     65  /// renderer. Repli sur un dégradé généré si le décodage échoue (robustesse).
+     77  /// Dégradé 64×64 généré — repli si le décodage du PNG échoue.
+     93  // Point d'entrée **unique** (façon Flutter) : une seule déclaration engendre les entrées
+     94  // bureau (`run()`, appelée par le binaire) et Android (`android_main`). Voir `frus_shell::main!`.
+     97  // --- Constantes de mouvement (partagées geste ↔ navigation) ---
+     99  /// Horizon de projection de la vélocité (s) pour décider retour / annulation.
+    101  /// Position projetée (fraction) au-delà de laquelle on valide le retour.
+    105  /// Amortissement (~critique) → arrivée douce sans dépassement.
+    108  /// Le ressort partagé par la navigation et le geste retour, exprimé dans la
+    114  /// Démarre une transition d'écran : le ressort pousse la progression `0 → 1`.
+    121  /// Libellés du menu déroulant (écran Réglages).
+    124  // --- Modèle ---
+    126  /// Une tâche de la liste.
+    133  /// Filtre d'affichage de la liste des tâches.
+    142  /// Les écrans de l'application.
+    148      /// Assistant d'inscription multi-étapes (démo d'intégration : Steps + Form + Snackbar).
+    150      /// Grille de données **éditable en ligne** (démo d'intégration : Table + TextInput par cellule).
+    152      /// Tableau de bord **graphique** (démo d'intégration : LineChart + légende cliquable, jalon 218).
+    154      /// Tableau de données **en lecture seule** (démo d'intégration : DataTable auto-triant + paginé,
+    155      /// jalon 237).
+    157      /// Tableau **Kanban** : colonnes de cartes, glisser-déposer inter-colonnes (jalon 247).
+    161  /// Geste retour : progression suivie au doigt, puis détente à ressort
+    162  /// (validation/annulation) pilotée par un [`AnimationController`].
+    166      /// `Some` une fois relâché : la détente à ressort en cours (`None` = suivi du
+    169      /// La détente, à son terme, valide-t-elle le retour (dépilement) ?
+    173  /// Messages émis par l'interface.
+    177      /// Efface le champ de saisie (icône suffixe « ✕ »).
+    187      /// Passe à la graine de thème suivante (default → Blue → Purple → Orange).
+    191      /// Passe à la langue suivante (English ↔ Français).
+    202      /// Démarre/arrête le chrono.
+    204      /// Change l'onglet actif des Réglages.
+    208      /// Déplie/replie « Options avancées ».
+    210      /// Note en étoiles choisie.
+    212      /// Nouvelle valeur du sélecteur numérique.
+    214      /// Déclenche la **sortie** (fondu) de la notification en tête, avant son retrait.
+    216      /// Retire la notification courante (fin de sortie / clic) et enchaîne sur la suivante.
+    218      /// Change la page (démo pagination).
+    220      /// Déplie/replie un nœud d'arbre.
+    222      /// Sélectionne un nœud de l'arbre de fichiers (jalon 246).
+    224      /// Déplace une carte du Kanban : `(from_col, from_pos, to_col, to_pos)` (jalon 247).
+    226      /// Ajoute une carte au bas d'une colonne du Kanban (jalon 249).
+    228      /// Supprime la carte `(col, pos)` du Kanban (jalon 249).
+    230      /// Choisit une couleur.
+    232      /// Sélectionne un jour dans le calendrier.
+    238      /// Règle la densité (zoom applicatif).
+    242      /// Saisie de l'autocomplétion.
+    246      /// Sauvegarde les tâches sur disque (effet).
+    248      /// Demande le chargement des tâches (effet).
+    250      /// Tâches chargées depuis le disque (résultat d'un effet).
+    254      /// Sélectionne une métrique dans la section Stats (ouvre le détail en étroit).
+    256      /// Ferme le détail Stats (retour à la liste en panneau unique).
+    258      /// Ouvre/ferme le tiroir de navigation latéral.
+    260      /// Ouvre/ferme la feuille modale d'actions rapides.
+    262      // --- Assistant d'inscription (démo d'intégration) ---
+    263      /// Saute à l'étape `i` de l'assistant (marqueur Steps cliqué).
+    265      /// Saute à l'étape `usize` **et focalise** le champ `u8` (puce du récapitulatif cliquée).
+    267      /// Saisie d'un champ de l'assistant : `(0=nom, 1=email, 2=mot de passe, 3=confirmation)`.
+    269      /// Étape précédente / suivante de l'assistant.
+    272      /// Révèle / masque les mots de passe de l'assistant.
+    274      // --- Grille éditable (démo d'intégration) ---
+    275      /// Nouvelle valeur de la cellule `(ligne, colonne)`.
+    277      /// Entrée pressée dans la cellule `(ligne, colonne)` : saute à la ligne suivante, même colonne.
+    279      /// Ajoute une ligne vide en fin de grille et y place le curseur.
+    281      /// Supprime la ligne `ligne`.
+    283      /// Trie la grille par la colonne `colonne` (bascule croissant / décroissant).
+    285      /// Soumet la grille : n'aboutit que si toutes les cellules sont valides.
+    287      /// Place le focus sur la première cellule invalide de la grille (le cas échéant).
+    289      /// Bascule la visibilité de la série `index` du graphique (clic de légende, jalon 218).
+    291      /// Change le type de graphique affiché (sélecteur, jalon 219).
+    293      /// Épingle le détail d'un point cliqué `(catégorie, série)` (jalon 221).
+    295      /// Active/désactive l'empilage **100 %** (proportions) du graphique (jalon 224).
+    297      /// Clic sur un en-tête du tableau de données : (dé)trie la colonne (jalon 237).
+    299      /// Change la page du tableau de données (jalon 237).
+    301      /// Change la taille de page du tableau de données (jalon 237).
+    303      /// Clic sur une ligne du tableau de données : (dé)sélectionne la ligne **source** (jalon 239).
+    305      /// Coche/décoche une ligne **source** du tableau de données (sélection multiple, jalon 241).
+    307      /// Case « tout cocher » du tableau de données : coche tout, ou vide si déjà tout coché (jalon 241).
+    309      /// Frappe dans le champ de recherche du tableau de données : met à jour le filtre (jalon 242).
+    311      /// Action groupée : désélectionne toutes les lignes cochées du tableau de données (jalon 243).
+    313      /// Action groupée : ouvre la confirmation de suppression des lignes cochées (jalon 245).
+    315      /// Ferme la confirmation de suppression sans rien supprimer (jalon 245).
+    317      /// Action groupée : supprime les lignes cochées du tableau de données (jalon 243).
+    319      /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
+    321      /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
+    325  /// Chemin du fichier de persistance des tâches.
+    330  /// Sérialise les tâches en lignes `done<TAB>texte`.
+    336          // Neutralise les séparateurs dans le texte.
+    343  /// Lit les tâches depuis le fichier (vide si absent/illisible).
+    357  /// L'application todo : état + logique. Consommateur du framework `frus-shell`.
+    360      /// Les tâches, dans l'ordre d'ajout.
+    362      /// Texte en cours de saisie.
+    366      /// Prochain identifiant de tâche.
+    368      /// Modale de confirmation d'effacement des terminées ouverte ?
+    370      /// Thème clair (sinon sombre).
+    372      /// Thème sortant pendant un fondu de bascule (`None` = pas de transition).
+    374      /// Avancement du fondu de thème (`0 → 1`).
+    376      /// Pile d'écrans (vide = accueil).
+    378      /// Écran sortant pendant une transition.
+    380      /// Progression de la transition d'écran (`0 → 1`), pilotée par ressort.
+    385      // --- Contrôles de l'écran Réglages ---
+    392      /// Le chrono tourne-t-il ? (pilote la souscription `every`).
+    394      /// L'app est-elle en **arrière-plan** ? (cycle de vie, jalon 259) — mis à `true` sur
+    395      /// `Paused`/`Detached` via [`Application::on_lifecycle`] ; le minuteur se suspend alors. Défaut
+    398      /// Secondes écoulées depuis le démarrage du chrono.
+    400      /// Onglet actif de l'écran Réglages.
+    402      /// Menu d'actions (en-tête) ouvert ?
+    404      /// Section « Options avancées » dépliée ?
+    406      /// Note en étoiles (Réglages).
+    408      /// Compteur du sélecteur numérique (Réglages).
+    410      /// File de notifications (Snackbar) : une à la fois, avec sortie animée (jalon 193).
+    412      /// Page courante du sélecteur de pagination (démo).
+    414      /// Nœuds d'arbre dépliés (démo Tree).
+    416      /// Nœud d'arbre sélectionné (démo Tree, jalon 246) ; `None` = aucun.
+    418      /// Couleur choisie (démo ColorPicker).
+    420      /// Calendrier : année / mois (1..12) / jour sélectionné.
+    424      /// Calendrier de la vitrine : désactiver les week-ends (`DatePicker::filtered`) ? — jalon 238.
+    426      /// Slide courant du carrousel (démo).
+    430      /// Saisie de l'autocomplétion (démo).
+    434      /// Métrique sélectionnée dans la section Stats (TwoPane maître-détail).
+    436      /// En panneau unique (étroit), le détail Stats est-il ouvert ?
+    438      /// Densité (zoom applicatif de toute l'UI) — `1.0` par défaut.
+    440      /// Palier de taille courant (mis à jour par `on_resize`).
+    442      /// Orientation courante (mise à jour par `on_resize`).
+    444      /// Tiroir de navigation latéral ouvert ?
+    446      /// Feuille modale d'actions rapides ouverte ?
+    448      /// Insets système (zone de sécurité) : barres d'état/navigation, encoches.
+    450      /// Graine du thème : `0` = schéma écrit main, sinon `from_seed` (HCT).
+    452      /// Mise en page droite-à-gauche (arabe/hébreu) ?
+    454      /// Langue courante (index dans `LANGS` : 0 = English, 1 = Français).
+    456      /// L'état vient d'un instantané live-reload : `init` ne recharge pas les
+    457      /// tâches depuis le disque (l'instantané fait foi).
+    459      // --- Assistant d'inscription (démo d'intégration) ---
+    460      /// Étape courante de l'assistant (0 = Account, 1 = Security, 2 = Review).
+    466      /// L'assistant a-t-il été soumis au moins une fois ? (n'affiche les erreurs qu'après.)
+    468      /// Les mots de passe de l'assistant sont-ils **révélés** (démasqués) ?
+    470      /// Données de la grille éditable (lignes × colonnes de texte).
+    472      /// Tri courant de la grille : `(colonne, croissant)` ; `None` = ordre de saisie.
+    474      /// Dernière cellule fautive visée par « Next error » (jalon 214) — pour cycler à la suivante.
+    476      /// Index des séries **masquées** du graphique (basculées via la légende, jalon 218).
+    478      /// Type de graphique affiché : 0 lignes, 1 aires empilées, 2 barres groupées, 3 barres empilées (jalon 219).
+    480      /// Détail **épinglé** d'un point cliqué (`série · catégorie = valeur`), le cas échéant (jalon 221).
+    482      /// Point/barre **sélectionné** `(catégorie, série)`, mis en évidence dans le graphique (jalon 223).
+    484      /// Empilage **100 %** (proportions) activé pour les graphiques empilés (jalon 224).
+    486      /// Tri du tableau de données `(colonne, croissant)` ; `None` = ordre source (jalon 237). Le tri
+    487      /// d'affichage est fait par le `DataTable`, **pas** recopié ici.
+    489      /// Page courante (1-indexée) du tableau de données ; `0` = page 1 (jalon 237).
+    491      /// Taille de page du tableau de données ; `0` = défaut (jalon 237).
+    493      /// Ligne **source** sélectionnée du tableau de données ; `None` = aucune (jalon 239). Le
+    494      /// `DataTable` traduit cet index d'origine en position surlignée à travers tri/pagination.
+    496      /// Lignes **source** cochées (sélection multiple) du tableau de données (jalon 241). Pilote les
+    497      /// cases + le surlignage ; l'app décide ce que « tout cocher » recouvre (ici les 12 lignes).
+    499      /// Requête de recherche du tableau de données (jalon 242) ; le `DataTable` filtre l'affichage.
+    501      /// Lignes du tableau de données (jalon 243) : `None` = jeu de départ `DATA_PEOPLE` ; `Some` dès
+    502      /// qu'une action groupée (Delete) les modifie. Voir [`TodoApp::data_rows`].
+    504      /// Modale de confirmation de suppression groupée du tableau de données ouverte ? (jalon 245)
+    506      /// Cartes du Kanban par colonne (jalon 247) ; `None` = jeu de départ `KANBAN_SEED`. `Some` dès
+    507      /// qu'une carte est déplacée. Voir [`TodoApp::kanban_cols`].
+    516      /// Lignes courantes du tableau de données : celles de l'état si elles ont été modifiées
+    517      /// (Delete groupé), sinon le jeu de départ `DATA_PEOPLE` (jalon 243).
+    528      /// Cartes du Kanban par colonne : celles de l'état si déplacées, sinon le jeu de départ
+    529      /// `KANBAN_SEED` (jalon 247).
+    541  /// Index d'un filtre (pour le contrôle segmenté).
+    550  /// Filtre depuis un index de segment.
+    559  /// Nombre de tâches non terminées.
+    564  /// Nombre de tâches terminées.
+    569  /// Graines de démonstration du thème dynamique (`from_seed`, HCT).
+    600  /// Libellé de l'action « graine » du menu (la **prochaine** graine du cycle).
+    608  /// Thème « cible » selon l'état (avant fondu) : schéma écrit main par défaut,
+    609  /// ou généré depuis une graine (Material 3 `from_seed`, HCT).
+    625      // Direction ambiante : RTL si l'utilisateur l'a demandé OU si la langue
+    626      // courante s'écrit de droite à gauche (arabe). Tout le layout se retourne.
+    634  /// Applique un message à l'état et renvoie l'effet éventuel à exécuter.
+    635  /// Effet minuté : déclenche la **sortie** de la notification en tête après ~2 s de présence.
+    643  /// Empile une notification (Snackbar) ; si elle devient la **tête** de file, programme sa sortie.
+    706              // Capture le thème courant (avant bascule) comme point de départ du fondu.
+    713              // Même fondu que la bascule clair/sombre, vers le schéma généré.
+    720              // La direction est discrète (pas de fondu) : bascule immédiate.
+    767              // Trace du tick : preuve que la souscription émet des messages.
+    798              // Capture un instantané sérialisable ; l'écriture se fait hors update.
+    801              // Affiche une notification (Snackbar) et écrit sur disque (effet).
+    812              // Passe la notification en **sortie** (l'hôte joue le fondu), puis la retire.
+    821              // Enchaîne sur la notification suivante en file, s'il y en a une.
+    833              // Saute à l'étape du champ fautif puis focalise ce champ (keyed + Command::focus).
+    865              // Entrée = descendre d'une ligne (même colonne) ; sur la dernière, on en crée une.
+    877              // Focalise la première cellule de la nouvelle ligne.
+    899              // Cycle vers la cellule fautive suivante (bouclage), et la focalise.
+    912              // Clic de légende : masque la série si visible, la ré-affiche sinon.
+    929              // Bascule croissant/décroissant (nouvelle colonne = croissant). Le `DataTable` trie
+    930              // lui-même l'affichage — on ne recopie **pas** de `sort_by` ici (jalon 237).
+    936              app.data_page = 1; // le tri ramène à la première page
+    945              app.data_page = 1; // changer la taille ramène à la première page
+    949              // Re-clic sur la ligne déjà sélectionnée = désélection (bascule).
+    958              // Bascule l'appartenance de la ligne source à l'ensemble coché.
+    968              // Tout coché → on vide ; sinon on coche toutes les lignes source courantes.
+    979              app.data_page = 1; // un nouveau filtre ramène à la première page
+    995              // Supprime réellement les lignes cochées (index source, en ordre décroissant pour ne pas
+    996              // décaler les suivants), puis remet à zéro sélection, focus et modale.
+   1020              // Re-clic sur l'élément déjà sélectionné : on **désépingle** (jalon 225). Sinon on épingle
+   1021              // « série · catégorie = valeur » et on retient la sélection `(cat, série)` (jalons 221/223).
+   1036              // Bascule croissant / décroissant sur la colonne cliquée, puis trie les lignes.
+   1058                  // Succès : réinitialise l'assistant et notifie (Snackbar, sortie animée).
+   1067                  // Erreurs : les révèle et montre le récapitulatif sur l'étape Review.
+   1084              // Re-clic sur le nœud déjà sélectionné = désélection (bascule).
+   1096                  // Après retrait, une cible plus loin dans la **même** colonne se décale d'un cran.
+   1175              // Choisir une section depuis le tiroir le referme.
+   1211          // Démarre le chrono et charge les tâches persistées au démarrage.
+   1217          // Données de démonstration de la grille éditable.
+   1236              // Live-reload : l'instantané fait foi, ne pas l'écraser du disque.
+   1242      /// Live-reload : l'essentiel de l'état survit à la recompilation — tâches,
+   1243      /// brouillon, filtre, thème (clair/sombre + graine), onglet et écran.
+   1268      /// Réhydrate un instantané [`Application::save_state`] — tolérant : toute
+   1269      /// ligne inconnue (autre version du code) est ignorée.
+   1317          // Un tick par seconde tant que le chrono tourne **et** que l'app est au premier plan : en
+   1318          // arrière-plan (`on_lifecycle` → `foreground = false`) le minuteur se **suspend**, façon
+   1319          // Flutter (le framework arrête la souscription par diff, puis la relance au retour).
+   1336          // Réagit au changement de palier : ferme le détail Stats en étroit.
+   1345          // Axe supplémentaire de responsivité (Lot C) : orientation portrait/paysage.
+   1354          // Zone sûre totale : barres système **et** clavier logiciel — le contenu
+   1355          // (champs de saisie compris) reste au-dessus du clavier.
+   1364          // Démonstration du contrat de cycle de vie (jalon 259) : on **suspend le chrono** en
+   1365          // arrière-plan et on le **reprend** au premier plan — comme une app Flutter couperait ses
+   1366          // minuteurs/capteurs. La trace part aussi dans logcat (vérification sur appareil).
+   1368          // Suspend en arrière-plan (Paused/Detached) ; garde le minuteur en `Inactive` (perte de
+   1369          // focus mais toujours visible) — comme Flutter suspend sur `paused`, pas sur `inactive`.
+   1374          // Zone de sécurité : on construit l'interface aux dimensions **internes**
+   1375          // (fenêtre moins insets système), puis on l'enrobe d'un fond plein-fenêtre
+   1376          // écarté par `padding` — le fond s'étend sous les barres, le contenu non.
+   1406          // Fondu de thème.
+   1417          // Transition d'écran : le contrôleur échantillonne le ressort partagé.
+   1426          // Détente du geste retour (même ressort, amorcé par l'élan du doigt).
+   1480              // Projection à la iOS : la position + l'élan décident.
+   1484              // Détente à ressort depuis la position courante, amorcée par l'élan
+   1485              // du doigt, vers la cible (validée `1` ou annulée `0`).
+   1496  /// Point d'entrée de la vue : un `Navigator` autour de l'écran courant.
+   1498      // Geste retour en cours : prévisualise le dépilement, piloté par le doigt.
+   1522  /// Construit l'écran correspondant à une route.
+   1542  /// Validation **pure** d'une cellule de la grille : `Name` (col 0) obligatoire, `Email` (col 2)
+   1543  /// doit ressembler à une adresse. `None` = valide. Démontre `TextInput::error` par cellule.
+   1554  /// Nombre total de cellules invalides dans la grille (jalon 204/207) — sert à jauger la soumission.
+   1565  /// Toutes les cellules invalides `(ligne, colonne)`, en ordre ligne par ligne.
+   1579  /// La **première** cellule invalide (jalon 210).
+   1584  /// La cellule fautive **suivant** `after` (ordre ligne par ligne, bouclage en fin) — pour cycler
+   1585  /// entre toutes les fautes (jalon 214). `after = None` renvoie la première.
+   1598  /// Écran **grille éditable** : une `Table` dont chaque cellule est un `TextInput` toujours éditable.
+   1599  /// Tab / Maj+Tab navigue de cellule en cellule (focusables du shell), Entrée descend d'une ligne
+   1600  /// (jalon 201). Les en-têtes trient (jalon 204, `on_sort`), les cellules invalides s'affichent en
+   1601  /// erreur, et Entrée sur la dernière ligne en crée une.
+   1609      // Indicateur de tri (flèche d'en-tête) sur la colonne triée.
+   1633          // Bouton de suppression de ligne (Container non focusable : Tab le saute).
+   1648      // Barre d'état de validation : verte si tout est valide, sinon le décompte d'erreurs.
+   1661      // `Save` est désactivé (non cliquable) tant qu'une cellule est invalide (jalon 210).
+   1664      // Raccourci qui cycle entre les cellules fautives, seulement s'il y a des erreurs.
+   1669      // Table éditable (colonnes fixes ~644 px) : région **défilable** bornée (X colonnes, Y lignes).
+   1687  /// Jeu de données statique (nom, rôle, score) du tableau de données — jalon 237.
+   1703  /// Rang sémantique d'un niveau de priorité (`Low < Medium < High`) — clé de tri **personnalisée**
+   1704  /// de la colonne « Level » du tableau de données (le tri texte la classerait alphabétiquement).
+   1714  /// Écran **tableau de données** : un `DataTable` en lecture seule qui **trie ses propres lignes**
+   1715  /// (jalon 232) et **pagine** avec sélecteur de taille (jalons 233/236). L'app ne garde que l'état
+   1716  /// `(tri, page, taille)` — le tri d'affichage n'est **pas** recopié dans le reducer (contraste
+   1717  /// volontaire avec la grille éditable voisine). — jalon 237.
+   1724      // `0` (défaut dérivé) = valeurs de départ raisonnables.
+   1733          // Colonne « Level » : clé de tri **personnalisée** (Low < Medium < High), sinon le tri
+   1734          // texte la classerait par ordre alphabétique (jalon 240).
+   1736          // Recherche : filtre les lignes source (toutes colonnes) avant tri/pagination (jalon 242).
+   1738          // État vide surchargé (jalon 244) : message quand le filtre/les données ne montrent rien.
+   1742          // Sélection multiple (jalon 241) : cases à cocher pour une sélection groupée, en plus du
+   1743          // clic de ligne (focus). Les lignes cochées pilotent le surlignage via `selected`.
+   1746          // Barre d'actions groupées (jalon 243) : visible quand des lignes sont cochées.
+   1771      // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données courantes.
+   1779      // Résumé de la sélection **groupée** (cases cochées).
+   1783      // La table (colonnes fixes ~610 px) dépasse la largeur du téléphone : région **défilable**
+   1784      // bornée (colonnes en X, lignes en Y) — pas un pan de page, un tableau scrollable façon Flutter.
+   1786      // `flex(1.0)` : le corps remplit la hauteur sous la barre, pour que la région de table s'étende
+   1787      // (sinon elle retombe à sa taille de base et laisse un grand vide dessous).
+   1800      // Confirmation avant suppression groupée (jalon 245) : une modale centrée, fermable au clic
+   1801      // extérieur/Échap (`dismiss`), superposée à l'écran.
+   1816  /// Titres des colonnes du Kanban (démo, jalon 247).
+   1818  /// Cartes de départ du Kanban, par colonne (démo, jalon 247).
+   1825  /// Une **carte riche** du Kanban (jalon 249) : le libellé à gauche, un bouton **×** de suppression à
+   1826  /// droite (`KanbanDelete(col, pos)`).
+   1841  /// Écran **Kanban** : des colonnes de **cartes riches** (libellé + × de suppression), avec ajout par
+   1842  /// colonne (jalon 249) et glisser-déposer inter-colonnes (jalon 247). L'app tient les cartes ; le widget
+   1843  /// émet `KanbanMove`/`KanbanAdd`/`KanbanDelete`, le reducer applique.
+   1846      // Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
+   1847      // colonnes remplissent la hauteur du board (posé dans un ancêtre à hauteur définie — ici l'écran
+   1848      // borné et le Scroll horizontal ci-dessous) et chaque colonne défile ses cartes en `flex(1)`.
+   1849      // Plus besoin de calculer une hauteur (l'ancien stopgap `card_area_height`, jalon 264).
+   1865      // Le hint **s'enroule** dans la largeur (sinon la ligne déborde à droite hors écran).
+   1870      // Le board (rangée de colonnes de largeur fixe) dépasse la largeur de l'écran : on le rend
+   1871      // défilable **horizontalement** (axe **intentionnel**, façon Flutter — la rangée de colonnes est
+   1872      // un scroller horizontal, pas un pan 2D). Le défilement **vertical** des cartes est propre à
+   1873      // chaque colonne (jalon 266, `scrollable_columns`). Glisser une carte réordonne ; glisser une
+   1874      // zone vide fait défiler.
+   1876      // Un simple `Container` à padding suffit pour la marge : depuis le jalon 269, `compute_scroll`
+   1877      // **remplit l'axe contraint**, si bien que ce `Container` prend la hauteur du viewport (il
+   1878      // s'effondrait avant, d'où l'ancien contournement `Flex` `flex(1)`) et le board suit.
+   1901  /// Catégories (axe des abscisses) du tableau de bord graphique.
+   1903  /// Séries du tableau de bord : `(nom, valeurs)`. Série 0 = accent du thème ; 1.. = `CHART_COLORS`.
+   1909  /// Couleurs des séries **additionnelles** (1.. ; la série 0 prend l'accent du thème).
+   1925  /// Construit le graphique du tableau de bord selon `app.chart_kind` (jalon 219) : lignes (0), aires
+   1926  /// empilées (1), barres groupées (2), barres empilées (3). Toutes les variantes partagent les
+   1927  /// mêmes données, l'axe, et l'état de visibilité `chart_hidden`. `legend` câble (ou non) la légende
+   1928  /// cliquable — utile pour un graphique **compagnon** qui ne réaffiche pas sa propre légende.
+   1945              // Le graphique principal : légende cliquable + points cliquables (jalon 221) + point
+   1946              // sélectionné mis en évidence (jalon 223).
+   1966              // Le graphique principal : légende cliquable + barres cliquables (jalon 222) + barre
+   1967              // sélectionnée mise en évidence (jalon 223).
+   1978  /// Écran **tableau de bord graphique** : un `SegmentedControl` choisit le type (lignes / aires
+   1979  /// empilées / barres groupées / barres empilées, jalon 219), et la légende **cliquable** masque ou
+   1980  /// affiche une série (jalon 215/218). Démontre le routage de clics de sous-région vers l'état.
+   1987      // Bascule **100 %** (jalon 224) : visible seulement pour les types empilés (aires/barres empilées),
+   1988      // où la normalisation a un sens.
+   2003      // Graphique **compagnon** : la famille complémentaire (barres si le principal est en lignes, et
+   2004      // inversement), sans sa propre légende — il partage `chart_hidden`, donc masquer une série via la
+   2005      // légende du principal la masque **aussi** ici (jalon 220).
+   2014      // Détail épinglé du dernier point cliqué (jalon 221).
+   2030      // Contenu fixe haut (graphiques + compagnon ≈ 550-650 px) : défile **verticalement** sous la barre.
+   2044  /// Le formulaire de l'assistant : validation **pure** de l'état courant (jalons 180–181).
+   2045  /// L'ordre déclare `password` avant `confirm` (validation croisée `matches`).
+   2074  /// À quelle étape (0 = Account, 1 = Security) vit le champ `key` — pour que cliquer une puce du
+   2075  /// récapitulatif d'erreurs saute à la bonne étape (jalons 181 + 183).
+   2083  /// Index de champ (clé de focus) d'un champ de l'assistant — pour `keyed`/`Command::focus`.
+   2093  /// L'étape `step` est-elle **valide** ? (pour n'autoriser « Next » qu'une fois l'étape remplie.)
+   2102  /// Un champ de l'assistant : erreur affichée **qu'après** soumission, valeur **masquée** pour un
+   2103  /// mot de passe, et **clé de focus** (`keyed`) pour que le récapitulatif puisse y sauter.
+   2121      // `eye = Some(revealed)` : une icône œil **dans le champ** bascule le masquage (jalon 198).
+   2138  /// Écran **assistant d'inscription** : preuve d'intégration des briques récentes —
+   2139  /// indicateur [`Steps`] cliquable (jalon 183), formulaire validé [`Form`] (180) avec
+   2140  /// récapitulatif d'erreurs **cliquable** (181), et notification de succès (185/188).
+   2144      // Largeur de champ **responsive** : tient dans la largeur (moins le padding 24×2), plafonnée à
+   2145      // 360 px pour ne pas s'étirer sur grand écran.
+   2148      // Les étapes sont marquées « terminées » par **validité** (jalon 195), pas seulement par
+   2149      // position — cohérent avec « Next » gardé par la même validité.
+   2159      // Contenu de l'étape courante.
+   2188              // Mots de passe masqués sauf révélation : l'icône œil **dans le champ** bascule (198).
+   2220              // Récapitulatif cliquable : chaque puce saute à l'étape du champ fautif **et**
+   2221              // le focalise (jalons 181 + 183 + focus programmatique).
+   2252      // Barre de navigation : Précédent / Suivant, ou Créer sur la dernière étape.
+   2262          // « Next » n'est actif qu'une fois l'étape courante valide (jalon 191 : Button désactivé).
+   2278      // Défile verticalement si le contenu dépasse (petits écrans, clavier ouvert).
+   2292  /// Écran « Journal » : une **liste virtualisée** de 5000 lignes.
+   2294      let t = *theme; // Theme est Copy — capturé par la fabrique d'éléments.
+   2317  /// Une tuile de statistique (grand nombre + libellé) pour la grille.
+   2331  /// Écran « Réglages » : la carte de contrôles (démontre nav + geste + widgets).
+   2388      // Largeur utile de l'onglet (viewport moins les paddings colonne/tab),
+   2389      // bornée : les vitrines s'adaptent au Compact au lieu de déborder.
+   2403      // Arbre de fichiers (déplié selon l'état).
+   2405      // Chevron = (dé)plier ; corps de la ligne = sélectionner le nœud (jalon 246).
+   2421      // Palette de couleurs.
+   2435      // Chronologie des jalons récents.
+   2441      // Carrousel : le slide courant est fourni selon l'index.
+   2449      // Popover d'info (contenu libre, fermeture au clic extérieur).
+   2469      // Autocomplétion : suggestions filtrées par la saisie (contrôlé).
+   2530      // Le contenu (calendrier, options avancées…) dépasse l'écran : il défile
+   2531      // sous la barre, qui reste épinglée.
+   2543  /// Une ligne de tâche : case à cocher, libellé (grisé **et barré** si terminée)
+   2568          // Appui long sur la ligne = suppression (le motif mobile, en plus du ×).
+   2577  /// Contenu de la modale de confirmation de suppression groupée du tableau de données (jalon 245).
+   2596  /// Contenu de la modale de confirmation d'effacement des terminées.
+   2615  /// Écran principal : la liste de tâches (l'app exemple).
+   2620      // Responsivité : la carte s'élargit avec la fenêtre par paliers (Lot A). En
+   2621      // Compact, elle suit la largeur disponible ; les champs internes s'y adaptent.
+   2623      // Largeur **interne** de la carte : la fenêtre moins le padding du corps
+   2624      // (24 × 2) et celui de la carte (20 × 2) — sinon la carte déborde du
+   2625      // viewport Compact et tout l'écran défile horizontalement.
+   2632      // En-tête : une AppBar adaptative. On déclare un titre + des actions ; elle
+   2633      // décide seule combien tiennent en ligne et replie le reste dans un menu
+   2634      // overflow « ⋯ », selon la largeur — sans jamais brancher sur mobile/desktop.
+   2637      // Le titre suit la section active (comme le ferait une vraie app) — la
+   2638      // section Tasks est localisée (Fluent) pour la démo i18n.
+   2656          // Bascule de langue : l'étiquette montre la LANGUE VERS LAQUELLE on va.
+   2667      // Saisie : champ (Entrée valide) + bouton d'ajout. Le champ non vide porte une icône
+   2668      // suffixe **cliquable** « ✕ » qui l'efface (jalon 198 : clic positionnel du suffixe).
+   2683      // Filtres : un contrôle segmenté (sélection unique).
+   2691      // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
+   2703      // Liste filtrée (ou état vide).
+   2711          // Identité stable par `id` : l'état retenu (survol/animations) ne saute
+   2712          // pas quand on supprime une tâche au milieu.
+   2722      // Responsivité **verticale** (Lot C) : en fenêtre courte, l'astuce est masquée
+   2723      // pour préserver la hauteur utile. Le défilement est assuré par le Scaffold.
+   2726      // Pied : compteurs + effacer les terminées (avec confirmation modale).
+   2740      // Résumé construit selon sa boîte RÉELLE (Lot C : LayoutBuilder). Texte long
+   2741      // (compteurs pluralisés, localisés Fluent) quand il y a de la place, court
+   2742      // quand c'est étroit — hauteur fixe.
+   2773      // Barre de progression de complétion (terminées / total).
+   2777      // Carte de l'app, largeur responsive (Lot A), centrée en haut de l'écran.
+   2778      // Le corps est bâti de façon incrémentale pour omettre l'astuce si court.
+   2781          // Bannière **statique** : frontière de repaint (jalon 88). Elle est
+   2782          // rejouée depuis le cache aux frames d'interaction pure (survol, focus,
+   2783          // défilement ailleurs) au lieu d'être repeinte à chaque frame.
+   2790          // Rangée d'icônes vectorielles (jalon 89) + image bitmap (jalon 90) :
+   2791          // chemins tessellisés colorés au thème, et une texture GPU ajustée `Cover`.
+   2792          // Vitrine de widgets (~360 px) plus large que la carte sur téléphone : **défile
+   2793          // horizontalement** (hauteur fixe = celle de la rangée) plutôt que de déborder.
+   2803              // Calque à opacité de groupe (jalon 92) : deux carrés qui se
+   2804              // chevauchent, composités d'un bloc → le chevauchement ne fonce
+   2821      // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —
+   2822      // sans clés, sa disparition (clavier ouvert → écran court) décale les ids
+   2823      // positionnels des frères, et l'état retenu (focus du champ !) saute.
+   2834      // Corps selon la section active (la navigation adaptative est dans le Scaffold).
+   2841      // Ossature d'écran : le Scaffold épingle la barre haute et la navigation, fait
+   2842      // défiler le corps, et coordonne tiroir / feuille / FAB — un seul point d'entrée.
+   2843      // Les insets sont déjà gérés par `view` (qui passe des dimensions sûres) ; le
+   2844      // Scaffold s'épingle donc simplement dans ce viewport.
+   2862      // La notification en tête de file flotte au-dessus de tout, ancrée en bas-centre par la
+   2863      // couche `ToastHost` (jalon 188) : fondu d'**entrée**, puis fondu de **sortie** quand elle
+   2864      // passe « en sortie » avant son retrait (jalon 193).
+   2886  /// Contenu de la feuille modale : quelques actions rapides.
+   2910  /// Contenu du tiroir de navigation : en-tête + destinations + réglages.
+   2957  /// Jour de la semaine (0 = dimanche … 6 = samedi) d'une date (Sakamoto) — jalon 238.
+   2964  /// Vrai si la date tombe un **week-end** (samedi ou dimanche).
+   2969  /// Le calendrier de la vitrine : `DatePicker::filtered` grisant les **week-ends** si `weekdays_only`
+   2970  /// (jalon 238), sinon tous les jours cliquables (`DatePicker::new`).
+   2992  /// Section « Stats » : un agencement maître-détail responsive (`TwoPane`). Côte à
+   2993  /// côte en grand, panneau unique en étroit (taper une métrique ouvre le détail).
+   3002      // Panneau maître : la liste des métriques (sélection).
+   3018      // Panneau détail : la métrique sélectionnée.
+   3028      // En panneau unique, un retour vers la liste.
+   3045  /// Section « About » : contenu statique de présentation.
+   3047      // Largeur du contenu = viewport moins les paddings (conteneur 24×2 +
+   3048      // carte 20×2), bornée à une lecture confortable — sinon débordement
+   3055                  // Texte riche : styles mêlés en une ligne, héritage en cascade.
+   3071                  // Paragraphe : revient à la ligne à la largeur de la carte.
+   3091      /// Ajoute une tâche depuis un libellé.
+   3113          // density() protège contre un état non initialisé (0.0 → 1.0).
+   3122          // Large : palier Expanded, le détail reste ouvert.
+   3126          // Étroit : bascule Compact et ferme le détail.
+   3137          // Choisir une section referme le tiroir.
+   3151          // Barres système seules.
+   3157          // Clavier ouvert : la zone sûre du bas suit le clavier (évitement).
+   3163          // La vue se construit sans paniquer avec des insets non nuls (chemin d'enrobage).
+   3180          // Une action de la feuille (Save) la referme.
+   3183          // Idem pour « Clear completed » (qui ouvre la confirmation).
+   3203          // Le suffixe « ✕ » (clic positionnel) émet ClearDraft, qui vide le champ.
+   3214          assert!(app.draft.is_empty(), "le champ est vidé après l'ajout");
+   3244          add(&mut app, "tâche");
+   3253          assert!(primitive_count(&app) > 0, "l'écran assistant se rend");
+   3255          // Étape Account invalide au départ (empêche « Next », jalon 191/192).
+   3258              "Account invalide au départ"
+   3261          // Soumission vide → erreurs révélées, saut à l'étape Review (récapitulatif).
+   3268              "le récapitulatif d'erreurs se rend"
+   3271          // Une puce du récapitulatif saute à l'étape du champ **et** demande son focus.
+   3276          // Remplir Account → l'étape devient valide.
+   3288          // Succès : notification + assistant réinitialisé.
+   3297          // Navigation par étapes (Suivant / saut direct / Précédent, bornés).
+   3303          assert_eq!(app.wizard_step, 2, "borné à la dernière étape");
+   3325          assert!(primitive_count(&app) > 0, "la grille se rend");
+   3326          // Saisir dans une cellule met à jour la bonne case (grille toujours éditable).
+   3329          assert_eq!(app.grid[0][0], "Ada", "les autres cellules sont intactes");
+   3330          // Entrée descend d'une ligne (même colonne) et demande le focus.
+   3332          assert!(!cmd.is_empty(), "Entrée focalise la cellule du dessous");
+   3333          // Entrée sur la dernière ligne en crée une (jalon 204) et y saute.
+   3340              "Entrée sur la dernière ligne en crée une"
+   3342          assert!(!cmd.is_empty(), "et y place le focus");
+   3343          // Ajouter une ligne : une ligne vide en fin, focus sur sa 1re cellule.
+   3350              "nouvelle ligne vide (3 colonnes)"
+   3352          assert!(!cmd.is_empty(), "AddRow focalise la nouvelle ligne");
+   3353          // Supprimer une ligne.
+   3355          assert_eq!(app.grid.len(), before, "une ligne retirée");
+   3374          // Tri colonne 0 croissant, puis bascule décroissant.
+   3382          // Validation par cellule : Name vide et email malformé sont signalés.
+   3389              "email vide toléré (pas encore saisi)"
+   3396          // Une ligne valide, une avec un Name vide et un email malformé (2 erreurs).
+   3410              "la soumission est bloquée et compte les erreurs"
+   3412          // Corrige les deux cellules : la grille devient valide, la sauvegarde aboutit.
+   3430          // Ligne 0 valide, ligne 1 : Name vide (colonne 0) = première faute attendue.
+   3444          // Tout valide : plus de cible, aucune commande.
+   3450              "rien à focaliser"
+   3457          // L'écran graphique se rend.
+   3460          assert!(primitive_count(&app) > 0, "le tableau de bord se rend");
+   3461          // Clic de légende : masque la série, re-clic la ré-affiche (bascule).
+   3464          assert_eq!(app.chart_hidden, vec![1], "clic masque la série 1");
+   3468          assert_eq!(app.chart_hidden, vec![2], "re-clic ré-affiche la série 1");
+   3475          assert_eq!(app.chart_kind, 0, "lignes par défaut");
+   3476          // Chaque type (aires empilées, barres groupées, barres empilées) se rend.
+   3480              assert!(primitive_count(&app) > 0, "le type {k} se rend");
+   3488          assert!(app.chart_pin.is_none(), "rien d'épinglé au départ");
+   3489          // Thu (index 3) de Sales (série 0) = 8.
+   3492          // Tue (index 1) de Costs (série 1) = 4 : remplace l'épingle.
+   3495          assert!(primitive_count(&app) > 0, "l'écran avec épingle se rend");
+   3500          // Arbre de fichiers (vitrine Settings) : sélectionner un nœud, puis re-cliquer désélectionne.
+   3503          assert_eq!(app.tree_selected, None, "aucun noeud selectionne au depart");
+   3505          assert_eq!(app.tree_selected, Some(6), "clic = noeud selectionne");
+   3516              "la vitrine se rend avec selection"
+   3526          // "Design API" est en (0,0). Le deplacer en tete de "Doing" (colonne 1) : il quitte la 0 et
+   3533              "la carte quitte la colonne source"
+   3537              "la carte arrive en tete de la colonne cible"
+   3541              "plus dans la source"
+   3543          // Deplacement dans la MEME colonne : (1,0) vers la fin — le decalage d'index est gere.
+   3550              "meme nombre de cartes (reordonne, pas duplique)"
+   3555              "carte deplacee en fin de colonne"
+   3557          assert!(primitive_count(&app) > 0, "le tableau se rend");
+   3558          // Ajout / suppression (jalon 249) : + Add card ajoute au bas ; × supprime la carte visee.
+   3569              "ajoutee au bas de la colonne"
+   3577          assert!(primitive_count(&app) > 0, "se rend apres ajout/suppression");
+   3582          // Le graphique principal en **barres groupées** (kind 2) câble `on_point` (jalon 222) : au
+   3583          // moins un point de la zone de tracé émet `ChartPoint`. Balayage (indépendant des
+   3584          // constantes de géométrie internes de frus-widgets).
+   3601          assert!(hit, "une barre du tableau de bord emet ChartPoint");
+   3606          // Le clic épingle non seulement le détail (jalon 221) mais aussi la sélection `(cat, série)`
+   3607          // mise en évidence dans le graphique (jalon 223).
+   3615              "le point cliqué devient la selection"
+   3621              "la selection suit le dernier clic"
+   3625              "l'ecran avec point mis en evidence se rend"
+   3636          // Les deux types empilés (aires empilées kind 1, barres empilées kind 3) se rendent en 100 %.
+   3641                  "le type empile {k} se rend en 100%"
+   3655          // Re-clic sur le même point : désépingle (sélection et détail effacés).
+   3659          // Un autre point ré-épingle normalement.
+   3669          assert!(primitive_count(&app) > 0, "l'ecran data se rend");
+   3670          // Tri : premier clic croissant, re-clic décroissant ; le tri ramène à la page 1.
+   3675          assert_eq!(app.data_page, 1, "le tri ramene a la page 1");
+   3678          // Taille de page : change et ramène à la page 1.
+   3682          assert_eq!(app.data_page, 1, "changer la taille ramene a la page 1");
+   3683          assert!(primitive_count(&app) > 0, "se rend apres tri/pagination");
+   3684          // Sélection de ligne : un clic sélectionne la ligne **source**, re-clic désélectionne.
+   3685          assert_eq!(app.data_selected, None, "aucune ligne au depart");
+   3690              "clic = ligne source selectionnee"
+   3700          assert!(primitive_count(&app) > 0, "se rend avec detail de ligne");
+   3701          // Tri personnalisé de la colonne Level (index 3) : ordre semantique, pas alphabetique.
+   3707          assert_eq!(app.data_sort, Some((3, true)), "tri de la colonne Level");
+   3708          assert!(primitive_count(&app) > 0, "se rend trie par priorite");
+   3709          // Sélection multiple (cases) : toggle d'une ligne, puis « tout cocher »/« tout décocher ».
+   3712          assert_eq!(app.data_checked, vec![2], "coche la ligne source 2");
+   3719              "tout cocher = 12 lignes"
+   3726          assert!(primitive_count(&app) > 0, "se rend avec cases a cocher");
+   3727          // Recherche : la frappe met a jour le filtre et ramene a la page 1.
+   3730          assert_eq!(app.data_query, "ada", "le filtre est mis a jour");
+   3731          assert_eq!(app.data_page, 1, "un nouveau filtre ramene a la page 1");
+   3732          assert!(primitive_count(&app) > 0, "se rend filtre");
+   3733          // Actions groupees (jalon 243) : Clear vide la selection, Delete supprime les lignes cochees.
+   3740          assert_eq!(app.data_selected, Some(1), "Clear ne touche pas le focus");
+   3743          // Confirmation (jalon 245) : Delete ouvre la modale ; Cancel ferme sans supprimer.
+   3751          assert!(primitive_count(&app) > 0, "se rend avec la modale");
+   3755          // Confirmer supprime reellement et ferme la modale.
+   3762              "Delete confirme retire la ligne cochee"
+   3766          assert!(primitive_count(&app) > 0, "se rend apres suppression");
+   3767          // Etat vide (jalon 244) : un filtre sans resultat se rend quand meme (en-tete + message).
+   3769          assert!(primitive_count(&app) > 0, "se rend avec l'etat vide");
+   3782          assert!(!app.weekdays_only, "tous les jours par defaut");
+   3783          assert!(primitive_count(&app) > 0, "vitrine se rend");
+   3784          // Bascule : le calendrier filtré se rend, puis revient.
+   3787          assert!(primitive_count(&app) > 0, "calendrier filtre se rend");
+   3796          // Une série masquée est partagée par le principal et le compagnon (même `chart_hidden`).
+   3799          // Lignes (compagnon = barres) puis barres (compagnon = lignes) : l'écran se rend des deux.
+   3803              "principal lignes + compagnon barres"
+   3808              "principal barres + compagnon lignes"
+   3821          // Chaque appel avance ; le dernier boucle sur la première.
+   3831          // Deux notifications empilées : la 1re est visible, la 2e attend.
+   3837              "affichée, pas encore en sortie"
+   3839          // Expiration → la tête passe **en sortie** (fondu) sans disparaître.
+   3843          // Retrait → la suivante prend le relais (fondu d'entrée).
+   3847          // Dernière : sortie puis retrait → file vide.
+   3883          // Par défaut le chrono ne tourne pas (init le démarre à l'exécution).
+   3889          // Deux évaluations donnent le même id (souscription stable).
+   3905          // Save renvoie une commande non vide (l'écriture est un effet).
+   3907          // Une mutation simple n'a aucun effet.
+   3920          // Petit glissement mais flick rapide → doit valider le retour.
+   3929          assert!(app.routes.is_empty(), "le flick a dépilé l'écran");
+   3932      /// Live-reload : l'instantané `save_state` réhydrate un binaire neuf —
+   3933      /// tâches, brouillon, filtre, thème (mode + graine), écran empilé.
+   3947          let snapshot = Application::save_state(&app).expect("un instantané");
+   3959          // `init` après réhydratation ne relance PAS le chargement disque
+   3960          // (l'instantané fait foi) : aucun effet émis.
+   3961          assert!(fresh.init().is_empty(), "pas de Loaded après réhydratation");
+   3962          // Un instantané corrompu / d'une autre version est ignoré sans paniquer.
+=== crates\frus-hello\web\README.md (1)
+     16  A browser with **WebGPU**: Chrome or Edge 113+, or Firefox with WebGPU enabled. WebGPU
+=== crates\frus-hello\web\index.html (1)
+     20        browser — Chrome or Edge 113+, or Firefox with WebGPU enabled — over
+=== crates\frus-shell\src\app.rs (2)
+    505      /// docs/jalon-81.md.
+   1920      /// A pointer release, mouse or finger: it ends a drag, or commits a click or tap
+=== crates\frus-test\src\lib.rs (1)
+    169      if let Some(parent) = path.parent() {
+=== crates\frus-widgets\src\chart.rs (1)
+   1152                  // The value (or the % share) at the centre of the band on each category, where the
+=== crates\frus-widgets\src\container.rs (1)
+    370              self.pressed_color.or(self.hover_color).or(self.color)
+=== crates\frus-widgets\src\datatable.rs (1)
+    557              "le DataTable produit un arbre"
+=== crates\frus-widgets\src\datepicker.rs (1)
+     65  /// a start or end bound, an in-between day, or outside the range. Dates compare as
+=== crates\frus-widgets\src\interactive.rs (1)
+    110  /// collapses): a fixed `width`/`height`, or `flex` within a column or row. The
+=== crates\frus-widgets\src\layoutbuilder.rs (1)
+     11  //! `Stretch` parent the width is already the parent's; set the height, or `flex`, to
+=== crates\frus-widgets\src\relayout.rs (1)
+      7  //! *structure* and on the parent's *constraints* — not on colors or text, which
+=== crates\frus-widgets\src\reorder.rs (2)
+     18  /// cards) exceeds `OVERSIZE_FACTOR × slot` is a page or column background, not a cell or card
+    198          // The cursor at the **centre** of column 1 (owner 2, [100,200], centre 150).
+=== crates\frus-widgets\src\table.rs (320)
+      1  //! [`Table`] : un tableau de données texte à **rangées `Flex`** (colonnes de largeur
+      2  //! **fixe ou flexible**). En-tête **triable** au clic (indicateur de sens), lignes
+      3  //! **sélectionnables**, et **sélection multiple** optionnelle via une colonne de cases à
+      4  //! cocher coiffée d'un « tout cocher ».
+      6  //! Comme le reste de frus, tri et sélection sont **décidés par l'application** : le
+      7  //! tableau émet un message au clic (`on_sort`, `on_select_row`, `on_check`,
+      8  //! `on_check_all`) et n'affiche que l'état qu'on lui passe (`sorted`, `selected`).
+     27  /// Écart entre rangées et entre cellules (doit coïncider avec la géométrie des poignées).
+     29  /// Largeur de la colonne des cases à cocher (sélection multiple).
+     31  /// Côté de la case à cocher dessinée.
+     33  /// Largeur de la **zone de préhension** d'une poignée de redimensionnement.
+     36  /// Fond commun d'une cellule selon son rôle et l'interaction (facteur partagé).
+     58  /// Style d'une cellule : largeur de colonne (fixe ou flexible), et hauteur **adaptative**
+     59  /// — un plancher `ROW_H` (confort minimal) qui grandit avec le contenu. Comme la rangée
+     60  /// aligne ses cellules en `Stretch`, toutes suivent la plus haute (aucun rognage).
+     76  /// Côté d'une icône d'en-tête (grille `24×24` mise à l'échelle).
+     78  /// Écart entre l'icône d'en-tête et son libellé.
+     81  /// Une cellule texte (en-tête ou donnée), thémée au rendu.
+     87      /// Index de ligne (cellule de donnée) : sert à énoncer « Row N selected » au lecteur
+     88      /// d'écran. `None` pour un en-tête.
+     90      /// Icône **de tête** (en-tête uniquement) : peinte avant le libellé (icône + texte).
+     92      /// Indicateur de tri de l'en-tête : `Some(true)` = ▲, `Some(false)` = ▼.
+     95      /// En-tête **réordonnable** : `(index de colonne, nombre de colonnes, rappel
+     96      /// on_reorder(from, to))`. Le nombre de colonnes borne le réordonnancement clavier.
+     98      /// **Widget d'action** d'en-tête (0 ou 1) : un bouton (filtre, menu…) posé à droite,
+     99      /// **enfant** de la cellule. Il capte son propre clic (hit-test du plus profond),
+    100      /// le reste de l'en-tête continuant de trier — d'où un `Vec` pour l'exposer via
+    108          // Avec un widget d'action, il se pose à **droite** (le libellé restant peint à
+    109          // gauche) et centré verticalement.
+    141          // Icône de tête (en-tête) : peinte à gauche, le libellé décalé à sa suite.
+    183          // Seuls les en-têtes triables prennent le focus clavier (Entrée/Espace = trier) ;
+    184          // les cellules de données restent cliquables à la souris sans encombrer le Tab.
+    197          // En-tête triable : énonce le tri **résultant** au lecteur d'écran (bascule du
+    198          // sens courant : croissant par défaut, sinon on l'inverse — schéma Material usuel).
+    204          // Cellule de donnée sélectionnable : énonce l'état **résultant** de la ligne.
+    217          // En-tête : annoncé aux lecteurs d'écran (libellé + position s'il est réordonnable,
+    218          // pour que l'utilisateur perçoive un déplacement de colonne en re-parcourant).
+    230          // Ctrl+Flèches (Left/Right avec `word`) sur un en-tête focalisé : déplace la
+    231          // colonne d'un cran (borné). Les flèches nues laissent naviguer le focus.
+    242              None => KeyResponse::Ignored, // au bord : laisse le focus naviguer
+    247  /// Une cellule case à cocher (colonne de sélection multiple).
+    250      /// État **indéterminé** (certaines lignes cochées, pas toutes) — case du « tout
+    251      /// cocher ». Prime l'affichage décoché ; ignoré si `checked`.
+    286              // Coche : l'icône Check remplie, centrée dans la case.
+    295              // Indéterminé : case pleine barrée d'un tiret (façon Material).
+    319          // Case à cocher : énonce l'état **résultant** de la bascule (cochée → on
+    320          // décoche). La case d'en-tête agit sur **toutes** les lignes.
+    332  /// Fabrique d'un widget de cellule : **rappelée à chaque reconstruction** (le tableau
+    333  /// se rebâtit après chaque réglage), donc elle produit un widget **frais** à chaque fois.
+    334  /// Permet des cellules riches (avatars, puces, boutons d'action) au-delà du texte.
+    337  /// Contenu d'une ligne de données : texte simple, ou widgets (par colonne).
+    343  /// Fabrique de contenu d'une ligne **virtualisée**, par index : textes (une valeur par
+    344  /// colonne) ou widgets (un par colonne). Partagée (`Rc`) pour être capturée dans la
+    345  /// fabrique `'static` de la liste virtualisée.
+    352  /// Une cellule **widget** : un contenu arbitraire (centré, avec le fond de cellule et,
+    353  /// si la ligne est sélectionnable, le clic de sélection). Le contenu se peint par-dessus.
+    357      /// Cellule d'**en-tête** (fond d'en-tête) plutôt qu'une cellule de donnée.
+    359      /// Index de ligne : pour énoncer « Row N selected » au lecteur d'écran.
+    392          // Ligne-widget sélectionnable : énonce l'état **résultant** de la sélection.
+    403  /// Largeur du dégradé d'**ombre de séparation** d'une colonne gelée.
+    406  /// Calque d'**ombre de séparation** des colonnes gelées : un dégradé (scrim → transparent)
+    407  /// posé au bord intérieur du bloc figé, par-dessus la zone défilante — repère visuel du gel.
+    408  /// **Inerte** (ne capte aucun clic) : les cellules dessous restent cliquables.
+    410      /// Taille du calque (il remplit la pile) — sinon `Auto` le réduirait à 0×0.
+    413      /// Abscisse du bord droit du bloc figé de **gauche** (l'ombre part vers la droite).
+    415      /// Abscisse du bord gauche du bloc figé de **droite** (l'ombre part vers la gauche).
+    470  /// Un espace transparent et **inerte** (ni cliquable, ni glissable) : cale les
+    471  /// poignées de redimensionnement sur les bords de colonnes sans bloquer les clics
+    472  /// (le calque de poignées flotte au-dessus de la grille).
+    498  /// Une **poignée de redimensionnement** de colonne : fine barre verticale au bord
+    499  /// droit d'une colonne. Glissée horizontalement, elle émet `on_resize(col, dx)` où
+    500  /// `dx` est le déplacement (px) depuis le dernier événement — l'application
+    501  /// **accumule** la largeur. Le calque de poignées flotte au-dessus de la grille.
+    523          // Ligne de préhension centrée : discrète au repos, teintée `primary` et
+    524          // épaissie au survol / pendant le glissement.
+    547          // Un delta nul (appui, mouvement vertical pur) ne change rien.
+    556  /// Un tableau de données à colonnes fixes ou flexibles (voir le module).
+    560      /// Icône de tête par colonne d'en-tête (icône + libellé). Manquante = aucune.
+    562      /// En-tête **entièrement widget** (par colonne) : remplace la ligne d'en-tête texte.
+    563      /// Vide = en-tête texte classique. Le tri/réordonnancement automatique ne s'applique
+    564      /// pas à ces en-têtes — l'application câble le comportement dans ses widgets.
+    566      /// Widget d'action par colonne d'en-tête (bouton de filtre/menu), fabriqué à chaque
+    567      /// reconstruction. `None` = aucun. Posé à droite de l'en-tête, il capte son clic.
+    570      /// Largeur par colonne : `> 0` = fixe (px), `<= 0` = flexible (part égale).
+    579      /// Rappel de redimensionnement (colonne, delta px). Actif seulement si toutes
+    580      /// les colonnes sont de largeur **fixe** (géométrie des bords connue).
+    582      /// Rappel de réordonnancement (`on_reorder(from, to)`) : glisser un en-tête sur
+    583      /// un autre déplace la colonne. Nécessite aussi `on_sort` (en-têtes cliquables).
+    585      /// Mode **virtualisé** : `(nombre de lignes, hauteur du viewport, fabrique de la ligne
+    586      /// par index — textes ou widgets)`. Seules les lignes **visibles** sont construites
+    587      /// (défilement interne), pour des grilles de milliers de lignes. Exclut `rows`.
+    589      /// Colonnes **gelées** `(gauche, droite)` : figées aux deux bords tandis que le milieu
+    590      /// défile horizontalement. Nécessite une largeur totale et des colonnes toutes **fixes**.
+    595  /// Dimension d'une colonne depuis les largeurs : fixe si `> 0`, flexible sinon
+    596  /// (facteur partagé entre la construction directe et la construction virtualisée).
+    605      /// Crée un tableau de `columns` colonnes (flexibles, largeurs égales par défaut).
+    631      /// Définit la ligne d'en-tête (une étiquette par colonne).
+    638      /// Remplace la ligne d'en-tête par des **en-têtes entièrement widget** (un par
+    639      /// colonne) — pour des grilles très personnalisées (bouton de tri maison, filtre
+    640      /// intégré, deux lignes de titre…). Le tri et le réordonnancement **automatiques** ne
+    641      /// s'appliquent pas ici : l'application câble le comportement dans les widgets fournis
+    642      /// (p.ex. un bouton émettant son propre message de tri). Chaque fabrique est rappelée à
+    643      /// la reconstruction (widget frais). Exclut [`header`](Self::header) (dernier appelé gagne).
+    651      /// Donne une **icône de tête** à des colonnes d'en-tête (icône + libellé) :
+    652      /// `None` laisse la colonne sans icône. L'en-tête reste **triable** et
+    653      /// **réordonnable** comme un en-tête texte (l'icône est purement décorative).
+    660      /// Pose un **widget d'action** (bouton de filtre, menu…) à droite de l'en-tête de la
+    661      /// colonne `col`. C'est un **enfant** de la cellule : il capte son propre clic (hit-test
+    662      /// du plus profond), tandis que le reste de l'en-tête **trie** et se **réordonne**
+    663      /// comme d'habitude. La fabrique est rappelée à chaque reconstruction (widget frais).
+    665      /// **Menu de colonne** : passez ici un [`Menu`](crate::Menu) ou un
+    666      /// [`Dropdown`](crate::Dropdown). Son menu **flottant** est rendu même **imbriqué** dans
+    667      /// l'en-tête (l'overlay est collecté à n'importe quelle profondeur), atteignable au
+    668      /// **Tab** et piloté flèches/Entrée, et fermé par Échap / clic extérieur — sans code
+    669      /// spécifique côté tableau (l'application pilote l'état ouvert/fermé du menu).
+    685      /// Ajoute une ligne de données (une valeur **texte** par colonne).
+    693      /// Ajoute une ligne dont chaque cellule est un **widget** (avatar, puce, bouton
+    694      /// d'action…), fourni par une **fabrique** rappelée à chaque reconstruction. La
+    695      /// ligne reste sélectionnable (fond au clic hors des zones cliquables internes).
+    697      /// **Tri d'une colonne-widget** : le tableau ne sait pas comparer des widgets — il
+    698      /// n'émet que la colonne cliquée (`on_sort`). C'est l'**application** qui fournit la
+    699      /// clé : au message de tri, elle ordonne ses données par le champ correspondant à la
+    700      /// colonne (p.ex. le nom derrière un avatar), puis repasse les lignes déjà triées.
+    709      /// Fixe la largeur totale du tableau, en pixels logiques (les colonnes flexibles se
+    717      /// Largeur **fixe** de chaque colonne, en pixels (`0` ou moins = colonne flexible).
+    718      /// Les entrées manquantes laissent la colonne flexible.
+    727      /// Rend les en-têtes **cliquables** : `on_sort(colonne)` au clic sur un en-tête.
+    734      /// Indique la colonne triée et son sens (`true` = croissant) → affiche l'indicateur.
+    741      /// Rend les lignes **cliquables** : `on_select_row(ligne)` au clic sur une ligne.
+    748      /// Active la **sélection multiple** : une colonne de cases à cocher (à gauche) coiffée
+    749      /// d'une case « tout cocher ». `on_check(ligne)` bascule une ligne, `on_check_all`
+    750      /// bascule toutes les lignes. L'état coché reflète [`selected`](Self::selected).
+    762      /// **Gèle** les `n` premières colonnes : elles restent **figées** à gauche tandis que le
+    763      /// reste **défile horizontalement** (l'en-tête des colonnes défilantes suit ses colonnes),
+    764      /// avec une **ombre de séparation** au bord du gel. Pour de larges grilles où l'on garde un
+    765      /// identifiant en vue. Nécessite une [`width`](Self::width) totale et des colonnes **toutes
+    766      /// fixes** ([`column_widths`](Self::column_widths)) — sinon sans effet. Tableaux **texte** ;
+    767      /// non combiné avec virtualisation / cases à cocher / redimensionnement / réordonnancement.
+    774      /// **Gèle** les `m` **dernières** colonnes (figées à **droite** — colonnes d'actions,
+    775      /// totaux…), le milieu défilant. Se combine avec [`frozen_columns`](Self::frozen_columns)
+    776      /// (gel des deux bords). Mêmes conditions et exclusions.
+    783      /// Passe le tableau en mode **virtualisé** : `count` lignes de données, dont seules les
+    784      /// **visibles** sont construites/mises en page/peintes (défilement vertical interne dans
+    785      /// un viewport de `viewport_height` px). `build(index)` fournit les **textes** de la
+    786      /// ligne (une valeur par colonne). Indispensable pour les grandes grilles (milliers de
+    787      /// lignes) : coût par frame ∝ lignes visibles, pas au total. L'en-tête reste **épinglé**.
+    789      /// Sélection : [`on_select_row`](Self::on_select_row) et [`selected`](Self::selected)
+    790      /// fonctionnent sur les lignes visibles ; la **sélection multiple**
+    791      /// ([`checkboxes`](Self::checkboxes)) est aussi prise en charge (colonne de cases +
+    792      /// « tout cocher » épinglé). Non combiné avec redimensionnement / réordonnancement —
+    793      /// ignorés en mode virtualisé. Exclut [`row`](Self::row).
+    806      /// Comme [`virtual_rows`](Self::virtual_rows), mais chaque ligne est faite de **widgets**
+    807      /// (avatars, puces, boutons…) : `build(index)` renvoie un widget par colonne. Seules les
+    808      /// lignes visibles sont construites. Sélection au clic **et** cases à cocher ; l'en-tête
+    809      /// reste épinglé. Mêmes exclusions (redimensionnement / réordonnancement).
+    826      /// Rend les colonnes **redimensionnables** à la souris : une fine poignée au
+    827      /// bord droit de chaque colonne (sauf la dernière) émet `on_resize(colonne,
+    828      /// delta_px)` quand on la glisse. L'application **accumule** la largeur, p.ex.
+    829      /// `widths[col] = (widths[col] + delta).max(MIN)`, et la repasse via
+    830      /// [`column_widths`](Self::column_widths). N'a d'effet que si **toutes** les
+    831      /// colonnes ont une largeur fixe (bords connus).
+    838      /// Rend les colonnes **réordonnables** : glisser un en-tête (au-delà du seuil) et
+    839      /// le déposer sur un autre émet `on_reorder(from, to)` ; l'application permute
+    840      /// l'ordre de ses colonnes. Un simple **clic** trie toujours (`on_sort`). Sans
+    841      /// effet si les en-têtes ne sont pas cliquables.
+    848      /// Indique les lignes sélectionnées (surlignées, cases cochées).
+    855      /// Dimension de la colonne `c` : fixe si `widths[c] > 0`, flexible sinon.
+    860      /// Une rangée `Flex`, à la largeur totale du tableau si fixée.
+    869      /// Nombre de lignes de données : le compte **virtualisé** s'il est défini, sinon les
+    870      /// lignes matérialisées. (En virtualisé, `rows` est vide.)
+    878      /// Nombre de lignes sélectionnées **dans la plage** (indices `< row_count`). Suppose des
+    879      /// indices uniques et valides (contrat de [`selected`](Self::selected)) — O(sélection),
+    880      /// donc viable même pour une grille virtualisée de millions de lignes.
+    886      /// True si toutes les lignes sont sélectionnées (pour le « tout cocher »).
+    892      /// True si **certaines** lignes (pas toutes) sont sélectionnées → « tout cocher »
+    893      /// indéterminé.
+    899      /// Régénère l'arbre (rangées + cellules) depuis les données et l'état courants.
+    900      /// L'ordre des appels du builder n'importe pas : l'état final est cohérent.
+    901      /// Calque de poignées (une par bord de colonne, sauf la dernière) à superposer
+    902      /// à la grille. `None` si non redimensionnable ou colonnes non toutes fixes.
+    905          // Géométrie des bords connue seulement si toutes les colonnes sont fixes.
+    914          // Rangée à gap nul : les écarts sont matérialisés par des cales.
+    919              edge += self.widths[c]; // bord droit de la colonne c
+    934              edge += ROW_GAP; // écart inter-colonnes
+    939      /// Cellule d'en-tête pour le mode **colonnes gelées** (libellé + icône + tri, sans
+    940      /// action ni réordonnancement).
+    957      /// Construit un **bloc de colonnes** (en-tête + rangées texte) pour les colonnes `cols`,
+    958      /// à la largeur `w`. Suppose des rangées **texte** (validé en amont).
+    996      /// Construit la disposition **colonnes gelées** : bloc figé à gauche et/ou à droite, le
+    997      /// milieu dans un défilement horizontal (en-tête compris), avec une **ombre de séparation**
+    998      /// à chaque bord de gel. `None` si les conditions ne sont pas réunies (pas de largeur
+    999      /// totale, colonnes non toutes fixes, comptes hors bornes, ou combinaison non prise en
+   1000      /// charge : virtualisation / cases / lignes-widgets) → repli sur la disposition normale.
+   1013          // Colonnes gelées : texte uniquement (contenu hors écran non retenu).
+   1040          // Écarts entre blocs présents (le milieu défilant est toujours là).
+   1059          // Ombre de séparation au bord intérieur de chaque bloc gelé (par-dessus le défilant).
+   1076          // Colonnes gelées : disposition dédiée (bloc figé + défilement horizontal du reste).
+   1085          // Rangée d'en-tête (si étiquettes texte, en-têtes widget, ou cases à cocher).
+   1099                  // En-têtes entièrement widget : chaque cellule héberge le widget fourni
+   1100                  // (fond d'en-tête, contenu centré). Tri/réordonnancement câblés par l'app.
+   1142          // Mode virtualisé : l'en-tête épinglé au-dessus d'une **liste virtualisée** de
+   1143          // rangées de données (seules les visibles sont construites). Les paramètres
+   1144          // nécessaires à chaque rangée sont **capturés** (clones) dans la fabrique de la
+   1145          // liste, qui reste `'static` — donc pas d'accès à `self` dans la closure.
+   1160                  // Colonne de sélection multiple (comme l'en-tête « tout cocher » épinglé).
+   1212          // Rangées de données.
+   1259          // Hauteur totale de la grille (rangées + écarts) : pour caler le calque de
+   1260          // poignées, qui court sur toute la hauteur. Basée sur `ROW_H` (le plancher
+   1261          // adaptatif) : exacte pour un tableau texte — le cas du redimensionnement, où
+   1262          // les colonnes sont toutes fixes ; une rangée-widget plus haute la sous-estime.
+   1306          // Quand le tableau est redimensionnable, la racine est une pile (grille +
+   1307          // calque de poignées) : on relaie le drapeau pour que les couches se
+   1325          // 1 en-tête + 2 rangées de données.
+   1327          // Chaque rangée a 2 cellules.
+   1385          // Chaque rangée a 3 cellules : case + 2 colonnes.
+   1395          // Case « tout cocher » dans l'en-tête (colonne de gauche).
+   1397          // Case de la 2e ligne de données (r=1).
+   1403          // Case « tout cocher » de l'en-tête = 1re cellule de la 1re rangée.
+   1412              // Peindre la cellule pour lire son état via les primitives serait lourd ; on
+   1413              // teste plutôt les helpers directement.
+   1417          assert_eq!(header_check(&[]), (false, false), "rien coché");
+   1418          assert_eq!(header_check(&[0]), (false, true), "partiel → indéterminé");
+   1419          assert_eq!(header_check(&[0, 1]), (true, false), "tout coché");
+   1436          // Deux en-têtes triables sont focusables ; les cellules de données ne le sont pas.
+   1437          // On compte les focusables en parcourant le cycle Tab.
+   1451              "seuls les 2 en-têtes prennent le focus (got {count})"
+   1462          // Racine = pile ; le calque 1 est la rangée de poignées.
+   1465          // Une seule poignée (bord entre les 2 colonnes) parmi les cales.
+   1470              .expect("une poignée de redimensionnement");
+   1471          // Le glissement émet un delta accumulable ; un delta nul ne fait rien.
+   1475          // La poignée est atteignable comme draggable au bord de la 1re colonne (x≈100).
+   1484              "poignée saisissable au bord"
+   1486          // Hors des colonnes fixes, pas d'overlay : une largeur flexible le désactive.
+   1491          // Grille nue (en-tête + 1 rangée), aucun calque de poignées superposé.
+   1495              "colonnes flexibles : pas de calque de poignées"
+   1501              "aucune poignée sans largeurs fixes",
+   1515          // Chaque en-tête connaît sa colonne (source/cible) et produit Reorder(from, to).
+   1519          // Le clic trie toujours (tap = tri, glissé = réordonner).
+   1521          // Les cellules de données ne sont pas réordonnables.
+   1544          // Colonne du milieu (1) : Ctrl+Gauche → 0, Ctrl+Droite → 2.
+   1553          // Aux bords : ignoré (le focus navigue). Col 0 à gauche, col 2 à droite.
+   1556          // Flèche nue (sans Ctrl) : ignorée → navigation de focus.
+   1576              .expect("en-tête annoncé");
+   1579          // Les cellules de données ne portent pas de sémantique d'en-tête.
+   1596          // En-tête + 1 rangée de 2 cellules-widgets, chacune contenant son widget.
+   1604              "la cellule contient un widget"
+   1607          // Le contenu (« admin ») est bien rendu, et la ligne reste sélectionnable.
+   1619          assert!(has_admin, "le widget de cellule est peint");
+   1626              "la ligne-widget est sélectionnable"
+   1632          // Une icône de tête recule le libellé de l'en-tête (icône + texte).
+   1656              "libellé décalé derrière l'icône : {iconed} vs {plain}"
+   1658          // La colonne sans icône (« Score ») n'est pas décalée.
+   1663          // En-tête triable : le tri résultant énonce le sens basculé.
+   1673          // Déjà croissant → un clic passe en décroissant.
+   1680          // Cases à cocher : l'état résultant de la bascule.
+   1687          // Case « tout cocher » (en-tête, partiel) → cocher toutes.
+   1690          // Ligne 0 (cochée) → décocher ; ligne 1 (décochée) → cocher.
+   1700          // Un bouton d'action posé dans l'en-tête, cliquable indépendamment du tri.
+   1725          // La cellule d'en-tête de la colonne 1 porte le widget d'action.
+   1731              "l'en-tête colonne 1 porte l'action",
+   1743          // Clic à droite (sur le bouton, centré ~218) → action ; ailleurs → tri.
+   1744          assert_eq!(click(218.0), Some(Msg::Filter), "le bouton capte son clic");
+   1748              "le reste de l'en-tête trie"
+   1754          // Cliquer une ligne (texte ou widget) énonce l'état résultant, avec le numéro.
+   1765          // Ligne texte 0 (non sélectionnée) → « selected » ; cellule quelconque de la ligne.
+   1770          // Ligne widget 1 (sélectionnée) → « deselected ».
+   1775          // Sans sélection possible, aucune annonce.
+   1786          // Un widget plus haut que ROW_H : la rangée s'adapte au lieu de le rogner.
+   1820          // La barre rouge (le widget haut) est peinte à sa pleine hauteur : la cellule,
+   1821          // et donc la rangée, l'ont suivie (pas de rognage à ROW_H).
+   1830              "la rangée suit le contenu haut: {bar_h:?}"
+   1834              "le contenu dépasse bien la hauteur nominale"
+   1841          // Un Menu déposé en widget d'action d'en-tête = un menu de colonne : son overlay
+   1842          // flottant est collecté **même imbriqué** dans l'en-tête, et se ferme (Échap / clic
+   1843          // extérieur). Les items sont focusables → navigables au clavier.
+   1865          // L'overlay du menu (imbriqué) est bien collecté → fermable.
+   1869              "l'overlay du menu de colonne est collecté"
+   1871          // Le menu flotte et se peint (ses items sont rendus par-dessus la grille).
+   1880              "le menu de colonne flotte et se peint"
+   1894          // En-tête = 1re rangée : 2 cellules-widgets, chacune hébergeant son widget.
+   1900              "l'en-tête widget contient son widget"
+   1909          // Le libellé « Name » (widget d'en-tête) est peint.
+   1918              "les widgets d'en-tête sont peints"
+   1920          // Le bouton d'en-tête maison émet **son** message (pas de tri automatique).
+   1927              "l'app câble le tri dans son widget d'en-tête"
+   1951          // Viewport 200 / ROW_H ≈ 6 lignes visibles (+ marge) — jamais 5000.
+   1954              "seules les lignes visibles sont construites : {}",
+   1959              "au moins la fenêtre visible : {}",
+   1962          // En-tête **épinglé** + première ligne visible peints.
+   1969          assert!(has("Name"), "en-tête épinglé au-dessus de la liste");
+   1970          assert!(has("R0"), "première ligne virtualisée construite");
+   1971          // Le défilement couvre tout le contenu (5000 × ROW_H − viewport).
+   1973          assert_eq!(maxes.len(), 1, "un viewport défilable");
+   1977              "borne de défilement = contenu total"
+   1979          // Une ligne visible reste cliquable (sélection).
+   1985              "ligne virtualisée cliquable : {click:?}"
+   2000          // Racine = pile [rangée de blocs, ombre] ; la rangée porte bloc figé + défilant.
+   2007          // Défilement **horizontal** : contenu (120+120) plus large que le viewport restant.
+   2009          assert_eq!(maxes.len(), 1, "une zone défilable");
+   2011          // Cellule **gelée** cliquable (sélection) ; en-tête **défilant** triable — l'ombre au
+   2012          // bord du gel ne bloque pas les clics.
+   2017              "cellule gelée sélectionne"
+   2022              "en-tête défilant trie"
+   2028          // 4 colonnes : gel 1 à gauche, 1 à droite → la colonne 2 (milieu) défile.
+   2044          // Le milieu (A + B = 240) déborde du viewport restant → défilement horizontal.
+   2047          assert!(maxes[0].1 > 0.0, "milieu défilant : {:?}", maxes[0]);
+   2048          // En-tête figé à droite (« Act », colonne 3) triable, tout à droite du tableau.
+   2054              "colonne gelée à droite : {right:?}"
+   2056          // En-tête figé à gauche (« Name », colonne 0) triable.
+   2060              "colonne gelée à gauche"
+   2079          // « Tout cocher » dans l'en-tête épinglé.
+   2081          // Case de la première ligne visible (colonne de gauche, sous l'en-tête).
+   2085              "case de ligne virtualisée : {row_check:?}"
+   2121          assert!(has("Item"), "en-tête épinglé");
+   2122          assert!(has("W0"), "widget de la première ligne construit");
+   2123          // La ligne-widget virtualisée reste sélectionnable (la cellule capte le clic).
+   2129              "ligne-widget cliquable : {click:?}"
+   2137              .column_widths(&[80.0]) // 1re colonne fixe à 80, 2e flexible
+   2146          // La 1re colonne d'en-tête ("A") occupe 80 px : "B" démarre au-delà de 80 + gap.
+   2154          assert!(bx >= ax + 80.0, "colonne fixe de 80 : bx={bx} ax={ax}");
+=== crates\frus-widgets\src\timepicker.rs (1)
+      2  //! Two grids of clickable cells (hours, minutes) plus a preview; 24-hour by default, or
+=== crates\frus-widgets\src\transform.rs (2)
+     19  ///   pivot (the centre by default), uniformly or **per axis** (stretching,
+     61      /// centre — stretching or flattening. `scale_xy(2.0, 1.0)` doubles the width
+=== crates\frus-widgets\src\tree.rs (1)
+    117          // The chevron expands or collapses; the rest of the row selects, or toggles by default.
+=== crates\frus-widgets\src\ui.rs (482)
+      1  //! Le pilote : parcourt l'arbre en portant un contexte (translation + découpe),
+      2  //! produit la [`Scene`] et les cartes de hit-test (clic, focus, scroll), et
+      3  //! permet de retrouver un widget par identité pour lui router clavier/édition.
+     17  /// Facteur de parallaxe de l'écran arrière lors d'une transition (0 = fixe,
+     18  /// 1 = suit à l'identique). Donne la profondeur d'une navigation native.
+     21  /// Épaisseur d'une barre de défilement, en pixels.
+     23  /// Longueur minimale d'une poignée.
+     26  /// Une poignée de barre de défilement (pour le hit-test au drag).
+     32      /// Début et longueur de la piste, le long de l'axe.
+     40  /// Direction de navigation du focus aux flèches.
+     54      /// Transformation **inverse** (écran → repère à plat) d'un sous-arbre transformé
+     55      /// (`Transform::scale`/`rotate`/composition) : le point de test lui est appliqué
+     56      /// pour retrouver le repère non transformé où vit `rect`. `None` = rectangle
+     57      /// aligné sur les axes, non transformé (cas courant).
+     62      /// `true` si `point` (en coordonnées écran) tombe dans la cible, en tenant
+     63      /// compte d'une éventuelle transformation du sous-arbre.
+     70  /// Sortie peinte d'un sous-arbre de frontière de repaint, mise en cache (voir
+     71  /// `paintcache.rs`) et rejouée telle quelle sur un *hit*. Effacée derrière un
+     72  /// `Box<dyn Any>` dans le cache ; redescendue vers `Msg` ici (une seule
+     73  /// instance de `Msg` par app → le `downcast` réussit toujours).
+     86  /// Longueurs des collectes du builder à l'entrée d'une frontière : bornes
+     87  /// basses des tranches à capturer à la sortie.
+    101  /// Bornes basses des registres d'**interaction** au début d'une composition transformée (calque
+    102  /// échelle/rotation) : on ne re-mappe que ce que le sous-arbre vient d'ajouter. Distinct de
+    103  /// [`Snapshot`] (cache de frontière) car il **inclut `reorderables`** — ceux-ci ne sont jamais mis
+    104  /// en cache mais doivent bien être transformés. Voir [`transform_interaction_registries`].
+    115  /// Nombre de nœuds du sous-arbre **si** il est « plat » — c.-à-d. si la
+    116  /// frontière et **tous** ses descendants empruntent la branche de parcours par
+    117  /// défaut (enfants en préfixe) : ni défilable, ni navigateur, ni liste
+    118  /// virtualisée, ni `layout_builder`, ni pile, ni overlay, ni animation continue.
+    119  /// Ce comptage suit alors **exactement** l'ordre des rectangles du walk, ce qui
+    120  /// garantit une empreinte et une rejoue bit-à-bit correctes. `None` = sous-arbre
+    121  /// non cachable (on repeint intégralement — repli sûr).
+    133          // Un réordonnable (carte Kanban, en-tête glissable) : ses bornes alimentent le registre
+    134          // des réordonnables, non caché — on ne met donc pas son sous-arbre en cache de peinture.
+    146  /// Quantifie un flottant `[0,1]` pour l'empreinte (indépendant des micro-écarts
+    147  /// binaires : deux progressions visuellement identiques ⇒ même empreinte).
+    152  /// Ajoute à `h` tout ce que la peinture lit dans un `Status`, **sauf** le temps
+    153  /// (exclu : une frontière cachable n'a aucun widget `continuous`).
+    164      // Survol de sous-région (jalon 208) : un changement de position repeint la surbrillance.
+    168  /// Résultat de la construction d'une interface pour une frame donnée.
+    174      /// Messages de fermeture des overlays, du dessous vers le **dessus**.
+    177      /// **Scope de focus** : index du premier focusable de l'overlay modal le
+    178      /// plus au-dessus — Tab/flèches/focus au clic sont piégés à partir de là
+    185      /// **Réordonnables** (en-têtes de colonne, cartes Kanban) : (id, bornes visibles). Repérés
+    186      /// indépendamment du clic — une carte n'est pas cliquable mais reste saisissable/cible de dépôt.
+    188      /// Fenêtres interactives (`InteractiveViewer`) : (id, fenêtre écran). Le shell y
+    189      /// route le pan (glisser) et le zoom (molette / pincement).
+    192      /// Arbre d'accessibilité : nœuds sémantiques (id, bornes, annotation),
+    193      /// dans l'ordre de peinture. Le shell le mappe vers AccessKit.
+    198      /// La scène à envoyer au renderer.
+    203      /// L'**arbre d'accessibilité** de la frame : chaque nœud porteur de sens
+    204      /// avec ses bornes à l'écran et son annotation ([`frus_core::Semantics`]).
+    205      /// Ordre de peinture (= ordre de lecture). Le shell le pousse à AccessKit.
+    210      /// `true` si un widget s'anime en continu (le framework doit redessiner).
+    215      /// Identité du widget cliquable le plus au-dessus contenant `point`.
+    224      /// Message associé à un widget cliquable donné.
+    232      /// Message de fermeture de l'overlay **le plus au-dessus** (pour Échap).
+    237      /// Message d'**appui long** de la cible la plus au-dessus contenant `point`.
+    246      /// Widget focalisable le plus au-dessus contenant `point` : (id, ses bornes).
+    255      /// Les focusables **participants** : ceux du scope modal le plus au-dessus
+    256      /// s'il y en a un (piège à focus), sinon tous.
+    264      /// Focusable le plus proche dans la **direction** donnée (navigation aux
+    265      /// flèches, politique géométrique) : parmi les focusables dont le centre est
+    266      /// du bon côté, minimise la distance sur l'axe principal avec une pénalité
+    267      /// sur l'écart transversal. `None` si rien dans cette direction.
+    273          // Le point de départ peut être hors scope (focus d'avant l'ouverture) ;
+    274          // les **candidats**, eux, sont piégés dans le scope.
+    289              // (avance dans la direction, écart transversal)
+    296              // Dans un **cône** autour de la direction (pas un simple demi-plan) :
+    297              // un candidat quasi aligné transversalement mais à peine « devant »
+    298              // (largeurs légèrement différentes) n'est pas une cible directionnelle.
+    310      /// Focusable suivant/précédent dans l'ordre d'arbre (avec bouclage), pour la
+    311      /// navigation Tab. Sans focus courant, renvoie le premier (ou dernier).
+    318          // Un focus courant **hors scope** (pris avant l'ouverture de la modale)
+    319          // est traité comme « aucun » : Tab entre dans le piège.
+    333      /// Zone défilable la plus au-dessus contenant `point` : (id, max x, max y).
+    342      /// Cadre d'un widget **focusable** `id`, s'il est présent cette frame — pour que
+    343      /// le shell retrouve la géométrie du champ focalisé (déplacement vertical du caret).
+    349              // Repli sur le registre des **réordonnables**. Les cartes Kanban (et les en-têtes
+    350              // réordonnables mais **non** triables) ne sont pas focusables : sans ce repli, le shell
+    351              // ne trouve pas leurs bornes, et tout l'aperçu de glisser **vertical** (fantôme, ligne
+    352              // d'insertion, réagencement) comme le routage *insert-after* restent lettre morte.
+    361      /// Les identités de **tous** les widgets focusables de la frame (scope compris) —
+    362      /// pour que le shell détecte la **disparition** du focus (overlay fermé) et le restaure.
+    367      /// Cadre (viewport) de la zone défilable `id`, s'il existe — pour que le shell
+    368      /// retrouve la largeur/hauteur d'un champ multi-lignes (suivi du caret).
+    376      /// Bornes de défilement `(id, max_x, max_y)` de chaque zone défilable, pour
+    377      /// piloter l'inertie côté framework.
+    385      /// Poignée de barre de défilement sous `point` (pour démarrer un glissement).
+    394      /// Widget glissable le plus au-dessus sous `point` : (id, ses bornes).
+    403      /// Widget **réordonnable** le plus au-dessus sous `point` : son id. Base du glisser-déposer de
+    404      /// réordonnancement (source à l'appui, cible au dépôt) — indépendant de la cliquabilité.
+    413      /// Fenêtre **interactive** (`InteractiveViewer`) la plus au-dessus sous `point` :
+    414      /// (id, sa fenêtre écran). Le shell y route le pan et le zoom.
+    423      /// Fenêtres interactives `(id, fenêtre écran)`, pour piloter l'inertie (fling) et
+    424      /// le bornage du pan côté framework.
+    430  /// Identité du `index`-ième enfant : **par clé** si l'enfant en déclare une
+    431  /// (stable quel que soit sa position), sinon **positionnelle**. Doit être utilisée
+    432  /// partout où l'on dérive une identité d'enfant (rendu, collecte, recherche,
+    433  /// animations) pour rester cohérent.
+    441  /// Style **effectif** d'un widget pour le layout : son `style()`, dont la taille
+    442  /// est **remplacée par la taille interpolée** du runtime si le widget est animé
+    443  /// (`Widget::anim_size` + `Container::animated_size`). C'est le seul point où la
+    444  /// taille animée entre dans la mise en page — utilisé **à l'identique** par
+    445  /// [`build_layout`] et par l'empreinte du cache (`hash_node`), garantissant leur
+    446  /// cohérence (le cache s'invalide tant que la taille bouge).
+    467  /// Construit l'arbre de layout principal (un défilable est une **feuille**).
+    468  /// `id`/`runtime` servent à injecter la taille animée via [`effective_style`],
+    469  /// en suivant **exactement** le schéma d'identités du walk (`child_id`).
+    476      // `RotatedBox` : feuille dont la boîte est la taille **naturelle** de l'enfant,
+    477      // dimensions **échangées** pour un quart de tour impair (la rotation affecte la
+    478      // mise en page). L'enfant lui-même est posé à part (au rendu).
+    493      // Défilables, fenêtres interactives, ajusteurs (`FittedBox`), navigateurs, listes
+    494      // virtualisées et piles : contenu mis en page à part (couches / écrans / éléments
+    495      // indépendants, ou enfant posé à sa taille naturelle).
+    506      // Un portail ne met en page que son ancre (enfant 0) ; l'overlay est différé.
+    514          // Feuille à mesure sous contraintes (paragraphe qui se replie…) : taffy
+    515          // interroge la closure pendant le calcul.
+    537  /// Taille **naturelle** (intrinsèque) d'un sous-arbre : mise en page sous des axes
+    538  /// libres (`MaxContent`), sans contrainte imposée. Sert à `RotatedBox` (dimensions à
+    539  /// échanger) et — au rendu — à `FittedBox` (facteur d'ajustement).
+    557      /// Début du scope de focus de l'overlay modal le plus au-dessus.
+    564      /// Overlays différés : (contenu, id, bornes de l'ancre, placement, fermeture,
+    565      /// progression `0..=1`). La progression anime l'apparition (tiroir qui glisse,
+    566      /// voile qui se fond) ; elle vaut `1.0` pour les overlays non animés.
+    576      /// Un widget demande une animation continue (pilotée par le temps).
+    581      /// Collecte de l'inspecteur (`Some` seulement quand il est actif) : un
+    582      /// nœud par widget peint, dans l'ordre de peinture.
+    584      /// Profondeur courante du walk (pour l'indentation du dump et le nuancier
+    587      /// Direction de mise en page : en RTL, les rectangles de chaque racine sont
+    588      /// **retournés** horizontalement autour de la largeur de la racine.
+    590      /// Nœuds d'accessibilité collectés pendant le walk (ordre de peinture).
+    595      /// Rectangles d'une racine de layout, via le cache de relayout retenu dans le
+    597      /// changé). Emprunt mutable bref : la `Vec` renvoyée est possédée.
+    599      /// En **RTL**, taffy calcule en LTR (canonique, mis en cache), puis on
+    600      /// **miroite** chaque rectangle autour de la largeur de la racine (le 1ᵉʳ
+    601      /// rect) : les rangées s'inversent, l'alignement et les marges se
+    602      /// retournent — sans toucher aux widgets. Le texte, lui, se dessine
+    603      /// normalement dans sa boîte déplacée (le bidi *interne* est géré par
+    615      /// Retourne horizontalement les rectangles d'une racine (RTL). Le premier
+    616      /// rect est la racine elle-même : sa largeur est l'axe de symétrie.
+    624          // Axe : les rects sont relatifs à la racine (origine à root.x).
+    630      /// Empreinte 64-bit de tout ce que la peinture d'un sous-arbre de frontière
+    631      /// lit **sans** reconstruire la `view` : le `Status` de chaque descendant
+    632      /// (dans l'ordre du walk) et les rectangles absolus du sous-arbre. Empreinte
+    633      /// + génération inchangées ⇒ peinture bit-à-bit identique. Le temps est
+    634      /// exclu (une frontière cachable ne contient aucun widget `continuous`).
+    656      /// Ajoute à `h` le `Status` de `widget` puis, récursivement, de ses enfants
+    657      /// — **exactement** le schéma d'identités du walk (`child_id`), donc aligné
+    658      /// sur l'ordre dans lequel `walk_node` les peint.
+    666      /// Longueurs courantes des collectes du builder : la borne basse des tranches
+    667      /// à capturer pour une frontière (voir [`capture_since`](Self::capture_since)).
+    683      /// Capture la sortie produite depuis `snap` (les *tranches de queue* des
+    684      /// collectes) en une [`BoundaryData`]. Renvoie `None` — donc **non
+    685      /// cachable** — si le sous-arbre a poussé un overlay ou touché le scope de
+    686      /// focus modal (état global non capturable ici).
+    704      /// Rejoue une frontière depuis le cache : primitives déjà formées (découpe/
+    705      /// propriétaire baked) et cartes d'interaction, ajoutées telles quelles.
+    719      /// Bornes basses des registres d'interaction **avant** un sous-arbre composité transformé.
+    732      /// Applique la transformation de calque `matrix` aux entrées de registre **ajoutées depuis**
+    733      /// `base` : le point de test des cibles de clic / appui long passe par `M⁻¹` (sans écraser une
+    734      /// transformation intérieure déjà posée) ; et si `matrix` conserve l'alignement sur les axes
+    735      /// (échelle/translation, sans rotation), les **rectangles** de focus / défilement / glisser /
+    736      /// **réordonnancement** / accessibilité sont mappés exactement par `M` (sinon laissés tels
+    737      /// quels — le clic reste juste via `M⁻¹`). **Facteur commun** des deux sites de composition
+    738      /// transformée (frontière de `walk` et `emit_transformed_child`) : un seul endroit à tenir à
+    739      /// jour, qui n'oublie aucun registre (le jalon 250 avait justement oublié `reorderables` dans
+    740      /// l'un des deux).
+    768      /// Point d'entrée du parcours d'un nœud. Si le nœud est une **frontière de
+    769      /// repaint** cachable, tente de rejouer son sous-arbre depuis le cache de
+    770      /// peinture ; sinon (ou sur *miss*), délègue au parcours complet
+    771      /// [`walk_node`](Self::walk_node) en capturant sa sortie pour la prochaine
+    772      /// frame. Toutes les récursions passent par ici → les frontières imbriquées
+    783          // Groupe d'opacité (Opacity/AnimatedOpacity) : on peint le sous-arbre
+    784          // normalement puis on **draine** sa plage de primitives dans un calque
+    785          // composité à l'opacité de groupe (façon `saveLayer` de Flutter — pas de
+    786          // double-superposition). L'opacité animée est la valeur tweenée par le
+    787          // runtime ; sinon la cible fixe. Opaque (≈1) : aucun calque (coût nul).
+    804              // Totalement opaque : rendu normal (pas de calque inutile).
+    807          // Découpe **en forme** (`ClipRRect` / `ClipOval`) : on peint le sous-arbre
+    808          // normalement, borné à la boîte du widget, puis on **draine** ses primitives
+    809          // dans un calque composité dont la forme (arrondi / ellipse) module l'alpha —
+    810          // les coins débordants sont gommés au compositing (façon `ClipRRect` de
+    811          // Flutter). La boîte de la forme est le rectangle de découpe du calque.
+    812          // Découpe en forme : `ClipPath` (chemin arbitraire, prioritaire) ou
+    813          // `ClipRRect`/`ClipOval` (forme analytique). Le chemin local est **décalé à la
+    814          // position écran** de la boîte.
+    821                  .expect("clip_path ou clip_shape est Some");
+    837          // Transformations de peinture composables (`Transform` : échelle et/ou
+    838          // rotation ; la translation, elle, passe par le décalage d'enfant). On fond
+    839          // échelle et rotation en **une seule matrice affine** `M`, on peint le
+    840          // sous-arbre **à plat**, puis on l'enveloppe dans un calque composité
+    841          // transformé par `M`. Le hit-test applique `M⁻¹` au point. La translation,
+    842          // appliquée en amont via `child_offset`, est la plus intérieure.
+    848              // Pivots pris sur la boîte de l'**enfant** (nœud suivant dans l'ordre
+    849              // préfixe) : c'est lui qu'on transforme, et sa boîte épouse le contenu
+    850              // même quand la boîte du Transform est étirée par le parent.
+    859              // Composition : échelle (autour de son pivot) **puis** rotation (autour du
+    860              // sien). En RTL, le monde est retourné → sens de rotation inversé.
+    873              // Enveloppe la plage de primitives — peinte à plat — dans un calque
+    874              // transformé par `M` (échelle/rotation appliquées au compositing).
+    884              // Contre-transforme le hit-test et mappe les rectangles d'interaction du sous-arbre.
+    889          // L'inspecteur veut un walk complet (il collecte chaque nœud) ; on ne
+    897                  // Hit : même génération (config) + même empreinte (état+géométrie)
+    898                  // ⇒ la peinture serait identique. On clone la sortie et la rejoue.
+    913                  // Miss : peint normalement, en capturant la sortie du sous-arbre
+    914                  // (primitives + cartes d'interaction) pour la prochaine frame.
+    930      /// Peint un enfant **à plat** (posé à part, à `translation`, avec ses propres
+    931      /// rectangles) puis l'enveloppe dans un calque composité transformé par `matrix`,
+    932      /// découpé à `clip`. Le hit-test contre-transforme le point (`M⁻¹`) ; si `matrix`
+    933      /// reste alignée sur les axes (échelle/translation), les bornes de focus /
+    934      /// défilement / glisser / accessibilité sont aussi transformées. Facteur commun de
+    984          // Un widget a pu resserrer la découpe (ex. TextInput) : on la restaure.
+   1015              // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
+   1019              // Champ **multi-lignes** dont le contenu déborde : région scrollable
+   1020              // (molette/inertie via la machinerie générique ; le shell suit le caret)
+   1021              // + une barre de défilement glissable (souris et tactile).
+   1046                  // Transition : deux écrans décalés. L'écran « arrière » (offset
+   1047                  // négatif) se déplace moins (parallaxe) → sensation de profondeur.
+   1062                  // Ordre de profondeur : le plus décalé à gauche (arrière) d'abord.
+   1071                  // Assombrit l'écran arrière proportionnellement à son recouvrement.
+   1098              // Fenêtre **interactive** (`InteractiveViewer`) : l'enfant remplit la
+   1099              // fenêtre à l'échelle 1, puis on lui applique la transformation retenue
+   1100              // (échelle + translation, gestes du shell) via **un seul calque** portant
+   1101              // à la fois la matrice `M` et la découpe à la fenêtre.
+   1131              // `RotatedBox` : l'enfant, mesuré à sa taille **naturelle**, est centré dans
+   1132              // la boîte (dimensions échangées pour un quart impair, cf. `build_layout`)
+   1133              // puis tourné autour du centre. La rotation, appliquée au compositing, ne
+   1134              // reste pas alignée sur les axes pour un quart impair (bornes de focus
+   1135              // laissées telles quelles — le clic, lui, reste juste via `M⁻¹`).
+   1165              // `FittedBox` : l'enfant, mesuré à sa taille **naturelle**, est mis à
+   1166              // l'échelle selon le `BoxFit` (uniforme, sauf `Fill`), centré, découpé à la
+   1167              // boîte. L'échelle reste alignée sur les axes → les bornes de focus suivent.
+   1235              // Barres de défilement, par-dessus le contenu (non découpées par lui).
+   1244              // Liste virtualisée : ne construire/poser/peindre que la fenêtre visible.
+   1283              // Construit le contenu à partir de la boîte réelle, puis le met en page
+   1284              // et le rend à l'intérieur (comme un élément de liste : sans état retenu).
+   1305              // Pile : chaque couche remplit la boîte, rendue dans l'ordre.
+   1325              // Ancre (enfant 0) rendue inline ; overlay (enfant 1) différé.
+   1334              // Progression d'apparition : pour un overlay animé (tiroir), la valeur
+   1335              // interpolée par le runtime ; sinon `1.0` (affiché d'emblée). Sans
+   1336              // valeur enregistrée (rendu isolé), on adopte la cible immédiatement.
+   1339              // Un tooltip ne s'affiche que si l'ancre est survolée ; un overlay animé
+   1340              // disparaît une fois sa progression retombée à zéro.
+   1358              // Ancrage fractionnel (`Container::alignment`) + décalage de peinture
+   1359              // (`Transform::translate`) : décalent le sous-arbre. `(0, 0)` sinon →
+   1376      /// Décalage à appliquer au sous-arbre d'un enfant : somme de l'**ancrage
+   1377      /// fractionnel** (`Widget::alignment`, un enfant unique glissé dans l'espace
+   1378      /// libre) et du **décalage de peinture** (`Transform::translate`, tout le
+   1379      /// sous-arbre décalé sans toucher la mise en page). `(0, 0)` par défaut. Étant
+   1380      /// ajouté à la translation du walk, ce décalage suit primitives **et** hit-test.
+   1392          // Ancrage fractionnel : vise un enfant unique (façon Flutter). taffy a posé
+   1393          // l'enfant en haut-gauche (Start/Start) à sa taille naturelle ; on le glisse
+   1396              // Résout l'ancrage (physique ou directionnel) selon le sens de lecture ;
+   1397              // `resolve` produit un `Alignment` physique que la suite (avec sa
+   1398              // correction RTL) traite uniformément.
+   1409              // En RTL, taffy pose l'enfant à gauche puis `mirror` l'a renvoyé à
+   1410              // droite : la base est donc déjà l'ancrage droit. On retranche 1 pour que
+   1411              // la fraction reste **physique** (x = +1 ⇒ droite dans les deux sens).
+   1417          // Décalage de peinture (`Transform::translate`) : en RTL, l'axe x du monde
+   1418          // est retourné, donc un décalage +x logique (« vers la fin ») pointe vers la
+   1419          // gauche — on inverse le signe pour rester cohérent avec le sens de lecture.
+   1428      /// Enregistre le widget dans la collecte de l'inspecteur (si active) et
+   1429      /// ouvre un niveau de profondeur — chaque chemin de rendu le referme en
+   1444      /// d'animation + curseur/sélection éventuels.
+   1465      /// Anneau de focus générique (widgets qui ne gèrent pas le leur).
+   1472          // L'anneau générique n'apparaît que si la dernière interaction était
+   1473          // **clavier** (`focus_visible`) — un clic ne fait pas flasher d'anneau.
+   1496      /// Rend un **élément de liste virtualisée** : construit à la volée, il ne peut
+   1497      /// pas différer d'overlay (d'où un rendu propre, sans les branches spéciales).
+   1549              // Arbre d'accessibilité : nœuds porteurs de sens (rôle ou libellé).
+   1556          // Ancrage fractionnel + décalage de peinture, comme dans le walk principal
+   1557          // (un enfant de liste virtualisée / `layout_builder` peut être un conteneur
+   1558          // ancré ou transformé).
+   1573      /// Met en page un écran plein-fenêtre et le rend décalé de `off_x`.
+   1599      /// Traite les overlays différés : sous-layout, positionnement et rendu
+   1600      /// **au-dessus** de tout (leurs zones cliquables priment). Peut engendrer
+   1601      /// d'autres overlays (portails imbriqués).
+   1607              // Les tiroirs glissent selon une **courbe en ressort** (arrivée douce),
+   1608              // pas linéairement ; les autres overlays gardent leur progression brute.
+   1617              // Taille naturelle du contenu. Un tiroir (`Left`) est contraint en
+   1618              // hauteur à la fenêtre (son panneau `Percent(1.0)` se déploie),
+   1619              // largeur libre ; les autres overlays prennent leur taille naturelle.
+   1622                  // La feuille est pleine-largeur (contrainte à la fenêtre), hauteur
+   1623                  // naturelle : son panneau `Percent(1.0)` en largeur se déploie.
+   1637              // Glissements d'un tiroir depuis le bord gauche / droit.
+   1640              // Menu/tooltip ancré : aligné au bord **de départ** de l'ancre — en
+   1641              // RTL, ce bord est la droite (le menu s'ouvre vers la gauche).
+   1654                  // `Left` = tiroir du côté **start** ; en RTL, start = droite.
+   1657                  // `Right` = côté **end** ; en RTL, end = gauche.
+   1660                  // La feuille glisse depuis le bas : le bord bas reste collé à la
+   1661                  // fenêtre, décalée de `(1-progress)·hauteur` vers le bas.
+   1665              // Auto-flip : si un overlay ancré déborde d'un bord, on le bascule /
+   1666              // le recale à l'intérieur de la fenêtre.
+   1668                  // Débordement vertical → basculer de l'autre côté de l'ancre.
+   1680                  // Débordement horizontal → recaler dans la fenêtre.
+   1693                  // Voile derrière la modale / le tiroir (rôle `scrim`), modulé par
+   1694                  // la progression (fondu synchronisé avec le glissement).
+   1701              // Fermeture au clic **hors** du contenu (modale, menu…) : un hit plein
+   1702              // écran ajouté **avant** le contenu, donc battu par lui au recouvrement.
+   1703              // La fermeture est aussi mémorisée pour Échap (le dernier rendu = le
+   1704              // plus au-dessus).
+   1715              // Overlay **modal** (voilé) ou **ancré piégeant** (menu) : ses focusables forment
+   1716              // un **scope** qui piège Tab/flèches/focus au clic. Le dernier rendu (le plus
+   1717              // au-dessus) l'emporte ; les overlays ancrés non piégeants (tooltip, liste
+   1718              // d'autocomplétion) ne piègent pas.
+   1734      /// Dessine une barre de défilement (piste + poignée) et l'enregistre pour
+   1735      /// le hit-test au glissement.
+   1797  /// Traduit un arbre de widgets en [`Ui`] pour une taille, un état runtime et un
+   1798  /// thème donnés.
+   1808  /// Comme [`build_ui`], en collectant aussi les **nœuds d'inspection** (un par
+   1809  /// widget peint : nom, boîte, profondeur) — la matière de l'inspecteur runtime
+   1810  /// et du dump diagnostique. À réserver aux frames où l'inspecteur est actif.
+   1857      // Racine mirroitée en RTL (comme toute racine de layout).
+   1869      // Overlays (menus flottants, modales, tooltips) par-dessus tout le reste.
+   1870      // (Leur walk repart de la profondeur 0 : des racines pour l'inspecteur.)
+   1873      // Fin de frame : oublie les racines de layout et les frontières de repaint
+   1874      // des widgets disparus, et fige les compteurs de diagnostic des caches.
+   1878      // Rejoue les sous-arbres sortants, en fondu, par-dessus la scène courante.
+   1904  /// Collecte les identités de tous les widgets de l'arbre (ordre préfixe),
+   1905  /// selon le même schéma positionnel que [`build_ui`]. Sert à détecter les
+   1906  /// montages/démontages entre deux frames.
+   1919  /// Identités du **sous-arbre** enraciné en `root_id` — le widget `widget` ayant cette identité —,
+   1920  /// soit `[root_id, …descendants]`, dérivées par le même schéma positionnel que [`collect_ids`].
+   1922  /// Sert au **fantôme de glisser** : les primitives d'une carte **riche** sont peintes par ses
+   1923  /// enfants (autres propriétaires que la carte). Pour capter tout son visuel, le shell rassemble les
+   1924  /// primitives de **tout** le sous-arbre, pas seulement celles de la carte elle-même.
+   1937  /// Identité du **premier** widget déclarant la clé `key` (hash), ou `None`. Sert au
+   1938  /// shell à résoudre une demande de focus par clé (`Command::focus`) : l'application
+   1939  /// enveloppe un champ dans `keyed(k, …)`, puis focalise par `k`.
+   1955  /// Retrouve le widget d'identité `target` dans l'arbre (identités positionnelles).
+   1956  /// Chemin de la **racine jusqu'au widget** d'identité `target` (`[racine, …,
+   1957  /// cible]`), pour la montée feuille→racine des touches. Vide si introuvable.
+   2034          // Un nœud par widget porteur de sens (le Flex conteneur est ignoré).
+   2039          // Le bouton porte son libellé et est actionnable.
+   2043          // La case cochée reflète son état.
+   2075          // A = bouton fixe 120 px (à gauche en LTR), B = reste flexible.
+   2090          // LTR : le bouton A occupe le bord gauche.
+   2093          // RTL : tout est retourné — A passe à droite, B occupe la gauche.
+   2094          assert_eq!(hit(&rtl, 360.0), Some(Msg::A), "A à droite en RTL");
+   2095          assert_eq!(hit(&rtl, 40.0), Some(Msg::B), "B à gauche en RTL");
+   2106          // Position du suiveur cliquable : premier y touché en balayant.
+   2115          let long = "un paragraphe assez long pour se replier sur plusieurs lignes";
+   2118          // Le rendu du paragraphe porte sa largeur de repli (≤ colonne).
+   2127              .expect("paragraphe replié");
+   2128          assert!(max_w <= 120.5, "repli à la largeur de la colonne : {max_w}");
+   2130          // Le texte replié occupe plusieurs lignes : le suiveur est repoussé.
+   2132          assert!(y_long > 30.0, "suiveur repoussé par le repli : {y_long}");
+   2134          // MÊME structure/styles, contenu différent, MÊME runtime (cache chaud) :
+   2135          // la clé de mesure doit invalider le cache — sinon vieux rectangles.
+   2145              "contenu plus court → suiveur plus haut (cache invalidé) : {y_short} vs {y_long}"
+   2153          // Frame 1 : rien en cache → recalcul (au moins la racine).
+   2156          assert_eq!(hits1, 0, "1re frame : aucune réutilisation");
+   2157          assert!(misses1 >= 1, "1re frame : au moins un calcul");
+   2159          // Frame 2 : même arbre, mêmes contraintes → la racine est réutilisée.
+   2162          assert_eq!(hits2, 1, "2e frame : racine réutilisée");
+   2163          assert_eq!(misses2, 0, "2e frame : aucun recalcul");
+   2165          // Frame 3 : fenêtre redimensionnée → contraintes changées → recalcul.
+   2179          // Fond : deux boutons focusables ; modale ouverte : deux boutons aussi.
+   2198          // Tab entre dans le piège (premier focusable de la modale), et y boucle.
+   2207              "Tab boucle dans la modale"
+   2210          // Les flèches restent dans le scope : rien au-dessus du dialogue.
+   2214              .expect("droite");
+   2217          // Le focus au pointeur ignore le fond (le bouton bg1 est en haut-gauche).
+   2224          // Sans modale : pas de piège, Tab commence au fond.
+   2255          // Tab entre dans les items du menu et y **boucle** (fond et ancre hors scope).
+   2264              "Tab boucle dans le menu ouvert"
+   2266          // Le fond (haut-gauche) est hors du scope pendant que le menu est ouvert.
+   2273          // Menu **fermé** : aucun piège, Tab commence au fond.
+   2291              "sans menu ouvert, pas de piège"
+   2298          // Un portail ouvert (modale avec fermeture) autour d'un ancrage cliquable.
+   2318          // La fermeture du dessus est celle du portail.
+   2321          // Focus « dans le dialogue » : le chemin racine→contenu passe par le
+   2322          // portail, qui consomme Échap en montée. (Le contenu Center 80×40 est
+   2323          // centré dans 300×200 → son centre est à (150, 100).)
+   2328          assert!(path.len() >= 3, "racine, portail, contenu : {}", path.len());
+   2332              "la cible ferme le chemin"
+   2344              "le portail consomme Échap en montée"
+   2361          // Un conteneur à appui long contenant un enfant à appui long : le point
+   2362          // dans l'enfant renvoie le message de l'enfant (le plus au-dessus).
+   2412          // Sans progression : couleur de base (rouge).
+   2416              panic!("attendu un rectangle");
+   2419          // Progression pleine : couleur de survol (vert).
+   2438              panic!("attendu un rectangle");
+   2444          // Un champ multi-lignes dont le contenu dépasse `rows` s'enregistre comme
+   2445          // zone défilable (avec `max_y > 0`) — c'est ce que la molette et la barre
+   2446          // ciblent. Un champ court, lui, ne s'enregistre pas.
+   2455          assert_eq!(maxes.len(), 1, "le champ débordant s'enregistre");
+   2456          assert!(maxes[0].2 > 0.0, "max_y > 0 (contenu débordant)");
+   2466              "un champ court ne défile pas"
+   2472          // Invariant du correctif de clic (J39) : un bouton focusable ne renvoie PAS
+   2473          // de curseur (`cursor_at` = None), donc le shell ne démarre pas de sélection
+   2474          // texte dessus et ne capture pas le clic. Seuls les champs texte en posent un.
+   2492          assert_eq!(ui.focusables.len(), 2, "les deux boutons sont focusables");
+   2526              "un bouton focalisé au clavier a un anneau générique"
+   2528          // Focus obtenu au pointeur : pas d'anneau (FocusHighlightMode).
+   2532              "un clic ne fait pas flasher d'anneau"
+   2539              "le champ gère son propre focus"
+   2545          // Grille 2×2 de boutons ; on identifie chaque cible par son message.
+   2566          // Droite : a → b ; bas : a → c ; et rien à gauche de a.
+   2569              .expect("droite");
+   2573              .expect("bas");
+   2576          // Diagonale contrôlée : depuis b, bas → d (aligné), pas c.
+   2579              .expect("bas depuis b");
+   2598                  .expect("primitive présente")
+   2601          // Liste [rouge(clé 1), vert(clé 2), bleu(clé 3)].
+   2613          // Liste [rouge(1), bleu(3)] : le vert du milieu est retiré → bleu passe de l'indice 2 à 1.
+   2624          // L'identité (owner) du bleu (clé 3) est INCHANGÉE malgré le décalage de position.
+   2627          // Sans clé, l'identité positionnelle du 2e enfant CHANGE (indice 2 vs 1).
+   2652          // Une modale Center avec `.dismiss` : cliquer le voile (hors contenu)
+   2653          // renvoie le message de fermeture ; cliquer le contenu ne le renvoie pas.
+   2668          // Coin supérieur gauche : sur le voile → ferme.
+   2681          let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("champ");
+   2683          let widget = find_widget(&tree, id).expect("widget trouvé");
+   2697          // Deux champs nommés : `find_by_key` retrouve l'identité de focus de chacun
+   2698          // (celle que le hit-test attribuerait), et distingue les clés.
+   2715          let email = find_by_key(&tree, hash("email")).expect("email trouvé");
+   2716          let password = find_by_key(&tree, hash("password")).expect("password trouvé");
+   2717          assert_ne!(email, password, "clés distinctes → identités distinctes");
+   2718          // L'identité résolue est bien l'identité par clé (stable, indépendante de la
+   2723              "clé inconnue → None"
+   2726          // Et surtout : c'est **exactement** l'identité que le hit-test de focus
+   2727          // attribuerait à ce champ — donc poser ce focus route bien vers lui.
+   2732              .expect("champ email sous le curseur");
+   2733          assert_eq!(email, hit_id, "find_by_key == identité de focus du champ");
+   2777          // La carte **et** la zone de dépôt sont enregistrées comme réordonnables.
+   2780              "carte + zone de dépôt dans le registre des réordonnables"
+   2782          // Un point sur la carte est **saisissable** (réordonnable) mais **non cliquable** — c'est tout
+   2783          // l'intérêt du registre : sans lui, `ui.hit` seul ne trouverait pas la carte.
+   2788              "la carte est saisissable au point"
+   2792              "…mais pas cliquable (absente du registre de hits)"
+   2794          // `widget_rect` doit retrouver la carte **via le repli réordonnable** (elle n'est pas
+   2795          // focusable) : sinon l'aperçu de glisser vertical du shell ne démarre jamais.
+   2799              "widget_rect retombe sur le registre réordonnable"
+   2805          // Scénario des jalons 258/260 : le board (avec ses cartes réordonnables) est **enveloppé
+   2806          // dans un `Scroll`**. Les réordonnables doivent rester enregistrés — sinon glisser une carte
+   2807          // ne s'engage plus dès que le board défile.
+   2819              "carte + zone de dépôt réordonnables même dans un Scroll (obtenu : {})",
+   2826          // Jalon 264 : `card_area_height` place les cartes de chaque colonne dans un `Scroll`
+   2827          // **vertical à hauteur explicite** (façon Trello). C'est exactement le cas qui *s'effondrait*
+   2828          // au jalon 263 (flex-scroll sans hauteur d'ancêtre définie → cartes découpées à zéro, plus
+   2829          // réordonnables). Avec une hauteur **définie**, les cartes visibles doivent rester
+   2830          // enregistrées comme réordonnables — garde-fou contre une régression du glisser par colonne.
+   2839              "2 cartes + zone de dépôt réordonnables dans un scroll vertical à hauteur définie \
+   2840               (obtenu : {})",
+   2847          // Jalon 266 : `Kanban::scrollable_columns()` fait **remplir** aux colonnes la hauteur du
+   2848          // board (posé dans un ancêtre à hauteur définie), et chaque colonne défile ses cartes
+   2849          // verticalement **sans hauteur explicite** (le flex fait le calcul, plus de stopgap J264).
+   2850          // On vérifie qu'au moins une colonne a un `Scroll` vertical dont le viewport **remplit** la
+   2851          // hauteur (bien plus que le défaut 200) et **défile** (max_y > 0), preuve du fill-then-scroll.
+   2853          // Assez de cartes pour **déborder** le viewport rempli (sinon max_y = 0 : rien à défiler).
+   2858          // Imbrication de `board_screen` : le board dans un **simple `Container` à padding** (la marge
+   2859          // visuelle), lui-même dans un Scroll horizontal `flex(1)`, dans un écran (Flex colonne) à
+   2860          // hauteur bornée. Ce `Container` `Auto` **s'effondrait** au jalon 266 (d'où le contournement
+   2861          // `Flex` `flex(1)`) ; depuis que `compute_scroll` **remplit l'axe contraint**, il remplit la
+   2862          // hauteur du viewport et le board suit — plus besoin de conteneur « remplisseur ».
+   2876          // Un scroll **vertical** de colonne : viewport haut (remplit) et défilable.
+   2883              "une colonne remplit la hauteur du board puis défile (scrollables: {:?})",
+   2891          // Racine (Container) > Flex(colonne) > [Text, Text].
+   2898          // Depuis la racine : identique à `collect_ids` (même parcours positionnel).
+   2900          // Le sous-arbre d'un enfant commence par sa propre identité et reste un sous-ensemble
+   2901          // **strict** de l'arbre (le fantôme d'une carte riche capte ainsi tout son contenu).
+   2906              "le sous-arbre commence par l'identité fournie"
+   2910              "sous-ensemble de l'arbre incluant les descendants"
+   2921              panic!("aucun rectangle");
+   2925      /// Un sous-arbre statique sous `RepaintBoundary` (contenu mêlé texte +
+   2926      /// boîtes) — assez pour produire plusieurs primitives.
+   2944          // Frame 1 : rien en cache → 1 miss (peinture complète), sous-arbre capturé.
+   2946          // On compare les **primitives** (l'état ambiant transitoire de la scène —
+   2947          // découpe/propriétaire courants — n'est pas rendu).
+   2951          // Frame 2 : même génération + même état → la frontière est réutilisée.
+   2957              "frontière réutilisée"
+   2961              "la scène rejouée est bit-à-bit identique au repaint complet"
+   2963          // Les cartes d'interaction sont aussi rejouées (le clic reste routable).
+   2965          assert!(!ui2.hits.is_empty(), "le hit du sous-arbre est bien rejoué");
+   2977          // Reconstruction de la `view` (config potentiellement changée).
+   2983              "génération périmée → repaint complet"
+   2996          // Sans reconstruction, mais l'état d'interaction d'un descendant change
+   2997          // (survol animé de la frontière) → l'empreinte diffère → repaint.
+   3010              "état d'interaction changé → repaint complet"
+   3013          // Une fois l'état stabilisé, la frontière se réutilise de nouveau.
+TOTAL 1410 in 23 files

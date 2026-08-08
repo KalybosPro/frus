@@ -552,11 +552,11 @@ mod tests {
         shapes(ui.scene().primitives(), &mut found);
         assert!(
             found.contains(&ClipShape::RRect(BorderRadius::uniform(24.0))),
-            "ClipRRect(24) rendu : {found:?}"
+            "ClipRRect(24) rendered: {found:?}"
         );
         assert!(
             found.contains(&ClipShape::Oval),
-            "ClipOval rendu : {found:?}"
+            "ClipOval rendered: {found:?}"
         );
         assert!(
             found.iter().any(|s| matches!(s, ClipShape::Path(_))),

@@ -10,7 +10,7 @@ use crate::widget::Widget;
 
 const REMOVE: f32 = 16.0;
 
-/// La croix de suppression (cliquable) d'un chip.
+/// A chip's (clickable) delete cross.
 struct Remove<Msg> {
     message: Msg,
 }
@@ -129,7 +129,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // La croix est peinte…
+        // The cross is painted…
         assert!(ui
             .scene()
             .primitives()

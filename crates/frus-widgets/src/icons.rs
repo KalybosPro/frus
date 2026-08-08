@@ -103,7 +103,7 @@ fn eye(off: bool) -> Path {
             (l, top, r, bot)
         }
     };
-    // Contour externe (amande large) : gauche → (haut) → droite → (bas) → gauche.
+    // Outer outline (a wide almond): left → (top) → right → (bottom) → left.
     let (l1, c1a, r1, c1b) = almond(10.0, -2.0, 26.0, false);
     let mut path = Path::new()
         .move_to(l1)
@@ -285,7 +285,7 @@ mod tests {
             assert!(!path.is_empty(), "{name:?} devrait produire un chemin");
             assert!(
                 matches!(path.verbs().first(), Some(PathVerb::MoveTo(_))),
-                "{name:?} devrait commencer par un MoveTo"
+                "{name:?} should start with a MoveTo"
             );
         }
     }

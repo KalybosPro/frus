@@ -16,7 +16,7 @@ pub struct Stepper<Msg> {
     max: i32,
     step: i32,
     on_change: Box<dyn Fn(i32) -> Msg>,
-    /// `[−, valeur, +]`.
+    /// `[−, value, +]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 

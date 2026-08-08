@@ -355,7 +355,7 @@ mod tests {
     fn assert_close(value: f64, expected: f64, tolerance: f64, label: &str) {
         assert!(
             (value - expected).abs() <= tolerance,
-            "{label} : {value} attendu ≈ {expected} (± {tolerance})"
+            "{label}: {value}, expected ≈ {expected} (± {tolerance})"
         );
     }
 

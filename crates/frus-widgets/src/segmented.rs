@@ -166,12 +166,12 @@ mod tests {
         assert_eq!(fills.len(), 3, "trois remplissages de segments");
         assert!(
             fills[0].top_left > 0.0 && fills[0].top_right == 0.0,
-            "1er : gauche arrondi"
+            "1st: left rounded"
         );
-        assert_eq!(fills[1], BorderRadius::ZERO, "milieu : droit");
+        assert_eq!(fills[1], BorderRadius::ZERO, "middle: square");
         assert!(
             fills[2].top_right > 0.0 && fills[2].top_left == 0.0,
-            "dernier : droite arrondie"
+            "last: right rounded"
         );
     }
 }

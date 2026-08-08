@@ -1142,7 +1142,7 @@ mod tests {
             assert_eq!(color.a, 0.5);
             assert_eq!(owner, 42);
         } else {
-            panic!("attendu un rectangle");
+            panic!("expected a rect");
         }
     }
 
@@ -1172,7 +1172,7 @@ mod tests {
                 assert_eq!(*border_width, 2.0);
                 assert_eq!(*color, Color::rgb(1.0, 0.0, 0.0)); // colour unchanged
             }
-            _ => panic!("attendu un rectangle"),
+            _ => panic!("expected a rect"),
         }
         match &big.primitives()[1] {
             Primitive::Text {
@@ -1212,7 +1212,7 @@ mod tests {
                 assert_eq!(*clip, Rect::new(0.0, 0.0, 50.0, 50.0));
                 assert_eq!(*owner, 7);
             }
-            _ => panic!("attendu un calque"),
+            _ => panic!("expected a layer"),
         }
     }
 
@@ -1227,7 +1227,7 @@ mod tests {
         target.push_faded(&layer, 0.5);
         match &target.primitives()[0] {
             Primitive::Layer { opacity, .. } => assert!((*opacity - 0.4).abs() < 1e-6),
-            _ => panic!("attendu un calque"),
+            _ => panic!("expected a layer"),
         }
     }
 
@@ -1241,9 +1241,9 @@ mod tests {
         match &big.primitives()[0] {
             Primitive::Layer { primitives, .. } => match &primitives[0] {
                 Primitive::Rect { rect, .. } => assert_eq!(*rect, Rect::new(4.0, 6.0, 8.0, 10.0)),
-                _ => panic!("attendu un rectangle"),
+                _ => panic!("expected a rect"),
             },
-            _ => panic!("attendu un calque"),
+            _ => panic!("expected a layer"),
         }
     }
 
@@ -1256,7 +1256,7 @@ mod tests {
         if let Primitive::Rect { clip: c, .. } = scene.primitives()[0] {
             assert_eq!(c, clip);
         } else {
-            panic!("attendu un rectangle");
+            panic!("expected a rect");
         }
     }
 }

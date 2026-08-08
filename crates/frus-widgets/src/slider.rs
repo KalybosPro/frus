@@ -526,14 +526,14 @@ mod tests {
     fn range_of(msg: Option<Msg>) -> (f32, f32) {
         match msg {
             Some(Msg::Range(lo, hi)) => (lo, hi),
-            other => panic!("attendu Range, obtenu {other:?}"),
+            other => panic!("expected Range, got {other:?}"),
         }
     }
 
     fn range_of_key(resp: KeyResponse<Msg>) -> (f32, f32) {
         match resp {
             KeyResponse::Handled(msg) => range_of(msg),
-            other => panic!("attendu Handled, obtenu {other:?}"),
+            other => panic!("expected Handled, got {other:?}"),
         }
     }
 
@@ -558,9 +558,9 @@ mod tests {
         let (lo, hi) = range_of(t[0].on_drag_delta(10_000.0));
         assert!(
             (lo - 0.8).abs() < 1e-4 && (hi - 0.8).abs() < 1e-4,
-            "collant au haut ({lo}, {hi})"
+            "stuck to the top ({lo}, {hi})"
         );
-        // Delta nul : aucun message.
+        // A zero delta: no message.
         assert_eq!(t[0].on_drag_delta(0.0), None);
     }
 
@@ -635,7 +635,7 @@ mod tests {
         let (lo, hi) = range_of_key(t[1].on_key(&end));
         assert!(
             (lo - 0.3).abs() < 1e-4 && (hi - 1.0).abs() < 1e-4,
-            "haut Fin ({lo}, {hi})"
+            "upper End ({lo}, {hi})"
         );
     }
 

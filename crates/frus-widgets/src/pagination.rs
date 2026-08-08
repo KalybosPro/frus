@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn windows_pages_and_bounds_prev_next() {
-        // 10 pages, courante 5 → ‹ + [3 4 5 6 7] + › = 7 enfants.
+        // 10 pages, current 5 → ‹ + [3 4 5 6 7] + › = 7 children.
         let p = Pagination::new(5, 10, Msg::Page);
         let children = Widget::<Msg>::children(&p);
         assert_eq!(children.len(), 7);

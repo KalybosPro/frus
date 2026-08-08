@@ -440,7 +440,7 @@ mod tests {
             }
             prev = ctrl.value();
         }
-        assert!(max > 0.9, "atteint le haut (max = {max})");
+        assert!(max > 0.9, "reaches the top (max = {max})");
         assert!(saw_restart, "it restarts: the value drops back");
     }
 

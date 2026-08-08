@@ -191,7 +191,7 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.x - 30.0).abs() < 0.5 && (rect.y - 10.0).abs() < 0.5,
             "offset to (30, 10): {rect:?}"
@@ -297,7 +297,7 @@ mod tests {
         let c = m.apply(Point::new(0.0, 0.0));
         assert!(
             c.x.abs() < 0.5 && c.y.abs() < 0.5,
-            "coin haut-gauche fixe : {c:?}"
+            "top-left corner unmoved: {c:?}"
         );
     }
 

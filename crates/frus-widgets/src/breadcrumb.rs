@@ -148,7 +148,7 @@ mod tests {
         let children = Widget::<Msg>::children(&bc);
         // 3 segments plus 2 separators makes 5 children.
         assert_eq!(children.len(), 5);
-        // Enfant 0 = "Accueil" (lien) → Go(0).
+        // Child 0 = "Home" (a link) → Go(0).
         assert_eq!(children[0].on_click(), Some(Msg::Go(0)));
         // The last one, "Advanced", is current and so not clickable.
         assert_eq!(children[4].on_click(), None);

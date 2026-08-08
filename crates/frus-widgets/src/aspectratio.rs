@@ -90,7 +90,7 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.width - 100.0).abs() < 0.5 && (rect.height - 50.0).abs() < 0.5,
             "rapport 2.0 → 100×50 : {rect:?}"
@@ -116,7 +116,7 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.width - 100.0).abs() < 0.5 && (rect.height - 200.0).abs() < 0.5,
             "rapport 0.5 → 100×200 : {rect:?}"

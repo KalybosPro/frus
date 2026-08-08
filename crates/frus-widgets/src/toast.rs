@@ -280,12 +280,12 @@ impl<T> SnackbarQueue<T> {
         self.items.pop_front().map(|(item, _, _)| item)
     }
 
-    /// `true` si aucune notification n'est en attente.
+    /// `true` when no notification is pending.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// Nombre de notifications en file (visible + en attente).
+    /// Number of queued notifications (the visible one + those pending).
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn action_is_clickable_and_uppercased() {
-        // Sans action : aucun enfant.
+        // Without an action: no children.
         let plain = Toast::<Msg>::new("Item deleted");
         assert!(Widget::<Msg>::children(&plain).is_empty());
         // With an action: an uppercased button that emits the message.

@@ -481,7 +481,7 @@ mod tests {
             delta < 12.0,
             "teintes clair/sombre divergentes ({delta:.1}°)"
         );
-        // Et le sombre est bien… sombre.
+        // And the dark one is indeed… dark.
         assert!(dark.background.compute_luminance() < 0.1);
         assert!(light.background.compute_luminance() > 0.85);
     }
@@ -520,7 +520,7 @@ mod tests {
         let base = Color::rgb(0.4, 0.4, 0.4);
         let on = Color::BLACK;
 
-        // Au repos : aucune superposition.
+        // At rest: no overlay.
         let idle = Status::default();
         assert_eq!(theme.state_layer(base, on, &idle), base);
 

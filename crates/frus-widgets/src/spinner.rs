@@ -8,7 +8,7 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Nombre de points de la couronne.
+/// Number of dots in the ring.
 const DOTS: usize = 8;
 /// Tours par seconde.
 const SPEED: f32 = 1.1;

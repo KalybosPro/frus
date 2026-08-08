@@ -470,7 +470,7 @@ mod tests {
             .collect();
         assert!(
             texts.contains(&"Logo".to_string()),
-            "le widget-titre est rendu"
+            "the title widget is rendered"
         );
         assert!(
             !texts.contains(&"ignored".to_string()),

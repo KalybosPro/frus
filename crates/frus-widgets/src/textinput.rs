@@ -979,7 +979,7 @@ mod tests {
         let underlined = count_thin_rects(composing);
         assert!(
             underlined > plain,
-            "la composition doit souligner ({plain} → {underlined})"
+            "the composition must underline ({plain} → {underlined})"
         );
     }
 
@@ -1522,7 +1522,7 @@ mod tests {
         });
         assert!(
             rest_size > float_size,
-            "au repos le label est plus grand ({rest_size} → {float_size})"
+            "at rest the label is larger ({rest_size} → {float_size})"
         );
         assert!(
             float_y < rest_y,
@@ -1594,7 +1594,7 @@ mod tests {
                 )
                 .count()
         };
-        assert_eq!(count_texts(""), 1, "vide : l'indice s'affiche");
+        assert_eq!(count_texts(""), 1, "empty: the hint shows");
         assert_eq!(count_texts("hi"), 0, "rempli : pas d'indice");
     }
 

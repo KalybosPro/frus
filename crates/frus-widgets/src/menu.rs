@@ -182,7 +182,7 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Un clic loin de l'ancre (coin bas-droit) ferme le menu.
+        // A click far from the anchor (the bottom-right corner) closes the menu.
         let corner = ui.hit(P::new(390.0, 290.0)).expect("hit de fermeture");
         assert_eq!(ui.msg_for(corner), Some(Msg::Close));
     }

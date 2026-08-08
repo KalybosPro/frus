@@ -108,7 +108,7 @@ mod tests {
         );
         match scene.primitives()[0] {
             Primitive::Rect { color, .. } => color.a,
-            _ => panic!("attendu un rectangle"),
+            _ => panic!("expected a rect"),
         }
     }
 

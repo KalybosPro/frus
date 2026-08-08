@@ -103,7 +103,7 @@ mod tests {
                     Some(&frus_core::PathVerb::MoveTo(Point::new(10.0, 20.0)))
                 );
             }
-            _ => panic!("attendu un chemin rempli"),
+            _ => panic!("expected a filled path"),
         }
     }
 }

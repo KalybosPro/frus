@@ -284,7 +284,7 @@ mod tests {
         let expected = 400.0 - progress * sheet_h;
         assert!(
             (top - expected).abs() < 2.0,
-            "bord haut attendu ≈ {expected}, obtenu {top}"
+            "top edge expected ≈ {expected}, got {top}"
         );
     }
 }

@@ -496,7 +496,7 @@ mod tests {
         assert!((op - 0.5).abs() < 1e-6, "group opacity = {op}");
         assert!(
             n >= 1,
-            "le calque enveloppe le contenu peint ({n} primitives)"
+            "the layer wraps the painted content ({n} primitives)"
         );
     }
 
@@ -685,7 +685,7 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.x - 10.0).abs() < 1.0 && (rect.y - 10.0).abs() < 1.0,
             "the child is inset by ~10 by the interpolated padding: {rect:?}"
@@ -714,7 +714,7 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.x - 40.0).abs() < 1.0 && (rect.y - 40.0).abs() < 1.0,
             "centred: {rect:?}"
@@ -743,10 +743,10 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.x - 80.0).abs() < 1.0 && (rect.y - 80.0).abs() < 1.0,
-            "coin bas-droit : {rect:?}"
+            "bottom-right corner: {rect:?}"
         );
     }
 
@@ -775,7 +775,7 @@ mod tests {
                 Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(*rect),
                 _ => None,
             })
-            .expect("le fond rouge de l'enfant");
+            .expect("the child's red background");
         assert!(
             (rect.x - 60.0).abs() < 1.0 && (rect.y - 20.0).abs() < 1.0,
             "fractionnel : {rect:?}"
@@ -804,7 +804,7 @@ mod tests {
                     Primitive::Rect { rect, color, .. } if color.r > 0.5 => Some(rect.x),
                     _ => None,
                 })
-                .expect("le fond rouge de l'enfant")
+                .expect("the child's red background")
         };
         assert!(
             child_x(&crate::Theme::dark()).abs() < 1.0,
@@ -879,7 +879,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .expect("le fond vert du 2e enfant");
+            .expect("the 2nd child's green background");
         assert!(
             (rect.y - 30.0).abs() < 0.5 && (rect.x - 10.0).abs() < 0.5,
             "margin: pushed to y=30, inset to x=10: {rect:?}"

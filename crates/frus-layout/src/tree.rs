@@ -296,7 +296,7 @@ mod tests {
         // k0 and k1 on the first line; k2 comes back to the left, lower down.
         assert_eq!(k0.y, k1.y);
         assert_eq!(k2.x, k0.x);
-        assert!(k2.y >= k0.y + 40.0, "k2.y = {} attendu >= 40", k2.y);
+        assert!(k2.y >= k0.y + 40.0, "k2.y = {}, expected >= 40", k2.y);
     }
 
     #[test]

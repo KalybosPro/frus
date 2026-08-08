@@ -334,7 +334,7 @@ mod tests {
         enum Msg {
             Go(usize),
         }
-        // Sans on_tap : aucun enfant (purement visuel).
+        // Without on_tap: no children (purely visual).
         let plain = Steps::<Msg>::new(["A", "B", "C"]).current(1);
         assert!(Widget::<Msg>::children(&plain).is_empty());
         // With on_tap: a row of children whose every marker emits its index.
@@ -345,6 +345,6 @@ mod tests {
         assert_eq!(spots.len(), 3, "one hotspot per step");
         assert_eq!(spots[0].on_click(), Some(Msg::Go(0)));
         assert_eq!(spots[2].on_click(), Some(Msg::Go(2)));
-        assert!(spots[0].focusable(), "un hotspot est focalisable");
+        assert!(spots[0].focusable(), "a hotspot is focusable");
     }
 }

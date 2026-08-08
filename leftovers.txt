@@ -1,0 +1,161 @@
+=== crates\frus-core\src\decoration.rs (1)
+    263          // 2/3) Background (flat or gradient) plus border, in a single primitive.
+=== crates\frus-core\src\hct.rs (1)
+    358              "{label} : {value} attendu ≈ {expected} (± {tolerance})"
+=== crates\frus-core\src\path.rs (4)
+      1  //! Vector paths: **arbitrary** 2D geometry (straight segments and Bézier curves),
+     19      /// A **quadratic** Bézier curve (one control point).
+     21      /// A **cubic** Bézier curve (two control points).
+    152      /// A circle, approximated by **four cubic arcs** (the Bézier constant `0.5523`,
+=== crates\frus-core\src\scene.rs (8)
+    483                  // encloses the Bézier controls and so is never smaller than the curve.
+   1145              panic!("attendu un rectangle");
+   1175              _ => panic!("attendu un rectangle"),
+   1215              _ => panic!("attendu un calque"),
+   1230              _ => panic!("attendu un calque"),
+   1244                  _ => panic!("attendu un rectangle"),
+   1246              _ => panic!("attendu un calque"),
+   1259              panic!("attendu un rectangle");
+=== crates\frus-core\src\animation\controller.rs (1)
+    443          assert!(max > 0.9, "atteint le haut (max = {max})");
+=== crates\frus-core\src\animation\curve.rs (3)
+     15      /// A cubic Bézier defined by its two control points `(x1,y1)` and `(x2,y2)` —
+    111  /// Evaluates the `y` coordinate of a cubic Bézier `cubic-bezier(x1, y1, x2, y2)`
+    116      // A 1D cubic Bézier: anchors 0 and 1, controls p1 and p2.
+=== crates\frus-core\src\animation\tween.rs (1)
+    294          // The bounds are still reached, to the Bézier solver's tolerance.
+=== crates\frus-gpu\Cargo.toml (1)
+      3  description = "frus — contexte GPU et moteur de rendu 2D (Jalon 0)"
+=== crates\frus-hello\web\README.md (1)
+     16  A browser with **WebGPU**: Chrome or Edge 113+, or Firefox with WebGPU enabled. WebGPU
+=== crates\frus-hello\web\index.html (1)
+     20        browser — Chrome or Edge 113+, or Firefox with WebGPU enabled — over
+=== crates\frus-layout\Cargo.toml (1)
+      3  description = "frus — moteur de mise en page (flexbox) au-dessus de taffy"
+=== crates\frus-layout\src\tree.rs (1)
+    299          assert!(k2.y >= k0.y + 40.0, "k2.y = {} attendu >= 40", k2.y);
+=== crates\frus-shell\src\app.rs (2)
+    505      /// docs/jalon-81.md.
+   1920      /// A pointer release, mouse or finger: it ends a drag, or commits a click or tap
+=== crates\frus-test\src\lib.rs (1)
+    169      if let Some(parent) = path.parent() {
+=== crates\frus-transforms\src\lib.rs (2)
+    555              "ClipRRect(24) rendu : {found:?}"
+    559              "ClipOval rendu : {found:?}"
+=== crates\frus-widgets\src\appbar.rs (1)
+    473              "le widget-titre est rendu"
+=== crates\frus-widgets\src\aspectratio.rs (2)
+     93              .expect("le fond rouge de l'enfant");
+    119              .expect("le fond rouge de l'enfant");
+=== crates\frus-widgets\src\bottomsheet.rs (1)
+    287              "bord haut attendu ≈ {expected}, obtenu {top}"
+=== crates\frus-widgets\src\breadcrumb.rs (1)
+    151          // Enfant 0 = "Accueil" (lien) → Go(0).
+=== crates\frus-widgets\src\chart.rs (1)
+   1152                  // The value (or the % share) at the centre of the band on each category, where the
+=== crates\frus-widgets\src\chip.rs (2)
+     13  /// La croix de suppression (cliquable) d'un chip.
+    132          // La croix est peinte…
+=== crates\frus-widgets\src\clip.rs (2)
+     23  /// ClipRRect::rounded(BorderRadius::top(16.0)).child(header)          // haut arrondi
+    325              .expect("le fond vert du 2e enfant");
+=== crates\frus-widgets\src\container.rs (9)
+    370              self.pressed_color.or(self.hover_color).or(self.color)
+    499              "le calque enveloppe le contenu peint ({n} primitives)"
+    688              .expect("le fond rouge de l'enfant");
+    717              .expect("le fond rouge de l'enfant");
+    746              .expect("le fond rouge de l'enfant");
+    749              "coin bas-droit : {rect:?}"
+    778              .expect("le fond rouge de l'enfant");
+    807                  .expect("le fond rouge de l'enfant")
+    882              .expect("le fond vert du 2e enfant");
+=== crates\frus-widgets\src\custompaint.rs (1)
+    106              _ => panic!("attendu un chemin rempli"),
+=== crates\frus-widgets\src\datepicker.rs (3)
+     20  /// Vrai si `year` est bissextile.
+     25  /// Nombre de jours du mois `month` (1..=12) de `year`.
+     65  /// a start or end bound, an in-between day, or outside the range. Dates compare as
+=== crates\frus-widgets\src\drawer.rs (1)
+    311              "bord droit attendu ≈ {expected}, obtenu {edge}"
+=== crates\frus-widgets\src\flex.rs (1)
+    106      /// Ajoute un enfant.
+=== crates\frus-widgets\src\form.rs (1)
+    226      /// Assemble titre + puces (cliquables si un message est fourni).
+=== crates\frus-widgets\src\fractional.rs (2)
+    117              .expect("le fond rouge de l'enfant");
+    145              .expect("le fond rouge de l'enfant");
+=== crates\frus-widgets\src\grid.rs (1)
+      6  //! `cell()` n'est qu'un ajout d'enfant.
+=== crates\frus-widgets\src\icon.rs (1)
+    114              _ => panic!("attendu un chemin rempli"),
+=== crates\frus-widgets\src\icons.rs (2)
+    106      // Contour externe (amande large) : gauche → (haut) → droite → (bas) → gauche.
+    288                  "{name:?} devrait commencer par un MoveTo"
+=== crates\frus-widgets\src\inspector.rs (2)
+    240              "racine sans indentation : {dump}"
+    264          assert_eq!(scene.len(), base + nodes.len(), "un contour par widget");
+=== crates\frus-widgets\src\interactive.rs (3)
+    110  /// collapses): a fixed `width`/`height`, or `flex` within a column or row. The
+    370          assert!(has_xform, "le calque porte la matrice de transformation");
+    408              .expect("le marqueur vert");
+=== crates\frus-widgets\src\layoutbuilder.rs (1)
+     11  //! `Stretch` parent the width is already the parent's; set the height, or `flex`, to
+=== crates\frus-widgets\src\menu.rs (1)
+    185          // Un clic loin de l'ancre (coin bas-droit) ferme le menu.
+=== crates\frus-widgets\src\pagination.rs (1)
+    104          // 10 pages, courante 5 → ‹ + [3 4 5 6 7] + › = 7 enfants.
+=== crates\frus-widgets\src\relayout.rs (1)
+      7  //! *structure* and on the parent's *constraints* — not on colors or text, which
+=== crates\frus-widgets\src\reorder.rs (2)
+     18  /// cards) exceeds `OVERSIZE_FACTOR × slot` is a page or column background, not a cell or card
+    198          // The cursor at the **centre** of column 1 (owner 2, [100,200], centre 150).
+=== crates\frus-widgets\src\rotatedbox.rs (1)
+     26      /// Tourne l'enfant de `quarter_turns` quarts de tour horaires.
+=== crates\frus-widgets\src\runtime.rs (4)
+    430                      // Montage : adopte la cible sans transition.
+    931          // Montage d'un interrupteur off : adopte la cible (0) sans animation.
+    940          assert!(v > 0.0 && v < 1.0, "valeur = {v}");
+   1041          // Montage au rouge : adopte la cible sans transition.
+=== crates\frus-widgets\src\segmented.rs (3)
+    169              "1er : gauche arrondi"
+    171          assert_eq!(fills[1], BorderRadius::ZERO, "milieu : droit");
+    174              "dernier : droite arrondie"
+=== crates\frus-widgets\src\skeleton.rs (1)
+    111              _ => panic!("attendu un rectangle"),
+=== crates\frus-widgets\src\slider.rs (5)
+    529              other => panic!("attendu Range, obtenu {other:?}"),
+    536              other => panic!("attendu Handled, obtenu {other:?}"),
+    561              "collant au haut ({lo}, {hi})"
+    563          // Delta nul : aucun message.
+    638              "haut Fin ({lo}, {hi})"
+=== crates\frus-widgets\src\spinner.rs (1)
+     11  /// Nombre de points de la couronne.
+=== crates\frus-widgets\src\stepper.rs (1)
+     19      /// `[−, valeur, +]`.
+=== crates\frus-widgets\src\steps.rs (2)
+    337          // Sans on_tap : aucun enfant (purement visuel).
+    348          assert!(spots[0].focusable(), "un hotspot est focalisable");
+=== crates\frus-widgets\src\textinput.rs (3)
+    982              "la composition doit souligner ({plain} → {underlined})"
+   1525              "au repos le label est plus grand ({rest_size} → {float_size})"
+   1597          assert_eq!(count_texts(""), 1, "vide : l'indice s'affiche");
+=== crates\frus-widgets\src\theme.rs (2)
+    484          // Et le sombre est bien… sombre.
+    523          // Au repos : aucune superposition.
+=== crates\frus-widgets\src\timepicker.rs (1)
+      2  //! Two grids of clickable cells (hours, minutes) plus a preview; 24-hour by default, or
+=== crates\frus-widgets\src\toast.rs (3)
+    283      /// `true` si aucune notification n'est en attente.
+    288      /// Nombre de notifications en file (visible + en attente).
+    329          // Sans action : aucun enfant.
+=== crates\frus-widgets\src\toasthost.rs (3)
+     47      /// Alignement horizontal (axe transverse) : gauche / centre / droite.
+    158          assert!(matches!(style.justify, Justify::End), "bas → justify End");
+    159          assert!(matches!(style.align, Align::End), "droite → align End");
+=== crates\frus-widgets\src\transform.rs (4)
+     19  ///   pivot (the centre by default), uniformly or **per axis** (stretching,
+     61      /// centre — stretching or flattening. `scale_xy(2.0, 1.0)` doubles the width
+    194              .expect("le fond rouge de l'enfant");
+    300              "coin haut-gauche fixe : {c:?}"
+=== crates\frus-widgets\src\tree.rs (1)
+    117          // The chevron expands or collapses; the rest of the row selects, or toggles by default.

@@ -223,7 +223,7 @@ impl<Msg: Clone + 'static> ErrorSummary<Msg> {
         )
     }
 
-    /// Assemble titre + puces (cliquables si un message est fourni).
+    /// Assembles the title + the bullets (clickable when a message is supplied).
     fn assemble(items: Vec<(String, Option<Msg>)>) -> Self {
         let title = match items.len() {
             1 => "Please fix 1 error".to_string(),

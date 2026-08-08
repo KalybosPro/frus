@@ -17,12 +17,12 @@ const SIZE: f32 = 15.0;
 /// The gap between the two months of a dual calendar.
 const DUAL_GAP: f32 = 24.0;
 
-/// Vrai si `year` est bissextile.
+/// True if `year` is a leap year.
 fn is_leap(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
-/// Nombre de jours du mois `month` (1..=12) de `year`.
+/// Number of days in month `month` (1..=12) of `year`.
 fn days_in_month(year: i32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
