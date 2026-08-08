@@ -10,4 +10,4 @@ frus-core = { path = "../frus-core" }
 frus-gpu = { path = "../frus-gpu" }
 frus-widgets = { path = "../frus-widgets" }
 # Reading and writing the reference images, that is, the goldens.
-png = "0.17"
+png = "0.18"
