@@ -1,44 +1,45 @@
-# Jalon 118 — `Transform` : focus/a11y suivent l'échelle (cas aligné)
+# Jalon 118 — `Transform`: focus/a11y follow the scale (axis-aligned case)
 
-## Analyse
+## Analysis
 
-Le jalon précédent (J117, matrice affine unifiée) laissait un compromis : sous une
-transformation, les rectangles de **focus, défilement, glisser et accessibilité**
-restaient **non transformés** (une matrice générale ne peut pas garder un rectangle
-aligné sur les axes). On lève ce compromis **dans le cas courant** — quand la matrice
-conserve l'alignement sur les axes (échelle et/ou translation, **sans rotation**),
-l'image d'un rectangle *est* un rectangle : on la calcule exactement.
+The previous milestone (J117, the unified affine matrix) left a trade-off: under
+a transformation, the **focus, scrolling, dragging and accessibility** rectangles
+stayed **untransformed** (a general matrix cannot keep a rectangle axis-aligned).
+That trade-off is lifted **in the common case** — when the matrix preserves axis
+alignment (scale and/or translation, **without rotation**), a rectangle's image
+*is* a rectangle, so it is computed exactly.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Affine::is_axis_aligned`** : la partie linéaire est diagonale (`b ≈ 0`,
-  `c ≈ 0`) → pas de rotation ni de cisaillement.
+- **`Affine::is_axis_aligned`**: the linear part is diagonal (`b ≈ 0`, `c ≈ 0`) →
+  no rotation and no shear.
 
-- **`Affine::apply_rect`** : image d'un rectangle par la matrice — exacte quand la
-  matrice est alignée sur les axes (sinon, boîte englobante).
+- **`Affine::apply_rect`**: a rectangle's image under the matrix — exact when the
+  matrix is axis-aligned (otherwise, the bounding box).
 
-- **Application conditionnelle dans le walk.** Après avoir enveloppé le sous-arbre
-  transformé dans son calque, si la matrice `is_axis_aligned()`, on applique
-  `apply_rect` aux surfaces **focus / défilement / glisser / accessibilité** émises. En
-  présence d'une rotation, on les laisse (bornes approchées) — le **clic** reste juste
-  dans tous les cas (via `M⁻¹` sur le point).
+- **Conditional application in the walk.** After wrapping the transformed subtree
+  in its layer, if the matrix `is_axis_aligned()`, `apply_rect` is applied to the
+  emitted **focus / scrolling / dragging / accessibility** surfaces. When there is
+  a rotation, they are left as they are (approximate bounds) — the **click** stays
+  correct in every case.
 
-## Implémentation
+## Implementation
 
-- `frus-core/geometry.rs` : `Affine::is_axis_aligned`, `Affine::apply_rect`.
-- `frus-widgets/ui.rs` : dans le bloc de transformation, re-capture des plages
-  focus/scroll/drag/sémantique et transformation par `apply_rect` si la matrice est
-  alignée sur les axes.
+- `frus-core/geometry.rs`: `Affine::is_axis_aligned`, `Affine::apply_rect`.
+- `frus-widgets/ui.rs`: in the transformation block, re-capturing the
+  focus/scroll/drag/semantics ranges and transforming them with `apply_rect` if
+  the matrix is axis-aligned.
 
 ## Tests
 
-- `axis_aligned_transform_scales_the_focus_rect` : un `Button` sous `scale(2.0)` — un
-  point hors du bouton à plat mais dans son image agrandie devient focalisable, et son
-  rectangle de focus est ~2× plus large.
-- Suites vertes : frus-core 90, frus-widgets 212 ; workspace complet vert.
+- `axis_aligned_transform_scales_the_focus_rect`: a `Button` under `scale(2.0)` —
+  a point outside the flat button but inside its enlarged image becomes
+  focusable, and its focus rectangle is ~2× wider.
+- Suites green: frus-core 90, frus-widgets 212; the whole workspace green.
 
-## Reste
+## What's left
 
-- Sous **rotation**, focus/a11y restent aux bornes non tournées (limite géométrique
-  d'un rectangle aligné sur les axes) — le clic, lui, reste exact.
-- Une démo animée rassemblant l'arsenal (`Tween` pilotant un `Transform` composé).
+- Under **rotation**, focus and a11y stay at the unrotated bounds (the geometric
+  limit of an axis-aligned rectangle) — the click, however, stays exact.
+- An animated demo bringing the arsenal together (a `Tween` driving a composed
+  `Transform`).

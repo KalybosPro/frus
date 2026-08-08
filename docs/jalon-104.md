@@ -1,59 +1,59 @@
-# Jalon 104 — `Animatable` composés : `TweenSequence` + tweens de boîte
+# Jalon 104 — Composed `Animatable`s: `TweenSequence` + box tweens
 
-## Analyse
+## Analysis
 
-Le J103 a posé le pont `Animatable` (tween → valeur typée vivante). Restaient deux
-manques pour la parité Flutter :
+J103 laid down the `Animatable` bridge (tween → live typed value). Two gaps
+remained:
 
-1. Les **propriétés de boîte** — marge (`Insets`) et rayon (`BorderRadius`) —
-   n'étaient pas interpolables : pas d'`impl Lerp`, donc pas de `Tween<Insets>` ni
+1. The **box properties** — padding (`Insets`) and radius (`BorderRadius`) — were
+   not interpolable: no `impl Lerp`, so no `Tween<Insets>` and no
    `Tween<BorderRadius>`.
-2. Aucun moyen d'enchaîner **plusieurs étapes** sur une même progression (morph
-   A → B → C, rebond grossir-puis-revenir, segments à rythmes distincts).
+2. There was no way to chain **several stages** on one progress (a morph A → B →
+   C, a grow-then-return bounce, segments with distinct rhythms).
 
-## Décisions techniques
+## Technical decisions
 
-- **`Lerp` pour `Insets` et `BorderRadius`** — côté par côté (chaque marge / coin
-  interpolé indépendamment), comme `Size`/`Point`. `Tween<Insets>` et
-  `Tween<BorderRadius>` en découlent *gratuitement* (le `Tween<T: Lerp>` générique
-  les couvre).
+- **`Lerp` for `Insets` and `BorderRadius`** — side by side (each padding /
+  corner interpolated independently), like `Size`/`Point`. `Tween<Insets>` and
+  `Tween<BorderRadius>` follow *for free* (the generic `Tween<T: Lerp>` covers
+  them).
 
-- **`TweenSequence<T>`** — suite de segments **pondérés** (façon `TweenSequence` de
-  Flutter). Chaque segment occupe une part de `[0,1]` proportionnelle à son poids ;
-  `evaluate(t)` situe le segment actif et l'évalue sur sa **progression locale**
-  `[0,1]`. Le dernier segment attrape le reste (robuste aux arrondis) ; poids nuls
-  → dernier segment.
+- **`TweenSequence<T>`** — a sequence of **weighted** segments. Each segment
+  occupies a share of `[0,1]` proportional to its weight; `evaluate(t)` locates
+  the active segment and evaluates it over its **local progress** `[0,1]`. The
+  last segment catches the remainder (robust against rounding); zero weights → the
+  last segment.
 
-- **Segments arbitraires via `Box<dyn Animatable<Output = T>>`.** Un segment est
-  n'importe quel `Animatable` : un `Tween`, un `Tween.curved(...)`, voire une autre
-  `TweenSequence`. `Animatable` est *object-safe* (les défauts `curved`/`animate`
-  sont `where Self: Sized`, hors vtable).
+- **Arbitrary segments through `Box<dyn Animatable<Output = T>>`.** A segment is
+  any `Animatable`: a `Tween`, a `Tween.curved(...)`, or even another
+  `TweenSequence`. `Animatable` is *object-safe* (the `curved`/`animate` defaults
+  are `where Self: Sized`, so they stay out of the vtable).
 
-- **`TweenSequence` est lui-même un `Animatable`** : il se `.curved()` et
-  s'`.animate(&controller)` comme n'importe quel tween. Composition uniforme.
+- **A `TweenSequence` is itself an `Animatable`**: it can be `.curved()` and
+  `.animate(&controller)`d like any tween. Uniform composition.
 
-- **Non-vide par construction.** `new(first, weight)` exige un premier segment ;
-  `.then(next, weight)` en ajoute. `evaluate` n'a donc jamais de cas « vide ».
+- **Non-empty by construction.** `new(first, weight)` requires a first segment;
+  `.then(next, weight)` adds more. So `evaluate` never has an "empty" case.
 
-## Implémentation
+## Implementation
 
-- `frus-core/animation/tween.rs` : `impl Lerp for Insets`, `impl Lerp for
-  BorderRadius` ; struct `TweenSequence<T>` (`new`, `then`, `impl Animatable`).
-  Import de `BorderRadius` / `Insets`.
-- Ré-exports : `animation/mod.rs` et `lib.rs` exposent `TweenSequence`.
+- `frus-core/animation/tween.rs`: `impl Lerp for Insets`, `impl Lerp for
+  BorderRadius`; the `TweenSequence<T>` struct (`new`, `then`, `impl
+  Animatable`). Importing `BorderRadius` / `Insets`.
+- Re-exports: `animation/mod.rs` and `lib.rs` expose `TweenSequence`.
 
 ## Tests
 
-- `insets_and_radius_tween_interpolate` : `Tween<Insets>` / `Tween<BorderRadius>` à
-  mi-course.
-- `tween_sequence_relays_equal_weight_segments` : deux segments égaux se relaient à
-  `t = 0.5`, chacun parcouru en entier sur sa moitié (0/5/10/20/30).
-- `tween_sequence_honors_weights` : poids 3:1 → couture à `t = 0.75`.
-- `tween_sequence_drives_from_controller` : la suite pilotée par un contrôleur
-  (couleur noir→blanc→noir).
-- Suite `frus-core` verte (85).
+- `insets_and_radius_tween_interpolate`: `Tween<Insets>` / `Tween<BorderRadius>`
+  at the halfway point.
+- `tween_sequence_relays_equal_weight_segments`: two equal segments hand over at
+  `t = 0.5`, each traversed in full over its half (0/5/10/20/30).
+- `tween_sequence_honors_weights`: weights of 3:1 → the seam at `t = 0.75`.
+- `tween_sequence_drives_from_controller`: the sequence driven by a controller
+  (colour black→white→black).
+- The `frus-core` suite green (85).
 
-## Reste
+## What's left
 
-- Idiome shell / démo lisant `sequence.animate(&ctrl).value()` dans `view()`.
-- `Tween<Alignment>` une fois l'alignement introduit ; `decoration` composite.
+- A shell idiom / demo reading `sequence.animate(&ctrl).value()` in `view()`.
+- `Tween<Alignment>` once alignment is introduced; a composite `decoration`.

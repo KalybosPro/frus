@@ -1,47 +1,46 @@
-# Jalon 111 — `FractionallySizedBox` : taille en fraction du parent
+# Jalon 111 — `FractionallySizedBox`: size as a fraction of the parent
 
-## Analyse
+## Analysis
 
-Deuxième widget de disposition manquant : **`FractionallySizedBox`**. Il permet
-de dire « prends la moitié de la largeur disponible » ou « le quart de la
-hauteur » sans connaître la taille absolue du parent — indispensable pour des
-mises en page fluides (une barre à 70 %, un panneau à 30 %…). Flutter le fait via
-`FractionallySizedBox(widthFactor:, heightFactor:)`.
+The second missing layout widget: **`FractionallySizedBox`**. It lets you say
+"take half the available width" or "a quarter of the height" without knowing the
+parent's absolute size — indispensable for fluid layouts (a bar at 70%, a panel at
+30%…).
 
-## Décisions techniques
+## Technical decisions
 
-- **Réutilise `Dimension::Percent`** (déjà présent dans `Style`) : aucune
-  nouveauté dans `frus-layout`. Un facteur réglé → `Percent(f)` sur l'axe ; un axe
-  non réglé → `Auto` (il suit le contenu). Brique fine.
+- **It reuses `Dimension::Percent`** (already present in `Style`): nothing new in
+  `frus-layout`. A factor that is set → `Percent(f)` on that axis; an axis that is
+  not set → `Auto` (it follows the content). A thin brick.
 
-- **La boîte se dimensionne elle-même**, plutôt que de contraindre l'enfant. Dans
-  notre modèle **flex** (et non à contraintes descendantes comme Flutter),
-  poser sa propre taille en pourcentage du parent donne le même résultat visuel
-  dans le cas courant (enfant qui remplit). L'enfant remplit ensuite la boîte
-  (étirement sur l'axe croisé, `flex` sur l'axe principal).
+- **The box sizes itself**, rather than constraining the child. In our **flex**
+  model (rather than a downward-constraint model), setting its own size as a
+  percentage of the parent gives the same visual result in the common case (a
+  child that fills). The child then fills the box (stretching on the cross axis,
+  `flex` on the main axis).
 
-- **Facteurs bornés à `>= 0`.** `width_factor` / `height_factor` indépendants ;
-  l'un peut être réglé sans l'autre.
+- **Factors clamped to `>= 0`.** `width_factor` / `height_factor` are
+  independent; one can be set without the other.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/fractional.rs` : le widget `FractionallySizedBox`
-  (`width_factor`, `height_factor`, `child`, `style()` mappe chaque facteur vers
-  `Percent` ou `Auto`).
-- Export `FractionallySizedBox` dans `lib.rs`. Aucun changement dans
-  `frus-layout` (le champ `Percent` existait déjà).
+- `frus-widgets/fractional.rs`: the `FractionallySizedBox` widget
+  (`width_factor`, `height_factor`, `child`, and a `style()` that maps each factor
+  onto `Percent` or `Auto`).
+- `FractionallySizedBox` exported in `lib.rs`. No change in `frus-layout` (the
+  `Percent` field already existed).
 
 ## Tests
 
-- `width_factor_takes_a_fraction_of_the_parent` : `width_factor(0.5)` dans une
-  colonne large de 100 → l'enfant qui remplit fait 50 de large.
-- `height_factor_takes_a_fraction_of_the_parent` : `height_factor(0.25)` dans une
-  colonne haute de 200 → boîte de 50 de haut.
-- Suite frus-widgets verte (202) ; workspace complet vert.
+- `width_factor_takes_a_fraction_of_the_parent`: `width_factor(0.5)` inside a
+  column 100 wide → the filling child is 50 wide.
+- `height_factor_takes_a_fraction_of_the_parent`: `height_factor(0.25)` inside a
+  column 200 tall → a box 50 tall.
+- The frus-widgets suite green (202); the whole workspace green.
 
-## Reste
+## What's left
 
-- `Transform` (rotation / échelle / translation d'un enfant) — dernier widget de
-  disposition de cette série, plus lourd (matrice de scène / peinture).
-- Un `alignment` sur `FractionallySizedBox` (positionner la boîte fractionnaire
-  dans l'espace restant) — réutiliserait la machinerie d'ancrage (J106–J108).
+- `Transform` (rotating / scaling / translating a child) — the last layout widget
+  of this series, and the heaviest (a scene/paint matrix).
+- An `alignment` on `FractionallySizedBox` (positioning the fractional box within
+  the remaining space) — it would reuse the anchoring machinery (J106–J108).

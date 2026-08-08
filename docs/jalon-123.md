@@ -1,68 +1,69 @@
-# Jalon 123 — Vitrine enrichie : Clip + InteractiveViewer
+# Jalon 123 — Extended showcase: Clip + InteractiveViewer
 
-## Analyse
+## Analysis
 
-Trois jalons de rendu (J120 tests au pixel, J121 découpe en forme, J122
-`InteractiveViewer`) se sont empilés **sans jamais être affichés**. Ce jalon les rend
-*tangibles* : la vitrine `frus-transforms` gagne une galerie **découpe en forme** et
-une **fenêtre interactive** — de quoi *voir* (et manipuler) la découpe et le
-pan/zoom, au-delà des tests headless.
+Three rendering milestones (J120 pixel tests, J121 shape clipping, J122
+`InteractiveViewer`) had stacked up **without ever being shown**. This milestone
+makes them *tangible*: the `frus-transforms` showcase gains a **shape clipping**
+gallery and an **interactive viewport** — enough to *see* (and manipulate) the
+clipping and the pan/zoom, beyond the headless tests.
 
-## Décisions techniques
+## Technical decisions
 
-- **Découpe visible par contraste.** Un carré **dégradé à coins nets** est rogné en
-  `ClipRRect(24)` puis en `ClipOval` : la différence avec les coins d'origine rend la
-  découpe évidente d'un coup d'œil.
+- **Clipping made visible by contrast.** A **gradient square with crisp corners**
+  is clipped by `ClipRRect(24)` and then by `ClipOval`: the difference from the
+  original corners makes the clipping obvious at a glance.
 
-- **Fenêtre interactive détaillée.** Une grille de pastilles sur fond dégradé remplit
-  une fenêtre `260×180` bornée `0.5×`–`4×`. Glisser la déplace, la molette y zoome
-  (ancrée au curseur) ; à fort zoom le contenu déborde et est **découpé au cadre**.
-  Encadrée d'un `Container` arrondi pour lire le cadre.
+- **A detailed interactive viewport.** A grid of dots on a gradient background
+  fills a `260×180` viewport clamped to `0.5×`–`4×`. Dragging pans it, the wheel
+  zooms (anchored at the cursor); at high zoom the content overflows and is
+  **clipped to the frame**. Framed by a rounded `Container` so the frame reads.
 
-- **`view` toujours pure.** Les ajouts ne touchent pas le modèle Elm : mêmes `update`
-  déterministe, souscription en pause à l'arrêt, `view` fonction pure de l'état. La
-  transformation de la fenêtre vit dans le `Runtime` (état retenu), pas dans l'app.
+- **The `view` stays pure.** The additions do not touch the Elm model: the same
+  deterministic `update`, a subscription paused when stopped, and a `view` that is
+  a pure function of the state. The viewport's transformation lives in the
+  `Runtime` (retained state), not in the app.
 
-- **Conventions.** Constructeurs de structs (`ClipRRect::new`, `ClipOval::new`,
-  `InteractiveViewer::new`) ; textes d'interface en **anglais**.
+- **Conventions.** Struct constructors (`ClipRRect::new`, `ClipOval::new`,
+  `InteractiveViewer::new`); interface text in **English**.
 
-## Implémentation
+## Implementation
 
-- `crates/frus-transforms/src/lib.rs` : imports `ClipRRect` / `ClipOval` /
-  `InteractiveViewer` ; `gallery3` (deux tuiles de découpe) ; `viewer` (fenêtre
-  interactive + contenu grille) ; câblage dans la colonne défilante avec en-têtes ; le
-  titre passe à « Transform · Clip · InteractiveViewer · AspectRatio ».
+- `crates/frus-transforms/src/lib.rs`: importing `ClipRRect` / `ClipOval` /
+  `InteractiveViewer`; `gallery3` (two clipping tiles); `viewer` (the interactive
+  viewport + its grid content); wiring into the scrolling column with headings;
+  the title becomes "Transform · Clip · InteractiveViewer · AspectRatio".
 
-## Correctif découvert au rendu
+## A fix discovered while rendering
 
-Le rendu hors écran de la vitrine a révélé un **bug de mise en page** de
-`InteractiveViewer` (J122) : tout **frère placé après** la fenêtre se superposait.
-Cause : la fenêtre n'était pas déclarée **feuille de layout** dans `build_layout`
-(contrairement à `Scroll`), donc son sous-arbre restait dans les rectangles de la
-colonne — et comme la marche pose ce sous-arbre **à part** (index séparé), l'index
-principal se désynchronisait pour tous les frères suivants. Corrigé en ajoutant
-`interactive()` à la liste des feuilles ; régression verrouillée par
-`sibling_after_viewer_keeps_its_layout_position` (le frère suit bien la fenêtre de
-150 px, sans superposition).
+Rendering the showcase offscreen revealed a **layout bug** in `InteractiveViewer`
+(J122): any **sibling placed after** the viewport was overlapping it. The cause:
+the viewport was not declared a **layout leaf** in `build_layout` (unlike
+`Scroll`), so its subtree stayed inside the column's rectangles — and since the
+walk places that subtree **separately** (a separate index), the main index went
+out of sync for every following sibling. Fixed by adding `interactive()` to the
+list of leaves; the regression is locked down by
+`sibling_after_viewer_keeps_its_layout_position` (the sibling correctly follows
+the 150 px viewport, with no overlap).
 
 ## Tests
 
-- `renders_clip_shapes` : la `view` émet bien un `ClipShape::RRect(24)` **et** un
-  `ClipShape::Oval` (collecte récursive des calques).
-- `sibling_after_viewer_keeps_its_layout_position` (frus-widgets) : verrouille le
-  correctif de mise en page ci-dessus.
-- Les garde-fous existants tiennent : un calque transformé est émis, et le contenu est
-  **posé dans la fenêtre** (anti-page-blanche). Suites vertes : `frus-transforms` 7,
-  `frus-widgets` 222.
+- `renders_clip_shapes`: the `view` does emit a `ClipShape::RRect(24)` **and** a
+  `ClipShape::Oval` (collected recursively from the layers).
+- `sibling_after_viewer_keeps_its_layout_position` (frus-widgets): locks down the
+  layout fix above.
+- The existing guards hold: a transformed layer is emitted, and the content is
+  **placed inside the viewport** (the blank-page guard). Suites green:
+  `frus-transforms` 7, `frus-widgets` 222.
 
-## Voir / lancer
+## Seeing it / running it
 
-- Bureau : `cargo run -p frus-transforms` — puis **glisser** dans la fenêtre
-  interactive et **molette** pour zoomer ; observer les tuiles de découpe.
-- Android : APK via `cargo-apk` (mêmes métadonnées que `frus-hello`).
+- Desktop: `cargo run -p frus-transforms` — then **drag** inside the interactive
+  viewport and use the **wheel** to zoom; look at the clipping tiles.
+- Android: an APK through `cargo-apk` (the same metadata as `frus-hello`).
 
-## Reste
+## What's left
 
-- Vérification **sur device réel** (desktop + Android) — l'objectif *voir* : découpe
-  nette, pan/zoom fluides, hit-test qui suit.
-- Pincement 2 doigts (tactile) une fois le multi-touch en place.
+- Verification **on a real device** (desktop + Android) — the goal being to *see*:
+  crisp clipping, smooth pan/zoom, hit-testing that follows.
+- Two-finger pinch (touch) once multi-touch is in place.

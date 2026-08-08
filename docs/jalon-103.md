@@ -1,58 +1,62 @@
-# Jalon 103 — `Animatable` : le pont explicite → valeur typée vivante
+# Jalon 103 — `Animatable`: the explicit → live typed value bridge
 
-## Analyse
+## Analysis
 
-Le socle d'interpolation typée existait déjà — `Lerp` (nombre, couleur, point,
-taille) et `Tween<T> { begin, end }.eval(t)` — mais il restait **inerte** : rien
-ne reliait la valeur `[0,1]` qu'un [`AnimationController`] produit frame par frame
-à un tween typé. La vue devait lire `controller.value()` puis lerper à la main.
+The typed interpolation base already existed — `Lerp` (number, colour, point,
+size) and `Tween<T> { begin, end }.eval(t)` — but it was still **inert**: nothing
+connected the `[0,1]` value an [`AnimationController`] produces frame by frame to
+a typed tween. The view had to read `controller.value()` and then lerp by hand.
 
-Ce jalon pose le pont manquant, sur la forme éprouvée de Flutter
-(`Animatable` / `CurveTween` / `Animation<T>`) : **une** progression `[0,1]`
-pilote arbitrairement de valeurs typées, chacune avec ses bornes et sa courbe.
+This milestone lays down the missing bridge, in the proven `Animatable` /
+curve-tween / typed-animation shape: **one** `[0,1]` progress drives arbitrarily
+many typed values, each with its own bounds and curve.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Animatable` (trait).** `type Output; fn evaluate(&self, t: f32) -> Output`.
-  C'est l'abstraction que partagent tweens et courbes. `Tween<T: Lerp>`
-  l'implémente (`evaluate = eval`).
+- **`Animatable` (a trait).** `type Output; fn evaluate(&self, t: f32) ->
+  Output`. It is the abstraction tweens and curves share. `Tween<T: Lerp>`
+  implements it (`evaluate = eval`).
 
-- **`.curved(curve)` → `Curved<A>`** (façon `CurveTween`). Façonne `t` par la
-  courbe **avant** l'évaluation : une progression linéaire pilote une valeur au
-  timing non linéaire. Chaînable sur n'importe quel `Animatable`.
+- **`.curved(curve)` → `Curved<A>`.** It shapes `t` by the curve **before**
+  evaluation: a linear progress drives a value with non-linear timing. Chainable
+  on any `Animatable`.
 
-- **`.animate(&controller)` → `Animation<'a, A>`**. Lie l'animatable à un
-  contrôleur. `value()` échantillonne le contrôleur **à l'instant présent** — c'est
-  ce que la vue lit au paint, sans connaître le contrôleur autrement. La valeur du
-  contrôleur est **normalisée par ses bornes** (`(v - lower) / (upper - lower)`),
-  si bien qu'un contrôleur non unitaire pilote quand même un `[0,1]` complet.
-  `Animation` expose aussi `status()` / `is_animating()` (délégués).
+- **`.animate(&controller)` → `Animation<'a, A>`.** It binds the animatable to a
+  controller. `value()` samples the controller **at the present instant** — that
+  is what the view reads at paint time, without otherwise knowing the controller.
+  The controller's value is **normalised by its bounds**
+  (`(v - lower) / (upper - lower)`), so a non-unit controller still drives a
+  complete `[0,1]`. `Animation` also exposes `status()` / `is_animating()`
+  (delegated).
 
-- **Emprunts, zéro allocation.** `Animation` emprunte `&animatable` et
-  `&controller` : construction gratuite, jetable, recréée à chaque `view()`. Aucune
-  dépendance rendu/plateforme — tout reste dans `frus-core`.
+- **Borrows, zero allocation.** `Animation` borrows `&animatable` and
+  `&controller`: construction is free, it is disposable, and it is recreated on
+  each `view()`. No rendering or platform dependency — it all stays in
+  `frus-core`.
 
-## Implémentation
+## Implementation
 
-- `frus-core/animation/tween.rs` : trait `Animatable` (+ défauts `curved`,
-  `animate`), `impl Animatable for Tween<T>`, structs `Curved<A>` et
-  `Animation<'a, A>`. Import de `Curve` / `AnimationController` / `Status`.
-- Ré-exports : `animation/mod.rs` et `lib.rs` exposent `Animatable`, `Animation`,
-  `Curved`.
+- `frus-core/animation/tween.rs`: the `Animatable` trait (+ the `curved` and
+  `animate` defaults), `impl Animatable for Tween<T>`, the `Curved<A>` and
+  `Animation<'a, A>` structs. Importing `Curve` / `AnimationController` /
+  `Status`.
+- Re-exports: `animation/mod.rs` and `lib.rs` expose `Animatable`, `Animation`
+  and `Curved`.
 
 ## Tests
 
-- `animate_follows_controller` : au repos bas → `begin` (`Dismissed`) ; après
-  `forward` réglé → `end` (`Completed`), sur un `Tween<Size>`.
-- `curved_reshapes_progression` : à mi-course d'un `ease_in`, la valeur est **en
-  deçà** du milieu linéaire ; bornes atteintes (tolérance solveur bézier).
-- `non_unit_bounds_are_normalized` : contrôleur `[0,2]` à `1.0` → `t = 0.5` → gris
-  médian d'un `Tween<Color>`.
-- Suite `frus-core` verte (81).
+- `animate_follows_controller`: at rest at the bottom → `begin` (`Dismissed`);
+  after a settled `forward` → `end` (`Completed`), on a `Tween<Size>`.
+- `curved_reshapes_progression`: halfway through an `ease_in`, the value is
+  **below** the linear midpoint; the bounds are reached (within the Bézier
+  solver's tolerance).
+- `non_unit_bounds_are_normalized`: a `[0,2]` controller at `1.0` → `t = 0.5` →
+  the middle grey of a `Tween<Color>`.
+- The `frus-core` suite green (81).
 
-## Reste
+## What's left
 
-- Idiome shell : instancier un `AnimationController` par identité et lire
-  `tween.animate(&ctrl).value()` dans `view()` (démo dédiée).
-- `Animatable` composés (séquence `TweenSequence`, `Tween` d'`Insets` /
+- A shell idiom: instantiating an `AnimationController` per identity and reading
+  `tween.animate(&ctrl).value()` in `view()` (a dedicated demo).
+- Composed `Animatable`s (a `TweenSequence`, `Tween`s of `Insets` /
   `BorderRadius`).

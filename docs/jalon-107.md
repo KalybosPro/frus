@@ -1,58 +1,58 @@
-# Jalon 107 — Ancrage : listes virtualisées + `AlignmentDirectional`
+# Jalon 107 — Anchoring: virtualised lists + `AlignmentDirectional`
 
-## Analyse
+## Analysis
 
-Le J106 a livré l'ancrage fractionnel, mais laissait deux trous listés dans son
-« Reste » :
+J106 delivered fractional anchoring, but left two holes listed in its "what's
+left":
 
-1. **Listes virtualisées / `layout_builder`.** Leur rendu passe par `render_item`
-   (chemin propre, sans les branches spéciales du walk), qui **n'appliquait pas** le
-   décalage d'ancrage : un conteneur ancré comme élément de liste ou enfant de
-   `LayoutBuilder` restait collé en haut-gauche.
-2. **Ancrage directionnel.** L'`Alignment` physique ne suit pas le sens de lecture ;
-   il manquait l'équivalent de `AlignmentDirectional` de Flutter (début/fin résolus
-   en RTL).
+1. **Virtualised lists / `layout_builder`.** Their rendering goes through
+   `render_item` (a separate path, without the walk's special branches), which
+   **did not apply** the anchoring offset: a container anchored as a list item or
+   as a `LayoutBuilder` child stayed stuck to the top left.
+2. **Directional anchoring.** A physical `Alignment` does not follow the reading
+   direction; the start/end equivalent (resolved in RTL) was missing.
 
-## Décisions techniques
+## Technical decisions
 
-- **`render_item` réutilise `align_offset`.** Même calcul que le walk principal
-  (espace libre × fraction, décalage cascadé par la translation). Un seul point de
-  vérité pour l'ancrage, deux chemins de rendu.
+- **`render_item` reuses `align_offset`.** The same computation as the main walk
+  (free space × fraction, the offset cascaded through the translation). One source
+  of truth for anchoring, two rendering paths.
 
-- **`AlignmentDirectional` (frus-core).** Struct `{ x_start, y }`, `x_start` exprimé
-  **début → fin** (`-1` = début, `+1` = fin), neuf constantes
-  (`CENTER_START`, `TOP_END`…). `resolve(direction) -> Alignment` inverse `x_start`
-  en RTL (début ↔ droite) ; le `y` est direction-invariant. Type géométrique pur,
-  sur le modèle d'`InsetsDirectional`.
+- **`AlignmentDirectional` (frus-core).** A `{ x_start, y }` struct, with
+  `x_start` expressed **start → end** (`-1` = start, `+1` = end), nine constants
+  (`CENTER_START`, `TOP_END`…). `resolve(direction) -> Alignment` flips `x_start`
+  in RTL (start ↔ right); the `y` is direction-invariant. A pure geometric type,
+  on the `InsetsDirectional` model.
 
-- **Résolution à l'endroit qui connaît le sens.** `Container` stocke l'ancrage
-  directionnel tel quel ; c'est `Builder::align_offset` (qui tient `self.rtl`) qui le
-  **résout** en `Alignment` physique, puis le traite comme n'importe quel ancrage —
-  la correction RTL existante fait le reste (double passage cohérent : un ancrage
-  directionnel résolu suit exactement la mécanique physique). L'ancrage directionnel
-  **prime** sur le physique.
+- **Resolution where the direction is known.** `Container` stores the directional
+  anchor as it is; it is `Builder::align_offset` (which holds `self.rtl`) that
+  **resolves** it into a physical `Alignment` and then treats it like any anchor —
+  the existing RTL correction does the rest (a consistent double pass: a resolved
+  directional anchor follows exactly the physical mechanics). The directional
+  anchor **wins** over the physical one.
 
-- **Trait `Widget::alignment_directional()`** (défaut `None`) + forwarders
-  (`Box`/`Keyed`/`Responsive`/nommés). `Container::alignment_directional(...)` +
-  `style()` pose `Start`/`Start` si l'un **ou** l'autre ancrage est posé.
+- **A `Widget::alignment_directional()` trait method** (default `None`) +
+  forwarders (`Box`/`Keyed`/`Responsive`/named). `Container::alignment_directional(...)`
+  + `style()` sets `Start`/`Start` if **either** anchor is set.
 
-## Implémentation
+## Implementation
 
-- `frus-core` : `AlignmentDirectional` + constantes + `resolve` (geometry.rs),
-  ré-export.
-- `frus-widgets` : trait `alignment_directional()` + forwarders ; `Container`
-  (champ `alignment_dir`, builder, `style()`, accès) ; `align_offset` résout le
-  directionnel selon `self.rtl` ; `render_item` applique l'ancrage.
+- `frus-core`: `AlignmentDirectional` + constants + `resolve` (geometry.rs),
+  re-export.
+- `frus-widgets`: the `alignment_directional()` trait method + forwarders;
+  `Container` (an `alignment_dir` field, the builder, `style()`, the accessor);
+  `align_offset` resolves the directional anchor by `self.rtl`; `render_item`
+  applies the anchoring.
 
 ## Tests
 
-- `directional_alignment_resolves_by_direction` (core) : `CENTER_START` → gauche
-  en LTR, droite en RTL ; `TOP_CENTER` invariant.
-- `directional_alignment_flips_the_child_in_rtl` (widgets) : même arbre, l'enfant
-  ancré `CENTER_START` est à x≈0 en LTR, x≈80 en RTL.
-- Suites vertes : frus-core 87, frus-widgets 198 ; workspace complet vert.
+- `directional_alignment_resolves_by_direction` (core): `CENTER_START` → the left
+  in LTR, the right in RTL; `TOP_CENTER` invariant.
+- `directional_alignment_flips_the_child_in_rtl` (widgets): the same tree, a child
+  anchored `CENTER_START` is at x≈0 in LTR and x≈80 in RTL.
+- Suites green: frus-core 87, frus-widgets 198; the whole workspace green.
 
-## Reste
+## What's left
 
-- Idiome shell / démo animant `align_tween.animate(&ctrl).value()`.
-- Ancrage à **enfants multiples** (aujourd'hui : enfant unique, façon Flutter).
+- A shell idiom / demo animating `align_tween.animate(&ctrl).value()`.
+- Anchoring with **multiple children** (today: a single child).

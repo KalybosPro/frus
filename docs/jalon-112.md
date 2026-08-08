@@ -1,63 +1,64 @@
-# Jalon 112 — `Transform` : décalage de peinture (`translate`)
+# Jalon 112 — `Transform`: paint offset (`translate`)
 
-## Analyse
+## Analysis
 
-Dernier de la série des widgets de disposition manquants : **`Transform`**. Il
-décale son enfant **à la peinture**, sans toucher la mise en page — l'enfant peut
-déborder sa boîte, les frères ne bougent pas. C'est la brique des effets qui
-*glissent* (pastille dans un coin, entrée qui coulisse, secousse d'erreur) et,
-combinée à un `Tween` lu dans `view()`, d'un mouvement animé.
+The last of the missing layout widgets: **`Transform`**. It offsets its child **at
+paint time**, without touching layout — the child can overflow its box and the
+siblings do not move. It is the brick behind effects that *slide* (a badge in a
+corner, an entry sliding in, an error shake) and, combined with a `Tween` read in
+`view()`, behind animated movement.
 
-Ce jalon ne couvre que la **translation** (`Transform.translate` de Flutter).
-L'échelle et la rotation demandent une **matrice affine** dans le pipeline — le
-rendu GPU ne connaît aujourd'hui que des quads alignés sur les axes (un rect mis à
-l'échelle reste un rect, mais un rect tourné ne l'est plus) — et sont donc
-reportées à un jalon dédié.
+This milestone covers **translation** only. Scaling and rotation need an **affine
+matrix** in the pipeline — GPU rendering today only knows axis-aligned quads (a
+scaled rect is still a rect, but a rotated rect is not) — so they are deferred to
+a dedicated milestone.
 
-## Décisions techniques
+## Technical decisions
 
-- **Réutilise la cascade de translation du walk.** Le décalage est ajouté à la
-  translation propagée aux enfants (comme l'ancrage `Container::alignment`). Or
-  primitives **et** toutes les surfaces d'interaction (clic, appui long, focus,
-  scroll, glisser, accessibilité) dérivent de cette même translation : le décalage
-  est donc **automatiquement correct partout**, hit-test compris — zéro post-
-  traitement, zéro risque d'incohérence peinture/clic.
+- **It reuses the walk's translation cascade.** The offset is added to the
+  translation propagated to the children (like `Container::alignment`'s
+  anchoring). And since the primitives **and** every interaction surface (click,
+  long press, focus, scrolling, dragging, accessibility) all derive from that same
+  translation, the offset is **automatically correct everywhere**, hit-testing
+  included — no post-processing, and no risk of paint/click inconsistency.
 
-- **`align_offset` → `child_offset`.** L'ancienne fonction (offset de l'ancrage
-  fractionnel) devient `child_offset` : elle **cumule** l'ancrage et le décalage
-  `Transform::translate`. Appelée aux deux endroits du walk (arbre principal +
-  éléments de listes virtualisées / `layout_builder`).
+- **`align_offset` → `child_offset`.** The old function (the fractional
+  anchoring offset) becomes `child_offset`: it **accumulates** the anchoring and
+  the `Transform::translate` offset. Called at both points in the walk (the main
+  tree + virtualised list items / `layout_builder`).
 
-- **Correction RTL.** L'axe x du monde étant retourné en RTL, un `dx` logique
-  positif (« vers la fin ») pointerait vers la gauche : on inverse son signe pour
-  rester cohérent avec le sens de lecture.
+- **RTL correction.** The world's x axis being flipped in RTL, a positive logical
+  `dx` ("towards the end") would point left: so its sign is inverted to stay
+  consistent with the reading direction.
 
-- **Trait `transform_translate()`**, transmis par les wrappers transparents
-  (`Box`, `Keyed`, `Responsive`, wrappers `animated`) selon le motif habituel.
+- **A `transform_translate()` trait method**, forwarded by the transparent
+  wrappers (`Box`, `Keyed`, `Responsive`, the `animated` wrappers) in the usual
+  pattern.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets/transform.rs` : le widget `Transform` (`translate(dx, dy)`,
-  `child`, `style()` passe-plat, `transform_translate() = Some((dx, dy))`).
-- `frus-widgets/widget.rs` : méthode de trait `transform_translate` + forward `Box`.
-- `keyed.rs` / `responsive.rs` / `animated.rs` : forwards.
-- `ui.rs` : `align_offset` → `child_offset` (cumule ancrage + translate), aux deux
-  sites d'appel.
-- Export `Transform` dans `lib.rs`.
+- `frus-widgets/transform.rs`: the `Transform` widget (`translate(dx, dy)`,
+  `child`, a pass-through `style()`, `transform_translate() = Some((dx, dy))`).
+- `frus-widgets/widget.rs`: the `transform_translate` trait method + the `Box`
+  forward.
+- `keyed.rs` / `responsive.rs` / `animated.rs`: forwards.
+- `ui.rs`: `align_offset` → `child_offset` (accumulating anchoring + translate),
+  at both call sites.
+- `Transform` exported in `lib.rs`.
 
 ## Tests
 
-- `translate_offsets_the_child_at_paint` : `translate(30, 10)` peint l'enfant
-  (20×20) à ~(30, 10).
-- `translate_does_not_affect_layout` : un frère placé après un enfant décalé de 50
-  reste à sa position de mise en page (`y = 20`) — le décalage est purement visuel.
-- Suite frus-widgets verte (205) ; workspace complet vert.
+- `translate_offsets_the_child_at_paint`: `translate(30, 10)` paints the child
+  (20×20) at ~(30, 10).
+- `translate_does_not_affect_layout`: a sibling placed after a child offset by 50
+  stays at its layout position (`y = 20`) — the offset is purely visual.
+- The frus-widgets suite green (205); the whole workspace green.
 
-## Reste
+## What's left
 
-- `Transform` **échelle** (`scale`) : post-traitement affine sur la plage de
-  primitives du sous-arbre (via `split_off`, comme le calque d'opacité) **plus**
-  transformation des rectangles d'interaction — reste axé-aligné, sans toucher le
-  GPU.
-- `Transform` **rotation** : matrice affine passée aux shaders (sommet + SDF), plus
-  hit-test à transformation inverse — un jalon d'infrastructure de rendu.
+- `Transform` **scaling** (`scale`): affine post-processing over the subtree's
+  range of primitives (through `split_off`, like the opacity layer) **plus**
+  transforming the interaction rectangles — it stays axis-aligned, without
+  touching the GPU.
+- `Transform` **rotation**: an affine matrix passed to the shaders (vertex + SDF),
+  plus inverse-transform hit-testing — a render-infrastructure milestone.

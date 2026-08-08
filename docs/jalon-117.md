@@ -1,72 +1,76 @@
-# Jalon 117 — `Transform` : matrice affine unifiée
+# Jalon 117 — `Transform`: unified affine matrix
 
-## Analyse
+## Analysis
 
-Unification des transformations de `Transform`. Jusqu'ici l'échelle passait par un
-post-traitement **par primitive** (aligné sur les axes) et la rotation par un
-**calque composité** ; les composer approximait (pivots hors-centre) et l'échelle non
-uniforme fudgeait rayons/texte/chemins. On fond désormais échelle **et** rotation en
-**une seule matrice affine 2×3** (`Affine`), portée par le calque composité — la
-transformation exacte de tout un sous-arbre, sans approximation de composition.
+Unifying `Transform`'s transformations. Until now, scaling went through
+**per-primitive** post-processing (axis-aligned) and rotation through a
+**composited layer**; composing them was approximate (off-centre pivots) and
+non-uniform scaling fudged radii, text and paths. Scale **and** rotation are now
+merged into **a single 2×3 affine matrix** (`Affine`), carried by the composited
+layer — the exact transformation of a whole subtree, with no composition
+approximation.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Affine` dans `frus-core`** : matrice 2×3 (`[a, b, c, d, e, f]`) avec
-  `translation` / `scale` / `rotation`, composition `then`, `about(pivot)`, `apply`
-  et `inverse`. Le type unifié des transformations de peinture.
+- **`Affine` in `frus-core`**: a 2×3 matrix (`[a, b, c, d, e, f]`) with
+  `translation` / `scale` / `rotation`, a `then` composition, `about(pivot)`,
+  `apply` and `inverse`. The unified type for paint transformations.
 
-- **`LayerTransform` porte une `Affine`** (au lieu d'un couple angle/pivot). Le
-  compositeur calcule l'**inverse** et le fragment échantillonne la texture à la
-  position contre-transformée `M⁻¹(p)` — une seule passe pour n'importe quelle affine
-  (échelle par axe, rotation, cisaillement, composition).
+- **`LayerTransform` carries an `Affine`** (instead of an angle/pivot pair). The
+  compositor computes the **inverse** and the fragment samples the texture at the
+  counter-transformed position `M⁻¹(p)` — a single pass for any affine (per-axis
+  scale, rotation, shear, composition).
 
-- **Une seule passe dans le walk.** Le sous-arbre est peint **à plat** ; échelle
-  (autour de son pivot) et rotation (autour du sien) sont composées en `M`, et le tout
-  est enveloppé dans un calque `transform = M`. Le post-traitement par primitive de
-  l'échelle (J113/J115) disparaît.
+- **A single pass in the walk.** The subtree is painted **flat**; the scale (about
+  its pivot) and the rotation (about its own) are composed into `M`, and the whole
+  is wrapped in a layer with `transform = M`. The per-primitive scale
+  post-processing (J113/J115) disappears.
 
-- **Hit-test par matrice inverse.** Les cibles de clic portent `M⁻¹` (au lieu d'un
-  couple rotation) ; le point de test lui est appliqué. Exact pour échelle **et**
-  rotation composées, dans le bon ordre.
+- **Hit-testing by inverse matrix.** The click targets carry `M⁻¹` (instead of a
+  rotation pair); the test point is put through it. Exact for scale **and**
+  rotation composed, in the right order.
 
-- **Ce que ça lève** : composition exacte des pivots hors-centre ; échelle non
-  uniforme correcte (le contenu à plat est étiré par la texture au compositing, plus
-  de fudge sur rayons/texte/chemins).
+- **What this lifts**: exact composition of off-centre pivots; correct non-uniform
+  scaling (the flat content is stretched by the texture at compositing time, so no
+  more fudging of radii, text and paths).
 
-## Compromis
+## Trade-offs
 
-- **L'échelle passe maintenant par le GPU** (comme la rotation) : son rendu **n'est
-  plus vérifiable sans GPU** (les primitives restent à plat dans le calque). Les tests
-  vérifient donc la **matrice** du calque et le **hit-test** (matrice inverse), tous
-  deux sans GPU. La correction du fragment reste validée par construction.
-- **Focus / défilement / glisser / accessibilité** dans un sous-arbre transformé : ces
-  rectangles restent **non transformés** (une matrice générale ne peut pas les garder
-  alignés sur les axes). Les **clics** restent exacts (matrice inverse) ; l'anneau de
-  focus et les bornes d'accessibilité apparaissent à la position non transformée.
+- **Scaling now goes through the GPU** (like rotation): so its rendering is **no
+  longer verifiable without a GPU** (the primitives stay flat inside the layer).
+  The tests therefore check the layer's **matrix** and the **hit-testing** (the
+  inverse matrix), both without a GPU. The fragment's correctness is still
+  validated by construction.
+- **Focus / scrolling / dragging / accessibility** within a transformed subtree:
+  those rectangles stay **untransformed** (a general matrix cannot keep them
+  axis-aligned). **Clicks** stay exact (through the inverse matrix); the focus
+  ring and the accessibility bounds appear at the untransformed position.
 
-## Implémentation
+## Implementation
 
-- `frus-core/geometry.rs` : type `Affine` (+ export). `frus-core/scene.rs` :
-  `LayerTransform` enveloppe une `Affine` (`rotation`, `scaled`/`translated` par
-  conjugaison).
-- `frus-gpu` : `LayerComposite`/`CompInstance` portent l'inverse affine (6 flottants) ;
-  `composite.wgsl` applique `M⁻¹` à `frag_px`.
-- `frus-widgets/ui.rs` : le bloc de transformation compose `M` et enveloppe le
-  sous-arbre dans un calque `M` ; `Hit::xform` devient `Option<Affine>` (inverse),
-  `contains` l'applique.
+- `frus-core/geometry.rs`: the `Affine` type (+ export). `frus-core/scene.rs`:
+  `LayerTransform` wraps an `Affine` (`rotation`, `scaled`/`translated` by
+  conjugation).
+- `frus-gpu`: `LayerComposite`/`CompInstance` carry the affine inverse (6 floats);
+  `composite.wgsl` applies `M⁻¹` to `frag_px`.
+- `frus-widgets/ui.rs`: the transformation block composes `M` and wraps the
+  subtree in a layer with `M`; `Hit::xform` becomes an `Option<Affine>` (the
+  inverse), and `contains` applies it.
 
 ## Tests
 
-- `frus-core` : `affine_composes_scale_then_rotate_about_a_pivot`,
-  `affine_inverse_round_trips` (aller-retour `M⁻¹∘M`).
-- `frus-widgets` : les tests d'échelle/rotation vérifient la **matrice** du calque
-  (partie linéaire, point fixe) ; `rotate_hit_test_counter_rotates_the_point` valide le
-  hit-test par matrice inverse ; `scale_and_rotate_compose` vérifie la fusion en une
-  matrice `rotation ∘ échelle`.
-- Suites vertes : frus-core 90, frus-gpu 16, frus-widgets 211 ; workspace complet vert.
+- `frus-core`: `affine_composes_scale_then_rotate_about_a_pivot`,
+  `affine_inverse_round_trips` (an `M⁻¹∘M` round trip).
+- `frus-widgets`: the scale/rotation tests check the layer's **matrix** (its
+  linear part, its fixed point); `rotate_hit_test_counter_rotates_the_point`
+  validates hit-testing by inverse matrix; `scale_and_rotate_compose` checks the
+  merge into a single `rotation ∘ scale` matrix.
+- Suites green: frus-core 90, frus-gpu 16, frus-widgets 211; the whole workspace
+  green.
 
-## Reste
+## What's left
 
-- Transformer aussi les rectangles de **focus / a11y** sous une affine **alignée sur
-  les axes** (échelle/translation pure) pour lever ce compromis dans le cas courant.
-- Une démo animée rassemblant l'arsenal (`Tween` pilotant un `Transform` composé).
+- Transforming the **focus / a11y** rectangles too under an **axis-aligned**
+  affine (pure scale/translation), to lift that trade-off in the common case.
+- An animated demo bringing the arsenal together (a `Tween` driving a composed
+  `Transform`).

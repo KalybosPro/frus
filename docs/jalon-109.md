@@ -1,47 +1,50 @@
-# Jalon 109 — Container : marge extérieure (`margin`)
+# Jalon 109 — Container: outer margin (`margin`)
 
-## Analyse
+## Analysis
 
-Dernière pièce de parité `Container` de Flutter : la **marge extérieure**. Le
-conteneur savait espacer son contenu **à l'intérieur** (padding, J102) mais pas
-réserver d'espace **autour** de lui — impossible d'écarter deux cartes sans insérer
-un widget d'espacement. Flutter le fait via `Container(margin:)`.
+The last piece of the conventional container API: the **outer margin**. The
+container could space its content **inside** (padding, J102) but could not reserve
+space **around** itself — there was no way to separate two cards without inserting
+a spacer widget.
 
-Bilan de parité `Container` : padding ✓ (J102), décoration composite ✓ (J105),
-alignement ✓ (J105–J108), **marge ✓ (ce jalon)**.
+Container scorecard: padding ✓ (J102), composite decoration ✓ (J105), alignment ✓
+(J105–J108), **margin ✓ (this milestone)**.
 
-## Décisions techniques
+## Technical decisions
 
-- **`margin` dans `frus_layout::Style`.** taffy gère nativement la marge
-  (`LengthPercentageAuto`) ; il manquait le champ dans notre `Style` mince. Ajouté :
-  champ `margin: Insets`, mêlé au `layout_hash` (il change la géométrie → doit
-  invalider le cache de relayout) et mappé vers `taffy::Rect` dans `to_taffy`.
+- **`margin` in `frus_layout::Style`.** taffy handles margins natively
+  (`LengthPercentageAuto`); the field was simply missing from our thin `Style`.
+  Added: a `margin: Insets` field, mixed into `layout_hash` (it changes the
+  geometry → so it must invalidate the relayout cache) and mapped onto a
+  `taffy::Rect` in `to_taffy`.
 
-- **Marge = extérieure, indépendante de la décoration.** taffy pose la boîte
-  **insérée** de sa marge ; le fond, la bordure et l'ombre se peignent dans cette
-  boîte réduite (aucun changement de peinture — `paint` reçoit déjà `bounds` insérés).
-  La marge **pousse les frères** sans agrandir la décoration.
+- **The margin is outer, independent of the decoration.** taffy places the box
+  **inset** by its margin; the background, border and shadow are painted inside
+  that reduced box (no painting change — `paint` already receives inset `bounds`).
+  The margin **pushes the siblings** without enlarging the decoration.
 
-- **`Container::margin(f32)` / `margin_each(...)`**, parallèles à `padding` /
-  `padding_each`. `Flex` (Row/Column) n'expose **pas** de marge (comme Flutter), il
-  passe `Insets::ZERO`.
+- **`Container::margin(f32)` / `margin_each(...)`**, parallel to `padding` /
+  `padding_each`. `Flex` (Row/Column) does **not** expose a margin; it passes
+  `Insets::ZERO`.
 
-## Implémentation
+## Implementation
 
-- `frus-layout/style.rs` : champ `margin`, défaut `ZERO`, `layout_hash`, `to_taffy`.
-- `frus-widgets` : `Container` (champ `margin`, builders `.margin`/`.margin_each`,
-  `style()` renseigne `margin`) ; `flex.rs` passe `Insets::ZERO` (constructeur de
-  `Style` énuméré).
+- `frus-layout/style.rs`: the `margin` field, defaulting to `ZERO`, plus
+  `layout_hash` and `to_taffy`.
+- `frus-widgets`: `Container` (the `margin` field, the `.margin`/`.margin_each`
+  builders, `style()` filling in `margin`); `flex.rs` passes `Insets::ZERO` (its
+  `Style` constructor is enumerated).
 
 ## Tests
 
-- `margin_pushes_siblings_and_insets` : dans une colonne, un 2e enfant (haut 20) de
-  marge 10 démarre à `y = 30` (frère 20 + marge 10) et est inséré à `x = 10`, sans
-  que sa boîte grandisse (haut 20).
-- Suites vertes : frus-layout 4, frus-widgets 199 ; workspace complet vert.
+- `margin_pushes_siblings_and_insets`: in a column, a 2nd child (height 20) with a
+  margin of 10 starts at `y = 30` (sibling 20 + margin 10) and is inset at
+  `x = 10`, without its box growing (height 20).
+- Suites green: frus-layout 4, frus-widgets 199; the whole workspace green.
 
-## Reste
+## What's left
 
-- `Transform` (rotation/échelle/translation d'un enfant), `AspectRatio`,
-  `FractionallySizedBox` — autres widgets de disposition de Flutter.
-- Idiome shell / démo rassemblant l'arsenal (animations + alignement + marge).
+- `Transform` (rotating/scaling/translating a child), `AspectRatio`,
+  `FractionallySizedBox` — the other layout widgets.
+- A shell idiom / demo bringing the arsenal together (animations + alignment +
+  margin).

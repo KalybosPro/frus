@@ -1,56 +1,62 @@
-# Jalon 105 — Container : `alignment` + `decoration` composite (parité Flutter)
+# Jalon 105 — Container: `alignment` + composite `decoration`
 
-## Analyse
+## Analysis
 
-Deux manques de parité Flutter subsistaient sur `Container` :
+Two gaps remained on `Container` compared with the conventional container API:
 
-1. **Ancrer l'enfant.** Sans réglage, l'enfant s'étire pour remplir la boîte
-   (défaut flex `Start`/`Stretch`). Flutter expose `Container(alignment:)` pour le
-   centrer, le coller à un coin, un bord…
-2. **Décoration d'un bloc.** La boîte se décorait champ par champ (`.color`,
-   `.border`, `.radius`, `.gradient`, `.shadow`). Flutter réunit tout dans un
-   `BoxDecoration` réutilisable passé via `Container(decoration:)`.
+1. **Anchoring the child.** With no setting, the child stretches to fill the box
+   (the flex `Start`/`Stretch` default). The established API exposes an
+   `alignment` to centre it, stick it to a corner, an edge…
+2. **Decorating as one piece.** The box was decorated field by field (`.color`,
+   `.border`, `.radius`, `.gradient`, `.shadow`). The established API gathers all
+   of that into a reusable `BoxDecoration` passed as `decoration`.
 
-## Décisions techniques
+## Technical decisions
 
-- **`Alignment` (frus-core).** Les neuf ancrages nommés de Flutter
-  (`TopLeft`…`Center`…`BottomRight`), chacun projeté sur deux bords indépendants via
-  `horizontal()` / `vertical()` → [`AlignEdge`] (`Start`/`Center`/`End`). Type
-  géométrique pur, sans dépendance layout (frus-core ne connaît pas `Justify`).
+- **`Alignment` (frus-core).** The nine named anchors
+  (`TopLeft`…`Center`…`BottomRight`), each projected onto two independent edges
+  through `horizontal()` / `vertical()` → [`AlignEdge`] (`Start`/`Center`/`End`).
+  A pure geometric type, with no layout dependency (frus-core does not know about
+  `Justify`).
 
-- **Ancrage = leviers flex existants.** La boîte reste une **ligne flex** (axe
-  principal horizontal → `justify` ; axe croisé vertical → `align`). `Container`
-  traduit `alignment.horizontal()` → `Justify` et `alignment.vertical()` → `Align`
-  dans `style()`. Aucune primitive de positionnement nouvelle : on réutilise taffy.
-  Comme `style()` est la source partagée par `build_layout` **et** l'empreinte du
-  cache de relayout (`layout_hash` couvre `justify`/`align`), le cache reste
-  cohérent gratuitement.
+- **Anchoring = the existing flex levers.** The box stays a **flex row** (the
+  horizontal main axis → `justify`; the vertical cross axis → `align`).
+  `Container` translates `alignment.horizontal()` → `Justify` and
+  `alignment.vertical()` → `Align` inside `style()`. No new positioning
+  primitive: taffy is reused. And since `style()` is the source shared by
+  `build_layout` **and** the relayout cache's signature (`layout_hash` covers
+  `justify`/`align`), the cache stays consistent for free.
 
-- **`decoration(BoxDecoration)` = décomposition.** Le builder éclate le
-  `BoxDecoration` composite dans les champs existants du conteneur (fond, dégradé,
-  bordure, rayon, ombre). Zéro nouvel état, zéro nouveau chemin de paint : les
-  animations (couleur/rayon…) restent applicables par-dessus. Seul le `spread`
-  d'ombre n'est pas conservé — le modèle d'ombre du conteneur n'en a pas (déjà le
-  cas de `.shadow`).
+- **`decoration(BoxDecoration)` = decomposition.** The builder breaks the
+  composite `BoxDecoration` out into the container's existing fields (background,
+  gradient, border, radius, shadow). Zero new state, zero new paint path: the
+  animations (colour/radius…) remain applicable on top. Only the shadow's
+  `spread` is not preserved — the container's shadow model has none (already the
+  case for `.shadow`).
 
-## Implémentation
+## Implementation
 
-- `frus-core/geometry.rs` : `enum Alignment` (9 variantes, `Default = Center`),
-  `enum AlignEdge`, `Alignment::{horizontal, vertical}`. Ré-exportés par `lib.rs`.
-- `frus-widgets/container.rs` : champ `alignment: Option<Alignment>` ; builders
-  `.alignment(Alignment)` et `.decoration(BoxDecoration)` ; `style()` mappe
-  l'ancrage vers `Justify`/`Align`. Imports `Align`, `Justify` de frus-layout.
+- `frus-core/geometry.rs`: `enum Alignment` (9 variants, `Default = Center`),
+  `enum AlignEdge`, `Alignment::{horizontal, vertical}`. Re-exported by `lib.rs`.
+- `frus-widgets/container.rs`: an `alignment: Option<Alignment>` field; the
+  `.alignment(Alignment)` and `.decoration(BoxDecoration)` builders; `style()`
+  maps the anchor onto `Justify`/`Align`. Importing `Align` and `Justify` from
+  frus-layout.
 
 ## Tests
 
-- `alignment_centers_the_child` : enfant 20×20 dans 100×100 → fond à ~(40, 40).
-- `alignment_anchors_child_to_a_corner` : `BottomRight` → fond à ~(80, 80).
-- `decoration_applies_composite_fields` : `BoxDecoration` (vert + rayon 8 + bordure
-  2) → fond vert de rayon 8 peint, bordure réservée au layout (padding = 2).
-- Suites vertes : frus-core 85, frus-widgets 196.
+- `alignment_centers_the_child`: a 20×20 child inside 100×100 → the background at
+  ~(40, 40).
+- `alignment_anchors_child_to_a_corner`: `BottomRight` → the background at
+  ~(80, 80).
+- `decoration_applies_composite_fields`: a `BoxDecoration` (green + radius 8 +
+  border 2) → a green background of radius 8 painted, the border reserved at
+  layout time (padding = 2).
+- Suites green: frus-core 85, frus-widgets 196.
 
-## Reste
+## What's left
 
-- `Alignment` **fractionnel** (`{ x, y }` continu) + `Lerp` → `Tween<Alignment>`
-  animable (exige un placement manuel de l'enfant, hors flex discret).
-- Exposer `.alignment` / `.decoration` sur le widget nommé `AnimatedContainer`.
+- A **fractional** `Alignment` (continuous `{ x, y }`) + `Lerp` → an animatable
+  `Tween<Alignment>` (which requires placing the child manually, outside discrete
+  flex).
+- Exposing `.alignment` / `.decoration` on the named `AnimatedContainer` widget.

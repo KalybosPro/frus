@@ -1,54 +1,53 @@
-# Jalon 108 — `AlignmentGeometry` : l'ancrage unifié
+# Jalon 108 — `AlignmentGeometry`: unified anchoring
 
-## Analyse
+## Analysis
 
-Les J106–J107 ont livré deux types d'ancrage — physique ([`Alignment`]) et
-directionnel ([`AlignmentDirectional`]) — mais exposés en **double** : deux builders
-sur `Container` (`.alignment` / `.alignment_directional`), **deux** méthodes de trait
-(`alignment` / `alignment_directional`), une résolution qui filtrait les deux. Or
-Flutter place ces deux types sous une abstraction commune, `AlignmentGeometry`, que
-`Container.alignment` accepte indifféremment. Ce jalon adopte cette forme : **un**
-point d'entrée, résolu en un seul endroit.
+J106–J107 delivered two kinds of anchoring — physical ([`Alignment`]) and
+directional ([`AlignmentDirectional`]) — but exposed them **twice**: two builders
+on `Container` (`.alignment` / `.alignment_directional`), **two** trait methods
+(`alignment` / `alignment_directional`), and a resolution that filtered both. The
+established shape puts the two types under a common abstraction,
+`AlignmentGeometry`, which the container's `alignment` accepts either way. This
+milestone adopts that shape: **one** entry point, resolved in one place.
 
-## Décisions techniques
+## Technical decisions
 
-- **`AlignmentGeometry` (frus-core).** Enum `Physical(Alignment) |
-  Directional(AlignmentDirectional)` avec `resolve(direction) -> Alignment` (le
-  physique est renvoyé tel quel). `From<Alignment>` et `From<AlignmentDirectional>`
-  → n'importe quel ancrage se convertit implicitement.
+- **`AlignmentGeometry` (frus-core).** An enum `Physical(Alignment) |
+  Directional(AlignmentDirectional)` with `resolve(direction) -> Alignment` (the
+  physical one is returned as-is). `From<Alignment>` and
+  `From<AlignmentDirectional>` → so any anchor converts implicitly.
 
-- **Un seul builder, signature de Flutter.**
-  `Container::alignment(impl Into<AlignmentGeometry>)` accepte physique **ou**
-  directionnel — `.alignment(Alignment::CENTER)` comme
-  `.alignment(AlignmentDirectional::CENTER_START)`. Le builder `.alignment_directional`
-  disparaît (redondant).
+- **A single builder.** `Container::alignment(impl Into<AlignmentGeometry>)`
+  accepts physical **or** directional — `.alignment(Alignment::CENTER)` just as
+  much as `.alignment(AlignmentDirectional::CENTER_START)`. The
+  `.alignment_directional` builder disappears (redundant).
 
-- **Une seule méthode de trait.** `Widget::alignment_geometry() ->
-  Option<AlignmentGeometry>` remplace les deux précédentes ; `align_offset` résout
-  une fois selon `self.rtl`, puis applique la mécanique physique inchangée
-  (correction RTL comprise). Surface de trait réduite, forwarders allégés
-  (`Box`/`Keyed`/`Responsive`/nommés : une ligne au lieu de deux).
+- **A single trait method.** `Widget::alignment_geometry() ->
+  Option<AlignmentGeometry>` replaces the previous two; `align_offset` resolves
+  once by `self.rtl` and then applies the unchanged physical mechanics (RTL
+  correction included). A reduced trait surface, and lighter forwarders
+  (`Box`/`Keyed`/`Responsive`/named: one line instead of two).
 
-## Implémentation
+## Implementation
 
-- `frus-core` : enum `AlignmentGeometry` + `resolve` + deux `From` (geometry.rs),
-  ré-export.
-- `frus-widgets` : trait `alignment_geometry()` (remplace `alignment` +
-  `alignment_directional`) + forwarders ; `Container` (champ unique
-  `alignment: Option<AlignmentGeometry>`, builder `impl Into`) ; `align_offset`
-  résout la géométrie unifiée.
+- `frus-core`: the `AlignmentGeometry` enum + `resolve` + two `From` impls
+  (geometry.rs), re-export.
+- `frus-widgets`: the `alignment_geometry()` trait method (replacing `alignment` +
+  `alignment_directional`) + forwarders; `Container` (a single
+  `alignment: Option<AlignmentGeometry>` field, an `impl Into` builder);
+  `align_offset` resolves the unified geometry.
 
 ## Tests
 
-- `alignment_geometry_unifies_physical_and_directional` (core) : un ancrage
-  physique est invariant à la direction ; un directionnel suit le sens (LTR →
-  gauche, RTL → droite), les deux construits via `Into`.
-- Tests d'ancrage existants (centrage, coin, fractionnel, retournement RTL)
-  inchangés — le directionnel passe désormais par `.alignment(...)`, prouvant que
-  le builder unique accepte les deux.
-- Suites vertes : frus-core 88, frus-widgets 198 ; workspace complet vert.
+- `alignment_geometry_unifies_physical_and_directional` (core): a physical anchor
+  is direction-invariant; a directional one follows the reading direction (LTR →
+  left, RTL → right), both built through `Into`.
+- The existing anchoring tests (centring, corner, fractional, RTL flipping) are
+  unchanged — the directional one now goes through `.alignment(...)`, proving the
+  single builder accepts both.
+- Suites green: frus-core 88, frus-widgets 198; the whole workspace green.
 
-## Reste
+## What's left
 
-- Idiome shell / démo animant `align_tween.animate(&ctrl).value()`.
-- Ancrage à **enfants multiples** (aujourd'hui : enfant unique, façon Flutter).
+- A shell idiom / demo animating `align_tween.animate(&ctrl).value()`.
+- Anchoring with **multiple children** (today: a single child).

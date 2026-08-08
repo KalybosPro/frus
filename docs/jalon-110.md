@@ -1,55 +1,53 @@
-# Jalon 110 — `AspectRatio` : boîte à rapport largeur/hauteur
+# Jalon 110 — `AspectRatio`: a box with a width/height ratio
 
-## Analyse
+## Analysis
 
-Premier des widgets de disposition manquants (face à Flutter) : **`AspectRatio`**.
-Impossible, jusqu'ici, de tenir un rapport largeur/hauteur constant (vignette
-vidéo 16:9, carré d'avatar, carte 4:3) sans figer *les deux* dimensions en dur —
-donc sans s'adapter à la largeur disponible. Flutter le fait via
-`AspectRatio(aspectRatio:)`.
+The first of the missing layout widgets: **`AspectRatio`**. Until now there was
+no way to hold a constant width/height ratio (a 16:9 video thumbnail, a square
+avatar, a 4:3 card) without hard-freezing *both* dimensions — and therefore
+without adapting to the available width.
 
-## Décisions techniques
+## Technical decisions
 
-- **`aspect_ratio: Option<f32>` dans `frus_layout::Style`.** taffy 0.7 gère
-  nativement le rapport (`width / height`, même convention que Flutter). Ajouté :
-  champ, hachage dans `layout_hash` (il change la géométrie → invalide le cache de
-  relayout) et transmission dans `to_taffy`.
+- **`aspect_ratio: Option<f32>` in `frus_layout::Style`.** taffy 0.7 handles the
+  ratio natively (`width / height`, the usual convention). Added: the field,
+  hashed into `layout_hash` (it changes the geometry → it invalidates the relayout
+  cache) and passed through in `to_taffy`.
 
-- **La boîte prend la largeur, dérive la hauteur.** Une largeur seulement
-  *étirée* (`align: stretch`) ne suffit **pas** à taffy pour dériver l'autre axe :
-  vérifié empiriquement (sonde `probe_aspect_ratio`), une boîte étirée + rapport
-  restait à hauteur 0. Il faut une dimension **connue**. `AspectRatio` pose donc
-  `width: Percent(1.0)` (largeur pleine du parent) ; taffy en dérive alors la
-  hauteur. Cas le plus courant : `AspectRatio` dans une colonne / un contexte
-  pleine largeur.
+- **The box takes the width and derives the height.** A width that is merely
+  *stretched* (`align: stretch`) is **not** enough for taffy to derive the other
+  axis: verified empirically (a `probe_aspect_ratio` probe) — a stretched box with
+  a ratio stayed at height 0. A **known** dimension is required. So `AspectRatio`
+  sets `width: Percent(1.0)` (the parent's full width); taffy then derives the
+  height. The most common case: an `AspectRatio` inside a column or a full-width
+  context.
 
-- **Widget de disposition pur.** `AspectRatio::new(ratio).child(...)` ne peint
-  rien ; l'enfant hérite de la boîte (étirement en hauteur via `align: stretch`,
-  remplissage en largeur s'il grandit — `flex`, une image, un fond plein).
+- **A pure layout widget.** `AspectRatio::new(ratio).child(...)` paints nothing;
+  the child inherits the box (stretched in height through `align: stretch`,
+  filling the width if it grows — `flex`, an image, a solid background).
 
-## Implémentation
+## Implementation
 
-- `frus-layout/style.rs` : champ `aspect_ratio`, défaut `None`, `layout_hash`,
-  `to_taffy`.
-- `frus-widgets/aspectratio.rs` : le widget `AspectRatio` (`new` borne le rapport
-  à `> 0`, `child`, `style()` = `width: Percent(1.0)` + `aspect_ratio`).
-- `frus-widgets/flex.rs` : passe `aspect_ratio: None` (constructeur de `Style`
-  énuméré — seul `Flex` l'énumère ; les autres widgets utilisent
+- `frus-layout/style.rs`: the `aspect_ratio` field, defaulting to `None`, plus
+  `layout_hash` and `to_taffy`.
+- `frus-widgets/aspectratio.rs`: the `AspectRatio` widget (`new` clamps the ratio
+  to `> 0`, `child`, `style()` = `width: Percent(1.0)` + `aspect_ratio`).
+- `frus-widgets/flex.rs`: passes `aspect_ratio: None` (its `Style` constructor is
+  enumerated — only `Flex` enumerates it; the other widgets use
   `..Default::default()`).
-- Export `AspectRatio` dans `lib.rs`.
+- `AspectRatio` exported in `lib.rs`.
 
 ## Tests
 
-- `derives_free_dimension_from_ratio` : dans une colonne large de 100, un
-  `AspectRatio(2.0)` donne une boîte 100×50 (l'enfant qui remplit peint ~100×50).
-- `ratio_below_one_is_taller_than_wide` : `AspectRatio(0.5)` → 100×200 (plus haut
-  que large).
-- Suites vertes : frus-layout 16, frus-widgets 201 ; workspace complet vert.
+- `derives_free_dimension_from_ratio`: inside a column 100 wide, an
+  `AspectRatio(2.0)` gives a 100×50 box (the filling child paints ~100×50).
+- `ratio_below_one_is_taller_than_wide`: `AspectRatio(0.5)` → 100×200 (taller than
+  it is wide).
+- Suites green: frus-layout 16, frus-widgets 201; the whole workspace green.
 
-## Reste
+## What's left
 
-- `FractionallySizedBox` (taille en fraction du parent), `Transform`
-  (rotation/échelle/translation d'un enfant) — autres widgets de disposition de
-  Flutter.
-- `AspectRatio` dérivé depuis la **hauteur** contrainte (cas d'un `Row`) — non
-  couvert : le brique cible le cas pleine largeur, le plus courant.
+- `FractionallySizedBox` (size as a fraction of the parent), `Transform`
+  (rotating/scaling/translating a child) — the other layout widgets.
+- An `AspectRatio` derived from a constrained **height** (the `Row` case) — not
+  covered: the brick targets the full-width case, which is the most common.

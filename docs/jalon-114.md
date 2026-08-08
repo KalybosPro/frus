@@ -1,71 +1,71 @@
-# Jalon 114 — `Transform` : rotation (calque composité tourné)
+# Jalon 114 — `Transform`: rotation (rotated composited layer)
 
-## Analyse
+## Analysis
 
-Dernière transformation du widget `Transform` : la **rotation** (`Transform.rotate`
-de Flutter). Contrairement à la translation (J112) et à l'échelle (J113), une
-rotation **ne préserve pas l'alignement sur les axes** — un rect tourné n'est plus
-un rect. Il fallait donc, pour la première fois, une **transformation affine dans
-le pipeline de rendu**. C'est un jalon d'infrastructure : il équipe le compositeur
-d'une passe de rotation réutilisable.
+The `Transform` widget's last transformation: **rotation**. Unlike translation
+(J112) and scaling (J113), a rotation **does not preserve axis alignment** — a
+rotated rect is no longer a rect. So for the first time an **affine transformation
+in the render pipeline** was needed. This is an infrastructure milestone: it
+equips the compositor with a reusable rotation pass.
 
-## Décisions techniques
+## Technical decisions
 
-- **Rotation d'un calque au compositing, pas de chaque primitive.** Le compositeur
-  savait déjà rendre un sous-arbre **à plat** dans une texture puis le composer
-  (opacité de groupe, façon `saveLayer`). On réutilise ce chemin : le calque est
-  composité **tourné**. Une seule passe tourne ainsi tout un sous-arbre (rects,
-  texte, images, chemins), **sans toucher les shaders de chaque type** de primitive.
+- **Rotating a layer at compositing time, not each primitive.** The compositor
+  already knew how to render a subtree **flat** into a texture and then compose it
+  (group opacity, the save-layer mechanism). That path is reused: the layer is
+  composited **rotated**. So a single pass rotates a whole subtree (rects, text,
+  images, paths), **without touching the shaders of each** primitive type.
 
-- **Contre-rotation dans le fragment.** La texture contient le contenu à plat, à sa
-  position écran. Pour peindre le calque tourné de `+angle` autour du pivot, le
-  fragment échantillonne à la position **contre-tournée de `-angle`** : le pixel
-  écran `p` reçoit le contenu qui, tourné de `+angle`, atterrit en `p`. Hors texture
-  après contre-rotation → transparent.
+- **Counter-rotation in the fragment.** The texture holds the content flat, at its
+  screen position. To paint the layer rotated by `+angle` about the pivot, the
+  fragment samples at the position **counter-rotated by `-angle`**: the screen
+  pixel `p` receives the content that, rotated by `+angle`, lands at `p`. Outside
+  the texture after counter-rotation → transparent.
 
-- **`Primitive::Layer` porte une `Option<LayerTransform>`** (angle + pivot px).
-  `None` = calque simplement composité (opacité). Suivie par `scaled` / `translated`
-  (le pivot se met à l'échelle / se décale, l'angle est invariant).
+- **`Primitive::Layer` carries an `Option<LayerTransform>`** (angle + pivot in
+  px). `None` = a layer simply composited (opacity). Followed by `scaled` /
+  `translated` (the pivot scales and shifts, the angle is invariant).
 
-- **Hit-test contre-tourné.** Une rotation ne peut pas transformer les rectangles de
-  clic (ils cesseraient d'être alignés). On marque plutôt chaque cible de clic du
-  sous-arbre d'une contre-transformation `(angle, pivot)` ; au test, le **point** est
-  tourné de `-angle` avant `contains`. Exact pour une rotation ; les rotations
-  imbriquées gardent la plus extérieure (approximation documentée).
+- **Counter-rotated hit-testing.** A rotation cannot transform the click
+  rectangles (they would stop being axis-aligned). So each of the subtree's click
+  targets is marked with a counter-transformation `(angle, pivot)` instead; at
+  test time the **point** is rotated by `-angle` before `contains`. Exact for a
+  rotation; nested rotations keep the outermost one (a documented approximation).
 
-- **API.** `Transform::rotate(radians)` (autour du centre) et
-  `Transform::rotate_from(radians, pivot)`. Correction RTL : le monde étant retourné,
-  l'angle est inversé. `angle ≈ 0` : rendu normal (coût nul).
+- **API.** `Transform::rotate(radians)` (about the centre) and
+  `Transform::rotate_from(radians, pivot)`. RTL correction: the world being
+  flipped, the angle is inverted. `angle ≈ 0`: normal rendering (zero cost).
 
-## Implémentation
+## Implementation
 
-- `frus-core/scene.rs` : `LayerTransform { angle, pivot }` (+ `scaled` / `translated`) ;
-  champ `transform` sur `Primitive::Layer` (propagé dans `scaled`/`translated`/`fade`/
-  `layer`). Export dans `lib.rs`.
-- `frus-gpu` : `LayerComposite`/`CompInstance` portent `(angle, pivot)` ;
-  `composite.wgsl` contre-tourne l'échantillon (le fragment lit `viewport.size` →
-  visibilité `VERTEX_FRAGMENT` du binding viewport).
-- `frus-widgets/widget.rs` : trait `transform_rotate` + forwards
+- `frus-core/scene.rs`: `LayerTransform { angle, pivot }` (+ `scaled` /
+  `translated`); a `transform` field on `Primitive::Layer` (propagated through
+  `scaled`/`translated`/`fade`/`layer`). Exported in `lib.rs`.
+- `frus-gpu`: `LayerComposite`/`CompInstance` carry `(angle, pivot)`;
+  `composite.wgsl` counter-rotates the sample (the fragment reads `viewport.size`
+  → the viewport binding's visibility becomes `VERTEX_FRAGMENT`).
+- `frus-widgets/widget.rs`: the `transform_rotate` trait method + forwards
   (`Box`/`Keyed`/`Responsive`/`animated`).
-- `frus-widgets/transform.rs` : `rotate` / `rotate_from`.
-- `frus-widgets/ui.rs` : bloc de rotation dans `walk` (calque tourné + marquage des
-  cibles) ; `Hit` gagne `xform` + `rotate_point` ; `hit` / `long_press_at` testent
-  via `Hit::contains`.
+- `frus-widgets/transform.rs`: `rotate` / `rotate_from`.
+- `frus-widgets/ui.rs`: the rotation block in `walk` (a rotated layer + marking
+  the targets); `Hit` gains `xform` + `rotate_point`; `hit` / `long_press_at` test
+  through `Hit::contains`.
 
 ## Tests
 
-- `rotate_emits_a_rotated_layer` : `rotate(π/2)` produit un `Primitive::Layer` de
-  `transform = Some(angle ≈ π/2, pivot = centre de l'enfant)`.
-- `rotate_hit_test_counter_rotates_the_point` : enfant 40×20 tourné de +90° — un clic
-  à la position **tournée** (20, 25) atteint la cible, l'ancienne position (35, 10)
-  la rate.
-- Suites vertes : frus-core 88, frus-gpu 16, frus-widgets 209 ; workspace complet
-  vert. (Le rendu tourné lui-même n'est pas vérifié en CI — pas de GPU ; la
-  correction du fragment est validée par construction, le hit-test par test unitaire.)
+- `rotate_emits_a_rotated_layer`: `rotate(π/2)` produces a `Primitive::Layer` with
+  `transform = Some(angle ≈ π/2, pivot = the child's centre)`.
+- `rotate_hit_test_counter_rotates_the_point`: a 40×20 child rotated by +90° — a
+  click at the **rotated** position (20, 25) hits the target, while the old
+  position (35, 10) misses it.
+- Suites green: frus-core 88, frus-gpu 16, frus-widgets 209; the whole workspace
+  green. (The rotated rendering itself is not verified in CI — there is no GPU;
+  the fragment's correctness is validated by construction, and the hit-testing by
+  a unit test.)
 
-## Reste
+## What's left
 
-`Transform` couvre désormais translation, échelle et rotation. Extensions possibles :
-échelle non-uniforme (`scaleX`/`scaleY`), composition de plusieurs transformations en
-une matrice unique, et une démo animée rassemblant l'arsenal (alignement + `Tween` +
-`Transform`).
+`Transform` now covers translation, scaling and rotation. Possible extensions:
+non-uniform scaling (`scaleX`/`scaleY`), composing several transformations into a
+single matrix, and an animated demo bringing the arsenal together (alignment +
+`Tween` + `Transform`).

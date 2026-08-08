@@ -1,81 +1,84 @@
-# Jalon 101 — Animations explicites : `repeat` / `stop` / `reset`
+# Jalon 101 — Explicit animations: `repeat` / `stop` / `reset`
 
-## Analyse
+## Analysis
 
-Contrairement aux animations **implicites** (J95→100 : le framework interpole
-seul vers une cible déclarée), une animation **explicite** est **pilotée par
-l'app** : elle décide quand démarrer, inverser, répéter, arrêter.
+Unlike **implicit** animations (J95→100: the framework interpolates towards a
+declared target on its own), an **explicit** animation is **driven by the app**:
+it decides when to start, reverse, repeat and stop.
 
-L'infrastructure était **déjà en place** :
+The infrastructure was **already in place**:
 
-- [`AnimationController`] (frus-core) — valeur bornée `[lower, upper]`, `value()`/
-  `velocity()`/`status()`, `forward`/`reverse`/`animate_to`/`fling`/`spring_to`/
-  `drive`, et `tick(dt) -> bool`. Exporté publiquement.
-- Le **hook de frame** : `Application::tick(&mut self, dt) -> bool`, appelé par le
-  shell **à chaque frame** ; tant qu'il renvoie `true`, le shell redemande une
-  frame. C'est le « ticker » de l'Elm/iced.
-- La **démo l'utilise déjà** (transition de navigation, détente de geste).
+- [`AnimationController`] (frus-core) — a value clamped to `[lower, upper]`,
+  `value()`/`velocity()`/`status()`,
+  `forward`/`reverse`/`animate_to`/`fling`/`spring_to`/`drive`, and
+  `tick(dt) -> bool`. Publicly exported.
+- The **frame hook**: `Application::tick(&mut self, dt) -> bool`, called by the
+  shell **every frame**; for as long as it returns `true`, the shell requests
+  another frame. It is the Elm/iced "ticker".
+- The **demo already uses it** (navigation transition, gesture settle).
 
-Le motif app-owned est donc complet : l'app détient un contrôleur dans son état,
-l'avance dans `tick()`, lit `value()` dans `view()` pour piloter un widget.
+So the app-owned pattern is complete: the app holds a controller in its state,
+advances it in `tick()`, and reads `value()` in `view()` to drive a widget.
 
-**Le manque** : la **répétition** (boucle). Flutter a
-`AnimationController.repeat(reverse:)` — omniprésent (pulsation, halo, indicateur
-piloté). Le contrôleur de frus ne pouvait que jouer un cycle puis se reposer.
+**What was missing**: **repetition** (looping). The conventional API is a
+`repeat(reverse:)` on the controller — ubiquitous (pulsing, halos, driven
+indicators). frus's controller could only play one cycle and then rest.
 
-## Décisions techniques
+## Technical decisions
 
-- **`repeat(period, reverse, curve)`.** Chaque cycle dure `period`, façonné par
-  `curve`. `reverse` = aller-retour (`0→1→0…`) ; sinon sawtooth (`0→1`, saut à 0,
-  `0→1…`). Implémenté **dans le `tick`** : à la fin d'un cycle, au lieu de se
-  reposer, le contrôleur **relance** un cycle (bord opposé si `reverse`, sinon
-  repart du bas). `is_animating()` reste vrai — donc `tick()` continue de renvoyer
-  `true` et les frames coulent.
+- **`repeat(period, reverse, curve)`.** Each cycle lasts `period`, shaped by
+  `curve`. `reverse` = a round trip (`0→1→0…`); otherwise a sawtooth (`0→1`, jump
+  to 0, `0→1…`). Implemented **inside the `tick`**: at the end of a cycle, instead
+  of resting, the controller **restarts** a cycle (from the opposite edge if
+  `reverse`, otherwise from the bottom). `is_animating()` stays true — so `tick()`
+  keeps returning `true` and the frames keep flowing.
 
-- **Démarrage partagé.** `animate_to` a été scindé : un `start_interpolation`
-  interne (ne touche pas au mode boucle) sert **et** `animate_to` (à un coup, qui
-  annule `repeat`) **et** le redémarrage de cycle. Les méthodes à un coup
-  (`forward`/`reverse`/`fling`/`spring_to`/`drive`/`set_value`) **annulent** une
-  boucle en cours — passer à une animation ponctuelle sort naturellement de la
-  boucle.
+- **Shared start-up.** `animate_to` was split: an internal
+  `start_interpolation` (which does not touch the loop mode) serves **both**
+  `animate_to` (one-shot, which cancels `repeat`) **and** the cycle restart. The
+  one-shot methods (`forward`/`reverse`/`fling`/`spring_to`/`drive`/`set_value`)
+  **cancel** a running loop — switching to a one-off animation naturally leaves
+  the loop.
 
-- **`stop()` / `reset()`.** `stop` fige la valeur et met fin à la boucle ; `reset`
-  ramène à la borne basse (`set_value(lower)`). Complètent le contrôle explicite.
+- **`stop()` / `reset()`.** `stop` freezes the value and ends the loop; `reset`
+  returns to the lower bound (`set_value(lower)`). They complete the explicit
+  control.
 
-## Implémentation
+## Implementation
 
-`frus-core/animation/controller.rs` : champ `repeat: Option<Repeat>` ;
-`repeat`/`stop`/`reset` ; `animate_to` refactoré autour de `start_interpolation` ;
-`tick` relance un cycle si une boucle est active ; annulation de boucle dans les
-départs à un coup.
+`frus-core/animation/controller.rs`: a `repeat: Option<Repeat>` field;
+`repeat`/`stop`/`reset`; `animate_to` refactored around `start_interpolation`;
+`tick` restarts a cycle if a loop is active; loop cancellation in the one-shot
+starts.
 
 ## Tests
 
-- `repeat_never_settles_and_restarts` (sawtooth) : sur ~16 cycles, reste toujours
-  animé, atteint le haut, et **retombe** (la valeur chute → nouveau cycle).
-- `repeat_reverse_ping_pongs` : la valeur **monte puis redescend** (aller-retour).
-- `stop_and_reset_end_a_repeat` : `stop` met fin à la boucle (plus rien à ticker) ;
-  `reset` l'arrête et ramène à `0`.
-- Suite complète verte : les animations existantes (à un coup) sont inchangées.
+- `repeat_never_settles_and_restarts` (sawtooth): over ~16 cycles, it stays
+  animating throughout, reaches the top, and **falls back** (the value drops → a
+  new cycle).
+- `repeat_reverse_ping_pongs`: the value **rises and then falls** (a round trip).
+- `stop_and_reset_end_a_repeat`: `stop` ends the loop (nothing left to tick);
+  `reset` stops it and returns to `0`.
+- The whole suite green: the existing (one-shot) animations are unchanged.
 
-## Motif d'usage (rappel)
+## Usage pattern (a reminder)
 
 ```rust
-struct App { pulse: AnimationController }           // état
+struct App { pulse: AnimationController }           // state
 
 fn init(&mut self) -> Command<_> {
-    self.pulse.repeat(1.0, true, Curve::ease_in_out()); // boucle aller-retour
+    self.pulse.repeat(1.0, true, Curve::ease_in_out()); // a round-trip loop
     Command::none()
 }
-fn tick(&mut self, dt: f32) -> bool { self.pulse.tick(dt) } // avance, redemande une frame
+fn tick(&mut self, dt: f32) -> bool { self.pulse.tick(dt) } // advance, request a frame
 fn view(&self, ..) -> Box<dyn Widget<_>> {
     Container::new().opacity(0.4 + 0.6 * self.pulse.value()) /* … */
 }
 ```
 
-## Reste
+## What's left
 
-- Un widget/adaptateur nommé pour les cas courants (p. ex. relier un contrôleur à
-  une propriété) — l'implicite couvre déjà l'essentiel.
-- `Tween::animate(controller)` typé (frus-core a `Tween`) pour mapper la valeur.
-- Démo dédiée d'une boucle `repeat`.
+- A named widget/adapter for the common cases (e.g. binding a controller to a
+  property) — the implicit path already covers most needs.
+- A typed `Tween::animate(controller)` (frus-core has `Tween`) to map the value.
+- A dedicated demo of a `repeat` loop.

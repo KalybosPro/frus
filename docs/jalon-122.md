@@ -1,62 +1,67 @@
-# Jalon 122 — `InteractiveViewer` : déplacer (pan) + zoomer (pinch/molette)
+# Jalon 122 — `InteractiveViewer`: pan + zoom (pinch/wheel)
 
-## Analyse
+## Analysis
 
-Débouché naturel de la pile transformation (J112–J117) + découpe (J121) : une
-**fenêtre interactive** où l'utilisateur **déplace** et **zoome** son enfant, façon
-`InteractiveViewer` de Flutter — la brique d'une carte, d'une image détaillée, d'un
-plan, d'un diagramme. Tout est déjà là (calque transformé + découpé, hit-test par
-`M⁻¹`) ; il restait l'**état retenu** de la transformation et le **routage des gestes**.
+The natural outlet of the transformation stack (J112–J117) plus clipping (J121):
+an **interactive viewport** where the user **pans** and **zooms** its child — the
+brick behind a map, a detailed image, a floor plan, a diagram. Everything was
+already there (a transformed and clipped layer, hit-testing by `M⁻¹`); what
+remained was the transformation's **retained state** and the **gesture routing**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Un seul calque fait tout.** L'enfant remplit la fenêtre à l'échelle 1, puis est
-  enveloppé dans **un** `Primitive::Layer` portant à la fois la matrice `M` (échelle +
-  translation) **et** la découpe à la fenêtre — le compositing applique déjà
-  l'échantillonnage `M⁻¹` et le test de clip dans la même instance. Le hit-test passe
-  le point par `M⁻¹` (comme `Transform`).
+- **A single layer does everything.** The child fills the viewport at scale 1, and
+  is then wrapped in **one** `Primitive::Layer` carrying both the matrix `M`
+  (scale + translation) **and** the clip to the viewport — compositing already
+  applies the `M⁻¹` sampling and the clip test within the same instance.
+  Hit-testing puts the point through `M⁻¹` (as `Transform` does).
 
-- **La transformation est un état retenu, pas de l'état d'app.** `InteractiveView
-  { scale, tx, ty }` vit dans le `Runtime` (comme les offsets de défilement), indexé par
-  fenêtre ; absent = identité. La `view` reste une fonction pure de l'état d'app.
+- **The transformation is retained state, not app state.** `InteractiveView
+  { scale, tx, ty }` lives in the `Runtime` (like the scroll offsets), indexed by
+  viewport; absent = the identity. The `view` stays a pure function of the app
+  state.
 
-- **Math des gestes pure et testée.** `InteractiveView::pan` (le curseur pousse le
-  contenu) et `zoom_at` (**zoom ancré au curseur** : `t' = cursor·(1−f) + f·t`, échelle
-  bornée `[min, max]`) sont des fonctions pures — le shell ne fait que les appeler et
-  restituer `matrix()`. Le point du contenu sous le curseur reste fixe au zoom.
+- **Pure, tested gesture maths.** `InteractiveView::pan` (the cursor pushes the
+  content) and `zoom_at` (**zoom anchored at the cursor**:
+  `t' = cursor·(1−f) + f·t`, with the scale clamped to `[min, max]`) are pure
+  functions — the shell only calls them and reads back `matrix()`. The point of
+  content under the cursor stays fixed while zooming.
 
-- **Gestes shell, avec désambiguïsation tap/pan.** Glisser (souris **ou** doigt) →
-  `Drag::Pan`, engagé seulement au-delà de `TOUCH_SLOP` : un simple tap passe alors à
-  l'enfant (un bouton dans la fenêtre reste cliquable). Molette → **zoom** ancré au
-  curseur (~1.1×/cran), bornes lues sur le widget. `interactive_at(point)` localise la
-  fenêtre la plus au-dessus.
+- **Shell gestures, with tap/pan disambiguation.** A drag (mouse **or** finger) →
+  `Drag::Pan`, engaged only beyond `TOUCH_SLOP`: so a plain tap passes through to
+  the child (a button inside the viewport stays clickable). The wheel → a **zoom**
+  anchored at the cursor (~1.1×/notch), with the bounds read from the widget.
+  `interactive_at(point)` locates the topmost viewport.
 
-- **Taille bornée requise.** Comme `Scroll`, la fenêtre a besoin d'une taille
-  (`width`/`height` ou `flex`) sous peine de s'effondrer — voir
-  [[scroll-viewport-sizing-gotcha]].
+- **A bounded size is required.** Like `Scroll`, the viewport needs a size
+  (`width`/`height` or `flex`) or it collapses — see the "Scroll sizing" gotcha in
+  [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## Implémentation
+## Implementation
 
-- `frus-widgets` : module `interactive` — `InteractiveView` (état + math) et
-  `InteractiveViewer<Msg>` (`min_scale`/`max_scale`, `width`/`height`/`flex`) ; méthode
-  `Widget::interactive()` forwardée (`Box<dyn>`, `Keyed`, `Responsive`, animés) ; champ
-  `Runtime::interactive` ; branche de marche (`ui.rs`) émettant le calque transformé +
-  découpé et posant `M⁻¹` sur les hits ; collecte `interactives` + `Ui::interactive_at`.
-- `frus-shell` : variante `Drag::Pan` (tap/pan par seuil) ; `pointer_down` amorce le
-  pan ; `handle_drag` l'applique ; `MouseWheel` zoome sur une fenêtre interactive.
+- `frus-widgets`: the `interactive` module — `InteractiveView` (state + maths) and
+  `InteractiveViewer<Msg>` (`min_scale`/`max_scale`, `width`/`height`/`flex`); the
+  `Widget::interactive()` method, forwarded (`Box<dyn>`, `Keyed`, `Responsive`,
+  animated); a `Runtime::interactive` field; a walk branch (`ui.rs`) emitting the
+  transformed and clipped layer and putting `M⁻¹` on the hits; the `interactives`
+  collection + `Ui::interactive_at`.
+- `frus-shell`: a `Drag::Pan` variant (tap/pan by threshold); `pointer_down`
+  starts the pan; `handle_drag` applies it; `MouseWheel` zooms on an interactive
+  viewport.
 
 ## Tests
 
-- `interactive` (unitaires, purs) : identité = neutre ; `pan` décale du delta exact ;
-  `zoom_at` **garde le point sous le curseur fixe** ; zoom **borné** à `max`.
-- `interactive` (marche) : le calque émis **porte la matrice et la découpe** à la
-  fenêtre ; après un pan, le hit-test **suit** (ancienne position ratée, nouvelle
-  atteinte) — preuve que `M⁻¹` traverse la transformation.
-- Workspace complet vert : frus-widgets 221 (+6), frus-gpu 16, frus-core 90.
+- `interactive` (unit, pure): the identity is neutral; `pan` offsets by the exact
+  delta; `zoom_at` **keeps the point under the cursor fixed**; zoom **clamped** at
+  `max`.
+- `interactive` (the walk): the emitted layer **carries the matrix and the clip**
+  to the viewport; after a pan, hit-testing **follows** (the old position misses,
+  the new one hits) — proof that `M⁻¹` crosses the transformation.
+- The whole workspace green: frus-widgets 221 (+6), frus-gpu 16, frus-core 90.
 
-## Reste
+## What's left
 
-- **Pincement multi-touch** (deux doigts) : le modèle d'entrée est mono-curseur ; la
-  molette couvre le zoom desktop, le pinch tactile viendra avec le suivi 2 doigts.
-- **Inertie** (fling au pan) et **bornage** du déplacement (boundaryMargin de Flutter).
-- Vitrine : une rangée `InteractiveViewer` dans `frus-transforms`.
+- **Multi-touch pinch** (two fingers): the input model is single-cursor; the wheel
+  covers desktop zoom, and touch pinch will come with 2-finger tracking.
+- **Inertia** (a fling on the pan) and **bounding** the pan (a boundary margin).
+- A showcase: an `InteractiveViewer` row in `frus-transforms`.

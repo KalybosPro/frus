@@ -1,67 +1,69 @@
-# Jalon 102 — `AnimatedContainer` : marge (padding) animée
+# Jalon 102 — `AnimatedContainer`: animated padding
 
-## Analyse
+## Analysis
 
-Dernière propriété « signature » d'`AnimatedContainer` à couvrir : la **marge
-intérieure**. Comme la taille (J98), c'est une propriété de **disposition** : la
-marge interpolée doit entrer **au layout** (pour replacer le contenu), pas au
-paint. Elle emprunte donc le même point d'injection — [`effective_style`], déjà
-partagé par `build_layout` et l'empreinte du cache de relayout, garantissant leur
-cohérence (le cache s'invalide tant que la marge bouge).
+The last "signature" property of the animated box to cover: the **inner
+padding**. Like the size (J98) it is a **layout** property: the interpolated
+padding has to enter **at layout time** (to reposition the content), not at paint
+time. So it takes the same injection point — [`effective_style`], already shared
+by `build_layout` and the relayout cache's signature, which guarantees their
+consistency (the cache invalidates for as long as the padding moves).
 
-## Décisions techniques
+## Technical decisions
 
-- **Timeline par côté.** Le runtime garde une [`PaddingAnim`]
-  `{ current, from, to, elapsed }` par nœud, tweenée par `advance_paddings` sur le
-  **même modèle** que taille/couleur/rayon. Interpolation **côté par côté**
-  (`Insets` = 4 marges).
+- **A per-side timeline.** The runtime keeps a [`PaddingAnim`]
+  `{ current, from, to, elapsed }` per node, tweened by `advance_paddings` on the
+  **same model** as size/colour/radius. Interpolation **side by side** (`Insets` =
+  4 paddings).
 
-- **Cible = marge *effective* (contenu + bordure).** `Container::style()` réserve
-  déjà la place de la bordure dans le padding de mise en page. Pour ne pas
-  **perdre** cette réserve quand `effective_style` remplace le padding par la
-  valeur animée, la cible (`Widget::anim_padding`) est la marge **effective** —
-  extraite dans un `Container::effective_padding()` unique, source à la fois de
-  `style()` et de la cible animée. (La bordure étant constante, interpoler la marge
-  effective revient à interpoler la marge de contenu, réserve incluse.)
+- **The target = the *effective* padding (content + border).**
+  `Container::style()` already reserves the border's space in the layout padding.
+  So that this reserve is not **lost** when `effective_style` replaces the padding
+  with the animated value, the target (`Widget::anim_padding`) is the
+  **effective** padding — extracted into a single `Container::effective_padding()`,
+  the source both of `style()` and of the animated target. (The border being
+  constant, interpolating the effective padding amounts to interpolating the
+  content padding, reserve included.)
 
-- **`Container::animated_padding(padding, duration, curve)`** (uniforme). Au paint,
-  rien ne change ; c'est le layout qui bouge. Toutes les animations d'une boîte
-  (opacité/couleur/taille/rayon/marge) partagent une `(durée, courbe)`.
+- **`Container::animated_padding(padding, duration, curve)`** (uniform). Nothing
+  changes at paint time; it is the layout that moves. All of a box's animations
+  (opacity/colour/size/radius/padding) share one `(duration, curve)`.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets` : `Runtime` (`PaddingAnim`, `paddings`, `anim_padding`,
-  `advance_paddings`, `lerp_insets`) ; trait `anim_padding()` + forwarders ;
-  `Container` (`padding_anim`, `effective_padding()`, `.animated_padding`,
-  `anim_padding()` + chaîne durée/courbe) ; `ui::effective_style` injecte aussi
-  `style.padding`.
-- `frus-shell` : `advance_paddings` dans la boucle d'animation.
+- `frus-widgets`: `Runtime` (`PaddingAnim`, `paddings`, `anim_padding`,
+  `advance_paddings`, `lerp_insets`); the `anim_padding()` trait method +
+  forwarders; `Container` (`padding_anim`, `effective_padding()`,
+  `.animated_padding`, `anim_padding()` + the duration/curve chain);
+  `ui::effective_style` also injects `style.padding`.
+- `frus-shell`: `advance_paddings` in the animation loop.
 
 ## Tests
 
-- `animated_padding_tweens_between_frames` (runtime) : snap au montage (0), tween
-  linéaire 0→20 (mi-parcours ≈ 10 par côté), oubli du widget disparu.
-- `animated_padding_insets_the_child_at_layout` (layout) : à mi-parcours, le fond
-  de l'enfant est **décalé de ~10** — preuve que la marge interpolée entre bien au
-  layout (chaîne runtime → `effective_style` → taffy → rects).
-- `visible_border_reserves_layout_padding` (existant) reste vert : le refactor
-  `effective_padding()` préserve la réserve de bordure.
-- Suite complète verte (widgets 193).
+- `animated_padding_tweens_between_frames` (runtime): snapping on mount (0), a
+  linear 0→20 tween (halfway ≈ 10 per side), forgetting a widget that has gone.
+- `animated_padding_insets_the_child_at_layout` (layout): halfway through, the
+  child's background is **offset by ~10** — proof that the interpolated padding
+  really does enter at layout time (the runtime → `effective_style` → taffy →
+  rects chain).
+- `visible_border_reserves_layout_padding` (existing) stays green: the
+  `effective_padding()` refactor preserves the border reserve.
+- The whole suite green (widgets 193).
 
-## Bilan `AnimatedContainer` (complet)
+## Animated-box scorecard (complete)
 
-| Propriété | Chemin        | Jalon |
-|-----------|---------------|-------|
-| opacité   | calque (GPU)  | J96   |
-| couleur   | paint/`Status`| J97   |
-| taille    | layout/`effective_style` | J98 |
-| rayon     | paint/`Status`| J99   |
-| **marge** | **layout/`effective_style`** | **J102** |
+| Property    | Path                         | Milestone |
+|-------------|------------------------------|-----------|
+| opacity     | layer (GPU)                  | J96       |
+| colour      | paint/`Status`               | J97       |
+| size        | layout/`effective_style`     | J98       |
+| radius      | paint/`Status`               | J99       |
+| **padding** | **layout/`effective_style`** | **J102**  |
 
-Toutes portées par la même timeline courbée (J95), exposées aussi via le widget
-nommé `AnimatedContainer` (J100).
+All carried by the same curved timeline (J95), and also exposed through the named
+`AnimatedContainer` widget (J100).
 
-## Reste
+## What's left
 
-- `alignment`/`margin` externes, `decoration` composite (parité Flutter fine).
-- `Tween` typés génériques ; démo dédiée d'animations.
+- Outer `alignment`/`margin`, composite `decoration` (finer parity).
+- Generic typed `Tween`s; a dedicated animation demo.
