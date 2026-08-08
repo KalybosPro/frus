@@ -1,12 +1,12 @@
-//! Le domaine « graphes » : des **vues de données** auto-peintes, thémées.
+//! The "charts" domain: self-painted, themed **data views**.
 //!
-//! - [`BarChart`] : une série de `(libellé, valeur)` en barres verticales mises à l'échelle de la
-//!   valeur maximale, valeur au-dessus, libellé en dessous, ligne de base.
-//! - [`LineChart`] : la même série tracée en **polyligne** (segments reliant les points, marqueurs
-//!   ronds), pour lire une tendance plutôt que comparer des grandeurs.
+//! - [`BarChart`]: a series of `(label, value)` as vertical bars scaled to the largest value,
+//!   the value above, the label below, a baseline.
+//! - [`LineChart`]: the same series drawn as a **polyline** (segments joining the points, round
+//!   markers), to read a trend rather than compare magnitudes.
 //!
-//! Toutes deux sont purement **auto-peintes** (aucun enfant) et non génériques sur `Msg` (façon
-//! [`crate::Icon`]) : ce sont des vues de données, pas des contrôles.
+//! Both are purely **self-painted** (no children) and not generic over `Msg` (like
+//! [`crate::Icon`]): they are data views, not controls.
 
 use frus_core::{Color, Path, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -15,23 +15,23 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// Hauteur par défaut du graphique (px logiques).
+/// Default height of the chart (logical px).
 const DEFAULT_HEIGHT: f32 = 200.0;
-/// Bande réservée aux libellés de catégorie sous la ligne de base.
+/// Band reserved for the category labels below the baseline.
 const X_LABEL_H: f32 = 22.0;
-/// Taille de police des valeurs (au-dessus des barres) et des libellés (dessous).
+/// Font size of the values (above the bars) and of the labels (below).
 const VALUE_SIZE: f32 = 12.0;
 const LABEL_SIZE: f32 = 12.0;
-/// Taille de police de la part (`%`) écrite dans une strate en mode 100 % (jalon 227).
+/// Font size of the share (`%`) written inside a stratum in 100% mode (milestone 227).
 const STRATA_LABEL_SIZE: f32 = 11.0;
-/// Fraction de la « case » d'une barre réellement occupée par la barre (le reste = espacement).
+/// Fraction of a bar's "slot" actually taken by the bar (the rest = the spacing).
 const BAR_FILL: f32 = 0.6;
-/// Largeur de la marge gauche réservée aux graduations de l'axe des ordonnées (quand présent).
+/// Width of the left margin reserved for the y-axis ticks (when there is an axis).
 const Y_AXIS_W: f32 = 34.0;
-/// Taille de police des graduations de l'axe des ordonnées.
+/// Font size of the y-axis ticks.
 const AXIS_SIZE: f32 = 11.0;
 
-/// Un graphique à barres.
+/// A bar chart.
 ///
 /// ```
 /// use frus_widgets::BarChart;
@@ -39,34 +39,34 @@ const AXIS_SIZE: f32 = 11.0;
 /// ```
 pub struct BarChart<Msg = ()> {
     values: Vec<(String, f32)>,
-    /// Couleur des barres ; `None` = `primary` du thème.
+    /// Colour of the bars; `None` = the theme's `primary`.
     color: Option<Color>,
     height: f32,
-    /// Nombre de divisions de l'axe des ordonnées (lignes de grille + graduations) ; `0` = aucun.
+    /// Number of y-axis divisions (grid lines + ticks); `0` = no axis.
     grid: usize,
-    /// Nom de la série principale (pour la légende) ; `None` = anonyme.
+    /// Name of the main series (for the legend); `None` = anonymous.
     name: Option<String>,
-    /// Séries **additionnelles** `(nom, couleur, valeurs)` — barres **groupées** par catégorie.
+    /// **Extra** series `(name, colour, values)` — bars **grouped** by category.
     extra: Vec<(String, Color, Vec<f32>)>,
-    /// Afficher une légende (pastille + nom par série) ?
+    /// Show a legend (one swatch + name per series)?
     legend: bool,
-    /// Index de séries **masquées** (non tracées, atténuées en légende) — jalon 215.
+    /// Indices of **hidden** series (not drawn, dimmed in the legend) — milestone 215.
     hidden: Vec<usize>,
-    /// Message émis au clic sur une entrée de légende (index de série) — jalon 215.
+    /// Message emitted on a click on a legend entry (the series index) — milestone 215.
     on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
-    /// Empiler les séries (barres cumulées) plutôt que les grouper ? — jalon 216.
+    /// Stack the series (cumulative bars) rather than group them? — milestone 216.
     stacked: bool,
-    /// Message émis au clic sur une **barre** `(catégorie, série)` — jalon 222.
+    /// Message emitted on a click on a **bar** `(category, series)` — milestone 222.
     on_point: Option<Box<dyn Fn(usize, usize) -> Msg>>,
-    /// Barre/strate **épinglée** `(catégorie, série)`, mise en évidence par un anneau persistant —
-    /// jalon 223.
+    /// **Pinned** bar/stratum `(category, series)`, highlighted by a persistent ring —
+    /// milestone 223.
     selected: Option<(usize, usize)>,
-    /// Empilage **100 %** : chaque colonne est normalisée à son total (proportions) — jalon 224.
+    /// **100%** stacking: each column is normalised to its own total (proportions) — milestone 224.
     normalized: bool,
 }
 
 impl<Msg> BarChart<Msg> {
-    /// Crée un graphique depuis une série de `(libellé, valeur)`.
+    /// Creates a chart from a series of `(label, value)`.
     pub fn new(data: impl IntoIterator<Item = (impl Into<String>, f32)>) -> Self {
         Self {
             values: data
@@ -88,33 +88,33 @@ impl<Msg> BarChart<Msg> {
         }
     }
 
-    /// Surcharge la couleur des barres (défaut : `primary` du thème).
+    /// Overrides the colour of the bars (default: the theme's `primary`).
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Hauteur du graphique en pixels logiques (défaut 200).
+    /// Height of the chart in logical pixels (200 by default).
     pub fn height(mut self, height: f32) -> Self {
         self.height = height.max(X_LABEL_H + VALUE_SIZE + 8.0);
         self
     }
 
-    /// Ajoute un **axe des ordonnées** : `divisions` lignes de grille horizontales avec leurs
-    /// graduations (`0..max`) dans une marge à gauche. `0` (défaut) = aucun axe.
+    /// Adds a **y-axis**: `divisions` horizontal grid lines with their ticks (`0..max`) in a
+    /// left margin. `0` (the default) = no axis.
     pub fn grid(mut self, divisions: usize) -> Self {
         self.grid = divisions;
         self
     }
 
-    /// Nomme la série **principale** (affiché dans la légende).
+    /// Names the **main** series (displayed in the legend).
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
-    /// Ajoute une **série additionnelle** `(nom, couleur, valeurs)`, dessinée en barres **groupées**
-    /// côte à côte dans chaque catégorie. Toutes les séries partagent l'échelle et l'axe.
+    /// Adds an **extra series** `(name, colour, values)`, drawn as bars **grouped** side by
+    /// side within each category. Every series shares the scale and the axis.
     pub fn series(
         mut self,
         name: impl Into<String>,
@@ -129,61 +129,61 @@ impl<Msg> BarChart<Msg> {
         self
     }
 
-    /// Affiche une **légende** (pastille de couleur + nom) pour chaque série. Défaut : off.
+    /// Shows a **legend** (colour swatch + name) for each series. Off by default.
     pub fn legend(mut self, legend: bool) -> Self {
         self.legend = legend;
         self
     }
 
-    /// **Masque** les séries d'index donnés (non tracées, atténuées en légende) — jalon 215.
+    /// **Hides** the series at the given indices (not drawn, dimmed in the legend) — milestone 215.
     pub fn hidden(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
         self.hidden = indices.into_iter().collect();
         self
     }
 
-    /// Rend la **légende cliquable** : `on_legend(index)` au clic sur une entrée — jalon 215.
+    /// Makes the **legend clickable**: `on_legend(index)` on a click on an entry — milestone 215.
     pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_legend = Some(Box::new(on_legend));
         self
     }
 
-    /// **Empile** les séries : une barre par catégorie, segmentée par série (barres cumulées), au
-    /// lieu de barres groupées côte à côte (jalon 212). Défaut : off.
+    /// **Stacks** the series: one bar per category, segmented by series (cumulative bars),
+    /// instead of bars grouped side by side (milestone 212). Off by default.
     pub fn stacked(mut self, stacked: bool) -> Self {
         self.stacked = stacked;
         self
     }
 
-    /// Rend les **barres cliquables** : `on_point(catégorie, série)` au clic sur une barre (ou une
-    /// strate empilée) visible. Défaut : aucun — jalon 222.
+    /// Makes the **bars clickable**: `on_point(category, series)` on a click on a visible bar
+    /// (or stacked stratum). None by default — milestone 222.
     pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
         self.on_point = Some(Box::new(on_point));
         self
     }
 
-    /// **Épingle** une barre/strate `(catégorie, série)` : elle reçoit un anneau d'accent persistant
-    /// (met en évidence la sélection courante, façon détail cliqué). `None` = rien — jalon 223.
+    /// **Pins** a bar/stratum `(category, series)`: it gets a persistent accent ring
+    /// (highlighting the current selection, as a clicked detail). `None` = nothing — milestone 223.
     pub fn selected(mut self, selected: Option<(usize, usize)>) -> Self {
         self.selected = selected;
         self
     }
 
-    /// Normalise l'empilage en **100 %** : chaque colonne remplit toute la hauteur, chaque strate
-    /// occupant sa **proportion** du total de la catégorie (plutôt que sa valeur absolue). N'a d'effet
-    /// qu'en mode empilé multi-séries. Défaut : off — jalon 224.
+    /// Normalises the stacking to **100%**: each column fills the whole height, each stratum
+    /// taking its **share** of the category's total (rather than its absolute value). Only has
+    /// an effect in multi-series stacked mode. Off by default — milestone 224.
     pub fn normalized(mut self, normalized: bool) -> Self {
         self.normalized = normalized;
         self
     }
 
-    /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
+    /// The largest value across **all** the series (at least 1, for a stable scale).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
         let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
         primary.chain(extra).fold(0.0, f32::max).max(1.0)
     }
 
-    /// Total (des séries **visibles**) de la catégorie `i` — dénominateur de l'empilage 100 %.
+    /// Total (of the **visible** series) of category `i` — the denominator of 100% stacking.
     fn category_total(&self, i: usize) -> f32 {
         let base = if self.hidden.contains(&0) {
             0.0
@@ -200,7 +200,7 @@ impl<Msg> BarChart<Msg> {
         (base + rest).max(1e-6)
     }
 
-    /// Le maximum de la **somme** des séries par catégorie (échelle en mode empilé).
+    /// The largest **sum** of the series per category (the scale in stacked mode).
     fn stacked_max(&self) -> f32 {
         let n = self.values.len();
         (0..n)
@@ -216,12 +216,12 @@ impl<Msg> BarChart<Msg> {
             .max(1.0)
     }
 
-    /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
+    /// Should the legend be drawn (enabled **and** at least one named series)?
     fn has_legend(&self) -> bool {
         self.legend && (self.name.is_some() || !self.extra.is_empty())
     }
 
-    /// Noms de toutes les séries (principale puis additionnelles) — pour la légende / le routage.
+    /// Names of every series (the main one then the extras) — for the legend / for routing.
     fn series_names(&self) -> Vec<&str> {
         let mut names = vec![self.name.as_deref().unwrap_or("Series 1")];
         names.extend(self.extra.iter().map(|(n, _, _)| n.as_str()));
@@ -229,7 +229,7 @@ impl<Msg> BarChart<Msg> {
     }
 }
 
-/// Formate une valeur : entière si elle l'est, sinon une décimale.
+/// Formats a value: as an integer if it is one, otherwise with one decimal.
 fn format_value(v: f32) -> String {
     if (v.fract()).abs() < 1e-6 {
         format!("{}", v as i64)
@@ -238,8 +238,8 @@ fn format_value(v: f32) -> String {
     }
 }
 
-/// Formate une mesure pour l'infobulle : la valeur brute, suivie de sa **part** (`%`) du total quand
-/// un dénominateur d'empilage 100 % est fourni (jalon 226). `None` = valeur seule.
+/// Formats a measure for the tooltip: the raw value, followed by its **share** (`%`) of the total
+/// when a 100%-stacking denominator is supplied (milestone 226). `None` = the value alone.
 fn format_measure(value: f32, percent_of: Option<f32>) -> String {
     match percent_of {
         Some(total) if total > 0.0 => {
@@ -253,7 +253,7 @@ fn format_measure(value: f32, percent_of: Option<f32>) -> String {
     }
 }
 
-/// Largeur de la marge d'axe si `divisions > 0`, sinon `0` (partagé BarChart / LineChart).
+/// Width of the axis margin if `divisions > 0`, otherwise `0` (shared by BarChart / LineChart).
 fn axis_width(divisions: usize) -> f32 {
     if divisions > 0 {
         Y_AXIS_W
@@ -262,10 +262,10 @@ fn axis_width(divisions: usize) -> f32 {
     }
 }
 
-/// Dessine l'**axe des ordonnées** : `divisions` lignes de grille horizontales de `plot_left` à
-/// `plot_left + plot_w`, réparties entre la ligne de base et le haut de la zone de tracé, chacune
-/// étiquetée de sa valeur (`0..max`) alignée à droite dans la marge de gauche. Partagé par les deux
-/// graphiques (façon Flutter : la grille se lit derrière les barres ou la courbe).
+/// Draws the **y-axis**: `divisions` horizontal grid lines from `plot_left` to
+/// `plot_left + plot_w`, spread between the baseline and the top of the plot area, each labelled
+/// with its value (`0..max`), right-aligned in the left margin. Shared by both charts — the grid
+/// reads behind the bars or the curve.
 #[allow(clippy::too_many_arguments)]
 fn draw_grid(
     scene: &mut Scene,
@@ -286,14 +286,14 @@ fn draw_grid(
     for i in 0..=divisions {
         let t = i as f32 / divisions as f32;
         let y = baseline_y - plot_h * t;
-        // Ligne de grille (sauf i == 0 : c'est la ligne de base, déjà tracée par le graphique).
+        // A grid line (except i == 0: that is the baseline, already drawn by the chart).
         if i > 0 {
             scene.fill_rect(
                 Rect::new(plot_left, y, plot_w, 1.0),
                 theme.border.fade(opacity * 0.6),
             );
         }
-        // Graduation : valeur (ou pourcentage en mode 100 %) alignée à droite dans la marge.
+        // A tick: the value (or the percentage in 100% mode), right-aligned in the margin.
         let label = if percent {
             format!("{}%", (t * 100.0).round() as i64)
         } else {
@@ -309,8 +309,8 @@ fn draw_grid(
     }
 }
 
-/// Dessine une **légende** (pastille de couleur + nom, de gauche à droite) dans la bande du haut.
-/// Partagé BarChart / LineChart (jalon 209/212).
+/// Draws a **legend** (colour swatch + name, from left to right) in the top band.
+/// Shared by BarChart / LineChart (milestone 209/212).
 fn draw_legend(
     scene: &mut Scene,
     theme: &Theme,
@@ -340,8 +340,8 @@ fn draw_legend(
     }
 }
 
-/// Quelle **entrée de légende** contient le point local `(x, y)` ? Reconstruit la disposition de
-/// [`draw_legend`] pour router un clic vers l'index de série. Partagé (jalon 215).
+/// Which **legend entry** contains the local point `(x, y)`? Rebuilds [`draw_legend`]'s layout to
+/// route a click to the series index. Shared (milestone 215).
 fn legend_hit(local_x: f32, local_y: f32, plot_left: f32, names: &[&str]) -> Option<usize> {
     if local_y < 0.0 || local_y > LEGEND_H {
         return None;
@@ -357,10 +357,10 @@ fn legend_hit(local_x: f32, local_y: f32, plot_left: f32, names: &[&str]) -> Opt
     None
 }
 
-/// Dessine une **infobulle** de survol : un guide vertical à `gx`, puis une boîte listant `lines`
-/// (chaque ligne : pastille optionnelle + texte). La boîte est dimensionnée au plus long libellé,
-/// posée à droite du guide (repliée à gauche si elle déborde), ancrée en haut de la zone de tracé.
-/// Partagé BarChart / LineChart (jalon 211/212).
+/// Draws a hover **tooltip**: a vertical guide at `gx`, then a box listing `lines` (each line: an
+/// optional swatch + text). The box is sized to the longest label, placed to the right of the guide
+/// (flipped to the left if it overflows), anchored at the top of the plot area.
+/// Shared by BarChart / LineChart (milestone 211/212).
 #[allow(clippy::too_many_arguments)]
 fn draw_tooltip(
     scene: &mut Scene,
@@ -424,9 +424,9 @@ fn draw_tooltip(
     }
 }
 
-/// Le point local `(x, y)` est-il dans la **zone de tracé** ? Si oui, renvoie `Cursor::Default`
-/// (active le suivi du pointeur pour l'infobulle sans changer la forme du curseur — un graphe n'est
-/// pas cliquable), sinon `None`. Partagé BarChart / LineChart (jalon 211/212).
+/// Is the local point `(x, y)` inside the **plot area**? If so, returns `Cursor::Default` (which
+/// turns on pointer tracking for the tooltip without changing the cursor's shape — a chart is not
+/// clickable), otherwise `None`. Shared by BarChart / LineChart (milestone 211/212).
 fn chart_plot_hit(
     local_x: f32,
     local_y: f32,
@@ -465,17 +465,17 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         let accent = self.color.unwrap_or(theme.primary);
         let single = self.extra.is_empty();
         let stacked = self.stacked && !single;
-        // Empilage **100 %** (jalon 224) : chaque colonne est normalisée à son total (proportions).
+        // **100%** stacking (milestone 224): each column is normalised to its own total (proportions).
         let normalized = self.normalized && stacked;
-        // En empilé, l'échelle doit contenir le **total** cumulé par catégorie.
+        // When stacked, the scale must hold the cumulative **total** per category.
         let max = if stacked {
             self.stacked_max()
         } else {
             self.max_value()
         };
 
-        // Zone de tracé : sous la bande des valeurs, au-dessus des libellés de catégorie ; marge
-        // gauche pour l'axe, et — le cas échéant — une bande de légende tout en haut.
+        // Plot area: below the band of values, above the category labels; a left margin for the
+        // axis, and — where there is one — a legend band right at the top.
         let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
         let baseline_y = bounds.y + bounds.height - X_LABEL_H;
         let plot_top = bounds.y + legend_h + VALUE_SIZE + 6.0;
@@ -485,17 +485,17 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         let plot_w = bounds.width - axis_w;
         let slot = plot_w / n as f32;
 
-        // Grille horizontale + graduations (derrière les barres) ; en 100 %, l'axe est en pourcentages.
+        // Horizontal grid + ticks (behind the bars); in 100% mode the axis is in percentages.
         draw_grid(
             scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, normalized, o,
         );
-        // Ligne de base (axe des abscisses).
+        // Baseline (the x-axis).
         scene.fill_rect(
             Rect::new(plot_left, baseline_y, plot_w, 1.5),
             theme.border.fade(o),
         );
 
-        // Toutes les séries : la principale puis les additionnelles (barres groupées).
+        // Every series: the main one then the extras (grouped bars).
         let primary: Vec<f32> = self.values.iter().map(|(_, v)| *v).collect();
         let mut series: Vec<(Color, &str, &[f32])> = vec![(
             accent,
@@ -507,18 +507,18 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         }
         let s = series.len();
 
-        // Chaque catégorie : soit un groupe de `s` barres côte à côte (jalon 212), soit — en
-        // empilé — une seule barre segmentée par série (barres cumulées, jalon 216).
+        // Each category: either a group of `s` bars side by side (milestone 212), or — when
+        // stacked — a single bar segmented by series (cumulative bars, milestone 216).
         let group_w = slot * BAR_FILL;
         let bar_w = group_w / s as f32;
         let inner = if s == 1 { 1.0 } else { 0.86 };
-        // Rectangle de la barre/strate épinglée, capturé pour tracer son anneau après coup (jalon 223).
+        // Rect of the pinned bar/stratum, captured to draw its ring afterwards (milestone 223).
         let mut sel_rect: Option<Rect> = None;
         for i in 0..n {
             let cx = plot_left + slot * (i as f32 + 0.5);
             if stacked {
-                // Segments empilés du bas vers le haut (les séries masquées ne comptent pas). En
-                // 100 %, le dénominateur est le total de la catégorie (colonne pleine), sinon l'échelle.
+                // Segments stacked from the bottom up (hidden series do not count). In 100% mode
+                // the denominator is the category's total (a full column), otherwise the scale.
                 let sbx = cx - group_w * 0.5;
                 let denom = if normalized {
                     self.category_total(i)
@@ -538,9 +538,9 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     if self.selected == Some((i, j)) {
                         sel_rect = Some(rect);
                     }
-                    // Libellé centré dans la strate si elle est assez haute pour l'accueillir : la
-                    // part (%) en 100 % (jalon 227), la valeur brute en empilé absolu (jalon 229).
-                    // Texte lisible sur fond saturé.
+                    // Label centred in the stratum if it is tall enough to hold it: the share (%)
+                    // in 100% mode (milestone 227), the raw value in absolute stacked mode
+                    // (milestone 229). Text legible over a saturated background.
                     let seg_h = y_bottom - y_top;
                     if seg_h >= STRATA_LABEL_SIZE + 4.0 {
                         let label = if normalized {
@@ -561,8 +561,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     }
                     lower += value;
                 }
-                // Total de la colonne au-dessus de la strate supérieure (empilé **absolu** : parité
-                // avec la valeur des barres simples ; en 100 % la colonne est pleine) — jalon 228.
+                // The column's total above the topmost stratum (**absolute** stacking: parity with
+                // the value on plain bars; in 100% mode the column is full) — milestone 228.
                 if !normalized && lower > 0.0 {
                     let vs = format_value(lower);
                     let vw = frus_text::measure(&vs, VALUE_SIZE).width;
@@ -589,7 +589,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     if self.selected == Some((i, j)) {
                         sel_rect = Some(rect);
                     }
-                    // Valeur au-dessus (série unique seulement, pour éviter la surcharge).
+                    // The value above (single series only, to avoid the clutter).
                     if single {
                         let vs = format_value(value);
                         let vw = frus_text::measure(&vs, VALUE_SIZE).width;
@@ -602,7 +602,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                     }
                 }
             }
-            // Libellé de catégorie sous la ligne de base.
+            // Category label below the baseline.
             let label = &self.values[i].0;
             let lw = frus_text::measure(label, LABEL_SIZE).width;
             scene.text(
@@ -613,8 +613,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
             );
         }
 
-        // Barre/strate épinglée (jalon 223) : anneau d'accent persistant, légèrement dilaté autour
-        // du rectangle, dans une couleur contrastée (indépendant du survol).
+        // Pinned bar/stratum (milestone 223): a persistent accent ring, slightly inflated around
+        // the rect, in a contrasting colour (independent of hover).
         if let Some(r) = sel_rect {
             scene.draw_rect(
                 Rect::new(r.x - 2.5, r.y - 2.5, r.width + 5.0, r.height + 5.0),
@@ -625,7 +625,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
             );
         }
 
-        // Légende (bande du haut), partagée ; les séries masquées y sont atténuées.
+        // Legend (the top band), shared; hidden series are dimmed in it.
         if self.has_legend() {
             let entries: Vec<(Color, &str)> = series
                 .iter()
@@ -644,14 +644,14 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
             draw_legend(scene, theme, plot_left, bounds.y, &entries, o);
         }
 
-        // Infobulle de survol (jalon 212) : catégorie la plus proche + valeur de chaque série visible.
+        // Hover tooltip (milestone 212): the nearest category + the value of each visible series.
         if let Some(hc) = status.hover_cursor {
             let lx = hc.x - bounds.x;
             let hi =
                 (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
-            // En 100 %, chaque mesure est suivie de sa part du total de la catégorie survolée (jalon 226).
+            // In 100% mode each measure is followed by its share of the hovered category's total (milestone 226).
             let percent_of = if normalized {
                 Some(self.category_total(hi))
             } else {
@@ -697,7 +697,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
     }
 
     fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
-        // 1) Clic sur une entrée de légende → on_legend(index) (jalon 215).
+        // 1) A click on a legend entry → on_legend(index) (milestone 215).
         if let Some(f) = &self.on_legend {
             if self.has_legend() {
                 if let Some(idx) = legend_hit(
@@ -710,8 +710,8 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
                 }
             }
         }
-        // 2) Clic sur une **barre** (ou une strate empilée) → on_point(catégorie, série) (jalon 222).
-        // Géométrie identique au paint : on reconstruit chaque rectangle et on teste l'inclusion.
+        // 2) A click on a **bar** (or a stacked stratum) → on_point(category, series) (milestone 222).
+        // The geometry matches the paint: each rect is rebuilt and tested for containment.
         let f = self.on_point.as_ref()?;
         let n = self.values.len();
         if n == 0 {
@@ -790,32 +790,32 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
     }
 }
 
-/// Rayon (px) des marqueurs ronds posés sur chaque point d'une [`LineChart`].
+/// Radius (px) of the round markers placed on each point of a [`LineChart`].
 const MARKER_R: f32 = 3.5;
-/// Rayon (px) de tolérance pour cliquer un point (jalon 221).
+/// Tolerance radius (px) for clicking a point (milestone 221).
 const POINT_HIT_R: f32 = 12.0;
-/// Opacité (relative) de l'aire remplie sous la courbe.
+/// (Relative) opacity of the area filled under the curve.
 const AREA_ALPHA: f32 = 0.16;
-/// Opacité (relative) des bandes d'un graphique en **aires empilées** (plus soutenue, pour lire
-/// chaque strate).
+/// (Relative) opacity of the bands of a **stacked area** chart (stronger, so each stratum can
+/// be read).
 const STACK_ALPHA: f32 = 0.55;
-/// Hauteur de la bande de légende (au-dessus de la zone de tracé) quand elle est affichée.
+/// Height of the legend band (above the plot area) when it is shown.
 const LEGEND_H: f32 = 20.0;
-/// Côté de la pastille de couleur d'une entrée de légende.
+/// Side of the colour swatch of a legend entry.
 const LEGEND_SWATCH: f32 = 10.0;
-/// Taille de police des entrées de légende.
+/// Font size of the legend entries.
 const LEGEND_SIZE: f32 = 12.0;
-/// Taille de police du contenu d'une infobulle.
+/// Font size of a tooltip's content.
 const TOOLTIP_SIZE: f32 = 12.0;
-/// Vitesse (cycles/seconde) du halo pulsant animé (jalon 217).
+/// Speed (cycles per second) of the animated pulsing halo (milestone 217).
 const PULSE_SPEED: f32 = 1.6;
-/// Croissance (px) du rayon du halo pulsant sur un cycle.
+/// Growth (px) of the pulsing halo's radius over one cycle.
 const PULSE_GROW: f32 = 10.0;
-/// Épaisseur (px) du trait de la polyligne.
+/// Thickness (px) of the polyline's stroke.
 const LINE_W: f32 = 2.0;
 
-/// Un graphique en **lignes** : la même série `(libellé, valeur)` qu'une [`BarChart`], mais reliée
-/// en polyligne (segments + marqueurs) pour donner à lire une **tendance**.
+/// A **line** chart: the same `(label, value)` series as a [`BarChart`], but joined into a
+/// polyline (segments + markers) so that a **trend** can be read.
 ///
 /// ```
 /// use frus_widgets::LineChart;
@@ -823,39 +823,39 @@ const LINE_W: f32 = 2.0;
 /// ```
 pub struct LineChart<Msg = ()> {
     values: Vec<(String, f32)>,
-    /// Couleur du trait et des marqueurs ; `None` = `primary` du thème.
+    /// Colour of the stroke and of the markers; `None` = the theme's `primary`.
     color: Option<Color>,
     height: f32,
-    /// Nombre de divisions de l'axe des ordonnées (lignes de grille + graduations) ; `0` = aucun.
+    /// Number of y-axis divisions (grid lines + ticks); `0` = no axis.
     grid: usize,
-    /// Remplir l'aire sous la courbe (dégradé plat, couleur du trait atténuée) ?
+    /// Fill the area under the curve (a flat wash, the stroke's colour dimmed)?
     fill: bool,
-    /// Nom de la série principale (pour la légende) ; `None` = anonyme.
+    /// Name of the main series (for the legend); `None` = anonymous.
     name: Option<String>,
-    /// Séries **additionnelles** `(nom, couleur, valeurs)`, alignées par index sur les catégories
-    /// de la série principale.
+    /// **Extra** series `(name, colour, values)`, aligned by index onto the main series'
+    /// categories.
     extra: Vec<(String, Color, Vec<f32>)>,
-    /// Afficher une légende (pastille + nom par série) ?
+    /// Show a legend (one swatch + name per series)?
     legend: bool,
-    /// Empiler les séries (aires cumulées) plutôt que les superposer ?
+    /// Stack the series (cumulative areas) rather than overlay them?
     stacked: bool,
-    /// Index de séries **masquées** (non tracées, atténuées en légende) — jalon 215.
+    /// Indices of **hidden** series (not drawn, dimmed in the legend) — milestone 215.
     hidden: Vec<usize>,
-    /// Message émis au clic sur une entrée de légende (index de série) — jalon 215.
+    /// Message emitted on a click on a legend entry (the series index) — milestone 215.
     on_legend: Option<Box<dyn Fn(usize) -> Msg>>,
-    /// Animer un **halo pulsant** sur le point survolé (repaint continu) — jalon 217.
+    /// Animate a **pulsing halo** on the hovered point (continuous repaint) — milestone 217.
     animated: bool,
-    /// Message émis au clic sur un **point** `(catégorie, série)` — jalon 221.
+    /// Message emitted on a click on a **point** `(category, series)` — milestone 221.
     on_point: Option<Box<dyn Fn(usize, usize) -> Msg>>,
-    /// Point **épinglé** `(catégorie, série)`, mis en évidence par un halo + anneau persistants —
-    /// jalon 223.
+    /// **Pinned** point `(category, series)`, highlighted by a persistent halo + ring —
+    /// milestone 223.
     selected: Option<(usize, usize)>,
-    /// Empilage **100 %** : chaque catégorie est normalisée à son total (proportions) — jalon 224.
+    /// **100%** stacking: each category is normalised to its own total (proportions) — milestone 224.
     normalized: bool,
 }
 
 impl<Msg> LineChart<Msg> {
-    /// Crée un graphique en lignes depuis une série de `(libellé, valeur)`.
+    /// Creates a line chart from a series of `(label, value)`.
     pub fn new(data: impl IntoIterator<Item = (impl Into<String>, f32)>) -> Self {
         Self {
             values: data
@@ -879,40 +879,40 @@ impl<Msg> LineChart<Msg> {
         }
     }
 
-    /// Surcharge la couleur du trait (défaut : `primary` du thème).
+    /// Overrides the colour of the stroke (default: the theme's `primary`).
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
 
-    /// Hauteur du graphique en pixels logiques (défaut 200).
+    /// Height of the chart in logical pixels (200 by default).
     pub fn height(mut self, height: f32) -> Self {
         self.height = height.max(X_LABEL_H + VALUE_SIZE + 8.0);
         self
     }
 
-    /// Ajoute un **axe des ordonnées** : `divisions` lignes de grille horizontales avec leurs
-    /// graduations (`0..max`) dans une marge à gauche. `0` (défaut) = aucun axe.
+    /// Adds a **y-axis**: `divisions` horizontal grid lines with their ticks (`0..max`) in a
+    /// left margin. `0` (the default) = no axis.
     pub fn grid(mut self, divisions: usize) -> Self {
         self.grid = divisions;
         self
     }
 
-    /// Remplit l'**aire** sous la courbe (couleur du trait fortement atténuée), pour souligner le
-    /// volume plutôt que la seule tendance. Défaut : désactivé.
+    /// Fills the **area** under the curve (the stroke's colour heavily dimmed), to emphasise
+    /// the volume rather than the trend alone. Off by default.
     pub fn area(mut self, fill: bool) -> Self {
         self.fill = fill;
         self
     }
 
-    /// Nomme la série **principale** (affiché dans la légende).
+    /// Names the **main** series (displayed in the legend).
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
-    /// Ajoute une **série additionnelle** `(nom, couleur, valeurs)`, alignée par index sur les
-    /// catégories de la série principale. Toutes les séries partagent l'échelle et l'axe.
+    /// Adds an **extra series** `(name, colour, values)`, aligned by index onto the main series'
+    /// categories. Every series shares the scale and the axis.
     pub fn series(
         mut self,
         name: impl Into<String>,
@@ -927,61 +927,61 @@ impl<Msg> LineChart<Msg> {
         self
     }
 
-    /// Affiche une **légende** (pastille de couleur + nom) pour chaque série nommée. Défaut : off.
+    /// Shows a **legend** (colour swatch + name) for each named series. Off by default.
     pub fn legend(mut self, legend: bool) -> Self {
         self.legend = legend;
         self
     }
 
-    /// **Empile** les séries : chaque aire est cumulée au-dessus des précédentes (aires cumulées),
-    /// pour lire un total et sa composition. Implique le remplissage des bandes. Défaut : off.
+    /// **Stacks** the series: each area is cumulated above the previous ones (cumulative areas),
+    /// so a total and its composition can be read. Implies filling the bands. Off by default.
     pub fn stacked(mut self, stacked: bool) -> Self {
         self.stacked = stacked;
         self
     }
 
-    /// **Masque** les séries d'index donnés (non tracées, atténuées en légende) — jalon 215.
+    /// **Hides** the series at the given indices (not drawn, dimmed in the legend) — milestone 215.
     pub fn hidden(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
         self.hidden = indices.into_iter().collect();
         self
     }
 
-    /// Rend la **légende cliquable** : `on_legend(index)` au clic sur une entrée — jalon 215.
+    /// Makes the **legend clickable**: `on_legend(index)` on a click on an entry — milestone 215.
     pub fn on_legend(mut self, on_legend: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_legend = Some(Box::new(on_legend));
         self
     }
 
-    /// Anime un **halo pulsant** (grandit puis s'estompe) sur le point survolé. Demande un repaint
-    /// continu tant que le graphique est affiché. Défaut : off — jalon 217.
+    /// Animates a **pulsing halo** (growing then fading) on the hovered point. Asks for a
+    /// continuous repaint for as long as the chart is displayed. Off by default — milestone 217.
     pub fn animated(mut self, animated: bool) -> Self {
         self.animated = animated;
         self
     }
 
-    /// Rend les **points cliquables** : `on_point(catégorie, série)` au clic près d'un marqueur
-    /// (des séries visibles). Défaut : aucun — jalon 221.
+    /// Makes the **points clickable**: `on_point(category, series)` on a click near a marker
+    /// (of the visible series). None by default — milestone 221.
     pub fn on_point(mut self, on_point: impl Fn(usize, usize) -> Msg + 'static) -> Self {
         self.on_point = Some(Box::new(on_point));
         self
     }
 
-    /// **Épingle** un point `(catégorie, série)` : il reçoit un halo + un anneau d'accent persistants
-    /// (met en évidence la sélection courante, façon détail cliqué). `None` = rien — jalon 223.
+    /// **Pins** a point `(category, series)`: it gets a persistent halo + accent ring
+    /// (highlighting the current selection, as a clicked detail). `None` = nothing — milestone 223.
     pub fn selected(mut self, selected: Option<(usize, usize)>) -> Self {
         self.selected = selected;
         self
     }
 
-    /// Normalise l'empilage en **100 %** : chaque catégorie remplit toute la hauteur, chaque strate
-    /// occupant sa **proportion** du total. N'a d'effet qu'en aires empilées multi-séries. Défaut :
-    /// off — jalon 224.
+    /// Normalises the stacking to **100%**: each category fills the whole height, each stratum
+    /// taking its **share** of the total. Only has an effect on multi-series stacked areas.
+    /// Off by default — milestone 224.
     pub fn normalized(mut self, normalized: bool) -> Self {
         self.normalized = normalized;
         self
     }
 
-    /// Total (des séries **visibles**) de la catégorie `i` — dénominateur de l'empilage 100 %.
+    /// Total (of the **visible** series) of category `i` — the denominator of 100% stacking.
     fn category_total(&self, i: usize) -> f32 {
         let base = if self.hidden.contains(&0) {
             0.0
@@ -998,21 +998,21 @@ impl<Msg> LineChart<Msg> {
         (base + rest).max(1e-6)
     }
 
-    /// Noms de toutes les séries (principale puis additionnelles).
+    /// Names of every series (the main one then the extras).
     fn series_names(&self) -> Vec<&str> {
         let mut names = vec![self.name.as_deref().unwrap_or("Series 1")];
         names.extend(self.extra.iter().map(|(n, _, _)| n.as_str()));
         names
     }
 
-    /// La valeur maximale de **toutes** les séries (au moins 1 pour une échelle stable).
+    /// The largest value across **all** the series (at least 1, for a stable scale).
     fn max_value(&self) -> f32 {
         let primary = self.values.iter().map(|(_, v)| *v);
         let extra = self.extra.iter().flat_map(|(_, _, vs)| vs.iter().copied());
         primary.chain(extra).fold(0.0, f32::max).max(1.0)
     }
 
-    /// Le maximum de la **somme** des séries par catégorie (échelle en mode empilé).
+    /// The largest **sum** of the series per category (the scale in stacked mode).
     fn stacked_max(&self) -> f32 {
         let n = self.values.len();
         (0..n)
@@ -1029,7 +1029,7 @@ impl<Msg> LineChart<Msg> {
             .max(1.0)
     }
 
-    /// La légende doit-elle être dessinée (activée **et** au moins une série nommée) ?
+    /// Should the legend be drawn (enabled **and** at least one named series)?
     fn has_legend(&self) -> bool {
         self.legend && (self.name.is_some() || !self.extra.is_empty())
     }
@@ -1057,18 +1057,18 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         let accent = self.color.unwrap_or(theme.primary);
         let single = self.extra.is_empty();
         let stacked = self.stacked && !single;
-        // Empilage **100 %** (jalon 224) : chaque catégorie est normalisée à son total (proportions).
+        // **100%** stacking (milestone 224): each category is normalised to its own total (proportions).
         let normalized = self.normalized && stacked;
-        // En empilé, l'échelle doit contenir le **total** cumulé par catégorie.
+        // When stacked, the scale must hold the cumulative **total** per category.
         let max = if stacked {
             self.stacked_max()
         } else {
             self.max_value()
         };
 
-        // Géométrie partagée avec la BarChart : bande des valeurs en haut (libellés de valeur,
-        // série unique seulement), libellés de catégorie en bas, marge gauche pour l'axe, et — le
-        // cas échéant — une bande de légende tout en haut.
+        // Geometry shared with the BarChart: the band of values at the top (value labels, single
+        // series only), the category labels at the bottom, a left margin for the axis, and — where
+        // there is one — a legend band right at the top.
         let legend_h = if self.has_legend() { LEGEND_H } else { 0.0 };
         let baseline_y = bounds.y + bounds.height - X_LABEL_H;
         let plot_top = bounds.y + legend_h + VALUE_SIZE + 6.0;
@@ -1078,18 +1078,18 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         let plot_w = bounds.width - axis_w;
         let slot = plot_w / n as f32;
 
-        // Grille horizontale + graduations (derrière les courbes) ; en 100 %, l'axe est en pourcentages.
+        // Horizontal grid + ticks (behind the curves); in 100% mode the axis is in percentages.
         draw_grid(
             scene, theme, plot_left, plot_w, plot_top, baseline_y, max, self.grid, normalized, o,
         );
 
-        // Ligne de base (axe des abscisses).
+        // Baseline (the x-axis).
         scene.fill_rect(
             Rect::new(plot_left, baseline_y, plot_w, 1.5),
             theme.border.fade(o),
         );
 
-        // Toutes les séries à tracer : la principale puis les additionnelles, alignées par index.
+        // Every series to draw: the main one then the extras, aligned by index.
         let primary: Vec<f32> = self.values.iter().map(|(_, v)| *v).collect();
         let mut series: Vec<(Color, &str, &[f32])> = vec![(
             accent,
@@ -1100,15 +1100,15 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
             series.push((*color, name.as_str(), vals.as_slice()));
         }
 
-        // Coordonnées d'une valeur (index, valeur) → point écran.
+        // Coordinates of a value (index, value) → a screen point.
         let pt = |i: usize, v: f32| {
             Point::new(
                 plot_left + slot * (i as f32 + 0.5),
                 baseline_y - (v / max) * plot_h,
             )
         };
-        // Point d'un **cumul** empilé : en 100 %, le dénominateur est le total de la catégorie
-        // (bande pleine hauteur), sinon l'échelle globale (jalon 224).
+        // Point of a stacked **cumulative** value: in 100% mode the denominator is the category's
+        // total (a full-height band), otherwise the global scale (milestone 224).
         let spt = |i: usize, cum: f32| {
             let denom = if normalized {
                 self.category_total(i)
@@ -1122,8 +1122,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         };
 
         if stacked {
-            // Aires **cumulées** : chaque série est une bande entre son cumul bas et haut, du bas
-            // vers le haut ; le trait suit le bord supérieur.
+            // **Cumulative** areas: each series is a band between its lower and upper cumulative
+            // values, from the bottom up; the stroke follows the upper edge.
             let mut lower = vec![0.0_f32; n];
             for (j, (color, _, vals)) in series.iter().enumerate() {
                 if self.hidden.contains(&j) {
@@ -1133,7 +1133,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     .map(|i| lower[i] + vals.get(i).copied().unwrap_or(0.0))
                     .collect();
                 if n >= 2 {
-                    // Bande : bord bas (gauche→droite) puis bord haut (droite→gauche).
+                    // The band: lower edge (left→right) then upper edge (right→left).
                     let mut band = Path::new().move_to(spt(0, lower[0]));
                     for i in 1..n {
                         band = band.line_to(spt(i, lower[i]));
@@ -1142,15 +1142,16 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                         band = band.line_to(spt(i, upper[i]));
                     }
                     scene.fill_path(&band, color.fade(o * STACK_ALPHA));
-                    // Trait du bord supérieur.
+                    // Stroke of the upper edge.
                     let mut line = Path::new().move_to(spt(0, upper[0]));
                     for i in 1..n {
                         line = line.line_to(spt(i, upper[i]));
                     }
                     scene.stroke_path(&line, color.fade(o), LINE_W);
                 }
-                // Valeur (ou part %) au centre de la bande à chaque catégorie, si la bande y est
-                // assez épaisse — parité avec les strates de barres (jalons 227/229) — jalon 230.
+                // The value (or the % share) at the centre of the band on each category, where the
+                // band is thick enough — parity with the bar strata (milestones 227/229) —
+                // milestone 230.
                 for i in 0..n {
                     let value = vals.get(i).copied().unwrap_or(0.0);
                     if value <= 0.0 {
@@ -1169,7 +1170,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                         };
                         let lw = frus_text::measure(&label, STRATA_LABEL_SIZE).width;
                         let px = plot_left + slot * (i as f32 + 0.5);
-                        // Borne le libellé dans la zone de tracé (les catégories de bord sinon débordent).
+                        // Clamps the label to the plot area (edge categories would overflow otherwise).
                         let lx = (px - lw * 0.5)
                             .clamp(plot_left, (plot_left + plot_w - lw).max(plot_left));
                         scene.text(
@@ -1188,7 +1189,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     continue;
                 }
                 let points: Vec<Point> = (0..n.min(vals.len())).map(|i| pt(i, vals[i])).collect();
-                // Aire sous la courbe (série unique seulement, façon non-zero refermée).
+                // Area under the curve (single series only, a closed non-zero path).
                 if single && self.fill && points.len() >= 2 {
                     let mut area = Path::new().move_to(Point::new(points[0].x, baseline_y));
                     for p in &points {
@@ -1205,7 +1206,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     }
                     scene.stroke_path(&line, color.fade(o), LINE_W);
                 }
-                // Marqueurs, et — série unique — la valeur au-dessus de chaque point.
+                // Markers, and — for a single series — the value above each point.
                 for (i, p) in points.iter().enumerate() {
                     scene.fill_path(&Path::circle(*p, MARKER_R), color.fade(o));
                     if single {
@@ -1222,8 +1223,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
             }
         }
 
-        // Point épinglé (jalon 223) : halo + anneau d'accent persistants sur le marqueur sélectionné
-        // (hors empilé et hors série masquée), indépendant du survol.
+        // Pinned point (milestone 223): a persistent halo + accent ring on the selected marker
+        // (not when stacked, and not on a hidden series), independent of hover.
         if let Some((sc, ss)) = self.selected {
             if !stacked && ss < series.len() && !self.hidden.contains(&ss) && sc < n {
                 let (color, _, vals) = series[ss];
@@ -1235,7 +1236,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
             }
         }
 
-        // Libellés de catégorie (une fois, sous la ligne de base).
+        // Category labels (once, below the baseline).
         for (i, (label, _)) in self.values.iter().enumerate() {
             let lw = frus_text::measure(label, LABEL_SIZE).width;
             scene.text(
@@ -1249,7 +1250,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
             );
         }
 
-        // Légende (bande du haut), partagée ; les séries masquées y sont atténuées.
+        // Legend (the top band), shared; hidden series are dimmed in it.
         if self.has_legend() {
             let entries: Vec<(Color, &str)> = series
                 .iter()
@@ -1268,16 +1269,16 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
             draw_legend(scene, theme, plot_left, bounds.y, &entries, o);
         }
 
-        // Infobulle de sous-région (jalon 211) : quand le pointeur survole la zone de tracé
-        // (`hover_cursor`, pose par le shell via `cursor_icon`), on met en avant la catégorie la
-        // plus proche, on accentue le marqueur de chaque série visible, et on liste leurs valeurs.
+        // Sub-region tooltip (milestone 211): when the pointer hovers the plot area
+        // (`hover_cursor`, set by the shell through `cursor_icon`), the nearest category is brought
+        // forward, each visible series' marker is accented, and their values are listed.
         if let Some(hc) = status.hover_cursor {
             let lx = hc.x - bounds.x;
             let hi =
                 (((lx - plot_left) / slot - 0.5).round() as i64).clamp(0, n as i64 - 1) as usize;
             let gx = plot_left + slot * (hi as f32 + 0.5);
             let mut lines: Vec<(Option<Color>, String)> = vec![(None, self.values[hi].0.clone())];
-            // En 100 %, chaque mesure est suivie de sa part du total de la catégorie survolée (jalon 226).
+            // In 100% mode each measure is followed by its share of the hovered category's total (milestone 226).
             let percent_of = if normalized {
                 Some(self.category_total(hi))
             } else {
@@ -1287,11 +1288,11 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                 if self.hidden.contains(&j) || hi >= vals.len() {
                     continue;
                 }
-                // Marqueur accentué à la valeur (hors empilé : la hauteur individuelle n'a pas
-                // de sens sur une strate cumulée).
+                // The marker accented at the value (not when stacked: an individual height means
+                // nothing on a cumulative stratum).
                 if !stacked {
                     let py = baseline_y - (vals[hi] / max) * plot_h;
-                    // Halo pulsant animé (jalon 217) : grandit puis s'estompe sous le marqueur.
+                    // Animated pulsing halo (milestone 217): grows then fades under the marker.
                     if self.animated {
                         let phase = (status.time * PULSE_SPEED).fract();
                         let r = (MARKER_R + 2.0) + phase * PULSE_GROW;
@@ -1340,7 +1341,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
     }
 
     fn positional_click(&self, local_x: f32, local_y: f32, width: f32, height: f32) -> Option<Msg> {
-        // 1) Clic sur une entrée de légende → on_legend(index) (jalon 215).
+        // 1) A click on a legend entry → on_legend(index) (milestone 215).
         if let Some(f) = &self.on_legend {
             if self.has_legend() {
                 if let Some(idx) = legend_hit(
@@ -1353,8 +1354,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                 }
             }
         }
-        // 2) Clic sur un **point** → on_point(catégorie, série) (jalon 221). Hors mode empilé, où
-        // les marqueurs individuels n'existent pas. Géométrie identique au paint.
+        // 2) A click on a **point** → on_point(category, series) (milestone 221). Not in stacked
+        // mode, where individual markers do not exist. The geometry matches the paint.
         let f = self.on_point.as_ref()?;
         let n = self.values.len();
         if n == 0 || (self.stacked && !self.extra.is_empty()) {
@@ -1389,7 +1390,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
     }
 
     fn continuous(&self) -> bool {
-        // Repaint continu quand le halo pulsant est actif (jalon 217).
+        // Continuous repaint while the pulsing halo is on (milestone 217).
         self.animated
     }
 
@@ -1428,27 +1429,27 @@ mod tests {
 
     #[test]
     fn bars_scale_to_the_max_value() {
-        // Trois barres : la plus grande valeur donne la barre la plus haute.
+        // Three bars: the largest value gives the tallest bar.
         let chart = BarChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)]);
         let prims = paint_chart(&chart, 300.0, 200.0);
-        // Rectangles = ligne de base + 3 barres.
+        // Rects = the baseline + 3 bars.
         let bar_heights: Vec<f32> = prims
             .iter()
             .filter_map(|p| match p {
-                // Les barres ont une hauteur > 2 (la ligne de base fait 1.5).
+                // Bars are taller than 2 (the baseline is 1.5 tall).
                 Primitive::Rect { rect, .. } if rect.height > 2.0 => Some(rect.height),
                 _ => None,
             })
             .collect();
-        assert_eq!(bar_heights.len(), 3, "une barre par valeur");
-        // B (6) est la plus haute ; A (2) la plus basse ; proportionnel.
+        assert_eq!(bar_heights.len(), 3, "one bar per value");
+        // B (6) is the tallest; A (2) the shortest; proportional.
         let max_h = bar_heights.iter().cloned().fold(0.0_f32, f32::max);
         let min_h = bar_heights.iter().cloned().fold(f32::MAX, f32::min);
         assert!(
             max_h > min_h * 2.5,
-            "6 vaut trois fois 2 : {max_h} vs {min_h}"
+            "6 is three times 2: {max_h} vs {min_h}"
         );
-        // Valeurs et libellés dessinés.
+        // Values and labels drawn.
         let has_text = |t: &str| {
             prims
                 .iter()
@@ -1456,11 +1457,11 @@ mod tests {
         };
         assert!(
             has_text("6") && has_text("2") && has_text("4"),
-            "valeurs affichées"
+            "values displayed"
         );
         assert!(
             has_text("A") && has_text("B") && has_text("C"),
-            "libellés affichés"
+            "labels displayed"
         );
     }
 
@@ -1471,19 +1472,19 @@ mod tests {
             .series("Last year", Color::rgb8(200, 120, 80), [3.0, 7.0, 5.0])
             .legend(true);
         let prims = paint_chart(&chart, 320.0, 220.0);
-        // 3 catégories × 2 séries = 6 barres (hautes ; > la ligne de base et les pastilles).
+        // 3 categories × 2 series = 6 bars (tall ones; > the baseline and the swatches).
         let bars = prims
             .iter()
             .filter(|p| matches!(p, Primitive::Rect { rect, .. } if rect.height > 15.0))
             .count();
-        assert_eq!(bars, 6, "une barre par (catégorie, série)");
-        // Deux pastilles de légende (~10×10).
+        assert_eq!(bars, 6, "one bar per (category, series)");
+        // Two legend swatches (~10×10).
         let swatches = prims
             .iter()
             .filter(|p| matches!(p, Primitive::Rect { rect, .. }
                 if (rect.width - LEGEND_SWATCH).abs() < 0.5 && (rect.height - LEGEND_SWATCH).abs() < 0.5))
             .count();
-        assert_eq!(swatches, 2, "une pastille par série");
+        assert_eq!(swatches, 2, "one swatch per series");
         let has_text = |t: &str| {
             prims
                 .iter()
@@ -1491,7 +1492,7 @@ mod tests {
         };
         assert!(
             has_text("This year") && has_text("Last year"),
-            "noms de séries en légende"
+            "series names in the legend"
         );
     }
 
@@ -1500,7 +1501,7 @@ mod tests {
         let chart = BarChart::new([("A", 2.0), ("B", 4.0)])
             .series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
             .stacked(true);
-        // Échelle empilée : max des totaux = max(2+3, 4+1) = 5.
+        // Stacked scale: the largest total = max(2+3, 4+1) = 5.
         assert_eq!(chart.stacked_max(), 5.0);
         let prims = paint_chart(&chart, 300.0, 200.0);
         let seg_widths: Vec<f32> = prims
@@ -1510,25 +1511,25 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // 2 catégories × 2 séries = 4 segments, tous à la pleine largeur du groupe (une colonne).
-        assert_eq!(seg_widths.len(), 4, "un segment par (catégorie, série)");
+        // 2 categories × 2 series = 4 segments, all at the group's full width (one column).
+        assert_eq!(seg_widths.len(), 4, "one segment per (category, series)");
         let group_w = (300.0 / 2.0) * BAR_FILL;
         assert!(
             seg_widths.iter().all(|w| (w - group_w).abs() < 0.5),
-            "segments empilés = pleine largeur, obtenu {seg_widths:?}"
+            "stacked segments = full width, got {seg_widths:?}"
         );
     }
 
     #[test]
     fn normalized_stacked_bars_fill_each_column() {
-        // 100 % : chaque colonne remplit toute la hauteur, quelle que soit sa somme brute.
+        // 100% mode: each column fills the whole height, whatever its raw sum.
         let make = |norm: bool| {
             BarChart::new([("A", 2.0), ("B", 4.0)])
                 .series("x", Color::rgb8(1, 2, 3), [3.0, 4.0])
                 .stacked(true)
                 .normalized(norm)
         };
-        // Hauteur cumulée des segments de la colonne A (moitié gauche : x < 150).
+        // Cumulative height of column A's segments (the left half: x < 150).
         let col_a = |chart: &BarChart| {
             paint_chart(chart, 300.0, 200.0)
                 .iter()
@@ -1542,31 +1543,31 @@ mod tests {
         };
         let plot_h = (200.0 - X_LABEL_H) - (VALUE_SIZE + 6.0); // 160
 
-        // Colonne A (total 5) : pleine en 100 %...
+        // Column A (total 5): full in 100% mode...
         assert!(
             (col_a(&make(true)) - plot_h).abs() < 1.0,
-            "colonne A pleine en 100%, obtenu {}",
+            "column A full in 100% mode, got {}",
             col_a(&make(true))
         );
-        // ...mais partielle en absolu (le max total, 8, est en B).
+        // ...but partial in absolute mode (the largest total, 8, is in B).
         assert!(
             col_a(&make(false)) < plot_h - 20.0,
-            "colonne A partielle en absolu, obtenu {}",
+            "column A partial in absolute mode, got {}",
             col_a(&make(false))
         );
-        // L'axe en 100 % affiche un pourcentage.
+        // In 100% mode the axis shows a percentage.
         let prims = paint_chart(&make(true).grid(4), 300.0, 200.0);
         assert!(
             prims
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == "100%")),
-            "axe en pourcentage"
+            "the axis in percentages"
         );
     }
 
     #[test]
     fn normalized_bar_tooltip_shows_percentages() {
-        // Deux séries empilées ; en 100 %, l'infobulle de survol ajoute la part (%) de chaque série.
+        // Two stacked series; in 100% mode the hover tooltip adds each series' share (%).
         let make = |norm: bool| {
             BarChart::new([("A", 2.0), ("B", 6.0)])
                 .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
@@ -1575,7 +1576,7 @@ mod tests {
         };
         let tooltip_texts = |chart: &BarChart| -> Vec<String> {
             let mut scene = Scene::new();
-            // Survol de la catégorie A (x ~ centre de la 1re colonne).
+            // Hovering category A (x ~ the centre of the 1st column).
             let status = Status {
                 hover_cursor: Some(Point::new(75.0, 90.0)),
                 ..Default::default()
@@ -1596,39 +1597,39 @@ mod tests {
                 })
                 .collect()
         };
-        // Catégorie A : les deux séries valent 2 → 50 % chacune.
+        // Category A: both series are worth 2 → 50% each.
         let norm = tooltip_texts(&make(true));
         assert!(
             norm.iter().any(|t| t.contains("(50%)")),
-            "part en % dans l'infobulle 100%, obtenu {norm:?}"
+            "a % share in the 100%-mode tooltip, got {norm:?}"
         );
-        // En absolu : aucune mention de pourcentage.
+        // In absolute mode: no mention of a percentage.
         let abs = tooltip_texts(&make(false));
         assert!(
             !abs.iter().any(|t| t.contains('%')),
-            "pas de % en absolu, obtenu {abs:?}"
+            "no % in absolute mode, got {abs:?}"
         );
     }
 
     #[test]
     fn normalized_bars_label_each_strata_with_its_percentage() {
-        // En 100 %, chaque strate assez haute porte sa part (%) en son centre.
+        // In 100% mode every stratum tall enough carries its share (%) at its centre.
         let make = |norm: bool| {
             BarChart::new([("A", 2.0), ("B", 6.0)])
                 .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
                 .stacked(true)
                 .normalized(norm)
         };
-        // Sans axe (pas de graduation %), tout texte finissant par « % » est un libellé de strate.
+        // Without an axis (so no % ticks), any text ending in "%" is a stratum label.
         let pct_labels = |chart: &BarChart| {
             paint_chart(chart, 300.0, 260.0)
                 .iter()
                 .filter(|p| matches!(p, Primitive::Text { text, .. } if text.ends_with('%')))
                 .count()
         };
-        // 2 catégories × 2 séries visibles = 4 strates étiquetées.
-        assert_eq!(pct_labels(&make(true)), 4, "une part % par strate");
-        assert_eq!(pct_labels(&make(false)), 0, "aucun % en absolu");
+        // 2 categories × 2 visible series = 4 labelled strata.
+        assert_eq!(pct_labels(&make(true)), 4, "one % share per stratum");
+        assert_eq!(pct_labels(&make(false)), 0, "no % in absolute mode");
     }
 
     #[test]
@@ -1636,26 +1637,26 @@ mod tests {
         let make = || {
             BarChart::new([("A", 2.0), ("B", 4.0)]).series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
         };
-        // Empilé absolu : le total de chaque colonne (A = 2+3 = 5, B = 4+1 = 5) est écrit au-dessus.
+        // Absolute stacking: each column's total (A = 2+3 = 5, B = 4+1 = 5) is written above it.
         let abs = paint_chart(&make().stacked(true), 300.0, 220.0);
         let count5 = abs
             .iter()
             .filter(|p| matches!(p, Primitive::Text { text, .. } if text == "5"))
             .count();
-        assert_eq!(count5, 2, "un total par colonne (5 et 5)");
-        // En 100 % : pas de total brut (colonnes pleines, parts en %).
+        assert_eq!(count5, 2, "one total per column (5 and 5)");
+        // In 100% mode: no raw total (full columns, shares in %).
         let norm = paint_chart(&make().stacked(true).normalized(true), 300.0, 220.0);
         assert!(
             !norm
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == "5")),
-            "pas de total brut en 100%"
+            "no raw total in 100% mode"
         );
     }
 
     #[test]
     fn stacked_absolute_bars_label_each_strata_with_its_value() {
-        // Empilé absolu : chaque strate assez haute porte sa valeur brute (parité avec le % en 100 %).
+        // Absolute stacking: every stratum tall enough carries its raw value (parity with the % in 100% mode).
         let chart = BarChart::new([("A", 3.0), ("B", 5.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 6.0])
             .stacked(true);
@@ -1665,13 +1666,13 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        // Valeurs de strates : A = 3 et 4, B = 5 et 6.
+        // Stratum values: A = 3 and 4, B = 5 and 6.
         assert!(
             has("3") && has("4") && has("6"),
-            "chaque strate porte sa valeur"
+            "every stratum carries its value"
         );
-        // Le total de colonne (A = 7, B = 11) reste au sommet (jalon 228).
-        assert!(has("7") && has("11"), "total de colonne conservé");
+        // The column total (A = 7, B = 11) stays at the top (milestone 228).
+        assert!(has("7") && has("11"), "column total kept");
     }
 
     #[test]
@@ -1697,8 +1698,8 @@ mod tests {
             hover_cursor: Some(Point::new(150.0, 100.0)),
             ..Default::default()
         };
-        assert_eq!(guides(hovering), 1, "un guide au survol de la zone");
-        assert_eq!(guides(Status::default()), 0, "pas d'infobulle sans survol");
+        assert_eq!(guides(hovering), 1, "one guide when the area is hovered");
+        assert_eq!(guides(Status::default()), 0, "no tooltip without hover");
         assert_eq!(
             Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0),
             Some(Cursor::Default)
@@ -1711,8 +1712,8 @@ mod tests {
 
     #[test]
     fn clicking_a_bar_emits_category_and_series() {
-        // Deux séries groupées : 2 barres par catégorie. Géométrie (width 300, height 200, sans
-        // axe ni légende), identique au paint.
+        // Two grouped series: 2 bars per category. The geometry (width 300, height 200, no axis
+        // and no legend) matches the paint.
         let chart = BarChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
             .on_point(|c, s| (c, s));
@@ -1721,7 +1722,7 @@ mod tests {
         let slot = 300.0 / 2.0;
         let group_w = slot * BAR_FILL;
         let bar_w = group_w / 2.0;
-        // Catégorie A (i=0), série additionnelle (j=1), valeur 4 (max = 6).
+        // Category A (i=0), extra series (j=1), value 4 (max = 6).
         let cx = slot * 0.5;
         let group_left = cx - group_w * 0.5;
         let bx = group_left + bar_w + (bar_w - bar_w * 0.86) * 0.5;
@@ -1730,26 +1731,26 @@ mod tests {
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&chart, bar_cx, mid_y, 300.0, 200.0),
             Some((0, 1)),
-            "clic au milieu de la 2e barre de la catégorie A"
+            "a click in the middle of category A's 2nd bar"
         );
-        // Au-dessus de la barre (zone vide) : aucun message.
+        // Above the bar (empty space): no message.
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&chart, bar_cx, 2.0, 300.0, 200.0),
             None
         );
-        // Strate empilée : le clic dans la colonne renvoie la strate touchée.
+        // Stacked stratum: a click in the column returns the stratum that was hit.
         let stacked = BarChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
             .stacked(true)
             .on_point(|c, s| (c, s));
-        // Catégorie A : strate 0 (valeur 2) en bas, strate 1 (valeur 4) au-dessus ; max total = 6.
-        let low_y = baseline_y - (1.0 / 6.0) * plot_h; // dans la strate du bas (0..2)
+        // Category A: stratum 0 (value 2) at the bottom, stratum 1 (value 4) above; max total = 6.
+        let low_y = baseline_y - (1.0 / 6.0) * plot_h; // inside the bottom stratum (0..2)
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&stacked, cx, low_y, 300.0, 200.0),
             Some((0, 0)),
-            "clic bas de la colonne = strate 0"
+            "a click low in the column = stratum 0"
         );
-        // Série additionnelle masquée : sa barre n'est plus cliquable.
+        // A hidden extra series: its bar is no longer clickable.
         let hidden = BarChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
             .on_point(|c, s| (c, s))
@@ -1757,13 +1758,13 @@ mod tests {
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&hidden, bar_cx, mid_y, 300.0, 200.0),
             None,
-            "barre d'une série masquée : pas de clic"
+            "a hidden series' bar: no click"
         );
     }
 
     #[test]
     fn selected_bar_draws_a_persistent_ring() {
-        // La barre épinglée reçoit un rectangle à **bordure** (les barres normales ont une bordure 0).
+        // The pinned bar gets a **stroked** rect (ordinary bars have a 0-width border).
         let rings = |chart: &BarChart| {
             paint_chart(chart, 300.0, 200.0)
                 .iter()
@@ -1775,19 +1776,19 @@ mod tests {
         assert_eq!(
             rings(&BarChart::new([("A", 2.0), ("B", 6.0)])),
             0,
-            "aucun anneau sans sélection"
+            "no ring without a selection"
         );
         assert_eq!(
             rings(&BarChart::new([("A", 2.0), ("B", 6.0)]).selected(Some((1, 0)))),
             1,
-            "un anneau sur la barre épinglée"
+            "one ring on the pinned bar"
         );
-        // Série masquée épinglée : sa barre n'est pas tracée, donc pas d'anneau.
+        // A pinned hidden series: its bar is not drawn, so there is no ring.
         let hidden = BarChart::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
             .hidden([1])
             .selected(Some((0, 1)));
-        assert_eq!(rings(&hidden), 0, "pas d'anneau sur une série masquée");
+        assert_eq!(rings(&hidden), 0, "no ring on a hidden series");
     }
 
     fn paint_line(chart: &LineChart, w: f32, h: f32) -> Vec<Primitive> {
@@ -1811,7 +1812,7 @@ mod tests {
     fn line_connects_all_points() {
         let chart = LineChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)]);
         let prims = paint_line(&chart, 300.0, 200.0);
-        // Une polyligne tracée (chemin avec contour, sans remplissage).
+        // One stroked polyline (a path with a stroke, no fill).
         let polyline = prims.iter().find_map(|p| match p {
             Primitive::Path {
                 path,
@@ -1821,15 +1822,15 @@ mod tests {
             } => Some(path),
             _ => None,
         });
-        let polyline = polyline.expect("une polyligne tracée");
-        // move_to + 2 line_to pour trois points.
+        let polyline = polyline.expect("a stroked polyline");
+        // move_to + 2 line_to for three points.
         let segments = polyline
             .verbs()
             .iter()
             .filter(|v| matches!(v, frus_core::PathVerb::LineTo(_)))
             .count();
         assert_eq!(segments, 2, "deux segments relient trois points");
-        // Un marqueur (chemin rempli) par point.
+        // One marker (a filled path) per point.
         let markers = prims
             .iter()
             .filter(|p| {
@@ -1843,8 +1844,8 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(markers, 3, "un marqueur par point");
-        // Valeurs et libellés dessinés.
+        assert_eq!(markers, 3, "one marker per point");
+        // Values and labels drawn.
         let has_text = |t: &str| {
             prims
                 .iter()
@@ -1852,11 +1853,11 @@ mod tests {
         };
         assert!(
             has_text("6") && has_text("2") && has_text("4"),
-            "valeurs affichées"
+            "values displayed"
         );
         assert!(
             has_text("A") && has_text("B") && has_text("C"),
-            "libellés affichés"
+            "labels displayed"
         );
     }
 
@@ -1864,7 +1865,7 @@ mod tests {
     fn hovering_the_plot_shows_a_tooltip_guide() {
         use crate::interaction::Cursor;
         let chart = LineChart::new([("A", 2.0), ("B", 6.0), ("C", 4.0)]);
-        // Rectangles verticaux fins et hauts = le guide de l'infobulle.
+        // Thin, tall vertical rects = the tooltip's guide.
         let guides = |status: Status| {
             let mut scene = Scene::new();
             Widget::<()>::paint(
@@ -1890,10 +1891,10 @@ mod tests {
         assert_eq!(
             guides(hovering),
             1,
-            "un guide vertical au survol de la zone"
+            "one vertical guide when the area is hovered"
         );
-        assert_eq!(guides(Status::default()), 0, "pas d'infobulle sans survol");
-        // `cursor_icon` active le suivi sur la zone de tracé (Default), pas en dehors.
+        assert_eq!(guides(Status::default()), 0, "no tooltip without hover");
+        // `cursor_icon` turns tracking on over the plot area (Default), not outside it.
         assert_eq!(
             Widget::<()>::cursor_icon(&chart, 150.0, 100.0, 300.0, 220.0),
             Some(Cursor::Default)
@@ -1901,7 +1902,7 @@ mod tests {
         assert_eq!(
             Widget::<()>::cursor_icon(&chart, 150.0, 5.0, 300.0, 220.0),
             None,
-            "au-dessus de la zone"
+            "above the area"
         );
     }
 
@@ -1916,7 +1917,7 @@ mod tests {
             )
             .legend(true);
         let prims = paint_line(&chart, 300.0, 220.0);
-        // Deux polylignes (une par série).
+        // Two polylines (one per series).
         let polylines = prims
             .iter()
             .filter(|p| {
@@ -1930,15 +1931,15 @@ mod tests {
                 )
             })
             .count();
-        assert_eq!(polylines, 2, "une polyligne par série");
-        // Deux pastilles de légende (~10x10).
+        assert_eq!(polylines, 2, "one polyline per series");
+        // Two legend swatches (~10x10).
         let swatches = prims
             .iter()
             .filter(|p| matches!(p, Primitive::Rect { rect, .. }
                 if (rect.width - LEGEND_SWATCH).abs() < 0.5 && (rect.height - LEGEND_SWATCH).abs() < 0.5))
             .count();
-        assert_eq!(swatches, 2, "une pastille par série");
-        // Les noms de séries figurent dans la légende.
+        assert_eq!(swatches, 2, "one swatch per series");
+        // The series names appear in the legend.
         let has_text = |t: &str| {
             prims
                 .iter()
@@ -1946,7 +1947,7 @@ mod tests {
         };
         assert!(
             has_text("Sales") && has_text("Costs"),
-            "noms de séries en légende"
+            "series names in the legend"
         );
     }
 
@@ -1957,24 +1958,24 @@ mod tests {
             .series("Costs", Color::rgb8(1, 2, 3), [2.0])
             .legend(true)
             .on_legend(|i| i);
-        // Clic sur la 1re entrée (pastille près de x=0, y dans la bande de légende).
+        // A click on the 1st entry (its swatch near x=0, y inside the legend band).
         assert_eq!(
             Widget::<usize>::positional_click(&chart, 5.0, 10.0, 300.0, 200.0),
             Some(0)
         );
-        // 2e entrée : juste après la 1re (pastille + espace + « Sales » + écart).
+        // 2nd entry: right after the 1st (swatch + space + "Sales" + gap).
         let after_first =
             LEGEND_SWATCH + 5.0 + frus_text::measure("Sales", LEGEND_SIZE).width + 16.0;
         assert_eq!(
             Widget::<usize>::positional_click(&chart, after_first + 4.0, 10.0, 300.0, 200.0),
             Some(1)
         );
-        // Hors de la bande (y trop bas) : aucun clic de légende.
+        // Outside the band (y too low): no legend click.
         assert_eq!(
             Widget::<usize>::positional_click(&chart, 5.0, 100.0, 300.0, 200.0),
             None
         );
-        // Sans `on_legend`, la légende n'est pas cliquable.
+        // Without `on_legend` the legend is not clickable.
         let plain = LineChart::<usize>::new([("A", 1.0)])
             .name("Sales")
             .series("Costs", Color::rgb8(1, 2, 3), [2.0])
@@ -1991,13 +1992,13 @@ mod tests {
         let plain = LineChart::new([("A", 2.0), ("B", 6.0)]);
         assert!(
             Widget::<()>::continuous(&animated),
-            "animé => repaint continu"
+            "animated => a continuous repaint"
         );
         assert!(
             !Widget::<()>::continuous(&plain),
-            "fixe => pas de repaint continu"
+            "static => no continuous repaint"
         );
-        // Cercles pleins (marqueurs/halo : chemins remplis sans segment droit) au survol.
+        // Filled circles (markers/halo: filled paths with no straight segment) on hover.
         let circles = |chart: &LineChart, t: f32| {
             let mut scene = Scene::new();
             let status = Status {
@@ -2021,10 +2022,10 @@ mod tests {
                 })
                 .count()
         };
-        // Le halo animé ajoute un cercle que le graphique fixe n'a pas (au même survol).
+        // The animated halo adds a circle the static chart does not have (at the same hover).
         assert!(
             circles(&animated, 0.1) > circles(&plain, 0.1),
-            "le halo animé ajoute un cercle"
+            "the animated halo adds a circle"
         );
     }
 
@@ -2033,23 +2034,23 @@ mod tests {
         let chart = LineChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
             .on_point(|c, s| (c, s));
-        // Géométrie (width 300, height 200, sans axe ni légende) — identique au paint.
+        // The geometry (width 300, height 200, no axis and no legend) — matches the paint.
         let baseline_y = 200.0 - X_LABEL_H;
         let plot_h = baseline_y - (VALUE_SIZE + 6.0);
         let slot = 300.0 / 2.0;
-        let px = slot * 0.5; // catégorie A (i = 0)
-        let py_primary = baseline_y - (2.0 / 6.0) * plot_h; // série 0, valeur 2 (max = 6)
+        let px = slot * 0.5; // category A (i = 0)
+        let py_primary = baseline_y - (2.0 / 6.0) * plot_h; // series 0, value 2 (max = 6)
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&chart, px, py_primary, 300.0, 200.0),
             Some((0, 0)),
-            "clic sur le point A de la série principale"
+            "a click on point A of the main series"
         );
-        // Loin de tout marqueur : aucun message.
+        // Far from every marker: no message.
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&chart, slot, 5.0, 300.0, 200.0),
             None
         );
-        // Série principale masquée : son point n'est plus cliquable.
+        // A hidden main series: its point is no longer clickable.
         let hidden = LineChart::<(usize, usize)>::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 1.0])
             .on_point(|c, s| (c, s))
@@ -2057,13 +2058,13 @@ mod tests {
         assert_eq!(
             Widget::<(usize, usize)>::positional_click(&hidden, px, py_primary, 300.0, 200.0),
             None,
-            "point d'une série masquée : pas de clic"
+            "a hidden series' point: no click"
         );
     }
 
     #[test]
     fn selected_point_draws_a_persistent_ring() {
-        // Un anneau (cercle **contour**, sans segment droit) apparaît sur le point épinglé, sans survol.
+        // A ring (a **stroked** circle, no straight segment) appears on the pinned point, without hover.
         let rings = |chart: &LineChart| {
             paint_line(chart, 300.0, 200.0)
                 .iter()
@@ -2076,19 +2077,19 @@ mod tests {
         assert_eq!(
             rings(&LineChart::new([("A", 2.0), ("B", 6.0)])),
             0,
-            "aucun anneau sans sélection"
+            "no ring without a selection"
         );
         assert_eq!(
             rings(&LineChart::new([("A", 2.0), ("B", 6.0)]).selected(Some((0, 0)))),
             1,
-            "un anneau sur le point épinglé"
+            "one ring on the pinned point"
         );
-        // Série masquée épinglée : pas d'anneau.
+        // A pinned hidden series: no ring.
         let hidden = LineChart::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [3.0, 1.0])
             .hidden([0])
             .selected(Some((0, 0)));
-        assert_eq!(rings(&hidden), 0, "pas d'anneau sur une série masquée");
+        assert_eq!(rings(&hidden), 0, "no ring on a hidden series");
     }
 
     #[test]
@@ -2113,11 +2114,11 @@ mod tests {
             Color::rgb8(200, 80, 80),
             [3.0, 1.0],
         );
-        assert_eq!(strokes(&both), 2, "deux séries visibles = deux lignes");
+        assert_eq!(strokes(&both), 2, "two visible series = two lines");
         let hidden = LineChart::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(200, 80, 80), [3.0, 1.0])
             .hidden([1]);
-        assert_eq!(strokes(&hidden), 1, "la série masquée n'est pas tracée");
+        assert_eq!(strokes(&hidden), 1, "the hidden series is not drawn");
     }
 
     #[test]
@@ -2129,7 +2130,7 @@ mod tests {
                 [3.0, 1.0],
             )
         };
-        // L'échelle empilée prend le max des totaux par catégorie : max(2+3, 4+1) = 5.
+        // The stacked scale takes the largest total per category: max(2+3, 4+1) = 5.
         assert_eq!(make().stacked(true).stacked_max(), 5.0);
         let bands = |chart: &LineChart| {
             paint_line(chart, 300.0, 200.0)
@@ -2143,12 +2144,12 @@ mod tests {
         assert_eq!(
             bands(&make().stacked(true)),
             2,
-            "une bande cumulée par série"
+            "one cumulative band per series"
         );
         assert_eq!(
             bands(&make()),
             0,
-            "sans empilage : pas de bande (multi-séries sans aire)"
+            "without stacking: no band (multi-series with no area)"
         );
     }
 
@@ -2160,7 +2161,7 @@ mod tests {
                 .stacked(true)
                 .normalized(norm)
         };
-        // Ordonnées du trait du bord **supérieur** (dernière bande tracée = dernière série visible).
+        // The y coordinates of the **upper** edge's stroke (the last band drawn = the last visible series).
         let top_line_ys = |chart: &LineChart| -> Vec<f32> {
             let prims = paint_line(chart, 300.0, 200.0);
             let path = prims
@@ -2181,7 +2182,7 @@ mod tests {
                     }
                     _ => None,
                 })
-                .expect("un trait de bord supérieur");
+                .expect("an upper-edge stroke");
             path.verbs()
                 .iter()
                 .filter_map(|v| match v {
@@ -2190,25 +2191,25 @@ mod tests {
                 })
                 .collect()
         };
-        let plot_top = VALUE_SIZE + 6.0; // 18 (sans légende ni axe)
+        let plot_top = VALUE_SIZE + 6.0; // 18 (no legend and no axis)
 
-        // 100 % : le bord supérieur est plat, à 100 % (plot_top) pour chaque catégorie.
+        // 100% mode: the upper edge is flat, at 100% (plot_top) on every category.
         let ys = top_line_ys(&make(true));
         assert!(
             ys.iter().all(|y| (y - plot_top).abs() < 1.0),
-            "bord haut a 100% partout, obtenu {ys:?}"
+            "upper edge at 100% everywhere, got {ys:?}"
         );
-        // Absolu : le bord supérieur suit les totaux (pas tous à plot_top).
+        // Absolute mode: the upper edge follows the totals (not all at plot_top).
         let ys_abs = top_line_ys(&make(false));
         assert!(
             ys_abs.iter().any(|y| (y - plot_top).abs() > 5.0),
-            "bord haut suit les totaux, obtenu {ys_abs:?}"
+            "the upper edge follows the totals, got {ys_abs:?}"
         );
     }
 
     #[test]
     fn normalized_line_tooltip_shows_percentages() {
-        // Aires empilées ; en 100 %, l'infobulle de survol ajoute la part (%) de chaque série.
+        // Stacked areas; in 100% mode the hover tooltip adds each series' share (%).
         let make = |norm: bool| {
             LineChart::new([("A", 2.0), ("B", 6.0)])
                 .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
@@ -2240,18 +2241,18 @@ mod tests {
         let norm = tooltip_texts(&make(true));
         assert!(
             norm.iter().any(|t| t.contains("(50%)")),
-            "part en % dans l'infobulle 100%, obtenu {norm:?}"
+            "a % share in the 100%-mode tooltip, got {norm:?}"
         );
         let abs = tooltip_texts(&make(false));
         assert!(
             !abs.iter().any(|t| t.contains('%')),
-            "pas de % en absolu, obtenu {abs:?}"
+            "no % in absolute mode, got {abs:?}"
         );
     }
 
     #[test]
     fn stacked_areas_label_each_band_with_value_or_percentage() {
-        // Absolu : chaque bande assez épaisse porte sa valeur à chaque catégorie.
+        // Absolute mode: every band thick enough carries its value on each category.
         let abs = LineChart::new([("A", 3.0), ("B", 5.0)])
             .series("x", Color::rgb8(1, 2, 3), [4.0, 6.0])
             .stacked(true);
@@ -2261,12 +2262,12 @@ mod tests {
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        // Valeurs de bandes : série 0 = 3,5 ; série x = 4,6.
+        // Band values: series 0 = 3 and 5; series x = 4 and 6.
         assert!(
             has("3") && has("4") && has("5") && has("6"),
-            "valeurs de bandes affichées"
+            "band values displayed"
         );
-        // 100 % : parts en %.
+        // 100% mode: shares in %.
         let norm = LineChart::new([("A", 2.0), ("B", 6.0)])
             .series("x", Color::rgb8(1, 2, 3), [2.0, 2.0])
             .stacked(true)
@@ -2275,13 +2276,13 @@ mod tests {
         assert!(
             np.iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text.ends_with('%'))),
-            "parts en % affichées dans les bandes"
+            "% shares displayed inside the bands"
         );
     }
 
     #[test]
     fn max_value_spans_all_series() {
-        // L'échelle englobe la série additionnelle (max 9 > max principal 6).
+        // The scale spans the extra series (max 9 > the main series' max of 6).
         let chart = LineChart::<()>::new([("A", 2.0), ("B", 6.0)]).series(
             "x",
             Color::rgb8(1, 2, 3),
@@ -2292,8 +2293,8 @@ mod tests {
 
     #[test]
     fn area_fills_a_polygon_under_the_curve() {
-        // Un chemin **rempli** (sans contour) fait de segments droits = l'aire ; sans `.area`,
-        // seuls les marqueurs (cercles, sans `LineTo`) sont remplis.
+        // A **filled** path (no stroke) made of straight segments = the area; without `.area`
+        // only the markers (circles, with no `LineTo`) are filled.
         let filled_polygons = |chart: &LineChart| {
             paint_line(chart, 300.0, 200.0)
                 .iter()
@@ -2314,49 +2315,46 @@ mod tests {
         assert_eq!(
             filled_polygons(&LineChart::new([("A", 2.0), ("B", 6.0)])),
             0,
-            "aucune aire par défaut"
+            "no area by default"
         );
         assert_eq!(
             filled_polygons(&LineChart::new([("A", 2.0), ("B", 6.0)]).area(true)),
             1,
-            "une aire remplie sous la courbe"
+            "one filled area under the curve"
         );
     }
 
     #[test]
     fn grid_draws_horizontal_lines_and_axis_labels() {
-        // Une série max 8, quatre divisions → graduations 0, 2, 4, 6, 8.
+        // A series with a max of 8 and four divisions → ticks 0, 2, 4, 6, 8.
         let chart = LineChart::new([("A", 2.0), ("B", 8.0)]).grid(4);
         let prims = paint_line(&chart, 300.0, 200.0);
-        // Lignes fines horizontales (hauteur ~1) : 4 lignes de grille + la ligne de base (1.5).
+        // Thin horizontal lines (height ~1): 4 grid lines + the baseline (1.5).
         let thin_lines = prims
             .iter()
             .filter(|p| matches!(p, Primitive::Rect { rect, .. } if rect.height <= 1.6))
             .count();
         assert!(
             thin_lines >= 5,
-            "4 lignes de grille + ligne de base, obtenu {thin_lines}"
+            "4 grid lines + the baseline, got {thin_lines}"
         );
         let has_text = |t: &str| {
             prims
                 .iter()
                 .any(|p| matches!(p, Primitive::Text { text, .. } if text == t))
         };
-        // Graduations de l'axe : 0 (base) et 8 (haut) au moins.
-        assert!(
-            has_text("0") && has_text("8"),
-            "graduations de l'axe des ordonnées"
-        );
+        // Axis ticks: 0 (the baseline) and 8 (the top) at least.
+        assert!(has_text("0") && has_text("8"), "y-axis ticks");
     }
 
     #[test]
     fn no_grid_by_default_keeps_full_width() {
-        // Sans grille, aucune graduation « 0 » n'est dessinée (comportement d'origine).
+        // Without a grid, no "0" tick is drawn (the original behaviour).
         let chart = LineChart::new([("A", 2.0), ("B", 8.0)]);
         let prims = paint_line(&chart, 300.0, 200.0);
         let has_zero = prims
             .iter()
             .any(|p| matches!(p, Primitive::Text { text, .. } if text == "0"));
-        assert!(!has_zero, "pas d'axe par défaut");
+        assert!(!has_zero, "no axis by default");
     }
 }
