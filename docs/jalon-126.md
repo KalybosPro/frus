@@ -1,51 +1,51 @@
-# Jalon 126 — `InteractiveViewer` : inertie (fling) + bornage du pan
+# Jalon 126 — `InteractiveViewer`: inertia (fling) + pan bounds
 
-## Analyse
+## Analysis
 
-L'`InteractiveViewer` (J122) déplaçait et zoomait, mais deux finitions manquaient : le
-pan pouvait **sortir le contenu du cadre** (rien ne le retenait), et un relâchement en
-mouvement s'**arrêtait net** (pas d'élan). Ce jalon ajoute le **bornage** et l'**inertie**
-(fling), façon Flutter.
+The `InteractiveViewer` (J122) panned and zoomed, but two finishing touches were
+missing: the pan could **push the content out of the frame** (nothing held it back), and
+releasing mid-motion **stopped dead** (no momentum). This milestone adds **bounding**
+and **inertia** (fling).
 
-## Décisions techniques
+## Technical decisions
 
-- **Bornage pur et testable.** `InteractiveView::clamped(viewport)` contraint la
-  translation pour que le contenu (à l'échelle courante) **couvre** toujours la
-  fenêtre : on ne peut pas tirer un bord du contenu à l'intérieur. À l'échelle 1 le pan
-  est nul (le contenu remplit exactement) ; sous 1 (dézoom) le contenu, plus petit, est
-  **centré**. Appliqué après chaque pan, chaque zoom, et chaque frame de fling.
+- **Pure, testable bounding.** `InteractiveView::clamped(viewport)` constrains the
+  translation so the content (at the current scale) always **covers** the viewport: you
+  cannot drag an edge of the content inside it. At scale 1 the pan is nil (the content
+  fills exactly); below 1 (zoomed out) the smaller content is **centred**. Applied after
+  every pan, every zoom, and every fling frame.
 
-- **Inertie décélérée dans le runtime.** Une carte `interactive_velocity` (px/s) porte
-  l'élan du pan relâché ; `Runtime::advance_interactive(viewports, dt)` déplace la
-  translation, la **borne** (toucher un bord annule la vitesse de cet axe — pas de
-  rebond), applique une **friction exponentielle** et s'arrête sous un seuil. Piloté
-  frame par frame comme l'inertie de défilement, avec les fenêtres de la frame courante.
+- **Decelerating inertia in the runtime.** An `interactive_velocity` map (px/s) carries
+  the momentum of a released pan; `Runtime::advance_interactive(viewports, dt)` moves the
+  translation, **bounds** it (touching an edge cancels that axis's velocity — no bounce),
+  applies **exponential friction** and stops below a threshold. Driven frame by frame
+  like scroll inertia, with the current frame's viewports.
 
-- **Gestes shell.** `Drag::Pan` suit désormais une **vitesse lissée** (moyenne
-  exponentielle) et la **fenêtre** (bornage) ; le relâchement en mouvement amorce le
-  fling (au-delà d'un seuil). Un nouvel appui **ou** un zoom **coupe** le fling en cours
-  (on reprend la main). Le zoom molette est lui aussi borné.
+- **Shell gestures.** `Drag::Pan` now tracks a **smoothed velocity** (an exponential
+  average) and the **viewport** (bounding); releasing mid-motion starts the fling (past a
+  threshold). A new press **or** a zoom **cuts** an ongoing fling (you take back
+  control). Wheel zoom is bounded too.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets` : `InteractiveView::clamped` (+ constantes `PAN_FRICTION` /
-  `PAN_MIN_VELOCITY`) ; `Runtime::interactive_velocity` + `advance_interactive` ;
+- `frus-widgets`: `InteractiveView::clamped` (+ the `PAN_FRICTION` / `PAN_MIN_VELOCITY`
+  constants); `Runtime::interactive_velocity` + `advance_interactive`;
   `Ui::interactive_bounds`.
-- `frus-shell` : `Drag::Pan` enrichi (vitesse lissée, `last_t`, `viewport`) ; bornage du
-  pan et du zoom ; amorçage du fling au relâchement ; appel per-frame
-  `advance_interactive` (agrégé à l'inertie de défilement) ; l'appui/zoom coupe le fling.
+- `frus-shell`: `Drag::Pan` enriched (smoothed velocity, `last_t`, `viewport`); bounding
+  for the pan and the zoom; starting the fling on release; the per-frame
+  `advance_interactive` call (aggregated with scroll inertia); press/zoom cuts the fling.
 
 ## Tests
 
-- `clamped` (purs) : le pan est **annulé** à l'échelle 1 ; borné au bord quand zoomé
-  (le contenu couvre toujours) ; **centré** quand dézoomé.
-- `advance_interactive` (runtime) : un fling **décélère, s'arrête** et reste **borné**
-  (la vitesse est nettoyée au repos).
-- Workspace complet vert : frus-widgets 231 (+4 : 3 bornage + 1 fling), frus-core 91.
+- `clamped` (pure): the pan is **cancelled** at scale 1; bounded at the edge when zoomed
+  in (the content always covers); **centred** when zoomed out.
+- `advance_interactive` (runtime): a fling **decelerates, stops** and stays **bounded**
+  (the velocity is cleaned up at rest).
+- The whole workspace green: frus-widgets 231 (+4: 3 bounding + 1 fling), frus-core 91.
 
-## Reste
+## What's left
 
-- **`boundaryMargin`** configurable (slack au-delà du cadre, dépassement élastique) —
-  ici le bornage est **strict** (marge 0, défaut de Flutter).
-- **Pincement 2 doigts** (tactile), une fois le multi-touch en place.
-- Double-tap pour zoomer/réinitialiser (raccourci usuel).
+- A configurable **boundary margin** (slack beyond the frame, elastic overscroll) — the
+  bounding here is **strict** (margin 0, the usual default).
+- **Two-finger pinch** (touch), once multi-touch is in place.
+- Double-tap to zoom / reset (the customary shortcut).

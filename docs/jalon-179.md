@@ -1,50 +1,52 @@
-# Jalon 179 — Colonnes gelées : ombre de séparation & gel à droite
+# Jalon 179 — Frozen columns: separator shadow & freezing on the right
 
-## Analyse
+## Analysis
 
-Le gel de colonnes (jalon 178) figeait les **premières** colonnes à gauche, sans repère
-visuel du bord de gel. Deux manques : (1) une **ombre de séparation** pour signaler que le
-contenu défile derrière les colonnes figées ; (2) le gel à **droite** (colonnes d'actions,
-totaux) — fréquent quand on veut garder des boutons de ligne en vue.
+Column freezing (milestone 178) froze the **first** columns on the left, with no visual cue of
+the freeze edge. Two gaps: (1) a **separator shadow** to signal that content is scrolling behind
+the frozen columns; (2) freezing on the **right** (action columns, totals) — common when you want
+to keep row buttons in view.
 
-## Décisions techniques
+## Technical decisions
 
-- **Gel des deux bords.** Le compte de colonnes gelées devient un couple `(gauche, droite)` :
-  `frozen_columns(n)` fige à gauche, `frozen_columns_right(m)` à droite. La disposition
-  devient `Flex` rangée `[bloc figé gauche?, Scroll horizontal(milieu), bloc figé droite?]` ;
-  chaque bloc est bâti par un helper commun `frozen_block(cols, w)`. Le milieu défilant (avec
-  son en-tête) porte les colonnes centrales.
+- **Freezing at both edges.** The frozen-column count becomes a `(left, right)` pair:
+  `frozen_columns(n)` freezes on the left, `frozen_columns_right(m)` on the right. The layout
+  becomes a `Flex` row `[left frozen block?, horizontal Scroll(middle), right frozen block?]`;
+  each block is built by a shared `frozen_block(cols, w)` helper. The scrolling middle (with its
+  header) carries the central columns.
 
-- **Ombre de séparation en calque.** Un `FrozenShadow` (calque de pile **inerte** — ne capte
-  aucun clic) peint un dégradé `scrim → transparent` (via `gradient_rect`) au **bord intérieur**
-  de chaque bloc gelé, **par-dessus** la zone défilante. La racine gelée devient une `Stack`
-  `[rangée de blocs, ombre]`. Comme l'ombre n'a pas d'`on_click`, les cellules dessous restent
-  cliquables (tri / sélection).
+- **A separator shadow as a layer.** A `FrozenShadow` (an **inert** stack layer — it catches no
+  clicks) paints a `scrim → transparent` gradient (through `gradient_rect`) at the **inner edge**
+  of each frozen block, **over** the scrolling area. The frozen root becomes a `Stack`
+  `[the row of blocks, the shadow]`. Since the shadow has no `on_click`, the cells beneath stay
+  clickable (sorting / selection).
 
-- **Piège évité.** Un calque de pile en `Style` par défaut (`Auto`) se réduit à `0×0` (aucun
-  enfant) et ne peint rien ; `FrozenShadow` reçoit donc une **taille explicite** (largeur/hauteur
-  totales) pour remplir la pile.
+- **A trap avoided.** A stack layer with a default `Style` (`Auto`) shrinks to `0×0` (no
+  children) and paints nothing; so `FrozenShadow` is given an **explicit size** (the total
+  width/height) to fill the stack.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : `frozen` devient `(usize, usize)` ; builders `frozen_columns` /
-  `frozen_columns_right` ; helper `frozen_block` ; `build_frozen` gère gauche/milieu/droite +
-  calque `FrozenShadow` (dégradé `gradient_rect`, taille explicite).
-- `goldens.rs` : `table_frozen_columns` (régénéré, ombre visible) ; `table_frozen_both_edges`.
+- `table.rs`: `frozen` becomes `(usize, usize)`; the `frozen_columns` / `frozen_columns_right`
+  builders; the `frozen_block` helper; `build_frozen` handles left/middle/right + the
+  `FrozenShadow` layer (a `gradient_rect` gradient, an explicit size).
+- `goldens.rs`: `table_frozen_columns` (regenerated, the shadow visible);
+  `table_frozen_both_edges`.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `freezing_both_edges_pins_left_and_right_columns` — gel 1 gauche + 1 droite,
-  milieu défilant (max_x > 0) ; en-tête figé **à droite** (« Act ») et **à gauche** (« Name »)
-  triables. `frozen_columns_split…` (gel gauche seul) reste vert, l'ombre ne bloquant pas les clics.
-- **Golden** : `table_frozen_both_edges` **inspecté** (Name figée, Q1/Q2 défilantes, Act figée à
-  droite, ombres aux deux bords) ; `table_frozen_columns` régénéré (ombre au bord du gel) —
-  aucune régression sur les 33 autres goldens.
-- `cargo test --workspace` **vert**.
+- **Unit**: `freezing_both_edges_pins_left_and_right_columns` — 1 frozen left + 1 right, a
+  scrolling middle (max_x > 0); a header frozen **on the right** ("Act") and **on the left**
+  ("Name"), both sortable. `frozen_columns_split…` (left freeze only) stays green, the shadow
+  not blocking clicks.
+- **Golden**: `table_frozen_both_edges` **inspected** (Name frozen, Q1/Q2 scrolling, Act frozen
+  on the right, shadows at both edges); `table_frozen_columns` regenerated (a shadow at the
+  freeze edge) — no regression on the other 33 goldens.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Épaisseur/opacité de l'ombre thématisables** : aujourd'hui `scrim` à 0.28 — pourrait
-  suivre l'élévation du thème.
-- **Gel + virtualisation** : toujours exclusif (défilements vertical virtualisé et horizontal
-  gelé à imbriquer) — jalon dédié.
+- A **themable shadow thickness/opacity**: today `scrim` at 0.28 — it could follow the theme's
+  elevation.
+- **Freezing + virtualisation**: still mutually exclusive (the virtualised vertical and frozen
+  horizontal scrolls would have to be nested) — a dedicated milestone.

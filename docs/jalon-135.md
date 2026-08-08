@@ -1,64 +1,62 @@
-# Jalon 135 — Validation de formulaire groupée (pure, côté app)
+# Jalon 135 — Grouped form validation (pure, app-side)
 
-## Analyse
+## Analysis
 
-Les jalons 132–134 ont donné au champ de quoi **afficher** une erreur (`error(...)`),
-mais rien pour la **décider**. Chaque `view` devait recalculer sa validité à la main.
-Il manquait la contrepartie logique : de quoi valider un **ensemble** de champs, savoir
-si tout passe, récupérer l'erreur de chaque champ (pour alimenter `error(...)`) et
-repérer le premier champ en échec (à focaliser).
+Milestones 132–134 gave the field what it needs to **display** an error (`error(...)`),
+but nothing to **decide** one. Every `view` had to recompute its validity by hand. The
+logical counterpart was missing: something to validate a **set** of fields, to know
+whether everything passes, to retrieve each field's error (to feed `error(...)`) and to
+spot the first failing field (to focus).
 
-Flutter place ça dans `FormState.validate()` avec un `validator` par champ. Mais son
-modèle repose sur un état mutable (`GlobalKey<FormState>`). En architecture Elm, la
-validité est une **fonction pure de l'état** : on fournit des *combinateurs* purs, pas un
-objet à muter.
+The usual answer puts that in a mutable form state reached through a global key. In the
+Elm architecture, validity is a **pure function of the state**: we provide pure
+*combinators*, not an object to mutate.
 
-## Décisions techniques
+## Technical decisions
 
-- **Deux briques pures, zéro dessin.** `Rule` (une règle `&str -> Option<String>`) et
-  `Form` (un rapport sur un ensemble de champs). Le module ne connaît ni widget ni GPU ;
-  l'application appelle `Form::error(key)` pour nourrir le `error(...)` d'un `TextInput`.
+- **Two pure bricks, zero drawing.** `Rule` (a `&str -> Option<String>` rule) and `Form`
+  (a report over a set of fields). The module knows neither widget nor GPU; the
+  application calls `Form::error(key)` to feed a `TextInput`'s `error(...)`.
 
-- **Des règles composables.** Constructeurs prêts (`required`, `min_len`, `max_len`,
-  `email`) et un combinateur `Rule::all([...])` où la **première** règle en échec gagne —
-  l'ordre porte le sens (« obligatoire » avant « format »).
+- **Composable rules.** Ready-made constructors (`required`, `min_len`, `max_len`,
+  `email`) and a `Rule::all([...])` combinator where the **first** failing rule wins —
+  the order carries meaning ("required" before "format").
 
-- **Un rapport ordonné et interrogeable.** `Form::field(key, value, rule)` valide sur le
-  champ et empile `(key, erreur?)` dans l'ordre déclaré. On interroge ensuite :
-  `is_valid()`, `error(key)`, `first_invalid()` (la clé du premier en échec — à focaliser
-  ou mettre en avant).
+- **An ordered, queryable report.** `Form::field(key, value, rule)` validates the field
+  and pushes `(key, error?)` in declaration order. You then query: `is_valid()`,
+  `error(key)`, `first_invalid()` (the key of the first failure — to focus or to
+  highlight).
 
-- **Clés `&'static str`.** Identifiants de champ stables et lisibles, sans allocation ;
-  l'application relie chaque clé à son état et à son widget.
+- **`&'static str` keys.** Stable, readable field identifiers with no allocation; the
+  application ties each key to its state and its widget.
 
-- **`email` = heuristique, pas la RFC.** `local@domaine`, partie locale non vide, domaine
-  avec au moins un point et aucune étiquette vide. Suffisant pour un champ de saisie,
-  sans le piège d'une regex RFC 5322.
+- **`email` = a heuristic, not the RFC.** `local@domain`, a non-empty local part, a domain
+  with at least one dot and no empty label. Enough for an input field, without the trap of
+  an RFC 5322 regex.
 
-## Implémentation
+## Implementation
 
-- `crates/frus-widgets/src/form.rs` : `Rule` (+ constructeurs, `all`), `is_email`, `Form`
-  (`field`/`is_valid`/`error`/`first_invalid`). Tests des règles, du combinateur, du
-  rapport, et un doctest d'usage.
-- `crates/frus-widgets/src/lib.rs` : `pub mod form;` (accès namespacé `form::{Rule, Form}`
-  — noms trop génériques pour la racine du crate).
-- `crates/frus-test/tests/goldens.rs` : golden `validated_signup_form` — un `Form` valide
-  des valeurs saisies et **pilote le `error(...)` de chaque champ**, rendu après une
-  soumission invalide (bout-en-bout jalons 132→135).
+- `crates/frus-widgets/src/form.rs`: `Rule` (+ constructors, `all`), `is_email`, `Form`
+  (`field`/`is_valid`/`error`/`first_invalid`). Tests for the rules, the combinator, the
+  report, and a usage doctest.
+- `crates/frus-widgets/src/lib.rs`: `pub mod form;` (namespaced access
+  `form::{Rule, Form}` — names too generic for the crate root).
+- `crates/frus-test/tests/goldens.rs`: the `validated_signup_form` golden — a `Form`
+  validates typed values and **drives each field's `error(...)`**, rendered after an
+  invalid submission (end-to-end for milestones 132→135).
 
-## Vérification
+## Verification
 
-- **Bout-en-bout à l'œil** : « ada » déclenche « Enter a valid email address » (non vide
-  mais pas un e-mail → `all` renvoie la 2ᵉ règle) ; le mot de passe masqué « short »
-  déclenche « At least 8 characters ». Les deux champs en rouge, labels flottés. Figé en
-  golden `validated_signup_form.png`.
-- **Unitaires + doctest** : règles (blanc, longueurs, e-mail), `all` (première erreur),
-  rapport (`is_valid`/`error`/`first_invalid`), formulaire vide valide.
-- **Suites** : `frus-widgets` + `frus-test` verts.
+- **End-to-end, looked at**: "ada" triggers "Enter a valid email address" (non-empty but
+  not an email → `all` returns the 2nd rule); the masked password "short" triggers "At
+  least 8 characters". Both fields in red, labels floated. Frozen as the
+  `validated_signup_form.png` golden.
+- **Unit + doctest**: the rules (blank, lengths, email), `all` (the first error), the
+  report (`is_valid`/`error`/`first_invalid`), an empty form is valid.
+- **Suites**: `frus-widgets` + `frus-test` green.
 
-## Reste
+## What's left
 
-- **Focaliser le premier champ invalide** : `first_invalid()` donne la clé ; commander le
-  focus depuis l'application (mapper clé → `WidgetId`) reste à câbler côté shell.
-- Règles supplémentaires au besoin (numérique, plage, correspondance de deux champs pour
-  « confirmer le mot de passe »).
+- **Focusing the first invalid field**: `first_invalid()` gives the key; commanding the
+  focus from the application (mapping key → `WidgetId`) is still to be wired shell-side.
+- Extra rules as needed (numeric, range, matching two fields for "confirm password").

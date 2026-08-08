@@ -1,45 +1,45 @@
-# Jalon 177 — Tableau virtualisé : sélection multiple
+# Jalon 177 — Virtualised table: multiple selection
 
-## Analyse
+## Analysis
 
-La virtualisation (jalons 173/176) excluait les **cases à cocher** : une grande grille
-virtualisée ne pouvait pas offrir de sélection multiple. C'est pourtant l'usage type d'un
-tableau de milliers de lignes (tout cocher, cocher une plage). Il fallait la colonne de
-cases **dans le mode virtualisé**, en gardant le « tout cocher » de l'en-tête épinglé.
+Virtualisation (milestones 173/176) excluded the **checkboxes**: a large virtualised grid could
+not offer multiple selection. Yet that is the typical use of a table of thousands of rows (check
+all, check a range). The checkbox column was needed **in virtualised mode**, keeping the "check
+all" in the pinned header.
 
-## Décisions techniques
+## Technical decisions
 
-- **Case par ligne dans la fabrique virtualisée.** Quand `checkboxes` est actif, la fabrique
-  de rangée de la `List` **préfixe** une `CheckCell` (comme les rangées matérialisées), alignée
-  sur la case « tout cocher » de l'en-tête épinglé. `on_check` passe de `Box` à `Rc` pour être
-  capturé dans la fabrique `'static`.
+- **A box per row in the virtualised factory.** When `checkboxes` is on, the `List`'s row
+  factory **prefixes** a `CheckCell` (as materialised rows do), aligned on the pinned header's
+  "check all" box. `on_check` moves from `Box` to `Rc` so it can be captured in the `'static`
+  factory.
 
-- **État « tout cocher » basé sur le compte effectif.** `all_selected` / `some_selected`
-  comptaient `self.rows` — **vide** en virtualisé, donc l'en-tête montrait « décoché » à tort.
-  Corrigé : un `row_count()` (compte **virtualisé** s'il existe) et un `selected_count()`
-  **O(sélection)** (indices valides uniques) — l'indéterminé s'affiche correctement même sur
-  des millions de lignes, sans balayer toute la plage.
+- **"Check all" state based on the effective count.** `all_selected` / `some_selected` counted
+  `self.rows` — **empty** when virtualised, so the header wrongly showed "unchecked". Fixed: a
+  `row_count()` (the **virtualised** count when there is one) and an **O(selection)**
+  `selected_count()` (unique valid indices) — the indeterminate state shows correctly even over
+  millions of rows, without sweeping the whole range.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : `on_check` en `Rc` ; `CheckCell` préfixée dans la fabrique virtualisée ;
-  helpers `row_count` / `selected_count` ; `all_selected` / `some_selected` réécrits ; docs des
-  builders virtualisés mises à jour (cases à cocher désormais prises en charge).
-- `goldens.rs` : `table_virtual_checkboxes` (colonne de cases + « tout cocher » indéterminé).
+- `table.rs`: `on_check` as an `Rc`; a `CheckCell` prefixed in the virtualised factory; the
+  `row_count` / `selected_count` helpers; `all_selected` / `some_selected` rewritten; the
+  virtualised builders' docs updated (checkboxes now supported).
+- `goldens.rs`: `table_virtual_checkboxes` (a checkbox column + an indeterminate "check all").
 
-## Vérification
+## Verification
 
-- **Unitaire** : `virtual_table_supports_checkboxes` — « tout cocher » dans l'en-tête épinglé
-  émet `CheckAll` ; la case d'une ligne visible émet `Check(i)`. `select_all_is_indeterminate…`
-  (matériel) reste vert (comportement inchangé).
-- **Golden** `table_virtual_checkboxes` **inspecté** : cases par ligne, deux lignes cochées,
-  « tout cocher » en **indéterminé** (dash) — aucune régression sur les 32 autres goldens.
-- `cargo test --workspace` **vert**.
+- **Unit**: `virtual_table_supports_checkboxes` — "check all" in the pinned header emits
+  `CheckAll`; a visible row's box emits `Check(i)`. `select_all_is_indeterminate…`
+  (materialised) stays green (behaviour unchanged).
+- **Golden** `table_virtual_checkboxes` **inspected**: a box per row, two rows checked, "check
+  all" **indeterminate** (a dash) — no regression on the other 32 goldens.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Hauteur de ligne variable en virtualisé** : la `List` reste à hauteur fixe (`ROW_H`) —
-  la hauteur adaptative (jalon 166) ne s'y applique pas ; une `List` à hauteurs par index
-  (sommes préfixes) serait un jalon dédié.
-- **Colonnes gelées / défilement horizontal** : nécessite un viewport horizontal et une
-  colonne épinglée — restructuration de mise en page, jalon dédié.
+- **Variable row height when virtualised**: the `List` stays fixed-height (`ROW_H`) — the
+  adaptive height (milestone 166) does not apply there; a `List` with per-index heights (prefix
+  sums) would be a dedicated milestone.
+- **Frozen columns / horizontal scrolling**: requires a horizontal viewport and a pinned column
+  — a layout restructuring, a dedicated milestone.

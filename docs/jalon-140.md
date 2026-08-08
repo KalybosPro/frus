@@ -1,52 +1,52 @@
-# Jalon 140 — Barre de défilement du champ multi-lignes (+ tactile)
+# Jalon 140 — Multi-line field scrollbar (+ touch)
 
-## Analyse
+## Analysis
 
-Le jalon 139 a rendu le champ multi-lignes défilable à la **molette**, mais sans
-affordance visible ni moyen tactile : au doigt, un appui démarre une **sélection** de
-texte, pas un défilement. La pièce manquante est une **barre de défilement** — qui, dans
-frus, est déjà glissable à la souris **et au tactile** (le geste `Drag::Scrollbar` est
-agnostique de la source). Une barre couvre donc les deux besoins d'un coup.
+Milestone 139 made the multi-line field scrollable with the **wheel**, but with no visible
+affordance and no touch route: with a finger, a press starts a text **selection**, not a
+scroll. The missing piece is a **scrollbar** — which, in frus, is already draggable by
+mouse **and** by touch (the `Drag::Scrollbar` gesture is source-agnostic). One bar
+therefore covers both needs at once.
 
-## Décisions techniques
+## Technical decisions
 
-- **Réutiliser la barre générique.** Là où le champ s'enregistrait comme région
-  scrollable (jalon 139), il appelle maintenant aussi `add_scrollbar(id, viewport, …)` —
-  exactement comme un `Scroll` ou une liste virtuelle. La barre est dessinée, sa poignée
-  enregistrée (`scrollbar_at`), et le shell la fait glisser via `Drag::Scrollbar` au clic
-  **comme au doigt** (le `pointer_down` teste `scrollbar_at` pour toute source).
+- **Reuse the generic bar.** Where the field registered itself as a scrollable region
+  (milestone 139), it now also calls `add_scrollbar(id, viewport, …)` — exactly like a
+  `Scroll` or a virtual list. The bar is drawn, its thumb registered (`scrollbar_at`), and
+  the shell drags it through `Drag::Scrollbar` on click **as with a finger** (`pointer_down`
+  tests `scrollbar_at` for every source).
 
-- **La barre épouse la boîte, pas le widget.** La région scrollable et la barre doivent
-  courir le long de la **boîte de saisie**, pas du widget entier (qui inclut le label
-  flottant au-dessus). Une méthode `Widget::text_viewport(rect)` rend ce cadre (sous le
-  label, de la hauteur des `rows`) ; l'enregistrement scrollable et la barre l'emploient,
-  si bien que la poignée s'aligne pile sur le texte défilable.
+- **The bar hugs the box, not the widget.** The scrollable region and the bar must run
+  along the **input box**, not the whole widget (which includes the floating label above). A
+  `Widget::text_viewport(rect)` method yields that frame (below the label, `rows` high); the
+  scrollable registration and the bar both use it, so the thumb lines up exactly with the
+  scrollable text.
 
-- **Rien de neuf côté interaction.** Molette, inertie, dépassement élastique, glissement
-  de poignée : tout vient de la machinerie de défilement existante. Le champ ne fait que
-  **s'y déclarer** (région + barre) via `text_metrics` (dépassement) et `text_viewport`
-  (cadre).
+- **Nothing new on the interaction side.** Wheel, inertia, elastic overscroll, thumb
+  dragging: it all comes from the existing scrolling machinery. The field merely **declares
+  itself** into it (region + bar) through `text_metrics` (overflow) and `text_viewport`
+  (frame).
 
-## Implémentation
+## Implementation
 
-- `widget.rs` (+ relais `Box`/`Keyed`/`Responsive`) : méthode `text_viewport`.
-- `textinput.rs` : impl `text_viewport` (boîte sous le label, hauteur `field_height`).
-- `ui.rs` : le walk enregistre la région **et** ajoute la barre sur ce cadre, avec
-  l'offset retenu courant.
+- `widget.rs` (+ the `Box`/`Keyed`/`Responsive` forwarders): the `text_viewport` method.
+- `textinput.rs`: the `text_viewport` impl (the box below the label, `field_height` tall).
+- `ui.rs`: the walk registers the region **and** adds the bar over that frame, with the
+  current retained offset.
 
-## Vérification
+## Verification
 
-- **Rendu à l'œil** : la barre longe le bord droit de la boîte (sous le label « Notes »),
-  la poignée reflétant le défilement — golden `multiline_scrolled` régénéré.
-- **Non-régression** : suite `frus-widgets` + `frus-test` verte ; le champ court reste
-  sans barre (pas de dépassement).
-- La poignée réutilise le glissement `Drag::Scrollbar` déjà couvert par les tests de
-  défilement (souris et tactile passent par le même `pointer_down`).
+- **Rendered and looked at**: the bar runs along the right edge of the box (below the
+  "Notes" label), the thumb reflecting the scroll — the `multiline_scrolled` golden
+  regenerated.
+- **No regression**: the `frus-widgets` + `frus-test` suite green; a short field still has
+  no bar (no overflow).
+- The thumb reuses the `Drag::Scrollbar` drag already covered by the scrolling tests (mouse
+  and touch go through the same `pointer_down`).
 
-## Reste
+## What's left
 
-- **Défilement au doigt directement sur le texte** (fling) : entre toujours en conflit
-  avec la sélection ; laissé tel quel (la barre est l'affordance tactile).
-- **Auto-masquage** de la barre (n'apparaître qu'au survol/défilement), façon overlay
-  Material.
-- **Flèches ↑/↓** déplaçant le caret entre lignes (jalon suivant).
+- **Finger scrolling directly on the text** (a fling): still conflicts with selection; left
+  as is (the bar is the touch affordance).
+- **Auto-hiding** the bar (appearing only on hover/scroll), overlay style.
+- **↑/↓ arrows** moving the caret between lines (the next milestone).

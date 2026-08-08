@@ -1,52 +1,50 @@
-# Jalon 173 — Tableau : lignes virtualisées
+# Jalon 173 — Table: virtualised rows
 
-## Analyse
+## Analysis
 
-Le tableau construisait **toutes** ses lignes à chaque reconstruction (une `Flex` de
-rangées). Pour un journal ou un export de milliers de lignes, c'est un coût par frame
-proportionnel au **total** — inacceptable. Le framework possède déjà une primitive de
-virtualisation (`List` : hauteur d'élément fixe, défilement vertical, éléments construits à
-la demande). Il fallait l'**appliquer au tableau**, en gardant l'en-tête épinglé.
+The table built **all** its rows at each rebuild (a `Flex` of rows). For a log or an export of
+thousands of rows, that is a per-frame cost proportional to the **total** — unacceptable. The
+framework already has a virtualisation primitive (`List`: a fixed item height, vertical
+scrolling, items built on demand). It had to be **applied to the table**, keeping the header
+pinned.
 
-## Décisions techniques
+## Technical decisions
 
-- **En-tête épinglé + `List` de rangées.** En mode virtualisé, la racine devient une `Flex`
-  colonne `[en-tête, List(count, ROW_H, build_row)]` : l'en-tête reste fixe, la `List`
-  virtualise les données (coût par frame ∝ lignes **visibles**). Aucune nouvelle machinerie
-  de défilement — on réutilise `List`.
+- **A pinned header + a `List` of rows.** In virtualised mode, the root becomes a `Flex` column
+  `[header, List(count, ROW_H, build_row)]`: the header stays fixed, the `List` virtualises the
+  data (a per-frame cost ∝ the **visible** rows). No new scrolling machinery — we reuse `List`.
 
-- **Fabrique de rangée capturée, `'static`.** La closure de la `List` ne peut pas emprunter
-  `self` (elle lui survit). On **capture des clones** des paramètres nécessaires (colonnes,
-  largeurs, largeur totale, ensemble sélectionné, `on_select` — passé en `Rc`) et la fabrique
-  de contenu de l'app (`index -> Vec<String>`). Elle bâtit une rangée de `Cell` alignée sur
-  les mêmes colonnes que l'en-tête.
+- **A captured, `'static` row factory.** The `List`'s closure cannot borrow `self` (it outlives
+  it). We **capture clones** of the parameters needed (columns, widths, total width, the selected
+  set, `on_select` — passed as an `Rc`) plus the app's content factory
+  (`index -> Vec<String>`). It builds a row of `Cell`s aligned on the same columns as the
+  header.
 
-- **Périmètre v1 assumé : texte.** `virtual_rows(count, viewport_height, build)` fournit des
-  **textes** par ligne. La **sélection** (clic) marche sur les lignes visibles. Cases à
-  cocher / redimensionnement / réordonnancement / cellules-widgets ne se combinent pas à la
-  virtualisation (le hors-écran n'a pas d'état retenu) — ignorés en mode virtualisé, documenté.
+- **An accepted v1 scope: text.** `virtual_rows(count, viewport_height, build)` supplies
+  **strings** per row. **Selection** (click) works on the visible rows. Checkboxes / resizing /
+  reordering / widget cells do not combine with virtualisation (off-screen rows have no retained
+  state) — ignored in virtualised mode, documented.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : `on_select` passe de `Box` à `Rc` (partage dans la closure) ; champ
-  `virtual_data` + builder `virtual_rows` ; branche virtualisée dans `rebuild` (en-tête +
-  `List`) ; helper libre `col_dimension` partagé par la voie directe et virtualisée.
-- `goldens.rs` : `table_virtualized` (1000 lignes, en-tête épinglé + fenêtre visible).
+- `table.rs`: `on_select` moves from `Box` to `Rc` (shared into the closure); the
+  `virtual_data` field + the `virtual_rows` builder; the virtualised branch in `rebuild` (header
+  + `List`); the free `col_dimension` helper shared by the direct and virtualised paths.
+- `goldens.rs`: `table_virtualized` (1000 rows, a pinned header + the visible window).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `virtual_table_builds_only_visible_rows` — sur 5000 lignes, **< 20**
-  construites (la fenêtre visible, pas 5000) ; en-tête « Name » épinglé + « R0 » peints ;
-  borne de défilement = `5000 × ROW_H − viewport` ; une ligne visible reste **cliquable**.
-- **Golden** `table_virtualized` **inspecté** : en-tête épinglé, lignes 1..4 visibles,
-  ascenseur fin (beaucoup de contenu) — aucune régression.
-- `cargo test --workspace` **vert**.
+- **Unit**: `virtual_table_builds_only_visible_rows` — out of 5000 rows, **< 20** built (the
+  visible window, not 5000); the pinned "Name" header + "R0" painted; the scroll bound =
+  `5000 × ROW_H − viewport`; a visible row stays **clickable**.
+- **Golden** `table_virtualized` **inspected**: a pinned header, rows 1..4 visible, a thin
+  scrollbar (a lot of content) — no regression.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Rangées-widgets virtualisées** : v1 est texte ; une variante `virtual_widget_rows`
-  (fabrique `index -> Vec<widget>`) suivrait le même schéma.
-- **Hauteur de ligne variable** : `List` v1 est à hauteur fixe (`ROW_H`) — la hauteur
-  adaptative (jalon 166) ne s'applique pas en virtualisé.
-- **Épingler l'en-tête pendant le défilement horizontal** et colonnes gelées : extensions
-  possibles.
+- **Virtualised widget rows**: v1 is text; a `virtual_widget_rows` variant (an
+  `index -> Vec<widget>` factory) would follow the same pattern.
+- **Variable row height**: `List` v1 is fixed-height (`ROW_H`) — the adaptive height (milestone
+  166) does not apply when virtualised.
+- **Pinning the header during horizontal scrolling** and frozen columns: possible extensions.

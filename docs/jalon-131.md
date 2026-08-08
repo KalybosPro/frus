@@ -1,61 +1,63 @@
-# Jalon 131 — Amincir le `.wasm`
+# Jalon 131 — Slimming down the `.wasm`
 
-## Analyse
+## Analysis
 
-Le bundle Web du jalon 129 pesait ~7,9 Mo de `.wasm` **brut** en `--release` par défaut
-— soit, une fois passé par `wasm-bindgen` et servi en gzip, **~2,86 Mo téléchargés**.
-C'est le premier octet que voit un visiteur : la taille de transfert est la métrique qui
-compte (pas le brut sur disque). Le profil release par défaut optimise la **vitesse**
-(`opt-level = 3`), pas la taille, et conserve les tables de déroulement des panics —
-inutiles pour une cible où l'on veut d'abord un petit téléchargement.
+The Web bundle from milestone 129 weighed ~7.9 MB of **raw** `.wasm` under the default
+`--release` — which, once run through `wasm-bindgen` and served gzipped, is **~2.86 MB
+downloaded**. That is the first byte a visitor sees: transfer size is the metric that
+counts (not the raw size on disk). The default release profile optimises for **speed**
+(`opt-level = 3`), not size, and keeps the panic unwinding tables — useless for a target
+where a small download comes first.
 
-Objectif : réduire le `.wasm` **téléchargé** sans dégrader le rendu ni toucher au
-release **natif** (qui, lui, doit rester réglé pour la vitesse).
+The goal: cut the **downloaded** `.wasm` without degrading rendering or touching the
+**native** release (which must stay tuned for speed).
 
-## Décisions techniques
+## Technical decisions
 
-- **Un profil `web-release` dédié.** Cargo ne permet pas de régler un profil *par cible*,
-  mais permet des **profils nommés**. On ajoute `[profile.web-release]` (héritant de
-  `release`), activé explicitement par `--profile web-release`. Le release natif n'est
-  jamais affecté.
-  - `opt-level = "z"` — priorité à la **taille** du code (vs `3` = vitesse).
-  - `lto = true` — inlining inter-crates + élagage agressif du code mort.
-  - `codegen-units = 1` — une seule unité de génération : meilleure optimisation.
-  - `panic = "abort"` — supprime les **tables de déroulement** des panics (unwinding),
-    du poids mort sur le Web (un panic y va de toute façon dans la console).
-  - `strip = true` — retire symboles et debuginfo.
+- **A dedicated `web-release` profile.** Cargo cannot tune a profile *per target*, but it
+  does allow **named profiles**. We add `[profile.web-release]` (inheriting from
+  `release`), enabled explicitly with `--profile web-release`. The native release is never
+  affected.
+  - `opt-level = "z"` — code **size** first (vs `3` = speed).
+  - `lto = true` — cross-crate inlining + aggressive dead-code pruning.
+  - `codegen-units = 1` — a single codegen unit: better optimisation.
+  - `panic = "abort"` — removes the panic **unwinding tables**, dead weight on the Web (a
+    panic there goes to the console anyway).
+  - `strip = true` — drops symbols and debuginfo.
 
-- **`wasm-opt` : mesuré, pas supposé.** La passe `wasm-opt -Oz` (binaryen) rétrécit le
-  `.wasm` **brut**, mais avec le binaryen ancien disponible ici (v108) elle **gonfle
-  légèrement le gzip** (réordonnancement qui compresse moins bien). Comme c'est la taille
-  gzip qui est téléchargée, on ne l'inscrit pas en dur dans le flux de build : le README
-  la documente comme passe **optionnelle**, à n'adopter qu'avec un binaryen récent et
-  après avoir mesuré le gzip.
+- **`wasm-opt`: measured, not assumed.** The `wasm-opt -Oz` pass (binaryen) shrinks the
+  **raw** `.wasm`, but with the old binaryen available here (v108) it **slightly inflates
+  the gzip** (a reordering that compresses less well). Since gzip size is what gets
+  downloaded, we do not hard-wire it into the build flow: the README documents it as an
+  **optional** pass, to be adopted only with a recent binaryen and after measuring the
+  gzip.
 
-## Implémentation
+## Implementation
 
-- `Cargo.toml` (workspace) : profil `[profile.web-release]` (`inherits = "release"`).
-- `crates/frus-hello/web/README.md` : build via `--profile web-release` (et chemin
-  `target/wasm32-unknown-unknown/web-release/…`), tableau des tailles, mise en garde
-  `wasm-opt`, rappel de servir le `.wasm` compressé.
+- `Cargo.toml` (workspace): the `[profile.web-release]` profile
+  (`inherits = "release"`).
+- `crates/frus-hello/web/README.md`: building through `--profile web-release` (and the
+  `target/wasm32-unknown-unknown/web-release/…` path), a size table, the `wasm-opt`
+  caveat, a reminder to serve the `.wasm` compressed.
 
-## Vérification
+## Verification
 
-Mesures via `wasm-bindgen --target web` puis `gzip -9` (taille réellement téléchargée) :
+Measured through `wasm-bindgen --target web` then `gzip -9` (the size actually
+downloaded):
 
-| build                     | après `wasm-bindgen` | gzip (transfert) |
-| ------------------------- | -------------------: | ---------------: |
-| `--release` (défaut)      |          6 662 015 o |      2 864 956 o |
-| `--profile web-release`   |          5 644 007 o |  **2 556 282 o** |
+| build                     | after `wasm-bindgen` | gzip (transfer) |
+| ------------------------- | -------------------: | --------------: |
+| `--release` (default)     |          6,662,015 B |     2,864,956 B |
+| `--profile web-release`   |          5,644,007 B | **2,556,282 B** |
 
-- **Transfert : −308 674 o ≈ −10,8 %** ; brut post-bindgen : −15,3 %.
-- **Natif intact** : le profil est additif ; `cargo test --workspace` reste vert, le
-  release natif garde `opt-level = 3`.
+- **Transfer: −308,674 B ≈ −10.8%**; raw post-bindgen: −15.3%.
+- **Native intact**: the profile is additive; `cargo test --workspace` stays green, the
+  native release keeps `opt-level = 3`.
 
-## Reste
+## What's left
 
-- L'essentiel du poids restant est **`wgpu` + `naga`** (le pilote WebGPU) — incompressible
-  sans perdre le rendu.
-- Leviers plus lourds, non retenus ici : `-Z build-std` + `panic_immediate_abort`
-  (recompile la `std` optimisée taille, mais exige nightly) ; `wasm-opt -Oz` avec un
-  binaryen récent (gain supplémentaire à vérifier au gzip).
+- Most of the remaining weight is **`wgpu` + `naga`** (the WebGPU driver) —
+  incompressible without losing the rendering.
+- Heavier levers, not taken here: `-Z build-std` + `panic_immediate_abort` (recompiles
+  `std` optimised for size, but requires nightly); `wasm-opt -Oz` with a recent binaryen
+  (an extra gain to be checked at the gzip level).

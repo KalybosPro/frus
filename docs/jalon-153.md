@@ -1,62 +1,60 @@
-# Jalon 153 — Tableau : réordonnancement des colonnes (glisser un en-tête)
+# Jalon 153 — Table: column reordering (dragging a header)
 
-## Analyse
+## Analysis
 
-Après le redimensionnement (jalon 151), il manquait au tableau le **réordonnancement**
-des colonnes — déplacer une colonne en glissant son en-tête, geste attendu de toute
-grille de données.
+After resizing (milestone 151), the table was still missing column **reordering** — moving
+a column by dragging its header, a gesture expected of any data grid.
 
-Le nœud du problème : un en-tête doit rester **triable au clic** *et* devenir
-**réordonnable au glissé**. Or, contrairement aux poignées de redimensionnement (widget
-séparé), c'est le **même** widget qui doit distinguer les deux gestes. Le shell savait
-déjà le faire pour le pan / défilement tactile (seuil `TOUCH_SLOP`, drapeau `moved`,
-`was_tap`) mais pas pour un glissement de widget.
+The crux: a header must stay **sortable on click** *and* become **reorderable on drag**.
+Unlike the resize handles (a separate widget), it is the **same** widget that has to tell
+the two gestures apart. The shell already knew how to do that for pan / touch scrolling (the
+`TOUCH_SLOP` threshold, the `moved` flag, `was_tap`) but not for a widget drag.
 
-## Décisions techniques
+## Technical decisions
 
-- **Tap-vs-drag par seuil, réutilisé.** Nouveau `Drag::Reorder { from, start, moved }` :
-  l'appui sur un en-tête réordonnable l'arme **sans** engager le glissement ; en deçà du
-  seuil `TOUCH_SLOP`, le relâchement reste un **tri** (`was_tap`) ; au-delà, c'est un
-  **réordonnancement** et le clic est supprimé (comme tout glissement). Aucune logique
-  neuve : on calque exactement le modèle `moved` du pan.
+- **Tap-vs-drag by threshold, reused.** A new `Drag::Reorder { from, start, moved }`:
+  pressing on a reorderable header **arms** it without engaging the drag; below the
+  `TOUCH_SLOP` threshold, releasing is still a **sort** (`was_tap`); beyond it, it is a
+  **reorder** and the click is suppressed (as with any drag). No new logic: we mirror the
+  pan's `moved` model exactly.
 
-- **Colonne cible = table de hit-test, pas de nouveau registre.** Deux méthodes de trait :
-  `reorder_index()` (cet en-tête est réordonnable → sa colonne) et `on_reorder(to)`
-  (l'en-tête **source** connaît son index et le rappel). Au dépôt, le shell résout la
-  colonne **cible** en relisant `reorder_index()` de l'en-tête sous le curseur — via la
-  table de hit-test **existante** (les en-têtes triables sont déjà cliquables). Zéro
-  nouvelle collecte à la construction de l'UI.
+- **The target column = the hit-test table, no new registry.** Two trait methods:
+  `reorder_index()` (this header is reorderable → its column) and `on_reorder(to)` (the
+  **source** header knows its index and the callback). On drop, the shell resolves the
+  **target** column by re-reading `reorder_index()` from the header under the cursor —
+  through the **existing** hit-test table (sortable headers are already clickable). Zero new
+  collection when building the UI.
 
-- **Contrôlé.** `on_reorder(from, to)` : l'application permute l'ordre de ses colonnes et
-  reconstruit. Le tableau ne stocke aucun ordre « vivant ».
+- **Controlled.** `on_reorder(from, to)`: the application permutes its column order and
+  rebuilds. The table stores no "live" order.
 
-- **Pas de rendu fantôme (MVP).** La colonne dépose « sec » ; l'aperçu glissant
-  (proxy semi-transparent, décalage des voisines) est laissé au reste — le geste et le
-  routage sont en place.
+- **No ghost rendering (MVP).** The column drops "dry"; the sliding preview (a
+  semi-transparent proxy, neighbours shifting) is left to what's next — the gesture and the
+  routing are in place.
 
-## Implémentation
+## Implementation
 
-- `widget.rs` : `reorder_index` / `on_reorder` (défaut `None`) + relais `Box` ;
-  `keyed.rs`, `responsive.rs` : relais.
-- `app.rs` (shell) : `Drag::Reorder` ; `reorderable_at` (hit-test → en-tête → colonne) ;
-  armement à l'appui (sans `return`, pour garder le tap = tri) ; suivi `moved` au seuil ;
-  au relâchement, colonne cible sous le curseur → `on_reorder(from, to)` routé, sauf
+- `widget.rs`: `reorder_index` / `on_reorder` (default `None`) + the `Box` forwarder;
+  `keyed.rs`, `responsive.rs`: forwarders.
+- `app.rs` (shell): `Drag::Reorder`; `reorderable_at` (hit-test → header → column); arming on
+  press (without a `return`, to keep tap = sort); `moved` tracking at the threshold; on
+  release, the target column under the cursor → `on_reorder(from, to)` routed, unless
   `to == from`.
-- `table.rs` : `Cell` gagne `reorder: Option<(usize, Rc<…>)>` + `reorder_index`/`on_reorder`
-  (en-têtes seulement) ; champ `on_reorder` (`Rc`) + `.on_reorder()`.
+- `table.rs`: `Cell` gains `reorder: Option<(usize, Rc<…>)>` + `reorder_index`/`on_reorder`
+  (headers only); the `on_reorder` field (`Rc`) + `.on_reorder()`.
 
-## Vérification
+## Verification
 
-- **Unitaire** : chaque en-tête expose sa colonne (`reorder_index` = 0, 2…) et produit
-  `Reorder(from, to)` ; le **clic trie toujours** (`on_click` = `Sort`) ; les cellules de
-  **données** ne sont pas réordonnables. Tri / sélection / redimensionnement inchangés.
-- **Non couvert par test unitaire** : le geste bout-en-bout (appui → seuil → dépôt) vit
-  dans le shell, sans harnais d'événements pointeur (fenêtre réelle requise) ; il réplique
-  fidèlement le modèle `moved` / `was_tap` du pan, déjà éprouvé.
-- `cargo test --workspace` **vert**.
+- **Unit**: each header exposes its column (`reorder_index` = 0, 2…) and produces
+  `Reorder(from, to)`; **clicking still sorts** (`on_click` = `Sort`); **data** cells are not
+  reorderable. Sorting / selection / resizing unchanged.
+- **Not covered by a unit test**: the end-to-end gesture (press → threshold → drop) lives in
+  the shell, with no pointer-event harness (a real window would be required); it faithfully
+  replicates the pan's already-proven `moved` / `was_tap` model.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Aperçu glissant** : proxy semi-transparent de l'en-tête saisi + décalage animé des
-  colonnes voisines + surbrillance de la zone de dépôt (façon `ReorderableListView`).
-- **Réordonnancement au clavier** (Ctrl+Flèches sur un en-tête focalisé).
+- A **sliding preview**: a semi-transparent proxy of the grabbed header + an animated shift
+  of the neighbouring columns + a highlighted drop zone.
+- **Keyboard reordering** (Ctrl+Arrows on a focused header).

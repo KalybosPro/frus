@@ -1,73 +1,72 @@
-# Jalon 136 — Focus programmatique (rendre `first_invalid` actionnable)
+# Jalon 136 — Programmatic focus (making `first_invalid` actionable)
 
-## Analyse
+## Analysis
 
-Le jalon 135 sait dire **quel** champ est en échec (`Form::first_invalid`), mais
-l'application ne pouvait pas **y sauter** : le focus vit dans le `Runtime` du shell, hors
-d'atteinte de l'app. Il manquait un canal app → shell pour **demander le focus** d'un
-champ — l'équivalent du `FocusNode` de Flutter ou du `text_input::focus(id)` d'Iced, mais
-dans l'esprit Elm (une commande, pas un objet mutable).
+Milestone 135 can say **which** field fails (`Form::first_invalid`), but the application
+could not **jump to it**: focus lives in the shell's `Runtime`, out of the app's reach. An
+app → shell channel to **request the focus** of a field was missing — the equivalent of a
+focus node or a `text_input::focus(id)`, but in the Elm spirit (a command, not a mutable
+object).
 
-## Décisions techniques
+## Technical decisions
 
-- **Focaliser par clé, pas par identité positionnelle.** Un `WidgetId` frus est
-  positionnel (chemin dans l'arbre) — l'app ne peut pas le calculer. Mais un widget
-  enveloppé par `keyed(k, …)` a une **identité stable dérivée de sa clé**
-  (`parent.keyed(hash(k))`). L'app référence donc un champ par la **même clé** qu'elle lui
-  a donnée : `keyed("email", TextInput…)` puis `Command::focus("email")`. Zéro nouvelle
-  API de widget — on réutilise le mécanisme de clé existant.
+- **Focus by key, not by positional identity.** A frus `WidgetId` is positional (a path
+  through the tree) — the app cannot compute one. But a widget wrapped by `keyed(k, …)`
+  has a **stable identity derived from its key** (`parent.keyed(hash(k))`). So the app
+  references a field by the **same key** it gave it: `keyed("email", TextInput…)` then
+  `Command::focus("email")`. Zero new widget API — we reuse the existing key mechanism.
 
-- **`Command::focus(key)`, résolu après le build.** `Command` porte désormais, en plus de
-  ses tâches, des **demandes de focus** (clés hachées comme `keyed`). Le shell les met en
-  attente puis les résout contre l'arbre **fraîchement reconstruit** de la frame suivante
-  (l'état a changé → la vue est rebâtie de toute façon), via `find_by_key` — qui rend
-  l'identité du premier widget portant cette clé. La plus récente demande qui se résout
-  l'emporte, et l'anneau de focus redevient visible (on « saute » au champ).
+- **`Command::focus(key)`, resolved after the build.** `Command` now carries, alongside
+  its tasks, **focus requests** (keys hashed as `keyed` does). The shell queues them and
+  resolves them against the **freshly rebuilt** tree of the next frame (the state changed
+  → the view is rebuilt anyway), through `find_by_key` — which yields the identity of the
+  first widget carrying that key. The most recent request that resolves wins, and the focus
+  ring becomes visible again (you "jump" to the field).
 
-- **La résolution vise l'identité de focus réelle.** `find_by_key` calcule l'identité par
-  le **même** `child_id` que le rendu, la collecte et le hit-test. Poser
-  `runtime.input.focused` sur ce résultat route donc l'édition et le curseur exactement
-  comme un clic (un test le vérifie : `find_by_key == focus_hit`).
+- **Resolution targets the real focus identity.** `find_by_key` computes the identity
+  through the **same** `child_id` as rendering, collection and hit-testing. Setting
+  `runtime.input.focused` to that result therefore routes editing and the caret exactly
+  like a click (a test checks it: `find_by_key == focus_hit`).
 
-- **`run_command` unifié.** Les deux versions (natif thread / Web `spawn_local`)
-  fusionnent en une seule (`&mut self`) qui, en plus de lancer les tâches, empile les
-  demandes de focus — un seul chemin, un `cfg` sur la seule ligne de lancement.
+- **`run_command` unified.** The two versions (native thread / Web `spawn_local`) merge
+  into one (`&mut self`) which, besides launching the tasks, queues the focus requests —
+  one path, a `cfg` on the single launch line.
 
-## Implémentation
+## Implementation
 
-- `frus-shell/src/command.rs` : `Command` gagne `focus: Vec<u64>` ; constructeur
-  `focus(key)` (hash `DefaultHasher`, identique à `keyed`) ; `batch` fusionne ; `is_empty`
-  compte le focus ; `into_parts()` remplace `into_tasks()`. Test du portage de clé.
-- `frus-widgets/src/ui.rs` : `find_by_key(root, key) -> Option<WidgetId>` (exporté). Test :
-  résolution distincte par clé, égale à l'identité de focus (`focus_hit`), `None` si
-  inconnue.
-- `frus-shell/src/app.rs` : champ `pending_focus` ; `run_command` unifié empile le focus ;
-  après le build, résolution contre l'arbre frais → `runtime.input.focused`.
+- `frus-shell/src/command.rs`: `Command` gains `focus: Vec<u64>`; the `focus(key)`
+  constructor (a `DefaultHasher` hash, identical to `keyed`); `batch` merges; `is_empty`
+  counts the focus; `into_parts()` replaces `into_tasks()`. A test for the key carrying.
+- `frus-widgets/src/ui.rs`: `find_by_key(root, key) -> Option<WidgetId>` (exported). Tests:
+  distinct resolution per key, equal to the focus identity (`focus_hit`), `None` for an
+  unknown key.
+- `frus-shell/src/app.rs`: a `pending_focus` field; the unified `run_command` queues the
+  focus; after the build, resolution against the fresh tree → `runtime.input.focused`.
 
 ## Usage
 
 ```rust
-// view : nommer les champs.
+// view: name the fields.
 keyed("email", TextInput::new(&self.email).label("Email") /* .error(...) */)
 
-// update : à la soumission, sauter au premier champ invalide.
+// update: on submission, jump to the first invalid field.
 let report = Form::new().field("email", &self.email, Rule::email("…")) /* … */;
 if let Some(key) = report.first_invalid() {
     return Command::focus(key);
 }
 ```
 
-## Vérification
+## Verification
 
-- **Unitaires** : `Command::focus` porte la bonne clé sans tâche ; `find_by_key` résout
-  chaque clé vers une identité distincte, **égale à celle du hit-test de focus**, et rend
-  `None` pour une clé inconnue.
-- **Multi-cible** : compile natif **et** `wasm32` (le `run_command` unifié) ; suites
-  `frus-widgets` + `frus-shell` vertes.
+- **Unit**: `Command::focus` carries the right key with no task; `find_by_key` resolves
+  each key to a distinct identity, **equal to the one from the focus hit-test**, and
+  yields `None` for an unknown key.
+- **Multi-target**: compiles natively **and** for `wasm32` (the unified `run_command`);
+  the `frus-widgets` + `frus-shell` suites green.
 
-## Reste
+## What's left
 
-- L'exemple complet (form app qui saute au premier champ) reste un **applicatif** à
-  écrire ; le mécanisme, lui, est en place et testé.
-- **Défilement vers le champ focalisé** (si hors écran) : à ajouter le jour où l'on aura de
-  longs formulaires défilants.
+- The full example (a form app that jumps to the first invalid field) is still an
+  **application** to write; the mechanism itself is in place and tested.
+- **Scrolling to the focused field** (if off-screen): to be added the day we have long
+  scrolling forms.

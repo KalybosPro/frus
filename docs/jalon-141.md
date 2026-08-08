@@ -1,54 +1,53 @@
-# Jalon 141 — Flèches Haut/Bas dans le champ multi-lignes
+# Jalon 141 — Up/Down arrows in the multi-line field
 
-## Analyse
+## Analysis
 
-Dans un champ multi-lignes, Haut/Bas devaient déplacer le caret d'une ligne à l'autre.
-Or le shell traitait ces touches comme une **navigation géométrique du focus** — même
-depuis un champ texte —, si bien qu'on quittait le champ au lieu d'y monter/descendre.
+In a multi-line field, Up/Down should move the caret from one line to another. But the
+shell treated those keys as **geometric focus navigation** — even from a text field — so
+you left the field instead of moving up or down inside it.
 
-## Décisions techniques
+## Technical decisions
 
-- **Le champ décide, le shell arbitre.** Une méthode `Widget::caret_vertical(width,
-  cursor, down)` rend le **nouvel index** si le caret peut changer de ligne **dans** le
-  champ (même colonne visuelle), ou `None` s'il est déjà à la première (Haut) ou dernière
-  (Bas) ligne — ou si ce n'est pas un champ multi-lignes. Le shell essaie d'abord ce
-  déplacement ; sur `None`, il retombe sur la **navigation du focus** (on quitte le
-  champ). Un même code gère donc « bouger dans le champ », « sortir par le haut/bas » et
-  « champ mono-ligne » (toujours `None` → navigation).
+- **The field decides, the shell arbitrates.** A
+  `Widget::caret_vertical(width, cursor, down)` method yields the **new index** if the caret
+  can change line **within** the field (same visual column), or `None` if it is already on
+  the first (Up) or last (Down) line — or if this is not a multi-line field. The shell tries
+  that move first; on `None`, it falls back to **focus navigation** (you leave the field).
+  One piece of code therefore handles "move inside the field", "leave through the
+  top/bottom" and "single-line field" (always `None` → navigation).
 
-- **Même colonne, via la layout 2D.** Le champ shape sa layout repliée, prend le caret
-  courant `(x, y)`, vise le milieu de la ligne voisine à **la même `x`**, et `hit_test`
-  y trouve l'index. La colonne visuelle est ainsi préservée à la montée/descente.
+- **The same column, through the 2D layout.** The field shapes its wrapped layout, takes the
+  current caret `(x, y)`, aims at the middle of the neighbouring line at the same `x`, and
+  `hit_test` finds the index there. The visual column is thus preserved when moving up or
+  down.
 
-- **Sélection au Shift.** Comme pour Gauche/Droite, `Shift`+Haut/Bas **étend** la
-  sélection (ancre posée au départ) ; sans Shift, simple déplacement (ancre effacée).
-  Le déplacement **révèle le caret** (jalon 139), donc la ligne visée défile au besoin.
+- **Selection with Shift.** As with Left/Right, `Shift`+Up/Down **extends** the selection
+  (the anchor set at the start); without Shift, a plain move (the anchor cleared). The move
+  **reveals the caret** (milestone 139), so the target line scrolls into view as needed.
 
-- **Retrouver la géométrie du champ focalisé.** Le déplacement vertical a besoin de la
-  largeur du champ (pour le repli). Un accesseur `Ui::widget_rect(id)` la fournit depuis
-  les focusables de la frame (pas seulement les zones défilables : un champ court non
-  défilant navigue aussi ses lignes).
+- **Finding the focused field's geometry.** The vertical move needs the field's width (for
+  wrapping). A `Ui::widget_rect(id)` accessor supplies it from the frame's focusables (not
+  only the scrollable areas: a short, non-scrolling field navigates its lines too).
 
-## Implémentation
+## Implementation
 
-- `widget.rs` (+ relais `Box`/`Keyed`/`Responsive`) : méthode `caret_vertical`.
-- `textinput.rs` : impl `caret_vertical` (layout repliée → `hit_test` à même colonne,
-  `None` aux bornes / hors multi-lignes).
-- `ui.rs` : accesseur `Ui::widget_rect(id)`.
-- `app.rs` : le bloc flèches tente d'abord `caret_vertical` (Haut/Bas), applique le
-  déplacement (+ sélection au Shift, + `reveal_caret`), sinon navigue le focus.
+- `widget.rs` (+ the `Box`/`Keyed`/`Responsive` forwarders): the `caret_vertical` method.
+- `textinput.rs`: the `caret_vertical` impl (wrapped layout → `hit_test` at the same column,
+  `None` at the bounds / outside multi-line).
+- `ui.rs`: the `Ui::widget_rect(id)` accessor.
+- `app.rs`: the arrow block tries `caret_vertical` first (Up/Down), applies the move (+
+  selection with Shift, + `reveal_caret`), otherwise navigates the focus.
 
-## Vérification
+## Verification
 
-- **Unitaire** : depuis la 1re ligne, Bas descend d'une ligne, Haut rend `None` ; depuis
-  la dernière, Bas rend `None` ; depuis la 2e, Haut remonte ; un champ mono-ligne rend
-  toujours `None`.
-- **Non-régression** : la navigation du focus par flèches reste intacte hors champ
-  multi-lignes ; `cargo test --workspace` vert.
+- **Unit**: from the 1st line, Down moves one line down, Up yields `None`; from the last,
+  Down yields `None`; from the 2nd, Up moves back up; a single-line field always yields
+  `None`.
+- **No regression**: arrow focus navigation stays intact outside a multi-line field;
+  `cargo test --workspace` green.
 
-## Reste
+## What's left
 
-- **Colonne cible « mémorisée »** : en traversant des lignes plus courtes, la colonne
-  idéale devrait être retenue (comportement d'éditeur) — ici on repart de la colonne
-  courante à chaque saut.
-- **Page préc./suiv.** (PgUp/PgDn) et **Ctrl+Début/Fin** dans le champ multi-lignes.
+- A **remembered goal column**: crossing shorter lines should retain the ideal column
+  (editor behaviour) — here we restart from the current column at each jump.
+- **Page Up/Down** and **Ctrl+Home/End** in the multi-line field.

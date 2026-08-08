@@ -1,48 +1,49 @@
-# Jalon 154 — Autocomplétion : liste de suggestions défilante
+# Jalon 154 — Autocomplete: scrollable suggestion list
 
-## Analyse
+## Analysis
 
-La liste flottante de l'`Autocomplete` (jalons 150–152) s'**étirait sans fin** : une
-requête à nombreuses correspondances produisait une liste haute comme l'écran, débordant
-sous l'ancre. Il fallait **borner** la hauteur visible et laisser le reste **défiler**,
-comme le menu d'un `DropdownButton` ou l'`Autocomplete` Material (fenêtre ~5–6 options).
+`Autocomplete`'s floating list (milestones 150–152) **stretched without end**: a query with
+many matches produced a list as tall as the screen, overflowing below the anchor. The visible
+height had to be **bounded** and the rest left to **scroll**, like a dropdown button's menu
+or a Material autocomplete (a ~5–6 option window).
 
-## Décisions techniques
+## Technical decisions
 
-- **Seuil `max_visible`, sinon liste nue.** `Scroll` a un viewport à **hauteur fixe** (pas
-  de « max-height »). Plutôt que d'imposer un défilement systématique (barre inutile sur 2
-  suggestions), le widget n'emballe la liste dans un `Scroll` **que** si le nombre de
-  suggestions **dépasse** `max_visible` ; en deçà, il pousse la liste `Flex` directe
-  (comportement d'origine, aucune régression). Viewport = `n·ROW_H + (n−1)·écart`.
+- **A `max_visible` threshold, otherwise a bare list.** `Scroll` has a **fixed-height**
+  viewport (no "max-height"). Rather than forcing systematic scrolling (a pointless bar over
+  2 suggestions), the widget wraps the list in a `Scroll` **only** if the number of
+  suggestions **exceeds** `max_visible`; below that, it pushes the plain `Flex` list (the
+  original behaviour, no regression). The viewport = `n·ROW_H + (n−1)·gap`.
 
-- **Réutilise `Scroll` tel quel.** Aucun changement du conteneur défilable : molette /
-  tactile / barre fonctionnent déjà dans l'overlay (le `Scroll` s'enregistre à la marche
-  de construction, y compris sous le portail flottant). Les suggestions restent
-  **focusables** ; le focus clavier révèle la suggestion visée dans le viewport.
+- **Reuses `Scroll` as is.** No change to the scrollable container: wheel / touch / bar
+  already work in the overlay (the `Scroll` registers itself during the build walk, including
+  under the floating portal). The suggestions stay **focusable**; keyboard focus reveals the
+  targeted suggestion inside the viewport.
 
-- **Contrôlé et opt-in.** `max_visible` par défaut `None` (illimité). L'application choisit
-  la fenêtre ; l'état de défilement est retenu au runtime par identité, comme tout `Scroll`.
+- **Controlled and opt-in.** `max_visible` defaults to `None` (unlimited). The application
+  picks the window; the scroll state is retained in the runtime by identity, like any
+  `Scroll`.
 
-## Implémentation
+## Implementation
 
-- `autocomplete.rs` : champ `max_visible: Option<usize>` + `.max_visible(n)` ; `rebuild`
-  emballe la liste dans `Scroll::new().width(w).height(viewport)` au-delà du seuil, sinon
-  pousse la liste directe ; constante `ROW_GAP`.
-- `goldens.rs` : golden `autocomplete_scroll` (6 suggestions, `max_visible(3)`).
+- `autocomplete.rs`: the `max_visible: Option<usize>` field + `.max_visible(n)`; `rebuild`
+  wraps the list in `Scroll::new().width(w).height(viewport)` past the threshold, otherwise
+  pushes the plain list; the `ROW_GAP` constant.
+- `goldens.rs`: the `autocomplete_scroll` golden (6 suggestions, `max_visible(3)`).
 
-## Vérification
+## Verification
 
-- **Unitaire** : au-delà du seuil, l'overlay est un `Scroll` dont la hauteur = 2 lignes
-  (`max_visible(2)`, 4 suggestions) et qui contient bien les **4** suggestions ; en deçà
-  (`max_visible(5)`, 2 suggestions), l'overlay reste la **liste nue** (2 enfants, 1ʳᵉ =
-  `Pick("a1")`). Tests J150–152 inchangés.
-- **Golden** `autocomplete_scroll` **inspecté** : viewport de 3 lignes (Alabama / Alaska /
-  Arizona), **barre de défilement** à droite (≈ moitié → 6 éléments), « a » mis en avant.
-- `cargo test --workspace` **vert**.
+- **Unit**: past the threshold, the overlay is a `Scroll` whose height = 2 lines
+  (`max_visible(2)`, 4 suggestions) and which does contain all **4** suggestions; below it
+  (`max_visible(5)`, 2 suggestions), the overlay stays the **bare list** (2 children, the 1st
+  = `Pick("a1")`). The J150–152 tests unchanged.
+- **Golden** `autocomplete_scroll` **inspected**: a 3-line viewport (Alabama / Alaska /
+  Arizona), a **scrollbar** on the right (≈ half → 6 items), "a" highlighted.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Auto-défilement sur la suggestion active** : révéler `active` dans le viewport quand
-  l'app la fait avancer au clavier (aujourd'hui seul le **focus** réel est révélé).
-- **Hauteur adaptative** : borner par pixels (`max_height`) plutôt que par nombre de
-  lignes, utile si les suggestions deviennent des widgets de hauteur variable.
+- **Auto-scrolling to the active suggestion**: revealing `active` in the viewport when the app
+  advances it from the keyboard (today only the real **focus** is revealed).
+- **Adaptive height**: bounding by pixels (`max_height`) rather than by line count, useful if
+  the suggestions become widgets of varying height.

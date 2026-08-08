@@ -1,56 +1,55 @@
-# Jalon 127 — `ClipPath` : découpe à un chemin arbitraire (pipeline de masque)
+# Jalon 127 — `ClipPath`: clipping to an arbitrary path (mask pipeline)
 
-## Analyse
+## Analysis
 
-Le clipping ne couvrait que des formes **analytiques** (rect / rrect / ellipse), testées
-par SDF au fragment. La découpe à un **chemin quelconque** (étoile, pointe, bulle,
-forme libre) n'est pas exprimable ainsi : c'est le chantier de masque annoncé en J125.
-Ce jalon l'ajoute — la famille clipping est complète.
+Clipping only covered **analytic** shapes (rect / rrect / ellipse), tested by SDF in the
+fragment. Clipping to an **arbitrary path** (a star, a spike, a bubble, a free form) is
+not expressible that way: it is the mask work flagged in J125. This milestone adds it —
+the clipping family is complete.
 
-## Décisions techniques
+## Technical decisions
 
-- **Masque de couverture, pas de stencil.** Pour un `ClipShape::Path`, le compositor
-  **rend le chemin en blanc** dans une texture pleine surface (réutilise le pipeline de
-  chemins existant, `render_group`) : c'est le **masque**. Le fragment de compositing
-  échantillonne son alpha et le **multiplie** à la couverture du calque. Bords
-  anticrénelés gratuits (le remplissage du chemin est déjà MSAA). Aucun stencil, aucune
-  duplication de pipeline.
+- **A coverage mask, not a stencil.** For a `ClipShape::Path`, the compositor **renders
+  the path in white** into a full-surface texture (reusing the existing path pipeline,
+  `render_group`): that is the **mask**. The compositing fragment samples its alpha and
+  **multiplies** it into the layer's coverage. Anti-aliased edges for free (path fills
+  are already MSAA). No stencil, no duplicated pipeline.
 
-- **Un seul point de branchement.** `composite.wgsl` gagne une 2ᵉ texture (le masque) ;
-  hors `ClipPath`, on lie un masque **neutre 1×1 blanc** → multiplication par 1, sans
-  effet, sans branche. Les formes analytiques (rect/rrect/oval) sont inchangées.
+- **A single branch point.** `composite.wgsl` gains a 2nd texture (the mask); outside
+  `ClipPath` we bind a **neutral 1×1 white** mask → a multiply by 1, no effect, no
+  branch. The analytic shapes (rect/rrect/oval) are unchanged.
 
-- **Chemin en coordonnées locales, décalé à l'écran.** Le widget `ClipPath::new(path)`
-  reçoit le chemin en coordonnées **locales** (origine au coin de la boîte) ; la marche
-  le translate à la position écran (comme un `ClipRRect`, passe-plat en mise en page).
-  Prioritaire sur `clip_shape` via une méthode dédiée `Widget::clip_path()`.
+- **A path in local coordinates, offset to the screen.** The `ClipPath::new(path)` widget
+  receives the path in **local** coordinates (the origin at the box's corner); the walk
+  translates it to the screen position (like a `ClipRRect`, pass-through in layout). It
+  takes priority over `clip_shape` through a dedicated `Widget::clip_path()` method.
 
-- **`ClipShape` n'est plus `Copy`** (il porte un `Path`, `Vec`-adossé). Ripple contenu :
-  quelques `*clip_shape` → `.clone()`. `scaled_xy` met le chemin à l'échelle (DPI).
+- **`ClipShape` is no longer `Copy`** (it carries a `Path`, `Vec`-backed). The ripple was
+  contained: a few `*clip_shape` → `.clone()`. `scaled_xy` scales the path (DPI).
 
-## Implémentation
+## Implementation
 
-- `frus-core` : variante `ClipShape::Path(Path)` (+ `scaled_xy`), `Copy` retiré.
-- `frus-gpu` : `render_mask` (chemin blanc → texture) ; `LayerComposite`/bind-group
-  gagnent le masque (binding 2) ; masque neutre 1×1 blanc pour les calques sans chemin ;
-  `composite.wgsl` échantillonne et multiplie ; kind 3 = chemin.
-- `frus-widgets` : widget `ClipPath<Msg>` ; méthode `Widget::clip_path()` forwardée
-  (`Box<dyn>`, `Keyed`, `Responsive`, animés) ; branche de découpe de la marche unifiée
-  (chemin prioritaire, sinon forme analytique). Ré-exports `Path` / `PathVerb`.
+- `frus-core`: the `ClipShape::Path(Path)` variant (+ `scaled_xy`), `Copy` dropped.
+- `frus-gpu`: `render_mask` (a white path → a texture); `LayerComposite`/the bind group
+  gain the mask (binding 2); a neutral 1×1 white mask for layers with no path;
+  `composite.wgsl` samples and multiplies; kind 3 = path.
+- `frus-widgets`: the `ClipPath<Msg>` widget; the `Widget::clip_path()` method, forwarded
+  (`Box<dyn>`, `Keyed`, `Responsive`, animated); the walk's clipping branch unified (path
+  first, otherwise the analytic shape). `Path` / `PathVerb` re-exported.
 
 ## Tests
 
-- `frus-test` (au pixel, GPU réel) : `path_clip_masks_to_the_shape` — un losange
-  découpe le carré (centre et sommets peints, **coins gommés**). Les formes analytiques
-  (rrect par coin, oval, rect) tiennent toujours (masque neutre).
-- `frus-widgets` : `ClipPath` émet un calque `ClipShape::Path` **décalé à l'écran**.
-- Rendu visuel (hors commit) : étoile 5 branches + triangle découpant un dégradé, bords
-  nets. Workspace complet vert : frus-core 92, frus-gpu 16, frus-widgets 233, frus-test
-  clip 5.
+- `frus-test` (at the pixel level, on a real GPU): `path_clip_masks_to_the_shape` — a
+  diamond clips the square (the centre and the vertices painted, the **corners erased**).
+  The analytic shapes (per-corner rrect, oval, rect) still hold (a neutral mask).
+- `frus-widgets`: `ClipPath` emits a `ClipShape::Path` layer **offset to the screen**.
+- Visual rendering (outside the commit): a 5-point star + a triangle clipping a gradient,
+  crisp edges. The whole workspace green: frus-core 92, frus-gpu 16, frus-widgets 233,
+  frus-test clip 5.
 
-## Reste
+## What's left
 
-- **Clipper dépendant de la taille** (façon `CustomClipper` de Flutter : une closure
-  `Size → Path`) — ici le chemin est fixe en coordonnées locales.
-- **Cache du masque** (re-rendu chaque frame pour l'instant ; à indexer comme les
-  textures de calque si un `ClipPath` s'avère coûteux et statique).
+- A **size-dependent clipper** (a `Size → Path` closure) — here the path is fixed in
+  local coordinates.
+- **Mask caching** (re-rendered every frame for now; to be indexed like the layer
+  textures should a `ClipPath` prove expensive and static).

@@ -1,55 +1,54 @@
-# Jalon 150 — Audit `Dropdown` / `Autocomplete` (niveau Flutter)
+# Jalon 150 — `Dropdown` / `Autocomplete` audit: bringing them up to standard
 
-## Analyse
+## Analysis
 
-Les deux widgets fonctionnaient mais restaient en deçà de leurs équivalents Flutter :
+Both widgets worked but fell short of what their established counterparts offer:
 
-- **`Dropdown`** : largeur **codée en dur** (240 px), option sélectionnée **non indiquée**
-  (ni surlignage ni coche), en-tête et options **non focusables** (pas de clavier), et
-  **aucun test**.
-- **`Autocomplete`** : largeur codée en dur (260 px) — non « customizable ».
+- **`Dropdown`**: a **hardcoded** width (240 px), the selected option **not indicated**
+  (neither highlight nor tick), a header and options **not focusable** (no keyboard), and
+  **no tests**.
+- **`Autocomplete`**: a hardcoded width (260 px) — not "customisable".
 
-## Décisions techniques
+## Technical decisions
 
-- **`Dropdown` reconstruit son arbre.** Il stocke désormais son état (libellé, largeur,
-  index sélectionné, ouverture, options) et régénère en-tête + menu (`rebuild`), ce qui
-  ouvre les réglages `width(px)` et `selected(index)` sans casser l'API.
+- **`Dropdown` rebuilds its tree.** It now stores its state (label, width, selected index,
+  openness, options) and regenerates the header + menu (`rebuild`), which opens up the
+  `width(px)` and `selected(index)` settings without breaking the API.
 
-- **Option sélectionnée à la Flutter.** Dans le menu, l'option d'index `selected` est
-  **surlignée** (fond teinté `primary`) et **cochée** (icône `Check` à droite) — comme le
-  `DropdownButton`. Le chevron de l'en-tête devient un **triangle vectoriel** (plus de
-  dépendance au caractère « ▾ »).
+- **The selected option, done properly.** In the menu, the option at index `selected` is
+  **highlighted** (a `primary`-tinted background) and **ticked** (a `Check` icon on the
+  right) — as a dropdown button should be. The header's chevron becomes a **vector
+  triangle** (no more dependency on the "▾" character).
 
-- **Clavier gratuit.** En-tête et options renvoient `focusable` quand elles portent un
-  message : le shell les atteint au Tab, ouvre / choisit à Entrée, et les flèches
-  parcourent les options empilées (navigation géométrique existante). Aucune logique
-  nouvelle.
+- **The keyboard for free.** The header and options return `focusable` when they carry a
+  message: the shell reaches them on Tab, opens / chooses on Enter, and the arrows walk the
+  stacked options (the existing geometric navigation). No new logic.
 
-- **`Autocomplete` : largeur réglable.** Le champ étant reconstruit à chaque réglage, son
-  rappel `on_input` devient **partagé** (`Rc`) pour être recapturé par le `TextInput`
-  reconstruit ; `width(px)` s'applique au champ **et** aux suggestions. Les suggestions
-  étaient déjà focusables (clavier OK).
+- **`Autocomplete`: an adjustable width.** Since the field is rebuilt at each setting, its
+  `on_input` callback becomes **shared** (`Rc`) so the rebuilt `TextInput` can recapture it;
+  `width(px)` applies to the field **and** the suggestions. The suggestions were already
+  focusable (keyboard OK).
 
-## Implémentation
+## Implementation
 
-- `dropdown.rs` : `Row` gagne `width`/`selected`/`focusable` (surlignage + coche + chevron
-  vectoriel) ; `Dropdown` stocke son état et `rebuild` ; `width`, `selected` ; **3 tests**
-  (overlay ouvert/fermé, focusabilité, option surlignée+cochée) — le module n'en avait aucun.
-- `autocomplete.rs` : rappels en `Rc`, champ reconstruit ; `width(px)` ; `Suggestion`
-  gagne `width`.
-- `goldens.rs` : golden `dropdown_menu` (menu ouvert, « Medium » surligné + coché).
+- `dropdown.rs`: `Row` gains `width`/`selected`/`focusable` (highlight + tick + vector
+  chevron); `Dropdown` stores its state and `rebuild`s; `width`, `selected`; **3 tests**
+  (overlay open/closed, focusability, the option highlighted+ticked) — the module had none.
+- `autocomplete.rs`: callbacks in `Rc`, the field rebuilt; `width(px)`; `Suggestion` gains
+  `width`.
+- `goldens.rs`: the `dropdown_menu` golden (an open menu, "Medium" highlighted + ticked).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `Dropdown` ferme → pas d'overlay, ouvert → menu à 2 options dont la 2ᵉ
-  émet `Select(1)` ; en-tête + options focusables ; option sélectionnée surlignée + cochée
-  (chemin + rect teinté). `Autocomplete` : tests existants verts avec la largeur réglable.
-- **Golden** `dropdown_menu` rendu et **inspecté** (en-tête + chevron, menu flottant,
-  « Medium » vert coché). `cargo test --workspace` vert.
+- **Unit**: `Dropdown` closed → no overlay, open → a 2-option menu whose 2nd emits
+  `Select(1)`; header + options focusable; the selected option highlighted + ticked (a path
+  + a tinted rect). `Autocomplete`: the existing tests green with the adjustable width.
+- **Golden** `dropdown_menu` rendered and **inspected** (the header + chevron, the floating
+  menu, "Medium" ticked in green). `cargo test --workspace` green.
 
-## Reste
+## What's left
 
-- **`Autocomplete`** : suggestion **active** surlignée + descente clavier depuis le champ
-  (flèche bas) façon Material ; **surbrillance du texte** correspondant.
-- **`Dropdown`** : ouverture/fermeture au clavier gérées par l'app (message de bascule) —
-  un raccourci Échap pour refermer serait un plus.
+- **`Autocomplete`**: an **active** suggestion highlighted + keyboard descent from the field
+  (down arrow), Material style; **highlighting the matching text**.
+- **`Dropdown`**: opening/closing from the keyboard is handled by the app (a toggle
+  message) — an Escape shortcut to close would be a plus.

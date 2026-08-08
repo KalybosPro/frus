@@ -1,68 +1,66 @@
-# Jalon 124 — `FittedBox` + `RotatedBox` : transformations qui affectent la mise en page
+# Jalon 124 — `FittedBox` + `RotatedBox`: transforms that affect layout
 
-## Analyse
+## Analysis
 
-`Transform` (J112–J117) transforme **à la peinture** seulement : la boîte ne bouge
-pas. Il manquait les deux transformations de Flutter qui **participent à la mise en
-page** :
+`Transform` (J112–J117) transforms **at paint time** only: the box does not move.
+The two transforms that **take part in layout** were missing:
 
-- **`RotatedBox(quarterTurns)`** — tourne l'enfant d'un quart de tour entier **et**
-  échange largeur/hauteur de la boîte pour un quart impair (un libellé vertical dans
-  une barre latérale, une étiquette d'axe tournée).
-- **`FittedBox(fit)`** — met l'enfant à l'échelle pour l'**ajuster** à la boîte selon un
-  [`BoxFit`] (`Contain`/`Cover`/`Fill`/…), l'échelle découlant de la taille de la boîte.
+- **`RotatedBox(quarter_turns)`** — rotates the child by whole quarter turns **and**
+  swaps the box's width/height for an odd quarter (a vertical label in a sidebar, a
+  rotated axis caption).
+- **`FittedBox(fit)`** — scales the child to **fit** the box according to a
+  [`BoxFit`] (`Contain`/`Cover`/`Fill`/…), the scale following from the box's size.
 
-## Décisions techniques
+## Technical decisions
 
-- **Feuilles de layout, enfant posé à part.** Comme `Scroll` / `InteractiveViewer`,
-  les deux sont des **feuilles** dans l'arbre taffy : l'enfant est mesuré et rendu à
-  part, sinon il serait étiré à la boîte au lieu d'être pris à sa taille **naturelle**.
-  `build_layout` calcule la boîte du `RotatedBox` à partir de la taille naturelle de
-  l'enfant (échangée pour un quart impair) ; `FittedBox` prend sa propre boîte
-  (`width`/`height`/`flex`).
+- **Layout leaves, the child placed separately.** Like `Scroll` / `InteractiveViewer`,
+  both are **leaves** in the taffy tree: the child is measured and rendered separately,
+  otherwise it would be stretched to the box instead of taken at its **natural** size.
+  `build_layout` computes the `RotatedBox`'s box from the child's natural size (swapped
+  for an odd quarter); `FittedBox` takes its own box (`width`/`height`/`flex`).
 
-- **Un facteur commun de rendu.** `RotatedBox`, `FittedBox` et `InteractiveViewer`
-  partagent désormais `emit_transformed_child` : peindre l'enfant à plat, l'envelopper
-  dans un calque composité transformé par `M`, poser `M⁻¹` sur les hits, et — si `M`
-  reste **alignée sur les axes** (échelle/translation, mais pas rotation d'un quart
-  impair) — transformer les bornes de focus / défilement / glisser / accessibilité.
+- **One shared rendering factor.** `RotatedBox`, `FittedBox` and `InteractiveViewer`
+  now share `emit_transformed_child`: paint the child flat, wrap it in a composited
+  layer transformed by `M`, put `M⁻¹` on the hits, and — if `M` stays **axis-aligned**
+  (scale/translation, but not an odd quarter rotation) — transform the focus / scroll /
+  drag / accessibility bounds.
 
-- **Math d'ajustement dans `frus-core`.** `BoxFit::scale(src, dst) -> (sx, sy)` (pure,
-  testée) : `Fill` par axe, tous les autres uniformes (aspect conservé), `ScaleDown` ne
-  réduit jamais au-delà de 1, source dégénérée → neutre.
+- **Fit maths in `frus-core`.** `BoxFit::scale(src, dst) -> (sx, sy)` (pure, tested):
+  `Fill` per axis, all the others uniform (aspect preserved), `ScaleDown` never shrinks
+  past 1, a degenerate source → neutral.
 
-- **Taille naturelle réutilisable.** `natural_size` met en page un sous-arbre sous des
-  axes libres (`MaxContent`) — la brique commune pour la boîte du `RotatedBox` (layout)
-  et le facteur du `FittedBox` (rendu).
+- **A reusable natural size.** `natural_size` lays a subtree out under free axes
+  (`MaxContent`) — the common brick behind the `RotatedBox`'s box (layout) and the
+  `FittedBox`'s factor (rendering).
 
-- **Cohérence du cache.** `layout_signature` (empreinte de relayout) suit `build_layout`
-  à la lettre : `RotatedBox` **hache son enfant** (sa boîte en dépend) ; `FittedBox` et
-  `InteractiveViewer` sont des feuilles (empreinte = style). Au passage, `interactive()`
-  manquait dans cette liste (introduit en J122) — corrigé.
+- **Cache consistency.** `layout_signature` (the relayout fingerprint) follows
+  `build_layout` to the letter: `RotatedBox` **hashes its child** (its box depends on
+  it); `FittedBox` and `InteractiveViewer` are leaves (fingerprint = style). While in
+  there, `interactive()` was missing from that list (introduced in J122) — fixed.
 
-## Implémentation
+## Implementation
 
-- `frus-core` : `BoxFit::scale` (+ test `scale_fits_content_per_mode`).
-- `frus-widgets` : modules `fittedbox` (`FittedBox<Msg>`) et `rotatedbox`
-  (`RotatedBox<Msg>`) ; méthodes `Widget::fitted()` / `rotated_quarter_turns()`
-  forwardées (`Box<dyn>`, `Keyed`, `Responsive`, animés) ; `build_layout` (feuille
-  custom pour la rotation, feuille pour l'ajustement) + `natural_size` ; branches de
-  marche via `emit_transformed_child` (la branche `InteractiveViewer` refactorée pour
-  l'employer) ; garde `plain_subtree_len` ; `layout_signature` aligné.
+- `frus-core`: `BoxFit::scale` (+ the `scale_fits_content_per_mode` test).
+- `frus-widgets`: the `fittedbox` (`FittedBox<Msg>`) and `rotatedbox`
+  (`RotatedBox<Msg>`) modules; the `Widget::fitted()` / `rotated_quarter_turns()`
+  methods, forwarded (`Box<dyn>`, `Keyed`, `Responsive`, animated); `build_layout` (a
+  custom leaf for the rotation, a leaf for the fit) + `natural_size`; walk branches
+  through `emit_transformed_child` (the `InteractiveViewer` branch refactored to use
+  it); the `plain_subtree_len` guard; `layout_signature` aligned.
 
 ## Tests
 
-- `frus-core` : `BoxFit::scale` par mode.
-- `rotatedbox` : un quart **échange** la boîte (le frère suit à `y=80`) ; un demi-tour
-  la **conserve** ; un calque tourné est émis.
-- `fittedbox` : `Fill` porte l'échelle **par axe** ; `Contain` **conserve l'aspect**
-  (facteur uniforme).
-- Rendu visuel (hors commit) confirmé : rotation 1/2/3, ajustement Contain/Cover/Fill,
-  **aucun chevauchement** des frères. Workspace complet vert : frus-widgets 227,
-  frus-core 91.
+- `frus-core`: `BoxFit::scale` per mode.
+- `rotatedbox`: a quarter **swaps** the box (the sibling follows at `y=80`); a half turn
+  **keeps** it; a rotated layer is emitted.
+- `fittedbox`: `Fill` carries the scale **per axis**; `Contain` **preserves the aspect**
+  (a uniform factor).
+- Visual rendering (outside the commit) confirmed: rotation 1/2/3, fit
+  Contain/Cover/Fill, **no overlap** between siblings. The whole workspace green:
+  frus-widgets 227, frus-core 91.
 
-## Reste
+## What's left
 
-- **Rotation d'angle libre** affectant la mise en page (au-delà des quarts) et
-  contraintes tournées exactes (le v1 mesure l'enfant en **non contraint**).
-- Vitrine : une tuile `RotatedBox` (texte vertical) + `FittedBox` dans `frus-transforms`.
+- **Free-angle rotation** affecting layout (beyond quarters) and exact rotated
+  constraints (v1 measures the child **unconstrained**).
+- A showcase: a `RotatedBox` tile (vertical text) + `FittedBox` in `frus-transforms`.

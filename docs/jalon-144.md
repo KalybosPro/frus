@@ -1,56 +1,55 @@
-# Jalon 144 — Encoche du label (style `outlined`)
+# Jalon 144 — Label notch (`outlined` style)
 
-## Analyse
+## Analysis
 
-Le label flottant (jalon 134) montait dans un **bandeau réservé au-dessus** de la boîte.
-Material propose aussi le style **`OutlineInputBorder`** : le label flottant se pose **sur**
-la bordure du haut, qui s'**ouvre** d'une encoche derrière lui — plus compact, très
-reconnaissable. Il manquait.
+The floating label (milestone 134) rose into a **band reserved above** the box. Material
+also offers the **outlined** style: the floating label sits **on** the top border, which
+**opens** a notch behind it — more compact, very recognisable. It was missing.
 
-## Décisions techniques
+## Technical decisions
 
-- **Opt-in, défaut inchangé.** Un constructeur `TextInput::outlined()` active le style.
-  Sans lui, le rendu « bandeau » d'origine est conservé au pixel près : les goldens
-  existants ne bougent pas.
+- **Opt-in, the default unchanged.** A `TextInput::outlined()` constructor enables the
+  style. Without it, the original "band" rendering is preserved to the pixel: the existing
+  goldens do not move.
 
-- **Encoche par aplat, pas par découpe de tracé.** La bordure est un unique
-  `Primitive::Rect` (rectangle arrondi tracé sur GPU) : impossible d'y percer un trou.
-  On peint donc, **après** la bordure et **sous** le texte du label, un petit aplat couleur
-  `surface` qui masque le segment de bordure traversé — le label vient ensuite par-dessus.
-  L'aplat n'apparaît qu'à mesure que le label monte (`fade(o * float_t)`), donc l'encoche
-  « s'ouvre » avec l'animation de flottement.
+- **A notch by fill, not by cutting the stroke.** The border is a single `Primitive::Rect`
+  (a rounded rectangle stroked on the GPU): you cannot punch a hole in it. So we paint,
+  **after** the border and **under** the label text, a small `surface`-coloured fill that
+  hides the border segment crossed — the label then comes on top. That fill only appears as
+  the label rises (`fade(o * float_t)`), so the notch "opens" along with the float
+  animation.
 
-- **Cible flottée sur la bordure.** La géométrie du label est interpolée entre le repos
-  (dans la boîte, à la place de l'indice) et une cible **différente selon le style** :
-  `outlined` → `(field.x + PAD_X, field.y − ½·hauteur_label)`, centrée sur la bordure du
-  haut ; sinon → coin haut-gauche du bandeau. Un seul chemin d'interpolation, deux cibles.
+- **A floated target on the border.** The label's geometry is interpolated between rest
+  (inside the box, where the hint sits) and a target that **differs by style**: `outlined` →
+  `(field.x + PAD_X, field.y − ½·label_height)`, centred on the top border; otherwise → the
+  band's top-left corner. One interpolation path, two targets.
 
-- **Ordre de peinture inversé.** En bandeau, le label est peint **avant** la bordure (il
-  vit au-dessus) ; en contour, **après** (il se pose dessus). La géométrie est calculée une
-  fois, le `scene.text` du label est simplement émis au bon moment selon le style.
+- **Paint order inverted.** In band style, the label is painted **before** the border (it
+  lives above it); in outlined style, **after** (it sits on it). The geometry is computed
+  once, the label's `scene.text` is simply emitted at the right moment for the style.
 
-- **Réserve verticale réduite.** `label_block` ne réserve, en `outlined`, que la **moitié
-  haute** du label (le reste mord sur la boîte, puisqu'il chevauche la bordure) au lieu
-  d'un bandeau plein — le champ est d'autant plus compact.
+- **Reduced vertical reserve.** In `outlined`, `label_block` reserves only the label's **top
+  half** (the rest bites into the box, since it overlaps the border) instead of a full band
+  — making the field that much more compact.
 
-## Implémentation
+## Implementation
 
-- `textinput.rs` : champ `outlined` + constructeur ; `label_block` (½ label en contour) ;
-  `paint` — géométrie de label factorisée, cible selon le style, aplat d'encoche
-  (`fill_rect` couleur surface) puis label après la bordure ; constante `NOTCH_GAP`.
-- `goldens.rs` : golden `outlined_field` — un champ rempli (encoche ouverte) + un champ
-  vide (label au repos, bordure intacte).
+- `textinput.rs`: the `outlined` field + constructor; `label_block` (½ a label in outlined
+  style); `paint` — the label geometry factored out, the target chosen by style, the notch
+  fill (`fill_rect` in the surface colour) then the label after the border; the `NOTCH_GAP`
+  constant.
+- `goldens.rs`: the `outlined_field` golden — a filled field (the notch open) + an empty
+  field (the label at rest, the border intact).
 
-## Vérification
+## Verification
 
-- **Golden** `outlined_field` rendu et **inspecté** : « Full name » se pose sur la bordure
-  du haut avec une coupure nette (encoche), valeur dans la boîte ; « Email » vide garde sa
-  bordure fermée, label au repos. Conforme à Material.
-- **Non-régression** : tous les goldens existants (bandeau) inchangés ; `cargo test
-  --workspace` vert.
+- **Golden** `outlined_field` rendered and **inspected**: "Full name" sits on the top border
+  with a crisp break (the notch), the value inside the box; an empty "Email" keeps its
+  border closed, the label at rest. Faithful to Material.
+- **No regression**: every existing (band) golden unchanged; `cargo test --workspace` green.
 
-## Reste
+## What's left
 
-- **Bordure animée de l'encoche** : la largeur de l'encoche pourrait s'animer avec le
-  flottement (ici l'aplat se **fond** plutôt qu'il ne s'ouvre en largeur).
-- **Rayon de coin configurable** de la bordure `outlined` (aujourd'hui `theme.radius`).
+- An **animated notch border**: the notch's width could animate with the float (here the
+  fill **fades in** rather than opening in width).
+- A **configurable corner radius** for the `outlined` border (today `theme.radius`).

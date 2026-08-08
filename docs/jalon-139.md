@@ -1,62 +1,61 @@
-# Jalon 139 — Défilement du champ multi-lignes (molette)
+# Jalon 139 — Multi-line field scrolling (wheel)
 
-## Analyse
+## Analysis
 
-Le champ multi-lignes (jalons 137–138) défilait **uniquement** pour suivre le caret,
-recalculé dans `paint`. Impossible de **parcourir** un contenu plus haut que `rows` à la
-molette : le défilement n'était pas *retenu* et le champ n'était pas connu du système de
-défilement du framework. Ce jalon branche le champ sur ce système.
+The multi-line field (milestones 137–138) scrolled **only** to follow the caret,
+recomputed in `paint`. There was no way to **browse** content taller than `rows` with the
+wheel: the scroll was not *retained* and the field was unknown to the framework's scrolling
+system. This milestone plugs the field into that system.
 
-## Décisions techniques
+## Technical decisions
 
-- **Le champ devient une vraie région défilable.** Au lieu d'un mécanisme ad hoc, le
-  champ multi-lignes s'**enregistre** (comme un `Scroll` ou une liste virtuelle) via
-  `self.scrollables.push((id, viewport, 0, max_y))` quand son contenu déborde. Il hérite
-  ainsi **gratuitement** de toute la machinerie existante : hit-test molette
-  (`scroll_hit`), cible + inertie (`scroll_target`/`advance_scroll`), dépassement
-  élastique.
+- **The field becomes a real scrollable region.** Instead of an ad-hoc mechanism, the
+  multi-line field **registers itself** (like a `Scroll` or a virtual list) through
+  `self.scrollables.push((id, viewport, 0, max_y))` when its content overflows. It thereby
+  inherits **for free** all the existing machinery: wheel hit-testing (`scroll_hit`), target
+  + inertia (`scroll_target`/`advance_scroll`), elastic overscroll.
 
-- **Le défilement est retenu dans le runtime.** L'offset vit dans `runtime.scroll[id].1`
-  (la même carte que les `Scroll`). `Status` gagne `scroll_y` (rempli par `full_status`
-  depuis cette carte) : le `paint` du champ défile son texte de `scroll_y` (borné au
-  dépassement) au lieu de le dériver du caret.
+- **The scroll is retained in the runtime.** The offset lives in `runtime.scroll[id].1` (the
+  same map as the `Scroll`s). `Status` gains `scroll_y` (filled by `full_status` from that
+  map): the field's `paint` scrolls its text by `scroll_y` (clamped to the overflow) instead
+  of deriving it from the caret.
 
-- **Le suivi du caret migre de `paint` vers le shell.** Comme `paint` ne peut pas écrire
-  le runtime, c'est le shell qui, **à chaque frappe** (`apply_key` → `reveal_caret`),
-  ajuste `runtime.scroll[id]` juste assez pour que le caret reste visible — via une
-  fenêtre `[bas du caret visible, haut du caret visible]`. On tape → le champ recentre ;
-  on molette librement sinon. Une méthode unique `Widget::text_metrics(width, cursor)`
-  → `(hauteur contenu, hauteur visible, sommet caret, hauteur caret)` alimente **et**
-  l'enregistrement (dépassement) **et** ce suivi.
+- **Caret following moves from `paint` to the shell.** Since `paint` cannot write to the
+  runtime, it is the shell that, **on every keystroke** (`apply_key` → `reveal_caret`),
+  adjusts `runtime.scroll[id]` just enough to keep the caret visible — through a
+  `[caret bottom visible, caret top visible]` window. You type → the field recentres; you
+  wheel freely otherwise. A single `Widget::text_metrics(width, cursor)` method →
+  `(content height, visible height, caret top, caret height)` feeds **both** the
+  registration (overflow) **and** that following.
 
-- **Le clic reste juste.** `cursor_at` n'estime plus le défilement vertical (il le
-  dérivait du caret) : le shell ajoute désormais le défilement **retenu** à `local_y`
-  avant l'appel, si bien que cliquer sur une ligne défilée tombe pile.
+- **Clicking stays accurate.** `cursor_at` no longer estimates the vertical scroll (it used
+  to derive it from the caret): the shell now adds the **retained** scroll to `local_y`
+  before the call, so clicking on a scrolled line lands exactly.
 
-## Implémentation
+## Implementation
 
-- `interaction.rs` : `Status.scroll_y`.
-- `ui.rs` : `full_status` remplit `scroll_y` ; le walk enregistre le champ multi-lignes
-  débordant comme scrollable ; accesseur `Ui::scrollable_viewport(id)`.
-- `widget.rs` (+ relais `Box`/`Keyed`/`Responsive`) : méthode `text_metrics`.
-- `textinput.rs` : helper `content_width` ; `text_metrics` ; `paint` défile de
-  `status.scroll_y` ; `cursor_at` sans estimation verticale (fournie par le shell).
-- `app.rs` : `reveal_caret` (suivi du caret à la frappe) ; les deux sites `cursor_at`
-  ajoutent le défilement retenu à `local_y`.
+- `interaction.rs`: `Status.scroll_y`.
+- `ui.rs`: `full_status` fills `scroll_y`; the walk registers an overflowing multi-line
+  field as scrollable; the `Ui::scrollable_viewport(id)` accessor.
+- `widget.rs` (+ the `Box`/`Keyed`/`Responsive` forwarders): the `text_metrics` method.
+- `textinput.rs`: the `content_width` helper; `text_metrics`; `paint` scrolls by
+  `status.scroll_y`; `cursor_at` with no vertical estimate (the shell supplies it).
+- `app.rs`: `reveal_caret` (caret following on keystroke); both `cursor_at` call sites add
+  the retained scroll to `local_y`.
 
-## Vérification
+## Verification
 
-- **Rendu à l'œil** : un champ de 3 lignes défilé de ~2 lignes montre « Line three/four/
-  five », clippées à la boîte — golden `multiline_scrolled`.
-- **Unitaires** : `text_metrics` rapporte le dépassement et `scroll_y` remonte le texte ;
-  le champ débordant s'enregistre scrollable (`max_y > 0`), un champ court non.
-- **Suite complète** verte, aucun golden n'a bougé.
+- **Rendered and looked at**: a 3-line field scrolled by ~2 lines shows "Line three/four/
+  five", clipped to the box — the `multiline_scrolled` golden.
+- **Unit**: `text_metrics` reports the overflow and `scroll_y` moves the text up; the
+  overflowing field registers as scrollable (`max_y > 0`), a short field does not.
+- **The whole suite** green, no golden moved.
 
-## Reste
+## What's left
 
-- **Défilement tactile** au doigt : sur un champ, l'appui démarre une **sélection** de
-  texte (pas un défilement) — geste distinct à arbitrer (barre de défilement dédiée, ou
-  deux doigts). Ici : molette (et inertie) uniquement.
-- **Barre de défilement** visible pour le champ (aujourd'hui : molette seule).
-- **Flèches haut/bas** déplaçant le caret entre lignes dans le champ (aujourd'hui elles
-  naviguent le focus) — complément clavier du multi-lignes.
+- **Touch scrolling** with a finger: on a field, a press starts a text **selection** (not a
+  scroll) — a distinct gesture to arbitrate (a dedicated scrollbar, or two fingers). Here:
+  wheel (and inertia) only.
+- A visible **scrollbar** for the field (today: wheel only).
+- **Up/Down arrows** moving the caret between lines in the field (today they navigate the
+  focus) — the multi-line field's keyboard complement.

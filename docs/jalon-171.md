@@ -1,51 +1,49 @@
-# Jalon 171 — Tableau : en-tête entièrement widget
+# Jalon 171 — Table: fully widget header
 
-## Analyse
+## Analysis
 
-L'en-tête savait porter un libellé texte (+ icône, + widget d'action à droite), mais restait
-**structurellement** une cellule texte. Certaines grilles veulent un en-tête **entièrement
-libre** : un bouton de tri maison, un filtre intégré, une puce, un titre sur deux lignes… Il
-fallait pouvoir **remplacer** la ligne d'en-tête par des **widgets arbitraires** (comme
-`widget_row` l'a fait pour les données au jalon 164).
+The header could carry a text label (+ an icon, + an action widget on the right), but remained
+**structurally** a text cell. Some grids want a **completely free** header: a bespoke sort
+button, a built-in filter, a chip, a two-line title… It had to be possible to **replace** the
+header row with **arbitrary widgets** (as `widget_row` did for data in milestone 164).
 
-## Décisions techniques
+## Technical decisions
 
-- **`widget_header` en miroir de `widget_row`.** `Table::widget_header(cells)` prend une
-  **fabrique** par colonne (`Fn() -> Box<dyn Widget>`, en `Rc`), rappelée à chaque
-  reconstruction. La ligne d'en-tête est alors bâtie de cellules-widgets à **fond d'en-tête**,
-  au lieu des cellules texte.
+- **`widget_header`, mirroring `widget_row`.** `Table::widget_header(cells)` takes a
+  **factory** per column (`Fn() -> Box<dyn Widget>`, in an `Rc`), called back at each rebuild.
+  The header row is then built from widget cells with a **header background**, instead of text
+  cells.
 
-- **Tri/réordonnancement laissés à l'application.** Le tableau ne peut pas deviner comment
-  trier un widget d'en-tête arbitraire : le tri et le réordonnancement **automatiques** ne
-  s'appliquent pas ici. L'application **câble** le comportement dans ses widgets (p.ex. un
-  bouton d'en-tête émettant son propre message de tri). C'est le compromis assumé de la
-  personnalisation totale — cohérent avec « tri décidé par l'application » (le tableau
-  n'affiche que l'état qu'on lui passe).
+- **Sorting/reordering left to the application.** The table cannot guess how to sort an
+  arbitrary header widget: **automatic** sorting and reordering do not apply here. The
+  application **wires** the behaviour into its widgets (e.g. a header button emitting its own
+  sort message). That is the accepted trade-off of total customisation — consistent with
+  "sorting decided by the application" (the table only displays the state it is given).
 
-- **`WidgetCell` réutilisé, avec fond d'en-tête.** La cellule-widget existante gagne un
-  drapeau `header` (fond d'en-tête + peinture systématique du fond) ; les en-têtes widget
-  sont des `WidgetCell { header: true, .. }`. Aucune nouvelle sorte de cellule.
+- **`WidgetCell` reused, with a header background.** The existing widget cell gains a `header`
+  flag (a header background + systematic background painting); widget headers are
+  `WidgetCell { header: true, .. }`. No new kind of cell.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : champ `header_widgets: Vec<CellFactory>` ; builder `widget_header` (vide
-  `headers`, dernier appelé gagne) ; drapeau `WidgetCell.header` (fond d'en-tête) ; branche
-  d'en-tête widget dans `rebuild` ; `header_present` inclut les en-têtes widget.
-- `goldens.rs` : `table_widget_header` (puce « User » + bouton « Sort »).
+- `table.rs`: the `header_widgets: Vec<CellFactory>` field; the `widget_header` builder (clears
+  `headers`, last call wins); the `WidgetCell.header` flag (the header background); the widget
+  header branch in `rebuild`; `header_present` includes widget headers.
+- `goldens.rs`: `table_widget_header` (a "User" chip + a "Sort" button).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `widget_header_hosts_arbitrary_header_widgets` — la ligne d'en-tête héberge
-  les widgets fournis (« Name », « Sort » peints) ; le bouton d'en-tête maison émet **son**
-  message (`Sort(1)`), preuve que l'app câble le tri.
-- **Golden** `table_widget_header` **inspecté** : puce + bouton en en-tête, sur fond
-  d'en-tête, données dessous — aucune régression sur les autres goldens.
-- `cargo test --workspace` **vert**.
+- **Unit**: `widget_header_hosts_arbitrary_header_widgets` — the header row hosts the supplied
+  widgets ("Name", "Sort" painted); the bespoke header button emits **its** message (`Sort(1)`),
+  proof that the app wires the sorting.
+- **Golden** `table_widget_header` **inspected**: a chip + a button in the header, on a header
+  background, data below — no regression on the other goldens.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Mélange texte + widget par colonne** : `widget_header` remplace toute la ligne ; un mode
-  « widget pour certaines colonnes seulement » (le reste en texte triable) serait une
-  extension — non requis ici (l'app peut mettre un simple libellé-widget dans les autres).
-- **Réordonnancement d'en-têtes widget** : possible à l'avenir en exposant les hooks
-  `reorder_index`/`on_reorder` depuis les widgets fournis.
+- **Mixing text + widget per column**: `widget_header` replaces the whole row; a "widget for
+  some columns only" mode (the rest sortable text) would be an extension — not required here
+  (the app can put a plain label widget in the others).
+- **Reordering widget headers**: possible in future by exposing the `reorder_index`/`on_reorder`
+  hooks from the supplied widgets.

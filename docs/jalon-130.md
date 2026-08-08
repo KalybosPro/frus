@@ -1,74 +1,74 @@
-# Jalon 130 — Effets & souscriptions au Web
+# Jalon 130 — Effects & subscriptions on the Web
 
-## Analyse
+## Analysis
 
-Le jalon 129 a fait **compiler** toute la pile pour `wasm32-unknown-unknown` + WebGPU,
-mais la couche framework restait bornée aux plateformes natives sur un point : les
-**effets** (`Command`) et les **souscriptions** (`Subscription::every`) s'exécutaient
-sur `std::thread::spawn`. Or wasm32 est **mono-thread** — un `thread::spawn` y panique.
-Conséquence : sur le Web, une app purement pilotée par l'entrée (le compteur à boutons)
-tournait, mais toute app à effet ou à animation par souscription se serait effondrée au
-premier `update` renvoyant une `Command`, ou à la première souscription active.
+Milestone 129 got the whole stack **compiling** for `wasm32-unknown-unknown` + WebGPU,
+but the framework layer was still bound to native platforms on one point: **effects**
+(`Command`) and **subscriptions** (`Subscription::every`) ran on `std::thread::spawn`.
+wasm32 is **single-threaded** — a `thread::spawn` there panics. As a result, on the Web
+a purely input-driven app (the button counter) ran, but any app with an effect or a
+subscription-driven animation would have collapsed at the first `update` returning a
+`Command`, or at the first active subscription.
 
-Objectif : porter les deux mécanismes au Web **sans toucher l'API applicative** —
-`Command::perform`/`run` et `Subscription::every` restent identiques ; seule leur
-exécution diffère par plateforme.
+The goal: port both mechanisms to the Web **without touching the application API** —
+`Command::perform`/`run` and `Subscription::every` stay identical; only their execution
+differs per platform.
 
-## Décisions techniques
+## Technical decisions
 
-- **Effets → `spawn_local`.** Une `Command` est une liste de tâches synchrones
-  (`FnOnce() -> Option<Msg>`). Sur le Web, chaque tâche est planifiée sur la boucle via
-  `wasm_bindgen_futures::spawn_local` (une microtask) au lieu d'un thread ; son message
-  revient par le même `EventLoopProxy` que sur natif. Le travail reste **synchrone** (le
-  type `Task` ne peut pas `await`) — suffisant pour un effet de calcul ; un effet
-  réellement asynchrone (fetch réseau) demandera plus tard une variante `Command` dédiée.
+- **Effects → `spawn_local`.** A `Command` is a list of synchronous tasks
+  (`FnOnce() -> Option<Msg>`). On the Web, each task is scheduled onto the loop through
+  `wasm_bindgen_futures::spawn_local` (a microtask) instead of a thread; its message
+  comes back through the same `EventLoopProxy` as natively. The work stays **synchronous**
+  (the `Task` type cannot `await`) — enough for a compute effect; a genuinely
+  asynchronous effect (a network fetch) will later need a dedicated `Command` variant.
 
-- **Souscriptions → `setInterval`.** La souscription `every` tournait dans un thread
-  bouclant sur `recv_timeout`. Sur le Web, elle devient un **`setInterval` navigateur**
-  (`web-sys`) : à chaque tick, la callback émet le message via le proxy. L'**annulation**
-  — pierre angulaire du diff des souscriptions — est préservée par une poignée
-  `web_timer::Interval` dont le **drop** appelle `clearInterval` (et libère la closure
-  retenue). Symétrie exacte avec le natif, où le drop du `Sender` fait sortir le thread.
+- **Subscriptions → `setInterval`.** The `every` subscription ran in a thread looping on
+  `recv_timeout`. On the Web, it becomes a **browser `setInterval`** (`web-sys`): on each
+  tick, the callback emits the message through the proxy. **Cancellation** — the
+  cornerstone of subscription diffing — is preserved by a `web_timer::Interval` handle
+  whose **drop** calls `clearInterval` (and releases the retained closure). An exact
+  mirror of native, where dropping the `Sender` makes the thread exit.
 
-- **`SubHandle`, une poignée par plateforme.** `running_subs` mappe désormais chaque id
-  vers un `SubHandle` : `Sender<()>` en natif, `Option<web_timer::Interval>` sur le Web.
-  Le diff (`retain` + `insert`) et l'arrêt-par-drop restent identiques ; toute la logique
-  de `sync_subscriptions` est inchangée.
+- **`SubHandle`, one handle per platform.** `running_subs` now maps each id to a
+  `SubHandle`: `Sender<()>` natively, `Option<web_timer::Interval>` on the Web. The diff
+  (`retain` + `insert`) and stop-by-drop stay identical; all the `sync_subscriptions`
+  logic is unchanged.
 
-- **`web-time` pour l'horloge du tick.** Le `Instant` passé à la fabrique de message
-  (`make(Instant::now())`) vient de `web-time` — déjà en place depuis J129 — donc valide
-  sur les trois plateformes.
+- **`web-time` for the tick clock.** The `Instant` passed to the message factory
+  (`make(Instant::now())`) comes from `web-time` — in place since J129 — so it is valid
+  on all three platforms.
 
-- **Vitrine : mode auto dans `frus-hello`.** Le compteur gagne un bouton **Start/Stop
-  auto** : en mode auto, `subscription()` renvoie `every(1s, |_| Tick)` ; sinon
-  `none()`. C'est le plus petit exemple qui rend une souscription **visible** en
-  navigateur — et il se teste sans GPU (le diff de souscription est pur).
+- **Showcase: auto mode in `frus-hello`.** The counter gains a **Start/Stop auto**
+  button: in auto mode, `subscription()` returns `every(1s, |_| Tick)`; otherwise
+  `none()`. It is the smallest example that makes a subscription **visible** in a
+  browser — and it tests without a GPU (subscription diffing is pure).
 
-## Implémentation
+## Implementation
 
-- `frus-shell/src/app.rs` : module `web_timer` (Web) — `Interval` retenu, `clearInterval`
-  au drop ; type `SubHandle` par plateforme ; `run_command` et `start_subscription`
-  dédoublés natif/Web (`spawn_local` / `setInterval`) ; import `Sender`/`RecvTimeoutError`
-  restreint au natif.
-- `frus-shell/src/reload.rs` : `restore_from_env` (et l'import `Path`) restreints à leur
-  seul appelant, le `run` de bureau — supprime le code mort sur Android/Web.
-- `frus-hello/src/lib.rs` : état `auto`, messages `ToggleAuto`/`Tick`, `subscription()`
-  selon l'état, bouton de bascule, test `auto_mode_drives_the_subscription`.
+- `frus-shell/src/app.rs`: the `web_timer` module (Web) — a retained `Interval`,
+  `clearInterval` on drop; a per-platform `SubHandle` type; `run_command` and
+  `start_subscription` split native/Web (`spawn_local` / `setInterval`); the
+  `Sender`/`RecvTimeoutError` import restricted to native.
+- `frus-shell/src/reload.rs`: `restore_from_env` (and the `Path` import) restricted to
+  their only caller, the desktop `run` — removing dead code on Android/Web.
+- `frus-hello/src/lib.rs`: an `auto` state, the `ToggleAuto`/`Tick` messages,
+  `subscription()` following the state, the toggle button, the
+  `auto_mode_drives_the_subscription` test.
 
-## Vérification
+## Verification
 
-- **Compile** pour `wasm32-unknown-unknown` (effets + souscriptions inclus), **sans
+- **Compiles** for `wasm32-unknown-unknown` (effects + subscriptions included), **with no
   warning**.
-- **Natif intact** : `cargo test --workspace` reste **vert** (aucune régression), y
-  compris le nouveau test du mode auto.
-- Souscription **testée purement** : absente au repos, présente une fois `auto` activé,
-  un `Tick` incrémente, disparue à la coupure.
+- **Native intact**: `cargo test --workspace` stays **green** (no regression), including
+  the new auto-mode test.
+- The subscription is **tested purely**: absent at rest, present once `auto` is on, a
+  `Tick` increments, gone once switched off.
 
-## Reste
+## What's left
 
-- **Vérification en navigateur réel** (l'étape *voir*) : Start auto → le compteur
-  s'incrémente une fois par seconde, Stop → il s'arrête. Je ne peux pas lancer de
-  navigateur ici.
-- **Effet réellement asynchrone au Web** (fetch réseau) : demandera une variante
-  `Command` capable d'`await` (le `Task` actuel est synchrone).
-- Presse-papier / IME / accessibilité Web restent des chantiers distincts.
+- **Verification in a real browser** (the *seeing* step): Start auto → the counter
+  increments once a second, Stop → it stops. I cannot launch a browser here.
+- **A genuinely asynchronous effect on the Web** (a network fetch): will need a `Command`
+  variant able to `await` (the current `Task` is synchronous).
+- Clipboard / IME / accessibility on the Web remain separate pieces of work.

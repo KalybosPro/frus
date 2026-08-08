@@ -1,47 +1,46 @@
-# Jalon 146 — Sélecteur d'heure (`TimePicker`)
+# Jalon 146 — Time picker (`TimePicker`)
 
-## Analyse
+## Analysis
 
-Le `DatePicker` (calendrier mensuel) existait déjà, mais rien pour choisir une **heure**.
-Flutter a `showTimePicker` (cadran horaire) ; il manquait son pendant frus. On complète la
-famille « date/heure » par un sélecteur d'heure cohérent avec le calendrier.
+The `DatePicker` (a monthly calendar) already existed, but there was nothing to pick a
+**time**. The established counterpart is a clock-dial picker; frus had none. We complete
+the date/time family with a time picker consistent with the calendar.
 
-## Décisions techniques
+## Technical decisions
 
-- **Grilles plutôt que cadran.** Le cadran Material (aiguille, arc) est lourd à peindre et
-  peu lisible au clavier. On retient deux **grilles de cases** — heures `0–23`, minutes par
-  **pas de 5** — dans le même esprit visuel que les cases-jour du `DatePicker` (même
-  `TimeCell` surlignée `primary`, survol par couche d'état, coins arrondis). Simple,
-  lisible, cliquable, et déjà accessible au pointeur.
+- **Grids rather than a dial.** The Material dial (a hand, an arc) is heavy to paint and
+  poor at the keyboard. We settle on two **grids of cells** — hours `0–23`, minutes in
+  **steps of 5** — in the same visual spirit as the `DatePicker`'s day cells (the same
+  `TimeCell` highlighted in `primary`, hover through the state layer, rounded corners).
+  Simple, readable, clickable, and already accessible to the pointer.
 
-- **Contrôlé, comme le reste.** `TimePicker::new(hour, minute, on_hour, on_minute)` : l'heure
-  affichée vient de l'état applicatif ; le widget **émet** `on_hour(h)` / `on_minute(m)` au
-  clic et ne décide de rien. L'aperçu `HH:MM` reflète **exactement** `hour`/`minute`, même
-  quand la minute n'est pas un multiple de 5 (aucune case n'est alors allumée, mais l'aperçu
-  reste juste).
+- **Controlled, like everything else.**
+  `TimePicker::new(hour, minute, on_hour, on_minute)`: the displayed time comes from the
+  application state; the widget **emits** `on_hour(h)` / `on_minute(m)` on click and decides
+  nothing. The `HH:MM` preview reflects `hour`/`minute` **exactly**, even when the minute is
+  not a multiple of 5 (no cell is lit then, but the preview stays accurate).
 
-- **Composite, sans état.** Comme le `DatePicker`, le picker n'est qu'un assemblage
-  `[aperçu, section heures, section minutes]` (chaque section = libellé + `Grid`), bâti au
-  constructeur. Aucune logique temporelle : le pas des minutes est une simple constante
-  `MINUTE_STEP`.
+- **Composite, stateless.** Like the `DatePicker`, the picker is just an assembly of
+  `[preview, hours section, minutes section]` (each section = a label + a `Grid`), built in
+  the constructor. No time logic: the minute step is a plain `MINUTE_STEP` constant.
 
-## Implémentation
+## Implementation
 
-- `timepicker.rs` (nouveau) : `TimeCell<Msg>` (case cliquable surlignée) ; `TimePicker<Msg>`
-  assemblant l'aperçu et les deux grilles.
-- `lib.rs` : `mod timepicker;` + `pub use timepicker::TimePicker;`.
-- `goldens.rs` : golden `time_picker` (9 h 30 → heure `09` et minute `30` surlignées).
+- `timepicker.rs` (new): `TimeCell<Msg>` (a clickable, highlightable cell);
+  `TimePicker<Msg>` assembling the preview and the two grids.
+- `lib.rs`: `mod timepicker;` + `pub use timepicker::TimePicker;`.
+- `goldens.rs`: the `time_picker` golden (9:30 → hour `09` and minute `30` highlighted).
 
-## Vérification
+## Verification
 
-- **Unitaire** : structure `[aperçu, heures(24 cases), minutes(12 cases)]` ; l'aperçu
-  `09:30` est peint et une case sélectionnée est surlignée `primary` ; un clic sur une case
-  émet bien `Hour`/`Minute` (via `ui.hit` + `ui.msg_for`).
-- **Golden** `time_picker` rendu et **inspecté** : aperçu `09:30`, `09` et `30` allumés.
-  `cargo test --workspace` vert, aucun golden existant déplacé.
+- **Unit**: the `[preview, hours(24 cells), minutes(12 cells)]` structure; the `09:30`
+  preview is painted and a selected cell is highlighted in `primary`; a click on a cell does
+  emit `Hour`/`Minute` (through `ui.hit` + `ui.msg_for`).
+- **Golden** `time_picker` rendered and **inspected**: the `09:30` preview, `09` and `30`
+  lit. `cargo test --workspace` green, no existing golden moved.
 
-## Reste
+## What's left
 
-- **Minutes à la minute près** (aujourd'hui pas de 5) et **format 12 h (AM/PM)**.
-- **Cadran** optionnel et **saisie clavier** directe (`HH:MM`), façon Material 3.
-- **Combinaison date + heure** dans un même flux (`showDateTimePicker`).
+- **Minute-precise minutes** (today a step of 5) and a **12-hour format (AM/PM)**.
+- An optional **dial** and direct **keyboard entry** (`HH:MM`), Material 3 style.
+- **Combining date + time** in a single flow.

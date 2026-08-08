@@ -1,57 +1,56 @@
-# Jalon 155 — Réordonnancement des colonnes : aperçu glissant
+# Jalon 155 — Column reordering: sliding preview
 
-## Analyse
+## Analysis
 
-Le réordonnancement (jalon 153) fonctionnait « à l'aveugle » : on saisissait un en-tête,
-on relâchait, la colonne sautait. Sans **retour visuel** pendant le glissement, impossible
-de viser une position — le jalon 153 l'avait laissé au « Reste ».
+Reordering (milestone 153) worked "blind": you grabbed a header, you released, the column
+jumped. Without **visual feedback** during the drag, there was no way to aim at a position —
+milestone 153 had left it in "What's left".
 
-## Décisions techniques
+## Technical decisions
 
-- **Peint par le shell, par-dessus la scène.** Le glissement est un état du shell
-  (`Drag::Reorder`), pas de l'application ; l'aperçu doit donc vivre **hors de l'arbre**
-  contrôlé. On réutilise le patron de l'inspecteur : cloner la scène logique, **peindre
-  l'aperçu**, puis mettre à l'échelle physique. Aucune donnée d'aperçu ne remonte dans
-  `view`, cohérent avec l'architecture.
+- **Painted by the shell, over the scene.** The drag is shell state (`Drag::Reorder`), not
+  application state; so the preview must live **outside** the controlled tree. We reuse the
+  inspector's pattern: clone the logical scene, **paint the preview**, then scale to physical.
+  No preview data flows back into `view`, consistent with the architecture.
 
-- **Trois repères Material.** ① Colonne **source estompée** (elle quitte sa place) ;
-  ② **indicateur de dépôt** — barre verticale `primary` au bord d'insertion de la colonne
-  cible (gauche si la cible précède la source, droite sinon) ; ③ **carte soulevée** suivant
-  le curseur : la boîte de l'en-tête décalée de `dx`, avec **ombre portée** et **bord
-  accentué** (élévation façon `ReorderableListView`).
+- **Three Material cues.** ① The **source column dimmed** (it is leaving its place);
+  ② a **drop indicator** — a vertical `primary` bar at the target column's insertion edge
+  (left if the target precedes the source, right otherwise); ③ a **lifted card** following
+  the cursor: the header's box offset by `dx`, with a **drop shadow** and an **accented
+  edge** (elevation, reorderable-list style).
 
-- **Découpe neutralisée.** L'aperçu se dessine sous `Rect::UNBOUNDED` : la carte peut
-  déborder de la colonne source sans être rognée par la découpe héritée.
+- **Clipping neutralised.** The preview is drawn under `Rect::UNBOUNDED`: the card may
+  overflow the source column without being cropped by the inherited clip.
 
-- **Géométrie via le hit-test existant.** Les bornes de la source et de la cible viennent
-  de `Ui::widget_rect` (les en-têtes triables sont focusables → indexés). La cible est
-  résolue en direct par `reorderable_at(curseur)`. Zéro nouvel état.
+- **Geometry through the existing hit-test.** The source's and target's bounds come from
+  `Ui::widget_rect` (sortable headers are focusable → indexed). The target is resolved live by
+  `reorderable_at(cursor)`. Zero new state.
 
-- **Sans texte (assumé).** La carte reprend la boîte, pas le libellé (le shell n'a pas de
-  `label()` sur les widgets) : un rectangle soulevé + l'indicateur suffisent à viser. La
-  capture des primitives de l'en-tête pour un fantôme **texte compris** est notée au Reste
-  (elle bute sur la découpe stockée par primitive).
+- **Without text (accepted).** The card takes the box, not the label (the shell has no
+  `label()` on widgets): a lifted rectangle + the indicator is enough to aim. Capturing the
+  header's primitives for a ghost **including text** is noted in What's left (it runs into the
+  clip stored per primitive).
 
-## Implémentation
+## Implementation
 
-- `app.rs` (shell) : `draw_reorder_overlay(scene, theme, src, dx, drop)` — **fonction pure**
-  (estompe + indicateur optionnel + ombre + carte) ; `paint_reorder_preview` calcule la
-  géométrie (source, cible, `dx`) et l'appelle ; branche de rendu : si un
-  `Drag::Reorder { moved: true }` est actif, cloner → peindre → mettre à l'échelle ;
-  `handle_drag` redessine à chaque déplacement pour que la carte suive le curseur.
+- `app.rs` (shell): `draw_reorder_overlay(scene, theme, src, dx, drop)` — a **pure function**
+  (the dim + an optional indicator + a shadow + the card); `paint_reorder_preview` computes
+  the geometry (source, target, `dx`) and calls it; the rendering branch: if a
+  `Drag::Reorder { moved: true }` is active, clone → paint → scale; `handle_drag` redraws on
+  every move so the card follows the cursor.
 
-## Vérification
+## Verification
 
-- **Unitaire** (`draw_reorder_overlay`, sans GPU) : avec cible → **4** primitives (estompe +
-  indicateur + ombre + carte) ; sans cible (même colonne) → **3** (pas d'indicateur). La
-  fonction pure isole la forme du chemin d'événements.
-- **Non golden** : l'aperçu est **interactif** (piloté par le glissement), pas un rendu
-  statique ; sa forme est couverte par le test ci-dessus, et le routage (jalon 153) l'est
-  par les tests de contrat du tableau.
-- `cargo test --workspace` **vert**, sans avertissement.
+- **Unit** (`draw_reorder_overlay`, no GPU): with a target → **4** primitives (dim +
+  indicator + shadow + card); with no target (the same column) → **3** (no indicator). The
+  pure function isolates the shape from the event path.
+- **Not a golden**: the preview is **interactive** (driven by the drag), not a static
+  rendering; its shape is covered by the test above, and the routing (milestone 153) by the
+  table's contract tests.
+- `cargo test --workspace` **green**, with no warning.
 
-## Reste
+## What's left
 
-- **Fantôme texte compris** : capturer les primitives de l'en-tête (`owner == id`), les
-  translater et les **dé-découper** (aujourd'hui chaque primitive porte sa propre découpe).
-- **Décalage animé des voisines** (elles s'écartent pour ouvrir la place de dépôt).
+- A **ghost including text**: capture the header's primitives (`owner == id`), translate them
+  and **un-clip** them (today each primitive carries its own clip).
+- An **animated shift of the neighbours** (they part to open the drop slot).

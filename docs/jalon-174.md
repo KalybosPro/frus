@@ -1,52 +1,53 @@
-# Jalon 174 — Piège de focus des menus ouverts
+# Jalon 174 — Focus trap for open menus
 
-## Analyse
+## Analysis
 
-Les overlays **modaux** (voilés : modale, tiroir) **piégeaient** déjà le focus clavier —
-Tab/flèches bouclent dans leurs focusables tant qu'ils sont ouverts (scope de focus). Mais
-les overlays **ancrés** (`Placement::Below`) ne piégeaient pas : un **menu** ouvert (menu de
-colonne du jalon 172, menu flottant) laissait Tab s'échapper vers la page derrière. Le motif
-clavier attendu d'un menu est pourtant : focus **dans** les items, Échap pour sortir.
+**Modal** overlays (scrimmed: a modal, a drawer) already **trapped** keyboard focus —
+Tab/arrows loop through their focusables while they are open (a focus scope). But **anchored**
+overlays (`Placement::Below`) did not trap: an open **menu** (the column menu from milestone
+172, a floating menu) let Tab escape to the page behind. Yet the expected keyboard pattern for a
+menu is: focus **inside** the items, Escape to leave.
 
-Piéger **tous** les overlays ancrés serait faux : un **tooltip** ne prend pas le focus, et la
-liste d'une **autocomplétion** garde le focus sur le champ (les flèches y naviguent les
-suggestions). Il fallait donc un piège **opt-in**.
+Trapping **every** anchored overlay would be wrong: a **tooltip** does not take the focus, and
+an **autocomplete**'s list keeps the focus on the field (the arrows navigate the suggestions from
+there). So the trap had to be **opt-in**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Opt-in via `Widget::overlay_traps_focus()`.** Nouvelle méthode de trait (défaut `false`,
-  forwardée `Box`/`Keyed`/`Responsive`). Un overlay ancré ne piège le focus que s'il la
-  renvoie `true`. Les overlays **modaux** piègent toujours (inchangé).
+- **Opt-in through `Widget::overlay_traps_focus()`.** A new trait method (default `false`,
+  forwarded by `Box`/`Keyed`/`Responsive`). An anchored overlay only traps the focus if it
+  returns `true`. **Modal** overlays always trap (unchanged).
 
-- **Seul le `Menu` s'y inscrit (pour l'instant).** `Menu::overlay_traps_focus` renvoie
-  `self.open` : un menu **ouvert** piège ses items ; fermé, non. `Échap` / clic extérieur
-  ferme via `on_dismiss` (déjà en place) — pas de cul-de-sac. `Dropdown`, `Autocomplete`,
-  tooltips gardent le défaut `false` (comportement inchangé).
+- **Only `Menu` opts in (for now).** `Menu::overlay_traps_focus` returns `self.open`: an
+  **open** menu traps its items; closed, it does not. `Escape` / an outside click closes it
+  through `on_dismiss` (already in place) — no dead end. `Dropdown`, `Autocomplete` and tooltips
+  keep the `false` default (behaviour unchanged).
 
-- **Drapeau porté par l'overlay différé.** Le tuple d'overlay différé gagne un booléen
-  `traps`, lu du widget porteur au moment de l'empiler ; à la pose, le scope de focus démarre
-  si l'overlay est **modal OU piégeant**.
+- **A flag carried by the deferred overlay.** The deferred overlay tuple gains a `traps`
+  boolean, read from the carrying widget when it is pushed; when it is placed, the focus scope
+  starts if the overlay is **modal OR trapping**.
 
-## Implémentation
+## Implementation
 
-- `widget.rs` : `overlay_traps_focus()` (défaut `false`) + forwarders (`Box`, `keyed.rs`,
+- `widget.rs`: `overlay_traps_focus()` (default `false`) + forwarders (`Box`, `keyed.rs`,
   `responsive.rs`).
-- `menu.rs` : `Menu::overlay_traps_focus` = `self.open`.
-- `ui.rs` : booléen `traps` dans le tuple d'overlay différé (type + `push` + `pop`) ; le
-  scope de focus démarre si `modal || traps`.
+- `menu.rs`: `Menu::overlay_traps_focus` = `self.open`.
+- `ui.rs`: the `traps` boolean in the deferred overlay tuple (the type + `push` + `pop`); the
+  focus scope starts if `modal || traps`.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `open_menu_traps_focus_in_its_items` — un `Menu` ouvert piège Tab dans ses
-  items (« one » → « two » → boucle), le fond est hors scope (pointeur) ; un menu **fermé**
-  ne piège pas (Tab commence au fond).
-- Non-régression : `modal_traps_tab_arrows_and_pointer_focus` (modales) et les tests
-  d'autocomplétion/tooltip restent **verts** (ils ne piègent pas). `cargo test --workspace` **vert**.
+- **Unit**: `open_menu_traps_focus_in_its_items` — an open `Menu` traps Tab within its items
+  ("one" → "two" → loop), the background is out of scope (pointer); a **closed** menu does not
+  trap (Tab starts at the background).
+- No regression: `modal_traps_tab_arrows_and_pointer_focus` (modals) and the
+  autocomplete/tooltip tests stay **green** (they do not trap). `cargo test --workspace`
+  **green**.
 
-## Reste
+## What's left
 
-- **`Dropdown` en menu de colonne** : lui faire renvoyer `overlay_traps_focus` selon son
-  état ouvert le piégerait aussi — à activer si l'UX le demande (la sélection unique diffère
-  d'un menu d'actions).
-- **Retour du focus à l'ancre** à la fermeture du menu : le shell pourrait restaurer le focus
-  sur le déclencheur (motif complet « roving focus ») — extension.
+- **`Dropdown` as a column menu**: having it return `overlay_traps_focus` from its open state
+  would trap it too — to be enabled if the UX calls for it (single selection differs from an
+  action menu).
+- **Returning focus to the anchor** when the menu closes: the shell could restore the focus to
+  the trigger (the full "roving focus" pattern) — an extension.

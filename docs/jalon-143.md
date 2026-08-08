@@ -1,54 +1,52 @@
-# Jalon 143 — Saut de mot (Ctrl+Flèches) & bornes de champ (Ctrl+Début/Fin)
+# Jalon 143 — Word jump (Ctrl+Arrows) & field bounds (Ctrl+Home/End)
 
-## Analyse
+## Analysis
 
-La navigation clavier du champ texte s'arrêtait au caractère (Gauche/Droite) et au champ
-entier (Début/Fin). Manquaient les raccourcis d'éditeur attendus :
+Keyboard navigation in the text field stopped at the character (Left/Right) and the whole
+field (Home/End). The expected editor shortcuts were missing:
 
-- **Ctrl+Gauche / Ctrl+Droite** : sauter d'un **mot** à la fois.
-- **Ctrl+Début / Ctrl+Fin** : aller au **début / à la fin du champ** entier — et, corollaire
-  en multi-lignes, **Début/Fin simples** devraient viser la **ligne courante**, pas tout le
-  champ.
+- **Ctrl+Left / Ctrl+Right**: jump one **word** at a time.
+- **Ctrl+Home / Ctrl+End**: go to the **start / end of the whole field** — and, as a
+  corollary in multi-line mode, plain **Home/End** should target the **current line**, not
+  the whole field.
 
-## Décisions techniques
+## Technical decisions
 
-- **Le modificateur voyage avec la touche.** Plutôt que d'ajouter des variantes de `Key`,
-  on enrichit les existantes : `Key::Left/Right { shift, word }` et
-  `Key::Home/End { shift, doc }`. Le shell remplit `word`/`doc` depuis `self.ctrl` (déjà
-  suivi via `ModifiersChanged`). Le widget reste seul juge du **sens** de ces drapeaux.
+- **The modifier travels with the key.** Rather than adding `Key` variants, we enrich the
+  existing ones: `Key::Left/Right { shift, word }` and `Key::Home/End { shift, doc }`. The
+  shell fills `word`/`doc` from `self.ctrl` (already tracked through `ModifiersChanged`).
+  The widget remains the sole judge of what those flags **mean**.
 
-- **Frontières de mot façon éditeur.** Un caractère « de mot » = alphanumérique ou `_`.
-  À gauche on saute d'abord les séparateurs puis le mot (arrêt **au début** du mot
-  précédent) ; à droite, séparateurs puis mot (arrêt **après** le mot suivant). Deux
-  helpers purs sur `&[char]`, indices en caractères comme le reste de l'édition.
+- **Editor-style word boundaries.** A "word" character = alphanumeric or `_`. Going left we
+  first skip separators then the word (stopping **at the start** of the previous word);
+  going right, separators then the word (stopping **after** the next word). Two pure helpers
+  over `&[char]`, character indices like the rest of the editing.
 
-- **Début/Fin deviennent relatifs à la ligne.** `line_start`/`line_end` scannent le `\n`
-  encadrant le curseur. En champ **mono-ligne**, bornes de ligne = bornes du champ : le
-  comportement antérieur est préservé sans cas particulier. `doc` (Ctrl) court-circuite
-  vers `0` / `len`.
+- **Home/End become line-relative.** `line_start`/`line_end` scan for the `\n` bracketing
+  the cursor. In a **single-line** field, the line bounds are the field bounds: the previous
+  behaviour is preserved with no special case. `doc` (Ctrl) short-circuits to `0` / `len`.
 
-- **Sélection au Shift inchangée.** Tous ces déplacements passent par `move_cursor`, donc
-  `Shift` étend la sélection (saut de mot / bond de ligne sélectionnent), sans code en
-  plus.
+- **Shift selection unchanged.** All these moves go through `move_cursor`, so `Shift`
+  extends the selection (a word jump / line leap selects), with no extra code.
 
-## Implémentation
+## Implementation
 
-- `interaction.rs` : `Key::Left/Right` gagnent `word`, `Home/End` gagnent `doc`.
-- `textinput.rs` : helpers `is_word`, `word_boundary_left/right`, `line_start/line_end` ;
-  branches `on_edit` correspondantes.
-- `app.rs` : mappe Ctrl → `word`/`doc` en construisant les `Key`.
+- `interaction.rs`: `Key::Left/Right` gain `word`, `Home/End` gain `doc`.
+- `textinput.rs`: the `is_word`, `word_boundary_left/right`, `line_start/line_end` helpers;
+  the corresponding `on_edit` branches.
+- `app.rs`: maps Ctrl → `word`/`doc` when building the `Key`s.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `"foo bar baz"` — Ctrl+Left s'arrête au début de chaque mot, Ctrl+Right
-  après chaque mot ; `"ab\ncd\nef"` — Début/Fin simples bornent la **2e ligne** (3 / 5),
-  Ctrl+Début/Fin bornent le **champ** (0 / 8). Les tests Shift+Flèche et Home/End existants
-  restent verts après l'ajout des drapeaux.
-- **Non-régression** : `cargo test --workspace` vert, aucun golden déplacé.
+- **Unit**: `"foo bar baz"` — Ctrl+Left stops at each word's start, Ctrl+Right after each
+  word; `"ab\ncd\nef"` — plain Home/End bound the **2nd line** (3 / 5), Ctrl+Home/End bound
+  the **field** (0 / 8). The existing Shift+Arrow and Home/End tests stay green after the
+  flags were added.
+- **No regression**: `cargo test --workspace` green, no golden moved.
 
-## Reste
+## What's left
 
-- **Ctrl+Retour arrière / Ctrl+Suppr** : effacer le mot précédent / suivant (réutiliserait
+- **Ctrl+Backspace / Ctrl+Delete**: delete the previous / next word (would reuse
   `word_boundary_*`).
-- **Double/triple-clic** : le mot est déjà sélectionné au double-clic (shell) ; un
-  triple-clic pour la ligne resterait à faire.
+- **Double/triple click**: a double click already selects the word (shell); a triple click
+  for the line is still to do.

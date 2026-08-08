@@ -1,55 +1,53 @@
-# Jalon 147 — Flux date + heure, minutes fines & 12 h AM/PM
+# Jalon 147 — Date + time flow, fine-grained minutes & 12-hour AM/PM
 
-## Analyse
+## Analysis
 
-Le `DatePicker` (calendrier) et le `TimePicker` (heure) existaient séparément. Il manquait
-le **flux combiné** façon `showDateTimePicker`, et le `TimePicker` était rigide : 24 h
-uniquement, minutes figées au pas de 5. On complète la famille date/heure.
+The `DatePicker` (calendar) and the `TimePicker` (time) existed separately. The
+**combined flow** was missing, and the `TimePicker` was rigid: 24-hour only, minutes frozen
+at a step of 5. We round out the date/time family.
 
-## Décisions techniques
+## Technical decisions
 
-- **`TimePicker` reconstruit son arbre.** Comme le `Table` (jalon 145), le picker stocke
-  désormais son état (`hour`, `minute`, rappels) + ses options et **régénère** ses enfants
-  (`rebuild`) : cela ouvre des réglages fluides (`hour12`, `minute_step`) sans multiplier
-  les constructeurs.
+- **`TimePicker` rebuilds its tree.** Like the `Table` (milestone 145), the picker now
+  stores its state (`hour`, `minute`, callbacks) + its options and **regenerates** its
+  children (`rebuild`): that opens the way to fluent settings (`hour12`, `minute_step`)
+  without multiplying constructors.
 
-- **12 h propre, un seul rappel 24 h.** En `hour12`, la grille passe de 0–23 à **1–12** et
-  une **bascule AM/PM** apparaît. Le widget reste piloté par une heure **24 h** unique :
-  chaque case 1–12 vise l'heure 24 h de la moitié courante, et AM/PM bascule l'heure
-  courante d'±12 h. L'application ne gère donc qu'un seul `on_hour(h24)` — la conversion
-  12 h ↔ 24 h est interne (`digit12`).
+- **Clean 12-hour, a single 24-hour callback.** In `hour12`, the grid goes from 0–23 to
+  **1–12** and an **AM/PM toggle** appears. The widget is still driven by a single **24-hour**
+  hour: each 1–12 cell targets the 24-hour hour of the current half, and AM/PM shifts the
+  current hour by ±12. So the application only handles one `on_hour(h24)` — the 12↔24
+  conversion is internal (`digit12`).
 
-- **Pas des minutes réglable.** `minute_step(n)` (borné 1–60) contrôle la granularité ;
-  la sélection ne s'allume que si la minute courante tombe sur un pas (l'aperçu, lui, reste
-  exact).
+- **An adjustable minute step.** `minute_step(n)` (clamped 1–60) controls the granularity;
+  the selection only lights up if the current minute falls on a step (the preview stays
+  exact regardless).
 
-- **`DateTimePicker` purement composite.** Il n'ajoute aucune logique : il empile le
-  `DatePicker` et le `TimePicker`, relaie leurs quatre rappels (`on_day`, `on_nav`,
-  `on_hour`, `on_minute`), et coiffe le tout d'un **récapitulatif** « Mois jour, année
-  HH:MM » — affiché seulement quand un jour est choisi. L'état (date, heure) reste dans
-  l'application.
+- **`DateTimePicker`, purely composite.** It adds no logic: it stacks the `DatePicker` and
+  the `TimePicker`, forwards their four callbacks (`on_day`, `on_nav`, `on_hour`,
+  `on_minute`), and tops it all with a **summary** "Month day, year HH:MM" — shown only
+  once a day is picked. The state (date, time) stays in the application.
 
-## Implémentation
+## Implementation
 
-- `timepicker.rs` : passage à un `rebuild` ; options `hour12()` et `minute_step(n)` ;
-  bascule AM/PM + grille 1–12 ; aperçu 12 h/24 h ; helper `digit12`.
-- `datetimepicker.rs` (nouveau) : `DateTimePicker` combinant les deux sous-sélecteurs +
-  récapitulatif.
-- `lib.rs` : `mod datetimepicker;` + export `DateTimePicker`.
-- `goldens.rs` : goldens `time_picker_12h` et `date_time_picker`.
+- `timepicker.rs`: moved to a `rebuild`; the `hour12()` and `minute_step(n)` options; the
+  AM/PM toggle + the 1–12 grid; a 12/24-hour preview; the `digit12` helper.
+- `datetimepicker.rs` (new): `DateTimePicker` combining the two sub-pickers + the summary.
+- `lib.rs`: `mod datetimepicker;` + the `DateTimePicker` export.
+- `goldens.rs`: the `time_picker_12h` and `date_time_picker` goldens.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `minute_step(15)` → 4 minutes ; `hour12()` → grille de 12 + rangée AM/PM,
-  aperçu `3:05 PM` pour 15 h 05 ; aperçu 24 h `09:30` ; clic → message ; le
-  `DateTimePicker` n'affiche le récapitulatif que si un jour est choisi et rend
-  « July 11, 2026  09:30 ».
-- **Golden** : `time_picker_12h` (PM, heure 3, minute 05 allumées) et `date_time_picker`
-  (récap + calendrier au 11 + heure 09:30) rendus et **inspectés**. Le golden 24 h existant
-  (`time_picker`) reste identique. `cargo test --workspace` vert.
+- **Unit**: `minute_step(15)` → 4 minutes; `hour12()` → a grid of 12 + an AM/PM row, a
+  `3:05 PM` preview for 15:05; a 24-hour `09:30` preview; a click → a message; the
+  `DateTimePicker` only shows the summary once a day is picked and renders
+  "July 11, 2026  09:30".
+- **Golden**: `time_picker_12h` (PM, hour 3, minute 05 lit) and `date_time_picker` (the
+  summary + the calendar on the 11th + the time 09:30) rendered and **inspected**. The
+  existing 24-hour golden (`time_picker`) is unchanged. `cargo test --workspace` green.
 
-## Reste
+## What's left
 
-- **Cadran horaire** optionnel et **saisie clavier** `HH:MM` (Material 3).
-- **Validation d'un flux complet** (bouton « OK/Annuler », renvoi d'un `(date, heure)`
-  unique) — ici les deux moitiés émettent indépendamment.
+- An optional **clock dial** and **keyboard entry** of `HH:MM` (Material 3).
+- **Validating a complete flow** (an "OK/Cancel" button, returning a single `(date, time)`)
+  — here the two halves emit independently.

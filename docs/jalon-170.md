@@ -1,47 +1,47 @@
-# Jalon 170 — Tableau : widget d'action dans l'en-tête
+# Jalon 170 — Table: action widget in the header
 
-## Analyse
+## Analysis
 
-Un en-tête savait porter un libellé et, depuis le jalon 168, une icône décorative — mais
-tout l'en-tête n'était qu'**une seule zone cliquable** (le tri). Les grilles réelles posent
-souvent un **bouton** dans l'en-tête (filtre, menu de colonne) qui doit réagir **pour
-lui-même**, sans déclencher le tri. Il fallait un **widget d'action** en en-tête, cliquable
-indépendamment, **tout en conservant** tri et réordonnancement sur le reste de la cellule.
+A header could carry a label and, since milestone 168, a decorative icon — but the whole
+header was only **one clickable area** (the sort). Real grids often put a **button** in the
+header (a filter, a column menu) that must react **for itself**, without triggering the sort. An
+**action widget** in the header was needed, clickable independently, **while keeping** sorting
+and reordering on the rest of the cell.
 
-## Décisions techniques
+## Technical decisions
 
-- **L'action est un *enfant* de la cellule, pas une superposition.** Plutôt qu'un calque
-  flottant (qui aurait exigé de connaître les bords de colonnes, donc des largeurs fixes),
-  le widget d'action devient un **enfant** de la `Cell` d'en-tête, posé à **droite**
-  (`justify: End`). Le hit-test descend au **plus profond** : cliquer le bouton renvoie
-  **son** message ; cliquer ailleurs dans l'en-tête renvoie celui de la cellule (le tri).
-  Aucune géométrie de bords requise — marche pour toute largeur (fixe **ou** flexible).
+- **The action is a *child* of the cell, not an overlay.** Rather than a floating layer (which
+  would have required knowing the column edges, hence fixed widths), the action widget becomes a
+  **child** of the header `Cell`, placed on the **right** (`justify: End`). The hit-test goes
+  **deepest**: clicking the button returns **its** message; clicking elsewhere in the header
+  returns the cell's (the sort). No edge geometry required — it works at any width (fixed **or**
+  flexible).
 
-- **Fabrique par colonne, rappelée à chaque reconstruction.** `Table::header_action(col,
-  make)` stocke une fabrique `Fn() -> Box<dyn Widget>` (comme les cellules-widgets) :
-  le tableau se rebâtissant à chaque réglage, elle produit un widget **frais**. Le libellé
-  triable, l'icône et l'indicateur de tri restent peints à gauche ; l'action flotte à droite.
+- **A factory per column, called back at each rebuild.** `Table::header_action(col, make)`
+  stores a `Fn() -> Box<dyn Widget>` factory (like the widget cells): since the table rebuilds
+  itself at each setting, it produces a **fresh** widget. The sortable label, the icon and the
+  sort indicator stay painted on the left; the action floats on the right.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : champ `Cell.action: Vec<Box<dyn Widget>>` (0/1, exposé via `children`) ;
-  `Cell::style` bascule en `justify: End` quand une action est présente ; champ
-  `Table.header_actions` + builder `header_action(col, make)` ; câblage dans `rebuild`.
-- `goldens.rs` : `table_header_action` (bouton « Filter » à droite de l'en-tête « Status »).
+- `table.rs`: the `Cell.action: Vec<Box<dyn Widget>>` field (0/1, exposed through `children`);
+  `Cell::style` switches to `justify: End` when an action is present; the `Table.header_actions`
+  field + the `header_action(col, make)` builder; wiring in `rebuild`.
+- `goldens.rs`: `table_header_action` (a "Filter" button to the right of the "Status" header).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `header_action_widget_captures_its_click` — la cellule d'en-tête porte
-  l'action ; un clic sur le bouton renvoie **son** message (`Filter`), un clic ailleurs dans
-  l'en-tête **trie** (`Sort(1)`).
-- **Golden** `table_header_action` **inspecté** : bouton « Filter » à droite de l'en-tête,
-  indicateur de tri ▲ conservé sur « Name » — aucune régression sur les autres goldens.
-- `cargo test --workspace` **vert**.
+- **Unit**: `header_action_widget_captures_its_click` — the header cell carries the action; a
+  click on the button returns **its** message (`Filter`), a click elsewhere in the header
+  **sorts** (`Sort(1)`).
+- **Golden** `table_header_action` **inspected**: a "Filter" button to the right of the header,
+  the ▲ sort indicator preserved on "Name" — no regression on the other goldens.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Focus clavier de l'action** : le bouton se clique à la souris ; l'atteindre au Tab
-  suppose que le widget fourni soit `focusable` (le cas des boutons frus). RAS à faire côté
-  tableau, à garder à l'esprit pour un menu déroulant piloté au clavier.
-- **En-tête *entièrement* remplacé par un widget** (sans libellé texte du tout) : possible
-  extension via une `widget_header`, si un cas concret le demande.
+- **Keyboard focus for the action**: the button is clickable with the mouse; reaching it on Tab
+  assumes the supplied widget is `focusable` (which frus buttons are). Nothing to do table-side,
+  worth keeping in mind for a keyboard-driven dropdown.
+- A header ***entirely* replaced by a widget** (with no text label at all): a possible extension
+  through a `widget_header`, should a concrete case call for it.

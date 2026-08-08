@@ -1,56 +1,56 @@
-# Jalon 157 — Curseur de plage : poignée collante & pas discret
+# Jalon 157 — Range slider: sticky handle & discrete step
 
-## Analyse
+## Analysis
 
-Le `RangeSlider` (jalon 156) était un **widget feuille** utilisant `on_drag(fraction)` :
-la fraction déplaçait la poignée la **plus proche**. Deux limites notées au « Reste » :
+`RangeSlider` (milestone 156) was a **leaf widget** using `on_drag(fraction)`: the fraction
+moved the **nearest** handle. Two limits noted in "What's left":
 
-- **Pas collant.** Une fois une poignée saisie, franchir l'autre lui faisait « passer la
-  main » (le geste changeait de poignée) — Material garde la poignée saisie **sélectionnée**.
-- **Course continue** seulement (pas de pas discret).
+- **Not sticky.** Once a handle was grabbed, crossing the other made the gesture "hand over"
+  to it — Material keeps the grabbed handle **selected**.
+- **Continuous travel** only (no discrete step).
 
-Le nœud : `on_drag(fraction)` est **sans mémoire** de la poignée saisie ; un widget feuille
-ne peut pas savoir laquelle a été prise à l'appui.
+The crux: `on_drag(fraction)` has **no memory** of the grabbed handle; a leaf widget cannot
+know which one was taken on press.
 
-## Décisions techniques
+## Technical decisions
 
-- **Deux poignées glissables distinctes.** `RangeSlider` devient **composite** : il peint
-  la piste + le segment actif, et ses enfants sont **deux `RangeThumb`** posés le long de
-  la piste par des cales (`Spacer`). Chaque poignée est un **widget glissable** à part :
-  saisir une poignée glisse **cette** poignée — la stickiness est **structurelle**, sans
-  état de glissement supplémentaire. Le croisement est exclu par bornage (`low` borné par
-  `high` et vice-versa).
+- **Two separate draggable handles.** `RangeSlider` becomes **composite**: it paints the
+  track + the active segment, and its children are **two `RangeThumb`s** placed along the
+  track by shims (`Spacer`). Each handle is a **draggable widget** of its own: grabbing a
+  handle drags **that** handle — the stickiness is **structural**, with no extra drag state.
+  Crossing is ruled out by clamping (`low` clamped by `high` and vice versa).
 
-- **Delta, pas fraction.** Chaque poignée utilise `on_drag_delta(dx)` (jalon 151) : `dx`
-  converti en fraction via la largeur de piste, **accumulé** sur la valeur du côté saisi.
-  Contrairement à `on_drag(fraction)` — qui saturerait sur la petite boîte d'une poignée —
-  le delta est insensible à la taille du widget. API inchangée : `on_change(low, high)`
-  (le widget calcule l'absolu depuis son état courant).
+- **Delta, not fraction.** Each handle uses `on_drag_delta(dx)` (milestone 151): `dx`
+  converted to a fraction through the track width, **accumulated** onto the grabbed side's
+  value. Unlike `on_drag(fraction)` — which would saturate on a handle's small box — the delta
+  is insensitive to the widget's size. The API is unchanged: `on_change(low, high)` (the
+  widget computes the absolute from its current state).
 
-- **Pas discret.** `divisions(n)` accroche la valeur glissée à `k/n` (arrondi), appliqué
-  après bornage.
+- **A discrete step.** `divisions(n)` snaps the dragged value to `k/n` (rounded), applied
+  after clamping.
 
-## Implémentation
+## Implementation
 
-- `slider.rs` : `Spacer` (cale inerte) ; `Side` (bas/haut) ; `RangeThumb` (glissable,
-  `on_drag_delta` → `on_change(low, high)` borné + accroché) ; `RangeSlider` composite
-  (`divisions`, `rebuild` posant les poignées, peint piste + segment, enfants = poignées).
+- `slider.rs`: `Spacer` (an inert shim); `Side` (low/high); `RangeThumb` (draggable,
+  `on_drag_delta` → `on_change(low, high)` clamped + snapped); a composite `RangeSlider`
+  (`divisions`, `rebuild` placing the handles, painting the track + segment, children = the
+  handles).
 
-## Vérification
+## Verification
 
-- **Unitaire** : chaque poignée déplace **son** côté (+22 px = +0.1 : bas 0.2→0.3, haut
-  inchangé ; −22 px : haut 0.8→0.7) ; **collant** — la poignée basse poussée à fond
-  s'arrête au haut (0.8, 0.8) sans le pousser ; delta nul → aucun message ; `divisions(10)`
-  accroche +0.125 → **0.1** ; `new(0.9, 0.1)` réordonne en `(0.1, 0.9)`.
-- **Golden** `range_slider` **inchangé** (rendu pixel-identique : le composite peint la
-  même piste + segment + deux poignées).
-- `cargo test --workspace` **vert**.
+- **Unit**: each handle moves **its** side (+22 px = +0.1: low 0.2→0.3, high unchanged;
+  −22 px: high 0.8→0.7); **sticky** — the low handle pushed all the way stops at the high one
+  (0.8, 0.8) without pushing it; a null delta → no message; `divisions(10)` snaps +0.125 →
+  **0.1**; `new(0.9, 0.1)` reorders into `(0.1, 0.9)`.
+- **Golden** `range_slider` **unchanged** (pixel-identical rendering: the composite paints the
+  same track + segment + two handles).
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Infobulle de valeur** au survol / pendant le glissement (bulle au-dessus de la poignée)
-  — demande un overlay conditionné par l'état de survol (aujourd'hui `overlay()` est
-  structurel, pas piloté par le `Status`).
-- **Clic sur la piste** pour rapprocher la poignée la plus proche (perdu en passant au
-  composite : seules les poignées sont interactives).
-- **Grossissement de la poignée** au survol / focus, et **navigation clavier** (flèches).
+- A **value tooltip** on hover / during the drag (a bubble above the handle) — requires an
+  overlay conditioned on the hover state (today `overlay()` is structural, not driven by
+  `Status`).
+- **Clicking the track** to bring the nearest handle over (lost in the move to a composite:
+  only the handles are interactive).
+- **Growing the handle** on hover / focus, and **keyboard navigation** (arrows).

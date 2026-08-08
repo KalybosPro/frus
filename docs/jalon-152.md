@@ -1,54 +1,55 @@
-# Jalon 152 — Autocomplétion : mise en avant du texte & suggestion active
+# Jalon 152 — Autocomplete: text highlighting & active suggestion
 
-## Analyse
+## Analysis
 
-L'`Autocomplete` (jalons antérieurs, largeur réglée au jalon 150) affichait ses
-suggestions en texte **uni**, sans deux repères attendus d'un champ Material :
+`Autocomplete` (earlier milestones, its width settable since milestone 150) showed its
+suggestions in **plain** text, without two cues expected of a Material field:
 
-- **Mise en avant** de la portion du libellé qui **correspond** à la requête (le « pourquoi
-  ça matche »).
-- **Suggestion active** surlignée — celle qui serait choisie, parcourue au clavier.
+- **Highlighting** the part of the label that **matches** the query (the "why it matches").
+- An **active suggestion** highlighted — the one that would be chosen, walked from the
+  keyboard.
 
-Le jalon 150 les avait notés dans son « Reste », avec « descente clavier depuis le champ ».
+Milestone 150 had noted both in its "What's left", along with "keyboard descent from the
+field".
 
-## Décisions techniques
+## Technical decisions
 
-- **Mise en avant par segments.** La suggestion découpe son libellé en trois segments
-  `[avant | correspondance | après]` (recherche de sous-chaîne **insensible à la casse**,
-  indices de **caractères** — robuste hors ASCII) et dessine la correspondance en couleur
-  `primary`, le reste en `on_surface`. Trois appels `text()` calés par mesure de largeur ;
-  la correspondance peut être **au milieu** du mot (ex. « gr**ap**e »).
+- **Highlighting by segments.** The suggestion splits its label into three segments
+  `[before | match | after]` (a **case-insensitive** substring search, **character**
+  indices — robust outside ASCII) and draws the match in the `primary` colour, the rest in
+  `on_surface`. Three `text()` calls positioned by width measurement; the match may be **in
+  the middle** of a word (e.g. "gr**ap**e").
 
-- **Suggestion active, comme le Dropdown.** `active(index)` : la suggestion d'index actif
-  reçoit le **fond teinté** `surface.lerp(primary, 0.14)` (survol par-dessus), exactement
-  comme l'option sélectionnée d'un `Dropdown` — cohérence visuelle du framework.
+- **An active suggestion, like the Dropdown.** `active(index)`: the suggestion at the active
+  index gets the **tinted background** `surface.lerp(primary, 0.14)` (hover on top), exactly
+  like a `Dropdown`'s selected option — visual consistency across the framework.
 
-- **Descente clavier : déjà là.** Nul besoin de toucher au routage clavier du shell : les
-  suggestions sont **focusables**, donc la flèche bas depuis le champ mono-ligne (dont le
-  déplacement vertical du curseur retourne `None` en bordure) **navigue le focus** vers la
-  première suggestion ; Entrée la choisit (le shell active tout `on_click` focalisé). L'app
-  garde le modèle « actif » (index surligné) si elle préfère piloter au clavier sans
-  déplacer le focus. Vérifié par un test de cycle de focus.
+- **Keyboard descent: already there.** No need to touch the shell's keyboard routing: the
+  suggestions are **focusable**, so the down arrow from the single-line field (whose vertical
+  cursor move returns `None` at the boundary) **navigates the focus** to the first
+  suggestion; Enter chooses it (the shell activates any focused `on_click`). The app keeps
+  the "active" model (a highlighted index) if it prefers driving from the keyboard without
+  moving the focus. Checked by a focus-cycle test.
 
-## Implémentation
+## Implementation
 
-- `autocomplete.rs` : helper `match_range` (sous-chaîne insensible à la casse, indices de
-  caractères) ; `Suggestion` gagne `query`/`active` et peint en segments ; `Autocomplete`
-  gagne `active` + `.active(index)` ; `rebuild` passe `query` (= valeur) et l'actif.
-- `goldens.rs` : golden `autocomplete` (champ « ap », liste, 2ᵉ active, « ap » mis en avant).
+- `autocomplete.rs`: the `match_range` helper (a case-insensitive substring, character
+  indices); `Suggestion` gains `query`/`active` and paints in segments; `Autocomplete` gains
+  `active` + `.active(index)`; `rebuild` passes `query` (= the value) and the active index.
+- `goldens.rs`: the `autocomplete` golden (an "ap" field, the list, the 2nd active, "ap"
+  highlighted).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `match_range` (« Apricot »/« ap » → `(0,2)`, « pineapple »/« APPLE » →
-  `(4,9)`, requête vide / absente → `None`) ; la portion correspondante est un **segment**
-  de texte à part (« ap » + « ricot » sur « apricot ») ; la suggestion **active** est
-  surlignée (rect teinté) ; le champ **puis** une suggestion entrent dans le cycle de focus.
-- **Golden** `autocomplete` **inspecté** : « ap » en vert dans chaque suggestion (y compris
-  au milieu de « grape »), « apricot » (active) surligné. `cargo test --workspace` **vert**.
+- **Unit**: `match_range` ("Apricot"/"ap" → `(0,2)`, "pineapple"/"APPLE" → `(4,9)`, an empty
+  / absent query → `None`); the matching part is a separate text **segment** ("ap" +
+  "ricot" for "apricot"); the **active** suggestion is highlighted (a tinted rect); the
+  field **then** a suggestion enter the focus cycle.
+- **Golden** `autocomplete` **inspected**: "ap" in green in each suggestion (including in
+  the middle of "grape"), "apricot" (active) highlighted. `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Défilement** de la liste de suggestions quand elle est longue (borne de hauteur +
-  `Scroll`).
-- **Surbrillance qui suit le focus** : lier `active` au focus clavier réel (aujourd'hui
-  l'app pilote l'un ou l'autre) pour un unique repère.
+- **Scrolling** the suggestion list when it is long (a height bound + a `Scroll`).
+- **A highlight that follows the focus**: tying `active` to the real keyboard focus (today
+  the app drives one or the other) for a single cue.

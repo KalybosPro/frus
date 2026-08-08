@@ -1,48 +1,44 @@
-# Jalon 163 — Réordonnancement : inertie douce & en-têtes annoncés
+# Jalon 163 — Reordering: gentle inertia & announced headers
 
-## Analyse
+## Analysis
 
-Le coulissement des colonnes (jalon 161) **collait au curseur** : réactif, mais un peu
-sec (aucune détente quand le doigt s'arrête ou saute). Deux points du « Reste » : une
-**inertie** (ressort) et l'**accessibilité** du réordonnancement.
+The column slide (milestone 161) **stuck to the cursor**: responsive, but a little dry (no
+give when the finger stops or jumps). Two items from "What's left": **inertia** (a spring) and
+the **accessibility** of reordering.
 
-## Décisions techniques
+## Technical decisions
 
-- **Ressort à un seul état, pas par colonne.** Plutôt qu'un offset animé par colonne
-  (lourd), on **lisse l'abscisse du curseur** : un état `reorder_x` rejoint la position
-  réelle par un **ressort exponentiel** (constante de temps ~70 ms), et c'est **lui** qui
-  nourrit le réagencement géométrique. Les colonnes coulissent donc avec une **inertie
-  douce**, tandis que le **fantôme colle au curseur réel** (il « précède », le fond
-  « rattrape ») — sensation Material, pour un coût minime. Le ressort est
-  **cadence-indépendant** (`1 − e^{−dt/τ}`) et sans dépassement ; la frame reste
-  « animée » tant qu'il n'est pas stabilisé.
+- **A single-state spring, not one per column.** Rather than an animated offset per column
+  (heavy), we **smooth the cursor's abscissa**: a `reorder_x` state chases the real position
+  through an **exponential spring** (a ~70 ms time constant), and it is **that** which feeds
+  the geometric reflow. The columns therefore slide with **gentle inertia**, while the **ghost
+  sticks to the real cursor** (it "leads", the background "catches up") — a Material feel, at a
+  minimal cost. The spring is **frame-rate independent** (`1 − e^{−dt/τ}`) and does not
+  overshoot; the frame stays "animated" until it settles.
 
-- **En-têtes annoncés.** Chaque en-tête porte désormais une **sémantique** (rôle bouton +
-  libellé) ; s'il est réordonnable, sa **valeur** indique « column N of M ». Un lecteur
-  d'écran énonce donc la colonne **et sa position** : en re-parcourant après un
-  déplacement (souris ou Ctrl+Flèches), l'utilisateur **perçoit** le nouvel ordre. Les
-  cellules de données restent muettes (pas de bruit).
+- **Announced headers.** Each header now carries **semantics** (a button role + a label); if it
+  is reorderable, its **value** states "column N of M". A screen reader therefore announces the
+  column **and its position**: walking back through them after a move (mouse or Ctrl+Arrows),
+  the user **perceives** the new order. Data cells stay silent (no noise).
 
-## Implémentation
+## Implementation
 
-- `app.rs` (shell) : champ `reorder_x` ; initialisé au curseur au début du glissement ;
-  **ressort** avancé dans la boucle d'animation (`spring_toward`, fonction pure) et injecté
-  dans `reflow_reorder_columns` ; la frame reste animée jusqu'à stabilisation.
-- `table.rs` : `Cell::semantics` (en-têtes : rôle + libellé + « column N of M » si
-  réordonnable).
+- `app.rs` (shell): the `reorder_x` field; initialised at the cursor when the drag starts; the
+  **spring** advanced in the animation loop (`spring_toward`, a pure function) and injected into
+  `reflow_reorder_columns`; the frame stays animated until it settles.
+- `table.rs`: `Cell::semantics` (headers: role + label + "column N of M" if reorderable).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `spring_toward` — approche **monotone**, **bornée** (pas de dépassement),
-  quasi atteinte après ~0,5 s. `Cell::semantics` — en-tête « B » annoncé
-  `label="B"`, `value="column 2 of 3"` ; cellule de données **muette**.
-- L'inertie est un effet **temporel interactif** (boucle de rendu), non golden-able ; sa
-  loi est isolée et testée. Le golden `table_reorder_preview` (réagencement direct) reste
-  inchangé.
-- `cargo test --workspace` **vert**, sans avertissement.
+- **Unit**: `spring_toward` — a **monotonic**, **bounded** approach (no overshoot), all but
+  reached after ~0.5 s. `Cell::semantics` — the "B" header announced as `label="B"`,
+  `value="column 2 of 3"`; a data cell **silent**.
+- The inertia is an **interactive temporal** effect (the render loop), not goldenable; its law
+  is isolated and tested. The `table_reorder_preview` golden (a direct reflow) stays unchanged.
+- `cargo test --workspace` **green**, with no warning.
 
-## Reste
+## What's left
 
-- **Annonce vocale « live »** du déplacement (« déplacé en position 3 ») : demande une
-  **région live** AccessKit dédiée (au-delà de l'arbre sémantique passif actuel).
-- **Détente au dépôt** : petit ressort de la carte fantôme vers sa position finale.
+- A **"live" spoken announcement** of the move ("moved to position 3"): requires a dedicated
+  AccessKit **live region** (beyond the current passive semantics tree).
+- **Settle on drop**: a small spring of the ghost card towards its final position.

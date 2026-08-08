@@ -1,51 +1,52 @@
-# Jalon 180 — Formulaires : validation croisée & récapitulatif d'erreurs
+# Jalon 180 — Forms: cross-field validation & error summary
 
-## Analyse
+## Analysis
 
-Le module `form` validait chaque champ **isolément** (`Rule` ne voit qu'une valeur) et
-exposait déjà `is_valid` / `error(key)` / `first_invalid()` (de quoi focaliser le premier champ
-fautif). Deux besoins courants manquaient : (1) la **validation croisée** (un champ comparé à
-un autre — « confirmer le mot de passe », « date de fin ≥ début ») ; (2) un **récapitulatif
-d'erreurs** en tête de formulaire après une soumission invalide.
+The `form` module validated each field **in isolation** (a `Rule` only sees one value) and
+already exposed `is_valid` / `error(key)` / `first_invalid()` (enough to focus the first faulty
+field). Two common needs were missing: (1) **cross-field validation** (a field compared to
+another — "confirm password", "end date ≥ start"); (2) an **error summary** at the top of the
+form after an invalid submission.
 
-## Décisions techniques
+## Technical decisions
 
-- **Valeurs mémorisées → validation croisée.** `Form` retient désormais la **valeur** de
-  chaque champ. `field_with(key, value, |value, form| …)` valide via une fonction qui reçoit le
-  formulaire **partiel** (champs déjà déclarés) et peut consulter `form.value(other)`.
-  `matches(key, value, other, message)` en est le raccourci (égalité stricte — confirmation).
-  Le champ référencé doit être déclaré **avant** (validation en un passage, ordre de déclaration).
+- **Remembered values → cross-field validation.** `Form` now retains each field's **value**.
+  `field_with(key, value, |value, form| …)` validates through a function that receives the
+  **partial** form (the fields already declared) and can consult `form.value(other)`.
+  `matches(key, value, other, message)` is the shorthand for it (strict equality —
+  confirmation). The referenced field must be declared **first** (single-pass validation, in
+  declaration order).
 
-- **`errors()` + widget `ErrorSummary`.** `Form::errors()` renvoie `(clé, message)` dans
-  l'ordre. Le widget `ErrorSummary::new(messages)` en fait une **carte teintée « erreur »**
-  (titre « Please fix N error(s) » + une puce par message), **inerte** (aucun clic), avec
-  `is_empty()` pour ne rien afficher quand tout est valide. Le module `form` reste **pur** pour
-  la logique ; seul `ErrorSummary` dessine (widget dédié).
+- **`errors()` + the `ErrorSummary` widget.** `Form::errors()` returns `(key, message)` in
+  order. The `ErrorSummary::new(messages)` widget turns that into an **error-tinted card** (a
+  "Please fix N error(s)" title + one bullet per message), **inert** (no clicks), with
+  `is_empty()` so nothing shows when everything is valid. The `form` module stays **pure** for
+  the logic; only `ErrorSummary` draws (a dedicated widget).
 
-- **Focus au premier invalide : déjà outillé.** `first_invalid()` donne la clé à focaliser ;
-  l'application la passe à `Command::focus(key)` à la soumission (le shell résout la clé contre
-  l'arbre — jalon focus existant). Rien à ajouter côté framework.
+- **Focusing the first invalid: already tooled.** `first_invalid()` gives the key to focus; the
+  application passes it to `Command::focus(key)` on submission (the shell resolves the key
+  against the tree — the existing focus milestone). Nothing to add framework-side.
 
-## Implémentation
+## Implementation
 
-- `form.rs` : `Form` stocke `(clé, valeur, erreur)` ; `field_with` / `matches` / `value` /
-  `errors` ; widget `ErrorSummary` (fond `surface.lerp(error)` + bord, lignes de texte).
-- `lib.rs` : `pub use form::ErrorSummary`.
-- `goldens.rs` : `form_error_summary` (récapitulatif au-dessus d'un champ en erreur).
+- `form.rs`: `Form` stores `(key, value, error)`; `field_with` / `matches` / `value` / `errors`;
+  the `ErrorSummary` widget (a `surface.lerp(error)` background + a border, lines of text).
+- `lib.rs`: `pub use form::ErrorSummary`.
+- `goldens.rs`: `form_error_summary` (a summary above a field in error).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `cross_field_confirm_password` (`matches` + `field_with` avec `form.value`) ;
-  `errors_lists_all_messages_in_order` (valides omis, ordre conservé) ; `error_summary_lists_messages`
-  (titre + une puce par message, vide → `is_empty`). Les tests existants (`field`, `first_invalid`)
-  et le doctest du module restent **verts**.
-- **Golden** `form_error_summary` **inspecté** : carte « Please fix 2 errors » + puces, au-dessus
-  du champ Email en erreur — aucune régression.
-- `cargo test --workspace` **vert**.
+- **Unit**: `cross_field_confirm_password` (`matches` + `field_with` with `form.value`);
+  `errors_lists_all_messages_in_order` (valid ones omitted, order preserved);
+  `error_summary_lists_messages` (a title + one bullet per message, empty → `is_empty`). The
+  existing tests (`field`, `first_invalid`) and the module's doctest stay **green**.
+- **Golden** `form_error_summary` **inspected**: a "Please fix 2 errors" card + bullets, above
+  the Email field in error — no regression.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Récapitulatif cliquable** : cliquer une puce pour focaliser le champ correspondant
-  (l'`ErrorSummary` porterait un message par item) — extension.
-- **Règles inter-champs riches** au-delà de l'égalité (dépendances multiples) : déjà couvertes
-  par `field_with`, à documenter par des recettes.
+- A **clickable summary**: clicking a bullet to focus the corresponding field (the
+  `ErrorSummary` would carry a message per item) — an extension.
+- **Rich inter-field rules** beyond equality (multiple dependencies): already covered by
+  `field_with`, to be documented through recipes.

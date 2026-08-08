@@ -1,52 +1,52 @@
-# Jalon 125 — Découpe arrondie **par coin** (`ClipRRect` + `BorderRadius`)
+# Jalon 125 — **Per-corner** rounded clipping (`ClipRRect` + `BorderRadius`)
 
-## Analyse
+## Analysis
 
-La découpe en forme (J121) n'offrait qu'un **rayon uniforme** (`RRect(f32)`). Flutter
-permet un rayon **par coin** (`ClipRRect(borderRadius: BorderRadius.only(…))`) : un
-en-tête aux seuls coins hauts arrondis, une bulle asymétrique, une carte dont un côté
-épouse un bord. Ce jalon porte la découpe arrondie au rayon **par coin**.
+Shape clipping (J121) offered only a **uniform radius** (`RRect(f32)`). A radius
+**per corner** (`ClipRRect(border_radius: BorderRadius::only(…))`) is the established
+shape: a header with only its top corners rounded, an asymmetric bubble, a card whose
+one side hugs an edge. This milestone takes rounded clipping to a **per-corner** radius.
 
-## Décisions techniques
+## Technical decisions
 
-- **`ClipShape::RRect` porte un [`BorderRadius`]** (4 rayons `tl, tr, br, bl`) au lieu
-  d'un `f32`. `BorderRadius` est `Copy` : `ClipShape` le reste (pas de ripple sur les
-  `Layer`). Un rayon uniforme reste `BorderRadius::uniform(r)`.
+- **`ClipShape::RRect` carries a [`BorderRadius`]** (4 radii `tl, tr, br, bl`) instead
+  of an `f32`. `BorderRadius` is `Copy`, so `ClipShape` stays `Copy` (no ripple through
+  the `Layer`s). A uniform radius is still `BorderRadius::uniform(r)`.
 
-- **Sélection par quadrant dans le shader.** `composite.wgsl` reçoit les 4 rayons (5ᵉ
-  attribut d'instance) et choisit celui du **coin du fragment** (`corner_radius`,
-  identique au peintre de rectangles `quad.wgsl`) avant le SDF de rectangle arrondi.
-  Chaque rayon est borné à la demi-plus-petite dimension.
+- **Quadrant selection in the shader.** `composite.wgsl` receives the 4 radii (a 5th
+  instance attribute) and picks the one for the **fragment's corner** (`corner_radius`,
+  identical to the rectangle painter `quad.wgsl`) before the rounded-rectangle SDF. Each
+  radius is clamped to half the smaller dimension.
 
-- **API rétro-compatible.** `ClipRRect::new(f32)` (uniforme) inchangé ; nouveau
-  `ClipRRect::rounded(BorderRadius)` pour le par-coin. Les rayons sont `clamped()` (un
-  rayon négatif n'a pas de sens).
+- **A backwards-compatible API.** `ClipRRect::new(f32)` (uniform) unchanged; a new
+  `ClipRRect::rounded(BorderRadius)` for the per-corner form. The radii are `clamped()`
+  (a negative radius makes no sense).
 
-- **Suivi des transformations.** `ClipShape::scaled_xy` met chaque rayon à l'échelle
-  (via `BorderRadius::scale`) — la découpe reste correcte sous un changement de densité.
+- **Transform tracking.** `ClipShape::scaled_xy` scales each radius (through
+  `BorderRadius::scale`) — the clipping stays correct under a density change.
 
-## Implémentation
+## Implementation
 
-- `frus-core` : `ClipShape::RRect(BorderRadius)` ; `scaled_xy` échelonne les 4 rayons.
-- `frus-gpu` : `LayerComposite` / `CompInstance` portent `radii: [tl, tr, br, bl]` (5ᵉ
-  attribut) ; `composite.wgsl` sélectionne le rayon par quadrant (`corner_radius`).
-- `frus-widgets` : `ClipRRect` stocke un `BorderRadius` ; `new` (uniforme) +
+- `frus-core`: `ClipShape::RRect(BorderRadius)`; `scaled_xy` scales the 4 radii.
+- `frus-gpu`: `LayerComposite` / `CompInstance` carry `radii: [tl, tr, br, bl]` (a 5th
+  attribute); `composite.wgsl` selects the radius per quadrant (`corner_radius`).
+- `frus-widgets`: `ClipRRect` stores a `BorderRadius`; `new` (uniform) +
   `rounded(BorderRadius)`.
 
 ## Tests
 
-- `frus-test` (au pixel, GPU réel) : `rrect_clip_rounds_only_the_specified_corner` —
-  seul le coin haut-gauche (rayon 16) est gommé, les trois autres restent **nets** ;
-  les cas uniformes et `RRect(0) = rectangle` tiennent toujours.
-- `frus-widgets` / `frus-transforms` : formes de découpe émises mises à jour.
-- Workspace complet vert : frus-core 91, frus-gpu 16, frus-widgets 227, frus-test
+- `frus-test` (at the pixel level, on a real GPU):
+  `rrect_clip_rounds_only_the_specified_corner` — only the top-left corner (radius 16)
+  is erased, the other three stay **crisp**; the uniform cases and
+  `RRect(0) = rectangle` still hold.
+- `frus-widgets` / `frus-transforms`: the emitted clip shapes updated.
+- The whole workspace green: frus-core 91, frus-gpu 16, frus-widgets 227, frus-test
   clip 4.
 
-## Reste — `ClipPath` (chemin arbitraire)
+## What's left — `ClipPath` (an arbitrary path)
 
-La découpe à un **chemin quelconque** est un chantier distinct : elle demande un
-**pipeline de masque** (rendre le chemin dans une texture de couverture, ou un tampon
-stencil, échantillonné au compositing) — pas une simple extension du SDF au fragment,
-qui ne couvre que les formes analytiques (rect / rrect / ellipse). À traiter comme sa
-propre brique (`ClipShape::Path` + texture de masque par calque) plutôt que de la
-bâcler ici.
+Clipping to an **arbitrary path** is a separate piece of work: it needs a **mask
+pipeline** (render the path into a coverage texture, or a stencil buffer, sampled at
+compositing) — not a simple extension of the fragment SDF, which only covers analytic
+shapes (rect / rrect / ellipse). To be treated as its own brick (`ClipShape::Path` + a
+mask texture per layer) rather than botched here.

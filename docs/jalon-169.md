@@ -1,40 +1,38 @@
-# Jalon 169 — Accessibilité : sélection de ligne annoncée
+# Jalon 169 — Accessibility: announced row selection
 
-## Analyse
+## Analysis
 
-Le jalon 167 énonçait le **tri** et les **cases à cocher**, mais pas la **sélection de
-ligne au clic** (`on_select_row`) — cliquer une rangée changeait l'état silencieusement pour
-un utilisateur de lecteur d'écran. Il fallait l'énoncer, avec le **numéro de ligne** pour
-situer l'action.
+Milestone 167 announced **sorting** and the **checkboxes**, but not **row selection by click**
+(`on_select_row`) — clicking a row changed the state silently for a screen-reader user. It had
+to be announced, with the **row number** to locate the action.
 
-## Décisions techniques
+## Technical decisions
 
-- **La cellule connaît sa ligne.** `Cell` (donnée) et `WidgetCell` gagnent l'index de
-  ligne ; leur `announce()` (le point d'accroche du jalon 167, déjà lu par le shell au clic)
-  énonce l'état **résultant** : « Row N selected » / « Row N deselected » (bascule de l'état
-  courant `selected`). Toute cellule de la rangée porte l'annonce — cliquer n'importe où dans
-  la ligne la sélectionne, donc l'énonce.
+- **The cell knows its row.** `Cell` (data) and `WidgetCell` gain the row index; their
+  `announce()` (milestone 167's hook, already read by the shell on click) announces the
+  **resulting** state: "Row N selected" / "Row N deselected" (toggling the current `selected`
+  state). Every cell in the row carries the announcement — clicking anywhere in the row selects
+  it, so it announces it.
 
-- **La navigation de focus n'est *pas* dupliquée.** Annoncer « button, Save » au Tab serait
-  **redondant** : AccessKit publie déjà le nœud **focalisé** (`focus` de l'arbre), que le
-  lecteur d'écran énonce nativement. Y ajouter une région live ferait **parler deux fois**.
-  On s'appuie donc sur le focus AccessKit existant — décision, pas oubli.
+- **Focus navigation is *not* duplicated.** Announcing "button, Save" on Tab would be
+  **redundant**: AccessKit already publishes the **focused** node (the tree's `focus`), which
+  the screen reader announces natively. Adding a live region there would make it **speak
+  twice**. So we rely on the existing AccessKit focus — a decision, not an oversight.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : champ `row` sur `Cell` (`Option`, `None` pour un en-tête) et `WidgetCell`
-  (`usize`) ; `Cell::announce` (branche donnée) et `WidgetCell::announce` énoncent
-  « Row N selected/deselected ». Renseignés à la reconstruction.
+- `table.rs`: the `row` field on `Cell` (`Option`, `None` for a header) and `WidgetCell`
+  (`usize`); `Cell::announce` (the data branch) and `WidgetCell::announce` announce "Row N
+  selected/deselected". Filled in at rebuild time.
 
-## Vérification
+## Verification
 
-- **Unitaire** : `row_click_selection_is_announced` — ligne texte non sélectionnée →
-  « Row 1 selected » ; ligne-widget sélectionnée → « Row 2 deselected » ; table non
-  sélectionnable → aucune annonce.
-- `cargo test --workspace` **vert**.
+- **Unit**: `row_click_selection_is_announced` — an unselected text row → "Row 1 selected"; a
+  selected widget row → "Row 2 deselected"; a non-selectable table → no announcement.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Numéro vs libellé** : on énonce « Row N » ; certaines apps préféreraient le contenu de la
-  ligne (« Ada selected »). L'app pourrait le fournir via une future surcharge d'annonce.
-- Étendre aux **cases à cocher** le **compte** (« 3 rows selected ») plutôt que ligne à ligne.
+- **Number vs label**: we announce "Row N"; some apps would prefer the row's content ("Ada
+  selected"). The app could supply it through a future announcement override.
+- Extending the **count** to the checkboxes ("3 rows selected") rather than row by row.

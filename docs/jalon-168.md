@@ -1,48 +1,47 @@
-# Jalon 168 — Tableau : en-têtes à icône (+ tri de colonnes-widgets)
+# Jalon 168 — Table: icon headers (+ sorting widget columns)
 
-## Analyse
+## Analysis
 
-Un en-tête de tableau ne savait afficher qu'un **libellé texte**. Les grilles réelles
-coiffent souvent une colonne d'une **icône** (un pictogramme de catégorie, une étoile pour
-une note…) — icône **puis** libellé. Par ailleurs, depuis les cellules-widgets (jalon 164),
-le **tri d'une colonne-widget** méritait d'être **documenté** : le tableau ne compare pas
-des widgets, l'application fournit la clé.
+A table header could only show a **text label**. Real grids often top a column with an **icon**
+(a category pictogram, a star for a rating…) — the icon **then** the label. And, since widget
+cells (milestone 164), **sorting a widget column** deserved to be **documented**: the table does
+not compare widgets, the application supplies the key.
 
-## Décisions techniques
+## Technical decisions
 
-- **Icône de tête, décorative, sans casser le tri.** L'en-tête reste une `Cell` (donc
-  toujours **triable** et **réordonnable**) ; elle gagne un champ `icon: Option<IconName>`,
-  peint **avant** le libellé. Le libellé — et l'indicateur de tri qui le suit — se décalent
-  d'une largeur d'icône : icône + texte + (▲/▼), cohabitant proprement.
+- **A leading icon, decorative, without breaking sorting.** The header stays a `Cell` (so still
+  **sortable** and **reorderable**); it gains an `icon: Option<IconName>` field, painted
+  **before** the label. The label — and the sort indicator that follows it — shift by one icon
+  width: icon + text + (▲/▼), coexisting cleanly.
 
-- **Une icône par colonne, à la demande.** `Table::header_icons(&[Option<IconName>])` :
-  `None` laisse la colonne sans icône. L'icône est purement visuelle (aucune sémantique
-  ajoutée : le libellé porte déjà l'annonce du lecteur d'écran).
+- **An icon per column, on demand.** `Table::header_icons(&[Option<IconName>])`: `None` leaves
+  the column without an icon. The icon is purely visual (no added semantics: the label already
+  carries the screen-reader announcement).
 
-- **Tri de colonnes-widgets : documenté.** Le tableau n'émet que la **colonne cliquée**
-  (`on_sort`) ; c'est l'**application** qui ordonne ses données par le champ correspondant
-  (le nom derrière un avatar, p.ex.), puis repasse les lignes triées — comme pour les
-  colonnes texte. Documenté sur `widget_row`.
+- **Sorting widget columns: documented.** The table only emits the **clicked column**
+  (`on_sort`); it is the **application** that orders its data by the corresponding field (the
+  name behind an avatar, say), then passes the sorted rows back — as with text columns.
+  Documented on `widget_row`.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : constantes `ICON` / `ICON_GAP` ; champ `Cell.icon` peint avant le libellé
-  (le texte et l'indicateur de tri décalés) ; champ `Table.header_icons`, builder
-  `header_icons` ; note de doc sur le tri de colonnes-widgets (`widget_row`).
-- `goldens.rs` : `table_header_icons` (icône Menu + « Name », icône Star + « Rating ▼ »).
+- `table.rs`: the `ICON` / `ICON_GAP` constants; the `Cell.icon` field painted before the label
+  (the text and the sort indicator shifted); the `Table.header_icons` field, the `header_icons`
+  builder; a doc note on sorting widget columns (`widget_row`).
+- `goldens.rs`: `table_header_icons` (a Menu icon + "Name", a Star icon + "Rating ▼").
 
-## Vérification
+## Verification
 
-- **Unitaire** : `header_icon_shifts_label_and_paints` — le libellé d'un en-tête à icône
-  recule d'au moins une largeur d'icône ; une colonne sans icône n'est pas décalée.
-- **Golden** `table_header_icons` **inspecté** : icônes de tête devant les libellés,
-  indicateur de tri conservé, données alignées — aucune régression sur les goldens texte.
-- `cargo test --workspace` **vert**.
+- **Unit**: `header_icon_shifts_label_and_paints` — the label of a header with an icon moves
+  back by at least one icon width; a column with no icon is not shifted.
+- **Golden** `table_header_icons` **inspected**: leading icons in front of the labels, the sort
+  indicator preserved, the data aligned — no regression on the text goldens.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **En-tête entièrement widget** (au-delà d'icône + libellé : bouton de filtre, menu) :
-  demanderait un en-tête bâti sur une fabrique tout en conservant tri/réordonnancement —
-  chantier plus lourd, non requis ici.
-- **Icône à droite** (après le libellé) ou **cliquable indépendamment** du tri : possible
-  extension si un cas concret l'exige.
+- A **fully widget header** (beyond icon + label: a filter button, a menu): would require a
+  header built from a factory while keeping sorting/reordering — heavier work, not required
+  here.
+- An icon **on the right** (after the label) or **clickable independently** of the sort: a
+  possible extension should a concrete case demand it.

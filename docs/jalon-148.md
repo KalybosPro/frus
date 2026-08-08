@@ -1,61 +1,59 @@
-# Jalon 148 — Tableau : sélection multiple & colonnes à largeur variable
+# Jalon 148 — Table: multiple selection & variable-width columns
 
-## Analyse
+## Analysis
 
-Le `Table` (jalon 145) reposait sur `Grid` → **colonnes strictement égales** et aucune
-sélection multiple. Pour une vraie table de gestion, il fallait :
+The `Table` (milestone 145) rested on `Grid` → **strictly equal columns** and no multiple
+selection. For a real business table, it needed:
 
-- **Sélection multiple** : une colonne de **cases à cocher** par ligne, coiffée d'un
-  « **tout cocher** » dans l'en-tête.
-- **Largeurs de colonnes variables** : fixes (px) ou flexibles (part de l'espace restant).
+- **Multiple selection**: a column of **checkboxes** per row, topped by a **select all** in
+  the header.
+- **Variable column widths**: fixed (px) or flexible (a share of the remaining space).
 
-## Décisions techniques
+## Technical decisions
 
-- **Rangées `Flex` au lieu de la `Grid`.** Une grille à pistes égales ne permet ni colonne
-  étroite (cases à cocher) ni largeurs mixtes. Le tableau est désormais une **colonne de
-  rangées `Flex`**, chaque cellule portant sa largeur : `Length(px)` fixe (`flex_grow = 0`)
-  ou `Auto` flexible (`flex_grow = 1`). Comme toutes les rangées appliquent les **mêmes
-  largeurs dans le même ordre**, les colonnes restent alignées ; la largeur totale fixée
-  (`width`) est répartie par le moteur de layout.
+- **`Flex` rows instead of the `Grid`.** A grid with equal tracks allows neither a narrow
+  column (checkboxes) nor mixed widths. The table is now a **column of `Flex` rows**, each
+  cell carrying its width: `Length(px)` fixed (`flex_grow = 0`) or `Auto` flexible
+  (`flex_grow = 1`). Since every row applies the **same widths in the same order**, the
+  columns stay aligned; the fixed total width (`width`) is distributed by the layout engine.
 
-- **Sélection multiple pilotée par l'app.** `checkboxes(on_check, on_check_all)` ajoute la
-  colonne de cases (à gauche). Chaque case reflète `selected` ; l'en-tête est coché quand
-  **toutes** les lignes le sont. `on_check(ligne)` bascule une ligne, `on_check_all` bascule
-  tout — le tableau n'a toujours **aucun état** propre. Le clic-ligne (`on_select_row`) et
-  les cases coexistent.
+- **Multiple selection driven by the app.** `checkboxes(on_check, on_check_all)` adds the
+  checkbox column (on the left). Each box reflects `selected`; the header is checked when
+  **all** the rows are. `on_check(row)` toggles one row, `on_check_all` toggles everything —
+  the table still has **no state** of its own. Row clicking (`on_select_row`) and the boxes
+  coexist.
 
-- **Case dessinée, coche = icône `Check`.** La `CheckCell` peint un carré (bordure si
-  décoché, aplat `primary` + coche si coché) ; la coche réutilise le chemin vectoriel de
-  `IconName::Check` — cohérent avec le reste, net à toute taille.
+- **A drawn box, the tick = the `Check` icon.** The `CheckCell` paints a square (a border
+  when unchecked, a `primary` fill + a tick when checked); the tick reuses
+  `IconName::Check`'s vector path — consistent with the rest, crisp at any size.
 
-- **Facteurs partagés.** Fond de cellule (en-tête teinté / ligne surlignée / survol) et
-  style de cellule (largeur + hauteur de rangée) sont deux fonctions communes aux cellules
-  texte et cases, pour éviter la duplication.
+- **Shared factors.** The cell background (tinted header / highlighted row / hover) and the
+  cell style (width + row height) are two functions common to text cells and checkboxes, to
+  avoid duplication.
 
-- **API compatible.** `header`/`row`/`width`/`on_sort`/`sorted`/`on_select_row`/`selected`
-  inchangés ; ajouts `column_widths(&[f32])` et `checkboxes(..)`.
+- **A compatible API.** `header`/`row`/`width`/`on_sort`/`sorted`/`on_select_row`/`selected`
+  unchanged; `column_widths(&[f32])` and `checkboxes(..)` added.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : réécrit en rangées `Flex` ; `Cell` gagne une largeur ; nouveau `CheckCell` ;
-  `column_widths`, `checkboxes` ; helpers `cell_background`, `cell_style`, `col_width`,
-  `all_selected`.
-- `goldens.rs` : `data_table` régénéré (même rendu, layout `Flex`) ; nouveau
+- `table.rs`: rewritten as `Flex` rows; `Cell` gains a width; the new `CheckCell`;
+  `column_widths`, `checkboxes`; the `cell_background`, `cell_style`, `col_width`,
+  `all_selected` helpers.
+- `goldens.rs`: `data_table` regenerated (the same rendering, a `Flex` layout); the new
   `data_table_multiselect`.
 
-## Vérification
+## Verification
 
-- **Unitaire** : structure en rangées (en-tête + données) ; clic en-tête → `Sort`, clic
-  ligne → `Select`, clic case ligne → `Check(r)`, clic case en-tête → `CheckAll` ; colonne
-  fixe de 80 px positionne bien la colonne suivante au-delà.
-- **Golden** : `data_table` (inchangé visuellement) et `data_table_multiselect` (cases,
-  « tout cocher » partiel décoché, lignes cochées surlignées, 1re colonne fixe) rendus et
-  **inspectés**. `cargo test --workspace` vert.
+- **Unit**: the row structure (header + data); a header click → `Sort`, a row click →
+  `Select`, a row box click → `Check(r)`, a header box click → `CheckAll`; a fixed 80 px
+  column does place the next column past it.
+- **Golden**: `data_table` (visually unchanged) and `data_table_multiselect` (boxes, a
+  partial "select all" unchecked, checked rows highlighted, a fixed 1st column) rendered and
+  **inspected**. `cargo test --workspace` green.
 
-## Reste
+## What's left
 
-- **État indéterminé** du « tout cocher » (quand *certaines* lignes sont cochées).
-- **Cellules-widgets** (pas seulement du texte) : la reconstruction (`rebuild`) régénère
-  depuis des `String` ; accueillir des widgets arbitraires demanderait de ne pas les
-  reconstruire.
-- **Redimensionnement de colonnes** à la souris (poignées entre en-têtes).
+- An **indeterminate** state for "select all" (when *some* rows are checked).
+- **Widget cells** (not just text): the rebuild (`rebuild`) regenerates from `String`s;
+  hosting arbitrary widgets would require not rebuilding them.
+- **Column resizing** with the mouse (handles between headers).

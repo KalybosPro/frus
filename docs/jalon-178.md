@@ -1,51 +1,51 @@
-# Jalon 178 — Tableau : colonnes gelées
+# Jalon 178 — Table: frozen columns
 
-## Analyse
+## Analysis
 
-Une large grille (beaucoup de colonnes) déborde horizontalement. On veut alors **figer** les
-premières colonnes (un identifiant, un nom) pendant que le reste **défile horizontalement** —
-motif « frozen columns » des tableurs. Le tableau n'avait pas de défilement horizontal ni de
-colonne épinglée.
+A wide grid (many columns) overflows horizontally. You then want to **freeze** the first
+columns (an identifier, a name) while the rest **scrolls horizontally** — the spreadsheet
+"frozen columns" pattern. The table had neither horizontal scrolling nor a pinned column.
 
-## Décisions techniques
+## Technical decisions
 
-- **Composition : bloc figé + défilement horizontal.** En mode gelé, la racine devient une
-  `Flex` **rangée** de deux blocs : à gauche un `Flex` **colonne** des cellules figées
-  (en-tête + rangées, colonnes `0..n`), à droite un `Scroll` **horizontal** contenant un
-  `Flex` colonne des cellules restantes (colonnes `n..`). L'**en-tête des colonnes défilantes
-  est dans le même `Scroll`** : il suit ses colonnes au défilement, tandis que les colonnes
-  gelées restent en place. Réutilise le `Scroll` existant — pas de nouvelle machinerie.
+- **Composition: a frozen block + horizontal scrolling.** In frozen mode, the root becomes a
+  `Flex` **row** of two blocks: on the left a `Flex` **column** of the frozen cells (header +
+  rows, columns `0..n`), on the right a **horizontal** `Scroll` containing a `Flex` column of
+  the remaining cells (columns `n..`). The **scrolling columns' header is inside the same
+  `Scroll`**: it follows its columns as they scroll, while the frozen columns stay put. Reuses
+  the existing `Scroll` — no new machinery.
 
-- **Alignement par hauteurs identiques.** Les deux blocs sont des `Flex` colonnes à même
-  `gap` et à rangées de hauteur `ROW_H` : la rangée `r` du bloc figé s'aligne pixel à pixel
-  avec la rangée `r` du bloc défilant. Les largeurs des blocs (somme des colonnes + écarts)
-  se complètent pour tenir dans la largeur totale.
+- **Alignment by identical heights.** Both blocks are `Flex` columns with the same `gap` and
+  rows of height `ROW_H`: row `r` of the frozen block lines up pixel for pixel with row `r` of
+  the scrolling block. The blocks' widths (the sum of the columns + the gaps) complement each
+  other to fit the total width.
 
-- **Chemin dédié, garanti sans régression.** `build_frozen()` ne s'active que si les
-  conditions sont réunies (largeur totale + colonnes **toutes fixes** + `n` dans `1..columns`,
-  texte, hors virtualisation/cases) ; sinon il renvoie `None` et le tableau retombe sur sa
-  disposition normale. Les tableaux existants (qui n'appellent pas `frozen_columns`) sont
-  **inchangés**.
+- **A dedicated path, guaranteed regression-free.** `build_frozen()` only kicks in if the
+  conditions are met (a total width + **all** columns fixed + `n` in `1..columns`, text, no
+  virtualisation/checkboxes); otherwise it returns `None` and the table falls back on its normal
+  layout. Existing tables (which do not call `frozen_columns`) are **unchanged**.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : champ `frozen` + builder `frozen_columns(n)` ; `build_frozen()` (bloc figé +
-  `Scroll` horizontal) et `frozen_header_cell()` ; court-circuit en tête de `rebuild`.
-- `goldens.rs` : `table_frozen_columns` (colonne « Name » figée, Q1/Q2 visibles, Q3 hors cadre).
+- `table.rs`: the `frozen` field + the `frozen_columns(n)` builder; `build_frozen()` (the frozen
+  block + the horizontal `Scroll`) and `frozen_header_cell()`; a short-circuit at the top of
+  `rebuild`.
+- `goldens.rs`: `table_frozen_columns` (the "Name" column frozen, Q1/Q2 visible, Q3 out of
+  frame).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `frozen_columns_split_into_pinned_and_scrolling_blocks` — racine à deux blocs ;
-  une zone défilable **horizontale** (max_x > 0) ; cellule **gelée** cliquable (sélection) ;
-  en-tête **défilant** triable.
-- **Golden** `table_frozen_columns` **inspecté** : « Name ▲ » figée, Q1/Q2 visibles, Q3
-  coupée, ascenseur horizontal, rangées alignées — aucune régression sur les 33 autres goldens.
-- `cargo test --workspace` **vert**.
+- **Unit**: `frozen_columns_split_into_pinned_and_scrolling_blocks` — a two-block root; a
+  **horizontally** scrollable area (max_x > 0); a **frozen** cell clickable (selection); a
+  **scrolling** header sortable.
+- **Golden** `table_frozen_columns` **inspected**: "Name ▲" frozen, Q1/Q2 visible, Q3 cut off, a
+  horizontal scrollbar, the rows aligned — no regression on the other 33 goldens.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Colonnes gelées + virtualisation / cases à cocher / rangées-widgets** : chemins
-  aujourd'hui exclusifs ; les combiner (grand tableau figé **et** virtualisé) demanderait
-  d'imbriquer défilements vertical (virtualisé) et horizontal (gelé) — jalon dédié.
-- **Ombre de séparation** entre bloc figé et zone défilante (repère visuel du gel), et **gel
-  à droite** (colonnes d'actions) : extensions visuelles possibles.
+- **Frozen columns + virtualisation / checkboxes / widget rows**: mutually exclusive paths
+  today; combining them (a large table both frozen **and** virtualised) would require nesting
+  vertical (virtualised) and horizontal (frozen) scrolling — a dedicated milestone.
+- A **separator shadow** between the frozen block and the scrolling area (a visual cue of the
+  freeze), and **freezing on the right** (action columns): possible visual extensions.

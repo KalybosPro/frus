@@ -1,62 +1,59 @@
-# Jalon 142 — Colonne cible mémorisée + Page préc./suiv.
+# Jalon 142 — Remembered goal column + Page Up/Down
 
-## Analyse
+## Analysis
 
-Deux limites de la navigation clavier verticale (jalon 141) restaient à lever :
+Two limits of vertical keyboard navigation (milestone 141) were left to lift:
 
-1. **Colonne « qui saute ».** À chaque Haut/Bas on repartait de la colonne *courante*.
-   En traversant une ligne plus courte, le caret se collait à la fin de cette ligne,
-   puis redescendait depuis cette fin — la colonne d'origine était perdue. Les éditeurs
-   mémorisent au contraire une **colonne cible** (« magic column ») : on la garde tant
-   qu'on ne fait que monter/descendre.
-2. **Pas de saut de page.** PgUp/PgDn ne faisaient rien dans un champ multi-lignes.
+1. **A "jumping" column.** Each Up/Down restarted from the *current* column. Crossing a
+   shorter line, the caret stuck to that line's end, then went back down from that end —
+   the original column was lost. Editors instead remember a **goal column** ("magic
+   column"): you keep it as long as you only move up and down.
+2. **No page jump.** PgUp/PgDn did nothing in a multi-line field.
 
-## Décisions techniques
+## Technical decisions
 
-- **Colonne cible portée par le shell.** Un champ `TextInput` n'a pas d'état retenu ;
-  c'est le shell qui garde `goal_x: Option<f32>`. `Widget::caret_vertical` prend
-  désormais cette colonne en entrée (`goal_x`) et **rend la colonne à re-mémoriser**
-  pour le saut suivant — `None` = repartir de la colonne courante. Ainsi la colonne
-  d'origine survit à une ligne courte : la layout repliée `hit_test` à la même `x`,
-  qui, bornée à la fin d'une ligne courte, y pose le caret, mais la colonne rendue
-  reste l'originale — le saut d'après la retrouve.
+- **The goal column carried by the shell.** A `TextInput` has no retained state; the shell
+  keeps `goal_x: Option<f32>`. `Widget::caret_vertical` now takes that column as input
+  (`goal_x`) and **yields the column to remember** for the next jump — `None` = restart from
+  the current column. So the original column survives a short line: the wrapped layout
+  `hit_test`s at the same `x`, which, clamped to a short line's end, puts the caret there,
+  but the column returned stays the original one — and the next jump finds it again.
 
-- **Oubli explicite.** La colonne cible est **effacée** dès qu'un autre déplacement
-  survient : frappe, effacement, Gauche/Droite, Début/Fin (tout passe par `apply_key`,
-  qui remet `goal_x = None`) et clic souris posant le caret. Seuls Haut/Bas/PgUp/PgDn
-  la préservent.
+- **Explicit forgetting.** The goal column is **cleared** as soon as any other move
+  happens: typing, deleting, Left/Right, Home/End (all go through `apply_key`, which resets
+  `goal_x = None`) and a mouse click placing the caret. Only Up/Down/PgUp/PgDn preserve it.
 
-- **Ligne vs. page dans une seule méthode.** `caret_vertical(width, cursor, down,
-  page, goal_x)` unifie les deux : `page=false` avance d'**une ligne** (hauteur du
-  caret) et rend `None` aux bornes (le shell **navigue le focus**, comme au jalon 141) ;
-  `page=true` avance d'**une page** (hauteur visible du champ, ≥ 1 ligne) et **borne au
-  champ** — aux extrémités le curseur se cale au début / à la fin et rend `Some` (on ne
-  quitte jamais le champ par PgUp/PgDn).
+- **Line vs page in a single method.**
+  `caret_vertical(width, cursor, down, page, goal_x)` unifies both: `page=false` advances by
+  **one line** (the caret height) and yields `None` at the bounds (the shell **navigates the
+  focus**, as in milestone 141); `page=true` advances by **one page** (the field's visible
+  height, ≥ 1 line) and **clamps to the field** — at the extremes the cursor settles at the
+  start / end and yields `Some` (PgUp/PgDn never leave the field).
 
-- **Facteur commun côté shell.** Le bloc flèches et le nouveau bloc PgUp/PgDn appellent
-  le même helper `App::move_caret_vertical(id, down, page)` : géométrie du champ
-  (`widget_rect`), appel `caret_vertical`, sélection au Shift, mémorisation de la
-  colonne, `reveal_caret`. Un seul chemin, deux entrées.
+- **A shared factor shell-side.** The arrow block and the new PgUp/PgDn block call the same
+  `App::move_caret_vertical(id, down, page)` helper: field geometry (`widget_rect`), the
+  `caret_vertical` call, selection with Shift, remembering the column, `reveal_caret`. One
+  path, two entries.
 
-## Implémentation
+## Implementation
 
-- `widget.rs` (+ relais `Box`/`Keyed`/`Responsive`) : signature `caret_vertical`
-  étendue (`page`, `goal_x` → `Option<(usize, f32)>`).
-- `textinput.rs` : impl unifiée ligne/page avec colonne cible ; bornage au champ en mode
-  page.
-- `app.rs` : champ `goal_x` ; helper `move_caret_vertical` ; bloc PgUp/PgDn ; oubli de
-  `goal_x` dans `apply_key` et au clic-caret.
+- `widget.rs` (+ the `Box`/`Keyed`/`Responsive` forwarders): the `caret_vertical` signature
+  extended (`page`, `goal_x` → `Option<(usize, f32)>`).
+- `textinput.rs`: a unified line/page impl with the goal column; clamping to the field in
+  page mode.
+- `app.rs`: the `goal_x` field; the `move_caret_vertical` helper; the PgUp/PgDn block;
+  forgetting `goal_x` in `apply_key` and on the caret click.
 
-## Vérification
+## Verification
 
-- **Unitaire** : la colonne cible franchit une ligne courte (`"hello\nhi\nworld"` :
-  col. 5 → "hi" bornée → retombe loin dans "world") ; PgUp/PgDn se bornent au champ et
-  rendent `Some` aux extrémités ; les cas du jalon 141 (ligne simple, bornes → `None`,
-  mono-ligne) restent verts avec la nouvelle signature.
-- **Non-régression** : `cargo test --workspace` vert, aucun golden déplacé.
+- **Unit**: the goal column crosses a short line (`"hello\nhi\nworld"`: col. 5 → "hi"
+  clamped → lands far into "world"); PgUp/PgDn clamp to the field and yield `Some` at the
+  extremes; milestone 141's cases (a simple line, bounds → `None`, single-line) stay green
+  with the new signature.
+- **No regression**: `cargo test --workspace` green, no golden moved.
 
-## Reste
+## What's left
 
-- **Ctrl+Début/Fin** (début / fin du champ) et **Ctrl+Flèches** (saut de mot).
-- La colonne cible est en **pixels** ; un futur passage en colonne « caractère » serait
-  plus proche des éditeurs à chasse fixe, mais sans intérêt en police proportionnelle.
+- **Ctrl+Home/End** (start / end of the field) and **Ctrl+Arrows** (word jump).
+- The goal column is in **pixels**; moving to a "character" column later would be closer to
+  fixed-pitch editors, but is pointless in a proportional font.

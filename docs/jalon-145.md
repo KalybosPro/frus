@@ -1,57 +1,56 @@
-# Jalon 145 — Tableau : en-tête triable & lignes sélectionnables
+# Jalon 145 — Table: sortable header & selectable rows
 
-## Analyse
+## Analysis
 
-Le `Table` existant (bâti sur `Grid`) affichait un en-tête stylé et des lignes de texte,
-mais **statique** : aucun tri, aucune sélection, aucune interaction. Pour en faire la base
-d'une application de gestion, il fallait :
+The existing `Table` (built on `Grid`) showed a styled header and rows of text, but was
+**static**: no sorting, no selection, no interaction. To make it the basis of a business
+application, it needed:
 
-- **En-tête triable** : cliquer une colonne émet un message ; un **indicateur** (triangle
-  ▲/▼) marque la colonne triée et son sens.
-- **Lignes sélectionnables** : cliquer une ligne émet un message ; les lignes
-  sélectionnées sont **surlignées**.
+- A **sortable header**: clicking a column emits a message; an **indicator** (a ▲/▼
+  triangle) marks the sorted column and its direction.
+- **Selectable rows**: clicking a row emits a message; selected rows are **highlighted**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Le tableau n'ordonne rien.** Fidèle à l'architecture Elm de frus, il **émet** au clic
-  (`on_sort(colonne)`, `on_select_row(ligne)`) et n'**affiche** que l'état qu'on lui passe
-  (`sorted(col, asc)`, `selected(&rows)`). C'est l'application qui trie la donnée et
-  renvoie l'état — le widget reste une fonction pure de ses entrées. API compatible :
-  `header`/`row`/`width` inchangés.
+- **The table orders nothing.** Faithful to frus's Elm architecture, it **emits** on click
+  (`on_sort(column)`, `on_select_row(row)`) and only **displays** the state it is given
+  (`sorted(col, asc)`, `selected(&rows)`). The application sorts the data and passes the
+  state back — the widget stays a pure function of its inputs. The API is compatible:
+  `header`/`row`/`width` unchanged.
 
-- **Données d'abord, grille reconstruite.** Comme `children()` doit renvoyer un sous-arbre
-  déjà bâti, le `Table` stocke désormais ses **données** (`headers`, `rows`) et son **état**
-  (tri, sélection, rappels), et **régénère** la `Grid` (`rebuild`) après chaque réglage.
-  L'ordre des appels du builder n'importe donc pas : l'état final est cohérent (p. ex.
-  `on_select_row` posé après les `row`).
+- **Data first, the grid rebuilt.** Since `children()` must return an already-built
+  subtree, the `Table` now stores its **data** (`headers`, `rows`) and its **state** (sort,
+  selection, callbacks), and **regenerates** the `Grid` (`rebuild`) after each setting. So
+  the builder call order does not matter: the final state is consistent (e.g.
+  `on_select_row` set after the `row`s).
 
-- **Interactivité au niveau cellule.** Une cellule qui renvoie `on_click(msg)` devient une
-  cible de clic (rect peint = zone de clic) — sans focus clavier requis. Chaque cellule
-  d'en-tête porte le message de tri de sa colonne, chaque cellule de donnée le message de
-  sélection de sa ligne ; toutes les cellules d'une ligne sélectionnée partagent le fond
-  surligné, donnant une ligne surlignée d'un bout à l'autre.
+- **Interactivity at cell level.** A cell that returns `on_click(msg)` becomes a click
+  target (the painted rect = the click area) — with no keyboard focus required. Each header
+  cell carries its column's sort message, each data cell its row's selection message; all
+  the cells of a selected row share the highlighted background, giving a row highlighted end
+  to end.
 
-- **Indicateur de tri vectoriel.** Faute d'icône flèche haut/bas, le triangle est un
-  petit `Path` (3 segments) rempli après le libellé de l'en-tête trié — net à toute
-  échelle, sans dépendre de la police.
+- **A vector sort indicator.** Lacking an up/down arrow icon, the triangle is a small `Path`
+  (3 segments) filled after the sorted header's label — crisp at any scale, with no
+  dependency on the font.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : `Cell<Msg>` gagne `selected`, `sort`, `message` (clic → tri/sélection,
-  survol via couche d'état) ; `Table<Msg>` stocke données + état + rappels et `rebuild` la
-  grille ; nouveaux constructeurs `on_sort`, `sorted`, `on_select_row`, `selected`.
-- `goldens.rs` : golden `data_table` (en-tête trié + ligne surlignée).
+- `table.rs`: `Cell<Msg>` gains `selected`, `sort`, `message` (click → sort/selection, hover
+  through the state layer); `Table<Msg>` stores data + state + callbacks and `rebuild`s the
+  grid; the new `on_sort`, `sorted`, `on_select_row`, `selected` constructors.
+- `goldens.rs`: the `data_table` golden (a sorted header + a highlighted row).
 
-## Vérification
+## Verification
 
-- **Unitaire** : clic sur l'en-tête colonne 1 → `Sort(1)`, clic sur la 2e ligne →
-  `Select(1)` (via `ui.hit` + `ui.msg_for`) ; l'indicateur de tri peint un `Path`, la
-  ligne sélectionnée peint un rect teinté `primary`. L'ancien test (6 cellules) reste vert.
-- **Golden** `data_table` rendu et **inspecté** : « Name ▲ » avec le triangle, ligne
-  « Bob » surlignée. `cargo test --workspace` vert, aucun golden existant déplacé.
+- **Unit**: a click on the column 1 header → `Sort(1)`, a click on the 2nd row → `Select(1)`
+  (through `ui.hit` + `ui.msg_for`); the sort indicator paints a `Path`, the selected row
+  paints a `primary`-tinted rect. The old test (6 cells) stays green.
+- **Golden** `data_table` rendered and **inspected**: "Name ▲" with the triangle, the "Bob"
+  row highlighted. `cargo test --workspace` green, no existing golden moved.
 
-## Reste
+## What's left
 
-- **Sélection multiple / tout sélectionner** (case d'en-tête), **cellules-widgets** (pas
-  seulement du texte) et **largeurs de colonnes** variables (aujourd'hui égales via `Grid`).
-- **Tri au clavier** (Entrée sur en-tête focalisé).
+- **Multiple selection / select all** (a header checkbox), **widget cells** (not just text)
+  and **variable column widths** (today equal, through `Grid`).
+- **Sorting from the keyboard** (Enter on a focused header).

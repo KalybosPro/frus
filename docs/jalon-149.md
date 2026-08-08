@@ -1,51 +1,51 @@
-# Jalon 149 — Tableau : « tout cocher » indéterminé & tri au clavier
+# Jalon 149 — Table: indeterminate "check all" & keyboard sorting
 
-## Analyse
+## Analysis
 
-La sélection multiple (jalon 148) avait deux manques par rapport à Material :
+Multiple selection (milestone 148) had two gaps against Material:
 
-- Le « **tout cocher** » n'affichait que coché / décoché — jamais l'état **indéterminé**
-  (quand *certaines* lignes seulement sont cochées).
-- Le tri n'était accessible qu'à la **souris** ; au clavier, on ne pouvait ni atteindre ni
-  activer un en-tête.
+- **"Check all"** only showed checked / unchecked — never the **indeterminate** state (when
+  *only some* rows are checked).
+- Sorting was reachable by **mouse** only; from the keyboard you could neither reach nor
+  activate a header.
 
-## Décisions techniques
+## Technical decisions
 
-- **Tri-état de la case « tout cocher ».** `CheckCell` gagne un drapeau `indeterminate` ;
-  le tableau le calcule (`some_selected` = au moins une ligne cochée mais pas toutes). Rendu
-  façon Material : case pleine `primary` barrée d'un **tiret** (au lieu de la coche). Ordre
-  d'affichage : coché > indéterminé > décoché.
+- **A tri-state "check all" box.** `CheckCell` gains an `indeterminate` flag; the table
+  computes it (`some_selected` = at least one row checked but not all). Rendered Material
+  style: a full `primary` box struck through with a **dash** (instead of the tick). Display
+  order: checked > indeterminate > unchecked.
 
-- **Tri au clavier « gratuit ».** Le shell active déjà tout widget **focusable** portant un
-  `on_click` sur Entrée/Espace (jalon boutons). Il suffit donc de rendre **focusables** les
-  cellules qui doivent l'être : les **en-têtes triables** (`header && message`) et les
-  **cases à cocher** — pas les cellules de données (elles restent cliquables souris sans
-  encombrer l'ordre de tabulation). Le focus clavier trie / coche sans aucune logique
-  nouvelle, et l'anneau de focus est dessiné automatiquement.
+- **Keyboard sorting "for free".** The shell already activates any **focusable** widget
+  carrying an `on_click` on Enter/Space (the buttons milestone). So it is enough to make the
+  right cells **focusable**: the **sortable headers** (`header && message`) and the
+  **checkboxes** — not the data cells (they stay mouse-clickable without cluttering the tab
+  order). Keyboard focus sorts / checks with no new logic, and the focus ring is drawn
+  automatically.
 
-- **Rappel de layout.** Les colonnes flexibles n'ont de largeur que si le tableau a une
-  **largeur** (`width`) : sans contrainte, une rangée `Flex` en largeur automatique réduit
-  ses cellules flexibles à zéro (et rien n'est alors focusable/cliquable). Documenté par un
-  test qui fixe la largeur.
+- **A layout reminder.** Flexible columns only have a width if the table has a **width**
+  (`width`): with no constraint, a `Flex` row at automatic width shrinks its flexible cells
+  to zero (and then nothing is focusable/clickable). Documented by a test that sets the
+  width.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : `CheckCell` gagne `indeterminate` (rendu tiret) + `focusable` ; `Cell`
-  gagne `focusable` (en-têtes triables) ; helper `some_selected` ; l'en-tête passe
-  l'indéterminé.
-- `goldens.rs` : `data_table_multiselect` régénéré (« tout cocher » indéterminé).
+- `table.rs`: `CheckCell` gains `indeterminate` (the dash rendering) + `focusable`; `Cell`
+  gains `focusable` (sortable headers); the `some_selected` helper; the header passes the
+  indeterminate state through.
+- `goldens.rs`: `data_table_multiselect` regenerated (an indeterminate "check all").
 
-## Vérification
+## Verification
 
-- **Unitaire** : `all_selected`/`some_selected` — rien coché `(false,false)`, partiel
-  `(false,true)`, tout `(true,false)` ; seuls les **2 en-têtes** entrent dans le cycle Tab
-  (cellules de données exclues) ; les tests de clic/tri/sélection restent verts.
-- **Golden** : `data_table_multiselect` **inspecté** — case « tout cocher » barrée (tiret)
-  en sélection partielle. `cargo test --workspace` vert.
+- **Unit**: `all_selected`/`some_selected` — nothing checked `(false,false)`, partial
+  `(false,true)`, all `(true,false)`; only the **2 headers** enter the Tab cycle (data cells
+  excluded); the click/sort/selection tests stay green.
+- **Golden**: `data_table_multiselect` **inspected** — the "check all" box struck through (a
+  dash) under a partial selection. `cargo test --workspace` green.
 
-## Reste
+## What's left
 
-- **Redimensionnement de colonnes** à la souris (poignées entre en-têtes) : demande un
-  état de glissement dédié dans le shell (façon barre de défilement) + un rappel
-  `on_resize(colonne, largeur)` — un jalon à part entière.
-- **Cellules-widgets** (au-delà du texte).
+- **Column resizing** with the mouse (handles between headers): needs a dedicated drag state
+  in the shell (scrollbar style) + an `on_resize(column, width)` callback — a milestone in
+  its own right.
+- **Widget cells** (beyond text).

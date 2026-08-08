@@ -1,50 +1,51 @@
-# Jalon 128 — Vitrine : ClipPath + RotatedBox + FittedBox
+# Jalon 128 — Showcase: ClipPath + RotatedBox + FittedBox
 
-## Analyse
+## Analysis
 
-J125–J127 ont complété la famille (découpe par coin, `RotatedBox`/`FittedBox`,
-`ClipPath`) sans les montrer. Ce jalon les rend **tangibles** dans `frus-transforms` —
-et *voir* a de nouveau valeur : le rendu confirme d'un coup d'œil la découpe par chemin
-(étoile), la rotation qui **change la boîte**, et l'ajustement `Contain`, sans
-chevauchement des voisins.
+J125–J127 completed the family (per-corner clipping, `RotatedBox`/`FittedBox`,
+`ClipPath`) without showing any of it. This milestone makes them **tangible** in
+`frus-transforms` — and *seeing* pays off again: the rendering confirms at a glance the
+path clipping (a star), the rotation that **changes the box**, and the `Contain` fit,
+with no overlap of the neighbours.
 
-## Décisions techniques
+## Technical decisions
 
-- **`ClipPath` en étoile.** Un chemin d'étoile à 5 branches (`star_path`, coordonnées
-  locales) découpe un carré dégradé — bords anticrénelés par le masque GPU, aux côtés de
-  `ClipRRect` et `ClipOval` (galerie 3).
+- **`ClipPath` as a star.** A 5-point star path (`star_path`, local coordinates) clips a
+  gradient square — edges anti-aliased by the GPU mask, alongside `ClipRRect` and
+  `ClipOval` (gallery 3).
 
-- **`RotatedBox` visible par le texte.** « ROTATED » tourné de 3 quarts devient
-  **vertical** (sa boîte passe haute et étroite) — la preuve *visible* que la rotation
-  affecte la mise en page, contrairement à `Transform`.
+- **`RotatedBox` made visible by text.** "ROTATED" turned by 3 quarters becomes
+  **vertical** (its box goes tall and narrow) — *visible* proof that the rotation affects
+  layout, unlike `Transform`.
 
-- **`FittedBox·Contain`.** Un grand « Fit » (48 px) est mis à l'échelle pour **tenir**
-  dans un cadre 120×80 — l'échelle découle de la boîte (galerie 4).
+- **`FittedBox·Contain`.** A large "Fit" (48 px) is scaled to **fit** a 120×80 frame —
+  the scale follows from the box (gallery 4).
 
-- **`view` toujours pure**, conventions respectées (constructeurs de structs, textes en
-  anglais).
+- **The `view` stays pure**, conventions respected (struct constructors, interface text
+  in English).
 
-## Implémentation
+## Implementation
 
-- `crates/frus-transforms/src/lib.rs` : imports `ClipPath` / `RotatedBox` / `FittedBox` /
-  `BoxFit` / `Path` / `Point` ; helper `star_path` ; galerie 3 étendue (tuile étoile) ;
-  galerie 4 (`RotatedBox` + `FittedBox`) ; en-têtes et titre mis à jour.
+- `crates/frus-transforms/src/lib.rs`: importing `ClipPath` / `RotatedBox` / `FittedBox`
+  / `BoxFit` / `Path` / `Point`; the `star_path` helper; gallery 3 extended (the star
+  tile); gallery 4 (`RotatedBox` + `FittedBox`); headings and title updated.
 
 ## Tests
 
-- `renders_clip_shapes` : la `view` émet aussi un `ClipShape::Path` (l'étoile) en plus
-  de `RRect` et `Oval`.
-- Garde-fous existants verts (calque transformé émis, contenu posé dans la fenêtre).
-- Rendu visuel (hors commit) confirmé : étoile nette, texte vertical, « Fit » ajusté,
-  **aucun chevauchement** sous la galerie `RotatedBox`. Suite `frus-transforms` : 7.
+- `renders_clip_shapes`: the `view` also emits a `ClipShape::Path` (the star) on top of
+  `RRect` and `Oval`.
+- The existing guards green (a transformed layer emitted, content placed inside the
+  viewport).
+- Visual rendering (outside the commit) confirmed: a crisp star, vertical text, "Fit"
+  fitted, **no overlap** under the `RotatedBox` gallery. The `frus-transforms` suite: 7.
 
-## Lancer / voir
+## Seeing it / running it
 
-- Bureau : `cargo run -p frus-transforms` — faire défiler ; glisser/zoomer la fenêtre
-  interactive ; observer étoile, rotation, ajustement.
-- Android : APK via `cargo-apk`.
+- Desktop: `cargo run -p frus-transforms` — scroll; drag/zoom the interactive viewport;
+  look at the star, the rotation, the fit.
+- Android: an APK through `cargo-apk`.
 
-## Reste
+## What's left
 
-- Vérification **sur device réel** (desktop + Android) : le *voir* final.
-- Une tuile animant un `ClipPath` (chemin qui pulse) illustrerait la découpe dynamique.
+- Verification **on a real device** (desktop + Android): the final *seeing*.
+- A tile animating a `ClipPath` (a pulsing path) would illustrate dynamic clipping.

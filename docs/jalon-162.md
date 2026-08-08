@@ -1,52 +1,53 @@
-# Jalon 162 — Curseur de plage : survol, clic-piste & Début/Fin
+# Jalon 162 — Range slider: hover, track click & Home/End
 
-## Analyse
+## Analysis
 
-Le `RangeSlider` (jalons 156/157/160) affichait ses infobulles **en permanence**, ne
-réagissait **pas au clic sur la piste** (seules les poignées étaient interactives) et son
-clavier se limitait aux flèches. Trois points du « Reste » à traiter.
+`RangeSlider` (milestones 156/157/160) showed its tooltips **permanently**, did **not react
+to a track click** (only the handles were interactive) and its keyboard support stopped at the
+arrows. Three items from "What's left" to deal with.
 
-## Décisions techniques
+## Technical decisions
 
-- **Infobulle révélée au survol / focus.** L'infobulle est désormais peinte par la
-  **poignée** (et non le slider), et n'apparaît que si la poignée est **survolée** ou
-  **focalisée** (`status.hover_progress > 0` ou `status.focused`), avec fondu. La hauteur
-  reste réservée dès qu'un `value_label` est posé, mais l'affichage est contextuel — comme
-  Material. Chaque poignée montre **sa** valeur.
+- **A tooltip revealed on hover / focus.** The tooltip is now painted by the **handle** (not
+  the slider), and only appears if the handle is **hovered** or **focused**
+  (`status.hover_progress > 0` or `status.focused`), with a fade. The height stays reserved as
+  soon as a `value_label` is set, but the display is contextual — as in Material. Each handle
+  shows **its** value.
 
-- **Clic / glissement sur la piste.** Le `RangeSlider` (parent) redevient **glissable** :
-  ses poignées étant peintes **au-dessus**, `draggable_at` renvoie la poignée quand on la
-  vise, sinon la **piste** → `on_drag(fraction)` rapproche la **poignée la plus proche**
-  (bornée, accrochée). On retrouve le clic-piste sans casser le glissement collant des
-  poignées.
+- **Click / drag on the track.** The parent `RangeSlider` becomes **draggable** again: since
+  its handles are painted **on top**, `draggable_at` returns the handle when you aim at one,
+  otherwise the **track** → `on_drag(fraction)` brings the **nearest handle** over (clamped,
+  snapped). We get the track click back without breaking the handles' sticky dragging.
 
-- **Début / Fin au clavier.** Nouveau routage shell : les touches **Début/Fin** sont
-  proposées au widget focalisé via `on_key` avant l'édition (un champ texte les ignore ici).
-  Une poignée focalisée y répond en filant à sa **borne** (0 / voisin, ou voisin / 1),
-  réutilisant `moved(±grand)`.
+- **Home / End from the keyboard.** New shell routing: the **Home/End** keys are offered to
+  the focused widget through `on_key` before editing (a text field ignores them here). A
+  focused handle responds by running to its **bound** (0 / the neighbour, or the neighbour / 1),
+  reusing `moved(±large)`.
 
-## Implémentation
+## Implementation
 
-- `slider.rs` : `RangeThumb` gagne `label` + `value()` et peint la bulle **au survol/focus**
-  (`paint_tip`) ; `on_key` gère aussi **Début/Fin**. `RangeSlider` transmet `label` aux
-  poignées, ne peint plus les bulles, et devient **glissable** (`on_drag` → poignée la plus
-  proche, avec `snap`).
-- `app.rs` (shell) : Début/Fin routées vers `on_key` du focalisé avant l'action par défaut.
-- `goldens.rs` : `range_slider_labels` **focalise** la poignée basse (révèle bulle + anneau).
+- `slider.rs`: `RangeThumb` gains `label` + `value()` and paints the bubble **on
+  hover/focus** (`paint_tip`); `on_key` also handles **Home/End**. `RangeSlider` passes `label`
+  to the handles, no longer paints the bubbles, and becomes **draggable** (`on_drag` → the
+  nearest handle, with `snap`).
+- `app.rs` (shell): Home/End routed to the focused widget's `on_key` before the default
+  action.
+- `goldens.rs`: `range_slider_labels` **focuses** the low handle (revealing the bubble + the
+  ring).
 
-## Vérification
+## Verification
 
-- **Unitaire** : la piste est **glissable** et `on_drag` vise la poignée la plus proche
-  (`0.25`→bas, `0.9`→haut) ; **Début/Fin** filent la poignée à sa borne (bas : 0 / 0.7 ;
-  haut Fin : 1). Glissé collant, paliers, flèches, réserve de hauteur : inchangés.
-- **Golden** `range_slider_labels` **inspecté** : poignée basse **focalisée** avec anneau et
-  bulle « 30% » **révélée**, poignée haute **sans** bulle ; `range_slider` (sans étiquette)
-  **inchangé**.
-- `cargo test --workspace` **vert**.
+- **Unit**: the track is **draggable** and `on_drag` targets the nearest handle (`0.25`→low,
+  `0.9`→high); **Home/End** run the handle to its bound (low: 0 / 0.7; high End: 1). Sticky
+  dragging, divisions, arrows, the height reserve: unchanged.
+- **Golden** `range_slider_labels` **inspected**: the low handle **focused** with a ring and
+  the "30%" bubble **revealed**, the high handle **without** a bubble; `range_slider`
+  (unlabelled) **unchanged**.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Infobulle pendant le glissement** : la révélation par survol/focus ne couvre pas encore
-  le glissement pur (aucun signal fiable « poignée en cours de glissement » — le survol se
-  perd) ; il faudrait exposer la poignée activement glissée depuis le shell.
-- **PgUp/PgDn** (grand pas) — demanderait des variantes `Key` dédiées.
+- **A tooltip during the drag**: hover/focus revelation does not yet cover a pure drag (no
+  reliable "handle currently being dragged" signal — hover is lost); the actively dragged
+  handle would have to be exposed from the shell.
+- **PgUp/PgDn** (a big step) — would require dedicated `Key` variants.

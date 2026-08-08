@@ -1,61 +1,60 @@
-# Jalon 159 — Réordonnancement : coulissement des colonnes voisines
+# Jalon 159 — Reordering: neighbouring columns slide
 
-## Analyse
+## Analysis
 
-L'aperçu (jalons 155/158) soulevait un fantôme fidèle, mais les colonnes **restaient
-figées** : rien ne montrait la place s'ouvrir. Il manquait l'effet « `ReorderableListView` »
-— les voisines qui **s'écartent** pour ménager le dépôt et **referment** le trou de la
-colonne saisie.
+The preview (milestones 155/158) lifted a faithful ghost, but the columns **stayed frozen**:
+nothing showed the slot opening. The reorderable-list effect was missing — the neighbours
+**parting** to make room for the drop and **closing** the gap left by the grabbed column.
 
-L'obstacle (déjà noté aux jalons précédents) : le shell **ne connaît pas** l'appartenance
-colonne → widgets (une colonne = un en-tête + N cellules, chacune un `WidgetId` distinct).
-Faire coulisser « la colonne 2 » depuis le shell semblait exiger cette cartographie.
+The obstacle (already noted in the previous milestones): the shell **does not know** the
+column → widgets mapping (a column = one header + N cells, each a distinct `WidgetId`). Making
+"column 2" slide from the shell seemed to require that mapping.
 
-## Décisions techniques
+## Technical decisions
 
-- **Réagencement purement géométrique.** Plutôt qu'une cartographie, on **reclasse les
-  primitives** de la scène par leur **centre en x** : la colonne **source** (soulevée) est
-  retirée, les colonnes entre source et cible sont **translatées d'un cran** (largeur de la
-  source) pour combler le trou et ouvrir la place. En-têtes **et** cellules de données
-  coulissent ensemble (même bande en x) — l'effet complet, sans structure supplémentaire.
+- **A purely geometric reflow.** Rather than a mapping, we **reclassify the scene's
+  primitives** by their **centre in x**: the **source** column (lifted) is removed, the columns
+  between source and target are **translated by one notch** (the source's width) to close the
+  gap and open the slot. Headers **and** data cells slide together (the same band in x) — the
+  full effect, with no extra structure.
 
-- **Garde-fou anti-fond.** Une primitive plus large que ~1,5 colonne (fond de page, surlignage
-  de ligne) est **laissée en place** : on ne déplace pas un arrière-plan entier. Le texte
-  (non mesuré dans frus-core) est repéré par sa **position** (`bounds()` ponctuel), suffisant
-  pour le classement en x.
+- **An anti-background guard.** A primitive wider than ~1.5 columns (a page background, a row
+  highlight) is **left in place**: we do not move a whole backdrop. Text (unmeasured in
+  frus-core) is located by its **position** (a point `bounds()`), enough to classify it in x.
 
-- **Utilitaire partagé et pur.** `frus_widgets::reflow_reorder_columns(prims, src, target,
-  to_right, lifted_owner)` : **fonction pure** sur des primitives, appelée par le shell **et**
-  par le golden (aucune duplication), testable sans GPU. Le fantôme reste peint par le shell
-  (`draw_ghost_card`) par-dessus la scène réagencée ; l'indicateur/estompe deviennent inutiles
-  (le trou réel les remplace).
+- **A shared, pure utility.**
+  `frus_widgets::reflow_reorder_columns(prims, src, target, to_right, lifted_owner)`: a **pure
+  function** over primitives, called by the shell **and** by the golden (no duplication),
+  testable without a GPU. The ghost is still painted by the shell (`draw_ghost_card`) over the
+  reflowed scene; the indicator/dim become unnecessary (the real gap replaces them).
 
-- **Briques frus-core.** `Primitive::bounds()` (boîte englobante, `Path` via ses points) et
+- **frus-core bricks.** `Primitive::bounds()` (a bounding box, `Path` through its points) and
   `Rect::union`.
 
-## Implémentation
+## Implementation
 
-- `scene.rs` / `geometry.rs` (frus-core) : `Primitive::bounds()`, `Rect::union`.
-- `reorder.rs` (frus-widgets) : `reflow_reorder_columns` (+ tests) ; export.
-- `app.rs` (shell) : `paint_reorder_preview` réagence la scène (`reflow_reorder_columns`)
-  puis peint la carte fantôme ; `draw_reorder_overlay` → `draw_ghost_card` (ombre + face
-  fidèle + bord).
-- `goldens.rs` : `table_reorder_preview` reconstruit le réagencement (source retirée, « Score »
-  coulissé, fantôme « Role »).
+- `scene.rs` / `geometry.rs` (frus-core): `Primitive::bounds()`, `Rect::union`.
+- `reorder.rs` (frus-widgets): `reflow_reorder_columns` (+ tests); export.
+- `app.rs` (shell): `paint_reorder_preview` reflows the scene (`reflow_reorder_columns`) then
+  paints the ghost card; `draw_reorder_overlay` → `draw_ghost_card` (shadow + faithful face +
+  edge).
+- `goldens.rs`: `table_reorder_preview` rebuilds the reflow (the source removed, "Score" slid,
+  the "Role" ghost).
 
-## Vérification
+## Verification
 
-- **Unitaire** (`reflow_reorder_columns`, sans GPU) : glissé à **droite** → colonne source
-  retirée, voisines coulissées de **−1 cran** (col 1 → 0, col 2 → 100), fond large **conservé** ;
-  glissé à **gauche** → coulissement de **+1 cran**. `draw_ghost_card` : repli plein = 2 primitives.
-- **Golden** `table_reorder_preview` **inspecté** : « Role » soulevé (retiré, ses données
-  disparues), « Score » (5 / 3) **coulissé** à la place de « Role », **trou** ouvert à droite,
-  **carte « Role »** flottante au curseur. Effet de coulissement complet.
-- `cargo test --workspace` **vert**, sans avertissement.
+- **Unit** (`reflow_reorder_columns`, no GPU): dragged **right** → the source column removed,
+  the neighbours slid **−1 notch** (col 1 → 0, col 2 → 100), a wide background **kept**;
+  dragged **left** → a **+1 notch** slide. `draw_ghost_card`: the solid fallback = 2
+  primitives.
+- **Golden** `table_reorder_preview` **inspected**: "Role" lifted (removed, its data gone),
+  "Score" (5 / 3) **slid** into "Role"'s place, a **gap** open on the right, the floating
+  **"Role" card** at the cursor. The full sliding effect.
+- `cargo test --workspace` **green**, with no warning.
 
-## Reste
+## What's left
 
-- **Interpolation temporelle** (easing) du coulissement : aujourd'hui le réagencement **suit
-  le curseur** (il bascule d'une colonne cible à l'autre) sans transition douce ; un tween
-  demanderait un état d'animation par colonne.
-- **Opacité du fantôme** (< 1) via `Primitive::Layer { opacity }`.
+- **Temporal interpolation** (easing) of the slide: today the reflow **follows the cursor** (it
+  flips from one target column to the next) with no smooth transition; a tween would need a
+  per-column animation state.
+- **Ghost opacity** (< 1) through `Primitive::Layer { opacity }`.

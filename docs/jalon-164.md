@@ -1,50 +1,47 @@
-# Jalon 164 — Tableau : cellules-widgets (au-delà du texte)
+# Jalon 164 — Table: widget cells (beyond text)
 
-## Analyse
+## Analysis
 
-Le tableau ne savait afficher que du **texte** (`.row(&[&str])`). Or une grille réelle
-mêle des puces d'état, des avatars, des boutons d'action en ligne… Il fallait des
-**cellules-widgets**.
+The table could only display **text** (`.row(&[&str])`). A real grid mixes status dots,
+avatars, inline action buttons… It needed **widget cells**.
 
-Le nœud : le tableau **se reconstruit** après chaque réglage (rebuild à chaque builder,
-pour l'indépendance d'ordre). Or un `Box<dyn Widget>` n'est **pas clonable** — impossible
-de le stocker puis de le rejouer à chaque reconstruction.
+The crux: the table **rebuilds itself** after each setting (a rebuild per builder call, for
+order independence). But a `Box<dyn Widget>` is **not clonable** — impossible to store one and
+replay it at each rebuild.
 
-## Décisions techniques
+## Technical decisions
 
-- **Cellule par fabrique.** Une cellule-widget est fournie par une **fabrique**
-  `Fn() -> Box<dyn Widget<Msg>>` (stockée en `Rc`, donc partageable) : `rebuild` la
-  **rappelle** pour produire un widget **frais** à chaque reconstruction — compatible avec
-  l'architecture existante, sans forwarder `Rc<dyn Widget>` (≈ 50 méthodes). Les lignes de
-  données deviennent un `RowKind::{Text, Widgets}` ; **le texte reste inchangé** (aucune
-  régression sur les tableaux existants).
+- **A cell by factory.** A widget cell is supplied by a **factory**
+  `Fn() -> Box<dyn Widget<Msg>>` (stored in an `Rc`, so shareable): `rebuild` **calls it back**
+  to produce a **fresh** widget at each rebuild — compatible with the existing architecture,
+  with no need to forward an `Rc<dyn Widget>` (≈ 50 methods). Data rows become a
+  `RowKind::{Text, Widgets}`; **text stays unchanged** (no regression on existing tables).
 
-- **Cellule = conteneur thémé.** `WidgetCell` occupe la largeur de colonne × la hauteur de
-  rangée, centre son contenu (padding horizontal), peint le **fond de cellule** (survol /
-  sélection) et reste **cliquable** pour la sélection de ligne — le contenu (bouton,
-  puce…) se peint **par-dessus**, et un widget interne cliquable capte le clic là où il est
-  (hit-test du plus haut), la zone libre sélectionnant la ligne.
+- **A cell = a themed container.** `WidgetCell` takes the column width × the row height,
+  centres its content (horizontal padding), paints the **cell background** (hover / selection)
+  and stays **clickable** for row selection — the content (a button, a chip…) paints **on
+  top**, and a clickable inner widget catches the click where it is (the topmost hit-test),
+  the free area selecting the row.
 
-## Implémentation
+## Implementation
 
-- `table.rs` : type public `CellFactory<Msg>` ; `enum RowKind` ; `WidgetCell` (fond +
-  contenu centré + clic de sélection) ; `rows: Vec<RowKind>` ; `.widget_row(cells)` ;
-  `rebuild` gère les deux variantes.
-- `goldens.rs` : `table_widget_cells` (colonne d'avatars + colonne de `Chip`).
+- `table.rs`: the public `CellFactory<Msg>` type; `enum RowKind`; `WidgetCell` (background +
+  centred content + a selection click); `rows: Vec<RowKind>`; `.widget_row(cells)`; `rebuild`
+  handles both variants.
+- `goldens.rs`: `table_widget_cells` (an avatar column + a `Chip` column).
 
-## Vérification
+## Verification
 
-- **Unitaire** : une `widget_row` produit une rangée de cellules contenant **chacune un
-  widget** ; le contenu (« admin ») est **peint** ; la ligne-widget reste **sélectionnable**
-  (`on_select_row`). Tri / sélection / redimensionnement / réordonnancement des tableaux
-  texte : inchangés.
-- **Golden** `table_widget_cells` **inspecté** : colonne d'**avatars** (« A », « B ») et
-  colonne de **puces** (« admin », « editor »), centrées dans leurs cellules.
-- `cargo test --workspace` **vert**.
+- **Unit**: a `widget_row` produces a row of cells **each containing a widget**; the content
+  ("admin") is **painted**; the widget row stays **selectable** (`on_select_row`). Sorting /
+  selection / resizing / reordering of text tables: unchanged.
+- **Golden** `table_widget_cells` **inspected**: an **avatar** column ("A", "B") and a **chip**
+  column ("admin", "editor"), centred in their cells.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Tri de colonnes-widgets** : l'app fournit la clé de tri (le tableau ne sait pas
-  comparer des widgets) — déjà possible côté application, à documenter.
-- **Cellules d'en-tête widget** (icône + libellé) et **hauteur de rangée adaptative** au
-  contenu (aujourd'hui `ROW_H` fixe : un contenu plus grand est rogné).
+- **Sorting widget columns**: the app supplies the sort key (the table cannot compare widgets)
+  — already possible app-side, to be documented.
+- **Widget header cells** (an icon + a label) and a **row height adaptive** to the content
+  (today a fixed `ROW_H`: taller content is cropped).

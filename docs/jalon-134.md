@@ -1,59 +1,57 @@
-# Jalon 134 — Label flottant animé (façon Material)
+# Jalon 134 — Animated floating label (Material style)
 
-## Analyse
+## Analysis
 
-Depuis le jalon 132, le label était **statique**, toujours au-dessus du champ. Material
-(et Flutter par défaut, `floatingLabelBehavior: auto`) fait mieux : au repos, le label
-occupe la boîte comme un indice ; dès qu'on focalise ou qu'on saisit, il **flotte** vers
-le haut en se réduisant. Un seul élément joue label *et* indice, et la transition guide
-l'œil.
+Since milestone 132, the label was **static**, always above the field. Material does
+better (and it is the default behaviour of the shape we are following): at rest the label
+occupies the box like a hint; as soon as you focus or type, it **floats** upwards and
+shrinks. A single element plays both label *and* hint, and the transition guides the eye.
 
-## Décisions techniques
+## Technical decisions
 
-- **Réutiliser l'animation de focus, ne pas en créer.** La bordure animait déjà sur
-  `status.focus_progress` (interpolé 0→1 par le runtime). Le flottement s'y adosse :
-  aucune nouvelle plomberie d'animation.
+- **Reuse the focus animation, do not create one.** The border already animated on
+  `status.focus_progress` (interpolated 0→1 by the runtime). The float rides on it: no new
+  animation plumbing.
 
-- **Deux pilotes distincts, position et couleur.**
-  - **Position / taille** suivent le *flottement* `t = champ rempli ? 1 : focus_progress`.
-    Rempli, le label reste flotté même sans focus (le contenu occupe la boîte) ; vide, il
-    suit le focus. Toutes les transitions réelles sont fluides, car `focus_progress` vaut
-    déjà 1 pendant qu'on édite.
-  - **Couleur** suit la *focalisation* (`focus_progress`) seule : un champ rempli mais
-    non focalisé garde un label **discret** (pas encore accentué) — accentué uniquement au
-    focus. (En erreur, la couleur d'erreur prime à tout instant.)
+- **Two distinct drivers, position and colour.**
+  - **Position / size** follow the *float* `t = field filled ? 1 : focus_progress`. Filled,
+    the label stays floated even without focus (the content occupies the box); empty, it
+    follows the focus. Every real transition is smooth, because `focus_progress` is
+    already 1 while editing.
+  - **Colour** follows the *focus* (`focus_progress`) alone: a filled but unfocused field
+    keeps a **muted** label (not yet accented) — accented only on focus. (In error, the
+    error colour wins at all times.)
 
-- **La hauteur ne bouge pas.** `style()` réserve toujours la bande du label au-dessus de
-  la boîte ; seul le **dessin** du label interpole entre sa position de repos (dans la
-  boîte, à la taille du texte) et sa position flottée (au-dessus, réduite). La boîte, elle,
-  reste fixe — pas de saut de mise en page.
+- **The height does not move.** `style()` still reserves the label band above the box;
+  only the label's **drawing** interpolates between its rest position (inside the box, at
+  text size) and its floated position (above, shrunk). The box itself stays fixed — no
+  layout jump.
 
-- **L'indice cède la place au label au repos.** Quand un label est présent, l'indice
-  (`placeholder`) ne se **révèle en fondu** que lorsque le label a flotté (`α = opacité ×
-  focus_progress`) : sinon les deux se chevaucheraient dans la boîte. Sans label, l'indice
-  s'affiche comme avant.
+- **The hint yields to the label at rest.** When a label is present, the hint
+  (`placeholder`) only **fades in** once the label has floated
+  (`α = opacity × focus_progress`): otherwise the two would overlap in the box. With no
+  label, the hint shows as before.
 
-## Implémentation
+## Implementation
 
-- `crates/frus-widgets/src/textinput.rs` : `paint()` — le label interpole repos↔flotté
-  (position, taille, couleur) selon `float_t` / `fp` ; l'indice fond avec `fp` en présence
-  d'un label. Test `floating_label_rests_in_box_then_floats_up` (grand/bas au repos →
-  petit/haut focalisé).
-- `crates/frus-test/tests/goldens/decorated_form.png` : régénéré — le champ Password
-  (vide, non focalisé) montre désormais son label **au repos dans la boîte** (le golden
-  `password_field`, lui, est inchangé : rempli ⇒ label déjà flotté, discret).
+- `crates/frus-widgets/src/textinput.rs`: `paint()` — the label interpolates rest↔floated
+  (position, size, colour) from `float_t` / `fp`; the hint fades with `fp` when a label is
+  present. The `floating_label_rests_in_box_then_floats_up` test (big/low at rest →
+  small/high focused).
+- `crates/frus-test/tests/goldens/decorated_form.png`: regenerated — the Password field
+  (empty, unfocused) now shows its label **at rest inside the box** (the `password_field`
+  golden is unchanged: filled ⇒ the label is already floated, muted).
 
-## Vérification
+## Verification
 
-- **Rendu à l'œil** : au repos, « Password » occupe la boîte ; « Email » (rempli) reste
-  flotté au-dessus. Figé dans le golden `decorated_form` régénéré.
-- **Unitaire** : le label est plus grand et plus bas au repos, plus petit et plus haut une
-  fois focalisé.
-- **Suites** : `frus-widgets` (238) + `frus-test` verts, `password_field` inchangé.
+- **Rendered and looked at**: at rest, "Password" occupies the box; "Email" (filled) stays
+  floated above. Frozen in the regenerated `decorated_form` golden.
+- **Unit**: the label is bigger and lower at rest, smaller and higher once focused.
+- **Suites**: `frus-widgets` (238) + `frus-test` green, `password_field` unchanged.
 
-## Reste
+## What's left
 
-- **Encoche du label** (le label flotté « coupe » la bordure, façon `OutlineInputBorder`
-  de Material) — raffinement visuel.
-- `floatingLabelBehavior: always/never` explicite, si un design veut forcer l'état.
-- **Validation groupée** (jalon suivant).
+- A **label notch** (the floated label "cuts" the border, outlined style) — a visual
+  refinement.
+- An explicit always/never floating behaviour, should a design want to force the state.
+- **Grouped validation** (the next milestone).

@@ -1,59 +1,56 @@
-# Jalon 161 — Réordonnancement : clavier & coulissement continu
+# Jalon 161 — Reordering: keyboard & continuous sliding
 
-## Analyse
+## Analysis
 
-Le réordonnancement de colonnes (jalons 153/155/159) était **souris seule** et son
-coulissement **sautait** d'une colonne à l'autre (le réagencement suivait la colonne cible,
-pas le curseur). Deux manques du « Reste » : l'**accès clavier** et un coulissement **doux**.
+Column reordering (milestones 153/155/159) was **mouse only** and its slide **jumped** from
+one column to the next (the reflow followed the target column, not the cursor). Two gaps from
+"What's left": **keyboard access** and a **smooth** slide.
 
-## Décisions techniques
+## Technical decisions
 
-### Coulissement continu (regroupé par cellule)
+### Continuous sliding (grouped per cell)
 
-L'ancien réagencement classait chaque **primitive** par sa position et décalait d'un bloc
-la bande entre source et cible — d'où un **saut** quand le curseur changeait de colonne, et
-un risque de **cisaillement** (fond et texte d'une cellule décalés différemment pendant une
-transition).
+The old reflow classified each **primitive** by its position and shifted the band between
+source and target as a block — hence a **jump** when the cursor changed column, and a risk of
+**shearing** (a cell's background and text shifted differently during a transition).
 
-Nouveau `reflow_reorder_columns(prims, src, cursor_x, lifted_owner)` : on **regroupe les
-primitives par propriétaire** (une cellule = un `owner` : fond + texte + icône). Chaque
-cellule coulisse **d'un bloc** (plus de cisaillement) d'une quantité **continue** fonction
-de `cursor_x` — le coulissement **suit le curseur** au lieu de sauter. La cible n'est plus
-nécessaire à l'aperçu (seulement au dépôt). Les blocs plus larges qu'une colonne (fonds de
-page/ligne) restent en place ; les cellules sans fond (réduites à leur texte) prennent la
-largeur d'un cran comme échelle de transition.
+The new `reflow_reorder_columns(prims, src, cursor_x, lifted_owner)`: we **group the
+primitives by owner** (a cell = one `owner`: background + text + icon). Each cell slides **as
+a block** (no more shearing) by a **continuous** amount driven by `cursor_x` — the slide
+**follows the cursor** instead of jumping. The target is no longer needed for the preview
+(only for the drop). Blocks wider than a column (page/row backgrounds) stay in place; cells
+with no background (reduced to their text) take one notch's width as the transition scale.
 
-### Réordonnancement clavier
+### Keyboard reordering
 
-Le routage `on_key` (jalon 160) propose déjà les flèches au widget focalisé. Un en-tête
-focalisé consomme **Ctrl+Gauche/Droite** (`Key::Left/Right { word: true }`) pour déplacer sa
-colonne d'un cran (`on_reorder(from, to)`), **borné** au nombre de colonnes ; au bord, il
-**ignore** (le focus navigue alors). Les flèches **nues** restent ignorées (navigation du
-focus entre en-têtes). Le tri au clic/Entrée est intact.
+The `on_key` routing (milestone 160) already offers the arrows to the focused widget. A
+focused header consumes **Ctrl+Left/Right** (`Key::Left/Right { word: true }`) to move its
+column by one notch (`on_reorder(from, to)`), **clamped** to the column count; at the edge it
+**ignores** (the focus then navigates). **Bare** arrows stay ignored (focus navigation between
+headers). Sorting by click/Enter is intact.
 
-## Implémentation
+## Implementation
 
-- `reorder.rs` (frus-widgets) : `reflow_reorder_columns` regroupé par `owner` + décalage
-  continu (nouvelle signature `cursor_x`) ; tests mis à jour (coulissement partiel).
-- `table.rs` : `Cell.reorder` porte aussi le **nombre de colonnes** ; `Cell::on_key`
-  (Ctrl+Flèches → `on_reorder`, borné).
-- `app.rs` (shell) : `paint_reorder_preview` réagence selon `self.cursor.x` (plus de cible).
-- `goldens.rs` : `table_reorder_preview` mis à jour (curseur au-delà de « Score », coulissement plein).
+- `reorder.rs` (frus-widgets): `reflow_reorder_columns` grouped by `owner` + a continuous
+  shift (the new `cursor_x` signature); tests updated (partial sliding).
+- `table.rs`: `Cell.reorder` also carries the **column count**; `Cell::on_key` (Ctrl+Arrows →
+  `on_reorder`, clamped).
+- `app.rs` (shell): `paint_reorder_preview` reflows from `self.cursor.x` (no more target).
+- `goldens.rs`: `table_reorder_preview` updated (the cursor past "Score", a full slide).
 
-## Vérification
+## Verification
 
-- **Unitaire** : `reflow_reorder_columns` — curseur loin → coulissement **plein** (col 1 → 0,
-  col 2 → 100) ; curseur au **centre** d'une colonne → coulissement **à mi-course** (−50), la
-  suivante **immobile** ; sens gauche symétrique. `Cell::on_key` — Ctrl+Gauche/Droite sur la
-  colonne du milieu → `Reorder(1,0)`/`Reorder(1,2)` ; aux bords → `Ignored` ; flèche nue →
-  `Ignored`.
-- **Golden** `table_reorder_preview` **inspecté** : « Role » soulevé, « Score » (5/3)
-  **coulissé** à la place de « Role », trou ouvert, fantôme « Role » flottant à droite.
-- `cargo test --workspace` **vert**.
+- **Unit**: `reflow_reorder_columns` — a distant cursor → a **full** slide (col 1 → 0, col 2 →
+  100); a cursor at a column's **centre** → a **half-way** slide (−50), the next one **still**;
+  the leftward direction symmetric. `Cell::on_key` — Ctrl+Left/Right on the middle column →
+  `Reorder(1,0)`/`Reorder(1,2)`; at the edges → `Ignored`; a bare arrow → `Ignored`.
+- **Golden** `table_reorder_preview` **inspected**: "Role" lifted, "Score" (5/3) **slid** into
+  "Role"'s place, the gap open, the "Role" ghost floating on the right.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Easing temporel** (ressort) en plus du suivi-curseur : demanderait un état d'animation
-  par colonne (offset animé) dans le runtime.
-- **Réordonnancement clavier annoncé** (sémantique/accessibilité) et **PgUp/PgDn** pour aller
-  au bord.
+- **Temporal easing** (a spring) on top of cursor-following: would require a per-column
+  animation state (an animated offset) in the runtime.
+- **Announced keyboard reordering** (semantics/accessibility) and **PgUp/PgDn** to go to the
+  edge.

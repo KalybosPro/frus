@@ -1,53 +1,53 @@
-# Jalon 160 — Curseur de plage : infobulle de valeur & clavier
+# Jalon 160 — Range slider: value tooltip & keyboard
 
-## Analyse
+## Analysis
 
-Le `RangeSlider` (jalons 156/157) était complet à la souris mais muet sur deux points du
-« Reste » : **aucune valeur affichée** (on glissait sans repère chiffré) et **aucun accès
-clavier** (les poignées n'étaient ni focusables ni pilotables aux flèches).
+`RangeSlider` (milestones 156/157) was complete with the mouse but silent on two items from
+"What's left": **no value displayed** (you dragged with no numeric cue) and **no keyboard
+access** (the handles were neither focusable nor arrow-drivable).
 
-## Décisions techniques
+## Technical decisions
 
-- **Infobulle opt-in, toujours peinte.** `value_label(fmt)` : une bulle `primary` au-dessus
-  de chaque poignée affiche `fmt(valeur)` (pourcentage, prix…). Choix d'un affichage
-  **permanent** (et non seulement au survol) : l'état « actif » d'une poignée est peu fiable
-  **pendant** le glissement (le survol se perd, l'interaction repasse à `Idle`). Peinte par
-  le `RangeSlider` lui-même (qui connaît `low`/`high` et les positions), pas par les poignées.
-  **Sans `value_label`, le rendu est inchangé** (hauteur = `H`, golden d'origine intact).
+- **An opt-in tooltip, always painted.** `value_label(fmt)`: a `primary` bubble above each
+  handle shows `fmt(value)` (a percentage, a price…). We chose a **permanent** display (rather
+  than hover-only): a handle's "active" state is unreliable **during** the drag (hover is
+  lost, the interaction falls back to `Idle`). Painted by the `RangeSlider` itself (which
+  knows `low`/`high` and the positions), not by the handles. **Without `value_label`, the
+  rendering is unchanged** (height = `H`, the original golden intact).
 
-- **Réserve de hauteur.** Avec une infobulle, la hauteur passe à `TIP_H + TIP_GAP + H` ; la
-  piste et les poignées vivent dans la bande **basse** `H`, les bulles dans la zone haute —
-  dans les bornes du widget, donc jamais rognées.
+- **A height reserve.** With a tooltip, the height becomes `TIP_H + TIP_GAP + H`; the track
+  and the handles live in the **bottom** `H` band, the bubbles in the top zone — within the
+  widget's bounds, so never cropped.
 
-- **Clavier générique.** Nouveau routage shell : une flèche **gauche/droite** est d'abord
-  **proposée au widget focalisé** via `on_key` ; s'il la **consomme** (`Handled`), le focus
-  ne navigue pas. Réutilisable par tout widget (pas seulement le curseur). Les poignées
-  deviennent **focusables** et répondent aux flèches en déplaçant leur côté d'un **pas**
-  (un palier si `divisions`, sinon 5 %), via la même logique bornée/accrochée que le glissé.
-  Anneau de focus accentué sur la poignée focalisée.
+- **A generic keyboard route.** New shell routing: a **left/right** arrow is first **offered
+  to the focused widget** through `on_key`; if it **consumes** it (`Handled`), the focus does
+  not navigate. Reusable by any widget (not just the slider). The handles become **focusable**
+  and respond to the arrows by moving their side by one **step** (one division if `divisions`,
+  otherwise 5%), through the same clamped/snapped logic as the drag. The focus ring is
+  accented on the focused handle.
 
-## Implémentation
+## Implementation
 
-- `slider.rs` : `RangeThumb` factorise `moved(delta)`/`snap`/`key_step` (partagés glissé +
-  clavier), devient **focusable** et gère `on_key` ; est dessinée dans la bande basse `H`.
-  `RangeSlider` gagne `label` + `value_label`, `content_h` (réserve), peint piste/segment en
-  bas et les **infobulles** en haut (`paint_tip`).
-- `app.rs` (shell) : les flèches gauche/droite passent par `on_key` du focalisé avant la
-  navigation géométrique du focus.
-- `goldens.rs` : `range_slider_labels` (infobulles « 30% » / « 70% »).
+- `slider.rs`: `RangeThumb` factors out `moved(delta)`/`snap`/`key_step` (shared by the drag +
+  the keyboard), becomes **focusable** and handles `on_key`; it is drawn in the bottom `H`
+  band. `RangeSlider` gains `label` + `value_label`, `content_h` (the reserve), paints the
+  track/segment at the bottom and the **tooltips** at the top (`paint_tip`).
+- `app.rs` (shell): the left/right arrows go through the focused widget's `on_key` before
+  geometric focus navigation.
+- `goldens.rs`: `range_slider_labels` (the "30%" / "70%" tooltips).
 
-## Vérification
+## Verification
 
-- **Unitaire** : flèche droite/gauche déplace la poignée focalisée d'un pas
-  (`divisions(10)` : 0.4 → 0.5 → 0.3), poignées **focusables** ; `value_label` **augmente**
-  la hauteur (réserve). Glissé collant, paliers, bornage : inchangés.
-- **Golden** `range_slider_labels` **inspecté** : bulles « 30% » / « 70% » au-dessus des
-  poignées ; `range_slider` (sans étiquette) **inchangé pixel pour pixel**.
-- `cargo test --workspace` **vert**.
+- **Unit**: a right/left arrow moves the focused handle by one step (`divisions(10)`: 0.4 →
+  0.5 → 0.3), the handles are **focusable**; `value_label` **increases** the height (the
+  reserve). Sticky dragging, divisions, clamping: unchanged.
+- **Golden** `range_slider_labels` **inspected**: "30%" / "70%" bubbles above the handles;
+  `range_slider` (unlabelled) **unchanged pixel for pixel**.
+- `cargo test --workspace` **green**.
 
-## Reste
+## What's left
 
-- **Révélation au survol / focus** de l'infobulle (aujourd'hui permanente) : demande un
-  signal « poignée active » fiable pendant le glissement.
-- **Clic sur la piste** pour rapprocher la poignée la plus proche.
-- **Home/End** (bornes) et **PgUp/PgDn** (grand pas) au clavier.
+- **Revealing the tooltip on hover / focus** (permanent today): requires a reliable "active
+  handle" signal during the drag.
+- **Clicking the track** to bring the nearest handle over.
+- **Home/End** (the bounds) and **PgUp/PgDn** (a big step) from the keyboard.

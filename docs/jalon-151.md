@@ -1,70 +1,67 @@
-# Jalon 151 — Tableau : redimensionnement de colonnes à la souris
+# Jalon 151 — Table: mouse column resizing
 
-## Analyse
+## Analysis
 
-Le tableau (jalons 145–149) triait, sélectionnait et cochait, mais ses colonnes
-étaient **figées** : aucune poignée pour ajuster une largeur à la souris, alors que
-c'est un geste attendu de toute grille de données (façon Flutter `DataTable` +
-`ReorderableList`, tableurs).
+The table (milestones 145–149) sorted, selected and checked, but its columns were
+**frozen**: no handle to adjust a width with the mouse, though that is an expected gesture
+in any data grid (data tables, spreadsheets).
 
-Le blocage identifié dès le jalon 149 : cela demande un **glissement absolu** dans le
-shell, or le seul mécanisme existant (`on_drag(fraction)`, utilisé par `Slider`) donne
-une **fraction bornée** aux bornes du widget — sur une fine poignée, la fraction sature
-aussitôt et ne peut pas **agrandir** une colonne.
+The blocker identified back in milestone 149: it requires an **absolute drag** in the shell,
+whereas the only existing mechanism (`on_drag(fraction)`, used by `Slider`) gives a
+**fraction clamped** to the widget's bounds — on a thin handle, the fraction saturates
+immediately and cannot **grow** a column.
 
-## Décisions techniques
+## Technical decisions
 
-- **Glissement en delta, générique.** Nouveau `Widget::on_drag_delta(dx)` : `dx` est le
-  déplacement horizontal (px) **depuis le dernier événement**. Le shell l'essaie **avant**
-  `on_drag` ; un widget n'implémente que l'un des deux (`Slider` = fraction, poignée =
-  delta). `Drag::Widget` mémorise `last_x` pour livrer le delta incrémental. Ce choix
-  **incrémental** (et non absolu depuis le début) compose avec la reconstruction de
-  l'arbre : chaque petit message est **accumulé** par l'application, sans double comptage
-  quand la vue se rebâtit à mi-glissement.
+- **A generic delta drag.** A new `Widget::on_drag_delta(dx)`: `dx` is the horizontal
+  movement (px) **since the last event**. The shell tries it **before** `on_drag`; a widget
+  implements only one of the two (`Slider` = fraction, a handle = delta). `Drag::Widget`
+  remembers `last_x` to deliver the incremental delta. That **incremental** choice (rather
+  than absolute from the start) composes with tree rebuilding: each small message is
+  **accumulated** by the application, with no double counting when the view is rebuilt
+  mid-drag.
 
-- **Poignées en calque flottant.** Le tableau superpose (via `Stack`) un **calque de
-  poignées** au-dessus de la grille : une fine barre verticale au bord droit de chaque
-  colonne (sauf la dernière), calée par des **cales transparentes** (`Spacer`) sur la
-  géométrie exacte des colonnes. Les cales sont **inertes** (ni cliquables ni
-  focusables) : les clics de tri / sélection **traversent** le calque jusqu'à la grille
-  (seuls les widgets *cliquables* peuplent la table de hit-test), tandis que
-  `draggable_at` n'attrape que les poignées. Un glissement supprime le clic de relâchement
-  (déjà le cas pour tout `Drag::Widget`), donc saisir une poignée ne déclenche pas de tri.
+- **Handles in a floating layer.** The table overlays (through `Stack`) a **handle layer**
+  on top of the grid: a thin vertical bar at each column's right edge (except the last),
+  positioned by **transparent shims** (`Spacer`) on the columns' exact geometry. The shims
+  are **inert** (neither clickable nor focusable): sort / selection clicks **pass through**
+  the layer to the grid (only *clickable* widgets populate the hit-test table), while
+  `draggable_at` only catches the handles. A drag suppresses the release click (already the
+  case for every `Drag::Widget`), so grabbing a handle does not trigger a sort.
 
-- **Contrôlé, comme le reste.** `on_resize(colonne, delta)` : l'application **accumule** la
-  largeur (`widths[col] = (widths[col] + delta).max(MIN)`) et la repasse via
-  `column_widths`. Le tableau ne stocke aucune largeur « vivante ».
+- **Controlled, like everything else.** `on_resize(column, delta)`: the application
+  **accumulates** the width (`widths[col] = (widths[col] + delta).max(MIN)`) and passes it
+  back through `column_widths`. The table stores no "live" width.
 
-- **Seulement si colonnes fixes.** Les poignées n'apparaissent que si **toutes** les
-  colonnes ont une largeur fixe (bords connus) ; une colonne flexible désactive le calque
-  (sa largeur rendue est inconnue du widget).
+- **Only with fixed columns.** The handles only appear if **every** column has a fixed width
+  (known edges); one flexible column disables the layer (its rendered width is unknown to
+  the widget).
 
-## Implémentation
+## Implementation
 
-- `widget.rs` : `on_drag_delta` (défaut `None`) + relais `Box` ; `keyed.rs`,
-  `responsive.rs` : relais.
-- `app.rs` (shell) : `Drag::Widget` gagne `last_x` ; `apply_widget_drag(id, rect, dx)`
-  essaie `on_drag_delta(dx)` puis `on_drag(fraction)` ; le glissement calcule le delta
-  incrémental.
-- `table.rs` : `Spacer` (cale inerte) + `ResizeHandle` (poignée glissable, `on_drag_delta`
-  → `on_resize(col, dx)`) ; champ `on_resize` (`Rc`) + `.on_resize()` ; `resize_overlay`
-  construit le calque ; `rebuild` emballe la grille dans un `Stack` et relaie `stack()`.
-- `goldens.rs` : golden `data_table_resizable` (3 colonnes fixes, poignées visibles).
+- `widget.rs`: `on_drag_delta` (default `None`) + the `Box` forwarder; `keyed.rs`,
+  `responsive.rs`: forwarders.
+- `app.rs` (shell): `Drag::Widget` gains `last_x`; `apply_widget_drag(id, rect, dx)` tries
+  `on_drag_delta(dx)` then `on_drag(fraction)`; the drag computes the incremental delta.
+- `table.rs`: `Spacer` (an inert shim) + `ResizeHandle` (a draggable handle,
+  `on_drag_delta` → `on_resize(col, dx)`); the `on_resize` field (`Rc`) + `.on_resize()`;
+  `resize_overlay` builds the layer; `rebuild` wraps the grid in a `Stack` and forwards
+  `stack()`.
+- `goldens.rs`: the `data_table_resizable` golden (3 fixed columns, the handles visible).
 
-## Vérification
+## Verification
 
-- **Unitaire** : la poignée émet `Resize(0, 12.0)` pour un delta de 12 px et `None` pour
-  un delta nul ; elle est **saisissable** (`draggable_at`) au bord de la 1re colonne
-  (x≈100) ; des colonnes **flexibles** ne produisent **aucune** poignée. Tri / sélection /
-  cases inchangés (tests verts).
-- **Golden** `data_table_resizable` **inspecté** : fines barres verticales au bord droit de
-  « Name » et « Role », aucune après « Score » (dernière colonne).
-- `cargo test --workspace` **vert** (slider compris — le chemin `on_drag` fraction est
-  préservé).
+- **Unit**: the handle emits `Resize(0, 12.0)` for a 12 px delta and `None` for a null
+  delta; it is **grabbable** (`draggable_at`) at the 1st column's edge (x≈100); **flexible**
+  columns produce **no** handle. Sorting / selection / checkboxes unchanged (tests green).
+- **Golden** `data_table_resizable` **inspected**: thin vertical bars at the right edge of
+  "Name" and "Role", none after "Score" (the last column).
+- `cargo test --workspace` **green** (the slider included — the `on_drag` fraction path is
+  preserved).
 
-## Reste
+## What's left
 
-- **Curseur `ew-resize`** au survol d'une poignée (indice visuel Material) — demande une
-  notion de curseur par widget dans le shell.
-- **Redimensionnement des colonnes flexibles** (mesurer la largeur rendue pour amorcer le
-  delta) et **réordonnancement** des colonnes (glisser un en-tête).
+- An **`ew-resize` cursor** when hovering a handle (a Material visual cue) — requires a
+  per-widget cursor notion in the shell.
+- **Resizing flexible columns** (measuring the rendered width to seed the delta) and
+  **reordering** columns (dragging a header).
