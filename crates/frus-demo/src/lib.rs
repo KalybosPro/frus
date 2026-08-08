@@ -1,10 +1,9 @@
-//! Application exemple : une **liste de tâches** écrite avec frus, en tant que
-//! **consommateur externe** du framework (implémente [`frus_shell::Application`]).
+//! Sample application: a **to-do list** written with frus, as an **external consumer** of the
+//! framework (it implements [`frus_shell::Application`]).
 //!
-//! Deux points d'entrée pour le même code :
-//! - bureau : `cargo run -p frus-demo` → binaire `src/bin/frus-demo.rs` → [`run_desktop`] ;
-//! - Android : la bibliothèque `cdylib` expose `android_main`, appelé par
-//!   l'activité native.
+//! Two entry points for the same code:
+//! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → [`run_desktop`];
+//! - Android: the `cdylib` library exposes `android_main`, called by the native activity.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -13,8 +12,8 @@ use frus_l10n::{args, Localizer};
 use frus_shell::{Application, Command, Lifecycle, Subscription};
 use std::sync::OnceLock;
 
-/// Le localiseur de la démo : anglais + français, chargés une seule fois depuis
-/// des ressources Fluent embarquées (`i18n/*.ftl`).
+/// The demo's localizer: English, French and Arabic, loaded once from embedded Fluent
+/// resources (`i18n/*.ftl`).
 fn l10n() -> &'static Localizer {
     static L10N: OnceLock<Localizer> = OnceLock::new();
     L10N.get_or_init(|| {
@@ -26,23 +25,22 @@ fn l10n() -> &'static Localizer {
     })
 }
 
-/// Les langues proposées par la démo (étiquette du menu, code de locale). La
-/// dernière, l'arabe, est **droite-à-gauche** : la sélectionner retourne aussi
-/// la mise en page (bidi + miroir).
+/// The languages the demo offers (menu label, locale code). The last one, Arabic, is
+/// **right-to-left**: selecting it also mirrors the layout (bidi + mirroring).
 const LANGS: [(&str, &str); 3] = [("English", "en"), ("Français", "fr"), ("العربية", "ar")];
 
-/// La langue d'index `lang` s'écrit-elle de droite à gauche ?
+/// Is the language at index `lang` written right to left?
 fn lang_is_rtl(lang: usize) -> bool {
     LANGS[lang].1 == "ar"
 }
 
-/// Traduit une clé sans argument dans la langue d'index `lang`.
+/// Translates an argument-free key into the language at index `lang`.
 fn tr(lang: usize, key: &str) -> String {
     let loc = l10n();
     loc.format_for(&loc.langid(LANGS[lang].1), key, args![])
 }
 
-/// Traduit une clé avec un argument numérique `n` (pluriels CLDR).
+/// Translates a key with a numeric argument `n` (CLDR plurals).
 fn tr_n(lang: usize, key: &str, n: usize) -> String {
     let loc = l10n();
     loc.format_for(&loc.langid(LANGS[lang].1), key, args![n: n])
@@ -60,9 +58,9 @@ use frus_widgets::{
     Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant, Widget, WindowInsets,
 };
 
-/// Logo de démo **décodé** depuis un PNG embarqué (jalon 91), partagé pour tout
-/// le process via `OnceLock` — décodé une fois, mis en cache par identité côté
-/// renderer. Repli sur un dégradé généré si le décodage échoue (robustesse).
+/// The demo logo, **decoded** from an embedded PNG (milestone 91) and shared across the whole
+/// process through a `OnceLock` — decoded once, then cached by identity on the renderer's
+/// side. Falls back to a generated gradient if the decoding fails (robustness).
 fn demo_image() -> ImageHandle {
     use std::sync::OnceLock;
     static IMG: OnceLock<ImageHandle> = OnceLock::new();
@@ -74,7 +72,7 @@ fn demo_image() -> ImageHandle {
     .clone()
 }
 
-/// Dégradé 64×64 généré — repli si le décodage du PNG échoue.
+/// A generated 64×64 gradient — the fallback when decoding the PNG fails.
 fn fallback_gradient() -> ImageHandle {
     const W: u32 = 64;
     const H: u32 = 64;
@@ -90,47 +88,47 @@ fn fallback_gradient() -> ImageHandle {
     ImageData::from_rgba(W, H, rgba).into_handle()
 }
 
-// Point d'entrée **unique** (façon Flutter) : une seule déclaration engendre les entrées
-// bureau (`run()`, appelée par le binaire) et Android (`android_main`). Voir `frus_shell::main!`.
+// A **single** entry point: one declaration generates both the desktop entry (`run()`, called
+// by the binary) and the Android one (`android_main`). See `frus_shell::main!`.
 frus_shell::main!(TodoApp::default());
 
-// --- Constantes de mouvement (partagées geste ↔ navigation) ---
+// --- Motion constants (shared between the gesture and the navigation) ---
 
-/// Horizon de projection de la vélocité (s) pour décider retour / annulation.
+/// Horizon (s) over which the velocity is projected to decide back / cancel.
 const BACK_PROJECT: f32 = 0.12;
-/// Position projetée (fraction) au-delà de laquelle on valide le retour.
+/// Projected position (a fraction) beyond which the back is committed.
 const BACK_COMMIT_POS: f32 = 0.5;
-/// Raideur du ressort de transition (fraction·s⁻²).
+/// Stiffness of the transition spring (fraction·s⁻²).
 const NAV_SPRING_K: f32 = 220.0;
-/// Amortissement (~critique) → arrivée douce sans dépassement.
+/// Damping (~critical) → a gentle arrival with no overshoot.
 const NAV_SPRING_C: f32 = 30.0;
 
-/// Le ressort partagé par la navigation et le geste retour, exprimé dans la
-/// couche d'animation de `frus-core` (`trait Simulation`).
+/// The spring shared by the navigation and the back gesture, expressed in `frus-core`'s
+/// animation layer (`trait Simulation`).
 fn nav_spring() -> SpringDescription {
     SpringDescription::new(1.0, NAV_SPRING_K, NAV_SPRING_C)
 }
 
-/// Démarre une transition d'écran : le ressort pousse la progression `0 → 1`.
+/// Starts a screen transition: the spring drives the progress `0 → 1`.
 fn start_nav(app: &mut TodoApp, forward: bool) {
     app.nav_forward = forward;
     app.nav.set_value(0.0);
     app.nav.spring_to(1.0, nav_spring(), 0.0);
 }
 
-/// Libellés du menu déroulant (écran Réglages).
+/// Labels of the dropdown menu (the Settings screen).
 const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
 
-// --- Modèle ---
+// --- Model ---
 
-/// Une tâche de la liste.
+/// One task of the list.
 struct Todo {
     id: u64,
     text: String,
     done: bool,
 }
 
-/// Filtre d'affichage de la liste des tâches.
+/// Display filter of the task list.
 #[derive(Copy, Clone, PartialEq, Eq, Default)]
 enum Filter {
     #[default]
@@ -139,42 +137,42 @@ enum Filter {
     Done,
 }
 
-/// Les écrans de l'application.
+/// The application's screens.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Route {
     Home,
     Settings,
     Journal,
-    /// Assistant d'inscription multi-étapes (démo d'intégration : Steps + Form + Snackbar).
+    /// Multi-step sign-up wizard (an integration demo: Steps + Form + Snackbar).
     Wizard,
-    /// Grille de données **éditable en ligne** (démo d'intégration : Table + TextInput par cellule).
+    /// **Inline-editable** data grid (an integration demo: Table + one TextInput per cell).
     Grid,
-    /// Tableau de bord **graphique** (démo d'intégration : LineChart + légende cliquable, jalon 218).
+    /// **Chart** dashboard (an integration demo: LineChart + a clickable legend, milestone 218).
     Charts,
-    /// Tableau de données **en lecture seule** (démo d'intégration : DataTable auto-triant + paginé,
-    /// jalon 237).
+    /// **Read-only** data table (an integration demo: a self-sorting, paginated DataTable —
+    /// milestone 237).
     Data,
-    /// Tableau **Kanban** : colonnes de cartes, glisser-déposer inter-colonnes (jalon 247).
+    /// A **Kanban** board: columns of cards, drag-and-drop between columns (milestone 247).
     Board,
 }
 
-/// Geste retour : progression suivie au doigt, puis détente à ressort
-/// (validation/annulation) pilotée par un [`AnimationController`].
+/// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
+/// driven by an [`AnimationController`].
 struct BackGesture {
     progress: f32,
     velocity: f32,
-    /// `Some` une fois relâché : la détente à ressort en cours (`None` = suivi du
-    /// doigt).
+    /// `Some` once released: the spring settle in progress (`None` = still following the
+    /// finger).
     settle: Option<AnimationController>,
-    /// La détente, à son terme, valide-t-elle le retour (dépilement) ?
+    /// Does the settle, when it ends, commit the back (a pop)?
     commit: bool,
 }
 
-/// Messages émis par l'interface.
+/// Messages emitted by the interface.
 #[derive(Clone)]
 enum Msg {
     DraftChanged(String),
-    /// Efface le champ de saisie (icône suffixe « ✕ »).
+    /// Clears the input field (the "✕" suffix icon).
     ClearDraft,
     AddTodo,
     ToggleTodo(u64),
@@ -184,11 +182,11 @@ enum Msg {
     ConfirmClearDone,
     CancelClear,
     ToggleTheme,
-    /// Passe à la graine de thème suivante (default → Blue → Purple → Orange).
+    /// Moves to the next theme seed (default → Blue → Purple → Orange).
     CycleSeed,
-    /// Bascule la direction de mise en page (LTR ↔ RTL).
+    /// Flips the layout direction (LTR ↔ RTL).
     ToggleRtl,
-    /// Passe à la langue suivante (English ↔ Français).
+    /// Moves to the next language.
     CycleLang,
     SetNotifs(bool),
     SetVolume(f32),
@@ -197,150 +195,150 @@ enum Msg {
     SetMenu(usize),
     Push(Route),
     Pop,
-    /// Tick du chrono (souscription timer).
+    /// A tick of the stopwatch (the timer subscription).
     Tick,
-    /// Démarre/arrête le chrono.
+    /// Starts/stops the stopwatch.
     ToggleTimer,
-    /// Change l'onglet actif des Réglages.
+    /// Changes the active Settings tab.
     SetSettingsTab(usize),
-    /// Ouvre/ferme le menu d'actions.
+    /// Opens/closes the actions menu.
     ToggleActions,
-    /// Déplie/replie « Options avancées ».
+    /// Expands/collapses "Advanced options".
     ToggleAdvanced,
-    /// Note en étoiles choisie.
+    /// The star rating that was picked.
     SetRating(u32),
-    /// Nouvelle valeur du sélecteur numérique.
+    /// The stepper's new value.
     SetCount(i32),
-    /// Déclenche la **sortie** (fondu) de la notification en tête, avant son retrait.
+    /// Starts the head notification's **exit** (a fade) before it is removed.
     ToastExpire,
-    /// Retire la notification courante (fin de sortie / clic) et enchaîne sur la suivante.
+    /// Removes the current notification (end of its exit / a click) and moves on to the next.
     DismissToast,
-    /// Change la page (démo pagination).
+    /// Changes the page (the pagination demo).
     SetPage(usize),
-    /// Déplie/replie un nœud d'arbre.
+    /// Expands/collapses a tree node.
     ToggleNode(u64),
-    /// Sélectionne un nœud de l'arbre de fichiers (jalon 246).
+    /// Selects a node of the file tree (milestone 246).
     SelectNode(u64),
-    /// Déplace une carte du Kanban : `(from_col, from_pos, to_col, to_pos)` (jalon 247).
+    /// Moves a Kanban card: `(from_col, from_pos, to_col, to_pos)` (milestone 247).
     KanbanMove(usize, usize, usize, usize),
-    /// Ajoute une carte au bas d'une colonne du Kanban (jalon 249).
+    /// Adds a card at the bottom of a Kanban column (milestone 249).
     KanbanAdd(usize),
-    /// Supprime la carte `(col, pos)` du Kanban (jalon 249).
+    /// Deletes the Kanban card `(col, pos)` (milestone 249).
     KanbanDelete(usize, usize),
-    /// Choisit une couleur.
+    /// Picks a colour.
     PickColor(Color),
-    /// Sélectionne un jour dans le calendrier.
+    /// Selects a day in the calendar.
     PickDay(u32),
-    /// Change de mois (±1).
+    /// Changes month (±1).
     NavMonth(i32),
-    /// Change de slide du carrousel.
+    /// Changes the carousel's slide.
     SetSlide(usize),
-    /// Règle la densité (zoom applicatif).
+    /// Sets the density (an application-level zoom).
     SetDensity(f32),
-    /// Ouvre/ferme le popover d'info.
+    /// Opens/closes the info popover.
     ToggleInfo,
-    /// Saisie de l'autocomplétion.
+    /// Typing in the autocomplete.
     TagInput(String),
-    /// Choix d'une suggestion.
+    /// A suggestion was chosen.
     TagPick(String),
-    /// Sauvegarde les tâches sur disque (effet).
+    /// Saves the tasks to disk (an effect).
     Save,
-    /// Demande le chargement des tâches (effet).
+    /// Asks for the tasks to be loaded (an effect).
     Load,
-    /// Tâches chargées depuis le disque (résultat d'un effet).
+    /// Tasks loaded from disk (the result of an effect).
     Loaded(Vec<(bool, String)>),
-    /// Change la section active de l'accueil (navigation adaptative).
+    /// Changes the home screen's active section (adaptive navigation).
     SetSection(usize),
-    /// Sélectionne une métrique dans la section Stats (ouvre le détail en étroit).
+    /// Selects a metric in the Stats section (which opens the detail when narrow).
     SelectStat(usize),
-    /// Ferme le détail Stats (retour à la liste en panneau unique).
+    /// Closes the Stats detail (back to the list in single-pane mode).
     CloseDetail,
-    /// Ouvre/ferme le tiroir de navigation latéral.
+    /// Opens/closes the side navigation drawer.
     ToggleDrawer,
-    /// Ouvre/ferme la feuille modale d'actions rapides.
+    /// Opens/closes the quick-actions modal sheet.
     ToggleSheet,
-    // --- Assistant d'inscription (démo d'intégration) ---
-    /// Saute à l'étape `i` de l'assistant (marqueur Steps cliqué).
+    // --- Sign-up wizard (an integration demo) ---
+    /// Jumps to the wizard's step `i` (a Steps marker was clicked).
     WizardStep(usize),
-    /// Saute à l'étape `usize` **et focalise** le champ `u8` (puce du récapitulatif cliquée).
+    /// Jumps to step `usize` **and focuses** field `u8` (a summary bullet was clicked).
     WizardFocus(usize, u8),
-    /// Saisie d'un champ de l'assistant : `(0=nom, 1=email, 2=mot de passe, 3=confirmation)`.
+    /// Typing in a wizard field: `(0=name, 1=email, 2=password, 3=confirmation)`.
     WizardInput(u8, String),
-    /// Étape précédente / suivante de l'assistant.
+    /// The wizard's previous / next step.
     WizardBack,
     WizardNext,
-    /// Révèle / masque les mots de passe de l'assistant.
+    /// Reveals / hides the wizard's passwords.
     WizardToggleReveal,
-    // --- Grille éditable (démo d'intégration) ---
-    /// Nouvelle valeur de la cellule `(ligne, colonne)`.
+    // --- Editable grid (an integration demo) ---
+    /// The new value of cell `(row, column)`.
     GridInput(usize, usize, String),
-    /// Entrée pressée dans la cellule `(ligne, colonne)` : saute à la ligne suivante, même colonne.
+    /// Enter pressed in cell `(row, column)`: jumps to the next row, same column.
     GridEnter(usize, usize),
-    /// Ajoute une ligne vide en fin de grille et y place le curseur.
+    /// Adds an empty row at the end of the grid and puts the caret in it.
     GridAddRow,
-    /// Supprime la ligne `ligne`.
+    /// Deletes row `row`.
     GridDeleteRow(usize),
-    /// Trie la grille par la colonne `colonne` (bascule croissant / décroissant).
+    /// Sorts the grid by column `column` (toggling ascending / descending).
     GridSort(usize),
-    /// Soumet la grille : n'aboutit que si toutes les cellules sont valides.
+    /// Submits the grid: it only goes through when every cell is valid.
     GridSave,
-    /// Place le focus sur la première cellule invalide de la grille (le cas échéant).
+    /// Puts the focus on the grid's first invalid cell, if there is one.
     GridFocusError,
-    /// Bascule la visibilité de la série `index` du graphique (clic de légende, jalon 218).
+    /// Toggles the visibility of the chart's series `index` (a legend click, milestone 218).
     ChartToggleSeries(usize),
-    /// Change le type de graphique affiché (sélecteur, jalon 219).
+    /// Changes the kind of chart shown (the selector, milestone 219).
     SetChartKind(usize),
-    /// Épingle le détail d'un point cliqué `(catégorie, série)` (jalon 221).
+    /// Pins the detail of a clicked point `(category, series)` (milestone 221).
     ChartPoint(usize, usize),
-    /// Active/désactive l'empilage **100 %** (proportions) du graphique (jalon 224).
+    /// Turns the chart's **100%** stacking (proportions) on/off (milestone 224).
     SetChartNormalized(bool),
-    /// Clic sur un en-tête du tableau de données : (dé)trie la colonne (jalon 237).
+    /// A click on a data-table header: sorts (or unsorts) the column (milestone 237).
     DataSort(usize),
-    /// Change la page du tableau de données (jalon 237).
+    /// Changes the data table's page (milestone 237).
     DataPage(usize),
-    /// Change la taille de page du tableau de données (jalon 237).
+    /// Changes the data table's page size (milestone 237).
     DataPageSize(usize),
-    /// Clic sur une ligne du tableau de données : (dé)sélectionne la ligne **source** (jalon 239).
+    /// A click on a data-table row: selects (or deselects) the **source** row (milestone 239).
     DataSelectRow(usize),
-    /// Coche/décoche une ligne **source** du tableau de données (sélection multiple, jalon 241).
+    /// Checks/unchecks a **source** row of the data table (multi-selection, milestone 241).
     DataCheck(usize),
-    /// Case « tout cocher » du tableau de données : coche tout, ou vide si déjà tout coché (jalon 241).
+    /// The data table's "check all" box: checks everything, or clears it when all is already checked (milestone 241).
     DataCheckAll,
-    /// Frappe dans le champ de recherche du tableau de données : met à jour le filtre (jalon 242).
+    /// Typing in the data table's search field: updates the filter (milestone 242).
     DataSearch(String),
-    /// Action groupée : désélectionne toutes les lignes cochées du tableau de données (jalon 243).
+    /// A bulk action: unchecks every checked row of the data table (milestone 243).
     DataClearChecked,
-    /// Action groupée : ouvre la confirmation de suppression des lignes cochées (jalon 245).
+    /// A bulk action: opens the confirmation for deleting the checked rows (milestone 245).
     DataAskDelete,
-    /// Ferme la confirmation de suppression sans rien supprimer (jalon 245).
+    /// Closes the delete confirmation without deleting anything (milestone 245).
     DataCancelDelete,
-    /// Action groupée : supprime les lignes cochées du tableau de données (jalon 243).
+    /// A bulk action: deletes the data table's checked rows (milestone 243).
     DataDeleteChecked,
-    /// Bascule « jours ouvrés seulement » du calendrier de la vitrine (jalon 238).
+    /// The showcase calendar's "weekdays only" toggle (milestone 238).
     SetWeekdaysOnly(bool),
-    /// Soumet l'assistant : valide le formulaire, notifie ou affiche les erreurs.
+    /// Submits the wizard: validates the form, then notifies or shows the errors.
     WizardSubmit,
 }
 
-/// Chemin du fichier de persistance des tâches.
+/// Path of the file the tasks are persisted to.
 fn todos_path() -> PathBuf {
     std::env::temp_dir().join("frus-todos.txt")
 }
 
-/// Sérialise les tâches en lignes `done<TAB>texte`.
+/// Serialises the tasks as `done<TAB>text` lines.
 fn save_todos(path: &Path, todos: &[(bool, String)]) -> std::io::Result<()> {
     let mut out = String::new();
     for (done, text) in todos {
         out.push(if *done { '1' } else { '0' });
         out.push('\t');
-        // Neutralise les séparateurs dans le texte.
+        // Neutralises the separators inside the text.
         out.push_str(&text.replace(['\t', '\n'], " "));
         out.push('\n');
     }
     std::fs::write(path, out)
 }
 
-/// Lit les tâches depuis le fichier (vide si absent/illisible).
+/// Reads the tasks from the file (empty when it is missing/unreadable).
 fn load_todos(path: &Path) -> Vec<(bool, String)> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -354,157 +352,157 @@ fn load_todos(path: &Path) -> Vec<(bool, String)> {
         .collect()
 }
 
-/// L'application todo : état + logique. Consommateur du framework `frus-shell`.
+/// The to-do application: state + logic. A consumer of the `frus-shell` framework.
 #[derive(Default)]
 struct TodoApp {
-    /// Les tâches, dans l'ordre d'ajout.
+    /// The tasks, in the order they were added.
     todos: Vec<Todo>,
-    /// Texte en cours de saisie.
+    /// The text currently being typed.
     draft: String,
-    /// Filtre courant.
+    /// The current filter.
     filter: Filter,
-    /// Prochain identifiant de tâche.
+    /// The next task id.
     next_id: u64,
-    /// Modale de confirmation d'effacement des terminées ouverte ?
+    /// Is the "clear completed" confirmation modal open?
     confirm_clear: bool,
-    /// Thème clair (sinon sombre).
+    /// A light theme (otherwise dark).
     light: bool,
-    /// Thème sortant pendant un fondu de bascule (`None` = pas de transition).
+    /// The outgoing theme during a switch fade (`None` = no transition).
     theme_from: Option<Theme>,
-    /// Avancement du fondu de thème (`0 → 1`).
+    /// Progress of the theme fade (`0 → 1`).
     theme_progress: f32,
-    /// Pile d'écrans (vide = accueil).
+    /// The screen stack (empty = the home screen).
     routes: Vec<Route>,
-    /// Écran sortant pendant une transition.
+    /// The outgoing screen during a transition.
     nav_from: Option<Route>,
-    /// Progression de la transition d'écran (`0 → 1`), pilotée par ressort.
+    /// Progress of the screen transition (`0 → 1`), driven by a spring.
     nav: AnimationController,
     nav_forward: bool,
-    /// Geste retour en cours.
+    /// The back gesture in progress.
     back: Option<BackGesture>,
-    // --- Contrôles de l'écran Réglages ---
+    // --- Controls of the Settings screen ---
     notifs: bool,
     volume: f32,
     radio: usize,
     menu_open: bool,
     menu_choice: usize,
     // --- Chrono (souscription timer) ---
-    /// Le chrono tourne-t-il ? (pilote la souscription `every`).
+    /// Is the stopwatch running? (it drives the `every` subscription).
     running: bool,
-    /// L'app est-elle en **arrière-plan** ? (cycle de vie, jalon 259) — mis à `true` sur
-    /// `Paused`/`Detached` via [`Application::on_lifecycle`] ; le minuteur se suspend alors. Défaut
-    /// `false` (premier plan) — compatible `#[derive(Default)]`.
+    /// Is the app in the **background**? (the lifecycle, milestone 259) — set to `true` on
+    /// `Paused`/`Detached` through [`Application::on_lifecycle`], at which point the timer
+    /// suspends. `false` by default (the foreground) — which suits `#[derive(Default)]`.
     background: bool,
-    /// Secondes écoulées depuis le démarrage du chrono.
+    /// Seconds elapsed since the stopwatch started.
     elapsed: u32,
-    /// Onglet actif de l'écran Réglages.
+    /// The Settings screen's active tab.
     settings_tab: usize,
-    /// Menu d'actions (en-tête) ouvert ?
+    /// Is the (header) actions menu open?
     actions_open: bool,
-    /// Section « Options avancées » dépliée ?
+    /// Is the "Advanced options" section expanded?
     advanced_open: bool,
-    /// Note en étoiles (Réglages).
+    /// The star rating (Settings).
     rating: u32,
-    /// Compteur du sélecteur numérique (Réglages).
+    /// The stepper's counter (Settings).
     count: i32,
-    /// File de notifications (Snackbar) : une à la fois, avec sortie animée (jalon 193).
+    /// The notification (Snackbar) queue: one at a time, with an animated exit (milestone 193).
     snackbars: SnackbarQueue<String>,
-    /// Page courante du sélecteur de pagination (démo).
+    /// The pagination selector's current page (a demo).
     page: usize,
-    /// Nœuds d'arbre dépliés (démo Tree).
+    /// The expanded tree nodes (the Tree demo).
     expanded: std::collections::HashSet<u64>,
-    /// Nœud d'arbre sélectionné (démo Tree, jalon 246) ; `None` = aucun.
+    /// The selected tree node (the Tree demo, milestone 246); `None` = none.
     tree_selected: Option<u64>,
-    /// Couleur choisie (démo ColorPicker).
+    /// The colour picked (the ColorPicker demo).
     picked: Option<Color>,
-    /// Calendrier : année / mois (1..12) / jour sélectionné.
+    /// The calendar: year / month (1..12) / selected day.
     year: i32,
     month: u32,
     selected_day: Option<u32>,
-    /// Calendrier de la vitrine : désactiver les week-ends (`DatePicker::filtered`) ? — jalon 238.
+    /// The showcase calendar: should weekends be disabled (`DatePicker::filtered`)? — milestone 238.
     weekdays_only: bool,
-    /// Slide courant du carrousel (démo).
+    /// The carousel's current slide (a demo).
     slide: usize,
-    /// Popover d'info ouvert ?
+    /// Is the info popover open?
     info_open: bool,
-    /// Saisie de l'autocomplétion (démo).
+    /// What is typed in the autocomplete (a demo).
     tag_draft: String,
     /// Section active de l'accueil (0 = Tasks, 1 = Stats, 2 = About) — NavScaffold.
     section: usize,
-    /// Métrique sélectionnée dans la section Stats (TwoPane maître-détail).
+    /// The metric selected in the Stats section (a master-detail TwoPane).
     stat_sel: usize,
-    /// En panneau unique (étroit), le détail Stats est-il ouvert ?
+    /// In single-pane (narrow) mode, is the Stats detail open?
     stat_detail_open: bool,
-    /// Densité (zoom applicatif de toute l'UI) — `1.0` par défaut.
+    /// Density (an application-level zoom over the whole UI) — `1.0` by default.
     density: f32,
-    /// Palier de taille courant (mis à jour par `on_resize`).
+    /// The current size class (updated by `on_resize`).
     size_class: Option<SizeClass>,
-    /// Orientation courante (mise à jour par `on_resize`).
+    /// The current orientation (updated by `on_resize`).
     orientation: Option<Orientation>,
-    /// Tiroir de navigation latéral ouvert ?
+    /// Is the side navigation drawer open?
     drawer_open: bool,
-    /// Feuille modale d'actions rapides ouverte ?
+    /// Is the quick-actions modal sheet open?
     sheet_open: bool,
-    /// Insets système (zone de sécurité) : barres d'état/navigation, encoches.
+    /// System insets (the safe area): status/navigation bars, notches.
     insets: Insets,
-    /// Graine du thème : `0` = schéma écrit main, sinon `from_seed` (HCT).
+    /// The theme seed: `0` = the hand-written scheme, otherwise `from_seed` (HCT).
     seed_index: usize,
-    /// Mise en page droite-à-gauche (arabe/hébreu) ?
+    /// A right-to-left layout (Arabic/Hebrew)?
     rtl: bool,
-    /// Langue courante (index dans `LANGS` : 0 = English, 1 = Français).
+    /// The current language (an index into `LANGS`).
     lang: usize,
-    /// L'état vient d'un instantané live-reload : `init` ne recharge pas les
-    /// tâches depuis le disque (l'instantané fait foi).
+    /// The state came from a live-reload snapshot: `init` does not reload the tasks from disk
+    /// (the snapshot is the authority).
     restored: bool,
-    // --- Assistant d'inscription (démo d'intégration) ---
-    /// Étape courante de l'assistant (0 = Account, 1 = Security, 2 = Review).
+    // --- Sign-up wizard (an integration demo) ---
+    /// The wizard's current step (0 = Account, 1 = Security, 2 = Review).
     wizard_step: usize,
     wizard_name: String,
     wizard_email: String,
     wizard_pass: String,
     wizard_confirm: String,
-    /// L'assistant a-t-il été soumis au moins une fois ? (n'affiche les erreurs qu'après.)
+    /// Has the wizard been submitted at least once? (the errors only show afterwards.)
     wizard_submitted: bool,
-    /// Les mots de passe de l'assistant sont-ils **révélés** (démasqués) ?
+    /// Are the wizard's passwords **revealed** (unmasked)?
     wizard_reveal: bool,
-    /// Données de la grille éditable (lignes × colonnes de texte).
+    /// The editable grid's data (rows × columns of text).
     grid: Vec<Vec<String>>,
-    /// Tri courant de la grille : `(colonne, croissant)` ; `None` = ordre de saisie.
+    /// The grid's current sort: `(column, ascending)`; `None` = the order it was typed in.
     grid_sort: Option<(usize, bool)>,
-    /// Dernière cellule fautive visée par « Next error » (jalon 214) — pour cycler à la suivante.
+    /// The last faulty cell "Next error" targeted (milestone 214) — so it can cycle to the next.
     grid_error_cursor: Option<(usize, usize)>,
-    /// Index des séries **masquées** du graphique (basculées via la légende, jalon 218).
+    /// Indices of the chart's **hidden** series (toggled through the legend, milestone 218).
     chart_hidden: Vec<usize>,
-    /// Type de graphique affiché : 0 lignes, 1 aires empilées, 2 barres groupées, 3 barres empilées (jalon 219).
+    /// The kind of chart shown: 0 lines, 1 stacked areas, 2 grouped bars, 3 stacked bars (milestone 219).
     chart_kind: usize,
-    /// Détail **épinglé** d'un point cliqué (`série · catégorie = valeur`), le cas échéant (jalon 221).
+    /// The **pinned** detail of a clicked point (`series · category = value`), if there is one (milestone 221).
     chart_pin: Option<String>,
-    /// Point/barre **sélectionné** `(catégorie, série)`, mis en évidence dans le graphique (jalon 223).
+    /// The **selected** point/bar `(category, series)`, highlighted in the chart (milestone 223).
     chart_sel: Option<(usize, usize)>,
-    /// Empilage **100 %** (proportions) activé pour les graphiques empilés (jalon 224).
+    /// **100%** stacking (proportions) turned on for the stacked charts (milestone 224).
     chart_normalized: bool,
-    /// Tri du tableau de données `(colonne, croissant)` ; `None` = ordre source (jalon 237). Le tri
-    /// d'affichage est fait par le `DataTable`, **pas** recopié ici.
+    /// The data table's sort `(column, ascending)`; `None` = the source order (milestone 237).
+    /// The display sort is done by the `DataTable`, **not** duplicated here.
     data_sort: Option<(usize, bool)>,
-    /// Page courante (1-indexée) du tableau de données ; `0` = page 1 (jalon 237).
+    /// The data table's current page (1-indexed); `0` = page 1 (milestone 237).
     data_page: usize,
-    /// Taille de page du tableau de données ; `0` = défaut (jalon 237).
+    /// The data table's page size; `0` = the default (milestone 237).
     data_page_size: usize,
-    /// Ligne **source** sélectionnée du tableau de données ; `None` = aucune (jalon 239). Le
-    /// `DataTable` traduit cet index d'origine en position surlignée à travers tri/pagination.
+    /// The data table's selected **source** row; `None` = none (milestone 239). The `DataTable`
+    /// translates that original index into a highlighted position through sorting/pagination.
     data_selected: Option<usize>,
-    /// Lignes **source** cochées (sélection multiple) du tableau de données (jalon 241). Pilote les
-    /// cases + le surlignage ; l'app décide ce que « tout cocher » recouvre (ici les 12 lignes).
+    /// The data table's checked **source** rows (multi-selection, milestone 241). It drives the
+    /// boxes and the highlighting; the app decides what "check all" covers (here, all 12 rows).
     data_checked: Vec<usize>,
-    /// Requête de recherche du tableau de données (jalon 242) ; le `DataTable` filtre l'affichage.
+    /// The data table's search query (milestone 242); the `DataTable` filters the display.
     data_query: String,
-    /// Lignes du tableau de données (jalon 243) : `None` = jeu de départ `DATA_PEOPLE` ; `Some` dès
-    /// qu'une action groupée (Delete) les modifie. Voir [`TodoApp::data_rows`].
+    /// The data table's rows (milestone 243): `None` = the `DATA_PEOPLE` starting set; `Some` as
+    /// soon as a bulk action (Delete) changes them. See [`TodoApp::data_rows`].
     data_rows: Option<Vec<(String, String, u32, String)>>,
-    /// Modale de confirmation de suppression groupée du tableau de données ouverte ? (jalon 245)
+    /// Is the data table's bulk-delete confirmation modal open? (milestone 245)
     data_confirm_delete: bool,
-    /// Cartes du Kanban par colonne (jalon 247) ; `None` = jeu de départ `KANBAN_SEED`. `Some` dès
-    /// qu'une carte est déplacée. Voir [`TodoApp::kanban_cols`].
+    /// The Kanban cards, per column (milestone 247); `None` = the `KANBAN_SEED` starting set.
+    /// `Some` as soon as a card is moved. See [`TodoApp::kanban_cols`].
     kanban: Option<Vec<Vec<String>>>,
 }
 
@@ -513,8 +511,8 @@ fn current_route(app: &TodoApp) -> Route {
 }
 
 impl TodoApp {
-    /// Lignes courantes du tableau de données : celles de l'état si elles ont été modifiées
-    /// (Delete groupé), sinon le jeu de départ `DATA_PEOPLE` (jalon 243).
+    /// The data table's current rows: the ones held in the state if they have been changed (a
+    /// bulk Delete), otherwise the `DATA_PEOPLE` starting set (milestone 243).
     fn data_rows(&self) -> Vec<(String, String, u32, String)> {
         match &self.data_rows {
             Some(rows) => rows.clone(),
@@ -525,8 +523,8 @@ impl TodoApp {
         }
     }
 
-    /// Cartes du Kanban par colonne : celles de l'état si déplacées, sinon le jeu de départ
-    /// `KANBAN_SEED` (jalon 247).
+    /// The Kanban cards per column: the ones held in the state if any have moved, otherwise the
+    /// `KANBAN_SEED` starting set (milestone 247).
     fn kanban_cols(&self) -> Vec<Vec<String>> {
         match &self.kanban {
             Some(cols) => cols.clone(),
@@ -538,7 +536,7 @@ impl TodoApp {
     }
 }
 
-/// Index d'un filtre (pour le contrôle segmenté).
+/// A filter's index (for the segmented control).
 fn filter_index(filter: Filter) -> usize {
     match filter {
         Filter::All => 0,
@@ -547,7 +545,7 @@ fn filter_index(filter: Filter) -> usize {
     }
 }
 
-/// Filtre depuis un index de segment.
+/// The filter matching a segment index.
 fn filter_from_index(index: usize) -> Filter {
     match index {
         1 => Filter::Active,
@@ -556,17 +554,17 @@ fn filter_from_index(index: usize) -> Filter {
     }
 }
 
-/// Nombre de tâches non terminées.
+/// Number of tasks that are not done.
 fn active_count(app: &TodoApp) -> usize {
     app.todos.iter().filter(|t| !t.done).count()
 }
 
-/// Nombre de tâches terminées.
+/// Number of tasks that are done.
 fn done_count(app: &TodoApp) -> usize {
     app.todos.iter().filter(|t| t.done).count()
 }
 
-/// Graines de démonstration du thème dynamique (`from_seed`, HCT).
+/// Demonstration seeds for the dynamic theme (`from_seed`, HCT).
 const THEME_SEEDS: [(&str, Color); 3] = [
     (
         "Blue",
@@ -597,7 +595,7 @@ const THEME_SEEDS: [(&str, Color); 3] = [
     ),
 ];
 
-/// Libellé de l'action « graine » du menu (la **prochaine** graine du cycle).
+/// Label of the menu's "seed" action (the **next** seed of the cycle).
 fn seed_label(app: &TodoApp) -> String {
     match THEME_SEEDS.get(app.seed_index) {
         Some((name, _)) => format!("Seed: {name}"),
@@ -605,8 +603,8 @@ fn seed_label(app: &TodoApp) -> String {
     }
 }
 
-/// Thème « cible » selon l'état (avant fondu) : schéma écrit main par défaut,
-/// ou généré depuis une graine (Material 3 `from_seed`, HCT).
+/// The "target" theme for the current state (before the fade): the hand-written scheme by
+/// default, or one generated from a seed (`from_seed`, HCT).
 fn theme_of(app: &TodoApp) -> Theme {
     let theme = match app
         .seed_index
@@ -622,8 +620,8 @@ fn theme_of(app: &TodoApp) -> Theme {
             }
         }
     };
-    // Direction ambiante : RTL si l'utilisateur l'a demandé OU si la langue
-    // courante s'écrit de droite à gauche (arabe). Tout le layout se retourne.
+    // The ambient direction: RTL if the user asked for it OR if the current language is
+    // written right to left (Arabic). The whole layout mirrors.
     if app.rtl || lang_is_rtl(app.lang) {
         theme.rtl()
     } else {
@@ -631,8 +629,7 @@ fn theme_of(app: &TodoApp) -> Theme {
     }
 }
 
-/// Applique un message à l'état et renvoie l'effet éventuel à exécuter.
-/// Effet minuté : déclenche la **sortie** de la notification en tête après ~2 s de présence.
+/// A timed effect: it starts the head notification's **exit** after it has been up for ~2 s.
 fn toast_expire_after() -> Command<Msg> {
     Command::perform(|| {
         std::thread::sleep(std::time::Duration::from_secs(2));
@@ -640,7 +637,7 @@ fn toast_expire_after() -> Command<Msg> {
     })
 }
 
-/// Empile une notification (Snackbar) ; si elle devient la **tête** de file, programme sa sortie.
+/// Queues a notification (Snackbar); when it becomes the **head** of the queue, its exit is scheduled.
 fn show_toast(app: &mut TodoApp, text: &str) -> Command<Msg> {
     let was_empty = app.snackbars.is_empty();
     app.snackbars.push(text.to_string(), 0.0);
@@ -703,21 +700,21 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::ToggleTheme => {
-            // Capture le thème courant (avant bascule) comme point de départ du fondu.
+            // Captures the current theme (before the switch) as the fade's starting point.
             app.theme_from = Some(theme_of(app));
             app.light = !app.light;
             app.theme_progress = 0.0;
             Command::none()
         }
         Msg::CycleSeed => {
-            // Même fondu que la bascule clair/sombre, vers le schéma généré.
+            // The same fade as the light/dark switch, towards the generated scheme.
             app.theme_from = Some(theme_of(app));
             app.seed_index = (app.seed_index + 1) % (THEME_SEEDS.len() + 1);
             app.theme_progress = 0.0;
             Command::none()
         }
         Msg::ToggleRtl => {
-            // La direction est discrète (pas de fondu) : bascule immédiate.
+            // The direction is discrete (no fade): it flips at once.
             app.rtl = !app.rtl;
             Command::none()
         }
@@ -764,8 +761,8 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::Tick => {
             app.elapsed += 1;
-            // Trace du tick : preuve que la souscription émet des messages.
-            eprintln!("[demo] chrono : {}s", app.elapsed);
+            // A trace of the tick: proof that the subscription emits messages.
+            eprintln!("[demo] stopwatch: {}s", app.elapsed);
             Command::none()
         }
         Msg::ToggleTimer => {
@@ -795,10 +792,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         // --- Effets ---
         Msg::Save => {
             app.sheet_open = false;
-            // Capture un instantané sérialisable ; l'écriture se fait hors update.
+            // Takes a serialisable snapshot; the writing happens outside update.
             let items: Vec<(bool, String)> =
                 app.todos.iter().map(|t| (t.done, t.text.clone())).collect();
-            // Affiche une notification (Snackbar) et écrit sur disque (effet).
+            // Shows a notification (Snackbar) and writes to disk (an effect).
             let show = show_toast(app, "Saved");
             Command::batch([
                 Command::run(move || {
@@ -809,7 +806,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             ])
         }
         Msg::ToastExpire => {
-            // Passe la notification en **sortie** (l'hôte joue le fondu), puis la retire.
+            // Moves the notification into its **exit** (the host plays the fade), then removes it.
             app.snackbars.start_leaving();
             Command::perform(|| {
                 std::thread::sleep(std::time::Duration::from_millis(300));
@@ -818,7 +815,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::DismissToast => {
             app.snackbars.dismiss();
-            // Enchaîne sur la notification suivante en file, s'il y en a une.
+            // Moves on to the next queued notification, if there is one.
             if app.snackbars.is_empty() {
                 Command::none()
             } else {
@@ -830,7 +827,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::WizardFocus(step, field) => {
-            // Saute à l'étape du champ fautif puis focalise ce champ (keyed + Command::focus).
+            // Jumps to the faulty field's step then focuses that field (keyed + Command::focus).
             app.wizard_step = step.min(2);
             Command::focus(("wizard", field))
         }
@@ -862,7 +859,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::GridEnter(r, c) => {
-            // Entrée = descendre d'une ligne (même colonne) ; sur la dernière, on en crée une.
+            // Enter = move down one row (same column); on the last row, one is created.
             if r + 1 < app.grid.len() {
                 Command::focus(("grid", r + 1, c))
             } else {
@@ -874,7 +871,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::GridAddRow => {
             let cols = app.grid.first().map(|row| row.len()).unwrap_or(3);
             app.grid.push(vec![String::new(); cols]);
-            // Focalise la première cellule de la nouvelle ligne.
+            // Focuses the new row's first cell.
             Command::focus(("grid", app.grid.len() - 1, 0))
         }
         Msg::GridDeleteRow(r) => {
@@ -896,7 +893,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             return show_toast(app, &msg);
         }
         Msg::GridFocusError => {
-            // Cycle vers la cellule fautive suivante (bouclage), et la focalise.
+            // Cycles to the next faulty cell (wrapping) and focuses it.
             match grid_next_error(&app.grid, app.grid_error_cursor) {
                 Some(pos) => {
                     app.grid_error_cursor = Some(pos);
@@ -909,7 +906,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             }
         }
         Msg::ChartToggleSeries(i) => {
-            // Clic de légende : masque la série si visible, la ré-affiche sinon.
+            // A legend click: hides the series when it is visible, shows it again otherwise.
             if let Some(pos) = app.chart_hidden.iter().position(|&h| h == i) {
                 app.chart_hidden.remove(pos);
             } else {
@@ -926,14 +923,14 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::DataSort(c) => {
-            // Bascule croissant/décroissant (nouvelle colonne = croissant). Le `DataTable` trie
-            // lui-même l'affichage — on ne recopie **pas** de `sort_by` ici (jalon 237).
+            // Toggles ascending/descending (a new column starts ascending). The `DataTable` sorts
+            // the display itself — no `sort_by` is duplicated here (milestone 237).
             let asc = match app.data_sort {
                 Some((col, asc)) if col == c => !asc,
                 _ => true,
             };
             app.data_sort = Some((c, asc));
-            app.data_page = 1; // le tri ramène à la première page
+            app.data_page = 1; // sorting returns to the first page
             Command::none()
         }
         Msg::DataPage(p) => {
@@ -942,11 +939,11 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::DataPageSize(s) => {
             app.data_page_size = s;
-            app.data_page = 1; // changer la taille ramène à la première page
+            app.data_page = 1; // changing the size returns to the first page
             Command::none()
         }
         Msg::DataSelectRow(i) => {
-            // Re-clic sur la ligne déjà sélectionnée = désélection (bascule).
+            // Clicking the already-selected row again deselects it (a toggle).
             app.data_selected = if app.data_selected == Some(i) {
                 None
             } else {
@@ -955,7 +952,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::DataCheck(i) => {
-            // Bascule l'appartenance de la ligne source à l'ensemble coché.
+            // Toggles whether the source row belongs to the checked set.
             match app.data_checked.iter().position(|&x| x == i) {
                 Some(pos) => {
                     app.data_checked.remove(pos);
@@ -965,7 +962,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::DataCheckAll => {
-            // Tout coché → on vide ; sinon on coche toutes les lignes source courantes.
+            // All checked → clear it; otherwise check every current source row.
             let n = app.data_rows().len();
             app.data_checked = if app.data_checked.len() == n {
                 Vec::new()
@@ -976,7 +973,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::DataSearch(q) => {
             app.data_query = q;
-            app.data_page = 1; // un nouveau filtre ramène à la première page
+            app.data_page = 1; // a new filter returns to the first page
             Command::none()
         }
         Msg::DataClearChecked => {
@@ -992,8 +989,8 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::DataDeleteChecked => {
-            // Supprime réellement les lignes cochées (index source, en ordre décroissant pour ne pas
-            // décaler les suivants), puis remet à zéro sélection, focus et modale.
+            // Actually deletes the checked rows (by source index, in descending order so the
+            // following ones do not shift), then resets the selection, the focus and the modal.
             app.data_confirm_delete = false;
             let mut rows = app.data_rows();
             let mut checked: Vec<usize> = app
@@ -1017,8 +1014,9 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::ChartPoint(cat, s) => {
-            // Re-clic sur l'élément déjà sélectionné : on **désépingle** (jalon 225). Sinon on épingle
-            // « série · catégorie = valeur » et on retient la sélection `(cat, série)` (jalons 221/223).
+            // Clicking the already-selected item again **unpins** it (milestone 225). Otherwise it
+            // pins "series · category = value" and remembers the selection `(cat, series)`
+            // (milestones 221/223).
             if app.chart_sel == Some((cat, s)) {
                 app.chart_sel = None;
                 app.chart_pin = None;
@@ -1033,7 +1031,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::GridSort(c) => {
-            // Bascule croissant / décroissant sur la colonne cliquée, puis trie les lignes.
+            // Toggles ascending / descending on the clicked column, then sorts the rows.
             let asc = match app.grid_sort {
                 Some((col, asc)) if col == c => !asc,
                 _ => true,
@@ -1055,7 +1053,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::WizardSubmit => {
             if wizard_form(app).is_valid() {
-                // Succès : réinitialise l'assistant et notifie (Snackbar, sortie animée).
+                // Success: resets the wizard and notifies (a Snackbar, with an animated exit).
                 app.wizard_step = 0;
                 app.wizard_name.clear();
                 app.wizard_email.clear();
@@ -1064,7 +1062,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
                 app.wizard_submitted = false;
                 show_toast(app, "Account created")
             } else {
-                // Erreurs : les révèle et montre le récapitulatif sur l'étape Review.
+                // Errors: reveals them and shows the summary on the Review step.
                 app.wizard_submitted = true;
                 app.wizard_step = 2;
                 Command::none()
@@ -1081,7 +1079,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             Command::none()
         }
         Msg::SelectNode(id) => {
-            // Re-clic sur le nœud déjà sélectionné = désélection (bascule).
+            // Clicking the already-selected node again deselects it (a toggle).
             app.tree_selected = if app.tree_selected == Some(id) {
                 None
             } else {
@@ -1093,7 +1091,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             let mut cols = app.kanban_cols();
             if from_col < cols.len() && from_pos < cols[from_col].len() && to_col < cols.len() {
                 let card = cols[from_col].remove(from_pos);
-                // Après retrait, une cible plus loin dans la **même** colonne se décale d'un cran.
+                // After the removal, a target further down the **same** column shifts by one.
                 let mut tp = to_pos;
                 if from_col == to_col && from_pos < tp {
                     tp -= 1;
@@ -1172,7 +1170,7 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::SetSection(i) => {
             app.section = i;
-            // Choisir une section depuis le tiroir le referme.
+            // Choosing a section from the drawer closes it.
             app.drawer_open = false;
             Command::none()
         }
@@ -1208,13 +1206,13 @@ impl Application for TodoApp {
     }
 
     fn init(&mut self) -> Command<Msg> {
-        // Démarre le chrono et charge les tâches persistées au démarrage.
+        // Starts the stopwatch and loads the persisted tasks at start-up.
         self.running = true;
         self.page = 1;
         self.year = 2026;
         self.month = 7;
         self.density = 1.0;
-        // Données de démonstration de la grille éditable.
+        // Demonstration data for the editable grid.
         self.grid = vec![
             vec![
                 "Ada Lovelace".into(),
@@ -1233,14 +1231,14 @@ impl Application for TodoApp {
             ],
         ];
         if self.restored {
-            // Live-reload : l'instantané fait foi, ne pas l'écraser du disque.
+            // Live-reload: the snapshot is the authority, do not overwrite it from disk.
             return Command::none();
         }
         Command::perform(|| Msg::Loaded(load_todos(&todos_path())))
     }
 
-    /// Live-reload : l'essentiel de l'état survit à la recompilation — tâches,
-    /// brouillon, filtre, thème (clair/sombre + graine), onglet et écran.
+    /// Live-reload: the essentials of the state survive a recompilation — the tasks, the draft,
+    /// the filter, the theme (light/dark + seed), the tab and the screen.
     fn save_state(&self) -> Option<Vec<u8>> {
         let mut out = String::from("frus-demo-state v1\n");
         out.push_str(&format!("light {}\n", self.light as u8));
@@ -1265,8 +1263,8 @@ impl Application for TodoApp {
         Some(out.into_bytes())
     }
 
-    /// Réhydrate un instantané [`Application::save_state`] — tolérant : toute
-    /// ligne inconnue (autre version du code) est ignorée.
+    /// Rehydrates an [`Application::save_state`] snapshot — tolerantly: any unknown line (from
+    /// another version of the code) is ignored.
     fn restore_state(&mut self, bytes: &[u8]) {
         let Ok(text) = std::str::from_utf8(bytes) else {
             return;
@@ -1314,9 +1312,9 @@ impl Application for TodoApp {
     }
 
     fn subscription(&self) -> Subscription<Msg> {
-        // Un tick par seconde tant que le chrono tourne **et** que l'app est au premier plan : en
-        // arrière-plan (`on_lifecycle` → `foreground = false`) le minuteur se **suspend**, façon
-        // Flutter (le framework arrête la souscription par diff, puis la relance au retour).
+        // One tick per second while the stopwatch runs **and** the app is in the foreground: in
+        // the background (`on_lifecycle` → `foreground = false`) the timer **suspends** (the
+        // framework stops the subscription by diffing, then restarts it on the way back).
         if self.running && !self.background {
             Subscription::every(Duration::from_secs(1), |_| Msg::Tick)
         } else {
@@ -1333,16 +1331,16 @@ impl Application for TodoApp {
     }
 
     fn on_resize(&mut self, width: f32, height: f32) {
-        // Réagit au changement de palier : ferme le détail Stats en étroit.
+        // Reacts to a change of size class: it closes the Stats detail when narrow.
         let class = SizeClass::from_width(width);
         if self.size_class != Some(class) {
             self.size_class = Some(class);
             if class == SizeClass::Compact {
                 self.stat_detail_open = false;
             }
-            eprintln!("[demo] palier : {class:?}");
+            eprintln!("[demo] size class: {class:?}");
         }
-        // Axe supplémentaire de responsivité (Lot C) : orientation portrait/paysage.
+        // A further axis of responsiveness: portrait/landscape orientation.
         let orientation = Orientation::from_size(width, height);
         if self.orientation != Some(orientation) {
             self.orientation = Some(orientation);
@@ -1351,8 +1349,8 @@ impl Application for TodoApp {
     }
 
     fn on_insets(&mut self, insets: WindowInsets) {
-        // Zone sûre totale : barres système **et** clavier logiciel — le contenu
-        // (champs de saisie compris) reste au-dessus du clavier.
+        // The total safe area: system bars **and** the soft keyboard — the content (input
+        // fields included) stays above the keyboard.
         let safe = insets.safe();
         if self.insets != safe {
             self.insets = safe;
@@ -1361,19 +1359,19 @@ impl Application for TodoApp {
     }
 
     fn on_lifecycle(&mut self, state: Lifecycle) {
-        // Démonstration du contrat de cycle de vie (jalon 259) : on **suspend le chrono** en
-        // arrière-plan et on le **reprend** au premier plan — comme une app Flutter couperait ses
-        // minuteurs/capteurs. La trace part aussi dans logcat (vérification sur appareil).
-        eprintln!("[demo] lifecycle : {state:?}");
-        // Suspend en arrière-plan (Paused/Detached) ; garde le minuteur en `Inactive` (perte de
-        // focus mais toujours visible) — comme Flutter suspend sur `paused`, pas sur `inactive`.
+        // A demonstration of the lifecycle contract (milestone 259): the stopwatch **suspends**
+        // in the background and **resumes** in the foreground — as any app would cut its timers
+        // and sensors. The trace also goes to logcat (so it can be checked on a device).
+        eprintln!("[demo] lifecycle: {state:?}");
+        // Suspends in the background (Paused/Detached); keeps the timer running on `Inactive`
+        // (focus lost but still visible) — suspending belongs to `paused`, not to `inactive`.
         self.background = matches!(state, Lifecycle::Paused | Lifecycle::Detached);
     }
 
     fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-        // Zone de sécurité : on construit l'interface aux dimensions **internes**
-        // (fenêtre moins insets système), puis on l'enrobe d'un fond plein-fenêtre
-        // écarté par `padding` — le fond s'étend sous les barres, le contenu non.
+        // The safe area: the interface is built at the **inner** dimensions (the window minus
+        // the system insets), then wrapped in a full-window background held off by `padding` —
+        // the background runs under the bars, the content does not.
         let i = self.insets;
         let w = (width - i.left - i.right).max(0.0);
         let h = (height - i.top - i.bottom).max(0.0);
@@ -1403,7 +1401,7 @@ impl Application for TodoApp {
     fn tick(&mut self, dt: f32) -> bool {
         let mut animating = false;
 
-        // Fondu de thème.
+        // The theme fade.
         if self.theme_from.is_some() {
             self.theme_progress += dt / 0.25;
             if self.theme_progress >= 1.0 {
@@ -1414,7 +1412,7 @@ impl Application for TodoApp {
             }
         }
 
-        // Transition d'écran : le contrôleur échantillonne le ressort partagé.
+        // The screen transition: the controller samples the shared spring.
         if self.nav_from.is_some() {
             if self.nav.tick(dt) {
                 animating = true;
@@ -1423,7 +1421,7 @@ impl Application for TodoApp {
             }
         }
 
-        // Détente du geste retour (même ressort, amorcé par l'élan du doigt).
+        // The back gesture's settle (the same spring, primed by the finger's momentum).
         let mut commit_back = false;
         if let Some(g) = self.back.as_mut() {
             if let Some(settle) = g.settle.as_mut() {
@@ -1477,12 +1475,12 @@ impl Application for TodoApp {
     fn back_gesture_end(&mut self, velocity: f32) {
         if let Some(g) = self.back.as_mut() {
             g.velocity = velocity;
-            // Projection à la iOS : la position + l'élan décident.
+            // An iOS-style projection: the position plus the momentum decide.
             let projected = g.progress + velocity * BACK_PROJECT;
             let commit = projected > BACK_COMMIT_POS && !self.routes.is_empty();
             g.commit = commit;
-            // Détente à ressort depuis la position courante, amorcée par l'élan
-            // du doigt, vers la cible (validée `1` ou annulée `0`).
+            // A spring settle from the current position, primed by the finger's momentum,
+            // towards the target (committed `1` or cancelled `0`).
             let mut settle = AnimationController::unit();
             settle.set_value(g.progress);
             settle.spring_to(if commit { 1.0 } else { 0.0 }, nav_spring(), velocity);
@@ -1491,11 +1489,11 @@ impl Application for TodoApp {
     }
 }
 
-// --- Vue ---
+// --- View ---
 
-/// Point d'entrée de la vue : un `Navigator` autour de l'écran courant.
+/// The view's entry point: a `Navigator` around the current screen.
 fn build_view(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Navigator<Msg> {
-    // Geste retour en cours : prévisualise le dépilement, piloté par le doigt.
+    // A back gesture in progress: it previews the pop, driven by the finger.
     if let Some(gesture) = &app.back {
         let progress = gesture.progress;
         let top = screen(current_route(app), app, theme, width, height);
@@ -1519,7 +1517,7 @@ fn build_view(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Navigato
     }
 }
 
-/// Construit l'écran correspondant à une route.
+/// Builds the screen matching a route.
 fn screen(
     route: Route,
     app: &TodoApp,
@@ -1539,8 +1537,8 @@ fn screen(
     }
 }
 
-/// Validation **pure** d'une cellule de la grille : `Name` (col 0) obligatoire, `Email` (col 2)
-/// doit ressembler à une adresse. `None` = valide. Démontre `TextInput::error` par cellule.
+/// **Pure** validation of a grid cell: `Name` (col 0) is required, `Email` (col 2) must look
+/// like an address. `None` = valid. It demonstrates `TextInput::error` per cell.
 fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
     match col {
         0 if value.trim().is_empty() => Some("Required"),
@@ -1551,7 +1549,7 @@ fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
     }
 }
 
-/// Nombre total de cellules invalides dans la grille (jalon 204/207) — sert à jauger la soumission.
+/// Total number of invalid cells in the grid (milestone 204/207) — it gates the submission.
 fn grid_error_count(grid: &[Vec<String>]) -> usize {
     grid.iter()
         .flat_map(|row| {
@@ -1562,7 +1560,7 @@ fn grid_error_count(grid: &[Vec<String>]) -> usize {
         .count()
 }
 
-/// Toutes les cellules invalides `(ligne, colonne)`, en ordre ligne par ligne.
+/// Every invalid cell `(row, column)`, in row-by-row order.
 fn grid_faults(grid: &[Vec<String>]) -> Vec<(usize, usize)> {
     grid.iter()
         .enumerate()
@@ -1576,13 +1574,13 @@ fn grid_faults(grid: &[Vec<String>]) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// La **première** cellule invalide (jalon 210).
+/// The **first** invalid cell (milestone 210).
 fn grid_first_error(grid: &[Vec<String>]) -> Option<(usize, usize)> {
     grid_faults(grid).first().copied()
 }
 
-/// La cellule fautive **suivant** `after` (ordre ligne par ligne, bouclage en fin) — pour cycler
-/// entre toutes les fautes (jalon 214). `after = None` renvoie la première.
+/// The faulty cell **after** `after` (row-by-row order, wrapping at the end) — so every fault
+/// can be cycled through (milestone 214). `after = None` returns the first one.
 fn grid_next_error(grid: &[Vec<String>], after: Option<(usize, usize)>) -> Option<(usize, usize)> {
     let faults = grid_faults(grid);
     match after {
@@ -1595,10 +1593,10 @@ fn grid_next_error(grid: &[Vec<String>], after: Option<(usize, usize)>) -> Optio
     }
 }
 
-/// Écran **grille éditable** : une `Table` dont chaque cellule est un `TextInput` toujours éditable.
-/// Tab / Maj+Tab navigue de cellule en cellule (focusables du shell), Entrée descend d'une ligne
-/// (jalon 201). Les en-têtes trient (jalon 204, `on_sort`), les cellules invalides s'affichent en
-/// erreur, et Entrée sur la dernière ligne en crée une.
+/// The **editable grid** screen: a `Table` whose every cell is an always-editable `TextInput`.
+/// Tab / Shift+Tab moves from cell to cell (the shell's focusables), Enter moves down one row
+/// (milestone 201). The headers sort (milestone 204, `on_sort`), invalid cells show an error,
+/// and Enter on the last row creates a new one.
 fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     const COL_W: [f32; 3] = [190.0, 170.0, 240.0];
     let muted = theme.muted;
@@ -1606,7 +1604,7 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .header(&["Name", "Role", "Email", ""])
         .column_widths(&[COL_W[0], COL_W[1], COL_W[2], 44.0])
         .on_sort(Msg::GridSort);
-    // Indicateur de tri (flèche d'en-tête) sur la colonne triée.
+    // The sort indicator (a header arrow) on the sorted column.
     if let Some((col, asc)) = app.grid_sort {
         table = table.sorted(col, asc);
     }
@@ -1630,7 +1628,7 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                 factory
             })
             .collect();
-        // Bouton de suppression de ligne (Container non focusable : Tab le saute).
+        // The row's delete button (a non-focusable Container: Tab skips it).
         cells.push(Box::new(move || {
             Box::new(
                 Container::<Msg>::new()
@@ -1645,7 +1643,7 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .size(13.0)
         .color(theme.muted)
         .wrap();
-    // Barre d'état de validation : verte si tout est valide, sinon le décompte d'erreurs.
+    // The validation status bar: green when everything is valid, otherwise the error count.
     let errors = grid_error_count(&app.grid);
     let status = if errors == 0 {
         text("All cells valid").size(13.0).color(theme.primary)
@@ -1658,15 +1656,15 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         text(label).size(13.0).color(theme.error)
     };
     let add = button("Add row", Msg::GridAddRow);
-    // `Save` est désactivé (non cliquable) tant qu'une cellule est invalide (jalon 210).
+    // `Save` is disabled (not clickable) for as long as a cell is invalid (milestone 210).
     let save = button("Save", Msg::GridSave).enabled(errors == 0);
     let mut actions = row![add, save].gap(12.0).align(Align::Center);
-    // Raccourci qui cycle entre les cellules fautives, seulement s'il y a des erreurs.
+    // A shortcut that cycles through the faulty cells, shown only when there are errors.
     if errors > 0 {
         actions = actions.child(button("Next error", Msg::GridFocusError));
     }
     actions = actions.child(status);
-    // Table éditable (colonnes fixes ~644 px) : région **défilable** bornée (X colonnes, Y lignes).
+    // The editable table (fixed columns, ~644 px): a bounded **scrollable** region (columns in X, rows in Y).
     let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
     let body = column![table_area, actions, hint]
         .gap(16.0)
@@ -1684,7 +1682,7 @@ fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     )
 }
 
-/// Jeu de données statique (nom, rôle, score) du tableau de données — jalon 237.
+/// The data table's static dataset (name, role, score) — milestone 237.
 const DATA_PEOPLE: [(&str, &str, u32, &str); 12] = [
     ("Ada Lovelace", "Engineer", 92, "High"),
     ("Alan Turing", "Cryptographer", 88, "Medium"),
@@ -1700,8 +1698,8 @@ const DATA_PEOPLE: [(&str, &str, u32, &str); 12] = [
     ("Vint Cerf", "Architect", 85, "Low"),
 ];
 
-/// Rang sémantique d'un niveau de priorité (`Low < Medium < High`) — clé de tri **personnalisée**
-/// de la colonne « Level » du tableau de données (le tri texte la classerait alphabétiquement).
+/// Semantic rank of a priority level (`Low < Medium < High`) — the **custom** sort key of the
+/// data table's "Level" column (a text sort would order it alphabetically).
 fn level_rank(s: &str) -> u8 {
     match s {
         "Low" => 0,
@@ -1711,17 +1709,17 @@ fn level_rank(s: &str) -> u8 {
     }
 }
 
-/// Écran **tableau de données** : un `DataTable` en lecture seule qui **trie ses propres lignes**
-/// (jalon 232) et **pagine** avec sélecteur de taille (jalons 233/236). L'app ne garde que l'état
-/// `(tri, page, taille)` — le tri d'affichage n'est **pas** recopié dans le reducer (contraste
-/// volontaire avec la grille éditable voisine). — jalon 237.
+/// The **data table** screen: a read-only `DataTable` that **sorts its own rows** (milestone
+/// 232) and **paginates** with a page-size selector (milestones 233/236). The app only keeps
+/// the `(sort, page, size)` state — the display sort is **not** duplicated in the reducer (a
+/// deliberate contrast with the editable grid next door). — milestone 237.
 fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let people = app.data_rows();
     let rows: Vec<Vec<String>> = people
         .iter()
         .map(|(n, r, s, l)| vec![n.clone(), r.clone(), s.to_string(), l.clone()])
         .collect();
-    // `0` (défaut dérivé) = valeurs de départ raisonnables.
+    // `0` (the derived default) = sensible starting values.
     let per = if app.data_page_size == 0 {
         5
     } else {
@@ -1730,20 +1728,20 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let page = app.data_page.max(1);
     let mut table: DataTable<Msg> = DataTable::new(["Name", "Role", "Score", "Level"], rows)
         .column_widths(&[200.0, 170.0, 90.0, 110.0])
-        // Colonne « Level » : clé de tri **personnalisée** (Low < Medium < High), sinon le tri
-        // texte la classerait par ordre alphabétique (jalon 240).
+        // The "Level" column: a **custom** sort key (Low < Medium < High), since a text sort
+        // would order it alphabetically (milestone 240).
         .sort_with(3, |a, b| level_rank(a).cmp(&level_rank(b)))
-        // Recherche : filtre les lignes source (toutes colonnes) avant tri/pagination (jalon 242).
+        // Search: filters the source rows (every column) before sorting/pagination (milestone 242).
         .searchable(app.data_query.as_str(), Msg::DataSearch)
-        // État vide surchargé (jalon 244) : message quand le filtre/les données ne montrent rien.
+        // An overridden empty state (milestone 244): a message when the filter/the data show nothing.
         .empty_text("No people match your search")
         .on_sort(Msg::DataSort)
         .on_select_row(Msg::DataSelectRow)
-        // Sélection multiple (jalon 241) : cases à cocher pour une sélection groupée, en plus du
-        // clic de ligne (focus). Les lignes cochées pilotent le surlignage via `selected`.
+        // Multi-selection (milestone 241): checkboxes for a bulk selection, on top of the row
+        // click (focus). The checked rows drive the highlighting through `selected`.
         .checkboxes(Msg::DataCheck, Msg::DataCheckAll)
         .selected(&app.data_checked)
-        // Barre d'actions groupées (jalon 243) : visible quand des lignes sont cochées.
+        // The bulk-actions bar (milestone 243): visible when rows are checked.
         .bulk_actions(|| {
             vec![
                 Box::new(
@@ -1768,7 +1766,7 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             .size(13.0)
             .color(theme.muted)
             .wrap();
-    // Détail de la ligne **focalisée** (clic sur le corps de la ligne) : lue dans les données courantes.
+    // Detail of the **focused** row (a click on the row's body): read from the current data.
     let detail = match app.data_selected.and_then(|i| people.get(i)) {
         Some((n, r, s, l)) => text(format!("Focused: {n} — {r} (score {s}, {l} priority)"))
             .size(15.0)
@@ -1776,15 +1774,15 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             .wrap(),
         None => text("No row focused.").size(15.0).color(theme.muted).wrap(),
     };
-    // Résumé de la sélection **groupée** (cases cochées).
+    // A summary of the **bulk** selection (the checked boxes).
     let summary = text(format!("{} checked", app.data_checked.len()))
         .size(13.0)
         .color(theme.muted);
-    // La table (colonnes fixes ~610 px) dépasse la largeur du téléphone : région **défilable**
-    // bornée (colonnes en X, lignes en Y) — pas un pan de page, un tableau scrollable façon Flutter.
+    // The table (fixed columns, ~610 px) is wider than a phone: a bounded **scrollable** region
+    // (columns in X, rows in Y) — not a page pan, a scrollable table.
     let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
-    // `flex(1.0)` : le corps remplit la hauteur sous la barre, pour que la région de table s'étende
-    // (sinon elle retombe à sa taille de base et laisse un grand vide dessous).
+    // `flex(1.0)`: the body fills the height under the bar so the table region can stretch
+    // (otherwise it falls back to its base size and leaves a large gap below).
     let body = column![table_area, detail, summary, hint]
         .gap(16.0)
         .padding(24.0)
@@ -1797,8 +1795,8 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .height(height)
         .color(theme.background)
         .child(screen);
-    // Confirmation avant suppression groupée (jalon 245) : une modale centrée, fermable au clic
-    // extérieur/Échap (`dismiss`), superposée à l'écran.
+    // A confirmation before the bulk delete (milestone 245): a centred modal, dismissible by an
+    // outside click or Escape (`dismiss`), laid over the screen.
     if app.data_confirm_delete {
         Box::new(
             Portal::new(content)
@@ -1813,17 +1811,17 @@ fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     }
 }
 
-/// Titres des colonnes du Kanban (démo, jalon 247).
+/// Titles of the Kanban columns (a demo, milestone 247).
 const KANBAN_TITLES: [&str; 3] = ["To do", "Doing", "Done"];
-/// Cartes de départ du Kanban, par colonne (démo, jalon 247).
+/// The Kanban's starting cards, per column (a demo, milestone 247).
 const KANBAN_SEED: [&[&str]; 3] = [
     &["Design API", "Write spec", "Triage bugs"],
     &["Build widget"],
     &["Kickoff", "Research"],
 ];
 
-/// Une **carte riche** du Kanban (jalon 249) : le libellé à gauche, un bouton **×** de suppression à
-/// droite (`KanbanDelete(col, pos)`).
+/// A **rich card** of the Kanban (milestone 249): the label on the left, a **×** delete button
+/// on the right (`KanbanDelete(col, pos)`).
 fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<Msg>> {
     Box::new(
         row![
@@ -1838,15 +1836,15 @@ fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<Msg>> {
     )
 }
 
-/// Écran **Kanban** : des colonnes de **cartes riches** (libellé + × de suppression), avec ajout par
-/// colonne (jalon 249) et glisser-déposer inter-colonnes (jalon 247). L'app tient les cartes ; le widget
-/// émet `KanbanMove`/`KanbanAdd`/`KanbanDelete`, le reducer applique.
+/// The **Kanban** screen: columns of **rich cards** (a label + a × to delete), with per-column
+/// adding (milestone 249) and drag-and-drop between columns (milestone 247). The app holds the
+/// cards; the widget emits `KanbanMove`/`KanbanAdd`/`KanbanDelete` and the reducer applies them.
 fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let cols = app.kanban_cols();
-    // Défilement vertical par colonne **façon Trello, sans hauteur explicite** (jalon 266) : les
-    // colonnes remplissent la hauteur du board (posé dans un ancêtre à hauteur définie — ici l'écran
-    // borné et le Scroll horizontal ci-dessous) et chaque colonne défile ses cartes en `flex(1)`.
-    // Plus besoin de calculer une hauteur (l'ancien stopgap `card_area_height`, jalon 264).
+    // Per-column vertical scrolling **with no explicit height** (milestone 266): the columns fill
+    // the board's height (laid out in an ancestor with a defined height — here the bounded screen
+    // and the horizontal Scroll below) and each column scrolls its cards through `flex(1)`. No
+    // height has to be computed any more (the old `card_area_height` stopgap, milestone 264).
     let mut board = Kanban::new(Msg::KanbanMove)
         .on_add(Msg::KanbanAdd)
         .scrollable_columns();
@@ -1862,20 +1860,20 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
             .collect();
         board = board.column_widgets(*title, factories);
     }
-    // Le hint **s'enroule** dans la largeur (sinon la ligne déborde à droite hors écran).
+    // The hint **wraps** within the width (otherwise the line runs off the right of the screen).
     let hint = text("Add cards with + Add card; remove with ×; drag a card to move it.")
         .size(13.0)
         .color(theme.muted)
         .wrap();
-    // Le board (rangée de colonnes de largeur fixe) dépasse la largeur de l'écran : on le rend
-    // défilable **horizontalement** (axe **intentionnel**, façon Flutter — la rangée de colonnes est
-    // un scroller horizontal, pas un pan 2D). Le défilement **vertical** des cartes est propre à
-    // chaque colonne (jalon 266, `scrollable_columns`). Glisser une carte réordonne ; glisser une
-    // zone vide fait défiler.
+    // The board (a row of fixed-width columns) is wider than the screen, so it is made scrollable
+    // **horizontally** — a **deliberate** axis: the row of columns is a horizontal scroller, not a
+    // 2D pan. The cards' **vertical** scrolling belongs to each column (milestone 266,
+    // `scrollable_columns`). Dragging a card reorders; dragging empty space scrolls.
     //
-    // Un simple `Container` à padding suffit pour la marge : depuis le jalon 269, `compute_scroll`
-    // **remplit l'axe contraint**, si bien que ce `Container` prend la hauteur du viewport (il
-    // s'effondrait avant, d'où l'ancien contournement `Flex` `flex(1)`) et le board suit.
+    // A plain `Container` with padding is enough for the margin: since milestone 269
+    // `compute_scroll` **fills the constrained axis**, so this `Container` takes the viewport's
+    // height (it used to collapse, hence the old `Flex` `flex(1)` workaround) and the board
+    // follows.
     let board_area = Scroll::new()
         .axis(Axis::Horizontal)
         .width(width)
@@ -1898,15 +1896,15 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
     )
 }
 
-/// Catégories (axe des abscisses) du tableau de bord graphique.
+/// Categories (the x axis) of the chart dashboard.
 const CHART_CATS: [&str; 5] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-/// Séries du tableau de bord : `(nom, valeurs)`. Série 0 = accent du thème ; 1.. = `CHART_COLORS`.
+/// The dashboard's series: `(name, values)`. Series 0 = the theme's accent; 1.. = `CHART_COLORS`.
 const CHART_SERIES: [(&str, [f32; 5]); 3] = [
     ("Sales", [3.0, 7.0, 5.0, 8.0, 4.0]),
     ("Costs", [2.0, 4.0, 3.0, 5.0, 2.0]),
     ("Profit", [1.0, 3.0, 2.0, 3.0, 2.0]),
 ];
-/// Couleurs des séries **additionnelles** (1.. ; la série 0 prend l'accent du thème).
+/// Colours of the **extra** series (1..; series 0 takes the theme's accent).
 const CHART_COLORS: [Color; 2] = [
     Color {
         r: 220.0 / 255.0,
@@ -1922,10 +1920,10 @@ const CHART_COLORS: [Color; 2] = [
     },
 ];
 
-/// Construit le graphique du tableau de bord selon `app.chart_kind` (jalon 219) : lignes (0), aires
-/// empilées (1), barres groupées (2), barres empilées (3). Toutes les variantes partagent les
-/// mêmes données, l'axe, et l'état de visibilité `chart_hidden`. `legend` câble (ou non) la légende
-/// cliquable — utile pour un graphique **compagnon** qui ne réaffiche pas sa propre légende.
+/// Builds the dashboard's chart according to `app.chart_kind` (milestone 219): lines (0),
+/// stacked areas (1), grouped bars (2), stacked bars (3). Every variant shares the same data,
+/// the same axis and the same `chart_hidden` visibility state. `legend` wires up (or leaves out)
+/// the clickable legend — useful for a **companion** chart that does not repeat its own.
 fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box<dyn Widget<Msg>> {
     let hidden = app.chart_hidden.clone();
     let cats = (0..5).map(|i| (CHART_CATS[i], CHART_SERIES[0].1[i]));
@@ -1942,8 +1940,8 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             c = c.stacked(true).normalized(app.chart_normalized);
         }
         if legend {
-            // Le graphique principal : légende cliquable + points cliquables (jalon 221) + point
-            // sélectionné mis en évidence (jalon 223).
+            // The main chart: a clickable legend + clickable points (milestone 221) + the
+            // selected point highlighted (milestone 223).
             c = c
                 .legend(true)
                 .on_legend(Msg::ChartToggleSeries)
@@ -1963,8 +1961,8 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
             c = c.stacked(true).normalized(app.chart_normalized);
         }
         if legend {
-            // Le graphique principal : légende cliquable + barres cliquables (jalon 222) + barre
-            // sélectionnée mise en évidence (jalon 223).
+            // The main chart: a clickable legend + clickable bars (milestone 222) + the selected
+            // bar highlighted (milestone 223).
             c = c
                 .legend(true)
                 .on_legend(Msg::ChartToggleSeries)
@@ -1975,17 +1973,17 @@ fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box
     }
 }
 
-/// Écran **tableau de bord graphique** : un `SegmentedControl` choisit le type (lignes / aires
-/// empilées / barres groupées / barres empilées, jalon 219), et la légende **cliquable** masque ou
-/// affiche une série (jalon 215/218). Démontre le routage de clics de sous-région vers l'état.
+/// The **chart dashboard** screen: a `SegmentedControl` picks the kind (lines / stacked areas /
+/// grouped bars / stacked bars, milestone 219), and the **clickable** legend hides or shows a
+/// series (milestone 215/218). It demonstrates routing sub-region clicks into the state.
 fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let selector = SegmentedControl::new(app.chart_kind, Msg::SetChartKind)
         .segment("Lines")
         .segment("Stacked area")
         .segment("Grouped bars")
         .segment("Stacked bars");
-    // Bascule **100 %** (jalon 224) : visible seulement pour les types empilés (aires/barres empilées),
-    // où la normalisation a un sens.
+    // The **100%** toggle (milestone 224): only shown for the stacked kinds (stacked areas/bars),
+    // where normalising means something.
     let stacked_kind = app.chart_kind == 1 || app.chart_kind == 3;
     let normalize_row: Box<dyn Widget<Msg>> = if stacked_kind {
         Box::new(
@@ -2000,9 +1998,9 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         Box::new(Container::new().width(0.0).height(0.0))
     };
     let chart = dashboard_chart(app, app.chart_kind, 240.0, true);
-    // Graphique **compagnon** : la famille complémentaire (barres si le principal est en lignes, et
-    // inversement), sans sa propre légende — il partage `chart_hidden`, donc masquer une série via la
-    // légende du principal la masque **aussi** ici (jalon 220).
+    // The **companion** chart: the complementary family (bars when the main one is lines, and the
+    // other way round), without a legend of its own — it shares `chart_hidden`, so hiding a series
+    // through the main chart's legend hides it here **too** (milestone 220).
     let companion_kind = if app.chart_kind < 2 { 2 } else { 0 };
     let companion = dashboard_chart(app, companion_kind, 150.0, false);
     let hint = text(
@@ -2011,7 +2009,7 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     .size(13.0)
     .color(theme.muted)
     .wrap();
-    // Détail épinglé du dernier point cliqué (jalon 221).
+    // The pinned detail of the last clicked point (milestone 221).
     let pinned: Box<dyn Widget<Msg>> = match &app.chart_pin {
         Some(detail) => Box::new(Chip::new(detail.clone())),
         None => Box::new(text("No point selected").size(13.0).color(theme.muted)),
@@ -2027,7 +2025,7 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     ]
     .gap(16.0)
     .padding(24.0);
-    // Contenu fixe haut (graphiques + compagnon ≈ 550-650 px) : défile **verticalement** sous la barre.
+    // Tall fixed content (the charts + the companion, ≈ 550-650 px): it scrolls **vertically** under the bar.
     let body = Scroll::new().width(width).flex(1.0).child(content);
     let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
@@ -2041,8 +2039,8 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     )
 }
 
-/// Le formulaire de l'assistant : validation **pure** de l'état courant (jalons 180–181).
-/// L'ordre déclare `password` avant `confirm` (validation croisée `matches`).
+/// The wizard's form: a **pure** validation of the current state (milestones 180–181). The order
+/// declares `password` before `confirm` (the cross-field `matches` validation).
 fn wizard_form(app: &TodoApp) -> Form {
     Form::new()
         .field(
@@ -2071,8 +2069,8 @@ fn wizard_form(app: &TodoApp) -> Form {
         )
 }
 
-/// À quelle étape (0 = Account, 1 = Security) vit le champ `key` — pour que cliquer une puce du
-/// récapitulatif d'erreurs saute à la bonne étape (jalons 181 + 183).
+/// Which step (0 = Account, 1 = Security) the field `key` lives on — so that clicking an error
+/// summary bullet jumps to the right step (milestones 181 + 183).
 fn wizard_step_of(key: &str) -> usize {
     match key {
         "name" | "email" => 0,
@@ -2080,7 +2078,7 @@ fn wizard_step_of(key: &str) -> usize {
     }
 }
 
-/// Index de champ (clé de focus) d'un champ de l'assistant — pour `keyed`/`Command::focus`.
+/// A wizard field's index (its focus key) — for `keyed`/`Command::focus`.
 fn wizard_field_of(key: &str) -> u8 {
     match key {
         "name" => 0,
@@ -2090,7 +2088,7 @@ fn wizard_field_of(key: &str) -> u8 {
     }
 }
 
-/// L'étape `step` est-elle **valide** ? (pour n'autoriser « Next » qu'une fois l'étape remplie.)
+/// Is step `step` **valid**? (so "Next" is only allowed once the step is filled in.)
 fn wizard_step_valid(form: &Form, step: usize) -> bool {
     match step {
         0 => form.error("name").is_none() && form.error("email").is_none(),
@@ -2099,8 +2097,8 @@ fn wizard_step_valid(form: &Form, step: usize) -> bool {
     }
 }
 
-/// Un champ de l'assistant : erreur affichée **qu'après** soumission, valeur **masquée** pour un
-/// mot de passe, et **clé de focus** (`keyed`) pour que le récapitulatif puisse y sauter.
+/// One wizard field: its error is shown **only after** submission, its value is **masked** for a
+/// password, and it carries a **focus key** (`keyed`) so the summary can jump to it.
 fn wizard_input(
     form: &Form,
     submitted: bool,
@@ -2118,7 +2116,7 @@ fn wizard_input(
         .label(label)
         .obscure(obscure)
         .on_input(move |s| Msg::WizardInput(field, s));
-    // `eye = Some(revealed)` : une icône œil **dans le champ** bascule le masquage (jalon 198).
+    // `eye = Some(revealed)`: an eye icon **inside the field** toggles the masking (milestone 198).
     if let Some(revealed) = eye {
         let icon = if revealed {
             IconName::EyeOff
@@ -2135,18 +2133,18 @@ fn wizard_input(
     keyed(("wizard", field), input)
 }
 
-/// Écran **assistant d'inscription** : preuve d'intégration des briques récentes —
-/// indicateur [`Steps`] cliquable (jalon 183), formulaire validé [`Form`] (180) avec
-/// récapitulatif d'erreurs **cliquable** (181), et notification de succès (185/188).
+/// The **sign-up wizard** screen: proof that the recent building blocks fit together — a
+/// clickable [`Steps`] indicator (milestone 183), a validated [`Form`] (180) with a **clickable**
+/// error summary (181), and a success notification (185/188).
 fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let form = wizard_form(app);
     let submitted = app.wizard_submitted;
-    // Largeur de champ **responsive** : tient dans la largeur (moins le padding 24×2), plafonnée à
-    // 360 px pour ne pas s'étirer sur grand écran.
+    // A **responsive** field width: it fits the width (minus the 24×2 padding), capped at 360 px
+    // so it does not stretch on a large screen.
     let field_w = (width - 48.0).clamp(240.0, 360.0);
 
-    // Les étapes sont marquées « terminées » par **validité** (jalon 195), pas seulement par
-    // position — cohérent avec « Next » gardé par la même validité.
+    // Steps are marked "done" by **validity** (milestone 195), not merely by position — which
+    // matches "Next" being gated by that same validity.
     let steps = Steps::new(["Account", "Security", "Review"])
         .current(app.wizard_step)
         .completed([
@@ -2156,7 +2154,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         ])
         .on_tap(Msg::WizardStep);
 
-    // Contenu de l'étape courante.
+    // The current step's content.
     let content: Box<dyn Widget<Msg>> = match app.wizard_step {
         0 => Box::new(
             Flex::column()
@@ -2185,7 +2183,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
                 )),
         ),
         1 => {
-            // Mots de passe masqués sauf révélation : l'icône œil **dans le champ** bascule (198).
+            // Passwords are masked unless revealed: the eye icon **inside the field** toggles it (198).
             let obscure = !app.wizard_reveal;
             let eye = Some(app.wizard_reveal);
             Box::new(
@@ -2217,8 +2215,8 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         }
         _ => {
             let mut review = Flex::column().gap(14.0);
-            // Récapitulatif cliquable : chaque puce saute à l'étape du champ fautif **et**
-            // le focalise (jalons 181 + 183 + focus programmatique).
+            // A clickable summary: each bullet jumps to the faulty field's step **and** focuses
+            // it (milestones 181 + 183 + programmatic focus).
             if submitted && !form.is_valid() {
                 let links = form.errors().into_iter().map(|(key, message)| {
                     (
@@ -2249,7 +2247,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         }
     };
 
-    // Barre de navigation : Précédent / Suivant, ou Créer sur la dernière étape.
+    // The navigation bar: Back / Next, or Create on the last step.
     let mut nav = Flex::row().gap(12.0);
     if app.wizard_step > 0 {
         nav = nav.child(
@@ -2259,7 +2257,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         );
     }
     if app.wizard_step < 2 {
-        // « Next » n'est actif qu'une fois l'étape courante valide (jalon 191 : Button désactivé).
+        // "Next" only becomes active once the current step is valid (milestone 191: a disabled Button).
         nav = nav.child(
             button("Next", Msg::WizardNext)
                 .variant(Variant::Primary)
@@ -2275,7 +2273,7 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     }
 
     let inner = column![steps, content, nav].gap(24.0).padding(24.0);
-    // Défile verticalement si le contenu dépasse (petits écrans, clavier ouvert).
+    // It scrolls vertically when the content overflows (small screens, an open keyboard).
     let body = Scroll::new().width(width).flex(1.0).child(inner);
     let screen = column![NavBar::new("Sign-up wizard").on_back(Msg::Pop), body]
         .width(width)
@@ -2289,9 +2287,9 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     )
 }
 
-/// Écran « Journal » : une **liste virtualisée** de 5000 lignes.
+/// The "Journal" screen: a **virtualised list** of 5000 rows.
 fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
-    let t = *theme; // Theme est Copy — capturé par la fabrique d'éléments.
+    let t = *theme; // Theme is Copy — captured by the item factory.
     let list = List::new(5000, 44.0, move |i| {
         Container::<Msg>::new()
             .height(44.0)
@@ -2314,7 +2312,7 @@ fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
         .child(screen)
 }
 
-/// Une tuile de statistique (grand nombre + libellé) pour la grille.
+/// A statistic tile (a big number + a label) for the grid.
 fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container<Msg> {
     Container::new()
         .height(64.0)
@@ -2328,7 +2326,7 @@ fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container<Msg> {
         ])
 }
 
-/// Écran « Réglages » : la carte de contrôles (démontre nav + geste + widgets).
+/// The "Settings" screen: the card of controls (it demonstrates navigation + gesture + widgets).
 fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     let volume_pct = (app.volume * 100.0).round() as u32;
     let controls = Card::new().child(
@@ -2385,8 +2383,8 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     );
     let total = app.todos.len();
     let done = app.todos.iter().filter(|t| t.done).count();
-    // Largeur utile de l'onglet (viewport moins les paddings colonne/tab),
-    // bornée : les vitrines s'adaptent au Compact au lieu de déborder.
+    // The tab's usable width (the viewport minus the column/tab paddings), bounded: the showcases
+    // adapt to Compact instead of overflowing.
     let inner_w = (width - 72.0).clamp(240.0, 480.0);
     let stats = Grid::new(3)
         .gap(10.0)
@@ -2400,9 +2398,9 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .row(&["Widgets", "35"])
         .row(&["Milestones", "39"]);
 
-    // Arbre de fichiers (déplié selon l'état).
+    // The file tree (expanded according to the state).
     let open = |id: u64| app.expanded.contains(&id);
-    // Chevron = (dé)plier ; corps de la ligne = sélectionner le nœud (jalon 246).
+    // The chevron expands/collapses; the row's body selects the node (milestone 246).
     let mut tree = Tree::new(Msg::ToggleNode)
         .on_select(Msg::SelectNode)
         .selected(app.tree_selected)
@@ -2418,7 +2416,7 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     }
     tree = tree.node(6, 0, "Cargo.toml", false, false);
 
-    // Palette de couleurs.
+    // The colour palette.
     let palette = [
         Color::rgb8(46, 160, 96),
         Color::rgb8(90, 158, 242),
@@ -2432,13 +2430,13 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         picker = picker.swatch(color);
     }
 
-    // Chronologie des jalons récents.
+    // A timeline of the recent milestones.
     let timeline = Timeline::new()
         .event("Grid", "Milestone 35")
         .event("New widgets", "Milestones 36–37")
         .event("Hierarchy & color", "Milestone 38");
 
-    // Carrousel : le slide courant est fourni selon l'index.
+    // The carousel: the current slide is supplied by index.
     let slide = match app.slide {
         0 => text("Welcome to frus").size(16.0),
         1 => text("About 35 widgets").size(16.0),
@@ -2446,7 +2444,7 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     };
     let carousel = Carousel::new(app.slide, 3, Msg::SetSlide, slide);
 
-    // Popover d'info (contenu libre, fermeture au clic extérieur).
+    // An info popover (arbitrary content, dismissed by an outside click).
     let info = Popover::new(
         button("Info", Msg::ToggleInfo)
             .variant(Variant::Secondary)
@@ -2466,7 +2464,7 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         ),
     );
 
-    // Autocomplétion : suggestions filtrées par la saisie (contrôlé).
+    // Autocomplete: suggestions filtered by what is typed (controlled).
     const TAGS: [&str; 5] = ["apple", "apricot", "banana", "blueberry", "cherry"];
     let mut tags = Autocomplete::new(app.tag_draft.clone(), Msg::TagInput, Msg::TagPick);
     if !app.tag_draft.is_empty() {
@@ -2478,7 +2476,7 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         }
     }
 
-    // Indices de raccourcis clavier.
+    // Keyboard shortcut hints.
     let shortcuts = row![
         text("Shortcuts:").size(14.0).color(theme.muted),
         Kbd::new("Enter"),
@@ -2527,8 +2525,8 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
     ]
     .padding(20.0)
     .gap(16.0);
-    // Le contenu (calendrier, options avancées…) dépasse l'écran : il défile
-    // sous la barre, qui reste épinglée.
+    // The content (the calendar, the advanced options…) is taller than the screen: it scrolls
+    // under the bar, which stays pinned.
     let body = Scroll::new().width(width).flex(1.0).child(content);
     let screen = column![NavBar::new("Settings").on_back(Msg::Pop), body]
         .width(width)
@@ -2540,8 +2538,8 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .child(screen)
 }
 
-/// Une ligne de tâche : case à cocher, libellé (grisé **et barré** si terminée)
-/// et suppression.
+/// One task row: a checkbox, the label (dimmed **and struck through** when done) and a delete
+/// button.
 fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     let id = todo.id;
     let label_color = if todo.done {
@@ -2565,7 +2563,7 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     .align(Align::Center)
     .gap(12.0);
     Container::new()
-        // Appui long sur la ligne = suppression (le motif mobile, en plus du ×).
+        // A long press on the row deletes it (the mobile pattern, alongside the ×).
         .on_long_press(Msg::DeleteTodo(id))
         .radius(10.0)
         .color(theme.surface)
@@ -2574,7 +2572,7 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         .child(line)
 }
 
-/// Contenu de la modale de confirmation de suppression groupée du tableau de données (jalon 245).
+/// Content of the data table's bulk-delete confirmation modal (milestone 245).
 fn data_confirm_content(count: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         column![
@@ -2593,7 +2591,7 @@ fn data_confirm_content(count: usize) -> Card<Msg> {
     )
 }
 
-/// Contenu de la modale de confirmation d'effacement des terminées.
+/// Content of the "clear completed" confirmation modal.
 fn confirm_content(done: usize) -> Card<Msg> {
     Card::new().padding(24.0).child(
         column![
@@ -2612,30 +2610,30 @@ fn confirm_content(done: usize) -> Card<Msg> {
     )
 }
 
-/// Écran principal : la liste de tâches (l'app exemple).
+/// The main screen: the task list (the sample app itself).
 fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let active = active_count(app);
     let done = done_count(app);
 
-    // Responsivité : la carte s'élargit avec la fenêtre par paliers (Lot A). En
-    // Compact, elle suit la largeur disponible ; les champs internes s'y adaptent.
+    // Responsiveness: the card widens with the window in steps. In Compact it follows the
+    // available width, and the fields inside adapt to it.
     let class = SizeClass::from_width(width);
-    // Largeur **interne** de la carte : la fenêtre moins le padding du corps
-    // (24 × 2) et celui de la carte (20 × 2) — sinon la carte déborde du
-    // viewport Compact et tout l'écran défile horizontalement.
+    // The card's **inner** width: the window minus the body's padding (24 × 2) and the card's own
+    // (20 × 2) — otherwise the card overflows the Compact viewport and the whole screen scrolls
+    // horizontally.
     let card_width = match class {
         SizeClass::Compact => (width - 88.0).max(240.0),
         SizeClass::Medium => 560.0,
         SizeClass::Expanded => 680.0,
     };
 
-    // En-tête : une AppBar adaptative. On déclare un titre + des actions ; elle
-    // décide seule combien tiennent en ligne et replie le reste dans un menu
-    // overflow « ⋯ », selon la largeur — sans jamais brancher sur mobile/desktop.
+    // The header: an adaptive AppBar. A title and some actions are declared; it decides on its
+    // own how many fit on the line and folds the rest into a "⋯" overflow menu, according to the
+    // width — without ever branching on mobile/desktop.
     let theme_label = if app.light { "Dark" } else { "Light" };
     let timer_label = if app.running { "Pause" } else { "Resume" };
-    // Le titre suit la section active (comme le ferait une vraie app) — la
-    // section Tasks est localisée (Fluent) pour la démo i18n.
+    // The title follows the active section (as a real app would) — the Tasks section is
+    // localized (Fluent) for the i18n demo.
     let section_title = match app.section {
         1 => "Stats".to_string(),
         2 => "About".to_string(),
@@ -2653,7 +2651,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .action(theme_label, Msg::ToggleTheme)
         .action(seed_label(app), Msg::CycleSeed)
         .action(if app.rtl { "LTR" } else { "RTL" }, Msg::ToggleRtl)
-        // Bascule de langue : l'étiquette montre la LANGUE VERS LAQUELLE on va.
+        // The language toggle: the label shows the language being switched TO.
         .action(LANGS[(app.lang + 1) % LANGS.len()].0, Msg::CycleLang)
         .action("A+", Msg::SetDensity(app.density + 0.1))
         .action("A−", Msg::SetDensity(app.density - 0.1))
@@ -2664,8 +2662,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .action("Clear completed", Msg::AskClearDone)
         .build();
 
-    // Saisie : champ (Entrée valide) + bouton d'ajout. Le champ non vide porte une icône
-    // suffixe **cliquable** « ✕ » qui l'efface (jalon 198 : clic positionnel du suffixe).
+    // Input: a field (Enter submits) + an add button. A non-empty field carries a **clickable**
+    // "✕" suffix icon that clears it (milestone 198: a positional click on the suffix).
     let mut draft_input = TextInput::new(app.draft.as_str())
         .width((card_width - 150.0).max(160.0))
         .size(18.0)
@@ -2680,7 +2678,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .align(Align::Center)
         .gap(10.0);
 
-    // Filtres : un contrôle segmenté (sélection unique).
+    // The filters: a segmented control (single selection).
     let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
         Msg::SetFilter(filter_from_index(i))
     })
@@ -2688,7 +2686,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     .segment(tr(app.lang, "filter-active"))
     .segment(tr(app.lang, "filter-done"));
     let mut filters = row![segmented].align(Align::Center).gap(8.0);
-    // Le filtre actif (hors « Toutes ») s'affiche en puce supprimable.
+    // The active filter (other than "All") is shown as a removable chip.
     if app.filter != Filter::All {
         let name = if app.filter == Filter::Active {
             "Active"
@@ -2700,7 +2698,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             .child(Chip::new(name).on_remove(Msg::SetFilter(Filter::All)));
     }
 
-    // Liste filtrée (ou état vide).
+    // The filtered list (or the empty state).
     let mut list = Flex::column().gap(8.0);
     let mut shown = 0;
     for todo in app.todos.iter().filter(|t| match app.filter {
@@ -2708,8 +2706,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         Filter::Active => !t.done,
         Filter::Done => t.done,
     }) {
-        // Identité stable par `id` : l'état retenu (survol/animations) ne saute
-        // pas quand on supprime une tâche au milieu.
+        // A stable identity by `id`: the retained state (hover/animations) does not jump when a
+        // task in the middle is deleted.
         list = list.child(keyed(todo.id, todo_row(todo, theme)));
         shown += 1;
     }
@@ -2719,11 +2717,11 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             .italic()
             .color(theme.muted)];
     }
-    // Responsivité **verticale** (Lot C) : en fenêtre courte, l'astuce est masquée
-    // pour préserver la hauteur utile. Le défilement est assuré par le Scaffold.
+    // **Vertical** responsiveness: in a short window the hint is hidden to preserve the usable
+    // height. The scrolling is handled by the Scaffold.
     let short = SizeClass::from_height(height) == SizeClass::Compact;
 
-    // Pied : compteurs + effacer les terminées (avec confirmation modale).
+    // The footer: the counters + clear completed (with a modal confirmation).
     let clear_button = button("Clear completed", Msg::AskClearDone)
         .variant(Variant::Danger)
         .size(15.0);
@@ -2737,9 +2735,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let total = app.todos.len().max(1);
     let pct = (done as f32 / total as f32 * 100.0).round() as u32;
 
-    // Résumé construit selon sa boîte RÉELLE (Lot C : LayoutBuilder). Texte long
-    // (compteurs pluralisés, localisés Fluent) quand il y a de la place, court
-    // quand c'est étroit — hauteur fixe.
+    // A summary built from its ACTUAL box (LayoutBuilder). Long text (pluralised counters,
+    // localized through Fluent) when there is room, short text when it is narrow — at a fixed
+    // height.
     let muted = theme.muted;
     let lang = app.lang;
     let total = active + done;
@@ -2770,27 +2768,27 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     .align(Align::Center)
     .gap(8.0);
 
-    // Barre de progression de complétion (terminées / total).
+    // The completion progress bar (done / total).
     let progress =
         ProgressBar::new(done as f32 / total as f32).width((card_width - 40.0).max(200.0));
 
-    // Carte de l'app, largeur responsive (Lot A), centrée en haut de l'écran.
-    // Le corps est bâti de façon incrémentale pour omettre l'astuce si court.
+    // The app's card, of responsive width, centred at the top of the screen. The body is built
+    // incrementally so the hint can be left out when the window is short.
     let mut card_body = Flex::column().width(card_width).gap(16.0);
     if !short {
-        // Bannière **statique** : frontière de repaint (jalon 88). Elle est
-        // rejouée depuis le cache aux frames d'interaction pure (survol, focus,
-        // défilement ailleurs) au lieu d'être repeinte à chaque frame.
+        // A **static** banner: a repaint boundary (milestone 88). It is replayed from the cache
+        // on frames of pure interaction (hover, focus, scrolling elsewhere) instead of being
+        // repainted every frame.
         card_body = card_body.child(
             Container::new().repaint_boundary().child(
                 Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
                     .title("Tip"),
             ),
         );
-        // Rangée d'icônes vectorielles (jalon 89) + image bitmap (jalon 90) :
-        // chemins tessellisés colorés au thème, et une texture GPU ajustée `Cover`.
-        // Vitrine de widgets (~360 px) plus large que la carte sur téléphone : **défile
-        // horizontalement** (hauteur fixe = celle de la rangée) plutôt que de déborder.
+        // A row of vector icons (milestone 89) + a bitmap image (milestone 90): tessellated paths
+        // coloured by the theme, and a GPU texture fitted with `Cover`. The widget showcase
+        // (~360 px) is wider than the card on a phone, so it **scrolls horizontally** (at a fixed
+        // height, the row's) rather than overflowing.
         let showcase = Flex::row()
             .gap(16.0)
             .align(Align::Center)
@@ -2800,9 +2798,8 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             .child(Icon::new(IconName::Menu))
             .child(Icon::new(IconName::ChevronRight))
             .child(Image::new(demo_image(), 72.0, 48.0).fit(BoxFit::Cover))
-            // Calque à opacité de groupe (jalon 92) : deux carrés qui se
-            // chevauchent, composités d'un bloc → le chevauchement ne fonce
-            // pas (pas de double-superposition de l'alpha).
+            // A group-opacity layer (milestone 92): two overlapping squares, composited as one →
+            // the overlap does not darken (no double-blending of the alpha).
             .child(CustomPaint::new(72.0, 48.0, |scene, bounds, theme| {
                 scene.layer(0.55, |inner| {
                     let c = theme.primary;
@@ -2818,9 +2815,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
                 .child(showcase),
         );
     }
-    // Identités **stables** (clés) : l'astuce ci-dessus est conditionnelle —
-    // sans clés, sa disparition (clavier ouvert → écran court) décale les ids
-    // positionnels des frères, et l'état retenu (focus du champ !) saute.
+    // **Stable** identities (keys): the hint above is conditional — without keys, its
+    // disappearance (an open keyboard → a short screen) shifts the siblings' positional ids and
+    // the retained state (the field's focus!) jumps.
     card_body = card_body
         .child(keyed("draft-row", input_row))
         .child(keyed("filters", filters))
@@ -2831,17 +2828,17 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     let card = Card::new().padding(20.0).child(card_body);
     let tasks_body = column![row![card].justify(Justify::Center)].padding(24.0);
 
-    // Corps selon la section active (la navigation adaptative est dans le Scaffold).
+    // The body follows the active section (the adaptive navigation lives in the Scaffold).
     let section: Box<dyn Widget<Msg>> = match app.section {
         1 => Box::new(stats_section(app, theme, class)),
         2 => Box::new(about_section(theme, width)),
         _ => Box::new(tasks_body),
     };
 
-    // Ossature d'écran : le Scaffold épingle la barre haute et la navigation, fait
-    // défiler le corps, et coordonne tiroir / feuille / FAB — un seul point d'entrée.
-    // Les insets sont déjà gérés par `view` (qui passe des dimensions sûres) ; le
-    // Scaffold s'épingle donc simplement dans ce viewport.
+    // The screen's skeleton: the Scaffold pins the top bar and the navigation, scrolls the body,
+    // and coordinates the drawer / sheet / FAB — a single entry point. The insets are already
+    // handled by `view` (which passes safe dimensions), so the Scaffold simply pins itself inside
+    // that viewport.
     let scaffold = Scaffold::new(width, height)
         .background(theme.background)
         .app_bar(header)
@@ -2859,9 +2856,9 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 
-    // La notification en tête de file flotte au-dessus de tout, ancrée en bas-centre par la
-    // couche `ToastHost` (jalon 188) : fondu d'**entrée**, puis fondu de **sortie** quand elle
-    // passe « en sortie » avant son retrait (jalon 193).
+    // The notification at the head of the queue floats above everything, anchored bottom-centre by
+    // the `ToastHost` layer (milestone 188): it fades **in**, then fades **out** when it moves into
+    // its exit before being removed (milestone 193).
     match app.snackbars.current() {
         Some(message) => {
             let host = ToastHost::new(ToastPosition::BottomCenter)
@@ -2883,7 +2880,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     }
 }
 
-/// Contenu de la feuille modale : quelques actions rapides.
+/// The modal sheet's content: a few quick actions.
 fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
     Container::new().padding(20.0).child(
         Flex::column()
@@ -2907,7 +2904,7 @@ fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
     )
 }
 
-/// Contenu du tiroir de navigation : en-tête + destinations + réglages.
+/// The navigation drawer's content: a header + the destinations + settings.
 fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
     let entry = |icon: &str, label: &str, index: usize| {
         let variant = if app.section == index {
@@ -2954,20 +2951,20 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
     )
 }
 
-/// Jour de la semaine (0 = dimanche … 6 = samedi) d'une date (Sakamoto) — jalon 238.
+/// Day of the week (0 = Sunday … 6 = Saturday) of a date (Sakamoto) — milestone 238.
 fn weekday(y: i32, m: u32, d: u32) -> u32 {
     const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     let yy = if m < 3 { y - 1 } else { y };
     (((yy + yy / 4 - yy / 100 + yy / 400 + T[(m - 1) as usize] + d as i32) % 7 + 7) % 7) as u32
 }
 
-/// Vrai si la date tombe un **week-end** (samedi ou dimanche).
+/// True when the date falls on a **weekend** (Saturday or Sunday).
 fn is_weekend(y: i32, m: u32, d: u32) -> bool {
     matches!(weekday(y, m, d), 0 | 6)
 }
 
-/// Le calendrier de la vitrine : `DatePicker::filtered` grisant les **week-ends** si `weekdays_only`
-/// (jalon 238), sinon tous les jours cliquables (`DatePicker::new`).
+/// The showcase calendar: `DatePicker::filtered`, greying out **weekends** when `weekdays_only`
+/// is set (milestone 238), otherwise every day is clickable (`DatePicker::new`).
 fn demo_calendar(app: &TodoApp) -> Box<dyn Widget<Msg>> {
     if app.weekdays_only {
         Box::new(DatePicker::filtered(
@@ -2989,8 +2986,8 @@ fn demo_calendar(app: &TodoApp) -> Box<dyn Widget<Msg>> {
     }
 }
 
-/// Section « Stats » : un agencement maître-détail responsive (`TwoPane`). Côte à
-/// côte en grand, panneau unique en étroit (taper une métrique ouvre le détail).
+/// The "Stats" section: a responsive master-detail layout (`TwoPane`). Side by side when large,
+/// a single pane when narrow (tapping a metric opens the detail).
 fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg> {
     let total = app.todos.len();
     let metrics = [
@@ -2999,7 +2996,7 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
         ("Completed", done_count(app)),
     ];
 
-    // Panneau maître : la liste des métriques (sélection).
+    // The master pane: the list of metrics (a selection).
     let mut cats = Flex::column().gap(6.0);
     for (i, (label, _)) in metrics.iter().enumerate() {
         let variant = if app.stat_sel == i {
@@ -3015,7 +3012,7 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
     }
     let list = Card::new().padding(12.0).child(cats);
 
-    // Panneau détail : la métrique sélectionnée.
+    // The detail pane: the selected metric.
     let (label, value) = metrics[app.stat_sel.min(metrics.len() - 1)];
     let mut detail_col = column![
         text(label).size(22.0),
@@ -3025,7 +3022,7 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
             .color(theme.muted),
     ]
     .gap(10.0);
-    // En panneau unique, un retour vers la liste.
+    // In single-pane mode, a way back to the list.
     if class != SizeClass::Expanded {
         detail_col = detail_col.child(
             button("← Back", Msg::CloseDetail)
@@ -3042,17 +3039,16 @@ fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> TwoPane<Msg>
         .detail(detail)
 }
 
-/// Section « About » : contenu statique de présentation.
+/// The "About" section: static introductory content.
 fn about_section(theme: &Theme, width: f32) -> Container<Msg> {
-    // Largeur du contenu = viewport moins les paddings (conteneur 24×2 +
-    // carte 20×2), bornée à une lecture confortable — sinon débordement
-    // horizontal en Compact.
+    // The content width = the viewport minus the paddings (the container's 24×2 + the card's
+    // 20×2), bounded to a comfortable measure — otherwise it overflows horizontally in Compact.
     let content_width = (width - 88.0).max(240.0).min(560.0);
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
             column![
                 text("About frus").size(24.0),
-                // Texte riche : styles mêlés en une ligne, héritage en cascade.
+                // Rich text: mixed styles on one line, with cascading inheritance.
                 RichText::new(
                     TextSpan::new("A ")
                         .child(TextSpan::new("fast").bold())
@@ -3068,7 +3064,7 @@ fn about_section(theme: &Theme, width: f32) -> Container<Msg> {
                 Timeline::new()
                     .event("Responsive primitives", "Milestone 42")
                     .event("Adaptive navigation", "Milestone 43"),
-                // Paragraphe : revient à la ligne à la largeur de la carte.
+                // A paragraph: it wraps at the card's width.
                 text(
                     "Layout, painting, typography and animation are engine-level \
                      foundations shared by every widget in this gallery.",
@@ -3088,7 +3084,7 @@ mod tests {
     use super::*;
     use frus_widgets::{build_ui, Runtime, Size};
 
-    /// Ajoute une tâche depuis un libellé.
+    /// Adds a task from a label.
     fn add(app: &mut TodoApp, text: &str) {
         reduce(app, Msg::DraftChanged(text.to_string()));
         reduce(app, Msg::AddTodo);
@@ -3110,7 +3106,7 @@ mod tests {
         assert_eq!(app.density, 1.4);
         reduce(&mut app, Msg::SetDensity(0.1));
         assert_eq!(app.density, 0.8);
-        // density() protège contre un état non initialisé (0.0 → 1.0).
+        // density() guards against an uninitialised state (0.0 → 1.0).
         app.density = 0.0;
         assert_eq!(Application::density(&app), 1.0);
     }
@@ -3119,11 +3115,11 @@ mod tests {
     fn on_resize_tracks_class_and_closes_detail_when_compact() {
         let mut app = TodoApp::default();
         app.stat_detail_open = true;
-        // Large : palier Expanded, le détail reste ouvert.
+        // Wide: the Expanded class, the detail stays open.
         app.on_resize(1000.0, 700.0);
         assert_eq!(app.size_class, Some(SizeClass::Expanded));
         assert!(app.stat_detail_open);
-        // Étroit : bascule Compact et ferme le détail.
+        // Narrow: it switches to Compact and closes the detail.
         app.on_resize(500.0, 700.0);
         assert_eq!(app.size_class, Some(SizeClass::Compact));
         assert!(!app.stat_detail_open);
@@ -3134,11 +3130,11 @@ mod tests {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::ToggleDrawer);
         assert!(app.drawer_open);
-        // Choisir une section referme le tiroir.
+        // Choosing a section closes the drawer.
         reduce(&mut app, Msg::SetSection(1));
         assert_eq!(app.section, 1);
         assert!(!app.drawer_open);
-        // Naviguer (Push) referme aussi le tiroir.
+        // Navigating (Push) closes the drawer too.
         reduce(&mut app, Msg::ToggleDrawer);
         reduce(&mut app, Msg::Push(Route::Settings));
         assert!(!app.drawer_open);
@@ -3148,19 +3144,19 @@ mod tests {
     fn on_insets_updates_safe_area() {
         let mut app = TodoApp::default();
         assert_eq!(app.insets, Insets::ZERO);
-        // Barres système seules.
+        // The system bars alone.
         app.on_insets(WindowInsets {
             padding: Insets::new(84.0, 0.0, 45.0, 0.0),
             view_insets: Insets::ZERO,
         });
         assert_eq!(app.insets, Insets::new(84.0, 0.0, 45.0, 0.0));
-        // Clavier ouvert : la zone sûre du bas suit le clavier (évitement).
+        // An open keyboard: the bottom safe area follows the keyboard (avoidance).
         app.on_insets(WindowInsets {
             padding: Insets::new(84.0, 0.0, 45.0, 0.0),
             view_insets: Insets::new(0.0, 0.0, 345.0, 0.0),
         });
         assert_eq!(app.insets, Insets::new(84.0, 0.0, 345.0, 0.0));
-        // La vue se construit sans paniquer avec des insets non nuls (chemin d'enrobage).
+        // The view builds without panicking with non-zero insets (the wrapping path).
         let theme = Theme::dark();
         let tree = Application::view(&app, &theme, 400.0, 800.0);
         let ui = build_ui(
@@ -3177,10 +3173,10 @@ mod tests {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::ToggleSheet);
         assert!(app.sheet_open);
-        // Une action de la feuille (Save) la referme.
+        // A sheet action (Save) closes it.
         reduce(&mut app, Msg::Save);
         assert!(!app.sheet_open);
-        // Idem pour « Clear completed » (qui ouvre la confirmation).
+        // The same for "Clear completed" (which opens the confirmation).
         reduce(&mut app, Msg::ToggleSheet);
         reduce(&mut app, Msg::AskClearDone);
         assert!(!app.sheet_open);
@@ -3200,7 +3196,7 @@ mod tests {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::DraftChanged("half-typed".to_string()));
         assert_eq!(app.draft, "half-typed");
-        // Le suffixe « ✕ » (clic positionnel) émet ClearDraft, qui vide le champ.
+        // The "✕" suffix (a positional click) emits ClearDraft, which empties the field.
         reduce(&mut app, Msg::ClearDraft);
         assert!(app.draft.is_empty());
     }
@@ -3208,10 +3204,10 @@ mod tests {
     #[test]
     fn add_todo_from_draft_and_trims_blanks() {
         let mut app = TodoApp::default();
-        add(&mut app, "Acheter du pain");
+        add(&mut app, "Buy bread");
         assert_eq!(app.todos.len(), 1);
-        assert_eq!(app.todos[0].text, "Acheter du pain");
-        assert!(app.draft.is_empty(), "le champ est vidé après l'ajout");
+        assert_eq!(app.todos[0].text, "Buy bread");
+        assert!(app.draft.is_empty(), "the field is emptied after the add");
 
         add(&mut app, "   ");
         assert_eq!(app.todos.len(), 1);
@@ -3241,7 +3237,7 @@ mod tests {
     #[test]
     fn view_builds_a_non_empty_scene() {
         let mut app = TodoApp::default();
-        add(&mut app, "tâche");
+        add(&mut app, "a task");
         assert!(primitive_count(&app) > 0);
     }
 
@@ -3250,42 +3246,39 @@ mod tests {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Wizard));
         assert_eq!(current_route(&app), Route::Wizard);
-        assert!(primitive_count(&app) > 0, "l'écran assistant se rend");
+        assert!(primitive_count(&app) > 0, "the wizard screen renders");
 
-        // Étape Account invalide au départ (empêche « Next », jalon 191/192).
+        // The Account step starts invalid (which blocks "Next", milestone 191/192).
         assert!(
             !wizard_step_valid(&wizard_form(&app), 0),
-            "Account invalide au départ"
+            "Account starts invalid"
         );
 
-        // Soumission vide → erreurs révélées, saut à l'étape Review (récapitulatif).
+        // An empty submission → the errors are revealed and it jumps to Review (the summary).
         reduce(&mut app, Msg::WizardSubmit);
         assert!(app.wizard_submitted);
         assert_eq!(app.wizard_step, 2);
         assert!(app.snackbars.is_empty());
-        assert!(
-            primitive_count(&app) > 0,
-            "le récapitulatif d'erreurs se rend"
-        );
+        assert!(primitive_count(&app) > 0, "the error summary renders");
 
-        // Une puce du récapitulatif saute à l'étape du champ **et** demande son focus.
+        // A summary bullet jumps to the field's step **and** asks for its focus.
         let cmd = reduce(&mut app, Msg::WizardFocus(0, 1));
         assert_eq!(app.wizard_step, 0);
-        assert!(!cmd.is_empty(), "WizardFocus emet une demande de focus");
+        assert!(!cmd.is_empty(), "WizardFocus emits a focus request");
 
-        // Remplir Account → l'étape devient valide.
+        // Filling Account in → the step becomes valid.
         reduce(&mut app, Msg::WizardInput(0, "Ada".to_string()));
         reduce(&mut app, Msg::WizardInput(1, "ada@example.com".to_string()));
         assert!(
             wizard_step_valid(&wizard_form(&app), 0),
-            "Account valide une fois rempli"
+            "Account is valid once filled in"
         );
-        // Remplir Security (mots de passe concordants).
+        // Fill Security in (with matching passwords).
         reduce(&mut app, Msg::WizardInput(2, "secret12".to_string()));
         reduce(&mut app, Msg::WizardInput(3, "secret12".to_string()));
         assert!(wizard_step_valid(&wizard_form(&app), 1), "Security valide");
         reduce(&mut app, Msg::WizardSubmit);
-        // Succès : notification + assistant réinitialisé.
+        // Success: a notification + the wizard is reset.
         assert_eq!(
             app.snackbars.current().map(String::as_str),
             Some("Account created")
@@ -3294,13 +3287,13 @@ mod tests {
         assert!(!app.wizard_submitted);
         assert!(app.wizard_name.is_empty() && app.wizard_email.is_empty());
 
-        // Navigation par étapes (Suivant / saut direct / Précédent, bornés).
+        // Step navigation (Next / a direct jump / Back, all clamped).
         reduce(&mut app, Msg::WizardNext);
         assert_eq!(app.wizard_step, 1);
         reduce(&mut app, Msg::WizardStep(2));
         assert_eq!(app.wizard_step, 2);
         reduce(&mut app, Msg::WizardNext);
-        assert_eq!(app.wizard_step, 2, "borné à la dernière étape");
+        assert_eq!(app.wizard_step, 2, "clamped to the last step");
         reduce(&mut app, Msg::WizardBack);
         assert_eq!(app.wizard_step, 1);
     }
@@ -3322,37 +3315,37 @@ mod tests {
         ];
         reduce(&mut app, Msg::Push(Route::Grid));
         assert_eq!(current_route(&app), Route::Grid);
-        assert!(primitive_count(&app) > 0, "la grille se rend");
-        // Saisir dans une cellule met à jour la bonne case (grille toujours éditable).
+        assert!(primitive_count(&app) > 0, "the grid renders");
+        // Typing in a cell updates the right box (the grid is always editable).
         reduce(&mut app, Msg::GridInput(0, 1, "Mathematician".to_string()));
         assert_eq!(app.grid[0][1], "Mathematician");
-        assert_eq!(app.grid[0][0], "Ada", "les autres cellules sont intactes");
-        // Entrée descend d'une ligne (même colonne) et demande le focus.
+        assert_eq!(app.grid[0][0], "Ada", "the other cells are untouched");
+        // Enter moves down one row (same column) and asks for the focus.
         let cmd = reduce(&mut app, Msg::GridEnter(0, 1));
-        assert!(!cmd.is_empty(), "Entrée focalise la cellule du dessous");
-        // Entrée sur la dernière ligne en crée une (jalon 204) et y saute.
+        assert!(!cmd.is_empty(), "Enter focuses the cell below");
+        // Enter on the last row creates one (milestone 204) and jumps into it.
         let last = app.grid.len() - 1;
         let before_enter = app.grid.len();
         let cmd = reduce(&mut app, Msg::GridEnter(last, 1));
         assert_eq!(
             app.grid.len(),
             before_enter + 1,
-            "Entrée sur la dernière ligne en crée une"
+            "Enter on the last row creates one"
         );
-        assert!(!cmd.is_empty(), "et y place le focus");
-        // Ajouter une ligne : une ligne vide en fin, focus sur sa 1re cellule.
+        assert!(!cmd.is_empty(), "and puts the focus in it");
+        // Adding a row: an empty row at the end, the focus on its 1st cell.
         let before = app.grid.len();
         let cmd = reduce(&mut app, Msg::GridAddRow);
         assert_eq!(app.grid.len(), before + 1);
         assert_eq!(
             app.grid[before],
             vec!["", "", ""],
-            "nouvelle ligne vide (3 colonnes)"
+            "a new empty row (3 columns)"
         );
-        assert!(!cmd.is_empty(), "AddRow focalise la nouvelle ligne");
-        // Supprimer une ligne.
+        assert!(!cmd.is_empty(), "AddRow focuses the new row");
+        // Deleting a row.
         reduce(&mut app, Msg::GridDeleteRow(0));
-        assert_eq!(app.grid.len(), before, "une ligne retirée");
+        assert_eq!(app.grid.len(), before, "one row removed");
     }
 
     #[test]
@@ -3371,7 +3364,7 @@ mod tests {
             ],
             vec!["Bob".to_string(), "PM".to_string(), "b@x.com".to_string()],
         ];
-        // Tri colonne 0 croissant, puis bascule décroissant.
+        // Sort column 0 ascending, then toggle to descending.
         reduce(&mut app, Msg::GridSort(0));
         assert_eq!(app.grid_sort, Some((0, true)));
         assert_eq!(app.grid[0][0], "Ada");
@@ -3379,21 +3372,21 @@ mod tests {
         reduce(&mut app, Msg::GridSort(0));
         assert_eq!(app.grid_sort, Some((0, false)));
         assert_eq!(app.grid[0][0], "Charlie");
-        // Validation par cellule : Name vide et email malformé sont signalés.
+        // Per-cell validation: an empty Name and a malformed email are flagged.
         assert_eq!(grid_cell_error(0, ""), Some("Required"));
         assert!(grid_cell_error(0, "Ada").is_none());
         assert_eq!(grid_cell_error(2, "not-an-email"), Some("Invalid email"));
         assert!(grid_cell_error(2, "a@x.com").is_none());
         assert!(
             grid_cell_error(2, "").is_none(),
-            "email vide toléré (pas encore saisi)"
+            "an empty email is tolerated (nothing typed yet)"
         );
     }
 
     #[test]
     fn grid_save_is_gated_on_cell_errors() {
         let mut app = TodoApp::default();
-        // Une ligne valide, une avec un Name vide et un email malformé (2 erreurs).
+        // One valid row, one with an empty Name and a malformed email (2 errors).
         app.grid = vec![
             vec![
                 "Ada".to_string(),
@@ -3407,9 +3400,9 @@ mod tests {
         assert_eq!(
             app.snackbars.current().map(String::as_str),
             Some("Fix 2 errors before saving"),
-            "la soumission est bloquée et compte les erreurs"
+            "the submission is blocked and counts the errors"
         );
-        // Corrige les deux cellules : la grille devient valide, la sauvegarde aboutit.
+        // Fix both cells: the grid becomes valid and the save goes through.
         app.grid[1][0] = "Bob".to_string();
         app.grid[1][2] = "b@x.com".to_string();
         assert_eq!(grid_error_count(&app.grid), 0);
@@ -3427,7 +3420,7 @@ mod tests {
     #[test]
     fn grid_focus_error_targets_the_first_faulty_cell() {
         let mut app = TodoApp::default();
-        // Ligne 0 valide, ligne 1 : Name vide (colonne 0) = première faute attendue.
+        // Row 0 is valid, row 1 has an empty Name (column 0) = the first fault expected.
         app.grid = vec![
             vec![
                 "Ada".to_string(),
@@ -3439,45 +3432,49 @@ mod tests {
         assert_eq!(grid_first_error(&app.grid), Some((1, 0)));
         assert!(
             !reduce(&mut app, Msg::GridFocusError).is_empty(),
-            "focalise la cellule fautive"
+            "it focuses the faulty cell"
         );
-        // Tout valide : plus de cible, aucune commande.
+        // Everything valid: no target left, so no command.
         app.grid[1][0] = "Bob".to_string();
         app.grid[1][2] = "b@x.com".to_string();
         assert_eq!(grid_first_error(&app.grid), None);
         assert!(
             reduce(&mut app, Msg::GridFocusError).is_empty(),
-            "rien à focaliser"
+            "nothing to focus"
         );
     }
 
     #[test]
     fn chart_legend_toggle_hides_and_shows_series() {
         let mut app = TodoApp::default();
-        // L'écran graphique se rend.
+        // The chart screen renders.
         reduce(&mut app, Msg::Push(Route::Charts));
         assert_eq!(current_route(&app), Route::Charts);
-        assert!(primitive_count(&app) > 0, "le tableau de bord se rend");
-        // Clic de légende : masque la série, re-clic la ré-affiche (bascule).
+        assert!(primitive_count(&app) > 0, "the dashboard renders");
+        // A legend click hides the series, a second click shows it again (a toggle).
         assert!(app.chart_hidden.is_empty());
         reduce(&mut app, Msg::ChartToggleSeries(1));
-        assert_eq!(app.chart_hidden, vec![1], "clic masque la série 1");
+        assert_eq!(app.chart_hidden, vec![1], "a click hides series 1");
         reduce(&mut app, Msg::ChartToggleSeries(2));
         assert_eq!(app.chart_hidden, vec![1, 2]);
         reduce(&mut app, Msg::ChartToggleSeries(1));
-        assert_eq!(app.chart_hidden, vec![2], "re-clic ré-affiche la série 1");
+        assert_eq!(
+            app.chart_hidden,
+            vec![2],
+            "a second click shows series 1 again"
+        );
     }
 
     #[test]
     fn chart_kind_selector_switches_type_and_each_renders() {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Charts));
-        assert_eq!(app.chart_kind, 0, "lignes par défaut");
-        // Chaque type (aires empilées, barres groupées, barres empilées) se rend.
+        assert_eq!(app.chart_kind, 0, "lines by default");
+        // Every kind (stacked areas, grouped bars, stacked bars) renders.
         for k in [1usize, 2, 3] {
             reduce(&mut app, Msg::SetChartKind(k));
             assert_eq!(app.chart_kind, k);
-            assert!(primitive_count(&app) > 0, "le type {k} se rend");
+            assert!(primitive_count(&app) > 0, "kind {k} renders");
         }
     }
 
@@ -3485,24 +3482,24 @@ mod tests {
     fn clicking_a_point_pins_its_detail() {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Charts));
-        assert!(app.chart_pin.is_none(), "rien d'épinglé au départ");
-        // Thu (index 3) de Sales (série 0) = 8.
+        assert!(app.chart_pin.is_none(), "nothing is pinned at the start");
+        // Thu (index 3) of Sales (series 0) = 8.
         reduce(&mut app, Msg::ChartPoint(3, 0));
         assert_eq!(app.chart_pin.as_deref(), Some("Sales · Thu = 8"));
-        // Tue (index 1) de Costs (série 1) = 4 : remplace l'épingle.
+        // Tue (index 1) of Costs (series 1) = 4: it replaces the pin.
         reduce(&mut app, Msg::ChartPoint(1, 1));
         assert_eq!(app.chart_pin.as_deref(), Some("Costs · Tue = 4"));
-        assert!(primitive_count(&app) > 0, "l'écran avec épingle se rend");
+        assert!(primitive_count(&app) > 0, "the screen with a pin renders");
     }
 
     #[test]
     fn tree_node_selection_toggles() {
-        // Arbre de fichiers (vitrine Settings) : sélectionner un nœud, puis re-cliquer désélectionne.
+        // The file tree (the Settings showcase): select a node, then click again to deselect.
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Settings));
-        assert_eq!(app.tree_selected, None, "aucun noeud selectionne au depart");
+        assert_eq!(app.tree_selected, None, "no node is selected at the start");
         reduce(&mut app, Msg::SelectNode(6));
-        assert_eq!(app.tree_selected, Some(6), "clic = noeud selectionne");
+        assert_eq!(app.tree_selected, Some(6), "a click = the node is selected");
         reduce(&mut app, Msg::SelectNode(1));
         assert_eq!(
             app.tree_selected,
@@ -3513,7 +3510,7 @@ mod tests {
         assert_eq!(app.tree_selected, None, "re-clic = deselection");
         assert!(
             primitive_count(&app) > 0,
-            "la vitrine se rend avec selection"
+            "the showcase renders with a selection"
         );
     }
 
@@ -3523,65 +3520,64 @@ mod tests {
         reduce(&mut app, Msg::Push(Route::Board));
         assert_eq!(current_route(&app), Route::Board);
         let start = app.kanban_cols();
-        // "Design API" est en (0,0). Le deplacer en tete de "Doing" (colonne 1) : il quitte la 0 et
-        // apparait en tete de la 1.
+        // "Design API" sits at (0,0). Moving it to the head of "Doing" (column 1): it leaves
+        // column 0 and appears at the head of column 1.
         reduce(&mut app, Msg::KanbanMove(0, 0, 1, 0));
         let after = app.kanban_cols();
         assert_eq!(
             after[0].len(),
             start[0].len() - 1,
-            "la carte quitte la colonne source"
+            "the card leaves the source column"
         );
         assert_eq!(
             after[1][0], "Design API",
-            "la carte arrive en tete de la colonne cible"
+            "the card arrives at the head of the target column"
         );
         assert!(
             !after[0].contains(&"Design API".to_string()),
-            "plus dans la source"
+            "no longer in the source"
         );
-        // Deplacement dans la MEME colonne : (1,0) vers la fin — le decalage d'index est gere.
+        // A move within the SAME column: (1,0) to the end — the index shift is handled.
         let doing_len = after[1].len();
         reduce(&mut app, Msg::KanbanMove(1, 0, 1, doing_len));
         let end = app.kanban_cols();
         assert_eq!(
             end[1].len(),
             doing_len,
-            "meme nombre de cartes (reordonne, pas duplique)"
+            "the same number of cards (reordered, not duplicated)"
         );
         assert_eq!(
             end[1].last().unwrap(),
             "Design API",
-            "carte deplacee en fin de colonne"
+            "the card moved to the end of the column"
         );
-        assert!(primitive_count(&app) > 0, "le tableau se rend");
-        // Ajout / suppression (jalon 249) : + Add card ajoute au bas ; × supprime la carte visee.
+        assert!(primitive_count(&app) > 0, "the board renders");
+        // Adding / deleting (milestone 249): + Add card appends at the bottom; × deletes the card aimed at.
         let col0_len = app.kanban_cols()[0].len();
         reduce(&mut app, Msg::KanbanAdd(0));
-        assert_eq!(
-            app.kanban_cols()[0].len(),
-            col0_len + 1,
-            "Add ajoute une carte"
-        );
+        assert_eq!(app.kanban_cols()[0].len(), col0_len + 1, "Add adds a card");
         assert_eq!(
             app.kanban_cols()[0].last().unwrap(),
             "New card",
-            "ajoutee au bas de la colonne"
+            "appended at the bottom of the column"
         );
         reduce(&mut app, Msg::KanbanDelete(0, 0));
         assert_eq!(
             app.kanban_cols()[0].len(),
             col0_len,
-            "Delete retire une carte"
+            "Delete removes a card"
         );
-        assert!(primitive_count(&app) > 0, "se rend apres ajout/suppression");
+        assert!(
+            primitive_count(&app) > 0,
+            "it renders after adding/deleting"
+        );
     }
 
     #[test]
     fn grouped_bars_are_clickable_in_dashboard() {
-        // Le graphique principal en **barres groupées** (kind 2) câble `on_point` (jalon 222) : au
-        // moins un point de la zone de tracé émet `ChartPoint`. Balayage (indépendant des
-        // constantes de géométrie internes de frus-widgets).
+        // The main chart in **grouped bars** (kind 2) wires up `on_point` (milestone 222): at
+        // least one point of the plot area emits `ChartPoint`. A sweep (independent of
+        // frus-widgets' internal geometry constants).
         let app = TodoApp::default();
         let chart = dashboard_chart(&app, 2, 240.0, true);
         let (w, h) = (600.0, 240.0);
@@ -3598,13 +3594,13 @@ mod tests {
             }
             y += 4.0;
         }
-        assert!(hit, "une barre du tableau de bord emet ChartPoint");
+        assert!(hit, "a dashboard bar emits ChartPoint");
     }
 
     #[test]
     fn clicking_a_point_marks_it_selected() {
-        // Le clic épingle non seulement le détail (jalon 221) mais aussi la sélection `(cat, série)`
-        // mise en évidence dans le graphique (jalon 223).
+        // The click pins not only the detail (milestone 221) but also the `(cat, series)`
+        // selection highlighted in the chart (milestone 223).
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Charts));
         assert_eq!(app.chart_sel, None, "rien de selectionne au depart");
@@ -3612,17 +3608,17 @@ mod tests {
         assert_eq!(
             app.chart_sel,
             Some((3, 0)),
-            "le point cliqué devient la selection"
+            "the clicked point becomes the selection"
         );
         reduce(&mut app, Msg::ChartPoint(1, 1));
         assert_eq!(
             app.chart_sel,
             Some((1, 1)),
-            "la selection suit le dernier clic"
+            "the selection follows the last click"
         );
         assert!(
             primitive_count(&app) > 0,
-            "l'ecran avec point mis en evidence se rend"
+            "the screen with a highlighted point renders"
         );
     }
 
@@ -3632,13 +3628,13 @@ mod tests {
         reduce(&mut app, Msg::Push(Route::Charts));
         assert!(!app.chart_normalized, "absolu par defaut");
         reduce(&mut app, Msg::SetChartNormalized(true));
-        assert!(app.chart_normalized, "bascule activee");
-        // Les deux types empilés (aires empilées kind 1, barres empilées kind 3) se rendent en 100 %.
+        assert!(app.chart_normalized, "the toggle is on");
+        // Both stacked kinds (stacked areas, kind 1, and stacked bars, kind 3) render in 100% mode.
         for k in [1usize, 3] {
             reduce(&mut app, Msg::SetChartKind(k));
             assert!(
                 primitive_count(&app) > 0,
-                "le type empile {k} se rend en 100%"
+                "stacked kind {k} renders in 100% mode"
             );
         }
         reduce(&mut app, Msg::SetChartNormalized(false));
@@ -3650,15 +3646,15 @@ mod tests {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Charts));
         reduce(&mut app, Msg::ChartPoint(2, 1));
-        assert_eq!(app.chart_sel, Some((2, 1)), "premier clic epingle");
-        assert!(app.chart_pin.is_some(), "detail epingle");
-        // Re-clic sur le même point : désépingle (sélection et détail effacés).
+        assert_eq!(app.chart_sel, Some((2, 1)), "the first click pins");
+        assert!(app.chart_pin.is_some(), "the detail is pinned");
+        // Clicking the same point again unpins it (both the selection and the detail are cleared).
         reduce(&mut app, Msg::ChartPoint(2, 1));
-        assert_eq!(app.chart_sel, None, "re-clic desepingle");
-        assert!(app.chart_pin.is_none(), "detail efface");
-        // Un autre point ré-épingle normalement.
+        assert_eq!(app.chart_sel, None, "a second click unpins");
+        assert!(app.chart_pin.is_none(), "the detail is cleared");
+        // Another point pins again as usual.
         reduce(&mut app, Msg::ChartPoint(0, 0));
-        assert_eq!(app.chart_sel, Some((0, 0)), "un autre point re-epingle");
+        assert_eq!(app.chart_sel, Some((0, 0)), "another point pins again");
     }
 
     #[test]
@@ -3666,28 +3662,35 @@ mod tests {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Data));
         assert_eq!(current_route(&app), Route::Data);
-        assert!(primitive_count(&app) > 0, "l'ecran data se rend");
-        // Tri : premier clic croissant, re-clic décroissant ; le tri ramène à la page 1.
+        assert!(primitive_count(&app) > 0, "the data screen renders");
+        // Sorting: the first click is ascending, a second is descending; sorting returns to page 1.
         reduce(&mut app, Msg::DataPage(2));
         assert_eq!(app.data_page, 2);
         reduce(&mut app, Msg::DataSort(2));
         assert_eq!(app.data_sort, Some((2, true)), "premier clic = croissant");
-        assert_eq!(app.data_page, 1, "le tri ramene a la page 1");
+        assert_eq!(app.data_page, 1, "sorting returns to page 1");
         reduce(&mut app, Msg::DataSort(2));
-        assert_eq!(app.data_sort, Some((2, false)), "re-clic = decroissant");
-        // Taille de page : change et ramène à la page 1.
+        assert_eq!(
+            app.data_sort,
+            Some((2, false)),
+            "a second click = descending"
+        );
+        // The page size: it changes and returns to page 1.
         reduce(&mut app, Msg::DataPage(2));
         reduce(&mut app, Msg::DataPageSize(10));
         assert_eq!(app.data_page_size, 10);
-        assert_eq!(app.data_page, 1, "changer la taille ramene a la page 1");
-        assert!(primitive_count(&app) > 0, "se rend apres tri/pagination");
-        // Sélection de ligne : un clic sélectionne la ligne **source**, re-clic désélectionne.
-        assert_eq!(app.data_selected, None, "aucune ligne au depart");
+        assert_eq!(app.data_page, 1, "changing the size returns to page 1");
+        assert!(
+            primitive_count(&app) > 0,
+            "it renders after sorting/pagination"
+        );
+        // Row selection: a click selects the **source** row, a second click deselects it.
+        assert_eq!(app.data_selected, None, "no row at the start");
         reduce(&mut app, Msg::DataSelectRow(3));
         assert_eq!(
             app.data_selected,
             Some(3),
-            "clic = ligne source selectionnee"
+            "a click = the source row is selected"
         );
         reduce(&mut app, Msg::DataSelectRow(7));
         assert_eq!(
@@ -3696,77 +3699,80 @@ mod tests {
             "clic ailleurs = deplace la selection"
         );
         reduce(&mut app, Msg::DataSelectRow(7));
-        assert_eq!(app.data_selected, None, "re-clic = deselection");
-        assert!(primitive_count(&app) > 0, "se rend avec detail de ligne");
-        // Tri personnalisé de la colonne Level (index 3) : ordre semantique, pas alphabetique.
+        assert_eq!(app.data_selected, None, "a second click = deselection");
+        assert!(primitive_count(&app) > 0, "it renders with the row detail");
+        // The Level column's custom sort (index 3): a semantic order, not an alphabetical one.
         assert_eq!(level_rank("Low"), 0);
         assert!(
             level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High")
         );
         reduce(&mut app, Msg::DataSort(3));
-        assert_eq!(app.data_sort, Some((3, true)), "tri de la colonne Level");
-        assert!(primitive_count(&app) > 0, "se rend trie par priorite");
-        // Sélection multiple (cases) : toggle d'une ligne, puis « tout cocher »/« tout décocher ».
-        assert!(app.data_checked.is_empty(), "rien de coche au depart");
+        assert_eq!(app.data_sort, Some((3, true)), "the Level column is sorted");
+        assert!(primitive_count(&app) > 0, "it renders sorted by priority");
+        // Multi-selection (the boxes): toggling one row, then "check all"/"uncheck all".
+        assert!(
+            app.data_checked.is_empty(),
+            "nothing is checked at the start"
+        );
         reduce(&mut app, Msg::DataCheck(2));
-        assert_eq!(app.data_checked, vec![2], "coche la ligne source 2");
+        assert_eq!(app.data_checked, vec![2], "it checks source row 2");
         reduce(&mut app, Msg::DataCheck(2));
-        assert!(app.data_checked.is_empty(), "re-check = decoche");
+        assert!(app.data_checked.is_empty(), "checking again = unchecked");
         reduce(&mut app, Msg::DataCheckAll);
         assert_eq!(
             app.data_checked.len(),
             DATA_PEOPLE.len(),
-            "tout cocher = 12 lignes"
+            "check all = 12 rows"
         );
         reduce(&mut app, Msg::DataCheckAll);
         assert!(
             app.data_checked.is_empty(),
-            "re-tout-cocher = tout decocher"
+            "check-all again = uncheck everything"
         );
-        assert!(primitive_count(&app) > 0, "se rend avec cases a cocher");
-        // Recherche : la frappe met a jour le filtre et ramene a la page 1.
+        assert!(primitive_count(&app) > 0, "it renders with checkboxes");
+        // Search: typing updates the filter and returns to page 1.
         reduce(&mut app, Msg::DataPage(2));
         reduce(&mut app, Msg::DataSearch("ada".to_string()));
-        assert_eq!(app.data_query, "ada", "le filtre est mis a jour");
-        assert_eq!(app.data_page, 1, "un nouveau filtre ramene a la page 1");
-        assert!(primitive_count(&app) > 0, "se rend filtre");
-        // Actions groupees (jalon 243) : Clear vide la selection, Delete supprime les lignes cochees.
+        assert_eq!(app.data_query, "ada", "the filter is updated");
+        assert_eq!(app.data_page, 1, "a new filter returns to page 1");
+        assert!(primitive_count(&app) > 0, "it renders filtered");
+        // Bulk actions (milestone 243): Clear empties the selection, Delete removes the checked rows.
         reduce(&mut app, Msg::DataCheck(0));
         reduce(&mut app, Msg::DataCheck(1));
         reduce(&mut app, Msg::DataSelectRow(1));
         assert_eq!(app.data_checked.len(), 2);
         reduce(&mut app, Msg::DataClearChecked);
-        assert!(app.data_checked.is_empty(), "Clear vide la selection");
-        assert_eq!(app.data_selected, Some(1), "Clear ne touche pas le focus");
+        assert!(app.data_checked.is_empty(), "Clear empties the selection");
+        assert_eq!(app.data_selected, Some(1), "Clear leaves the focus alone");
         let before = app.data_rows().len();
         reduce(&mut app, Msg::DataCheck(0));
-        // Confirmation (jalon 245) : Delete ouvre la modale ; Cancel ferme sans supprimer.
+        // The confirmation (milestone 245): Delete opens the modal; Cancel closes it without deleting.
         reduce(&mut app, Msg::DataAskDelete);
         assert!(app.data_confirm_delete, "Delete ouvre la confirmation");
         assert_eq!(
             app.data_rows().len(),
             before,
-            "rien de supprime tant qu'on n'a pas confirme"
+            "nothing is deleted until it is confirmed"
         );
-        assert!(primitive_count(&app) > 0, "se rend avec la modale");
+        assert!(primitive_count(&app) > 0, "it renders with the modal");
         reduce(&mut app, Msg::DataCancelDelete);
-        assert!(!app.data_confirm_delete, "Cancel ferme la modale");
+        assert!(!app.data_confirm_delete, "Cancel closes the modal");
         assert_eq!(app.data_rows().len(), before, "Cancel ne supprime rien");
-        // Confirmer supprime reellement et ferme la modale.
+        // Confirming really does delete, and closes the modal.
         reduce(&mut app, Msg::DataAskDelete);
         reduce(&mut app, Msg::DataDeleteChecked);
         assert!(!app.data_confirm_delete, "confirmer ferme la modale");
         assert_eq!(
             app.data_rows().len(),
             before - 1,
-            "Delete confirme retire la ligne cochee"
+            "a confirmed Delete removes the checked row"
         );
-        assert!(app.data_checked.is_empty(), "Delete vide la selection");
-        assert_eq!(app.data_selected, None, "Delete remet le focus a zero");
-        assert!(primitive_count(&app) > 0, "se rend apres suppression");
-        // Etat vide (jalon 244) : un filtre sans resultat se rend quand meme (en-tete + message).
+        assert!(app.data_checked.is_empty(), "Delete empties the selection");
+        assert_eq!(app.data_selected, None, "Delete resets the focus");
+        assert!(primitive_count(&app) > 0, "it renders after the deletion");
+        // The empty state (milestone 244): a filter with no result still renders (header + message).
         reduce(&mut app, Msg::DataSearch("zzzzz".to_string()));
-        assert!(primitive_count(&app) > 0, "se rend avec l'etat vide");
+        assert!(primitive_count(&app) > 0, "it renders with the empty state");
     }
 
     #[test]
@@ -3779,12 +3785,12 @@ mod tests {
         assert!(!is_weekend(2026, 7, 6), "6 juillet = lundi (ouvre)");
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Settings));
-        assert!(!app.weekdays_only, "tous les jours par defaut");
-        assert!(primitive_count(&app) > 0, "vitrine se rend");
-        // Bascule : le calendrier filtré se rend, puis revient.
+        assert!(!app.weekdays_only, "every day by default");
+        assert!(primitive_count(&app) > 0, "the showcase renders");
+        // The toggle: the filtered calendar renders, then it comes back.
         reduce(&mut app, Msg::SetWeekdaysOnly(true));
         assert!(app.weekdays_only);
-        assert!(primitive_count(&app) > 0, "calendrier filtre se rend");
+        assert!(primitive_count(&app) > 0, "the filtered calendar renders");
         reduce(&mut app, Msg::SetWeekdaysOnly(false));
         assert!(!app.weekdays_only);
     }
@@ -3793,20 +3799,14 @@ mod tests {
     fn companion_chart_renders_across_families_with_hidden() {
         let mut app = TodoApp::default();
         reduce(&mut app, Msg::Push(Route::Charts));
-        // Une série masquée est partagée par le principal et le compagnon (même `chart_hidden`).
+        // A hidden series is shared by the main chart and the companion (the same `chart_hidden`).
         reduce(&mut app, Msg::ChartToggleSeries(1));
         assert_eq!(app.chart_hidden, vec![1]);
-        // Lignes (compagnon = barres) puis barres (compagnon = lignes) : l'écran se rend des deux.
+        // Lines (companion = bars) then bars (companion = lines): the screen renders both ways.
         reduce(&mut app, Msg::SetChartKind(0));
-        assert!(
-            primitive_count(&app) > 0,
-            "principal lignes + compagnon barres"
-        );
+        assert!(primitive_count(&app) > 0, "main lines + companion bars");
         reduce(&mut app, Msg::SetChartKind(2));
-        assert!(
-            primitive_count(&app) > 0,
-            "principal barres + compagnon lignes"
-        );
+        assert!(primitive_count(&app) > 0, "main bars + companion lines");
     }
 
     #[test]
@@ -3818,7 +3818,7 @@ mod tests {
             vec!["Ada".to_string(), "Engineer".to_string(), "bad".to_string()],
         ];
         assert_eq!(grid_faults(&app.grid), vec![(0, 0), (0, 2), (1, 2)]);
-        // Chaque appel avance ; le dernier boucle sur la première.
+        // Each call moves on; the last one wraps back to the first.
         for expected in [(0, 0), (0, 2), (1, 2), (0, 0)] {
             reduce(&mut app, Msg::GridFocusError);
             assert_eq!(app.grid_error_cursor, Some(expected));
@@ -3828,23 +3828,20 @@ mod tests {
     #[test]
     fn snackbar_queue_orders_and_exits() {
         let mut app = TodoApp::default();
-        // Deux notifications empilées : la 1re est visible, la 2e attend.
+        // Two queued notifications: the 1st is visible, the 2nd waits.
         show_toast(&mut app, "A");
         show_toast(&mut app, "B");
         assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
-        assert!(
-            !app.snackbars.is_leaving(),
-            "affichée, pas encore en sortie"
-        );
-        // Expiration → la tête passe **en sortie** (fondu) sans disparaître.
+        assert!(!app.snackbars.is_leaving(), "shown, not exiting yet");
+        // Expiry → the head moves into its **exit** (a fade) without disappearing.
         reduce(&mut app, Msg::ToastExpire);
         assert!(app.snackbars.is_leaving());
         assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
-        // Retrait → la suivante prend le relais (fondu d'entrée).
+        // Removal → the next one takes over (fading in).
         reduce(&mut app, Msg::DismissToast);
         assert_eq!(app.snackbars.current().map(String::as_str), Some("B"));
         assert!(!app.snackbars.is_leaving());
-        // Dernière : sortie puis retrait → file vide.
+        // The last one: exit then removal → an empty queue.
         reduce(&mut app, Msg::ToastExpire);
         reduce(&mut app, Msg::DismissToast);
         assert!(app.snackbars.is_empty());
@@ -3865,7 +3862,7 @@ mod tests {
     #[test]
     fn loaded_replaces_todos_with_unique_ids() {
         let mut app = TodoApp::default();
-        add(&mut app, "ancienne");
+        add(&mut app, "old one");
         reduce(
             &mut app,
             Msg::Loaded(vec![(true, "a".to_string()), (false, "b".to_string())]),
@@ -3880,13 +3877,13 @@ mod tests {
     #[test]
     fn timer_subscription_gated_by_running() {
         let mut app = TodoApp::default();
-        // Par défaut le chrono ne tourne pas (init le démarre à l'exécution).
+        // By default the stopwatch is not running (`init` starts it at run time).
         assert!(app.subscription().is_empty());
 
         app.running = true;
         let subs = app.subscription();
         assert!(!subs.is_empty());
-        // Deux évaluations donnent le même id (souscription stable).
+        // Two evaluations give the same id (a stable subscription).
         assert_eq!(subs.ids(), app.subscription().ids());
     }
 
@@ -3902,9 +3899,9 @@ mod tests {
     fn save_produces_a_run_effect() {
         let mut app = TodoApp::default();
         add(&mut app, "x");
-        // Save renvoie une commande non vide (l'écriture est un effet).
+        // Save returns a non-empty command (the write is an effect).
         assert!(!reduce(&mut app, Msg::Save).is_empty());
-        // Une mutation simple n'a aucun effet.
+        // A plain mutation has no effect at all.
         assert!(reduce(&mut app, Msg::DraftChanged("y".to_string())).is_empty());
     }
 
@@ -3917,7 +3914,7 @@ mod tests {
         }
         assert_eq!(app.routes.len(), 1);
 
-        // Petit glissement mais flick rapide → doit valider le retour.
+        // A small drag but a fast flick → it must commit the back.
         app.back_gesture(0.2);
         app.back_gesture_end(5.0);
         for _ in 0..200 {
@@ -3926,11 +3923,11 @@ mod tests {
             }
             app.tick(0.05);
         }
-        assert!(app.routes.is_empty(), "le flick a dépilé l'écran");
+        assert!(app.routes.is_empty(), "the flick popped the screen");
     }
 
-    /// Live-reload : l'instantané `save_state` réhydrate un binaire neuf —
-    /// tâches, brouillon, filtre, thème (mode + graine), écran empilé.
+    /// Live-reload: the `save_state` snapshot rehydrates a fresh binary — the tasks, the draft,
+    /// the filter, the theme (mode + seed) and the stacked screen.
     #[test]
     fn live_reload_state_round_trips() {
         let mut app = TodoApp::default();
@@ -3944,7 +3941,7 @@ mod tests {
         reduce(&mut app, Msg::CycleSeed);
         reduce(&mut app, Msg::Push(Route::Settings));
 
-        let snapshot = Application::save_state(&app).expect("un instantané");
+        let snapshot = Application::save_state(&app).expect("a snapshot");
 
         let mut fresh = TodoApp::default();
         Application::restore_state(&mut fresh, &snapshot);
@@ -3956,10 +3953,10 @@ mod tests {
         assert_eq!(fresh.light, app.light);
         assert_eq!(fresh.seed_index, 1);
         assert_eq!(current_route(&fresh), Route::Settings);
-        // `init` après réhydratation ne relance PAS le chargement disque
-        // (l'instantané fait foi) : aucun effet émis.
-        assert!(fresh.init().is_empty(), "pas de Loaded après réhydratation");
-        // Un instantané corrompu / d'une autre version est ignoré sans paniquer.
+        // `init` after a rehydration does NOT restart the disk load (the snapshot is the
+        // authority): no effect is emitted.
+        assert!(fresh.init().is_empty(), "no Loaded after a rehydration");
+        // A corrupt snapshot / one from another version is ignored without panicking.
         let mut other = TodoApp::default();
         Application::restore_state(&mut other, b"garbage \xFF");
         Application::restore_state(&mut other, b"frus-demo-state v999\nlight 1\n");
