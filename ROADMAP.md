@@ -71,7 +71,7 @@ The web target renders and animates but is missing its platform integrations. Ea
 
 - 🔵 **iOS shell.** The most valuable single contribution available. `frus-shell` is the only crate that would change: a `UIViewController` host, Metal surface via `wgpu`, touch input, IME, lifecycle, safe-area insets. The layering is designed for exactly this, and Android is the worked example to follow.
 
-  **Groundwork landed** (see `docs/jalon-276.md`): `frus-shell` now has named platform `cfg` aliases (`desktop` / `android` / `ios` / `web`) via its `build.rs`, so iOS no longer falls silently into the desktop branch, and a `run()` entry point exists behind `#[cfg(ios)]`. An advisory CI job builds for `aarch64-apple-ios-sim` and `aarch64-apple-ios`. What remains is the actual platform integration — lifecycle, safe-area insets, IME/soft keyboard, `os_log`, UIKit accessibility, and `.ipa` packaging.
+  **Groundwork landed** (see `docs/milestone-276.md`): `frus-shell` now has named platform `cfg` aliases (`desktop` / `android` / `ios` / `web`) via its `build.rs`, so iOS no longer falls silently into the desktop branch, and a `run()` entry point exists behind `#[cfg(ios)]`. An advisory CI job builds for `aarch64-apple-ios-sim` and `aarch64-apple-ios`. What remains is the actual platform integration — lifecycle, safe-area insets, IME/soft keyboard, `os_log`, UIKit accessibility, and `.ipa` packaging.
 - 🔴 **Native macOS shell.** winit already covers macOS as a desktop target; a native shell would be about menu bar, window chrome, and platform conventions rather than rendering.
 
 ### Framework depth

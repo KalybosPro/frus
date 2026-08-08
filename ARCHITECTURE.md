@@ -2,7 +2,7 @@
 
 This document is the map you should have in your head before making a non-trivial change. It explains what each crate owns, how a frame actually gets to the screen, and — most usefully — **where a given kind of code belongs**.
 
-For the reasoning behind any individual decision, the milestone notes in [`docs/jalon-*.md`](docs/) are the authoritative record. This is the overview; those are the minutes.
+For the reasoning behind any individual decision, the milestone notes in [`docs/milestone-*.md`](docs/) are the authoritative record. This is the overview; those are the minutes.
 
 ---
 
@@ -187,7 +187,7 @@ When you're about to ask "why on earth is it done this way?" — `grep docs/` fi
 
 Useful entry points:
 
-- `jalon-0.md` — the GPU context and the very first frame
-- `jalon-129.md`, `jalon-131.md` — the web target, and shrinking the wasm payload
-- `jalon-267.md`, `jalon-268.md` — the single entry point and the facade crate
-- `jalon-270.md`–`jalon-275.md` — async effects, `fetch`, `RemoteData`, typed JSON
+- `milestone-0.md` — the GPU context and the very first frame
+- `milestone-129.md`, `milestone-131.md` — the web target, and shrinking the wasm payload
+- `milestone-267.md`, `milestone-268.md` — the single entry point and the facade crate
+- `milestone-270.md`–`milestone-275.md` — async effects, `fetch`, `RemoteData`, typed JSON

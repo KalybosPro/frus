@@ -502,7 +502,7 @@ impl<A: Application> App<A> {
     /// Applies the pending IME operations to the focused field (the §6 bridge). The
     /// composition is materialised **in the field**: each update erases the previous
     /// one, the controlled model having no styled composition region yet — see
-    /// docs/jalon-81.md.
+    /// docs/milestone-81.md.
     #[cfg(android)]
     fn drain_ime(&mut self) {
         use crate::android_ime::ImeEvent;

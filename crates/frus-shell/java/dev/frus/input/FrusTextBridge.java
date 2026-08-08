@@ -14,7 +14,7 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 
 /**
- * The frus input bridge (see docs/jalon-81.md): NativeActivity offers no
+ * The frus input bridge (see docs/milestone-81.md): NativeActivity offers no
  * InputConnection at all, so IMEs run in a degraded mode (TYPE_NULL, Latin keys
  * only, with no composition, no swipe and no CJK). This focusable 1x1 View,
  * added on top of the native content, supplies a real InputConnection and

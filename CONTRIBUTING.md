@@ -90,14 +90,14 @@ RUST_LOG=frus_shell=debug,frus_gpu=info cargo run -p frus-demo
 
 ## The workflow
 
-frus is built in **milestones** (*jalons*). Each one is a single coherent step: a feature, its tests, and a design note in `docs/jalon-N.md` ([index](docs/README.md)). There are 277 of them, and together they are the project's real memory — they record not just what was built but which alternatives were rejected and why.
+frus is built in **milestones**. Each one is a single coherent step: a feature, its tests, and a design note in `docs/milestone-N.md` ([index](docs/README.md)). There are 277 of them, and together they are the project's real memory — they record not just what was built but which alternatives were rejected and why.
 
 You do **not** need to write a milestone note for a bug fix, a test, or a small ergonomic improvement. You **do** for anything that adds public API, changes a subsystem's shape, or makes a trade-off a future reader would question.
 
 A milestone note follows the shape the existing ones use:
 
 ```markdown
-# Jalon N — <title>
+# Milestone N — <title>
 
 ## Goal
 Why this step, what problem it solves, why it comes now.
@@ -118,7 +118,7 @@ How it was tested. What's green.
 What this deliberately leaves for later.
 ```
 
-Pick the next free number (`ls docs/jalon-*.md | sort -V | tail -1`). If your PR is a milestone, say so in the description and the maintainers will confirm the number.
+Pick the next free number (`ls docs/milestone-*.md | sort -V | tail -1`). If your PR is a milestone, say so in the description and the maintainers will confirm the number.
 
 ## What we expect from a change
 
@@ -198,10 +198,10 @@ These are the standing rules the codebase is built on. A PR that violates one ne
 **Commit messages** follow Conventional Commits, and milestone commits name their milestone:
 
 ```
-feat: Jalon 277 — <what the milestone delivers>
+feat: Milestone 277 — <what the milestone delivers>
 fix: Scroll no longer clips its last child when height is Auto
 test: golden coverage for DataTable sort indicators
-docs: translate jalon-101 to English
+docs: translate milestone-101 to English
 refactor: extract glyph atlas eviction into its own module
 perf: batch path fills sharing a paint
 ```
@@ -256,6 +256,6 @@ Issue labels you'll see: `good first issue`, `help wanted`, `needs triage`, `nee
 - **Bugs and feature requests** → [Issues](https://github.com/KalybosPro/frus/issues)
 - **Security** → do not open a public issue, see [SECURITY.md](SECURITY.md)
 
-Before asking, `docs/jalon-*.md` very often already answers "why is it like this?" — `grep` them.
+Before asking, `docs/milestone-*.md` very often already answers "why is it like this?" — `grep` them.
 
 By contributing you agree that your work is dual-licensed under MIT and Apache-2.0, and to abide by the [Code of Conduct](CODE_OF_CONDUCT.md).

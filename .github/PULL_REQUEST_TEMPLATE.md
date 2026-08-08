@@ -20,7 +20,7 @@ The approach, and — more importantly — the alternatives you considered and w
 you rejected them. This is the part reviewers care about most.
 
 If this is a milestone (new public API, a subsystem's shape changes, a
-trade-off a future reader would question), add `docs/jalon-N.md` and say so here.
+trade-off a future reader would question), add `docs/milestone-N.md` and say so here.
 -->
 
 ## Testing
