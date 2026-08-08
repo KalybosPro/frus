@@ -1,47 +1,46 @@
-# Jalon 22 — Barre de navigation (`NavBar`) + titres animés
+# Jalon 22 — Navigation bar (`NavBar`) + animated titles
 
-Un widget de barre de navigation persistante, qui **glisse et fond avec son
-écran** pendant les transitions du `Navigator`.
+A persistent navigation bar widget, which **slides and fades with its screen**
+during `Navigator` transitions.
 
 ## `NavBar`
 
 ```rust
-NavBar::new("Mes tâches")             // barre racine (titre seul)
-NavBar::new("Réglages").on_back(Msg::Pop)  // avec bouton retour
+NavBar::new("My tasks")                     // root bar (title only)
+NavBar::new("Settings").on_back(Msg::Pop)   // with a back button
 ```
 
-- Hauteur fixe (56 px), **titre centré** peint dans les bornes (indépendant du
-  bouton), **séparateur** bas fin.
-- Bouton retour optionnel à gauche (un `Button` interne) émettant le message
-  fourni. Sa marge gauche (`PAD_LEFT = 28`) le place **au-delà de la zone du
-  geste retour** (`BACK_EDGE = 24`), pour qu'il reste cliquable sans déclencher
-  le swipe.
-- Le titre fond via `Status::opacity` (fondu de montage).
+- Fixed height (56 px), **centred title** painted within the bounds (independent
+  of the button), thin bottom **divider**.
+- Optional back button on the left (an internal `Button`) emitting the supplied
+  message. Its left margin (`PAD_LEFT = 28`) puts it **beyond the back gesture's
+  zone** (`BACK_EDGE = 24`), so it stays clickable without triggering the swipe.
+- The title fades through `Status::opacity` (the mount fade).
 
-## Titres animés — « gratuit »
+## Animated titles — "for free"
 
-La `NavBar` est **dans l'arbre de chaque écran**. Elle hérite donc de la
-transition du `Navigator` (glissement + parallaxe + assombrissement de J19) :
-lors d'un push/pop/geste, le titre de l'écran sortant glisse, celui de l'entrant
-arrive — synchronisé avec le contenu, **sans moteur d'animation dédié**. C'est le
-bénéfice de garder la barre par-écran plutôt qu'une barre globale.
+The `NavBar` is **inside each screen's tree**. So it inherits the `Navigator`'s
+transition (the slide + parallax + darkening from J19): during a push, pop or
+gesture, the outgoing screen's title slides away and the incoming one arrives —
+synchronised with the content, **with no dedicated animation engine**. That is
+the benefit of keeping the bar per-screen rather than having one global bar.
 
-## Démo
+## Demo
 
-L'écran **Réglages** (poussé) commence désormais par une `NavBar` avec retour, en
-remplacement de l'ancien `screen_header` bricolé. L'**accueil** garde son en-tête
-riche (titre + bascule de thème + « Réglages → ») : une barre racine avec actions
-à droite dépasse la v1 de `NavBar`.
+The **Settings** screen (pushed) now starts with a `NavBar` with a back button,
+replacing the old improvised `screen_header`. **Home** keeps its rich header
+(title + theme toggle + "Settings →"): a root bar with actions on the right is
+beyond `NavBar`'s v1.
 
 ## Tests
 
-- `root_bar_has_no_back_button` : la barre racine n'a pas de bouton.
-- `back_button_emits_message` : un clic sur le retour renvoie le message.
-- `bar_paints_title_and_divider` : le titre est peint.
-- Total : **33 tests frus-widgets** + tests frus-demo + doctest.
+- `root_bar_has_no_back_button`: the root bar has no button.
+- `back_button_emits_message`: clicking back returns the message.
+- `bar_paints_title_and_divider`: the title is painted.
+- Total: **33 frus-widgets tests** + the frus-demo tests + the doctest.
 
-## Limites (v1)
+## Limits (v1)
 
-- Titre mono-ligne, pas de *large title* iOS ni de sous-titre.
-- Pas d'actions à droite dans `NavBar` (l'accueil garde un en-tête custom).
-- Crossfade « par écran », pas une barre globale qui morph un seul titre.
+- Single-line title, no iOS-style *large title* and no subtitle.
+- No actions on the right in `NavBar` (Home keeps a custom header).
+- A "per-screen" crossfade, not a global bar morphing a single title.

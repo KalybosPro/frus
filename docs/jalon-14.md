@@ -1,51 +1,52 @@
-# Jalon 14 — Disparition en fondu (rétention des sortants)
+# Jalon 14 — Fade-out (retaining outgoing widgets)
 
-Complète les animations de cycle de vie : un widget retiré de l'arbre **sort en
-fondu** au lieu de disparaître d'un coup.
+Completes the lifecycle animations: a widget removed from the tree **fades out**
+instead of vanishing in one step.
 
-## Principe
+## Principle
 
-Un widget absent de l'arbre n'a plus de primitives. On le fait donc disparaître
-par **instantané + rejeu** :
+A widget absent from the tree has no primitives left. So we make it disappear by
+**snapshot + replay**:
 
-1. **Tag** : chaque `Primitive` porte un `owner: u64` (= `WidgetId`), posé par
-   `build_ui` via `Scene::set_owner` avant de peindre chaque widget.
-2. **Détection** : `mounted (N-1) − présents (N)` = ids **sortants**.
-3. **Capture** : à la sortie, on copie de la dernière scène les primitives dont
-   `owner` ∈ sortants → `Runtime.leaving[clé] = (primitives, 1.0)`.
-4. **Rejeu** : chaque frame, `build_ui` rejoue ces primitives via
-   `Scene::push_faded` avec l'opacité qui descend (`advance_leaving`, `1 → 0`),
-   puis les oublie à 0.
+1. **Tag**: every `Primitive` carries an `owner: u64` (= `WidgetId`), set by
+   `build_ui` through `Scene::set_owner` before painting each widget.
+2. **Detection**: `mounted (N-1) − present (N)` = the **outgoing** ids.
+3. **Capture**: on the way out, the primitives whose `owner` ∈ outgoing are
+   copied from the last scene → `Runtime.leaving[key] = (primitives, 1.0)`.
+4. **Replay**: each frame, `build_ui` replays those primitives through
+   `Scene::push_faded` with a falling opacity (`advance_leaving`, `1 → 0`), then
+   forgets them at 0.
 
-## Ce qui est livré
+## What ships
 
-- **`frus-core`** : `owner` sur les primitives ; `Scene::set_owner` ;
-  `Scene::push_faded(&Primitive, opacity)` ; `Primitive::owner()`.
-- **`frus-widgets`** : `WidgetId::as_u64` ; `Runtime.leaving` +
-  `Runtime::advance_leaving` ; `build_ui` tague l'`owner` et rejoue les sortants.
-- **`frus-shell`** : capture les sortants depuis la dernière scène, avance la
-  sortie, redessine tant qu'une sortie est en cours.
-- **Démo** : un bouton « − Retirer » ; l'élément retiré **sort en fondu**.
+- **`frus-core`**: `owner` on the primitives; `Scene::set_owner`;
+  `Scene::push_faded(&Primitive, opacity)`; `Primitive::owner()`.
+- **`frus-widgets`**: `WidgetId::as_u64`; `Runtime.leaving` +
+  `Runtime::advance_leaving`; `build_ui` tags the `owner` and replays the
+  outgoing widgets.
+- **`frus-shell`**: captures the outgoing widgets from the last scene, advances
+  the exit, and redraws for as long as an exit is in progress.
+- **Demo**: a "− Remove" button; the removed item **fades out**.
 
-## Boucle (shell)
+## Loop (shell)
 
 ```
-présents = collect_ids(&tree)
-sortants = mounted − présents
-pour chaque sortie : capture (dernière scène, owner ∈ sortants) → runtime.leaving
-montages : nouveaux ids → opacité 0
-advance (entrée/survol/focus) | advance_leaving (sortie)
-ui = build_ui  (rejoue runtime.leaving en fondu)
-render ; si animation -> redraw
+present  = collect_ids(&tree)
+outgoing = mounted − present
+for each exit: capture (last scene, owner ∈ outgoing) → runtime.leaving
+mounts: new ids → opacity 0
+advance (entry/hover/focus) | advance_leaving (exit)
+ui = build_ui  (replays runtime.leaving, fading)
+render ; if animating -> redraw
 ```
 
 ## Tests
 
-- `Scene::push_faded` : alpha réduite, `owner` conservé.
-- `Runtime::advance_leaving` : l'opacité descend vers 0 puis l'entrée disparaît.
+- `Scene::push_faded`: reduced alpha, `owner` preserved.
+- `Runtime::advance_leaving`: opacity falls towards 0, then the entry disappears.
 
 ## Simplifications (v1)
 
-- L'instantané est **figé** (apparence/position de la dernière frame) : pas de
-  layout ni d'animation interne pendant la sortie — comportement standard d'une
-  animation de sortie. Les sortants ne reçoivent plus d'événements.
+- The snapshot is **frozen** (the last frame's appearance and position): no
+  layout and no internal animation during the exit — the standard behaviour of an
+  exit animation. Outgoing widgets no longer receive events.

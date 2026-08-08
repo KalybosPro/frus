@@ -1,51 +1,53 @@
-# Jalon 31 — Liste virtualisée (`List`)
+# Jalon 31 — Virtualised list (`List`)
 
-Dernier de la roadmap (widgets riches). Un `Scroll` met en page et peint **tous**
-ses enfants à chaque frame ; pour de grandes listes (milliers de lignes) c'est
-O(N). La `List` virtualisée ne construit/pose/peint que la **fenêtre visible** :
-coût par frame ∝ éléments visibles, pas au total.
+The last of the roadmap (rich widgets). A `Scroll` lays out and paints **all** its
+children every frame; for large lists (thousands of rows) that is O(N). The
+virtualised `List` only builds, places and paints the **visible window**: the
+per-frame cost is proportional to the visible items, not to the total.
 
 ## API
 
 ```rust
-List::new(count, item_height, |index| ligne(index))
+List::new(count, item_height, |index| row(index))
     .width(w).height(h)
 ```
 
-Aussi simple qu'une boucle, mais scalable à des milliers d'éléments.
+As simple as a loop, but it scales to thousands of items.
 
-## Mécanisme
+## Mechanism
 
-- La `List` est une **zone défilable** : elle réutilise toute la machinerie
-  scroll (offset runtime, molette, inertie, barre). Hauteur de contenu =
-  `count × item_height` → borne de défilement.
-- Plage visible = `[offset/h , (offset+viewport)/h]` ; seuls ces ~N éléments sont
-  **construits à la demande** (closure `index → widget`), posés à
-  `index×h − offset`, clippés au viewport. Identité par **index** (`id.child(i)`).
-- Hook trait `virtual_list(&self) -> Option<VirtualList<'_, Msg>>` (count, hauteur,
-  &fabrique) ; `build_ui` le traite comme une branche spéciale (comme `Scroll`).
+- The `List` is a **scrollable area**: it reuses all the scrolling machinery
+  (runtime offset, wheel, inertia, bar). Content height = `count × item_height` →
+  the scroll bound.
+- The visible range is `[offset/h , (offset+viewport)/h]`; only those ~N items
+  are **built on demand** (the `index → widget` closure), placed at
+  `index×h − offset`, clipped to the viewport. Identity by **index**
+  (`id.child(i)`).
+- Trait hook `virtual_list(&self) -> Option<VirtualList<'_, Msg>>` (count,
+  height, &factory); `build_ui` handles it as a special branch (like `Scroll`).
 
-## Décisions & limites (assumées)
+## Decisions & limits (accepted)
 
-- **Hauteur d'élément fixe** (pas de mesure variable) — hauteurs variables reportées.
-- **Rendu via `render_item`** (et non le `walk` principal) : `walk` porte une
-  lifetime `'a` pour différer les overlays ; un élément **construit à la volée** ne
-  peut la satisfaire. Conséquence : un élément est un **sous-arbre simple** — pas
-  d'overlay/scroll/navigator imbriqué, **pas d'état retenu par élément** ni de
-  focus clavier (on ne retient pas l'état d'un élément hors écran). Clic/survol des
-  éléments **visibles** : OK. C'est le compromis correct d'une virtualisation.
-- Refactor DX interne : `full_status` / `draw_focus_ring` factorisés et partagés
-  entre le rendu principal et `render_item`.
+- **Fixed item height** (no variable measurement) — variable heights deferred.
+- **Rendering through `render_item`** (and not the main `walk`): `walk` carries a
+  lifetime `'a` in order to defer overlays; an item **built on the fly** cannot
+  satisfy it. The consequence: an item is a **simple subtree** — no nested
+  overlay, scroll or navigator, **no retained state per item** and no keyboard
+  focus (we do not retain the state of an off-screen item). Clicking and hovering
+  **visible** items: fine. That is the correct trade-off for virtualisation.
+- Internal DX refactor: `full_status` / `draw_focus_ring` factored out and shared
+  between the main rendering and `render_item`.
 
-## Démo
+## Demo
 
-Nouvel écran **Journal** (bouton « Journal → ») : `List::new(5000, 44.0, …)` —
-5000 lignes fluides, seules ~une douzaine construites par frame.
+A new **Log** screen (the "Log →" button): `List::new(5000, 44.0, …)` — 5000 rows
+running smoothly, with only about a dozen built per frame.
 
 ## Tests
 
-- `only_visible_items_are_built` : un compteur prouve que sur 5000 éléments,
-  seuls ~5–8 sont construits (viewport 200 / item 40).
-- `scroll_max_covers_full_content` : `max_y = count×h − viewport` (100×40−200 = 3800).
-- `builds_a_scene` : rendu non vide.
-- 46 tests frus-widgets ; démo + chrono non régressés.
+- `only_visible_items_are_built`: a counter proves that out of 5000 items, only
+  ~5–8 are built (viewport 200 / item 40).
+- `scroll_max_covers_full_content`: `max_y = count×h − viewport`
+  (100×40−200 = 3800).
+- `builds_a_scene`: non-empty rendering.
+- 46 frus-widgets tests; demo and stopwatch did not regress.

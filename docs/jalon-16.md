@@ -1,23 +1,23 @@
-# Jalon 16 — Bibliothèque de widgets nommés (themés)
+# Jalon 16 — Library of named (themed) widgets
 
-Ajoute des composants applicatifs prêts à l'emploi, tous **themés** (lisent le
-thème au paint) et animés.
+Adds ready-to-use application components, all **themed** (they read the theme at
+paint time) and animated.
 
-## Widgets livrés
+## Widgets shipped
 
-| Widget | Rôle |
+| Widget | Role |
 |---|---|
-| **`Button`** | bouton themé, variantes `Primary` / `Secondary` / `Danger`, hover/pressé, ombre |
-| **`Checkbox`** | case à cocher **contrôlée** (case + ✓ + libellé) ; `on_toggle(bool)` |
-| **`Switch`** | interrupteur pilule **contrôlé** ; `on_toggle(bool)` |
-| **`RadioGroup`** | groupe radio à sélection unique ; `on_select(index)` |
-| **`Dropdown`** | liste déroulante **contrôlée** (déploiement en place) ; `on_toggle` + `on_select(index)` |
-| **`Slider`** | curseur `0..=1` **glissable** ; `on_change(f32)` |
-| **`Card`** | surface themée (fond, bordure, rayon, ombre) avec un enfant |
+| **`Button`** | themed button, `Primary` / `Secondary` / `Danger` variants, hover/pressed, shadow |
+| **`Checkbox`** | **controlled** checkbox (box + ✓ + label); `on_toggle(bool)` |
+| **`Switch`** | **controlled** pill switch; `on_toggle(bool)` |
+| **`RadioGroup`** | single-selection radio group; `on_select(index)` |
+| **`Dropdown`** | **controlled** drop-down list (expands in place); `on_toggle` + `on_select(index)` |
+| **`Slider`** | **draggable** `0..=1` slider; `on_change(f32)` |
+| **`Card`** | themed surface (background, border, radius, shadow) wrapping one child |
 
-## Nouveau mécanisme — drag générique de widget
+## New mechanism — generic widget dragging
 
-Pour le `Slider` (et futures poignées), on généralise le glissement :
+For the `Slider` (and future handles), dragging is generalised:
 
 ```rust
 trait Widget { … fn draggable(&self) -> bool { false }
@@ -25,31 +25,32 @@ trait Widget { … fn draggable(&self) -> bool { false }
 Ui::draggable_at(point) -> Option<(WidgetId, Rect)>
 ```
 
-Le shell : `MouseDown` sur un draggable → `Drag::Widget{id, rect}` (et applique
-tout de suite) ; `CursorMoved` → `fraction = (x − rect.x)/rect.width` →
-`find_widget(id).on_drag(fraction)` → `Msg` → `update`. Même schéma que la barre
-de défilement, mais réutilisable par n'importe quel widget.
+The shell: `MouseDown` on a draggable → `Drag::Widget{id, rect}` (and applies it
+immediately); `CursorMoved` → `fraction = (x − rect.x)/rect.width` →
+`find_widget(id).on_drag(fraction)` → `Msg` → `update`. The same scheme as the
+scrollbar, but reusable by any widget.
 
-## Modèle
+## Model
 
-- Les widgets **contrôlés** (Checkbox/Switch/Slider/Dropdown/Radio) tirent leur
-  valeur de l'état applicatif et émettent un message ; l'app met à jour l'état.
-- `RadioGroup`/`Dropdown` sont des **conteneurs** (colonne d'options) : chaque
-  option est un enfant cliquable → identité propre → l'ouverture/fermeture du
-  Dropdown bénéficie gratuitement des **fondus** d'apparition/disparition (J13/J14).
+- **Controlled** widgets (Checkbox/Switch/Slider/Dropdown/Radio) take their value
+  from the application state and emit a message; the app updates the state.
+- `RadioGroup`/`Dropdown` are **containers** (a column of options): each option
+  is a clickable child → its own identity → so opening and closing the Dropdown
+  gets the mount/unmount **fades** for free (J13/J14).
 
-## Démo
+## Demo
 
-Une `Card` de réglages regroupe une checkbox « Terminé », un switch
-« Notifications », un slider de volume, un `RadioGroup` de tailles et un
-`Dropdown` — le tout themé (clair/sombre) et animé.
+A settings `Card` groups a "Done" checkbox, a "Notifications" switch, a volume
+slider, a `RadioGroup` of sizes and a `Dropdown` — all themed (light/dark) and
+animated.
 
 ## Tests
 
-- `Button::on_click`, `Checkbox::on_click` (renvoie `on_toggle(!checked)`),
-  `Slider::on_drag` (fraction → valeur, bornée).
+- `Button::on_click`, `Checkbox::on_click` (returns `on_toggle(!checked)`),
+  `Slider::on_drag` (fraction → value, clamped).
 
-## Limites (v1)
+## Limits (v1)
 
-- `Dropdown` se déploie **en place** (pas d'overlay flottant au-dessus du reste).
-- Pas encore de `Switch`/`Slider` animés en transition d'état (position instantanée).
+- `Dropdown` expands **in place** (no floating overlay above the rest).
+- No animated state transition for `Switch`/`Slider` yet (the position is
+  instant).

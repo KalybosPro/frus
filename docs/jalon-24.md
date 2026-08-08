@@ -1,62 +1,63 @@
-# Jalon 24 — `Command` / effets depuis `update`
+# Jalon 24 — `Command` / effects from `update`
 
-Le modèle Elm de frus gagne son **canal d'effets** : `update` peut désormais
-déclencher un travail hors du cycle (I/O, tâche de fond) dont le résultat revient
-sous forme de message. C'est ce qui manquait pour des apps réelles.
+frus's Elm model gains its **effect channel**: `update` can now trigger work
+outside the cycle (I/O, background task) whose result comes back as a message.
+That was the missing piece for real applications.
 
 ## API
 
 ```rust
-fn update(&mut self, msg: Msg) -> Command<Msg>;   // renvoie les effets
-fn init(&mut self) -> Command<Msg> { Command::none() }  // effet de démarrage
+fn update(&mut self, msg: Msg) -> Command<Msg>;   // returns the effects
+fn init(&mut self) -> Command<Msg> { Command::none() }  // start-up effect
 
-Command::none()                          // aucun effet
-Command::batch([a, b, c])                // plusieurs
-Command::perform(|| calcul() -> Msg)     // tâche → message réinjecté
-Command::run(|| { effet(); None })       // effet de bord, message optionnel
+Command::none()                          // no effect
+Command::batch([a, b, c])                // several
+Command::perform(|| compute() -> Msg)    // task → message fed back in
+Command::run(|| { side_effect(); None }) // side effect, optional message
 ```
 
-`Application::Message` est désormais `Clone + Send + 'static` (les effets
-traversent des threads).
+`Application::Message` is now `Clone + Send + 'static` (effects cross threads).
 
-## Exécution (framework)
+## Execution (framework)
 
-- `run` ouvre la boucle avec **événements utilisateur** :
-  `EventLoop::<Message>::with_user_event()`, et garde un `EventLoopProxy<Message>`.
-- `update` renvoie une `Command` ; le pilote **spawn un thread par tâche** ; au
-  retour, `proxy.send_event(msg)` **réveille la boucle** → `user_event(msg)` →
-  `dispatch(msg)` (qui réapplique `update`, pouvant produire d'autres effets).
-- `init()` s'exécute une fois au démarrage (dans `resumed`).
+- `run` opens the loop with **user events**:
+  `EventLoop::<Message>::with_user_event()`, and keeps an
+  `EventLoopProxy<Message>`.
+- `update` returns a `Command`; the driver **spawns one thread per task**; on
+  return, `proxy.send_event(msg)` **wakes the loop** → `user_event(msg)` →
+  `dispatch(msg)` (which reapplies `update`, possibly producing further effects).
+- `init()` runs once at start-up (inside `resumed`).
 
-Tous les points d'entrée (clic, clavier, drag, événement utilisateur) passent par
-un `dispatch` central qui exécute la `Command` renvoyée.
+Every entry point (click, keyboard, drag, user event) goes through one central
+`dispatch` that executes the returned `Command`.
 
-## Décisions techniques (alternatives)
+## Technical decisions (alternatives)
 
-- **Threads bruts vs runtime async (tokio/smol)** → **threads** : zéro dépendance
-  lourde, suffisant pour l'I/O et la latence d'UI. Un exécuteur async reste une
-  évolution possible (les tâches sont déjà des `FnOnce() -> Option<Msg> + Send`).
-- **Retour des résultats** via `EventLoopProxy` (mécanisme natif winit pour
-  réveiller la boucle depuis un autre thread) plutôt qu'un canal mpsc maison.
+- **Raw threads vs an async runtime (tokio/smol)** → **threads**: no heavy
+  dependency, and enough for I/O and UI latency. An async executor stays a
+  possible evolution (the tasks are already `FnOnce() -> Option<Msg> + Send`).
+- **Returning results** through `EventLoopProxy` (winit's native mechanism for
+  waking the loop from another thread) rather than a hand-rolled mpsc channel.
 
-## Démo — persistance des tâches
+## Demo — task persistence
 
-- **Sauver** → `Command::run` écrit les tâches dans un fichier temporaire
-  (`done<TAB>texte`, **sans serde**).
-- **Charger** / **démarrage** → `Command::perform` lit le fichier →
-  `Msg::Loaded(Vec<(bool, String)>)` remplace les tâches (ids réattribués).
-- Boutons « Charger » / « Sauver » dans le pied.
+- **Save** → `Command::run` writes the tasks to a temporary file
+  (`done<TAB>text`, **without serde**).
+- **Load** / **start-up** → `Command::perform` reads the file →
+  `Msg::Loaded(Vec<(bool, String)>)` replaces the tasks (ids reassigned).
+- "Load" / "Save" buttons in the footer.
 
 ## Tests
 
-- `Command` : `none`/`perform`/`run`/`batch` (structure + drain des tâches).
-- Persistance : round-trip `save → load` (fichier temporaire déterministe),
-  `Msg::Loaded` remplace les tâches avec ids uniques, `Save` produit bien un effet
-  (`!is_empty`) là où une mutation simple n'en produit pas.
-- Total : 35 frus-widgets + 4 frus-shell (Command) + 7 frus-demo + doctest.
+- `Command`: `none`/`perform`/`run`/`batch` (structure + draining the tasks).
+- Persistence: a `save → load` round trip (deterministic temporary file),
+  `Msg::Loaded` replaces the tasks with unique ids, and `Save` does produce an
+  effect (`!is_empty`) where a plain mutation produces none.
+- Total: 35 frus-widgets + 4 frus-shell (Command) + 7 frus-demo + the doctest.
 
-## Limites (v1)
+## Limits (v1)
 
-- Threads bruts : pas d'annulation ni de pool ; pas d'`async`/`await`.
-- Persistance format texte maison (pas de migration/robustesse), fichier unique.
-- Un effet immédiat fait tout de même un aller-retour par la boucle (léger délai).
+- Raw threads: no cancellation and no pool; no `async`/`await`.
+- Persistence in a hand-rolled text format (no migration or robustness), a single
+  file.
+- An immediate effect still makes a round trip through the loop (a slight delay).

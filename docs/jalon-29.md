@@ -1,46 +1,47 @@
-# Jalon 29 — Navigation clavier / accessibilité
+# Jalon 29 — Keyboard navigation / accessibility
 
-Le focus n'existait qu'au **clic**, et seul `TextInput` le recevait. Ce jalon
-ajoute la navigation **Tab**, l'**activation clavier** des contrôles, et un
-**anneau de focus visible** — l'a11y clavier de base.
+Focus only existed on **click**, and only `TextInput` could receive it. This
+milestone adds **Tab** navigation, **keyboard activation** of controls, and a
+**visible focus ring** — basic keyboard a11y.
 
-## Ce qui est ajouté
+## What is added
 
-- **Focusables** : `Button`, `Checkbox`, `Switch` renvoient `focusable() = true`.
-  C'est **tout** ce qu'un widget doit faire pour devenir accessible → a11y quasi
-  gratuite (DX). Un widget accessible = focusable + `on_click`.
-- **Tab / Shift+Tab** (shell) : `Ui::focus_next(courant, sens)` parcourt
-  `ui.focusables` (déjà collectés en ordre d'arbre = ordre visuel), avec bouclage.
-  Fonctionne même **sans focus** initial (→ premier / dernier).
-- **Activation** (shell) : sur **Entrée / Espace**, si le focalisé est focusable et
-  a un `on_click`, on émet ce message (bouton / case / interrupteur). Les champs
-  texte (sans `on_click`) retombent sur l'édition (Entrée = soumettre, Espace =
-  espace) — la présence d'`on_click` distingue proprement les deux.
-- **Anneau de focus générique** (`build_ui`) : dessiné autour du focalisé
-  focusable, couleur `theme.focus`, intensité animée par `focus_progress`. Un
-  widget qui gère son propre focus l'inhibe via `draws_own_focus() = true`
-  (`TextInput`, qui garde sa bordure).
+- **Focusables**: `Button`, `Checkbox` and `Switch` return `focusable() = true`.
+  That is **all** a widget has to do to become accessible → a11y almost for free
+  (DX). An accessible widget = focusable + `on_click`.
+- **Tab / Shift+Tab** (shell): `Ui::focus_next(current, direction)` walks
+  `ui.focusables` (already collected in tree order = visual order), wrapping
+  around. Works even with **no** initial focus (→ first / last).
+- **Activation** (shell): on **Enter / Space**, if the focused widget is
+  focusable and has an `on_click`, that message is emitted (button / checkbox /
+  switch). Text fields (which have no `on_click`) fall back to editing (Enter =
+  submit, Space = a space) — the presence of `on_click` cleanly separates the
+  two.
+- **Generic focus ring** (`build_ui`): drawn around the focused focusable, in
+  `theme.focus`, with an intensity animated by `focus_progress`. A widget that
+  handles its own focus suppresses it through `draws_own_focus() = true`
+  (`TextInput`, which keeps its border).
 
 ## Trait
 
 ```rust
-fn draws_own_focus(&self) -> bool { false }   // ajout (défaut : anneau générique)
+fn draws_own_focus(&self) -> bool { false }   // added (default: the generic ring)
 ```
 
-Aucune surface applicative nouvelle : les widgets existants deviennent navigables
-au clavier **sans aucun changement côté app**.
+No new application surface: the existing widgets become keyboard-navigable
+**with no change on the app side**.
 
 ## Tests
 
-- `Ui::focus_next` : ordre + bouclage, premier/dernier sans focus.
-- `Button`/`Checkbox`/`Switch` focusables (via `focusables.len()`).
-- Anneau : un bouton focalisé ajoute une primitive bordée `theme.focus` ; un
-  `TextInput` focalisé n'en ajoute pas (gère le sien).
-- 43 tests frus-widgets ; démo + chrono non régressés.
+- `Ui::focus_next`: order + wrap-around, first/last with no focus.
+- `Button`/`Checkbox`/`Switch` are focusable (through `focusables.len()`).
+- The ring: a focused button adds a primitive bordered in `theme.focus`; a
+  focused `TextInput` does not (it handles its own).
+- 43 frus-widgets tests; demo and stopwatch did not regress.
 
-## Limites (v1)
+## Limits (v1)
 
-- `Slider` / `Dropdown` / `RadioGroup` : navigation fine au clavier (flèches)
-  reportée ; ils deviendront focusables ensuite.
-- Pas de rôles/annonces ARIA (winit n'expose pas d'API lecteur d'écran) : a11y =
-  **clavier + focus visible** pour l'instant.
+- `Slider` / `Dropdown` / `RadioGroup`: fine keyboard navigation (arrows)
+  deferred; they will become focusable next.
+- No ARIA roles or announcements (winit exposes no screen-reader API): a11y =
+  **keyboard + visible focus** for now.

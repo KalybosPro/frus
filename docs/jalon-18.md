@@ -1,54 +1,54 @@
-# Jalon 18 — Navigation (pile d'écrans + transitions glissées)
+# Jalon 18 — Navigation (screen stack + slide transitions)
 
-Ajoute une navigation multi-écrans avec transition animée au push/pop.
+Adds multi-screen navigation with an animated transition on push and pop.
 
-## Mécanisme
+## Mechanism
 
-Le [`Navigator`] affiche un **écran plein-fenêtre**. Pendant une transition, il
-rend **deux** écrans (sortant + entrant) décalés horizontalement selon un
-avancement `0 → 1`.
+The [`Navigator`] shows one **full-window screen**. During a transition it
+renders **two** screens (outgoing + incoming), offset horizontally according to a
+`0 → 1` progress.
 
-- `Widget::navigator() -> Option<(progression, push?)>` ;
-- `build_layout` : un navigateur est une **feuille** (ses écrans sont mis en page
-  à part, plein-fenêtre) ;
-- `build_ui` : pour chaque écran, sous-layout à la taille fenêtre puis rendu
-  décalé (`render_screen`). Décalages :
-  - **push** : entrant depuis la droite (`x = (1−p)·w`), sortant vers la gauche
-    (`x = −p·w`) ;
-  - **pop** : sens inverse.
+- `Widget::navigator() -> Option<(progress, push?)>`;
+- `build_layout`: a navigator is a **leaf** (its screens are laid out separately,
+  full-window);
+- `build_ui`: for each screen, a sub-layout at window size and then an offset
+  render (`render_screen`). The offsets:
+  - **push**: incoming from the right (`x = (1−p)·w`), outgoing to the left
+    (`x = −p·w`);
+  - **pop**: the other way round.
 
-Le `Navigator` est **contrôlé** : l'application tient la pile de routes et
-l'avancement, et reconstruit les écrans à chaque frame.
+The `Navigator` is **controlled**: the application owns the route stack and the
+progress, and rebuilds the screens each frame.
 
 ## API
 
 ```rust
-Navigator::new(current_screen, w, h)                    // pas de transition
-Navigator::new(current, w, h).from(previous, p, forward) // transition en cours
+Navigator::new(current_screen, w, h)                    // no transition
+Navigator::new(current, w, h).from(previous, p, forward) // transition in progress
 ```
 
-## Boucle (shell)
+## Loop (shell)
 
 ```
-Msg::Push(route) → nav_from = écran courant ; routes.push(route) ; progress = 0 ; forward
-Msg::Pop         → nav_from = écran courant ; routes.pop() ; progress = 0 ; back
-Redraw           → si nav_from : progress += dt/durée ; à 1 → nav_from = None
-                   view = Navigator autour de l'écran courant (+ from si transition)
+Msg::Push(route) → nav_from = current screen ; routes.push(route) ; progress = 0 ; forward
+Msg::Pop         → nav_from = current screen ; routes.pop() ; progress = 0 ; back
+Redraw           → if nav_from: progress += dt/duration ; at 1 → nav_from = None
+                   view = Navigator around the current screen (+ from during a transition)
 ```
 
-## Démo
+## Demo
 
-Trois écrans : **Accueil** (avec boutons « Détails → » / « Réglages → »),
-**Détails**, **Réglages** (la carte de contrôles). Chaque écran a un bouton
-« ← Retour ». Les changements d'écran **glissent**.
+Three screens: **Home** (with "Details →" / "Settings →" buttons), **Details**,
+**Settings** (the controls card). Each screen has a "← Back" button. Screen
+changes **slide**.
 
 ## Tests
 
-- `Navigator::navigator()` expose progression/direction.
-- Une transition rend **les deux écrans** (sortant + entrant).
+- `Navigator::navigator()` exposes the progress and direction.
+- A transition renders **both screens** (outgoing + incoming).
 
-## Limites (v1)
+## Limits (v1)
 
-- Transition **glissée horizontale** uniquement (pas de fondu/échelle au choix).
-- Écrans reconstruits à chaque frame pendant la transition (pas de cache de rendu).
-- Pas de « geste retour » (swipe) ni de barre de navigation intégrée.
+- **Horizontal slide** transition only (no choice of fade or scale).
+- Screens rebuilt every frame during the transition (no render cache).
+- No "back gesture" (swipe) and no built-in navigation bar.

@@ -1,40 +1,41 @@
-# Jalon 15 — Système de thèmes
+# Jalon 15 — Theme system
 
-Centralise les *design tokens* (couleurs, rayon, espacement) dans un `Theme`
-injecté au rendu, avec presets clair/sombre.
+Centralises the *design tokens* (colours, radius, spacing) in a `Theme` injected
+at render time, with light and dark presets.
 
-## Ce qui est livré
+## What ships
 
-- **`Theme`** (frus-widgets) : tokens `background, surface, primary, on_primary,
-  on_surface, muted, border, focus, selection, radius, spacing` ; presets
-  `Theme::dark()` / `Theme::light()` (défaut = sombre).
-- **Injection** : `build_ui(root, size, &runtime, &theme)` transmet le thème à
+- **`Theme`** (frus-widgets): the tokens `background, surface, primary,
+  on_primary, on_surface, muted, border, focus, selection, radius, spacing`;
+  presets `Theme::dark()` / `Theme::light()` (default = dark).
+- **Injection**: `build_ui(root, size, &runtime, &theme)` passes the theme on to
   `Widget::paint(bounds, status, &theme, scene)`.
-- **Défauts themés** :
-  - `Text` sans couleur explicite → `theme.on_surface` ;
-  - `TextInput` : fond/bordure/focus/sélection/texte du thème ;
-  - barres de défilement → `theme.muted`.
-- **Surcharge** : une couleur explicite (`Container::color`, `Text::color`) reste
-  prioritaire.
-- **Démo** : fond racine `theme.background`, boutons `theme.primary`, et un bouton
-  **« Thème clair/sombre »** qui bascule tout l'UI.
+- **Themed defaults**:
+  - a `Text` with no explicit colour → `theme.on_surface`;
+  - `TextInput`: background/border/focus/selection/text from the theme;
+  - scrollbars → `theme.muted`.
+- **Overriding**: an explicit colour (`Container::color`, `Text::color`) still
+  wins.
+- **Demo**: root background `theme.background`, buttons `theme.primary`, and a
+  **"Light/dark theme"** button that flips the whole UI.
 
-## Décisions
+## Decisions
 
-- Thème **lu au paint** (signature `paint` enrichie d'un `&Theme`) plutôt que
-  résolu à la construction : les widgets s'adaptent sans que l'appelant réinjecte
-  les couleurs.
-- Le fond d'application est un `Container(theme.background)` racine (pas de
-  couplage au renderer / à sa couleur d'effacement).
+- The theme is **read at paint time** (the `paint` signature gains a `&Theme`)
+  rather than resolved at construction: widgets adapt without the caller
+  re-injecting the colours.
+- The application background is a root `Container(theme.background)` (no coupling
+  to the renderer or to its clear colour).
 
 ## Tests
 
-- `Theme::dark` / `Theme::light` : tokens distincts.
-- `Text` sans couleur peint avec la couleur du thème (via le paint themé).
+- `Theme::dark` / `Theme::light`: distinct tokens.
+- A `Text` with no colour paints with the theme's colour (through the themed
+  paint).
 
-## Périmètre (v1)
+## Scope (v1)
 
-- `Container` garde ses couleurs **explicites** (conteneurs colorés à dessein) ;
-  le thème sert aux **défauts** (texte, champ, barres) et à la démo.
-- Pas encore de styles de composants nommés (Button/Checkbox…), ni de transition
-  animée entre thèmes (le changement est instantané).
+- `Container` keeps its **explicit** colours (deliberately coloured containers);
+  the theme serves the **defaults** (text, field, bars) and the demo.
+- No named component styles yet (Button/Checkbox…), and no animated transition
+  between themes (the change is instant).

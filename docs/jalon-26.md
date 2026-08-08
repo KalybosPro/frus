@@ -1,61 +1,64 @@
-# Jalon 26 — Subscriptions (sources continues de messages)
+# Jalon 26 — Subscriptions (continuous message sources)
 
-La dernière grande pièce du modèle Elm : le pendant **flux** de `Command`
-(ponctuel). L'app déclare des **sources continues** de messages selon son état ;
-le framework les **démarre/arrête** par diff.
+The last big piece of the Elm model: the **stream** counterpart to `Command`
+(which is one-shot). The app declares **continuous sources** of messages
+according to its state; the framework **starts and stops** them by diffing.
 
 ## API
 
 ```rust
-fn subscription(&self) -> Subscription<Msg> { Subscription::none() }  // ajout au trait
+fn subscription(&self) -> Subscription<Msg> { Subscription::none() }  // added to the trait
 
 Subscription::none()
 Subscription::batch([...])
-Subscription::every(Duration, |instant| Msg)   // un message par intervalle
+Subscription::every(Duration, |instant| Msg)   // one message per interval
 ```
 
-Chaque souscription porte un **id** stable = hash de sa recette (type + durée).
-Deux `every(1s)` = **une seule** souscription.
+Each subscription carries a stable **id** = a hash of its recipe (kind +
+duration). Two `every(1s)` = **a single** subscription.
 
-## Fonctionnement (framework)
+## How it works (framework)
 
-- `sync_subscriptions()` est appelé **au démarrage** et après **chaque**
-  `dispatch` : il compare les ids déclarés à ceux en cours
-  (`HashMap<u64, Sender<()>>`) → démarre les nouveaux, **annule** les disparus.
-- Un `every` = un thread bouclant `rx.recv_timeout(interval)` :
-  - **Timeout** → `proxy.send_event(make(now))` (le message revient dans la boucle
-    via `user_event`, comme un résultat de `Command`) ;
-  - **Sender droppé** (annulation) ou boucle fermée → le thread sort.
-- Annuler = retirer le `Sender` de la table (drop) ; le thread sort à son prochain
-  réveil. Symétrie totale avec `Command` (même proxy, mêmes threads).
+- `sync_subscriptions()` is called **at start-up** and after **every**
+  `dispatch`: it compares the declared ids with the running ones
+  (`HashMap<u64, Sender<()>>`) → starts the new ones, **cancels** the ones that
+  have gone.
+- One `every` = one thread looping on `rx.recv_timeout(interval)`:
+  - **Timeout** → `proxy.send_event(make(now))` (the message comes back into the
+    loop through `user_event`, like a `Command` result);
+  - **Sender dropped** (cancellation) or the loop closed → the thread exits.
+- Cancelling = removing the `Sender` from the table (dropping it); the thread
+  exits at its next wake-up. Complete symmetry with `Command` (same proxy, same
+  threads).
 
-## Décisions techniques (alternatives)
+## Technical decisions (alternatives)
 
-- **Thread par souscription** (cohérent avec `Command`) vs *timer wheel* unique →
-  thread par sub, simple et suffisant.
-- **Diff par hash de recette** (façon Elm) → deux `every` identiques fusionnent ;
-  la souscription persiste tant qu'elle est redéclarée à l'identique.
+- **One thread per subscription** (consistent with `Command`) vs a single *timer
+  wheel* → one thread per sub, simple and sufficient.
+- **Diffing by recipe hash** (the Elm way) → two identical `every`s merge; a
+  subscription persists for as long as it is redeclared identically.
 
-## Démo — chrono
+## Demo — a stopwatch
 
-En-tête : « · Ns » (secondes écoulées) + bouton **Pause/Reprendre**. `running`
-pilote la souscription : `running ? every(1s, |_| Tick) : none()`. Basculer
-démontre le **démarrage/arrêt** effectif du thread par le diff. `init()` démarre
-le chrono ; `Msg::Tick` incrémente le compteur.
+In the header: "· Ns" (elapsed seconds) + a **Pause/Resume** button. `running`
+drives the subscription: `running ? every(1s, |_| Tick) : none()`. Toggling it
+demonstrates the thread genuinely **starting and stopping** through the diff.
+`init()` starts the stopwatch; `Msg::Tick` increments the counter.
 
 ## Tests
 
-- `Subscription` : `none`/`is_empty`, `every` → id stable par durée (même durée =
-  même id, durées différentes = ids différents), `batch` combine.
-- Démo : `subscription()` vide en pause, non vide sinon (id stable entre deux
-  évaluations) ; `Tick` incrémente le compteur.
-- **Bout-en-bout** : la démo tourne 6 s → **5 ticks** observés dans les logs
-  (1s→5s), preuve que le flux `every → proxy → user_event → update` fonctionne.
-- Totaux : 3 frus-shell (subscription) + 9 frus-demo.
+- `Subscription`: `none`/`is_empty`, `every` → a stable id per duration (same
+  duration = same id, different durations = different ids), `batch` combines.
+- Demo: `subscription()` empty when paused, non-empty otherwise (stable id across
+  two evaluations); `Tick` increments the counter.
+- **End to end**: the demo ran for 6 s → **5 ticks** observed in the logs
+  (1s→5s), proving the `every → proxy → user_event → update` stream works.
+- Totals: 3 frus-shell (subscription) + 9 frus-demo.
 
-## Limites (v1)
+## Limits (v1)
 
-- Un thread par souscription (pas de pool) ; latence d'annulation ≤ un intervalle.
-- Seul `every` pour l'instant (le mécanisme accueillera `Kind` supplémentaires :
-  clavier global, événements fenêtre, flux externes).
-- Horloge murale formatée nécessiterait une lib de temps → chrono **écoulé**.
+- One thread per subscription (no pool); cancellation latency ≤ one interval.
+- Only `every` for now (the mechanism will accept further `Kind`s: global
+  keyboard, window events, external streams).
+- A formatted wall clock would need a time library → an **elapsed** stopwatch
+  instead.

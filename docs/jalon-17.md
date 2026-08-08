@@ -1,60 +1,61 @@
-# Jalon 17 — Overlay / portail (menus flottants, tooltips, modales)
+# Jalon 17 — Overlay / portal (floating menus, tooltips, modals)
 
-Ajoute une couche d'**overlay** : afficher du contenu **au-dessus** de tout, hors
-du flux de layout et non découpé par les parents.
+Adds an **overlay** layer: showing content **above** everything, outside the
+layout flow and not clipped by the parents.
 
-## Mécanisme
+## Mechanism
 
-Un [`Portal`] a une **ancre** (dans le flux) et un **overlay** flottant optionnel.
-Comme le `Scroll`, l'overlay est mis en page à part puis **différé** :
+A [`Portal`] has an **anchor** (in the flow) and an optional floating
+**overlay**. Like `Scroll`, the overlay is laid out separately and then
+**deferred**:
 
-1. `Widget::overlay() -> Option<(&dyn Widget, Placement)>` ;
-2. pendant le parcours, l'ancre (enfant 0) est peinte inline ; l'overlay (enfant 1)
-   est **collecté** avec les bornes de l'ancre ;
-3. **après** tout l'arbre, `build_ui` traite les overlays : sous-layout (taille
-   naturelle), positionnement, rendu **par-dessus** (clip = fenêtre). Leurs zones
-   cliquables sont ajoutées en dernier → elles **priment** au hit-test.
+1. `Widget::overlay() -> Option<(&dyn Widget, Placement)>`;
+2. during the walk, the anchor (child 0) is painted inline; the overlay (child 1)
+   is **collected** along with the anchor's bounds;
+3. **after** the whole tree, `build_ui` handles the overlays: sub-layout (natural
+   size), positioning, rendering **on top** (clip = the window). Their clickable
+   zones are added last → so they **win** the hit-test.
 
-`Portal::children() = [ancre, overlay]` : `find_widget` / clavier / drag atteignent
-aussi le contenu de l'overlay. Les overlays imbriqués sont gérés (boucle de
-traitement).
+`Portal::children() = [anchor, overlay]`: `find_widget`, the keyboard and
+dragging also reach the overlay's content. Nested overlays are handled (a
+processing loop).
 
 ## Placements
 
 | `Placement` | Position | Extra |
 |---|---|---|
-| `Below` | sous l'ancre | menu déroulant |
-| `Center` | centré fenêtre | **voile** (scrim) sombre derrière (modale) |
-| `Tooltip` | au-dessus de l'ancre | affiché **seulement si l'ancre est survolée** |
+| `Below` | under the anchor | drop-down menu |
+| `Center` | centred in the window | dark **scrim** behind (modal) |
+| `Tooltip` | above the anchor | shown **only while the anchor is hovered** |
 
-Le tooltip est activé quand l'id de l'ancre (enfant 0, cliquable) est le widget
-survolé (`Runtime.input.hovered`).
+The tooltip activates when the anchor's id (child 0, clickable) is the hovered
+widget (`Runtime.input.hovered`).
 
 ## API
 
 ```rust
-Portal::new(anchor).overlay(content, Placement::Below)     // menu flottant
-Portal::new(button).overlay(tip, Placement::Tooltip)       // tooltip au survol
-Portal::new(trigger).overlay(modal, Placement::Center)     // modale + voile
+Portal::new(anchor).overlay(content, Placement::Below)     // floating menu
+Portal::new(button).overlay(tip, Placement::Tooltip)       // tooltip on hover
+Portal::new(trigger).overlay(modal, Placement::Center)     // modal + scrim
 ```
 
-`Dropdown` est **réécrit sur ce mécanisme** : ses options flottent désormais
-au-dessus du contenu (fini le déploiement inline du Jalon 16).
+`Dropdown` is **rewritten on top of this mechanism**: its options now float above
+the content (no more inline expansion from Jalon 16).
 
-## Démo
+## Demo
 
-- Le `Dropdown` flotte au-dessus du reste.
-- Le bouton « Retirer » porte un **tooltip** au survol.
-- Un bouton « Modale » ouvre une **modale centrée** (carte + voile + bouton Fermer).
+- The `Dropdown` floats above the rest.
+- The "Remove" button carries a **tooltip** on hover.
+- A "Modal" button opens a **centred modal** (card + scrim + Close button).
 
 ## Tests
 
-- `Portal::overlay` renvoie le contenu si fourni.
-- Un overlay `Center` dessine un **voile plein écran** + son contenu par-dessus.
+- `Portal::overlay` returns the content when one is supplied.
+- A `Center` overlay draws a **full-screen scrim** plus its content on top.
 
-## Limites (v1)
+## Limits (v1)
 
-- Positionnement basique (Below/Center/Tooltip) ; pas d'auto-flip si l'overlay
-  déborde de l'écran, ni d'ancrage fin (start/end/aligné).
-- Le clic **hors** d'une modale ne la ferme pas (pas de scrim cliquable) — on
-  ferme via le bouton dédié.
+- Basic positioning (Below/Center/Tooltip); no auto-flip when the overlay
+  overflows the screen, and no fine anchoring (start/end/aligned).
+- Clicking **outside** a modal does not close it (no clickable scrim) — you close
+  it through the dedicated button.

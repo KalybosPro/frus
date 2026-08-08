@@ -1,50 +1,50 @@
-# Jalon 11 — Animations (transitions implicites)
+# Jalon 11 — Animations (implicit transitions)
 
-Introduit l'horloge de frames, un état animé retenu par identité, et le redraw
-continu tant qu'une animation tourne.
+Introduces the frame clock, animation state retained by identity, and continuous
+redrawing for as long as an animation is running.
 
-## Ce qui est livré
+## What ships
 
-- **`Color::lerp`** (frus-core) : interpolation de couleurs.
-- **`Runtime.anims: HashMap<WidgetId, f32>`** : une progression `0..1` par widget,
-  avec `advance_hover(dt) -> bool` (glisse vers la cible — 1 si survolé, 0 sinon —
-  et signale si une animation est encore en cours).
-- **`Status.hover_progress`** : lu par `Container`, qui interpole
-  `base.lerp(hover, ease(progress))` (easing **smoothstep**).
-- **Boucle animée** (shell) : horloge `Instant`, `dt` clampé, et redraw redemandé
-  tant que `advance_hover` renvoie vrai (cadencé par le present mode Fifo/vsync).
+- **`Color::lerp`** (frus-core): colour interpolation.
+- **`Runtime.anims: HashMap<WidgetId, f32>`**: one `0..1` progress per widget,
+  with `advance_hover(dt) -> bool` (slides towards the target — 1 if hovered, 0
+  otherwise — and reports whether an animation is still running).
+- **`Status.hover_progress`**: read by `Container`, which interpolates
+  `base.lerp(hover, ease(progress))` (**smoothstep** easing).
+- **Animated loop** (shell): an `Instant` clock, a clamped `dt`, and a redraw
+  requested again for as long as `advance_hover` returns true (paced by the
+  Fifo/vsync present mode).
 
-## Modèle
+## Model
 
-Transition **implicite**, façon CSS : quand l'état de survol change, la
-progression du widget glisse dans le temps vers sa cible. L'état est retenu
-**par identité** (`WidgetId`) dans `Runtime` — la même infrastructure que le
-focus (J8), le scroll (J9) et le curseur (J10).
+An **implicit** transition, the way CSS does it: when the hover state changes,
+the widget's progress slides over time towards its target. That state is
+retained **by identity** (`WidgetId`) in `Runtime` — the same infrastructure as
+focus (J8), scrolling (J9) and the caret (J10).
 
 ```
-RedrawRequested :
+RedrawRequested:
   dt = clamp(now - last_frame)
-  animating = runtime.advance_hover(dt)     // met à jour anims[id]
+  animating = runtime.advance_hover(dt)     // updates anims[id]
   ui = build_ui(&tree, size, &runtime)      // anims -> Status.hover_progress
   render(ui)
-  si animating -> request_redraw            // continue la boucle
+  if animating -> request_redraw            // keep the loop going
 ```
 
-## Démo
+## Demo
 
-La couleur de survol du bouton **transitionne en fondu** (~120 ms) au lieu de
-basculer d'un coup ; le pressé reste instantané.
+The button's hover colour now **fades** (~120 ms) instead of switching in one
+step; the pressed state stays instant.
 
 ## Tests
 
-- `Color::lerp` : mi-chemin exact ; bornes.
-- `Runtime::advance_hover` : la progression monte vers 1 (survolé), se stabilise
-  (plus d'animation), redescend à 0 puis l'entrée est nettoyée.
-- `Container` : progression 0 → couleur de base ; 1 → couleur de survol.
+- `Color::lerp`: exact midpoint; bounds.
+- `Runtime::advance_hover`: progress rises towards 1 (hovered), settles (no more
+  animation), falls back to 0, and then the entry is cleaned up.
+- `Container`: progress 0 → base colour; 1 → hover colour.
 
-## Limites (prochains jalons)
+## Limits (next milestones)
 
-- Une seule progression par widget (survol). Pas encore d'animations
-  d'apparition/disparition (montage/démontage), de courbes personnalisées, ni
-  d'animations pilotées explicitement (contrôleur 0→1).
-- Focus et pressé restent instantanés.
+- A single progress per widget (hover). No mount/unmount animations yet, no
+  custom curves, and no explicitly driven animations (a 0→1 controller).
+- Focus and pressed stay instant.

@@ -1,51 +1,51 @@
-# Jalon 25 — DPI / facteur d'échelle (HiDPI)
+# Jalon 25 — DPI / scale factor (HiDPI)
 
-Le rendu tenait compte des seuls **pixels physiques** : sur un écran HiDPI
-(scale 2.0), l'UI était deux fois trop petite. Désormais **le monde UI est en
-pixels logiques** ; l'échelle ne s'applique qu'aux **frontières**.
+Rendering only accounted for **physical pixels**: on a HiDPI screen (scale 2.0)
+the UI was twice too small. From now on **the UI world is in logical pixels**;
+the scale applies only at the **boundaries**.
 
-## Principe
+## Principle
 
 ```
 scale = window.scale_factor()
 
-Entrées (curseur, molette, geste) : physique → logique   (÷ scale)
-Layout / view / build_ui           : en LOGIQUE           (taille physique ÷ scale)
-Sortie (rendu)                     : logique → physique   (ui.scene().scaled(scale))
+Input (cursor, wheel, gesture)   : physical → logical   (÷ scale)
+Layout / view / build_ui         : in LOGICAL units      (physical size ÷ scale)
+Output (rendering)               : logical → physical    (ui.scene().scaled(scale))
 ```
 
-`frus-gpu` reste **totalement ignorant du DPI** : il reçoit une scène déjà en
-pixels physiques et dessine comme avant. La surface et le viewport GPU restent en
-physique ; **glyphon** reçoit des tailles/positions physiques → texte **net**.
+`frus-gpu` stays **completely ignorant of DPI**: it receives a scene already in
+physical pixels and draws as before. The surface and the GPU viewport stay
+physical; **glyphon** receives physical sizes and positions → **crisp** text.
 
-## Où l'échelle s'applique
+## Where the scale applies
 
-- **`frus-core`** : `Scene::scaled(factor)` + `Primitive::scaled(factor)` (+
-  `Rect::scale`, `Point::scale`) — met à l'échelle géométrie, rayon, bordure,
-  flou, découpe et **taille de police** ; laisse couleurs et texte intacts.
-- **`frus-shell`** : `App.scale` (lu via `window.scale_factor()`, mis à jour sur
-  `ScaleFactorChanged`) ; curseur et `PixelDelta` de molette convertis en
-  logique ; `view`/`build_ui` reçoivent la taille **logique** ; le rendu envoie
-  `ui.scene().scaled(scale)`. `resize`/surface restent en **physique**.
-- **Widgets / démo** : **inchangés** — ils étaient déjà écrits en « px logiques ».
+- **`frus-core`**: `Scene::scaled(factor)` + `Primitive::scaled(factor)` (plus
+  `Rect::scale`, `Point::scale`) — scales geometry, radius, border, blur, clip
+  and **font size**; leaves colours and text untouched.
+- **`frus-shell`**: `App.scale` (read through `window.scale_factor()`, updated on
+  `ScaleFactorChanged`); the cursor and the wheel's `PixelDelta` converted to
+  logical; `view`/`build_ui` receive the **logical** size; rendering sends
+  `ui.scene().scaled(scale)`. `resize` and the surface stay **physical**.
+- **Widgets / demo**: **unchanged** — they were already written in "logical px".
 
-## Décision technique (alternatives)
+## Technical decision (alternatives)
 
-- **Transformer la scène en sortie** plutôt que scaler le viewport GPU ou le
-  shader. Raison : le texte (glyphon) a sa propre résolution ; un viewport GPU
-  logique laisserait le texte à la mauvaise taille. Scaler la scène unifie quads
-  **et** texte, et garde `frus-gpu` inchangé. Coût : une copie/scale de la scène
-  par frame (négligeable).
+- **Transforming the scene on output** rather than scaling the GPU viewport or
+  the shader. The reason: text (glyphon) has its own resolution; a logical GPU
+  viewport would leave the text at the wrong size. Scaling the scene unifies
+  quads **and** text, and leaves `frus-gpu` unchanged. The cost: one copy/scale
+  of the scene per frame (negligible).
 
 ## Tests
 
-- `Scene::scaled` : géométrie ×facteur (rect, rayon, bordure, position, taille de
-  police), couleurs et chaînes préservées.
-- Non-régression à **scale 1.0** : la démo WSL (scale 1.0) tourne à l'identique.
+- `Scene::scaled`: geometry ×factor (rect, radius, border, position, font size),
+  colours and strings preserved.
+- Non-regression at **scale 1.0**: the WSL demo (scale 1.0) runs identically.
 
-## Limites (v1)
+## Limits (v1)
 
-- Impossible de valider interactivement un vrai HiDPI ici (WSL rapporte 1.0) ;
-  couvert par les tests unitaires de `scaled` + revue.
-- `ScaleFactorChanged` met à jour l'échelle et redessine ; le redimensionnement
-  physique de surface associé reste géré par l'événement `Resized`.
+- Real HiDPI cannot be validated interactively here (WSL reports 1.0); covered by
+  the `scaled` unit tests plus review.
+- `ScaleFactorChanged` updates the scale and redraws; the associated physical
+  surface resize is still handled by the `Resized` event.

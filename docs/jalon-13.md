@@ -1,46 +1,47 @@
-# Jalon 13 — Opacité + apparition en fondu
+# Jalon 13 — Opacity + fade-in
 
-Ajoute une opacité propagée au rendu et un **fondu d'apparition** au montage des
-widgets.
+Adds an opacity propagated through rendering, and a **fade-in** when widgets are
+mounted.
 
-## Ce qui est livré
+## What ships
 
-- **`Color::fade(opacity)`** (frus-core) : multiplie le canal alpha.
-- **`Anim.opacity`** (défaut **1.0**, démarrée à 0 au montage) ; `Runtime::advance`
-  la fait tendre vers 1. `Runtime::opacity(id)`.
-- **`Runtime.mounted: HashSet<WidgetId>`** : ensemble des widgets présents ; un id
-  **nouveau** démarre à opacité 0 (donc en fondu).
-- **`collect_ids(&arbre)`** : parcours léger par identité, pour diffuser le
-  montage/démontage avant `build_ui`.
-- **`Status.opacity`** : lu par les widgets, qui **multiplient l'alpha** de toutes
-  leurs couleurs (`Container`, `Text`, `TextInput` — texte, fond, bordure,
-  curseur, sélection, ombre, dégradé).
+- **`Color::fade(opacity)`** (frus-core): multiplies the alpha channel.
+- **`Anim.opacity`** (default **1.0**, started at 0 on mount); `Runtime::advance`
+  drives it towards 1. `Runtime::opacity(id)`.
+- **`Runtime.mounted: HashSet<WidgetId>`**: the set of widgets present; a **new**
+  id starts at opacity 0 (hence fades in).
+- **`collect_ids(&tree)`**: a lightweight walk by identity, to diff mounting and
+  unmounting before `build_ui`.
+- **`Status.opacity`**: read by the widgets, which **multiply the alpha** of all
+  their colours (`Container`, `Text`, `TextInput` — text, background, border,
+  caret, selection, shadow, gradient).
 
-## Boucle (shell, RedrawRequested)
+## Loop (shell, RedrawRequested)
 
 ```
 tree = view(state)
 ids = collect_ids(&tree)
-pour id nouveau (pas dans runtime.mounted) : mounted.insert(id) ; anims[id].opacity = 0
-mounted.retain(présents)               // ré-apparition si ré-ajouté plus tard
-animating = runtime.advance(dt)        // opacité + survol + focus
-ui = build_ui(&tree, size, &runtime)   // opacité -> Status.opacity -> alpha
-render ; si animating -> redraw
+for each new id (not in runtime.mounted): mounted.insert(id) ; anims[id].opacity = 0
+mounted.retain(present)                // re-appears if re-added later
+animating = runtime.advance(dt)        // opacity + hover + focus
+ui = build_ui(&tree, size, &runtime)   // opacity -> Status.opacity -> alpha
+render ; if animating -> redraw
 ```
 
-## Démo
+## Demo
 
-Au démarrage, toute l'UI **apparaît en fondu**. Chaque **nouvel élément** ajouté à
-la liste (clic sur le bouton) **entre en fondu**.
+At start-up, the whole UI **fades in**. Every **new item** added to the list
+(clicking the button) **fades in**.
 
 ## Tests
 
-- `Color::fade` : mise à l'échelle de l'alpha.
-- `Runtime::advance` : l'opacité monte de 0 vers 1 ; défaut 1 sans entrée.
+- `Color::fade`: alpha scaling.
+- `Runtime::advance`: opacity rises from 0 towards 1; default 1 with no entry.
 
-## Reporté (honnêtement)
+## Deferred (honestly)
 
-- **Disparition (fade-out)** : un widget retiré de l'arbre n'a plus de primitives
-  à dessiner. L'animer demande de **retenir les widgets sortants** (leurs
-  primitives ou leur sous-arbre) le temps de la transition — une passe de
-  reconciliation avec liste de « sortants », qui fera l'objet d'un jalon dédié.
+- **Disappearance (fade-out)**: a widget removed from the tree has no primitives
+  left to draw. Animating that requires **retaining outgoing widgets** (their
+  primitives or their subtree) for the duration of the transition — a
+  reconciliation pass with a list of "outgoing" widgets, which will be a
+  dedicated milestone.

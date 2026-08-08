@@ -1,37 +1,37 @@
-# Jalon 30 — Robustesse fenêtre
+# Jalon 30 — Window robustness
 
-Comble des angles morts de plateforme et laisse l'app **déclarer sa fenêtre**.
+Fills in platform blind spots and lets the app **declare its window**.
 
-## Ce qui change
+## What changes
 
-- **Garde taille nulle** : si la fenêtre est minimisée (`inner_size == 0`), on
-  **saute** le rendu (évite les erreurs GPU et le travail inutile) et on remet
-  `last_frame = None` pour ne pas provoquer un saut de `dt` à la restauration.
-- **Occlusion** : sur `WindowEvent::Occluded(true)` le rendu est **suspendu** ;
-  sur `false` on redemande une frame. Économise le GPU quand la fenêtre est cachée.
-- **`ScaleFactorChanged`** : met à jour l'échelle **et reconfigure la surface** à
-  la taille physique courante (plus seulement l'échelle).
-- **Taille minimale** : la fenêtre est créée avec `min_inner_size` = 360×280 px
-  logiques (évite une UI absurde).
-- **DX fenêtre** : nouveau `Application::window_size() -> Option<(f32, f32)>`
-  (taille **logique** initiale déclarée par l'app).
+- **Zero-size guard**: if the window is minimised (`inner_size == 0`), rendering
+  is **skipped** (avoiding GPU errors and pointless work) and `last_frame` is
+  reset to `None` so that restoring does not cause a `dt` jump.
+- **Occlusion**: on `WindowEvent::Occluded(true)` rendering is **suspended**; on
+  `false` a frame is requested again. Saves the GPU while the window is hidden.
+- **`ScaleFactorChanged`**: updates the scale **and reconfigures the surface** to
+  the current physical size (not just the scale any more).
+- **Minimum size**: the window is created with `min_inner_size` = 360×280 logical
+  px (avoids an absurd UI).
+- **Window DX**: a new `Application::window_size() -> Option<(f32, f32)>` (the
+  initial **logical** size declared by the app).
 
 ## Trait
 
 ```rust
-fn window_size(&self) -> Option<(f32, f32)> { None }   // taille initiale logique
+fn window_size(&self) -> Option<(f32, f32)> { None }   // initial logical size
 ```
 
-La démo déclare `Some((900.0, 680.0))`.
+The demo declares `Some((900.0, 680.0))`.
 
-## Tests — honnêteté
+## Tests — being straight about it
 
-Ce sont des **gardes d'événements winit**, non unit-testables sans fenêtre réelle.
-Validation = **compilation + démo sans crash** + non-régression (chrono, 43 tests
-inchangés). Pas de nouveau test unitaire ici, contrairement aux autres jalons —
-c'est de la plomberie de plateforme (assumé).
+These are **winit event guards**, not unit-testable without a real window.
+Validation = **it compiles + the demo does not crash** + non-regression
+(stopwatch, the 43 tests unchanged). No new unit test here, unlike the other
+milestones — this is platform plumbing, and that is accepted.
 
-## Limites (v1)
+## Limits (v1)
 
-- Pas de gestion fine multi-écran / déplacement inter-moniteurs.
-- `min_inner_size` fixe (non configurable par l'app).
+- No fine multi-screen handling or moving between monitors.
+- `min_inner_size` is fixed (not configurable by the app).

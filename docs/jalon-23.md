@@ -1,53 +1,56 @@
-# Jalon 23 — Défilement avec inertie (ressort + rebond)
+# Jalon 23 — Scrolling with inertia (spring + bounce)
 
-Le défilement passe de **discret** (chaque cran de molette saute) à **lissé** :
-la molette pousse une *cible*, l'offset courant la rejoint à ressort, avec
-**rebond élastique** aux bords.
+Scrolling goes from **discrete** (each wheel notch jumps) to **smooth**: the
+wheel pushes a *target*, and the current offset springs towards it, with an
+**elastic bounce** at the edges.
 
-## Choix (honnêteté CTO)
+## The choice (being straight about it)
 
-L'« inertie de flick » tactile a besoin d'une **vélocité de doigt** ; ici l'entrée
-est une **molette** (crans discrets). Le bon modèle est donc un **défilement à
-ressort vers une cible** + **rubber-band** aux bords — et non une friction libre.
-Avantages : réutilise `spring_step` (même langage de mouvement que nav/geste), et
-c'est **déterministe donc testable** (les constantes de friction, elles, se
-règleraient au ressenti — impossible en rendu logiciel sans entrée injectée).
+Touch "flick inertia" needs a **finger velocity**; here the input is a **wheel**
+(discrete notches). So the right model is a **spring towards a target** plus
+**rubber-banding** at the edges — not free friction. The advantages: it reuses
+`spring_step` (the same language of motion as navigation and gestures), and it is
+**deterministic and therefore testable** (friction constants, by contrast, would
+be tuned by feel — impossible in software rendering without injected input).
 
-## Mécanisme
+## Mechanism
 
-`Runtime` tient, par zone défilable :
+`Runtime` holds, per scrollable area:
 
-- `scroll` — offset **courant** (rendu),
-- `scroll_target` — offset **visé**,
-- `scroll_velocity` — vitesse du ressort.
+- `scroll` — the **current** offset (what is rendered),
+- `scroll_target` — the **aimed-at** offset,
+- `scroll_velocity` — the spring's velocity.
 
-Chaque frame (`Runtime::advance_scroll`, piloté par le framework) :
+Each frame (`Runtime::advance_scroll`, driven by the framework):
 
-1. La **cible** est ramenée vers `clamp(cible, 0, max)` (rappel élastique) — un
-   dépassement au-delà des bornes revient donc en douceur (rebond).
-2. L'**offset courant** ressort vers la cible via `spring_step` (K=200, C=28).
-3. Au repos (seuils px), on nettoie l'état d'animation (l'offset reste).
+1. The **target** is pulled back towards `clamp(target, 0, max)` (elastic
+   recall) — so an overshoot past the bounds comes back gently (the bounce).
+2. The **current offset** springs towards the target through `spring_step`
+   (K=200, C=28).
+3. At rest (px thresholds), the animation state is cleaned up (the offset
+   stays).
 
-Entrées :
+The inputs:
 
-- **Molette** : pousse la cible, avec dépassement autorisé `SCROLL_OVER = 48 px`.
-- **Barre de défilement (glissement)** : reste **directe** (cible synchronisée,
-  vitesse coupée) — un drag doit être précis, pas élastique.
+- **Wheel**: pushes the target, with an allowed overshoot of `SCROLL_OVER = 48 px`.
+- **Scrollbar (dragging)**: stays **direct** (target synchronised, velocity
+  killed) — a drag has to be precise, not elastic.
 
-Les bornes `max` viennent de la dernière `Ui::scrollable_maxes()` (stables d'une
-frame à l'autre → pas de latence : l'offset avancé est rendu la même frame).
+The `max` bounds come from the last `Ui::scrollable_maxes()` (stable from one
+frame to the next → no latency: the advanced offset is rendered in the same
+frame).
 
 ## Tests
 
-- `scroll_springs_to_target_and_settles` : l'offset rejoint la cible puis se fige
-  (état d'animation nettoyé).
-- `scroll_overshoot_rubber_bands_back_to_max` : une cible au-delà de `max` revient
-  exactement à `max`.
-- Total : **35 tests frus-widgets** + frus-demo + doctest.
+- `scroll_springs_to_target_and_settles`: the offset reaches the target and then
+  freezes (animation state cleaned up).
+- `scroll_overshoot_rubber_bands_back_to_max`: a target beyond `max` comes back
+  to exactly `max`.
+- Total: **35 frus-widgets tests** + frus-demo + the doctest.
 
-## Limites (v1)
+## Limits (v1)
 
-- Ressenti non réglé finement (pas de test interactif ici) ; constantes
-  conservatrices.
-- Pas d'inertie tactile vraie (entrée molette uniquement) — le jour où une entrée
-  tactile/trackpad avec vélocité arrive, on amorcera `scroll_velocity` directement.
+- The feel is not finely tuned (no interactive test here); conservative
+  constants.
+- No true touch inertia (wheel input only) — the day a touch or trackpad input
+  with a velocity arrives, we will seed `scroll_velocity` directly.

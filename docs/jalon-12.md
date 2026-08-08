@@ -1,52 +1,53 @@
-# Jalon 12 — Ombres, dégradés, scroll horizontal, barre & drag, animations de focus
+# Jalon 12 — Shadows, gradients, horizontal scrolling, scrollbar & drag, focus animations
 
-Un jalon large, livré en sous-étapes validées.
+A broad milestone, delivered as validated sub-steps.
 
-## A. Ombres + dégradés
-- `Primitive::Rect` enrichie : `color2` + `gradient_dir` (dégradé linéaire) et
-  `blur` (bord doux). `Scene::gradient_rect` et `Scene::shadow`.
-- Le fragment shader mélange `color`→`color2` selon `dir`, et adoucit le bord
-  sur `blur` pixels (ombre). `Container::gradient(end, dir)` et
+## A. Shadows + gradients
+- `Primitive::Rect` enriched: `color2` + `gradient_dir` (linear gradient) and
+  `blur` (soft edge). `Scene::gradient_rect` and `Scene::shadow`.
+- The fragment shader mixes `color`→`color2` along `dir`, and softens the edge
+  over `blur` pixels (the shadow). `Container::gradient(end, dir)` and
   `Container::shadow(dx, dy, blur, color)`.
 
-## B. Défilement horizontal
-- `Scroll::axis(Axis)` (`Vertical` / `Horizontal` / `Both`) ; offset désormais
-  `(x, y)`. Le contenu est mis en page libre sur le(s) axe(s) scrollable(s)
-  (`Layout::compute_scroll`). Molette + **Shift** = horizontal.
+## B. Horizontal scrolling
+- `Scroll::axis(Axis)` (`Vertical` / `Horizontal` / `Both`); the offset is now
+  `(x, y)`. The content is laid out freely on the scrollable axis or axes
+  (`Layout::compute_scroll`). Wheel + **Shift** = horizontal.
 
-## C. Barre de défilement visible + glissable
-- Piste + poignée dessinées par-dessus le contenu (non découpées), taille et
-  position proportionnelles. `Ui::scrollbar_at` ; le shell suit le **glissement**
-  de la poignée (premier drag).
+## C. Visible, draggable scrollbar
+- Track + thumb drawn over the content (not clipped), with proportional size and
+  position. `Ui::scrollbar_at`; the shell tracks the thumb **drag** (the first
+  drag).
 
-## D. Drag-sélection dans les champs
-- Clic-glissé étend la sélection (`Widget::cursor_at` + ancre) ; **double-clic**
-  sélectionne le mot (`Widget::word_at`). Suivi de drag générique (`Drag`).
+## D. Drag-selection in fields
+- Click-drag extends the selection (`Widget::cursor_at` + anchor);
+  **double-click** selects the word (`Widget::word_at`). Generic drag tracking
+  (`Drag`).
 
-## E. Animation de focus
-- `Runtime.anims` généralisé (`Anim { hover, focus }`) ; `Runtime::advance`
-  anime survol **et** focus. La bordure du `TextInput` grandit/colore en fondu au
+## E. Focus animation
+- `Runtime.anims` generalised (`Anim { hover, focus }`); `Runtime::advance`
+  animates hover **and** focus. The `TextInput`'s border grows and colours in on
   focus (`Status.focus_progress`).
 
-## Décisions & infra
+## Decisions & infrastructure
 
-- **Drag** : un état `Drag` côté shell (barre de défilement | sélection texte),
-  posé au `MouseDown`, appliqué au `CursorMoved`, effacé au `MouseUp`. Réutilisable.
-- **Clipping** : les barres sont dessinées avec le clip *extérieur* (elles ne
-  sont pas coupées par le contenu du viewport).
+- **Drag**: a `Drag` state on the shell side (scrollbar | text selection), set on
+  `MouseDown`, applied on `CursorMoved`, cleared on `MouseUp`. Reusable.
+- **Clipping**: the bars are drawn with the *outer* clip (they are not cut off by
+  the viewport's content).
 
 ## Tests
 
-- `Runtime` : `advance` (survol) et `focus_animates_independently`.
-- `TextInput` : `word_at_finds_word_bounds`.
-- (Les tests A–C sont validés visuellement + via le rendu offscreen existant du
-  shader, non régressé.)
+- `Runtime`: `advance` (hover) and `focus_animates_independently`.
+- `TextInput`: `word_at_finds_word_bounds`.
+- (Tests A–C are validated visually plus through the existing offscreen shader
+  rendering, which did not regress.)
 
-## Reporté (honnêtement)
+## Deferred (honestly)
 
-- **Apparition/disparition animée** (fondu au montage/démontage) : nécessite une
-  passe de reconciliation qui **retient les widgets « sortants »** le temps de la
-  transition + une opacité propagée à toutes les primitives (texte compris).
-  C'est un jalon à part entière ; signalé comme le plus risqué dès le départ.
-- Sélection multi-lignes, inertie de scroll, ombres physiquement floues
-  (gaussiennes) : hors périmètre v1.
+- **Animated appearance/disappearance** (fade on mount/unmount): needs a
+  reconciliation pass that **retains "outgoing" widgets** for the duration of the
+  transition, plus an opacity propagated to every primitive (text included). That
+  is a milestone in its own right; flagged as the riskiest one from the start.
+- Multi-line selection, scroll inertia, physically blurred (Gaussian) shadows:
+  out of scope for v1.

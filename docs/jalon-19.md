@@ -1,76 +1,80 @@
-# Jalon 19 — Transitions d'état · Geste retour · Overlay avancé
+# Jalon 19 — State transitions · Back gesture · Advanced overlay
 
-Trois raffinements d'interaction, construits en sous-lots buildés et testés.
+Three interaction refinements, built as sub-batches that were each built and
+tested.
 
-## Lot A — Overlay avancé
+## Batch A — Advanced overlay
 
-- **Auto-flip** : un overlay ancré (`Below` / `Tooltip`) qui déborderait d'un
-  bord de la fenêtre bascule de l'autre côté de l'ancre (vertical) ou est recalé
-  dans la fenêtre (horizontal). Logique dans `Builder::process_overlays`.
-- **Voile cliquable** : `Portal::dismiss(msg)` fait émettre `msg` au clic **hors**
-  du contenu d'une modale `Center`. Implémenté via un hit plein-écran ajouté
-  **avant** le contenu (donc battu par lui au recouvrement), exposé par
-  `Widget::overlay_dismiss`.
+- **Auto-flip**: an anchored overlay (`Below` / `Tooltip`) that would overflow an
+  edge of the window flips to the other side of the anchor (vertically) or is
+  nudged back inside the window (horizontally). The logic lives in
+  `Builder::process_overlays`.
+- **Clickable scrim**: `Portal::dismiss(msg)` emits `msg` when the click lands
+  **outside** the content of a `Center` modal. Implemented through a full-screen
+  hit added **before** the content (so the content beats it where they overlap),
+  exposed by `Widget::overlay_dismiss`.
 
-## Lot B — Transitions d'état animées
+## Batch B — Animated state transitions
 
-- **Glissement du Switch** : la pastille et la couleur de piste interpolent entre
-  off/on. Mécanisme générique : `Widget::anim_target() -> Option<f32>` déclare la
-  cible ; `Runtime::advance_values` fait tendre une valeur retenue (par identité)
-  vers elle et la restitue via `Status::value`. **Pas d'animation au montage**
-  (la valeur adopte directement la cible la première fois qu'on voit le widget).
-- **Fondu de thème** : `Theme::lerp(other, t)` interpole tous les tokens. Le shell
-  capture le thème sortant au basculement et mélange sortant → cible sur ~0,25 s.
+- **Switch sliding**: the knob and the track colour interpolate between off and
+  on. The generic mechanism: `Widget::anim_target() -> Option<f32>` declares the
+  target; `Runtime::advance_values` drives a retained value (by identity) towards
+  it and hands it back through `Status::value`. **No animation on mount** (the
+  value adopts the target directly the first time the widget is seen).
+- **Theme fade**: `Theme::lerp(other, t)` interpolates every token. The shell
+  captures the outgoing theme when the theme is flipped and blends outgoing →
+  target over ~0.25 s.
 
-## Lot C — Geste retour (swipe), ressenti natif
+## Batch C — Back gesture (swipe), with a native feel
 
-Glissement depuis le bord gauche (`BACK_EDGE` px) pour dépiler un écran, la
-transition suivant le doigt **1:1**, puis une détente physique.
+A drag from the left edge (`BACK_EDGE` px) pops a screen, the transition
+following the finger **1:1**, then a physical settle.
 
 ```
-Pressed (x < BACK_EDGE, pile non vide)  → Drag::Back ; BackGesture{ progress=0, velocity=0 }
-CursorMoved (drag)                      → progress = (x − start)/largeur
-                                          velocity = EMA de la vitesse du doigt (fraction/s)
-Released                                → projected = progress + velocity·BACK_PROJECT
-                                          settling = if projected > 0.5 { 1.0 } else { 0.0 }
-Redraw (settling)                       → ressort amorti amorcé par velocity :
-                                          a = K·(cible − p) − C·v ; v += a·dt ; p += v·dt
-                                          au repos près de la cible → termine (dépile si 1.0)
+Pressed (x < BACK_EDGE, stack non-empty) → Drag::Back ; BackGesture{ progress=0, velocity=0 }
+CursorMoved (drag)                       → progress = (x − start)/width
+                                           velocity = EMA of the finger's speed (fraction/s)
+Released                                 → projected = progress + velocity·BACK_PROJECT
+                                           settling = if projected > 0.5 { 1.0 } else { 0.0 }
+Redraw (settling)                        → damped spring started from velocity:
+                                           a = K·(target − p) − C·v ; v += a·dt ; p += v·dt
+                                           at rest near the target → finish (pop if 1.0)
 ```
 
-Trois ingrédients du **ressenti natif** :
+The three ingredients of the **native feel**:
 
-1. **Vélocité** — un *flick* rapide valide même à mi-course ; un arrêt lent sous
-   la moitié annule. Décision par **position projetée** (position + élan), façon iOS.
-2. **Détente à ressort** — au relâchement, la transition continue avec l'**élan
-   du doigt** en vitesse initiale, via un ressort quasi critique (`K=220`,
-   `C=30`) → arrivée douce sans dépassement, pas une rampe linéaire. **Le même
-   ressort pilote la navigation par bouton** (amorcé à vitesse 0 → *ease-out*),
-   pour un mouvement cohérent partout (`spring_step`).
-3. **Parallaxe + profondeur** (`Navigator`, partagé avec push/pop) — l'écran
-   arrière se déplace `NAV_PARALLAX=0.3×` moins vite, est rendu **derrière** (ordre
-   de profondeur corrigé) et **assombri** proportionnellement à son recouvrement.
+1. **Velocity** — a quick *flick* commits even from halfway; a slow stop below
+   the halfway point cancels. The decision is made on the **projected position**
+   (position + momentum), as iOS does.
+2. **Spring settle** — on release, the transition carries on with the **finger's
+   momentum** as its initial velocity, through a near-critically-damped spring
+   (`K=220`, `C=30`) → a soft arrival with no overshoot, rather than a linear
+   ramp. **The same spring drives button navigation** (started at velocity 0 → an
+   *ease-out*), so the motion is consistent everywhere (`spring_step`).
+3. **Parallax + depth** (`Navigator`, shared with push/pop) — the back screen
+   moves `NAV_PARALLAX=0.3×` slower, is rendered **behind** (corrected depth
+   order) and is **darkened** in proportion to how much of it is covered.
 
-La prévisualisation réutilise le `Navigator` (pop : écran courant sortant à
-droite, écran inférieur entrant depuis la gauche), **sans modifier la pile de
-routes** tant que le geste n'est pas validé ; le dépilement n'a lieu qu'à la fin
-de la détente de validation.
+The preview reuses the `Navigator` (pop: the current screen leaving to the right,
+the screen below entering from the left), **without modifying the route stack**
+until the gesture commits; the pop only happens at the end of the committing
+settle.
 
 ## Tests
 
-- `Theme::lerp` atteint ses bornes et diffère au milieu.
-- `advance_values` : adopte la cible au montage, anime au changement, oublie les
-  widgets disparus.
-- Un clic sur le voile d'une modale `Center` renvoie le message de fermeture.
-- Pop à mi-course : l'écran arrière est parallaxé (offset comprimé vers 0) et
-  rendu derrière l'écran sortant.
-- (24 tests antérieurs conservés → **28** au total.)
+- `Theme::lerp` reaches its bounds and differs in the middle.
+- `advance_values`: adopts the target on mount, animates on change, forgets
+  widgets that have gone.
+- A click on a `Center` modal's scrim returns the dismiss message.
+- A pop halfway through: the back screen is parallaxed (offset compressed towards
+  0) and rendered behind the outgoing screen.
+- (The 24 earlier tests are kept → **28** in total.)
 
-## Limites (v1)
+## Limits (v1)
 
-- Auto-flip : bascule/recadrage simples, pas de repositionnement fin (coins).
-- Geste retour : zone de bord fixe en px physiques ; peut chevaucher un contrôle
-  très à gauche.
-- Le fondu de thème reconstruit un `Theme` mélangé par frame (peu coûteux).
-- Mouvement unifié sur `spring_step` (geste + bouton) ; le fondu de thème et les
-  transitions hover/focus gardent, eux, leur propre rampe (non ressort).
+- Auto-flip: simple flipping and nudging, no fine repositioning (corners).
+- Back gesture: a fixed edge zone in physical px; it can overlap a control placed
+  far to the left.
+- The theme fade rebuilds a blended `Theme` per frame (cheap).
+- Motion unified on `spring_step` (gesture + button); the theme fade and the
+  hover/focus transitions keep their own ramp (not a spring).
