@@ -1,14 +1,14 @@
-# Démarrer une application frus
+# Starting a frus application
 
-frus reste **cargo-natif** : pas d'outil propriétaire, pas de CLI maison.
-`cargo run` / `cargo test` / `cargo apk run` suffisent.
+frus stays **cargo-native**: no proprietary tooling, no in-house CLI.
+`cargo run` / `cargo test` / `cargo apk run` are all you need.
 
-## La plus petite application
+## The smallest application
 
-Une app frus, c'est le modèle Elm au complet : une struct d'état, un `update`
-**pur**, une `view`. L'exemple canonique vit dans
-[`crates/frus-hello`](../crates/frus-hello/src/lib.rs) (~60 lignes, un
-compteur) — copiez-le, ou générez un projet neuf avec le template ci-dessous.
+A frus app is the Elm model in full: a state struct, a **pure** `update`, and a
+`view`. The canonical example lives in
+[`crates/frus-hello`](../crates/frus-hello/src/lib.rs) (~60 lines, a counter) —
+copy it, or generate a fresh project with the template below.
 
 ```rust
 impl Application for Counter {
@@ -21,49 +21,49 @@ impl Application for Counter {
 }
 ```
 
-Lancer sur bureau :
+Run it on the desktop:
 
 ```sh
 cargo run -p frus-hello
 ```
 
-## Générer un nouveau projet (`cargo generate`)
+## Generating a new project (`cargo generate`)
 
-Le template [`templates/app`](../templates/app) produit un projet frus prêt à
-lancer (bureau + Android).
+The [`templates/app`](../templates/app) template produces a frus project that
+runs as-is (desktop + Android).
 
 ```sh
-cargo install cargo-generate          # une seule fois
+cargo install cargo-generate          # once
 cargo generate --path templates/app --name my-app
 cd my-app
 cargo run
 ```
 
-`cargo generate` demande le **chemin de votre checkout frus** (celui qui
-contient `crates/`) — c'est là que le `Cargo.toml` généré pointe ses
-dépendances, tant que frus n'est pas publié sur crates.io. Une fois publié,
-les dépendances deviendront de simples `frus-shell = "0.1"`.
+`cargo generate` asks for the **path to your frus checkout** (the one that
+contains `crates/`) — that is where the generated `Cargo.toml` points its
+dependencies, for as long as frus is unpublished. Once it is on crates.io those
+dependencies become plain `frus-shell = "0.1"`.
 
 ## Android
 
-Le template inclut le point d'entrée `android_main` et les métadonnées
-`cargo-apk`. Depuis le projet généré :
+The template includes the `android_main` entry point and the `cargo-apk`
+metadata. From the generated project:
 
 ```sh
-cargo install cargo-apk              # une seule fois
-cargo apk run                        # build + install + lance sur l'appareil
+cargo install cargo-apk              # once
+cargo apk run                        # build + install + launch on the device
 ```
 
-Prérequis Android : SDK + NDK installés, `ANDROID_HOME`/`ANDROID_NDK_ROOT`
-définis, un appareil branché (`adb devices`).
+Android prerequisites: SDK + NDK installed, `ANDROID_HOME`/`ANDROID_NDK_ROOT`
+set, and a device connected (`adb devices`).
 
-## Tester
+## Testing
 
-`update` étant pur, la logique se teste **sans GPU ni fenêtre** :
+Because `update` is pure, the logic is testable **without a GPU or a window**:
 
 ```sh
 cargo test
 ```
 
-Pour les tests de rendu (snapshots/goldens), voir
+For rendering tests (snapshots/goldens), see
 [`frus-test`](../crates/frus-test/src/lib.rs).

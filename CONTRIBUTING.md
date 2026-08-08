@@ -99,22 +99,22 @@ A milestone note follows the shape the existing ones use:
 ```markdown
 # Jalon N — <title>
 
-## Objectif
+## Goal
 Why this step, what problem it solves, why it comes now.
 
-## API           (or: Le type / Architecture)
+## API           (or: The type / Architecture)
 The public surface, with code.
 
-## Décisions techniques
+## Technical decisions
 Alternatives considered, their trade-offs, and why this one won.
 
-## Implémentation
+## Implementation
 What changed, crate by crate.
 
-## Vérification
+## Verification
 How it was tested. What's green.
 
-## Reste
+## What's left
 What this deliberately leaves for later.
 ```
 
