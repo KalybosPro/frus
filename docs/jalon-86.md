@@ -1,65 +1,65 @@
-# Jalon 86 — Localisation (i18n/l10n) : Fluent
+# Jalon 86 — Localisation (i18n/l10n): Fluent
 
-## Analyse
+## Analysis
 
-Le §14 recommande : *intégrez **Fluent** (`fluent-rs`, le standard i18n Rust de
-Mozilla) pour les messages, pluriels et sélections par locale. Ne réinventez
-pas.* frus fournit donc un **localiseur** clé en main, sans imposer de format
-maison.
+§14 recommends: *integrate **Fluent** (`fluent-rs`, Mozilla's Rust i18n
+standard) for messages, plurals and per-locale selections. Do not reinvent it.*
+So frus provides a ready-made **localiser**, without imposing a home-grown
+format.
 
 ## Architecture
 
-Nouveau crate **`frus-l10n`** (enveloppe `fluent-bundle`) :
+A new crate **`frus-l10n`** (a wrapper over `fluent-bundle`):
 
-- `Localizer` : des `FluentBundle` **concurrents** (mémoïseur derrière un
-  `Mutex` → `Send + Sync`, donc plaçable dans un `static`/`OnceLock` côté app),
-  une locale courante et une locale par défaut (le repli ultime).
-- `add(locale, ftl)` : charge une ressource `.ftl` (l'app les embarque via
+- `Localizer`: **concurrent** `FluentBundle`s (a memoiser behind a `Mutex` →
+  `Send + Sync`, so it can live in a `static`/`OnceLock` on the app side), a
+  current locale and a default locale (the ultimate fallback).
+- `add(locale, ftl)`: loads a `.ftl` resource (the app bundles them through
   `include_str!`).
-- `set_locale(locale)` : **négociation** maison, sans dépendance lourde —
-  correspondance exacte (`fr-FR`) puis par langue (`fr-CA` → `fr`), sinon la
-  locale par défaut.
-- `format(key, args![…])` (locale courante) et `format_for(locale, key, args)`
-  (locale explicite, **non mutant** → idéal pour une `view` pure).
-- Repli à trois niveaux : locale demandée → défaut → **la clé brute** (un
-  message manquant se voit sans casser l'UI).
-- Macro `args![name: "Ada", n: 3]` : arguments texte/nombre ; les nombres
-  pilotent les **pluriels CLDR** (`intl_pluralrules`, gratuit avec Fluent).
+- `set_locale(locale)`: **negotiation** written in-house, with no heavy
+  dependency — an exact match (`fr-FR`), then by language (`fr-CA` → `fr`), and
+  otherwise the default locale.
+- `format(key, args![…])` (the current locale) and `format_for(locale, key,
+  args)` (an explicit locale, **non-mutating** → ideal for a pure `view`).
+- A three-level fallback: the requested locale → the default → **the raw key** (a
+  missing message shows up without breaking the UI).
+- The `args![name: "Ada", n: 3]` macro: text and number arguments; the numbers
+  drive the **CLDR plurals** (`intl_pluralrules`, free with Fluent).
 
-Isolation bidi désactivée (`set_use_isolating(false)`) : sortie lisible et
-testable ; la direction RTL est gérée à la mise en page (`Theme::direction`,
-J84), pas par des marques dans le texte.
+Bidi isolation disabled (`set_use_isolating(false)`): legible and testable
+output; RTL direction is handled at layout time (`Theme::direction`, J84), not
+through marks in the text.
 
-## Décisions
+## Decisions
 
-- **Négociation maison** plutôt que `fluent-langneg` : `LanguageIdentifier`
-  n'implémente pas `AsRef<Self>` (friction d'API), et la règle exacte→langue
-  suffit et se teste en quelques lignes — une dépendance de moins.
-- **Bundle concurrent** obligatoire : le bundle simple est `!Sync`, or l'app le
-  veut dans un `OnceLock` global.
+- **In-house negotiation** rather than `fluent-langneg`: `LanguageIdentifier`
+  does not implement `AsRef<Self>` (API friction), and the exact→language rule is
+  sufficient and testable in a few lines — one dependency fewer.
+- A **concurrent bundle** is mandatory: the simple bundle is `!Sync`, and the app
+  wants it in a global `OnceLock`.
 
-## Démo
+## Demo
 
-`frus-demo` embarque `i18n/en.ftl` + `i18n/fr.ftl`, un `OnceLock<Localizer>`
-chargé une fois, une action de menu **English ↔ Français**, et localise le
-titre de l'AppBar, les segments de filtre, et le résumé (compteurs
-**pluralisés** : « 3 tasks / 3 tâches », « No tasks / Aucune tâche »).
+`frus-demo` bundles `i18n/en.ftl` + `i18n/fr.ftl`, an `OnceLock<Localizer>`
+loaded once, an **English ↔ Français** menu action, and localises the AppBar's
+title, the filter segments, and the summary (**pluralised** counters: "3 tasks /
+3 tâches", "No tasks / Aucune tâche").
 
 ## Tests (296 → 302)
 
-- `frus-l10n` : arguments, **pluriels par locale** (en : 1 task / 5 tasks ; fr :
-  1 tâche / 3 tâches), négociation région→langue (`fr-CA` → `fr`), repli
-  défaut-puis-clé, locale inconnue → défaut. + doctest.
-- 23 suites vertes.
+- `frus-l10n`: arguments, **per-locale plurals** (en: 1 task / 5 tasks; fr:
+  1 tâche / 3 tâches), region→language negotiation (`fr-CA` → `fr`), the
+  default-then-key fallback, an unknown locale → the default. + a doctest.
+- 23 suites green.
 
-## Validé sur l'appareil
+## Validated on the device
 
-Action « Français » → titre **« Mes tâches »**, filtres
-**« Toutes / Actives / Terminées »** (messages Fluent résolus en français) ;
-retour « English » → anglais. ✔
+The "Français" action → the title **"Mes tâches"**, the filters
+**"Toutes / Actives / Terminées"** (Fluent messages resolved in French); back to
+"English" → English. ✔
 
-## Reste
+## What's left
 
-- Formatage **dates/nombres** par locale (fonction `DATETIME`/`NUMBER` Fluent) —
-  à brancher quand un consommateur le réclame.
-- Sélection auto de la locale système au démarrage.
+- Per-locale **date and number** formatting (Fluent's `DATETIME`/`NUMBER`
+  functions) — to be wired up when a consumer calls for it.
+- Automatic selection of the system locale at start-up.

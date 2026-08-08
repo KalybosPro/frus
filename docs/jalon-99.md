@@ -1,63 +1,63 @@
-# Jalon 99 — `AnimatedContainer` : rayon de coin animé
+# Jalon 99 — `AnimatedContainer`: animated corner radius
 
-## Analyse
+## Analysis
 
-Après la taille (J98, layout) et la couleur (J97, paint), la dernière propriété
-« signature » d'`AnimatedContainer` : le **rayon des coins**. Comme la couleur,
-c'est une propriété **picturale** (elle ne touche pas la disposition), donc elle
-suit le même chemin léger que la couleur — livrée au paint via `Status`, sans
-toucher au layout ni à son cache.
+After the size (J98, layout) and the colour (J97, paint), the last "signature"
+property of `AnimatedContainer`: the **corner radius**. Like colour, it is a
+**pictorial** property (it does not affect layout), so it follows the same light
+path as colour — delivered at paint time through `Status`, without touching layout
+or its cache.
 
-## Décisions techniques
+## Technical decisions
 
-- **Timeline par coin.** Le runtime garde une [`RadiusAnim`]
-  `{ current, from, to, elapsed }` par nœud, tweenée par `advance_radii` sur le
-  **même modèle** que couleur/taille (rebase au changement, snap au montage,
-  courbe/durée du widget). Interpolation **coin par coin** (`BorderRadius` = 4
-  rayons).
+- **A per-corner timeline.** The runtime keeps a [`RadiusAnim`]
+  `{ current, from, to, elapsed }` per node, tweened by `advance_radii` on the
+  **same model** as colour and size (rebasing on a change, snapping on mount, the
+  widget's curve and duration). The interpolation is done **corner by corner** (a
+  `BorderRadius` = 4 radii).
 
-- **Livraison au paint, `Status` reste `Copy`.** `Status::anim_radius:
-  Option<BorderRadius>` (`BorderRadius` est `Copy`) — comme `anim_color`, aucun
-  `Vec`, donc `Status` demeure `Copy` et aucun site d'appel de `paint` ne casse.
-  La marche y place le rayon interpolé (`Runtime::anim_radius(id)`).
+- **Delivery at paint time, `Status` stays `Copy`.** `Status::anim_radius:
+  Option<BorderRadius>` (`BorderRadius` is `Copy`) — like `anim_color`, with no
+  `Vec`, so `Status` remains `Copy` and no `paint` call site breaks. The walk puts
+  the interpolated radius there (`Runtime::anim_radius(id)`).
 
-- **`Container` API** : `.animated_radius(radius, duration, curve)` — uniforme via
-  `f32` ou par coin via [`BorderRadius`] (comme `.radius`). Au paint, un rayon
-  animé **prime** sur le rayon fixe. Toutes les animations d'une même boîte
-  (opacité/couleur/taille/rayon) partagent une `(durée, courbe)`.
+- **`Container` API**: `.animated_radius(radius, duration, curve)` — uniform
+  through an `f32` or per corner through a [`BorderRadius`] (as with `.radius`).
+  At paint time, an animated radius **wins** over the fixed radius. All of a box's
+  animations (opacity/colour/size/radius) share one `(duration, curve)`.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets` : `Runtime` (`RadiusAnim`, `radii`, `anim_radius`,
-  `advance_radii`, `lerp_radius`) ; trait `anim_radius()` + forwarders
-  (`Box`/`Keyed`/`Responsive`) ; `Status::anim_radius` ; `Container.animated_radius`
-  + paint ; `ui::full_status` livre le rayon.
-- `frus-shell` : `advance_radii` dans la boucle d'animation.
+- `frus-widgets`: `Runtime` (`RadiusAnim`, `radii`, `anim_radius`,
+  `advance_radii`, `lerp_radius`); the `anim_radius()` trait method + forwarders
+  (`Box`/`Keyed`/`Responsive`); `Status::anim_radius`;
+  `Container.animated_radius` + paint; `ui::full_status` delivers the radius.
+- `frus-shell`: `advance_radii` in the animation loop.
 
 ## Tests
 
-- `animated_radius_tweens_between_frames` (runtime) : snap au montage (0), tween
-  linéaire 0→20 (mi-parcours ≈ 10 par coin), oubli du widget disparu.
-- `animated_radius_paints_the_interpolated_radius` (scène) : à mi-parcours, le
-  **rectangle de fond peint** porte le rayon interpolé (~10) — chaîne runtime →
-  `Status` → paint → scène.
-- Suites existantes vertes : chemin inerte sans `animated_radius`.
+- `animated_radius_tweens_between_frames` (runtime): snapping on mount (0), a
+  linear 0→20 tween (halfway ≈ 10 per corner), forgetting a widget that has gone.
+- `animated_radius_paints_the_interpolated_radius` (scene): halfway through, the
+  **painted background rectangle** carries the interpolated radius (~10) — the
+  runtime → `Status` → paint → scene chain.
+- The existing suites green: the path is inert without `animated_radius`.
 
-## Bilan `AnimatedContainer`
+## `AnimatedContainer` scorecard
 
-Les quatre propriétés « signature » de Flutter sont désormais animables sur
-`Container`, par la même infrastructure de timeline courbée (J95) :
+The four "signature" properties are now animatable on `Container`, through the
+same curved-timeline infrastructure (J95):
 
-| Propriété | Chemin        | Jalon |
-|-----------|---------------|-------|
-| opacité   | calque (GPU)  | J96   |
-| couleur   | paint/`Status`| J97   |
-| taille    | layout/`effective_style` | J98 |
-| rayon     | paint/`Status`| J99   |
+| Property | Path                     | Milestone |
+|----------|--------------------------|-----------|
+| opacity  | layer (GPU)              | J96       |
+| colour   | paint/`Status`           | J97       |
+| size     | layout/`effective_style` | J98       |
+| radius   | paint/`Status`           | J99       |
 
-## Reste
+## What's left
 
-- Padding/marge animés (injection au layout, comme la taille).
-- Widgets **nommés** `AnimatedContainer`/`Opacity`/`AnimatedOpacity` (sucre au-
-  dessus de `Container`).
-- `Tween` typés génériques ; animations pilotées explicitement (contrôleur).
+- Animated padding/margin (injection at layout time, like the size).
+- **Named** `AnimatedContainer`/`Opacity`/`AnimatedOpacity` widgets (sugar over
+  `Container`).
+- Generic typed `Tween`s; explicitly driven animations (a controller).

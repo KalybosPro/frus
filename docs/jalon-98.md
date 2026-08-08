@@ -1,68 +1,70 @@
-# Jalon 98 — `AnimatedContainer` : taille animée (au layout)
+# Jalon 98 — `AnimatedContainer`: animated size (at layout)
 
-## Analyse
+## Analysis
 
-J97 a livré la couleur animée (propriété **picturale**, layout-free). La moitié
-manquante d'`AnimatedContainer` est **géométrique** : animer la **taille**. C'est
-plus profond, car une propriété de **disposition** doit être connue **au moment
-du layout** (taffy lit `style()` *avant* la peinture), pas seulement au paint.
+J97 delivered animated colour (a **pictorial**, layout-free property). The other
+half of `AnimatedContainer` is **geometric**: animating the **size**. That runs
+deeper, because a **layout** property has to be known **at layout time** (taffy
+reads `style()` *before* painting), not only at paint time.
 
-## Décisions techniques
+## Technical decisions
 
-- **Injection par un `effective_style` unique.** La clé : `build_layout` (qui
-  construit l'arbre taffy) **et** `hash_node` (l'empreinte du cache de relayout)
-  appellent tous deux `widget.style()`. On remplace ces appels par un
-  [`effective_style(widget, id, runtime)`] commun : le `style()` du widget, dont
-  la **taille est remplacée par la taille interpolée** du runtime si le widget est
-  animé. Comme les deux chemins partagent cette source, ils restent
-  **automatiquement cohérents** — et l'empreinte **change tant que la taille
-  bouge**, invalidant le cache frame après frame (relayout pendant l'animation,
-  puis re-cache une fois figée). Aucune divergence possible.
+- **Injection through a single `effective_style`.** The key: `build_layout` (which
+  builds the taffy tree) **and** `hash_node` (the relayout cache's signature) both
+  call `widget.style()`. Those calls are replaced by a shared
+  [`effective_style(widget, id, runtime)`]: the widget's `style()`, with its
+  **size replaced by the runtime's interpolated size** if the widget is animated.
+  Since both paths share that source, they stay **automatically consistent** — and
+  the signature **changes for as long as the size moves**, invalidating the cache
+  frame after frame (relayout during the animation, then re-caching once it
+  settles). No divergence is possible.
 
-- **Runtime : timeline de taille.** [`SizeAnim`] `{ current, from, to, elapsed }`
-  par nœud, tweenée par `advance_sizes` sur le **même modèle** que valeur/couleur
-  (rebase au changement, snap au montage, courbe/durée du widget) — interpolation
-  linéaire par composante (largeur/hauteur).
+- **Runtime: a size timeline.** A [`SizeAnim`] `{ current, from, to, elapsed }`
+  per node, tweened by `advance_sizes` on the **same model** as value and colour
+  (rebasing on a change, snapping on mount, the widget's curve and duration) —
+  linear interpolation per component (width/height).
 
-- **Identités alignées.** `build_layout` et `hash_node` propagent désormais l'`id`
-  via `child_id`, **exactement** comme la marche de peinture — indispensable pour
-  que la taille animée d'un nœud atterrisse sur le bon rectangle.
+- **Identities aligned.** `build_layout` and `hash_node` now propagate the `id`
+  through `child_id`, **exactly** as the paint walk does — indispensable for a
+  node's animated size to land on the right rectangle.
 
-- **`Container` API** : `.animated_size(width, height, duration, curve)` ; trait
-  `Widget::anim_size() -> Option<Size>` (cible) + forwarders. Opacité/couleur/
-  taille d'une même boîte partagent une `(durée, courbe)`.
+- **`Container` API**: `.animated_size(width, height, duration, curve)`; the trait
+  method `Widget::anim_size() -> Option<Size>` (the target) + forwarders. A box's
+  opacity, colour and size share one `(duration, curve)`.
 
-## Portée & limites
+## Scope & limits
 
-- Un widget mis en page **à part** (défilable/pile/navigateur/liste = feuille dans
-  `build_layout`) n'anime pas sa taille par ce chemin (limite assumée) ; les
-  conteneurs de flux normaux, si.
-- La taille animée **défait le cache de relayout pendant l'animation** (par
-  construction : la géométrie change à chaque frame) — comme Flutter. Une fois
-  figée, le cache reprend.
+- A widget laid out **separately** (scrollable/stack/navigator/list = a leaf in
+  `build_layout`) does not animate its size through this path (an accepted limit);
+  normal flow containers do.
+- An animated size **defeats the relayout cache during the animation** (by
+  construction: the geometry changes every frame) — as it does in any comparable
+  engine. Once settled, the cache resumes.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets` : `Runtime` (`SizeAnim`, `sizes`, `anim_size`, `advance_sizes`) ;
-  trait `anim_size()` + forwarders ; `ui::effective_style` + `build_layout`
-  (id/runtime) ; `relayout` (`rects`/`compute_rects`/`layout_signature`/`hash_node`
-  threadés) ; `Container.animated_size`.
-- `frus-shell` : `advance_sizes` dans la boucle (avant `build_ui`, donc la taille
-  est prête **au layout**).
+- `frus-widgets`: `Runtime` (`SizeAnim`, `sizes`, `anim_size`, `advance_sizes`);
+  the `anim_size()` trait method + forwarders; `ui::effective_style` +
+  `build_layout` (id/runtime); `relayout`
+  (`rects`/`compute_rects`/`layout_signature`/`hash_node` threaded);
+  `Container.animated_size`.
+- `frus-shell`: `advance_sizes` in the loop (before `build_ui`, so the size is
+  ready **at layout time**).
 
 ## Tests
 
-- `animated_size_tweens_between_frames` (runtime) : snap au montage (20×20), tween
-  linéaire → 40×40 (mi-parcours ≈ 30×30), oubli du widget disparu.
-- `animated_size_drives_the_layout` (bout en bout) : à mi-parcours, le **rectangle
-  de fond peint** mesure ~30×30 — preuve que la taille interpolée traverse
-  `runtime → effective_style → taffy → rects → paint`.
-- Cache de relayout : signatures/hits inchangés sans animation (`effective_style`
-  = `style()`), donc goldens et suites existantes **intacts**.
+- `animated_size_tweens_between_frames` (runtime): snapping on mount (20×20), a
+  linear tween → 40×40 (halfway ≈ 30×30), forgetting a widget that has gone.
+- `animated_size_drives_the_layout` (end to end): halfway through, the **painted
+  background rectangle** measures ~30×30 — proof that the interpolated size
+  crosses `runtime → effective_style → taffy → rects → paint`.
+- The relayout cache: signatures and hits unchanged with no animation
+  (`effective_style` = `style()`), so goldens and the existing suites are
+  **intact**.
 
-## Reste
+## What's left
 
-- Padding/rayon/marge animés (même mécanique d'injection au layout).
-- Widgets nommés `AnimatedContainer`/`Opacity`/`AnimatedOpacity` (sucre au-dessus
-  de `Container`).
-- `Tween` typés génériques ; animations pilotées explicitement (contrôleur).
+- Animated padding/radius/margin (the same layout-injection mechanics).
+- Named `AnimatedContainer`/`Opacity`/`AnimatedOpacity` widgets (sugar over
+  `Container`).
+- Generic typed `Tween`s; explicitly driven animations (a controller).

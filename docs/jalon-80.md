@@ -1,53 +1,53 @@
-# Jalon 80 — Clavier logiciel Android (ouverture du chantier saisie §6)
+# Jalon 80 — Android soft keyboard (opening the §6 input work)
 
-## Analyse
+## Analysis
 
-Constat on-device (session J74+) : le clavier logiciel ne s'ouvre jamais, et
-la saisie ne semble pas atteindre les champs. Enquête dans les sources :
+An on-device observation (the J74+ session): the soft keyboard never opens, and
+input does not seem to reach the fields. Investigating in the sources:
 
-- **winit 0.30 Android mappe déjà les caractères** : chaque `KeyEvent` passe
-  par le `KeyCharacterMap` du périphérique (JNI, avec combinaison des touches
-  mortes) → `Key::Character` — le chemin d'édition existant du shell
-  (desktop) est donc **déjà branché** pour les événements clavier Android.
-  L'échec observé venait vraisemblablement de l'absence de focus (le champ
-  n'avait jamais été touché) — à confirmer sur device.
-- **Le clavier ne s'ouvre pas** car personne ne le demande : NativeActivity
-  n'a pas d'`InputConnection`, il faut appeler `InputMethodManager` — exposé
-  par `android-activity` via `AndroidApp::show_soft_input`/`hide_soft_input`
-  (l'approche egui/game-activity).
+- **winit 0.30 on Android already maps characters**: each `KeyEvent` goes
+  through the device's `KeyCharacterMap` (JNI, with dead-key composition) →
+  `Key::Character` — so the shell's existing (desktop) editing path is **already
+  wired** for Android key events. The observed failure most likely came from
+  there being no focus (the field had never been tapped) — to be confirmed on the
+  device.
+- **The keyboard does not open** because nobody asks it to: NativeActivity has no
+  `InputConnection`, so `InputMethodManager` has to be called — exposed by
+  `android-activity` through `AndroidApp::show_soft_input`/`hide_soft_input`
+  (the egui/game-activity approach).
 
-## Implémentation
+## Implementation
 
-`frus-shell` : `sync_soft_input()` appelée en fin de frame (tout changement de
-focus redessine déjà) — le clavier est **demandé quand le focus est dans un
-champ texte** (`cursor_at` → `Some`, le même critère que les flèches), refermé
-sinon (blur, Escape, retour, fermeture de modale…). Transitions dédupliquées
-(`soft_input_shown`). No-op compilé hors Android.
+`frus-shell`: `sync_soft_input()` called at the end of the frame (any focus
+change already redraws) — the keyboard is **requested when focus is inside a text
+field** (`cursor_at` → `Some`, the same criterion as the arrows), and closed
+otherwise (blur, Escape, back, a modal closing…). Transitions are deduplicated
+(`soft_input_shown`). Compiled as a no-op off Android.
 
-## Limites connues (la suite du chantier §6)
+## Known limits (the rest of the §6 work)
 
-- Mode `TYPE_NULL` : sans `InputConnection`, l'IME envoie des **key events**
-  — suffisant pour du texte latin (Gboard le gère), mais pas de composition
-  (suggestions, swipe, voix, émojis riches, CJK). Le palier suivant est un
-  `InputConnection` JNI + événements de composition (le vrai FFI §6).
-- L'évitement du clavier (J74, `view_insets`) se validera dans la foulée.
+- `TYPE_NULL` mode: with no `InputConnection`, the IME sends **key events** —
+  enough for Latin text (Gboard handles it), but with no composition
+  (suggestions, swipe, voice, rich emoji, CJK). The next stage is a JNI
+  `InputConnection` + composition events (the real §6 FFI).
+- Keyboard avoidance (J74, `view_insets`) will be validated in the same pass.
 
-## Validation on-device (STK-L21, IME SwiftKey) — et deux correctifs
+## On-device validation (STK-L21, SwiftKey IME) — and two fixes
 
-- Tap sur le champ → **le clavier monte** et le contenu **s'écarte au-dessus**
-  (première preuve réelle de l'évitement clavier du J74). Blur → refermé.
-- Deux bugs réels débusqués par la saisie injectée (`adb input text`) :
-  1. **Rafales de touches** : des frappes plus rapprochées qu'une frame
-     s'appliquaient sur l'arbre **retenu** (valeur du champ en retard d'une
-     frame) — chaque frappe écrasait la précédente (« Hello » → « o »).
-     Fix : `apply_key` rafraîchit l'arbre (`view`) sitôt le message d'édition
-     dispatché ; `build_dirty` reste levé pour la passe complète suivante.
-  2. **Entrée Android** arrive en `Character("\n")` (KeyCharacterMap), pas en
-     `Named(Enter)` → elle s'insérait comme texte au lieu de soumettre.
-     Fix : `"\n"`/`"\r"` mappés sur `Key::Enter` (répétition non re-soumise).
-- Après correctifs : « World » arrive entier (majuscule via méta Maj incluse),
-  Entrée ajoute la tâche et vide le champ. ✔
-- Artefacts d'injection (pas des bugs frus) : clavier **ouvert**, SwiftKey
-  consomme une partie des événements injectés (connexion nulle) — la vraie
-  saisie utilisateur passe par l'IME lui-même ; et `adb input text` s'arrête
-  au premier espace (utiliser `%s`).
+- Tapping the field → **the keyboard comes up** and the content **moves above
+  it** (the first real proof of J74's keyboard avoidance). Blur → closed.
+- Two real bugs flushed out by injected input (`adb input text`):
+  1. **Key bursts**: keystrokes closer together than a frame were being applied
+     to the **retained** tree (the field's value a frame behind) — so each
+     keystroke overwrote the previous one ("Hello" → "o"). Fix: `apply_key`
+     refreshes the tree (`view`) as soon as the edit message is dispatched;
+     `build_dirty` stays raised for the next full pass.
+  2. **Android's Enter** arrives as `Character("\n")` (KeyCharacterMap), not as
+     `Named(Enter)` → so it was being inserted as text instead of submitting.
+     Fix: `"\n"`/`"\r"` mapped onto `Key::Enter` (a repeat is not re-submitted).
+- After the fixes: "World" arrives whole (including the capital through the Shift
+  meta key), and Enter adds the task and clears the field. ✔
+- Injection artefacts (not frus bugs): with the keyboard **open**, SwiftKey
+  consumes some of the injected events (a null connection) — real user input goes
+  through the IME itself; and `adb input text` stops at the first space (use
+  `%s`).

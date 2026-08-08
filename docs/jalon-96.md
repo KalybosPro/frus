@@ -1,71 +1,70 @@
-# Jalon 96 — Opacité de groupe & `AnimatedOpacity`
+# Jalon 96 — Group opacity & `AnimatedOpacity`
 
-## Analyse
+## Analysis
 
-L'arc J92→95 avait posé toutes les pièces : calques GPU composités
-([`Primitive::Layer`], J92), cache de calques (J94) et animations implicites
-courbées (J95). Manquait le **widget** qui les réunit : `Opacity` /
-`AnimatedOpacity` de Flutter — appliquer une opacité à **tout un sous-arbre d'un
-bloc** (et l'animer). C'était le dernier « reste » explicite de J92 (« intégrer un
-widget Opacity dans le walk, comme `RepaintBoundary` »).
+The J92→95 arc had laid down all the pieces: composited GPU layers
+([`Primitive::Layer`], J92), a layer cache (J94) and curved implicit animations
+(J95). What was missing was the **widget** that brings them together:
+`Opacity` / `AnimatedOpacity` — applying an opacity to **a whole subtree as one
+piece** (and animating it). It was J92's last explicit "what's left" ("integrate
+an Opacity widget into the walk, like `RepaintBoundary`").
 
-Fondre un sous-arbre **primitive par primitive** (`push_faded`) recréerait le
-double-blend que J92 corrige sur les chevauchements. La bonne réponse est le
-`saveLayer` de Flutter : rendre le groupe sur un calque, composer le calque entier
-à l'opacité voulue.
+Fading a subtree **primitive by primitive** (`push_faded`) would recreate the
+double-blend that J92 fixes on overlaps. The right answer is a save-layer: render
+the group onto a layer, then compose the whole layer at the wanted opacity.
 
-## Décisions techniques
+## Technical decisions
 
-- **Plié dans `Container`** (idiome du framework, comme `repaint_boundary`) plutôt
-  qu'un wrapper transparent : un wrapper « adopte » le nœud de son enfant et son
-  scalaire d'animation entrerait en collision avec un enfant animé. `Container`
-  gagne `.opacity(o)` (fixe) et `.animated_opacity(o, duration, curve)` (animée) —
-  layout prouvé, un nœud propre, un scalaire propre. Aucun nouveau nœud de
-  disposition surprise.
+- **Folded into `Container`** (the framework's idiom, like `repaint_boundary`)
+  rather than a transparent wrapper: a wrapper "adopts" its child's node, and its
+  animation scalar would collide with an animated child. `Container` gains
+  `.opacity(o)` (fixed) and `.animated_opacity(o, duration, curve)` (animated) — a
+  proven layout, its own node, its own scalar. No surprise layout node.
 
-- **Nouveau point du trait** `Widget::opacity_group() -> Option<f32>` (défaut
-  `None`) : renvoie l'opacité **cible** du groupe. Combiné à `anim_target`
-  (opacité animée, J95), le fondu se déroule tout seul via `advance_values`.
-  Forwardé par les wrappers (`Box`, `Keyed`, `Responsive`).
+- **A new trait point**, `Widget::opacity_group() -> Option<f32>` (default
+  `None`): it returns the group's **target** opacity. Combined with `anim_target`
+  (animated opacity, J95), the fade runs on its own through `advance_values`.
+  Forwarded by the wrappers (`Box`, `Keyed`, `Responsive`).
 
-- **Drainage dans la marche de peinture** ([`crate::ui`]). À la rencontre d'un
-  groupe : on peint le sous-arbre normalement dans la scène, puis on **draine** sa
-  plage de primitives ([`Scene::split_off`]) dans un unique `Primitive::Layer` à
-  l'opacité de groupe. L'opacité effective est la valeur **tweenée** par le runtime
-  (fixe → la cible). **Totalement opaque (≈1) : aucun calque** (coût nul). Le
-  hit-testing n'est pas affecté (le calque ne touche que le visuel).
+- **Draining in the paint walk** ([`crate::ui`]). On meeting a group: the subtree
+  is painted normally into the scene, and then its range of primitives is
+  **drained** ([`Scene::split_off`]) into a single `Primitive::Layer` at the group
+  opacity. The effective opacity is the value **tweened** by the runtime (fixed →
+  the target). **Fully opaque (≈1): no layer at all** (zero cost). Hit-testing is
+  unaffected (the layer only touches the visuals).
 
-## Limites assumées
+## Accepted limits
 
-- **Groupes imbriqués** : un `Layer` dans les primitives d'un autre n'est pas
-  recompositionné (limite héritée de J92).
-- Un **overlay** émis *dans* le groupe (différé hors de la scène) n'est pas fondu.
-- Opacité bornée `[0,1]` ; à ≈0 le sous-arbre est tout de même peint (puis rendu
-  invisible par le calque) — simple et correct.
+- **Nested groups**: a `Layer` inside another's primitives is not recomposited (a
+  limit inherited from J92).
+- An **overlay** emitted *inside* the group (deferred out of the scene) is not
+  faded.
+- Opacity clamped to `[0,1]`; at ≈0 the subtree is still painted (and then made
+  invisible by the layer) — simple and correct.
 
-## Implémentation
+## Implementation
 
-- `frus-core` : `Scene::split_off(start)` (déplace une plage de primitives).
-- `frus-widgets` : trait `opacity_group()` + forwarders ; `Container` (champs
-  `opacity`/`opacity_anim`, builders `.opacity`/`.animated_opacity`,
-  `opacity_group()` + `anim_target`/`anim_duration`/`anim_curve` quand animé) ; la
-  marche `ui::walk` enveloppe le sous-arbre dans un calque.
+- `frus-core`: `Scene::split_off(start)` (moving a range of primitives).
+- `frus-widgets`: the `opacity_group()` trait method + forwarders; `Container`
+  (the `opacity`/`opacity_anim` fields, the `.opacity`/`.animated_opacity`
+  builders, `opacity_group()` + `anim_target`/`anim_duration`/`anim_curve` when
+  animated); the `ui::walk` wraps the subtree in a layer.
 
 ## Tests
 
-- `frus-widgets` : `opacity_group_wraps_subtree_in_a_layer` (la scène contient un
-  `Layer` à 0.5 enveloppant le contenu) ; `full_opacity_emits_no_layer` (opacité
-  pleine → aucun calque) ; `animated_opacity_declares_anim_target` (cible/durée/
-  courbe exposées ; `opacity` fixe → pas de valeur animée).
-- `frus-test` : `group_opacity_fades_the_box` — **preuve pixel de bout en bout**
-  (widget → walk → calque → GPU) : `opacity(0.5)` atténue nettement le rouge par
-  rapport à `opacity(1.0)`.
-- Goldens et suites existantes inchangés : le chemin ne se déclenche que si
-  `opacity_group()` est `Some`.
+- `frus-widgets`: `opacity_group_wraps_subtree_in_a_layer` (the scene contains a
+  `Layer` at 0.5 wrapping the content); `full_opacity_emits_no_layer` (full
+  opacity → no layer); `animated_opacity_declares_anim_target` (target/duration/
+  curve exposed; a fixed `opacity` → no animated value).
+- `frus-test`: `group_opacity_fades_the_box` — **an end-to-end pixel proof**
+  (widget → walk → layer → GPU): `opacity(0.5)` visibly dims the red compared with
+  `opacity(1.0)`.
+- Goldens and the existing suites unchanged: the path only fires if
+  `opacity_group()` is `Some`.
 
-## Reste
+## What's left
 
-- Widget `Opacity`/`AnimatedOpacity` **nommé** (sucre au-dessus de `Container`),
-  et des `Animated*` interpolant d'autres propriétés (couleur/taille/padding) via
-  [`Tween`] — l'étape suivante des animations implicites.
-- Recompositing des groupes imbriqués ; fondu des overlays.
+- **Named** `Opacity`/`AnimatedOpacity` widgets (sugar over `Container`), and
+  `Animated*`s interpolating other properties (colour/size/padding) through
+  [`Tween`] — the next step of implicit animations.
+- Recompositing nested groups; fading overlays.

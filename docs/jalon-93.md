@@ -1,100 +1,100 @@
 # Jalon 93 — Anti-aliasing (MSAA)
 
-## Analyse
+## Analysis
 
-Depuis J89 (chemins vectoriels) et J90 (images), la géométrie oblique — bords de
-triangles, arcs de cercles, icônes, bords d'images tournées — était **crénelée** :
-un pixel appartenait au tracé ou pas, sans demi-teinte. C'est la dette
-d'anti-aliasing explicitement différée « faisable sur la base du compositing »
-(cf. *Reste* de [jalon-92.md](jalon-92.md)). Le compositing par calques ayant
-posé une architecture de rendu **unifiée** ([`Painters::render`]), tout le
-pipeline passe par un point unique où brancher le multi-échantillon.
+Since J89 (vector paths) and J90 (images), oblique geometry — triangle edges,
+circle arcs, icons, the edges of rotated images — was **jagged**: a pixel either
+belonged to the path or it did not, with no half-tone. This is the anti-aliasing
+debt explicitly deferred as "feasible on the compositing base" (see *What's left*
+in [jalon-92.md](jalon-92.md)). Layer compositing having established a **unified**
+render architecture ([`Painters::render`]), the whole pipeline now goes through a
+single point where multisampling can be plugged in.
 
-Approche retenue : **MSAA** (multisample anti-aliasing) matériel — le GPU
-échantillonne la couverture de chaque primitive à N sous-positions par pixel puis
-**résout** (moyenne) vers l'image finale. C'est ce que fait un moteur 2D avant de
-recourir à des techniques analytiques (SDF, coverage) plus lourdes ; c'est le
-choix par défaut, correct et bon marché sur tout GPU.
+The approach chosen: hardware **MSAA** (multisample anti-aliasing) — the GPU
+samples each primitive's coverage at N sub-positions per pixel and then
+**resolves** (averages) into the final image. It is what a 2D engine does before
+reaching for heavier analytic techniques (SDF, coverage); it is the default
+choice, correct and cheap on any GPU.
 
-## Décisions techniques
+## Technical decisions
 
-- **4× si supporté, sinon 1 (désactivé).** [`preferred_sample_count`] interroge
-  `adapter.get_texture_format_features(format)` : si `sample_count_supported(4)`,
-  on prend 4× ; sinon 1 (pas de MSAA, comportement inchangé). 4× est le meilleur
-  compromis qualité/coût et le plus universellement disponible — **y compris le
-  rasteriseur logiciel llvmpipe** de l'environnement de test/CI (confirmé : les
-  readbacks montrent bien des bords lissés).
+- **4× if supported, otherwise 1 (disabled).** [`preferred_sample_count`] queries
+  `adapter.get_texture_format_features(format)`: if `sample_count_supported(4)`,
+  we take 4×; otherwise 1 (no MSAA, unchanged behaviour). 4× is the best
+  quality/cost compromise and the most universally available — **including the
+  llvmpipe software rasteriser** of the test/CI environment (confirmed: the
+  readbacks do show smoothed edges).
 
-- **`sample_count` propagé à *tous* les pipelines.** Un render pass et les
-  pipelines qui y dessinent doivent partager le **même** nombre d'échantillons.
-  Le compte est donc passé à la construction de chaque painter (rectangles,
-  images, chemins, texte via glyphon, composite) et injecté dans leur
-  `MultisampleState`. Un seul point de vérité : [`Painters::new`].
+- **`sample_count` propagated to *all* the pipelines.** A render pass and the
+  pipelines that draw into it must share the **same** sample count. So the count
+  is passed when each painter is constructed (rectangles, images, paths, text
+  through glyphon, composite) and injected into their `MultisampleState`. A single
+  source of truth: [`Painters::new`].
 
-- **Texture MSAA intermédiaire + résolution.** On rend dans une texture
-  multi-échantillon ([`MsaaScratch`], `RENDER_ATTACHMENT` seul) puis on **résout**
-  vers la cible mono-échantillon via `resolve_target` de l'attachement couleur —
-  pour la passe principale (→ surface / texture de relecture) **comme** pour
-  chaque pré-passe de calque (→ sa texture échantillonnée par le compositeur).
-  Une **seule** texture MSAA est réutilisée : toutes les passes sont pleine
-  surface et s'exécutent en *submits* séquentiels, jamais simultanément.
+- **An intermediate MSAA texture + resolve.** We render into a multisample
+  texture ([`MsaaScratch`], `RENDER_ATTACHMENT` only) and then **resolve** into the
+  single-sample target through the colour attachment's `resolve_target` — for the
+  main pass (→ surface / readback texture) **and** for each layer pre-pass (→ its
+  texture, sampled by the compositor). A **single** MSAA texture is reused: all
+  the passes are full-surface and run in sequential *submits*, never
+  simultaneously.
 
-- **Cache de la texture MSAA.** Recréée uniquement quand la taille ou le format
-  change (resize) ; sinon réutilisée frame après frame. La *vue* est créée à la
-  volée et renvoyée **par valeur** (les `TextureView` de wgpu ne sont pas
-  `Clone`), ce qui libère l'emprunt de `self` avant l'ouverture du render pass.
+- **Caching the MSAA texture.** Recreated only when the size or the format
+  changes (a resize); otherwise reused frame after frame. The *view* is created on
+  the fly and returned **by value** (wgpu's `TextureView`s are not `Clone`), which
+  releases the borrow of `self` before the render pass opens.
 
 ## Architecture
 
 ```
-Pour chaque calque :  contenu ─▶ MSAA scratch (4×) ──resolve──▶ texture calque (1×)
-Passe principale :     contenu + composite ─▶ MSAA scratch (4×) ──resolve──▶ cible (1×)
+For each layer:  content ─▶ MSAA scratch (4×) ──resolve──▶ layer texture (1×)
+Main pass:       content + composite ─▶ MSAA scratch (4×) ──resolve──▶ target (1×)
 ```
 
-Sans support MSAA (`sample_count == 1`), les deux passes peignent directement
-dans leur cible mono-échantillon (`resolve_target: None`) — chemin identique à
-avant ce jalon.
+With no MSAA support (`sample_count == 1`), both passes paint directly into their
+single-sample target (`resolve_target: None`) — an identical path to before this
+milestone.
 
-## Limites assumées
+## Accepted limits
 
-- **`clear == None` (peindre par-dessus) non pris en charge sous MSAA** : la cible
-  multi-échantillon ne contient pas le contenu existant de la cible finale. Tous
-  les appelants actuels effacent (`Some(_)`), donc sans effet pratique ; à
-  traiter si un mode « surimpression » apparaît.
-- 4× fixe (pas encore réglable ni 2×/8× selon le GPU) ; suffisant et sûr.
+- **`clear == None` (painting over) is not supported under MSAA**: the multisample
+  target does not contain the final target's existing content. Every current
+  caller clears (`Some(_)`), so there is no practical effect; to be handled if an
+  "overlay" mode appears.
+- 4× fixed (not yet adjustable, and no 2×/8× depending on the GPU); sufficient and
+  safe.
 
-## Implémentation
+## Implementation
 
-- `frus-gpu` :
-  - `painter.rs`, `image.rs`, `path.rs`, `text.rs` : `new(..., sample_count)` →
-    `MultisampleState { count, .. }` (glyphon reçoit le même compte).
-  - `compositor.rs` : `MSAA_SAMPLES = 4`, [`preferred_sample_count`],
-    [`MsaaScratch`] + `Painters::ensure_msaa`, câblage `resolve_target` dans
-    `render` et `render_group`.
-  - `renderer.rs` : compte choisi depuis l'adaptateur (log `MSAA : N×`).
-  - `offscreen.rs` : `headless_device` renvoie aussi le compte ; `OffscreenFrame`
-    expose `samples` (informe les tests).
+- `frus-gpu`:
+  - `painter.rs`, `image.rs`, `path.rs`, `text.rs`: `new(..., sample_count)` →
+    `MultisampleState { count, .. }` (glyphon receives the same count).
+  - `compositor.rs`: `MSAA_SAMPLES = 4`, [`preferred_sample_count`],
+    [`MsaaScratch`] + `Painters::ensure_msaa`, `resolve_target` wired into
+    `render` and `render_group`.
+  - `renderer.rs`: the count chosen from the adapter (logging `MSAA: N×`).
+  - `offscreen.rs`: `headless_device` also returns the count; `OffscreenFrame`
+    exposes `samples` (informing the tests).
 
 ## Tests
 
-- `frus-gpu` (readback GPU, preuve pixel) : nouveau
-  `msaa_smooths_a_diagonal_edge` — le bord **oblique** d'un triangle vert produit
-  des pixels de vert **intermédiaire** (ni 0, ni 255), impossibles avec un rendu
-  net ; l'intérieur reste plein vert, l'extérieur au fond. S'ignore proprement si
-  `samples == 1` (GPU sans MSAA).
-- Les readbacks existants (rect, triangle, contour, texture, calque) restent
-  verts : ils échantillonnent **loin** des bords, insensibles au lissage.
-- **Goldens** : `scene_rect_text` (rect arrondi + texte) et `widget_column_text`
-  (texte) régénérés — leurs bords courbes sont désormais lissés (deltas d'octets
-  minimes). Les goldens à **bords droits** (`rtl_row`, `rtl_drawer`,
-  `inspector_overlay`) sont **inchangés** : une arête axis-alignée sur la grille
-  n'a pas de couverture partielle — preuve que le changement est localisé au
-  lissage et non une régression.
+- `frus-gpu` (GPU readback, the pixel proof): a new `msaa_smooths_a_diagonal_edge`
+  — a triangle's **oblique** edge produces **intermediate** green pixels (neither 0
+  nor 255), impossible with crisp rendering; the interior stays solid green, the
+  exterior stays at the background. It skips cleanly if `samples == 1` (a GPU
+  without MSAA).
+- The existing readbacks (rect, triangle, outline, texture, layer) stay green:
+  they sample **far** from the edges, so they are insensitive to the smoothing.
+- **Goldens**: `scene_rect_text` (a rounded rect + text) and `widget_column_text`
+  (text) regenerated — their curved edges are now smoothed (tiny byte deltas). The
+  goldens with **straight edges** (`rtl_row`, `rtl_drawer`, `inspector_overlay`)
+  are **unchanged**: an axis-aligned edge on the grid has no partial coverage —
+  proof that the change is localised to smoothing and is not a regression.
 
-## Reste
+## What's left
 
-- MSAA réglable (2×/4×/8× selon le GPU et un budget qualité).
-- Anti-aliasing **analytique** pour le texte/les chemins fins (SDF, coverage) là
-  où le MSAA 4× reste insuffisant.
-- Réutilisation des textures de calque entre frames (le gain « perf » toujours en
-  attente, cf. [jalon-92.md](jalon-92.md)).
+- Adjustable MSAA (2×/4×/8× depending on the GPU and a quality budget).
+- **Analytic** anti-aliasing for text and thin paths (SDF, coverage) where 4× MSAA
+  is not enough.
+- Reuse of layer textures between frames (the "perf" gain still pending, see
+  [jalon-92.md](jalon-92.md)).

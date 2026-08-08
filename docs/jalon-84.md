@@ -1,68 +1,66 @@
-# Jalon 84 — RTL : direction de lecture et miroir de mise en page (§14, ouverture)
+# Jalon 84 — RTL: reading direction and layout mirroring (§14, opening)
 
-## Analyse
+## Analysis
 
-Le §14 (i18n/l10n/RTL) commence par la **direction**. Objectif : afficher
-correctement une interface droite-à-gauche (arabe, hébreu) — les rangées,
-l'alignement et les marges directionnelles se retournent, le texte reste lisible
-dans sa boîte (le bidi *interne* d'un paragraphe est l'affaire de cosmic-text).
+§14 (i18n/l10n/RTL) starts with **direction**. The goal: correctly displaying a
+right-to-left interface (Arabic, Hebrew) — rows, alignment and directional
+padding flip, while the text stays legible inside its box (the *internal* bidi of
+a paragraph is cosmic-text's business).
 
 ## Architecture
 
-- **`frus-core`** : `TextDirection { Ltr, Rtl }` et `InsetsDirectional
-  { start, end, top, bottom }` avec `.resolve(dir) -> Insets` (en RTL,
-  `start` → droite). Portés dans le socle zéro-dep.
-- **Propagation** : `Theme.direction` (contexte ambiant threadé jusqu'au paint,
-  en attendant un `Env` §2), `Theme::rtl()`. `Theme::lerp` garde la direction
-  de la cible (attribut discret, pas de fondu).
-- **Miroir de mise en page** (le cœur) : taffy 0.7 n'a pas de `direction: rtl`.
-  Plutôt que de réécrire chaque widget, le pilote **retourne les rectangles**
-  de *chaque racine de layout* autour de sa largeur, quand la direction est
-  RTL :
+- **`frus-core`**: `TextDirection { Ltr, Rtl }` and `InsetsDirectional
+  { start, end, top, bottom }` with `.resolve(dir) -> Insets` (in RTL, `start` →
+  the right). Carried in the zero-dependency base.
+- **Propagation**: `Theme.direction` (the ambient context threaded down to paint,
+  pending a §2 `Env`), `Theme::rtl()`. `Theme::lerp` keeps the target's direction
+  (a discrete attribute, not faded).
+- **Layout mirroring** (the heart of it): taffy 0.7 has no `direction: rtl`.
+  Rather than rewriting every widget, the driver **flips the rectangles** of
+  *each layout root* around its width when the direction is RTL:
 
   ```
   r.x  ->  root.x + (root.width - (r.x - root.x) - r.width)
   ```
 
-  Taffy calcule en LTR (canonique, mis en cache), le miroir s'applique après
-  récupération dans `Builder::cached_rects`. Résultat : les rangées s'inversent,
-  l'alignement et le padding se retournent, hit-test et clips restent cohérents
-  (mêmes rectangles) — **sans toucher aux ~60 widgets**. Le chemin LTR est
-  inchangé bit-à-bit (`mirror` court-circuité).
+  taffy computes in LTR (canonical, and cached), and the mirroring is applied
+  after retrieval in `Builder::cached_rects`. The result: rows reverse, alignment
+  and padding flip, and hit-testing and clips stay consistent (the same
+  rectangles) — **without touching the ~60 widgets**. The LTR path is unchanged
+  bit for bit (`mirror` short-circuited).
 
-## Décisions
+## Decisions
 
-- Miroir **par racine de layout** (fenêtre, écran, contenu défilant, item de
-  liste) autour du 1ᵉʳ rect (la racine) : compose correctement à travers les
-  translations imbriquées.
-- Le texte n'est pas retourné glyphe par glyphe : sa boîte se déplace du bon
-  côté et il s'y dessine normalement ; le **bidi intra-paragraphe** (chiffres,
-  mots latins dans un texte arabe) est délégué à cosmic-text.
-- `InsetsDirectional` est fourni pour les marges qui doivent suivre la
-  direction ; les widgets l'adopteront progressivement.
+- Mirroring **per layout root** (window, screen, scrolling content, list item)
+  around the 1st rect (the root): it composes correctly through nested
+  translations.
+- Text is not flipped glyph by glyph: its box moves to the correct side and it
+  draws normally there; **intra-paragraph bidi** (digits, Latin words inside
+  Arabic text) is delegated to cosmic-text.
+- `InsetsDirectional` is provided for padding that has to follow the direction;
+  the widgets will adopt it progressively.
 
 ## Tests (283 → 287)
 
 - `directional_insets_flip_start_end` (core).
-- `rtl_mirrors_row_horizontally` (widgets, hit-test) : un bouton fixe passe de
-  gauche (LTR) à droite (RTL), le flexible occupe l'autre bord.
-- `rtl_mirrors_the_row` (frus-test, golden + pixels) : la rangée
-  [rouge][vert][bleu] devient [bleu][vert][rouge] en RTL (rouge à droite) —
-  preuve visuelle indépendante de la police.
-- Les 21 suites LTR restent vertes (chemin inchangé).
+- `rtl_mirrors_row_horizontally` (widgets, hit-test): a fixed button moves from
+  the left (LTR) to the right (RTL), and the flexible one takes the other edge.
+- `rtl_mirrors_the_row` (frus-test, golden + pixels): the row [red][green][blue]
+  becomes [blue][green][red] in RTL (red on the right) — visual proof,
+  independent of the font.
+- The 21 LTR suites stay green (an unchanged path).
 
-## Démo
+## Demo
 
-Action « RTL »/« LTR » dans le menu de l'AppBar : bascule toute l'application
-en miroir (barre haute, cartes, listes, navigation).
+An "RTL"/"LTR" action in the AppBar's menu: it mirrors the whole application (top
+bar, cards, lists, navigation).
 
-## Limites (suite du §14)
+## Limits (the rest of §14)
 
-- Le **placement des overlays** (tiroir Left/Right, ancre des menus) n'est pas
-  encore retourné — un tiroir « Left » reste à gauche en RTL.
-- Le **geste retour** reste sur le bord gauche (devrait être à droite en RTL).
-- **Couverture de police** : le rendu de l'arabe dépend de la fonte ; la fonte
-  embarquée (DejaVu) a une couverture arabe limitée. Sur Android, la fonte
-  système prend le relais.
-- **Localisation** (Fluent) et **accessibilité** (AccessKit) : chantiers
-  distincts, à venir.
+- **Overlay placement** (the Left/Right drawer, menu anchoring) is not flipped
+  yet — a "Left" drawer stays on the left in RTL.
+- The **back gesture** stays on the left edge (it should be on the right in RTL).
+- **Font coverage**: rendering Arabic depends on the font; the bundled font
+  (DejaVu) has limited Arabic coverage. On Android, the system font takes over.
+- **Localisation** (Fluent) and **accessibility** (AccessKit): separate pieces of
+  work, still to come.

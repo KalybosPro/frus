@@ -1,102 +1,100 @@
-# Jalon 92 — Compositing par calques & précompilation des pipelines
+# Jalon 92 — Layer compositing & pipeline precompilation
 
-## Analyse
+## Analysis
 
-Deux manques, tous deux différés de jalons précédents :
+Two gaps, both deferred from earlier milestones:
 
-1. **Compositing par calques** (différé de J88). Jusqu'ici, fondre un sous-arbre
-   se faisait **primitive par primitive** (`push_faded` multiplie l'alpha de
-   chacune). Là où des primitives se **chevauchent**, l'alpha se cumule → le
-   chevauchement fonce (double-superposition). C'est incorrect pour une opacité
-   **de groupe** (un panneau, un dialogue, une transition qui s'estompe d'un
-   bloc). Flutter résout ça avec `saveLayer`/`Opacity` : rendre le groupe à part
-   sur une couche, puis composer la couche entière à l'opacité voulue.
+1. **Layer compositing** (deferred from J88). Until now, fading a subtree was
+   done **primitive by primitive** (`push_faded` multiplies each one's alpha).
+   Where primitives **overlap**, the alpha accumulates → the overlap darkens
+   (double-blending). That is wrong for a **group** opacity (a panel, a dialogue,
+   a transition fading out as one piece). The established solution is a
+   save-layer: render the group separately onto a layer, then compose the whole
+   layer at the wanted opacity.
 
-2. **Précompilation des shaders** (le pari « anti-jank » de J89). Skia/Flutter
-   compilent des variantes de shader **à la première utilisation** → micro-gels
-   (le motif qui a motivé Impeller).
+2. **Shader precompilation** (the "anti-jank" bet of J89). Traditional 2D engines
+   compile shader variants **on first use** → micro-freezes.
 
-## Décisions techniques
+## Technical decisions
 
-- **Jeu de pipelines fixe, créé au démarrage.** frus n'a qu'une poignée de
-  pipelines (rect, image, chemin, texte, composite), tous créés à
-  [`Painters::new`]. Il n'y a **pas** de variantes compilées à la volée. Pour
-  garantir que la première vraie frame ne paie **rien**, [`Painters::warm_up`]
-  rend au démarrage une petite scène qui exerce **chaque** chemin (rect, image,
-  chemin, texte **et** un calque → composite), forçant la finalisation pilote.
-  → Zéro « shader jank » au premier rendu, par construction.
+- **A fixed pipeline set, created at start-up.** frus has only a handful of
+  pipelines (rect, image, path, text, composite), all created in
+  [`Painters::new`]. There are **no** variants compiled on the fly. To guarantee
+  that the first real frame pays **nothing**, [`Painters::warm_up`] renders a
+  small scene at start-up that exercises **every** path (rect, image, path, text
+  **and** a layer → composite), forcing driver finalisation. → Zero "shader jank"
+  on the first render, by construction.
 
-- **Calque = rendu-vers-texture + recomposition.** Un [`Primitive::Layer`] porte
-  sa propre liste de primitives. Le compositeur le rend **d'abord** sur une
-  texture pleine surface (fond transparent), dans une **passe séparée avec son
-  propre *submit*** — indispensable pour ne pas aliaser les buffers d'instances
-  partagés entre passes (une écriture de buffer ne s'applique qu'au *submit*
-  suivant ; réutiliser les mêmes painters entre *submits* distincts est correct,
-  entre passes d'un même *submit* ne l'est pas). Le [`CompositePainter`] recompose
-  ensuite la texture d'un bloc à l'opacité de groupe (quad plein écran, découpe
-  au fragment, alpha `= échantillon.a × opacité`). L'échantillon d'une texture
-  sRGB étant déjà linéaire, aucune reconversion.
+- **A layer = render-to-texture + recomposition.** A [`Primitive::Layer`] carries
+  its own list of primitives. The compositor renders it **first** onto a
+  full-surface texture (transparent background), in a **separate pass with its
+  own *submit*** — indispensable so as not to alias the instance buffers shared
+  between passes (a buffer write only applies at the next *submit*; reusing the
+  same painters between distinct *submits* is fine, between passes of the same
+  *submit* it is not). The [`CompositePainter`] then recomposes the texture as one
+  piece at the group opacity (a full-screen quad, clipped in the fragment, alpha
+  `= sample.a × opacity`). Since the sample of an sRGB texture is already linear,
+  there is no reconversion.
 
-- **Regroupement des painters** (`compositor.rs`). Les quatre painters de contenu
-  + le composite sont réunis dans un [`Painters`] avec une méthode `render`
-  unique (calques compris), désormais partagée par le renderer fenêtré **et** le
-  rendu hors-écran — la duplication entre les deux a disparu.
+- **Grouping the painters** (`compositor.rs`). The four content painters plus the
+  composite one are gathered into a [`Painters`] with a single `render` method
+  (layers included), now shared by the windowed renderer **and** the offscreen
+  path — the duplication between the two has gone.
 
 ## Architecture
 
 ```
-Scene (contient des Primitive::Layer)
+Scene (containing Primitive::Layers)
    │
-   ├─ pour chaque Layer : render_group → texture pleine surface  (submit séparé)
-   │                        (rect+image+chemin+texte, fond transparent)
+   ├─ for each Layer: render_group → a full-surface texture  (separate submit)
+   │                        (rect+image+path+text, transparent background)
    ▼
-Passe principale (1 submit) :
-   rect → image → chemin → texte → composite(chaque texture de calque @ opacité)
+Main pass (1 submit):
+   rect → image → path → text → composite(each layer texture @ its opacity)
 ```
 
-Ordre/limites assumés :
-- Les calques sont **composités au-dessus** du contenu principal (comme le texte
-  est toujours au-dessus des rectangles) : un calque ne peut passer *sous* une
-  primitive émise après lui. Suffisant pour les cas d'usage (groupes de premier
-  plan) ; un tri en passe unique viendra si besoin.
-- **Calques imbriqués** non recompositionnés (un `Layer` dans un `Layer` est
-  ignoré à ce niveau) — fondation d'abord.
-- Texture de calque **pleine surface** (coordonnées absolues, alignement
-  trivial) : simple et correct ; un cadrage/pooling optimisera plus tard.
+Accepted ordering and limits:
+- Layers are **composited above** the main content (just as text is always above
+  rectangles): a layer cannot go *under* a primitive emitted after it. Sufficient
+  for the use cases (foreground groups); a single sorted pass will come if
+  needed.
+- **Nested layers** are not recomposited (a `Layer` inside a `Layer` is ignored at
+  this level) — foundation first.
+- A **full-surface** layer texture (absolute coordinates, trivial alignment):
+  simple and correct; cropping/pooling will optimise it later.
 
-## Implémentation
+## Implementation
 
-- `frus-core` : `Primitive::Layer { primitives, opacity, clip, owner }` intégré
-  aux passes transverses — `owner()`, `scaled()` (recurse dans les enfants),
-  `push_faded()` (multiplie l'opacité de groupe). Constructeur `Scene::layer(op,
-  |inner| …)` qui bâtit une sous-scène.
-- `frus-gpu` : `compositor.rs` (`Painters` + `CompositePainter`) +
-  `shaders/composite.wgsl` ; `renderer.rs` et `offscreen.rs` délèguent à
-  `Painters::render` ; `warm_up` appelé à la construction du `Renderer`.
+- `frus-core`: `Primitive::Layer { primitives, opacity, clip, owner }` integrated
+  into the cross-cutting passes — `owner()`, `scaled()` (recursing into the
+  children), `push_faded()` (multiplying the group opacity). A `Scene::layer(op,
+  |inner| …)` constructor that builds a sub-scene.
+- `frus-gpu`: `compositor.rs` (`Painters` + `CompositePainter`) +
+  `shaders/composite.wgsl`; `renderer.rs` and `offscreen.rs` delegate to
+  `Painters::render`; `warm_up` called when the `Renderer` is constructed.
 
 ## Tests
 
-- `frus-core` : un calque capture ses sous-primitives + opacité + découpe ;
-  fondre un calque **multiplie** son opacité ; `scaled` transforme les enfants.
-- `frus-gpu` (readback GPU, preuve pixel) :
-  `layer_group_opacity_is_uniform_over_overlap` — deux rectangles **opaques** qui
-  se chevauchent, en calque à 0.5 : le chevauchement a **exactement** la même
-  couleur qu'une simple couverture (alpha de groupe uniforme, pas de
-  double-superposition), et c'est bien ~50 % rouge sur fond noir.
-- Toutes les suites existantes passent **par le nouveau `Painters::render`** (les
-  readbacks rect/chemin/image/texte transitent par le compositeur) — aucune
-  régression, goldens inchangés.
+- `frus-core`: a layer captures its sub-primitives + opacity + clip; fading a
+  layer **multiplies** its opacity; `scaled` transforms the children.
+- `frus-gpu` (GPU readback, the pixel proof):
+  `layer_group_opacity_is_uniform_over_overlap` — two **opaque** overlapping
+  rectangles, in a layer at 0.5: the overlap has **exactly** the same colour as a
+  single coverage (a uniform group alpha, no double-blending), and it is indeed
+  ~50% red on a black background.
+- All the existing suites pass **through the new `Painters::render`** (the
+  rect/path/image/text readbacks go through the compositor) — no regression,
+  goldens unchanged.
 
-## Démo
+## Demo
 
-Une tuile `CustomPaint` ajoute deux carrés d'accent qui se chevauchent, groupés
-en **calque à 0.55** — le chevauchement ne fonce pas, illustrant l'opacité de
-groupe correcte.
+A `CustomPaint` tile adds two overlapping accent squares, grouped in a **layer at
+0.55** — the overlap does not darken, illustrating correct group opacity.
 
-## Reste
+## What's left
 
-- **Réutilisation** des textures de calque entre frames (cache GPU keyé par
-  contenu, façon frontière de repaint côté GPU) — le gain « perf » du pari.
-- Anti-aliasing (MSAA) — orthogonal, désormais faisable sur cette base.
-- Calques `transform`/`clip` généraux ; tri en passe unique ; calques imbriqués ;
-  intégration d'un widget `Opacity` dans le walk (comme `RepaintBoundary`).
+- **Reuse** of layer textures between frames (a GPU cache keyed by content, the
+  GPU-side counterpart of a repaint boundary) — the "perf" side of the bet.
+- Anti-aliasing (MSAA) — orthogonal, and now feasible on this base.
+- General `transform`/`clip` layers; a single sorted pass; nested layers;
+  integrating an `Opacity` widget into the walk (like `RepaintBoundary`).

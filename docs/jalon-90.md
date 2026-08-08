@@ -1,17 +1,16 @@
 # Jalon 90 — Images & textures
 
-## Analyse
+## Analysis
 
-Après les chemins vectoriels (jalon 89), il manquait la seconde brique
-fondatrice du moteur graphique : les **images bitmap**. Aucune vraie app ne s'en
-passe (avatars, vignettes, illustrations, héros). Jusqu'ici `Avatar` ne savait
-afficher que des initiales, faute de pipeline de textures.
+After the vector paths (milestone 89), the graphics engine's second founding
+brick was missing: **bitmap images**. No real app does without them (avatars,
+thumbnails, illustrations, heroes). Until now `Avatar` could only show initials,
+for want of a texture pipeline.
 
-Ce jalon ajoute la **gestion de textures** de bout en bout : téléversement GPU
-mis en cache, échantillonnage, ajustement (`BoxFit`) et un widget `Image`. Le
-**décodage** (PNG/JPEG) est volontairement laissé à une couche fine ultérieure —
-la partie difficile et structurante est la gestion mémoire GPU des textures, pas
-le format de fichier.
+This milestone adds **texture management** end to end: cached GPU upload,
+sampling, fitting (`BoxFit`) and an `Image` widget. **Decoding** (PNG/JPEG) is
+deliberately left to a thin later layer — the hard, structuring part is the GPU
+memory management of the textures, not the file format.
 
 ## Architecture
 
@@ -19,97 +18,96 @@ le format de fichier.
 frus-core                        frus-gpu                      frus-widgets
 ─────────                        ────────                      ────────────
 ImageData (id, rgba)  ── Primitive::Image ──► ImagePainter     Image
-ImageHandle = Arc                            (cache textures    (BoxFit, tint)
-BoxFit::apply → (dst, uv)                     par id, sampler,       │
-Scene::draw_image / image                     quads texturés)   Scene::draw_image
+ImageHandle = Arc                            (texture cache     (BoxFit, tint)
+BoxFit::apply → (dst, uv)                     by id, sampler,        │
+Scene::draw_image / image                     textured quads)   Scene::draw_image
                                              shaders/image.wgsl
 ```
 
-### `frus-core` — le modèle (`image.rs`)
-- `ImageData { id, width, height, rgba }` : pixels **RGBA sRGB** bruts, immuables.
-  Chaque instance reçoit un **id unique** (compteur atomique) = clé de cache GPU.
-  `PartialEq` compare **par identité** (pas les pixels) → égalité de scène et
-  cache bon marché.
-- `ImageHandle = Arc<ImageData>` : handle **partagé** (clone = incrément de
-  compteur), stocké tel quel dans la primitive.
-- `BoxFit` (`Fill · Contain · Cover · FitWidth · FitHeight · None · ScaleDown`) :
-  `apply(src, dst) -> (rect, uv)`. **Letterbox** → rect rétréci + UV plein ;
-  **rognage** (`Cover`) → rect plein + UV réduit et centré.
-- `Primitive::Image { image, rect, uv, tint, clip, owner }` intégré aux passes
-  transverses : `owner()`, `scaled()` (met le `rect`/`clip` à l'échelle, l'UV
-  reste en `0..1`), `push_faded()` (fond de sortie : alpha de la teinte).
-- `Scene::draw_image` (bas niveau : rect + uv + teinte) et `Scene::image`
-  (ajustement automatique par `BoxFit`).
+### `frus-core` — the model (`image.rs`)
+- `ImageData { id, width, height, rgba }`: raw **RGBA sRGB** pixels, immutable.
+  Each instance gets a **unique id** (an atomic counter) = the GPU cache key.
+  `PartialEq` compares **by identity** (not the pixels) → cheap scene equality and
+  caching.
+- `ImageHandle = Arc<ImageData>`: a **shared** handle (a clone is a refcount
+  bump), stored as-is in the primitive.
+- `BoxFit` (`Fill · Contain · Cover · FitWidth · FitHeight · None · ScaleDown`):
+  `apply(src, dst) -> (rect, uv)`. **Letterboxing** → a shrunk rect + full UV;
+  **cropping** (`Cover`) → a full rect + a reduced, centred UV.
+- `Primitive::Image { image, rect, uv, tint, clip, owner }`, integrated into the
+  cross-cutting passes: `owner()`, `scaled()` (scales the `rect`/`clip`, the UV
+  staying in `0..1`), `push_faded()` (exit fade: the tint's alpha).
+- `Scene::draw_image` (low level: rect + uv + tint) and `Scene::image` (automatic
+  fitting through `BoxFit`).
 
-### `frus-gpu` — le rendu (`image.rs` + `shaders/image.wgsl`)
-- **Cache de textures** `HashMap<id, texture>` : chaque image est téléversée
-  **une seule fois** (format `Rgba8UnormSrgb`, `write_texture`), réutilisée
-  d'une frame à l'autre. Les textures **non employées** lors d'une frame sont
-  **évincées** (marquage `used` + `retain`), bornant la mémoire.
-- **Pipeline texturé** : quad instancié, deux groupes de liaison — viewport
-  (uniforme) et texture+échantillonneur. Un dessin par image (la texture liée au
-  dessin), UV/teinte/découpe portés par l'instance. Échantillonneur **linéaire**
-  (clamp).
-- Le shader projette px→NDC, échantillonne, multiplie par la teinte (linéarisée)
-  et découpe au fragment — mêmes conventions sRGB que `quad.wgsl`.
-- Câblé dans **le renderer fenêtré et le hors-écran**, ordre
-  `rectangles → images → chemins → texte`.
+### `frus-gpu` — the rendering (`image.rs` + `shaders/image.wgsl`)
+- **A texture cache** `HashMap<id, texture>`: each image is uploaded **once**
+  (format `Rgba8UnormSrgb`, `write_texture`) and reused from frame to frame.
+  Textures **not used** during a frame are **evicted** (a `used` mark + `retain`),
+  bounding the memory.
+- **A textured pipeline**: an instanced quad, two bind groups — viewport (a
+  uniform) and texture+sampler. One draw per image (the texture bound to the
+  draw), with UV/tint/clip carried by the instance. A **linear** sampler (clamp).
+- The shader projects px→NDC, samples, multiplies by the (linearised) tint and
+  clips in the fragment — the same sRGB conventions as `quad.wgsl`.
+- Wired into **the windowed renderer and the offscreen path**, in the order
+  `rectangles → images → paths → text`.
 
-### `frus-widgets` — le widget `Image`
-Boîte de taille fixe, ajustée par `BoxFit` (défaut `Contain`), **teinte**
-optionnelle (icônes bitmap, fondu par opacité). Re-exporte `ImageData`,
-`ImageHandle`, `BoxFit` pour les applications.
+### `frus-widgets` — the `Image` widget
+A fixed-size box, fitted by `BoxFit` (default `Contain`), with an optional
+**tint** (bitmap icons, opacity fading). It re-exports `ImageData`, `ImageHandle`
+and `BoxFit` for applications.
 
-## Décisions techniques
+## Technical decisions
 
-- **Handle partagé + cache par id**, plutôt que pixels dans la primitive :
-  clone bon marché, zéro re-téléversement, égalité de scène en O(1). L'id (et non
-  le pointeur `Arc`) sert de clé — robuste à la réutilisation d'adresses.
-- **`BoxFit` en `frus-core`, pas côté GPU** : l'ajustement est de la géométrie
-  pure (testable sans GPU) ; le shader ne fait qu'échantillonner un `(rect, uv)`.
-- **Un dessin par image** (pas d'atlas) pour cette fondation : simple et correct.
-  Le batch par texture / atlas viendra si le profil le justifie.
-- **Décodage différé** : la brique dure est la gestion des textures GPU ; les
-  décodeurs (PNG/JPEG via `image`) sont une couche fine à ajouter ensuite, sans
-  alourdir `frus-core` (zéro-dép) ni le temps de compilation ici.
+- **A shared handle + a cache by id**, rather than pixels in the primitive: a
+  cheap clone, zero re-uploading, O(1) scene equality. The id (not the `Arc`
+  pointer) is the key — robust against address reuse.
+- **`BoxFit` in `frus-core`, not on the GPU side**: fitting is pure geometry
+  (testable without a GPU); the shader only samples a `(rect, uv)`.
+- **One draw per image** (no atlas) for this foundation: simple and correct.
+  Batching by texture / an atlas will come if profiling justifies it.
+- **Decoding deferred**: the hard brick is GPU texture management; the decoders
+  (PNG/JPEG through `image`) are a thin layer to add next, without weighing down
+  `frus-core` (zero-dependency) or the compile time here.
 
-## Explications & limites
+## Explanations & limits
 
-- **Pas de décodage de fichiers** ce jalon : on part de `ImageData` bruts
-  (pixels générés ou fournis). PNG/JPEG = prochain incrément.
-- **Pas de mipmaps** (filtrage linéaire simple) : suffisant à l'échelle 1:1 ;
-  un downscale fort pourra scintiller. Mips + `BoxFit::Cover` fin plus tard.
+- **No file decoding** in this milestone: we start from raw `ImageData`
+  (generated or supplied pixels). PNG/JPEG = the next increment.
+- **No mipmaps** (plain linear filtering): sufficient at 1:1 scale; a heavy
+  downscale may shimmer. Mips + a refined `BoxFit::Cover` later.
 
 ## Tests
 
-- `frus-core` : identités uniques/stables & égalité par identité ; `BoxFit`
-  (`Fill`/`Contain`/`Cover` : rect + uv calculés).
-- `frus-gpu` (readback GPU, preuve pixel) : `samples_a_texture_by_quadrant` — une
-  image 2×2 (R/G/B/W) étirée sur la surface ; chaque quadrant relit sa couleur
-  (téléversement + échantillonnage + UV + aller-retour sRGB validés).
-- `frus-widgets` : `Image` émet une primitive `Image` (letterbox `Contain`
-  correct), la teinte surchargée est appliquée, la taille pilote la boîte.
-- Aucune régression : les widgets existants n'émettent pas d'image → goldens et
-  suites inchangés.
+- `frus-core`: unique and stable identities & equality by identity; `BoxFit`
+  (`Fill`/`Contain`/`Cover`: the computed rect + uv).
+- `frus-gpu` (GPU readback, the pixel proof): `samples_a_texture_by_quadrant` — a
+  2×2 image (R/G/B/W) stretched over the surface; each quadrant reads back its own
+  colour (upload + sampling + UV + the sRGB round trip all validated).
+- `frus-widgets`: `Image` emits an `Image` primitive (correct `Contain`
+  letterboxing), an overridden tint is applied, the size drives the box.
+- No regression: the existing widgets emit no image → goldens and suites
+  unchanged.
 
-## Démo
+## Demo
 
-La carte principale affiche une **image bitmap générée** (dégradé 64×64, créée
-une fois via `OnceLock` et mise en cache par le renderer) à côté de la rangée
-d'icônes, ajustée en `BoxFit::Cover`.
+The main card shows a **generated bitmap image** (a 64×64 gradient, created once
+through a `OnceLock` and cached by the renderer) next to the row of icons, fitted
+with `BoxFit::Cover`.
 
-## Note — réparation d'un merge cassé
+## Note — repairing a broken merge
 
-Un commit de merge externe (`bbea003 « Conflicts resolved »`, fusionnant une
-branche divergente) avait **dupliqué** du code dans 4 fichiers (résolution de
-conflit gardant les deux côtés), cassant la compilation : `Cargo.lock`
-(dépendance en double), `widget.rs` (impl `Box` dupliquée), `textinput.rs`
-(bloc de défilement dupliqué appelant un `prefix_width` inexistant) et
-`app.rs` (module `clip` dupliqué). Les quatre ont été rétablis sur la version de
-la lignée jalon 89 (celle qui compile), et le lockfile régénéré.
+An external merge commit (`bbea003 "Conflicts resolved"`, merging a divergent
+branch) had **duplicated** code in 4 files (a conflict resolution keeping both
+sides), breaking the build: `Cargo.lock` (a duplicated dependency), `widget.rs`
+(a duplicated `Box` impl), `textinput.rs` (a duplicated scrolling block calling a
+`prefix_width` that no longer exists) and `app.rs` (a duplicated `clip` module).
+All four were restored to the milestone-89 lineage's version (the one that
+compiles), and the lockfile regenerated.
 
-## Reste
+## What's left
 
-- Décodage PNG/JPEG (couche fine sur `image`).
-- Mipmaps & filtrage anisotrope ; atlas / batch par texture.
-- `Avatar` sur image réelle ; `BoxDecoration` avec image de fond.
+- PNG/JPEG decoding (a thin layer over `image`).
+- Mipmaps & anisotropic filtering; an atlas / batching by texture.
+- `Avatar` on a real image; `BoxDecoration` with a background image.

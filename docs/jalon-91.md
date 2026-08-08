@@ -1,77 +1,76 @@
-# Jalon 91 — Décodage d'images (PNG/JPEG)
+# Jalon 91 — Image decoding (PNG/JPEG)
 
-## Analyse
+## Analysis
 
-Le jalon 90 a posé la gestion de textures GPU, mais ne savait partir que de
-**pixels bruts** (`ImageData::from_rgba`). Une vraie app charge ses images depuis
-des **fichiers** (`logo.png`, `photo.jpg`). Il manquait donc le décodeur — la
-couche fine qui transforme des octets de fichier en `ImageData`.
+Milestone 90 laid down GPU texture management, but could only start from **raw
+pixels** (`ImageData::from_rgba`). A real app loads its images from **files**
+(`logo.png`, `photo.jpg`). So the decoder was missing — the thin layer that turns
+file bytes into an `ImageData`.
 
-Le choix d'architecture du jalon 90 était délibéré : `frus-core` reste
-**zéro-dép** (il ne détient que des pixels). Le décodeur (crate `image`, avec ses
-dépendances : `png`, `jpeg-decoder`…) est isolé dans un crate **optionnel**, pour
-que `frus-core`/`frus-widgets` n'en héritent pas.
+Milestone 90's architectural choice was deliberate: `frus-core` stays
+**zero-dependency** (it only holds pixels). The decoder (the `image` crate, with
+its dependencies: `png`, `jpeg-decoder`…) is isolated in an **optional** crate, so
+that `frus-core`/`frus-widgets` do not inherit it.
 
 ## Architecture
 
 ```
-             octets (PNG/JPEG)
+             bytes (PNG/JPEG)
                    │
-   frus-image::decode  (crate `image`, formats png+jpeg)
-                   │  détection au format, → RGBA8
+   frus-image::decode  (the `image` crate, png+jpeg formats)
+                   │  format detection, → RGBA8
                    ▼
-   frus_core::ImageData ──► (jalon 90) texture GPU en cache
+   frus_core::ImageData ──► (milestone 90) a cached GPU texture
 ```
 
-Nouveau crate **`frus-image`** (dépend de `frus-core` + `image`), au même niveau
-que `frus-text` dans le graphe de dépendances. Une seule fonction publique :
+A new crate **`frus-image`** (depending on `frus-core` + `image`), at the same
+level as `frus-text` in the dependency graph. A single public function:
 
 ```rust
 pub fn decode(bytes: &[u8]) -> Result<ImageData, DecodeError>;
 ```
 
-- **Format détecté aux octets magiques** (pas d'extension requise).
-- Toute image est convertie en **RGBA8 sRGB** (le format qu'attend le renderer).
-- `DecodeError` masque le type d'erreur du crate `image` (API stable, découplée).
+- **Format detected from the magic bytes** (no extension required).
+- Every image is converted to **RGBA8 sRGB** (the format the renderer expects).
+- `DecodeError` hides the `image` crate's error type (a stable, decoupled API).
 
-Le crate `image` est configuré `default-features = false, features =
-["png", "jpeg"]` pour **limiter l'arbre de dépendances** aux deux formats visés.
+The `image` crate is configured `default-features = false, features =
+["png", "jpeg"]` to **keep the dependency tree down** to the two target formats.
 
-## Décisions techniques
+## Technical decisions
 
-- **Crate séparé plutôt que dans `frus-core`/`frus-widgets`.** Le décodeur est
-  lourd (formats, zlib…) et n'est pas requis partout : une app qui ne fait que du
-  dessin procédural ne doit pas le payer. Les apps qui chargent des ressources
-  dépendent explicitement de `frus-image`. `frus-core` garde son invariant
-  zéro-dép.
-- **`decode(bytes)` seul**, pas de lecture de fichier ni de réseau : le *quoi*
-  (octets) est fourni par l'app (`include_bytes!`, `std::fs::read`, un
-  téléchargement…). Le crate ne fait qu'une chose. Un `ImageProvider` (asset /
-  réseau / mémoire, façon Flutter) pourra se poser au-dessus plus tard.
-- **Asset de démo à provenance reproductible.** Le PNG committé n'est pas un
-  binaire opaque : l'exemple `frus-image/examples/gen_logo.rs` le régénère
+- **A separate crate rather than putting it in `frus-core`/`frus-widgets`.** The
+  decoder is heavy (formats, zlib…) and is not needed everywhere: an app doing
+  only procedural drawing should not pay for it. Apps that load assets depend on
+  `frus-image` explicitly. `frus-core` keeps its zero-dependency invariant.
+- **`decode(bytes)` alone**, with no file reading and no networking: the *what*
+  (bytes) is supplied by the app (`include_bytes!`, `std::fs::read`, a
+  download…). The crate does one thing. An `ImageProvider` (asset / network /
+  memory) can sit on top later.
+- **A demo asset with reproducible provenance.** The committed PNG is not an
+  opaque binary: the `frus-image/examples/gen_logo.rs` example regenerates it
   (`cargo run -p frus-image --example gen_logo > crates/frus-demo/assets/logo.png`).
 
 ## Tests
 
-- `png_round_trips_pixels_exactly` : encode une image 4×3 connue → décode →
-  dimensions et pixels **exacts** (coins rouge/vert).
-- `jpeg_decodes_with_correct_dimensions` : JPEG (avec perte) → dimensions et
-  taille de tampon correctes (format détecté).
-- `format_is_detected_from_magic_bytes` : en-tête PNG reconnu sans indice.
-- `garbage_bytes_error_cleanly` : octets invalides → `Err` avec message.
-- Doctest : aller-retour encode→décode d'une 2×2.
+- `png_round_trips_pixels_exactly`: encodes a known 4×3 image → decodes → **exact**
+  dimensions and pixels (red/green corners).
+- `jpeg_decodes_with_correct_dimensions`: a (lossy) JPEG → correct dimensions and
+  buffer size (format detected).
+- `format_is_detected_from_magic_bytes`: a PNG header recognised with no hint.
+- `garbage_bytes_error_cleanly`: invalid bytes → `Err` with a message.
+- A doctest: an encode→decode round trip of a 2×2.
 
-## Démo
+## Demo
 
-`demo_image()` charge désormais un **PNG embarqué décodé**
-(`decode(include_bytes!("../assets/logo.png"))`), au lieu du dégradé généré du
-jalon 90 (conservé en **repli** si le décodage échoue). L'image est décodée une
-fois (`OnceLock`) puis mise en cache par identité côté renderer.
+`demo_image()` now loads a **decoded bundled PNG**
+(`decode(include_bytes!("../assets/logo.png"))`), instead of milestone 90's
+generated gradient (kept as a **fallback** if decoding fails). The image is
+decoded once (`OnceLock`) and then cached by identity on the renderer side.
 
-## Reste
+## What's left
 
-- Autres formats (WebP, GIF, …) : ajouter des features du crate `image`.
-- `ImageProvider` : abstraction asset/réseau/mémoire + chargement **asynchrone**
-  (via `Command`) pour ne pas décoder sur le thread UI.
-- Mipmaps (jalon 90) pour un downscale propre des grandes photos.
+- Other formats (WebP, GIF, …): add features from the `image` crate.
+- An `ImageProvider`: an asset/network/memory abstraction + **asynchronous**
+  loading (through `Command`) so as not to decode on the UI thread.
+- Mipmaps (milestone 90) for a clean downscale of large photos.

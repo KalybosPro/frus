@@ -1,57 +1,57 @@
-# Jalon 94 — Réutilisation GPU des textures de calque
+# Jalon 94 — GPU reuse of layer textures
 
-## Analyse
+## Analysis
 
-J92 a introduit les calques ([`Primitive::Layer`]) : chaque calque est rendu sur
-une texture pleine surface (pré-passe : *submit* + tessellation + dessin) puis
-composité. Jusqu'ici cette pré-passe était **refaite à chaque frame**, même pour
-un calque **statique** — gaspillage direct, le pari « perf » explicitement
-différé (cf. *Reste* de [jalon-92.md](jalon-92.md) et [jalon-93.md](jalon-93.md)).
+J92 introduced layers ([`Primitive::Layer`]): each layer is rendered onto a
+full-surface texture (a pre-pass: *submit* + tessellation + drawing) and then
+composited. Until now that pre-pass was **redone every frame**, even for a
+**static** layer — direct waste, and the "perf" bet explicitly deferred (see
+*What's left* in [jalon-92.md](jalon-92.md) and [jalon-93.md](jalon-93.md)).
 
-C'est l'équivalent GPU de la **frontière de repaint** (J88, cache de peinture
-côté CPU) : tant que le contenu d'un calque ne change pas, sa texture peut être
-**réutilisée telle quelle**.
+It is the GPU equivalent of the **repaint boundary** (J88, the CPU-side paint
+cache): as long as a layer's content does not change, its texture can be **reused
+as it is**.
 
-## Décisions techniques
+## Technical decisions
 
-- **Clé = rang du calque + égalité de contenu.** L'`owner` des primitives vaut 0
-  par défaut (peu fiable), on indexe donc les calques par leur **rang** dans la
-  scène. `Primitive` dérive `PartialEq`, d'où une comparaison **exacte** du
-  contenu (`Vec<Primitive>`) frame à frame. Point clé de sûreté : une clé qui
-  « glisse » (calques réordonnés/insérés) ne fait que **rater** le cache → une
-  pré-passe correcte est refaite, **jamais un pixel faux**.
+- **The key = the layer's rank + content equality.** The primitives' `owner` is 0
+  by default (unreliable), so layers are indexed by their **rank** in the scene.
+  `Primitive` derives `PartialEq`, giving an **exact** content comparison
+  (`Vec<Primitive>`) from frame to frame. The key safety point: a key that
+  "slips" (layers reordered or inserted) can only **miss** the cache → a correct
+  pre-pass is redone, **never a wrong pixel**.
 
-- **Cache = texture conservée entre frames.** [`CachedLayer`] garde la texture
-  (mono-échantillon, résolue depuis le MSAA — elle est déjà échantillonnable),
-  l'instantané de son contenu et ses dimensions. Réutilisation si contenu **et**
-  taille (resize) inchangés ; sinon (re)rendue. Les calques disparus sont purgés
-  (`truncate` au nombre de calques de la frame).
+- **The cache = a texture kept between frames.** [`CachedLayer`] keeps the texture
+  (single-sample, resolved from the MSAA — so it is already sampleable), the
+  snapshot of its content and its dimensions. It is reused if both the content
+  **and** the size (a resize) are unchanged; otherwise it is (re)rendered. Layers
+  that have gone are purged (`truncate` to the frame's layer count).
 
-- **Économie réelle.** Un hit saute **toute** la pré-passe : pas de nouveau
-  *submit*, pas de tessellation, pas d'écriture de buffers, pas de dessin — on ne
-  refait qu'une `TextureView` (négligeable) sur la texture déjà en VRAM.
+- **A real saving.** A hit skips the **whole** pre-pass: no new *submit*, no
+  tessellation, no buffer writes, no drawing — only a `TextureView` is recreated
+  (negligible) over the texture already in VRAM.
 
-## Implémentation
+## Implementation
 
-`frus-gpu/compositor.rs` : [`CachedLayer`] + champs `layer_cache` / `layer_renders`
-dans [`Painters`] ; la boucle de calques de `render` passe par un nouveau
-`layer_texture(index, primitives, w, h)` (hit → réutilise, miss → `render_group`
-+ mémorise) ; `truncate` des calques disparus. Aucun changement de pixel : le
-cache renvoie exactement la texture qu'aurait produite un re-render.
+`frus-gpu/compositor.rs`: [`CachedLayer`] + the `layer_cache` / `layer_renders`
+fields in [`Painters`]; `render`'s layer loop goes through a new
+`layer_texture(index, primitives, w, h)` (hit → reuse, miss → `render_group` +
+remember); `truncate` for layers that have gone. No pixel change: the cache
+returns exactly the texture a re-render would have produced.
 
 ## Tests
 
-- `frus-gpu` : `static_layer_texture_is_reused_across_frames` — via un compteur
-  de pré-passes rendues (`layer_render_count`), à travers **un même** `Painters` :
-  1ʳᵉ frame → 1 rendu ; 2ᵉ frame (calque inchangé) → **toujours 1** (réutilisé) ;
-  contenu changé → 2 (re-render) ; calque retiré → cache **purgé**.
-- Le reste de la suite est **inchangé** (le cache ne modifie aucun pixel) —
-  goldens compris, confirmant l'absence de régression visuelle.
+- `frus-gpu`: `static_layer_texture_is_reused_across_frames` — through a counter
+  of rendered pre-passes (`layer_render_count`), across **the same** `Painters`:
+  1st frame → 1 render; 2nd frame (the layer unchanged) → **still 1** (reused);
+  content changed → 2 (a re-render); the layer removed → the cache **purged**.
+- The rest of the suite is **unchanged** (the cache modifies no pixel) — goldens
+  included, confirming there is no visual regression.
 
-## Reste
+## What's left
 
-- **Rendre dans la texture cachée existante** lors d'un re-render à dimensions
-  identiques (éviter la réallocation pour un calque *animé*).
-- Invalidation plus fine qu'un `Vec<Primitive>::eq` (hash de contenu) si le coût
-  de comparaison devient sensible sur de gros calques.
-- Cible Web (wasm + WebGPU) ; MSAA réglable / AA analytique (cf. J93).
+- **Rendering into the existing cached texture** on a re-render at identical
+  dimensions (avoiding a reallocation for an *animated* layer).
+- Finer invalidation than a `Vec<Primitive>::eq` (a content hash) if the
+  comparison cost becomes noticeable on large layers.
+- The Web target (wasm + WebGPU); adjustable MSAA / analytic AA (see J93).

@@ -1,56 +1,55 @@
-# Jalon 76 — `from_seed` : thème généré depuis une couleur graine (HCT)
+# Jalon 76 — `from_seed`: theme generated from a seed colour (HCT)
 
-## Analyse
+## Analysis
 
-Le `ColorScheme` (jalon 68) était écrit à la main. Material 3 génère le sien
-depuis **une seule couleur graine** via l'espace **HCT** (Hue-Chroma-Tone) :
-teinte/chroma perceptifs de CAM16 + ton L\* de CIELAB. Le ton porte le
-contraste — deux tons éloignés de 40+ garantissent la lisibilité — donc un
-schéma « par tons » a des paires `X`/`on_X` lisibles **par construction**.
+The `ColorScheme` (milestone 68) was written by hand. Material 3 generates its
+own from **a single seed colour** through the **HCT** space (Hue-Chroma-Tone):
+CAM16's perceptual hue and chroma + CIELAB's L\* tone. The tone carries the
+contrast — two tones 40+ apart guarantee legibility — so a "by tone" scheme has
+`X`/`on_X` pairs that are legible **by construction**.
 
 ## Architecture
 
-- **`frus-core/hct.rs`** (pur, zéro dépendance) : port de
+- **`frus-core/hct.rs`** (pure, zero-dependency): a port of
   `material-color-utilities` (Google).
-  - Analyse [`Hct::from_color`] : sRGB → XYZ (D65) → CAM16 (conditions de
-    vision standard) pour teinte/chroma, L\* pour le ton.
-  - Synthèse [`Hct::solve`] : itération de Newton sur la clarté `J` (5 pas,
-    `findResultByJ`) ; hors gamut, **dichotomie sur le chroma** (précision
-    0,4 — le solveur historique de Google) au lieu de la bissection analytique
-    de la frontière du gamut (~150 lignes évitées pour ±2/255 d'écart max).
-  - [`TonalPalette`] : une teinte/chroma déclinée sur l'échelle des tons.
-- **`frus-widgets`** : `ColorScheme::from_seed(seed, dark)` — 5 palettes
-  (primaire = chroma de la graine plancher 48 ; secondaire 16 ; neutre 4 ;
-  neutre-variante 8 ; erreur teinte 25 chroma 84), chaque rôle = un ton M3.
-  `Theme::from_seed` en dérive focus/sélection depuis la primaire.
+  - Analysis [`Hct::from_color`]: sRGB → XYZ (D65) → CAM16 (standard viewing
+    conditions) for hue and chroma, L\* for the tone.
+  - Synthesis [`Hct::solve`]: Newton iteration on lightness `J` (5 steps,
+    `findResultByJ`); out of gamut, a **bisection on chroma** (precision 0.4 —
+    Google's historical solver) instead of an analytic bisection of the gamut
+    boundary (~150 lines avoided for a ±2/255 maximum difference).
+  - [`TonalPalette`]: one hue/chroma spread across the tone scale.
+- **`frus-widgets`**: `ColorScheme::from_seed(seed, dark)` — 5 palettes (primary
+  = the seed's chroma with a floor of 48; secondary 16; neutral 4; neutral
+  variant 8; error hue 25 chroma 84), each role being an M3 tone.
+  `Theme::from_seed` derives focus and selection from the primary.
 
-## Décisions
+## Decisions
 
-- **Vérité terrain** : les constantes et le comportement sont épinglés contre
-  le port Python `materialyoucolor` (#4285F4 → H 265.979, C 62.269, T 56.550 ;
-  les gris gardent un chroma résiduel ≈ 1,9 sous adaptation partielle — ce
-  n'est pas un bug). Une constante mal recopiée du solveur (`m[2][2]`) a été
-  détectée par ce croisement — d'où les tests à valeurs exactes.
-- Écart M3 assumé : `surface` décollée du `background` (tons 12/6 sombre,
-  100/98 clair) — nos cartes posent une surface sur le fond, la spec 2023 les
-  confond.
-- La palette **tertiaire** (teinte +60°, chroma 24) attendra un rôle
-  consommateur (pas de champ tertiaire dans le schéma → pas de code mort).
+- **Ground truth**: the constants and the behaviour are pinned against the
+  `materialyoucolor` Python port (#4285F4 → H 265.979, C 62.269, T 56.550; greys
+  keep a residual chroma of ≈ 1.9 under partial adaptation — that is not a bug).
+  A constant mis-copied from the solver (`m[2][2]`) was caught by that
+  cross-check — hence the exact-value tests.
+- An accepted departure from M3: `surface` detached from `background` (tones 12/6
+  dark, 100/98 light) — our cards place a surface on the background, whereas the
+  2023 spec conflates them.
+- The **tertiary** palette (hue +60°, chroma 24) will wait for a role to consume
+  it (there is no tertiary field in the scheme → no dead code).
 
 ## Tests (256 → 265)
 
 - `google_blue_analyzes_to_known_hct`, `solve_matches_reference_implementation`
-  (valeurs exactes du port Python, ± 1/255 en gamut, ± 3 hors gamut),
-  round-trips, monotonie de la palette en luminance, entrées dégénérées.
-- `from_seed_generates_contrasting_pairs` : **toutes** les paires `X`/`on_X`
-  tiennent l'AA (≥ 4,5:1) pour 3 graines × 2 modes — y compris une graine
-  grise (chroma quasi nul).
-- `from_seed_light_and_dark_share_the_hue` : les deux modes déclinent la même
-  teinte, fonds respectivement sombre/clair.
+  (exact values from the Python port, ± 1/255 in gamut, ± 3 out of gamut), round
+  trips, the palette's monotonicity in luminance, degenerate inputs.
+- `from_seed_generates_contrasting_pairs`: **every** `X`/`on_X` pair holds AA
+  (≥ 4.5:1) for 3 seeds × 2 modes — including a grey seed (near-zero chroma).
+- `from_seed_light_and_dark_share_the_hue`: both modes spread the same hue, with
+  dark and light backgrounds respectively.
 
-## Démo
+## Demo
 
-Action « Seed: … » dans le menu de l'AppBar : cycle schéma main → Blue
-(#4285F4) → Purple (#9C27B0) → Orange (#E8710A), avec le même fondu que la
-bascule clair/sombre (le thème généré s'interpole rôle à rôle comme les
-autres).
+A "Seed: …" action in the AppBar's menu: it cycles through the hand-written
+scheme → Blue (#4285F4) → Purple (#9C27B0) → Orange (#E8710A), with the same fade
+as the light/dark toggle (the generated theme interpolates role by role like the
+others).

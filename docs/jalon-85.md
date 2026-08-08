@@ -1,71 +1,74 @@
-# Jalon 85 — Accessibilité : annotation sémantique + pont AccessKit
+# Jalon 85 — Accessibility: semantic annotation + AccessKit bridge
 
-## Analyse
+## Analysis
 
-Le §14 recommande : *n'inventez PAS l'accessibilité — adoptez **AccessKit**
-(le standard Rust cross-plateforme : UIA Windows, AT-SPI Linux, macOS). frus
-annote la sémantique par widget (rôle/label/valeur/état), AccessKit parle aux
-lecteurs d'écran natifs.* Et : *bakez le libellé dans les widgets dès
-maintenant, branchez AccessKit ensuite.*
+§14 recommends: *do NOT invent accessibility — adopt **AccessKit** (the
+cross-platform Rust standard: UIA on Windows, AT-SPI on Linux, macOS). frus
+annotates the semantics per widget (role/label/value/state), and AccessKit talks
+to the native screen readers.* And: *bake the label into the widgets now, wire
+AccessKit up afterwards.*
 
 ## Architecture
 
-- **`frus-core/semantics.rs`** (zéro-dep) : `Role` (Button, CheckBox, Switch,
-  Slider, TextInput, Label, ProgressBar, Tab, ListItem…), `Toggled`
-  (None/False/True), et `Semantics { role, label, value, toggled, clickable,
-  disabled, range }` avec des builders. Type frus-natif, **mappable** vers
+- **`frus-core/semantics.rs`** (zero-dependency): `Role` (Button, CheckBox,
+  Switch, Slider, TextInput, Label, ProgressBar, Tab, ListItem…), `Toggled`
+  (None/False/True), and `Semantics { role, label, value, toggled, clickable,
+  disabled, range }` with builders. A frus-native type, **mappable** onto
   `accesskit`.
-- **`Widget::semantics()`** : hook (défaut `None` = conteneur de mise en page),
-  délégué par `Box`/`Keyed`/`Responsive`. Implémenté sur Button, Text,
-  Checkbox, Switch, Slider, ProgressBar, TextInput.
-- **Collecte** : `build_ui` récolte les nœuds porteurs de sens (rôle non nul ou
-  libellé) avec leurs bornes visibles, dans l'**ordre de peinture** (= ordre de
-  lecture) → `Ui::semantics()`.
-- **`frus-shell/a11y.rs`** (bureau uniquement) : mappe l'arbre frus vers un
-  `accesskit::TreeUpdate` (une racine `Window` + un nœud par widget), et câble
-  l'adaptateur `accesskit_winit` :
-  - un **instantané partagé** (`Arc<Mutex>`) écrit chaque frame, lu par
-    l'`ActivationHandler` sur le thread de l'AT ;
-  - une **file d'actions** : l'`ActionHandler` traduit un clic/focus demandé par
-    l'AT en `A11yAction`, rejouée dans la boucle (`drain_a11y_actions` →
-    `dispatch(msg)` / focus) — l'AT peut donc **lire ET activer** l'UI.
-  - `Deactivation` no-op (l'arbre se reconstruit à la frame suivante).
+- **`Widget::semantics()`**: a hook (default `None` = a layout container),
+  delegated by `Box`/`Keyed`/`Responsive`. Implemented on Button, Text, Checkbox,
+  Switch, Slider, ProgressBar and TextInput.
+- **Collection**: `build_ui` harvests the meaning-bearing nodes (a non-null role
+  or a label) with their visible bounds, in **paint order** (= reading order) →
+  `Ui::semantics()`.
+- **`frus-shell/a11y.rs`** (desktop only): maps the frus tree onto an
+  `accesskit::TreeUpdate` (a `Window` root + one node per widget), and wires up
+  the `accesskit_winit` adapter:
+  - a **shared snapshot** (`Arc<Mutex>`) written each frame, read by the
+    `ActivationHandler` on the AT's thread;
+  - an **action queue**: the `ActionHandler` translates a click or focus
+    requested by the AT into an `A11yAction`, replayed in the loop
+    (`drain_a11y_actions` → `dispatch(msg)` / focus) — so the AT can both **read
+    and activate** the UI.
+  - `Deactivation` is a no-op (the tree rebuilds on the next frame).
 
-Contrainte : `accesskit_winit` exige que la fenêtre soit **cachée** à la
-création de l'adaptateur → on la crée `with_visible(false)` puis on la révèle
-après (bureau seulement ; Android n'est pas concerné).
+A constraint: `accesskit_winit` requires the window to be **hidden** when the
+adapter is created → so it is created `with_visible(false)` and revealed
+afterwards (desktop only; Android is unaffected).
 
-## Décisions
+## Decisions
 
-- Arbre **plat** sous la racine (ordre de peinture) pour ce premier jet : les
-  lecteurs d'écran naviguent une liste ordonnée. Une hiérarchie fidèle
-  (groupes) viendra si besoin.
-- Android exclu par `cfg` : AccessKit y a un provider distinct (chantier
-  séparé). Le hook sémantique, lui, est cross-plateforme et déjà baké.
-- `WidgetId::from_u64` ajouté (public) : l'action venue de l'AT est réidentifiée
-  vers le widget (inverse de `as_u64`).
+- A **flat** tree under the root (paint order) for this first pass: screen
+  readers navigate an ordered list. A faithful hierarchy (groups) will come if
+  needed.
+- Android excluded by `cfg`: AccessKit has a separate provider there (a separate
+  piece of work). The semantic hook itself is cross-platform and already baked
+  in.
+- `WidgetId::from_u64` added (public): an action coming from the AT is
+  re-identified back to the widget (the inverse of `as_u64`).
 
 ## Tests (287 → 296)
 
-- `frus-core` : builders `Semantics`, `is_meaningful`.
-- `frus-widgets` : `semantics_tree_carries_roles_and_labels` (l'arbre porte
-  rôles/labels/états ; le conteneur est ignoré).
-- `frus-shell` : mapping des rôles vers AccessKit, structure du `TreeUpdate`
-  (racine + enfants), focus pointant un nœud présent, aller-retour `node_id`.
+- `frus-core`: the `Semantics` builders, `is_meaningful`.
+- `frus-widgets`: `semantics_tree_carries_roles_and_labels` (the tree carries
+  roles/labels/states; the container is ignored).
+- `frus-shell`: the role mapping onto AccessKit, the `TreeUpdate`'s structure
+  (root + children), focus pointing at a node that exists, a `node_id` round
+  trip.
 
 ## Validation
 
-- 21 suites vertes ; smoke-run bureau : l'app tourne avec l'adaptateur (fenêtre
-  cachée→révélée), **inerte** sous WSL faute de bus AT, sans crash. Android
-  compile (a11y exclu).
-- **Limite honnête** : la lecture réelle par un lecteur d'écran (NVDA/Orca/
-  VoiceOver) n'est pas observable dans cet environnement (pas de bus AT-SPI
-  sous WSL). Le pont est correct par construction et testé au niveau du mapping ;
-  la validation AT de bout en bout est une tâche bureau-avec-lecteur à part.
+- 21 suites green; a desktop smoke run: the app runs with the adapter (window
+  hidden→revealed), **inert** under WSL for want of an AT bus, without crashing.
+  Android compiles (a11y excluded).
+- **An honest limit**: actual reading by a screen reader (NVDA/Orca/VoiceOver) is
+  not observable in this environment (no AT-SPI bus under WSL). The bridge is
+  correct by construction and tested at the mapping level; end-to-end AT
+  validation is a separate desktop-with-a-reader task.
 
-## Reste
+## What's left
 
-- Adoption progressive de `semantics()` sur plus de widgets (RadioGroup, Tabs,
-  liens, images).
-- Provider Android AccessKit.
-- Hiérarchie sémantique (groupes/régions) si un lecteur d'écran le réclame.
+- Progressive adoption of `semantics()` across more widgets (RadioGroup, Tabs,
+  links, images).
+- An Android AccessKit provider.
+- A semantic hierarchy (groups/regions) if a screen reader calls for it.

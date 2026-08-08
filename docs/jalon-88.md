@@ -1,102 +1,101 @@
-# Jalon 88 — Phases de frame & cache de frontière de repaint
+# Jalon 88 — Frame phases & repaint boundary cache
 
-## Analyse
+## Analysis
 
-Le §1/§0 recommandent un pipeline en **phases** (`build → layout → paint →
-composite`) où chaque `Msg`/`Command` ne salit que le bit le plus étroit. Frus
-avait déjà deux morceaux :
+§1/§0 recommend a **phased** pipeline (`build → layout → paint → composite`)
+where each `Msg`/`Command` dirties only the narrowest bit. frus already had two
+pieces:
 
-- **Phase BUILD conditionnelle** (pilote) : la `view` n'est reconstruite que si
-  l'état/la taille changent (`build_dirty`) ou si l'app anime. Une frame
-  d'interaction pure (survol, focus, défilement, curseur) **réutilise l'arbre
-  retenu**.
-- **Cache de relayout** (jalon 55) : taffy n'est rappelé que si le *style/la
-  structure* d'une racine changent — l'« empreinte de layout » **est** le bit
-  « layout sale ».
+- **A conditional BUILD phase** (the driver): the `view` is only rebuilt if the
+  state or the size change (`build_dirty`) or if the app is animating. A pure
+  interaction frame (hover, focus, scrolling, caret) **reuses the retained
+  tree**.
+- **The relayout cache** (milestone 55): taffy is only called again if a root's
+  *style or structure* changes — the "layout signature" **is** the "layout dirty"
+  bit.
 
-Manquait la **peinture** : même une frame d'interaction repeignait **tout**
-l'arbre (reconstruction complète de la `Scene`, reshaping de tout le texte). Ce
-jalon ajoute le pendant *peinture* du cache de layout.
+**Painting** was missing: even an interaction frame repainted the **whole** tree
+(rebuilding the `Scene` completely, reshaping all the text). This milestone adds
+the *paint* counterpart of the layout cache.
 
-## Ce qui est fait
+## What was done
 
-### `RepaintBoundary` (opt-in, façon Flutter)
-`Container::repaint_boundary()` marque un conteneur comme **frontière de
-repaint** (nouvelle méthode `Widget::repaint_boundary`). Choix opt-in : on ne
-paie le cache que là où le contenu est **statique** et le gain réel — comme le
-`RepaintBoundary` de Flutter, posé au vu du profilage.
+### `RepaintBoundary` (opt-in)
+`Container::repaint_boundary()` marks a container as a **repaint boundary** (a
+new `Widget::repaint_boundary` method). Opt-in by choice: you only pay for the
+cache where the content is **static** and the gain is real — a boundary placed on
+the evidence of profiling.
 
-### Cache de peinture (`paintcache.rs`)
-Retient par frontière, d'une frame à l'autre, la **sortie peinte** du
-sous-arbre : primitives **et** cartes d'interaction (hits, focusables,
-sémantique…). Sur un *hit*, on **rejoue** ces primitives déjà formées (découpe
-et propriétaire *baked*) sans repeindre — pas de reshaping de texte, pas de
-reconstruction de décoration.
+### The paint cache (`paintcache.rs`)
+It retains, per boundary and from one frame to the next, the subtree's **painted
+output**: primitives **and** interaction maps (hits, focusables, semantics…). On
+a *hit*, those already-formed primitives are **replayed** (with the clip and
+owner *baked in*) without repainting — no text reshaping, no decoration
+rebuilding.
 
-Le `Runtime` étant générique-agnostique (pas de `Msg`), la donnée est stockée
-**effacée** derrière un `Box<dyn Any>` et redescendue vers son
-`BoundaryData<Msg>` concret dans le pilote (une seule instance de `Msg` par app
-→ le `downcast` réussit toujours).
+Since the `Runtime` is generic-agnostic (it has no `Msg`), the data is stored
+**erased** behind a `Box<dyn Any>` and downcast back to its concrete
+`BoundaryData<Msg>` in the driver (one `Msg` instance per app → the `downcast`
+always succeeds).
 
-### Correction du cache (deux verrous)
-1. **Génération** : toute reconstruction de la `view` (état, thème, taille)
-   **incrémente une génération** ; une entrée périmée n'est plus un *hit*. Comme
-   l'arbre est le **même objet** tant que `build` ne tourne pas, une entrée de
-   génération courante ⇒ configuration identique.
-2. **Empreinte** : couvre le reste — le `Status` de **chaque** descendant
-   (survol, focus, valeur/opacité animées, curseur…) **et** les rectangles
-   absolus du sous-arbre. Empreinte + génération inchangées ⇒ la peinture serait
-   **bit-à-bit identique** → on rejoue le cache. Le temps est exclu (voir plus
-   bas).
+### Cache correctness (two locks)
+1. **Generation**: any rebuild of the `view` (state, theme, size) **bumps a
+   generation**; a stale entry is no longer a *hit*. Since the tree is the **same
+   object** for as long as `build` does not run, an entry from the current
+   generation ⇒ an identical configuration.
+2. **Signature**: it covers the rest — the `Status` of **every** descendant
+   (hover, focus, animated value/opacity, caret…) **and** the subtree's absolute
+   rectangles. An unchanged signature + generation ⇒ the painting would be
+   **bit-for-bit identical** → so the cache is replayed. Time is excluded (see
+   below).
 
-### Périmètre sûr (fondation)
-Une frontière n'est mise en cache que si son sous-arbre est **plat** : la
-frontière et **tous** ses descendants empruntent la branche de parcours par
-défaut (enfants en préfixe) — ni défilable, ni navigateur, ni liste
-virtualisée, ni `layout_builder`, ni pile, ni overlay, ni animation `continuous`.
-Ce cas consomme les rectangles dans l'**ordre exact** du walk, ce qui garantit
-une empreinte et une rejoue bit-à-bit correctes. Tout descendant à mise en page
-dynamique ⇒ **non cachable**, repli sûr : on repeint intégralement. (Un
-sous-arbre qui pousse un overlay ou touche le scope de focus modal n'est pas
-mémorisé non plus.)
+### A safe scope (a foundation)
+A boundary is only cached if its subtree is **flat**: the boundary and **all** its
+descendants take the default walk branch (children in prefix order) — no
+scrollable, navigator, virtualised list, `layout_builder`, stack, overlay or
+`continuous` animation. That case consumes the rectangles in the **exact** order
+of the walk, which guarantees a correct bit-for-bit signature and replay. Any
+descendant with dynamic layout ⇒ **not cacheable**, with a safe fallback: repaint
+in full. (A subtree that pushes an overlay or touches the modal focus scope is
+not memoised either.)
 
-L'exclusion de `continuous` justifie l'exclusion du **temps** de l'empreinte :
-un sous-arbre cachable n'a aucun widget piloté par le temps, donc son rendu ne
-dépend pas de l'horloge.
+Excluding `continuous` is what justifies excluding **time** from the signature: a
+cacheable subtree has no time-driven widget, so its rendering does not depend on
+the clock.
 
-### Pilote & pipeline
-Le parcours passe désormais par `walk` (frontière : hit → rejoue ; miss →
-`walk_node` + capture) au-dessus de `walk_node` (parcours complet inchangé) —
-les frontières **imbriquées** sont donc mises en cache elles aussi. Le pilote
-**incrémente la génération** juste après une reconstruction de `view`.
+### Driver & pipeline
+The walk now goes through `walk` (boundary: hit → replay; miss → `walk_node` +
+capture) on top of `walk_node` (the complete walk, unchanged) — so **nested**
+boundaries are cached too. The driver **bumps the generation** right after a
+`view` rebuild.
 
-## Démo
+## Demo
 
-La bannière **statique** « Tip » de la carte principale est enveloppée dans une
-frontière de repaint : elle est rejouée depuis le cache aux frames
-d'interaction pure au lieu d'être repeinte à chaque frame.
+The main card's **static** "Tip" banner is wrapped in a repaint boundary: it is
+replayed from the cache on pure interaction frames instead of being repainted
+every frame.
 
 ## Tests
 
-- `repaint_boundary_reuses_a_static_subtree_bit_identical` : frame 1 = miss
-  (capture) ; frame 2 = **hit**, et la scène rejouée est **bit-à-bit identique**
-  au repaint complet ; les cartes d'interaction (hits) sont aussi rejouées.
-- `repaint_boundary_invalidated_by_generation_bump` : après une reconstruction
-  (génération incrémentée) → repaint complet.
-- `repaint_boundary_invalidated_by_interaction_change` : un survol animé d'un
-  descendant change l'empreinte → repaint ; une fois stabilisé → réutilisation.
-- `paintcache` : hit sous génération/empreinte égales, invalidation par
-  génération, éviction des frontières disparues en fin de frame, gel des
-  compteurs de diagnostic.
+- `repaint_boundary_reuses_a_static_subtree_bit_identical`: frame 1 = a miss
+  (capture); frame 2 = a **hit**, and the replayed scene is **bit-for-bit
+  identical** to a full repaint; the interaction maps (hits) are replayed too.
+- `repaint_boundary_invalidated_by_generation_bump`: after a rebuild (generation
+  bumped) → a full repaint.
+- `repaint_boundary_invalidated_by_interaction_change`: an animated hover on a
+  descendant changes the signature → a repaint; once settled → reuse.
+- `paintcache`: a hit under equal generation/signature, invalidation by
+  generation, eviction of boundaries that have gone at the end of the frame,
+  freezing the diagnostic counters.
 
-Les widgets existants ne posent pas de frontière (`repaint_boundary()` = `false`)
-→ `walk` délègue toujours à `walk_node` : comportement **inchangé**, aucune
-régression sur les suites existantes.
+The existing widgets set no boundary (`repaint_boundary()` = `false`) → so `walk`
+always delegates to `walk_node`: behaviour **unchanged**, no regression in the
+existing suites.
 
-## Reste
+## What's left
 
-- **Compositing GPU** (calques rendus en texture, réutilisés sans re-upload) :
-  différé — validation difficile sous le GPU logiciel de WSL. Ici, seul le walk
-  de peinture (CPU) est court-circuité ; la scène est toujours ré-uploadée.
-- Frontières **non plates** (défilables/navigateur/pile) : hors périmètre de
-  cette fondation.
+- **GPU compositing** (layers rendered into a texture, reused without
+  re-uploading): deferred — hard to validate on WSL's software GPU. Here only the
+  (CPU) paint walk is short-circuited; the scene is still re-uploaded.
+- **Non-flat** boundaries (scrollables/navigator/stack): outside this
+  foundation's scope.

@@ -1,18 +1,17 @@
-# Jalon 89 — Chemins vectoriels & icônes
+# Jalon 89 — Vector paths & icons
 
-## Analyse
+## Analysis
 
-La `Scene` ne connaissait que **trois primitives** : `Rect` (coins arrondis,
-bordure, dégradé, ombre — via SDF), `Text`, `RichText`. Aucun **tracé
-arbitraire**. Conséquences directes : pas de vraies icônes (elles auraient été
-des glyphes texte/emoji), pas de `CustomPainter`, pas de graphiques, pas de
-formes libres. Pour un framework « façon Flutter », c'est la brique fondatrice
-la plus basse : icônes, dessin personnalisé et (plus tard) graphiques s'appuient
-tous dessus.
+The `Scene` knew only **three primitives**: `Rect` (rounded corners, border,
+gradient, shadow — through an SDF), `Text` and `RichText`. There was no
+**arbitrary path**. The direct consequences: no real icons (they would have been
+text/emoji glyphs), no custom painter, no charts, no free-form shapes. For a
+framework of this ambition, this is the lowest founding brick: icons, custom
+drawing and (later) charts all rest on it.
 
-Ce jalon ajoute la primitive **chemin** de bout en bout — modèle, GPU, widgets —
-et l'expose par un widget `Icon` (jeu embarqué) et un widget `CustomPaint`
-(toile libre).
+This milestone adds the **path** primitive end to end — model, GPU, widgets — and
+exposes it through an `Icon` widget (a bundled set) and a `CustomPaint` widget (a
+free canvas).
 
 ## Architecture
 
@@ -20,95 +19,95 @@ et l'expose par un widget `Icon` (jeu embarqué) et un widget `CustomPaint`
 frus-core                       frus-gpu                     frus-widgets
 ─────────                       ────────                     ────────────
 Path (verbs)  ── Primitive::Path ──► PathPainter             Icon ─┐
-Stroke                              (lyon → triangles         icons │→ Scene::fill_path
-Scene::fill_path/stroke_path/        indexés + clip)          Custom┘  (Primitive::Path)
+Stroke                              (lyon → indexed          icons │→ Scene::fill_path
+Scene::fill_path/stroke_path/        triangles + clip)        Custom┘  (Primitive::Path)
           paint_path                 shaders/path.wgsl        Paint
 ```
 
-### `frus-core` — le modèle (`path.rs`)
-- `PathVerb` : `MoveTo · LineTo · QuadTo · CubicTo · Close` (segments droits +
-  Bézier quadratique/cubique).
-- `Path` : suite de verbes, **builder chaînable** (`move_to().line_to()…`), plus
-  des constructeurs (`rect`, `circle` — quatre arcs cubiques, constante `0.5523`)
-  et des transformations `scaled` / `translated` (pour adapter une icône `24×24`
-  à sa boîte, et pour le passage logique→physique DPI).
+### `frus-core` — the model (`path.rs`)
+- `PathVerb`: `MoveTo · LineTo · QuadTo · CubicTo · Close` (straight segments +
+  quadratic/cubic Bézier).
+- `Path`: a sequence of verbs, a **chainable builder** (`move_to().line_to()…`),
+  plus constructors (`rect`, `circle` — four cubic arcs, constant `0.5523`) and
+  the `scaled` / `translated` transforms (for fitting a `24×24` icon into its box,
+  and for the logical→physical DPI step).
 - `Stroke { color, width }`.
 - `Primitive::Path { path, fill: Option<Color>, stroke: Option<Stroke>, clip,
-  owner }` — intégré aux trois passes transverses existantes : `owner()`,
-  `scaled()` (met à l'échelle géométrie **et** épaisseur de trait), `push_faded()`
-  (fond de sortie : fade du fill et du stroke).
+  owner }` — integrated into the three existing cross-cutting passes: `owner()`,
+  `scaled()` (scales the geometry **and** the stroke width), `push_faded()` (exit
+  fade: fading both the fill and the stroke).
 - `Scene::fill_path` / `stroke_path` / `paint_path`.
 
-### `frus-gpu` — le rendu (`path.rs` + `shaders/path.wgsl`)
-- **Tessellation CPU par lyon** : `FillTessellator` (règle *non-zero*) et
-  `StrokeTessellator` (épaisseur), chacun via un `Ctor` qui injecte **couleur +
-  découpe** dans chaque sommet produit. Tous les chemins d'une frame sont
-  fusionnés dans un seul `VertexBuffers<PathVertex, u32>` (lyon décale les
-  indices automatiquement), puis téléversés en un buffer de sommets + un buffer
-  d'indices (agrandis par puissance de deux au besoin).
-- **Pipeline indexé** (`TriangleList`), sommet = `pos(px) · color(sRGB) ·
-  clip`. Le shader projette px→NDC et **découpe au fragment** (même convention
-  que `quad.wgsl`), sRGB→linéaire à l'écriture. Tessellateurs et géométrie sont
-  **retenus** d'une frame à l'autre (zéro réallocation en régime permanent).
-- Câblé dans **le renderer fenêtré et le rendu hors-écran** dans l'ordre
-  `rectangles → chemins → texte` (les icônes passent au-dessus des fonds, sous
-  le texte).
+### `frus-gpu` — the rendering (`path.rs` + `shaders/path.wgsl`)
+- **CPU tessellation through lyon**: `FillTessellator` (the *non-zero* rule) and
+  `StrokeTessellator` (width), each through a `Ctor` that injects **colour + clip**
+  into every vertex produced. All of a frame's paths are merged into a single
+  `VertexBuffers<PathVertex, u32>` (lyon offsets the indices automatically), then
+  uploaded as one vertex buffer + one index buffer (grown by powers of two as
+  needed).
+- **An indexed pipeline** (`TriangleList`), vertex = `pos(px) · color(sRGB) ·
+  clip`. The shader projects px→NDC and **clips in the fragment** (the same
+  convention as `quad.wgsl`), sRGB→linear on write. The tessellators and the
+  geometry are **retained** from frame to frame (zero reallocation in steady
+  state).
+- Wired into **the windowed renderer and the offscreen rendering** in the order
+  `rectangles → paths → text` (so icons go above backgrounds, under text).
 
 ### `frus-widgets`
-- **`Icon`** : rend une icône du jeu, mise à l'échelle (`size/24`) et centrée
-  dans sa boîte ; couleur = `on_surface` du thème par défaut, **surchargeable**
-  (`.color(...)`) — conforme à la règle « personnalisable comme Flutter ».
-- **`icons.rs`** : `IconName` (Check, Close, Add, Menu, Star, Heart, Circle,
-  Square, Play, ChevronLeft/Right) — silhouettes pleines sur grille `24×24`
-  (polygones, étoile/plus procéduraux, cœur en Bézier, croix/menu en
-  sous-chemins).
-- **`CustomPaint`** : toile de taille fixe qui délègue sa peinture à une closure
-  `Fn(&mut Scene, Rect, &Theme)` — le pendant du `CustomPainter` de Flutter, qui
-  se thème au moment de peindre.
+- **`Icon`**: renders an icon from the set, scaled (`size/24`) and centred in its
+  box; the colour is the theme's `on_surface` by default and **overridable**
+  (`.color(...)`) — in line with the "everything must be customisable" rule.
+- **`icons.rs`**: `IconName` (Check, Close, Add, Menu, Star, Heart, Circle,
+  Square, Play, ChevronLeft/Right) — solid silhouettes on a `24×24` grid
+  (polygons, a procedural star and plus, a Bézier heart, a cross and menu made of
+  sub-paths).
+- **`CustomPaint`**: a fixed-size canvas that delegates its painting to a
+  `Fn(&mut Scene, Rect, &Theme)` closure — the custom-painter counterpart, themed
+  at paint time.
 
-## Décisions techniques
+## Technical decisions
 
-- **lyon vs tessellateur maison.** lyon 1.0 est la référence Rust (robuste,
-  courbes + strokes + fill rules). Écrire un tessellateur correct (auto-
-  intersections, joints de trait) serait un projet à soi seul. On l'adopte.
-- **Tessellation CPU, pas de compute.** Simple, portable (y compris le futur
-  Web), suffisant à cette échelle ; la géométrie est mise en cache par frame.
-- **Passes séparées** (rect/path/text) plutôt qu'une passe unique ordonnée : on
-  **prolonge le modèle en calques déjà en place**. Limite assumée : un chemin ne
-  peut passer *sous* un rectangle émis après lui (comme le texte est toujours
-  au-dessus). Une passe unifiée triée viendra avec le compositing.
+- **lyon vs a hand-rolled tessellator.** lyon 1.0 is the Rust reference (robust,
+  with curves + strokes + fill rules). Writing a correct tessellator
+  (self-intersections, stroke joins) would be a project in itself. We adopt it.
+- **CPU tessellation, no compute.** Simple, portable (including the future Web
+  target), and sufficient at this scale; the geometry is cached per frame.
+- **Separate passes** (rect/path/text) rather than one sorted pass: we **extend
+  the layered model already in place**. An accepted limit: a path cannot go
+  *under* a rectangle emitted after it (just as text is always on top). A unified
+  sorted pass will come with compositing.
 
-## Explications & limites
+## Explanations & limits
 
-- **Anti-aliasing.** La géométrie tessellisée est **nette mais non lissée** (pas
-  de MSAA ici, pour un readback déterministe sous le GPU logiciel de WSL). Les
-  bords obliques d'icône sont donc légèrement crénelés ; le lissage (MSAA ou AA
-  géométrique de lyon) arrivera avec le compositing.
-- **Remplissage uni.** `fill` est une couleur unie ; dégradés/textures sur
-  chemin viendront plus tard (les dégradés existent déjà pour les rectangles).
+- **Anti-aliasing.** The tessellated geometry is **crisp but not smoothed** (no
+  MSAA here, for a deterministic readback under WSL's software GPU). So an icon's
+  oblique edges are slightly jagged; smoothing (MSAA or lyon's geometric AA) will
+  arrive with compositing.
+- **Solid fill.** `fill` is a solid colour; gradients and textures on a path will
+  come later (gradients already exist for rectangles).
 
 ## Tests
 
-- `frus-core` : builder/ordre des verbes, `rect`/`circle`, `scaled`/`translated`
-  ; doctest du builder.
-- `frus-gpu` (readback GPU, la preuve pixel) : `fills_a_vector_triangle`
-  (intérieur peint, extérieur au clear) ; `strokes_a_path_outline_only` (le trait
-  est peint, le centre reste vide).
-- `frus-widgets` : `Icon` émet **un** chemin rempli, la surcharge de couleur
-  l'emporte sur le thème, la taille pilote la boîte ; chaque `IconName` produit
-  un chemin non vide (étoile = 10 sommets, menu = 3 sous-chemins) ; `CustomPaint`
-  invoque la closure avec sa boîte résolue.
-- Aucune régression : les widgets existants n'émettent pas de chemin → les
-  goldens et toutes les suites restent identiques.
+- `frus-core`: the builder and verb order, `rect`/`circle`, `scaled`/`translated`;
+  a builder doctest.
+- `frus-gpu` (GPU readback, the pixel proof): `fills_a_vector_triangle` (the
+  interior painted, the exterior at the clear colour);
+  `strokes_a_path_outline_only` (the stroke is painted, the centre stays empty).
+- `frus-widgets`: `Icon` emits **one** filled path, the colour override beats the
+  theme, the size drives the box; every `IconName` produces a non-empty path
+  (star = 10 vertices, menu = 3 sub-paths); `CustomPaint` invokes the closure with
+  its resolved box.
+- No regression: the existing widgets emit no path → so the goldens and every
+  suite stay identical.
 
-## Démo
+## Demo
 
-La carte principale affiche une **rangée d'icônes vectorielles** (coche à la
-couleur d'accent, étoile, cœur, menu, chevron) — chemins tessellisés rendus par
-le nouveau pipeline.
+The main card shows a **row of vector icons** (a check in the accent colour, a
+star, a heart, a menu, a chevron) — tessellated paths rendered by the new
+pipeline.
 
-## Reste
+## What's left
 
-- Anti-aliasing (MSAA / AA géométrique).
-- Dégradés & motifs sur chemin ; passe unifiée triée (avec le compositing).
-- Jeu d'icônes élargi ; chargement de chemins depuis SVG.
+- Anti-aliasing (MSAA / geometric AA).
+- Gradients & patterns on paths; a unified sorted pass (with compositing).
+- A wider icon set; loading paths from SVG.

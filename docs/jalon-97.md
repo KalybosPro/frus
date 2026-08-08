@@ -1,67 +1,68 @@
-# Jalon 97 — `AnimatedContainer` : couleur de fond animée
+# Jalon 97 — `AnimatedContainer`: animated background colour
 
-## Analyse
+## Analysis
 
-J95 a rendu les animations implicites **courbées & configurables** ; J96 a livré
-l'opacité de groupe animée. Suite annoncée : des `Animated*` interpolant **d'autres
-propriétés** (couleur/taille/padding), façon `AnimatedContainer` de Flutter.
+J95 made implicit animations **curved & configurable**; J96 delivered animated
+group opacity. The announced continuation: `Animated*`s interpolating **other
+properties** (colour/size/padding), in the `AnimatedContainer` shape.
 
-La couleur de fond est la propriété **phare** — et, contrairement à taille/padding,
-elle est **layout-free** : l'interpoler n'exige aucune intégration dans la mise en
-page (qui, elle, se calcule *avant* l'animation). C'est donc le premier `Animated*`
-multi-canal, propre et borné.
+The background colour is the **flagship** property — and, unlike size and
+padding, it is **layout-free**: interpolating it requires no integration into
+layout (which is computed *before* the animation). So it is the first multi-channel
+`Animated*`, clean and self-contained.
 
-## Décisions techniques
+## Technical decisions
 
-- **Retenue par nœud, tweenée par canal.** Le runtime garde une [`ColorAnim`]
-  `{ current, from, to, elapsed }` par widget et la fait tendre vers la cible via
-  `advance_colors`, sur le **même modèle** que la valeur scalaire de J95 (rebase
-  au changement de cible, snap au montage, courbe/durée du widget). L'interpolation
-  se fait **canal par canal** (`Color::lerp`).
+- **Retained per node, tweened per channel.** The runtime keeps a [`ColorAnim`]
+  `{ current, from, to, elapsed }` per widget and drives it towards the target
+  through `advance_colors`, on the **same model** as J95's scalar value (rebasing
+  on a target change, snapping on mount, the widget's curve and duration). The
+  interpolation is done **channel by channel** (`Color::lerp`).
 
-- **Livrée au paint via `Status`, en gardant `Status: Copy`.** Le statut transporte
-  désormais `anim_color: Option<Color>` (`Color` est `Copy` — pas de `Vec`, donc
-  `Status` reste `Copy`, aucune rupture aux sites d'appel de `paint`). La marche y
-  place la couleur interpolée (`Runtime::anim_color(id)`).
+- **Delivered at paint time through `Status`, keeping `Status: Copy`.** The status
+  now carries `anim_color: Option<Color>` (`Color` is `Copy` — no `Vec`, so
+  `Status` stays `Copy` and nothing breaks at `paint`'s call sites). The walk puts
+  the interpolated colour there (`Runtime::anim_color(id)`).
 
-- **`Container` API** (idiome J96) : `.animated_color(color, duration, curve)`.
-  Le trait gagne `Widget::anim_color() -> Option<Color>` (cible), tweené par le
-  runtime. Au paint, un fond animé **prime** sur l'interpolation survol/pressé
-  (une couleur animée est la couleur). Opacité et couleur d'une même boîte
-  **partagent** une `(durée, courbe)` (simplicité ; on anime rarement les deux).
+- **`Container` API** (the J96 idiom): `.animated_color(color, duration, curve)`.
+  The trait gains `Widget::anim_color() -> Option<Color>` (the target), tweened by
+  the runtime. At paint time, an animated background **wins** over the
+  hover/pressed interpolation (an animated colour is *the* colour). A box's
+  opacity and colour **share** one `(duration, curve)` (for simplicity; the two
+  are rarely animated together).
 
-- **Câblage shell** : `advance_colors(tree, dt)` rejoint la chaîne d'avancement
-  par frame (aux côtés de `advance_values`), donc le fondu progresse et
-  redemande des frames tant qu'il bouge.
+- **Shell wiring**: `advance_colors(tree, dt)` joins the per-frame advancement
+  chain (alongside `advance_values`), so the fade progresses and keeps requesting
+  frames for as long as it moves.
 
-## Pourquoi pas taille/padding (encore)
+## Why not size/padding (yet)
 
-Animer une propriété **de disposition** exige la valeur interpolée **au moment du
-layout** (taffy lit `style()`), donc d'injecter l'animation *avant* la peinture —
-une intégration plus profonde dans `build_ui`. La couleur, purement picturale,
-s'anime sans y toucher. Taille/padding : jalon dédié.
+Animating a **layout** property requires the interpolated value **at layout time**
+(taffy reads `style()`), so the animation has to be injected *before* painting —
+a deeper integration into `build_ui`. Colour, being purely pictorial, animates
+without touching it. Size and padding: a dedicated milestone.
 
-## Implémentation
+## Implementation
 
-- `frus-widgets` : `Runtime` (`ColorAnim`, `colors`, `anim_color`,
-  `advance_colors`) ; trait `anim_color()` + forwarders (`Box`/`Keyed`/
-  `Responsive`) ; `Status::anim_color` ; `Container.animated_color` + paint ;
-  `ui::full_status` livre la couleur.
-- `frus-shell` : `advance_colors` dans la boucle d'animation.
+- `frus-widgets`: `Runtime` (`ColorAnim`, `colors`, `anim_color`,
+  `advance_colors`); the `anim_color()` trait method + forwarders
+  (`Box`/`Keyed`/`Responsive`); `Status::anim_color`; `Container.animated_color` +
+  paint; `ui::full_status` delivers the colour.
+- `frus-shell`: `advance_colors` in the animation loop.
 
 ## Tests
 
-- `animated_color_tweens_between_frames` (runtime) : snap au montage (rouge), tween
-  linéaire rouge→bleu (mi-parcours ≈ `(0.5, 0, 0.5)`), fin au bleu, oubli du widget
-  disparu.
-- `animated_color_paints_the_interpolated_color` (scène) : après avancement à
-  mi-parcours, le **rectangle de fond peint** porte la couleur interpolée (chaîne
-  runtime → `Status` → paint → scène).
-- Suites existantes vertes : le chemin est inerte sans `animated_color`.
+- `animated_color_tweens_between_frames` (runtime): snapping on mount (red), a
+  linear red→blue tween (halfway ≈ `(0.5, 0, 0.5)`), ending at blue, forgetting a
+  widget that has gone.
+- `animated_color_paints_the_interpolated_color` (scene): after advancing to the
+  halfway point, the **painted background rectangle** carries the interpolated
+  colour (the runtime → `Status` → paint → scene chain).
+- The existing suites green: the path is inert without `animated_color`.
 
-## Reste
+## What's left
 
-- Propriétés de **disposition** animées (taille/padding/radius) via injection au
-  layout ; `Tween` typés génériques.
-- Widgets `Opacity`/`AnimatedOpacity`/`AnimatedContainer` **nommés** (sucre au-
-  dessus de `Container`).
+- Animated **layout** properties (size/padding/radius) through injection at layout
+  time; generic typed `Tween`s.
+- **Named** `Opacity`/`AnimatedOpacity`/`AnimatedContainer` widgets (sugar over
+  `Container`).
