@@ -1,46 +1,47 @@
-# Jalon 70 — Focus : anneau clavier-seul + navigation aux flèches (géométrique)
+# Jalon 70 — Focus: keyboard-only ring + arrow navigation (geometric)
 
-Ouverture du **§6** par son premier item (« arbre de focus + routage des touches,
-prérequis de tout »), via ses deux morceaux les plus rentables et testables.
+Opening **§6** with its first item ("the focus tree + key routing, a prerequisite
+for everything"), through its two most rewarding and testable pieces.
 
-## `FocusHighlightMode` : l'anneau ne flashe plus au clic
+## `FocusHighlightMode`: the ring no longer flashes on click
 
-Le brief : *« ne peindre l'anneau de focus que si la dernière interaction était
-clavier »*. Nouveau bit `Runtime::focus_visible` :
+The brief: *"only paint the focus ring if the last interaction was from the
+keyboard"*. A new `Runtime::focus_visible` bit:
 
-- **pointeur appuyé** → `false` (le focus reste actif — un champ garde son
-  curseur —, seul l'anneau générique s'efface) ;
-- **toute touche pressée** → `true` (redessin si le bit bascule).
+- **pointer pressed** → `false` (focus stays active — a field keeps its caret —
+  only the generic ring disappears);
+- **any key pressed** → `true` (a redraw if the bit flips).
 
-`draw_focus_ring` est gaté dessus ; les widgets qui dessinent leur propre focus
-(`TextInput` : bordure animée) ne changent pas — c'est une affordance d'édition,
-pas un anneau de navigation.
+`draw_focus_ring` is gated on it; widgets that draw their own focus (`TextInput`:
+an animated border) are unchanged — that is an editing affordance, not a
+navigation ring.
 
-## Navigation du focus **aux flèches** (politique géométrique)
+## **Arrow** focus navigation (a geometric policy)
 
-`Ui::focus_directional(current, FocusDirection)` : parmi les focusables, choisit
-le plus proche **dans un cône** autour de la direction (pas un simple demi-plan —
-un candidat quasi aligné transversalement mais à peine « devant », dû à des
-largeurs légèrement différentes, n'est pas une cible directionnelle : le bug
-exact que le test a attrapé). Score = avance + 3 × écart transversal.
+`Ui::focus_directional(current, FocusDirection)`: among the focusables, it picks
+the nearest one **within a cone** around the direction (not a simple half-plane —
+a candidate that is roughly aligned across but only just "ahead", because of
+slightly different widths, is not a directional target: exactly the bug the test
+caught). Score = advance + 3 × lateral deviation.
 
-Côté shell : les flèches naviguent depuis tout focusable — **sauf** gauche/droite
-dans un champ texte (elles y déplacent le curseur ; haut/bas naviguent même
-depuis un champ mono-ligne). Tab/Shift+Tab (ordre d'arbre) inchangé.
+On the shell side: the arrows navigate from any focusable — **except**
+left/right inside a text field (there they move the caret; up/down navigate even
+from a single-line field). Tab/Shift+Tab (tree order) unchanged.
 
 ## Validation
 
-- **247 tests**, tout vert :
-  - anneau présent au clavier, **absent** après un focus au pointeur, jamais pour
-    un widget à focus propre ;
-  - grille 2×2 : droite/bas corrects, **diagonale contrôlée** (depuis b, bas → d
-    aligné, pas c), rien à gauche du bord — le cas dégradé des largeurs inégales
-    est épinglé.
-- Build sans avertissement ; démo sans panique.
+- **247 tests**, all green:
+  - the ring present from the keyboard, **absent** after a pointer focus, never
+    for a widget with its own focus;
+  - a 2×2 grid: right/down correct, **the diagonal controlled** (from b, down → d
+    aligned, not c), nothing to the left of the edge — the degenerate case of
+    unequal widths is pinned.
+- A warning-free build; the demo did not panic.
 
-## Suite (§6)
+## What's next (§6)
 
-- Montée des touches **feuille→racine** à résultat 3 états (handled/ignored/
-  skip) — le payoff : Échap ferme le dialogue depuis n'importe où.
-- Modèle clavier régularisé (physical + logical + character), scrolling en 4
-  pièces, split `padding`/`viewInsets`, scopes de focus (piéger dans une modale).
+- Key propagation **leaf→root** with a 3-state result
+  (handled/ignored/skip) — the payoff: Escape closes the dialogue from anywhere.
+- A regularised keyboard model (physical + logical + character), scrolling in 4
+  pieces, the `padding`/`viewInsets` split, focus scopes (trapping inside a
+  modal).

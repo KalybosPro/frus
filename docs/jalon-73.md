@@ -1,47 +1,47 @@
-# Jalon 73 — Fling tactile : le momentum de défilement (balistique)
+# Jalon 73 — Touch fling: scroll momentum (ballistics)
 
-Le manque le plus visible du défilement (§6) : relâcher le doigt après un
-glissement rapide **arrêtait le contenu net** — aucun momentum tactile (la
-molette avait son inertie à ressort, le doigt non). C'est la première rencontre
-de la couche physique du jalon 53 avec le défilement.
+Scrolling's most visible gap (§6): letting go of the finger after a fast drag
+**stopped the content dead** — there was no touch momentum (the wheel had its
+spring inertia, the finger did not). This is the first meeting of milestone 53's
+physics layer with scrolling.
 
-## Le mécanisme (balistique en forme close, ressort existant)
+## The mechanism (closed-form ballistics, the existing spring)
 
-1. **Vitesse du doigt** : pendant un `Drag::Scroll`, la vitesse en espace
-   défilement (le contenu va à l'opposé du doigt) est lissée par moyenne
-   exponentielle — l'élan du relâchement.
-2. **Projection balistique** : `fling_destination(position, vitesse)` =
-   la **position finale d'une `FrictionSimulation`** (forme close :
-   `x∞ = x₀ + v/ln(1/drag)`, drag 0.135 — la constante usuelle : ~1000 px de
-   course pour 2000 px/s). Sous 50 px/s, pas d'entraînement.
-3. **Glissement** : la destination (bornée avec le dépassement élastique
-   existant) devient la **cible du ressort de défilement**, amorcé par l'élan du
-   doigt — décélération douce, **rebond aux bornes gratuit** (le rubber-band du
-   jalon 23 fait le reste). Un fling au-delà du bord dépasse élastiquement puis
-   revient — la sensation native.
+1. **Finger velocity**: during a `Drag::Scroll`, the velocity in scroll space
+   (the content moves opposite the finger) is smoothed by an exponential moving
+   average — the momentum at release.
+2. **Ballistic projection**: `fling_destination(position, velocity)` = the
+   **final position of a `FrictionSimulation`** (in closed form:
+   `x∞ = x₀ + v/ln(1/drag)`, drag 0.135 — the usual constant: ~1000 px of travel
+   for 2000 px/s). Below 50 px/s, no carry.
+3. **Handover**: the destination (clamped with the existing elastic overshoot)
+   becomes the **scroll spring's target**, seeded with the finger's momentum — a
+   gentle deceleration, with the **bounce at the bounds for free** (milestone
+   23's rubber-banding does the rest). A fling past the edge overshoots
+   elastically and comes back — the native feel.
 
-Aucun nouvel état ni nouvelle boucle : `advance_scroll` est **intouché** (ses
-tests épinglés passent tels quels) ; le fling ne fait que *semer* cible + vitesse.
-Molette, barres et glissement précis inchangés.
+No new state and no new loop: `advance_scroll` is **untouched** (its pinned tests
+pass as they are); the fling only *seeds* the target and the velocity. The wheel,
+the bars and precise dragging are unchanged.
 
 ## Validation
 
-- **250 tests**, tout vert — `fling_projects_a_friction_final_position` épingle la
-  forme close (≈ v/ln(1/drag), symétrie, seuil), et les tests de ressort/rebond
-  existants sont inchangés.
-- Build sans avertissement ; démo sans panique. Bénéficiaires immédiats : toutes
-  les zones défilables au doigt — **Android** en tête (listes, Journal 5000
-  lignes).
+- **250 tests**, all green — `fling_projects_a_friction_final_position` pins the
+  closed form (≈ v/ln(1/drag), symmetry, the threshold), and the existing
+  spring/bounce tests are unchanged.
+- A warning-free build; the demo did not panic. The immediate beneficiaries:
+  every finger-scrollable area — **Android** first (lists, the 5000-row Log).
 
-## Non couvert (assumé)
+## Not covered (accepted)
 
-- Vitesse par moyenne exponentielle (le fit **LSQ** du brief = palier 3 des
-  gestes, différé).
-- La restructuration complète en 4 pièces (`Position/Controller/Physics/
-  Activity`) viendra avec l'arène (palier 2) — ce jalon en livre la pièce
-  `Physics::createBallisticSimulation`, en pratique.
+- Velocity by exponential moving average (the brief's **LSQ** fit = gesture stage
+  3, deferred).
+- The full restructuring into 4 pieces
+  (`Position/Controller/Physics/Activity`) will come with the arena (stage 2) —
+  in practice, this milestone delivers its `Physics::createBallisticSimulation`
+  piece.
 
-## Suite (§6 restants)
+## What's left (remaining §6)
 
-Modèle clavier régularisé (physical + logical + character), split
-`padding`/`viewInsets` (évitement du clavier Android).
+A regularised keyboard model (physical + logical + character), the
+`padding`/`viewInsets` split (Android keyboard avoidance).

@@ -1,60 +1,60 @@
-# Jalon 64 — Mesure sous contraintes (closures taffy) + paragraphe à retour à la ligne
+# Jalon 64 — Measuring under constraints (taffy closures) + wrapping paragraph
 
-Le dernier manque du protocole de layout (§1 du brief) : « les tailles
-intrinsèques routées vers la **closure de mesure de taffy** — pour le texte et le
-contenu peint sur mesure ». Jusqu'ici, un `Text` mesurait sa taille naturelle et
-la **figeait** dans son style : un texte long débordait ou était découpé, jamais
-replié à la largeur du parent.
+The last gap in the layout protocol (§1 of the brief): "intrinsic sizes routed to
+**taffy's measure closure** — for text and custom-painted content". Until now a
+`Text` measured its natural size and **froze** it into its style: long text
+overflowed or was clipped, never wrapped to the parent's width.
 
-## Feuilles mesurées (frus-layout)
+## Measured leaves (frus-layout)
 
-- **`MeasureFn`** = `Box<dyn Fn(Option<f32>, Option<f32>) -> Size>` : reçoit les
-  largeur/hauteur maximales (`None` = libre), renvoie la taille du contenu.
-- **`Layout::measured_leaf(style, data, measure)`** — la closure est retenue par
-  nœud (`HashMap<NodeId, MeasureFn>`), **sans toucher au type de contexte** de
-  l'arbre.
-- Les deux chemins de calcul passent par **`compute_layout_with_measure`** ; la
-  traduction de contraintes donne les **intrinsèques gratuitement** :
-  `min-content` → largeur `Some(0)` (le mot le plus long), `max-content` → `None`
-  (taille naturelle).
+- **`MeasureFn`** = `Box<dyn Fn(Option<f32>, Option<f32>) -> Size>`: it receives
+  the maximum width and height (`None` = free) and returns the content's size.
+- **`Layout::measured_leaf(style, data, measure)`** — the closure is retained per
+  node (`HashMap<NodeId, MeasureFn>`), **without touching the tree's context
+  type**.
+- Both computation paths go through **`compute_layout_with_measure`**; the
+  constraint translation gives the **intrinsics for free**: `min-content` → width
+  `Some(0)` (the longest word), `max-content` → `None` (the natural size).
 
-## Le paragraphe : `Text::wrap()`
+## The paragraph: `Text::wrap()`
 
-- `style()` → dimensions libres ; **`measure()`** → closure possédée (contenu
-  cloné) sur `frus_text::measure_wrapped` (repli cosmic-text sous largeur
-  contrainte) ; `paint()` → **`Scene::text_wrapped`**.
-- **`Primitive::Text` porte `max_width: Option<f32>`** : le rendu GPU se replie à
-  la **même largeur que la mise en page** (avant, glyphon repliait à la largeur de
-  surface — jamais atteinte). `scaled` met la largeur de repli à l'échelle DPI.
-- Nouveaux hooks `Widget::measure` / `Widget::measure_key`, délégués par
-  `Box<dyn Widget>`, `Keyed`, `Responsive`. Le texte **sans** `.wrap()` est
-  strictement inchangé (dimensions figées, pas de closure).
+- `style()` → free dimensions; **`measure()`** → an owned closure (the content is
+  cloned) over `frus_text::measure_wrapped` (cosmic-text wrapping under a
+  constrained width); `paint()` → **`Scene::text_wrapped`**.
+- **`Primitive::Text` carries `max_width: Option<f32>`**: GPU rendering wraps at
+  the **same width as the layout** (before, glyphon wrapped at the surface width —
+  never reached). `scaled` scales the wrapping width for DPI.
+- New `Widget::measure` / `Widget::measure_key` hooks, delegated by
+  `Box<dyn Widget>`, `Keyed` and `Responsive`. Text **without** `.wrap()` is
+  strictly unchanged (frozen dimensions, no closure).
 
-## Le piège du cache de relayout — corrigé
+## The relayout cache's trap — fixed
 
-Le cache (jalon 55) n'empreint que **style + structure**. Or le contenu d'une
-feuille mesurée influe sur la géométrie **sans passer par le style** : deux
-paragraphes différents, mêmes styles, auraient partagé une empreinte — et le cache
-aurait resservi une **vieille mise en page**. D'où **`measure_key()`** (empreinte
-du contenu : texte + taille + graisse + italique), mêlée à l'empreinte de
-relayout. Contrat documenté : `measure()` et `measure_key()` sont `Some` ensemble.
+The cache (milestone 55) only fingerprints **style + structure**. But a measured
+leaf's content affects the geometry **without going through the style**: two
+different paragraphs with the same styles would have shared a signature — and the
+cache would have served an **old layout**. Hence **`measure_key()`** (a
+fingerprint of the content: text + size + weight + italic), mixed into the
+relayout signature. The documented contract: `measure()` and `measure_key()` are
+`Some` together.
 
-Le test `wrapped_text_wraps_in_layout_and_invalidates_the_cache` épingle
-précisément ce scénario : même arbre, même runtime (cache chaud), contenu
-différent → le suiveur cliquable **bouge** (recalcul), et le paragraphe replie ses
-lignes dans la colonne (le suiveur est repoussé).
+The `wrapped_text_wraps_in_layout_and_invalidates_the_cache` test pins exactly
+that scenario: the same tree, the same runtime (a warm cache), different content
+→ the clickable follower **moves** (recomputation), and the paragraph wraps its
+lines within the column (pushing the follower down).
 
 ## Validation
 
-- `frus-layout` **4 tests** (+1 : feuille mesurée repliée à la largeur offerte, 3
-  lignes attendues) ; `frus-text` **10** (+1 : repli borné en largeur, hauteur qui
-  grandit) ; `frus-widgets` **140** (+2 : mesure/clé du paragraphe + le test de
-  bout en bout layout + cache). **236 tests** au total, tout vert.
-- Démo : l'écran About gagne un paragraphe replié à la largeur de la carte.
-  Build sans avertissement ; démo sans panique.
+- `frus-layout` **4 tests** (+1: a measured leaf wrapped to the offered width, 3
+  lines expected); `frus-text` **10** (+1: wrapping bounded in width, height
+  growing); `frus-widgets` **140** (+2: the paragraph's measure/key plus the
+  end-to-end layout + cache test). **236 tests** in total, all green.
+- Demo: the About screen gains a paragraph wrapped to the card's width. A
+  warning-free build; the demo did not panic.
 
-## Suite
+## What's next
 
-- `RichText` à retour à la ligne (même mécanique, mesure sur runs).
-- La suite §5 côté couleurs : consolidation `ColorScheme`, `content_padding` →
-  taffy (les feuilles mesurées ouvrent la voie aux mesures avec padding).
+- A wrapping `RichText` (the same mechanics, measuring over runs).
+- The rest of §5 on the colour side: consolidating `ColorScheme`,
+  `content_padding` → taffy (measured leaves open the way to measurements with
+  padding).

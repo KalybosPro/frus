@@ -1,46 +1,46 @@
-# Jalon 67 — Adoption du par-coin (feuille, segments) + la bordure réserve sa place
+# Jalon 67 — Adopting per-corner (sheet, segments) + the border reserves its space
 
-Jalon de finition : les rayons par-coin du jalon 66 entrent dans les widgets où ils
-sont l'aspect **correct**, et la règle `content_padding` du brief (§5) est câblée
-dans la mise en page.
+A finishing milestone: milestone 66's per-corner radii go into the widgets where
+they are the **correct** look, and the brief's `content_padding` rule (§5) is
+wired into layout.
 
-## `Button::radius(…)` (règle « personnalisable comme Flutter »)
+## `Button::radius(…)` (the "everything must be customisable" rule)
 
-Le rayon du bouton était un emprunt direct du thème, sans surcharge. Nouveau
-builder `radius(impl Into<BorderRadius>)` (défaut : rayon du thème) — l'ombre
-suit (`inflate`). C'est la brique des groupes de boutons connectés.
+The button's radius was taken straight from the theme, with no override. A new
+`radius(impl Into<BorderRadius>)` builder (default: the theme's radius) — the
+shadow follows (`inflate`). This is the brick for connected button groups.
 
-## `SegmentedControl` : segments réellement « connectés »
+## `SegmentedControl`: genuinely "connected" segments
 
-Chaque segment n'est plus une pilule uniforme : seuls les coins **extérieurs** du
-groupe sont arrondis (premier à gauche, dernier à droite, jointures droites,
-segment unique = uniforme). Rayon extérieur surchargable (`.radius(f32)`, défaut
-10). Épinglé par `segments_round_only_the_outer_corners` (les remplissages des
-trois segments portent exactement gauche-arrondi / droit / droite-arrondie).
+Each segment is no longer a uniform pill: only the group's **outer** corners are
+rounded (the first on the left, the last on the right, straight joins, a lone
+segment uniform). The outer radius is overridable (`.radius(f32)`, default 10).
+Pinned by `segments_round_only_the_outer_corners` (the three segments' fills
+carry exactly left-rounded / straight / right-rounded).
 
-## `BottomSheet` : coins hauts arrondis
+## `BottomSheet`: rounded top corners
 
-Le panneau de la feuille peignait une surface carrée ; il a désormais les coins
-**hauts** arrondis (`BorderRadius::top(theme.radius + 6)`, le bord bas restant
-collé à la fenêtre), avec le liseré haut en retrait des arrondis. Les tests
-épinglés de la feuille (glissement à mi-course, géométrie) passent inchangés.
+The sheet's panel painted a square surface; it now has rounded **top** corners
+(`BorderRadius::top(theme.radius + 6)`, with the bottom edge still stuck to the
+window), and the top edge line inset from the rounding. The sheet's pinned tests
+(mid-slide, geometry) pass unchanged.
 
-## La bordure réserve sa place (`content_padding` → taffy)
+## The border reserves its space (`content_padding` → taffy)
 
-Une `Container` bordée **réserve l'épaisseur du trait** dans son padding de mise
-en page : le contenu n'est plus mangé par la bordure (la règle que
-`BoxDecoration::content_padding` documentait sans être câblée). Une bordure
-invisible (épaisseur nulle ou alpha nul) ne change rien. Épinglé par
-`visible_border_reserves_layout_padding`. Impact : les trois conteneurs bordés de
-la démo voient leur contenu s'écarter d'1 px — le comportement correct.
+A bordered `Container` now **reserves the stroke's thickness** in its layout
+padding: the content is no longer eaten by the border (the rule
+`BoxDecoration::content_padding` documented without it being wired). An invisible
+border (zero thickness or zero alpha) changes nothing. Pinned by
+`visible_border_reserves_layout_padding`. The impact: the demo's three bordered
+containers see their content move in by 1 px — the correct behaviour.
 
 ## Validation
 
-- **240 tests**, tout vert — dont les tests épinglés de BottomSheet/Drawer
-  inchangés, et les 2 nouveaux (coins extérieurs des segments, réserve de
-  bordure). Build sans avertissement ; démo sans panique.
+- **240 tests**, all green — including BottomSheet/Drawer's pinned tests
+  unchanged, and the 2 new ones (segments' outer corners, the border reserve). A
+  warning-free build; the demo did not panic.
 
-## Suite (§5 restants)
+## What's left (remaining §5)
 
-Consolidation `ColorScheme` (+ `from_seed` HCT), décorations de texte,
+Consolidating `ColorScheme` (+ HCT `from_seed`), text decorations,
 `letter_spacing`/`line_height`, `Alignment`, RTL (§14).

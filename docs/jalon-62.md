@@ -1,64 +1,65 @@
-# Jalon 62 — `TextSpan` : texte riche, de l'arbre stylé au GPU
+# Jalon 62 — `TextSpan`: rich text, from the styled tree to the GPU
 
-Suite du fil typographique (§5). Le jalon 60 a posé `TextStyle` et le rendu de la
-graisse/l'italique ; celui-ci apporte le **texte riche** : plusieurs styles mêlés
-dans un même paragraphe, mis en forme d'un seul tenant (une seule ligne de base).
+A continuation of the typography thread (§5). Milestone 60 laid down `TextStyle`
+and the rendering of weight and italic; this one brings **rich text**: several
+styles mixed within one paragraph, shaped as a single piece (one baseline).
 
-## `TextSpan` : l'arbre stylé à héritage en cascade (frus-core)
+## `TextSpan`: the styled tree with cascading inheritance (frus-core)
 
-`TextSpan` = un fragment de texte + des surcharges **partielles** + des enfants.
-Le point clé : un enfant `.bold()` **hérite** la taille et la couleur de son parent
-— ce qu'une fusion de `TextStyle` complets ne sait pas exprimer (elle écraserait la
-taille). Les surcharges partielles vivent dans un type interne (`Overrides`, chaque
-champ optionnel) composé via les builders : `.bold()`, `.weight()`, `.italic()`,
-`.size()`, `.color()`, `.style(TextStyle)` (surcharge complète).
+A `TextSpan` = a fragment of text + **partial** overrides + children. The key
+point: a `.bold()` child **inherits** its parent's size and colour — which
+merging complete `TextStyle`s cannot express (it would overwrite the size). The
+partial overrides live in an internal type (`Overrides`, every field optional)
+composed through the builders: `.bold()`, `.weight()`, `.italic()`, `.size()`,
+`.color()`, `.style(TextStyle)` (a complete override).
 
-`flatten(base)` aplati l'arbre en **runs résolus** `(texte, TextStyle)`, en ordre de
-lecture, en cascadant depuis le style de base du paragraphe. Les nœuds sans texte
-propre (« groupes » de style) ne produisent pas de run.
+`flatten(base)` flattens the tree into **resolved runs** `(text, TextStyle)`, in
+reading order, cascading down from the paragraph's base style. Nodes with no text
+of their own ("style groups") produce no run.
 
-## Le pipeline, de bout en bout
+## The pipeline, end to end
 
-- **`TextRun`** (frus-core) : run prêt à rendre — texte + taille/graisse/italique/
-  couleur **résolus**.
-- **`Primitive::RichText { position, runs, … }`** + `Scene::rich_text` ;
-  `scaled` met les tailles des runs à l'échelle, `push_faded` fond leurs couleurs.
-- **`frus-gpu`** : un seul buffer cosmic-text par paragraphe, via
-  **`set_rich_text`** — chaque run porte ses `Attrs` (graisse, italique,
-  **métriques par-span** pour les tailles mêlées, **couleur par-span** que glyphon
-  applique par glyphe). Métriques de base = le plus grand run.
-- **`frus-text::measure_runs`** : mesure du texte riche shapé (largeur de la plus
-  longue ligne, hauteur réelle `line_top + line_height` — les tailles mêlées
-  comptent).
+- **`TextRun`** (frus-core): a run ready to render — text plus **resolved**
+  size/weight/italic/colour.
+- **`Primitive::RichText { position, runs, … }`** + `Scene::rich_text`; `scaled`
+  scales the runs' sizes, `push_faded` fades their colours.
+- **`frus-gpu`**: a single cosmic-text buffer per paragraph, through
+  **`set_rich_text`** — each run carries its `Attrs` (weight, italic,
+  **per-span metrics** for mixed sizes, **per-span colour** which glyphon applies
+  per glyph). The base metrics = the largest run.
+- **`frus-text::measure_runs`**: measurement of shaped rich text (the width of
+  the longest line, the real height `line_top + line_height` — mixed sizes
+  count).
 
-## `RichText` : le widget paragraphe (frus-widgets)
+## `RichText`: the paragraph widget (frus-widgets)
 
-`RichText::new(span).base_style(theme.text.body_large)` — le style de base est la
-racine de la cascade ; les couleurs héritées sont tranchées contre le thème **au
-paint** (et modulées par l'opacité). Taille naturelle mesurée par `measure_runs`
-(pas de retour à la ligne automatique pour l'instant, comme `Text`).
+`RichText::new(span).base_style(theme.text.body_large)` — the base style is the
+root of the cascade; inherited colours are resolved against the theme **at paint
+time** (and modulated by the opacity). The natural size is measured by
+`measure_runs` (no automatic wrapping for now, as with `Text`).
 
-Démo : la ligne d'accroche de l'écran About mêle gras, italique et un segment
-coloré (`no GC` en `theme.primary`) dans une seule phrase.
+Demo: the tagline on the About screen mixes bold, italic and a coloured segment
+(`no GC` in `theme.primary`) within a single sentence.
 
 ## Validation
 
-- **Preuve GPU de bout en bout** : `renders_rich_text_to_non_background_pixels` —
-  rendu offscreen + readback d'un paragraphe à runs mêlés (40 px normal + 24 px
-  gras) sur un vrai device wgpu ; le harnais de readback est factorisé et partagé
-  avec le test de texte simple.
-- Cascade : 3 tests frus-core (héritage des attributs non précisés, cascade en
-  profondeur, nœuds-groupes sans run) + doctest.
-- Mesure riche : `rich_runs_measure_mixed_styles` (plus large avec un segment
-  gras 24 px ; hauteur pilotée par le plus grand run ; vide → zéro).
-- Widget : runs résolus contre le thème, gras hérité, couleur explicite ; la
-  hauteur de layout suit le plus grand run.
-- **226 tests** au total, tout vert (core 52, widgets 138, gpu 5, text 4, demo 15,
-  shell 7, layout 3) ; build sans avertissement ; démo sans panique.
+- **End-to-end GPU proof**: `renders_rich_text_to_non_background_pixels` —
+  offscreen rendering + readback of a paragraph with mixed runs (40 px regular +
+  24 px bold) on a real wgpu device; the readback harness is factored out and
+  shared with the plain-text test.
+- The cascade: 3 frus-core tests (inheritance of unspecified attributes, a deep
+  cascade, group nodes with no run) + a doctest.
+- Rich measurement: `rich_runs_measure_mixed_styles` (wider with a 24 px bold
+  segment; the height driven by the largest run; empty → zero).
+- The widget: runs resolved against the theme, inherited bold, an explicit
+  colour; the layout height follows the largest run.
+- **226 tests** in total, all green (core 52, widgets 138, gpu 5, text 4, demo
+  15, shell 7, layout 3); a warning-free build; the demo did not panic.
 
-## Suite (§5 texte)
+## What's next (§5, text)
 
-- **`TextLayout`** sur cosmic-text : `hit_test`/`caret_rect`/`selection_rects` et
-  intrinsèques min/max → la brique pour migrer `TextInput` et, à terme, le
-  paragraphe à retour à la ligne (mesure sous contrainte, closures de mesure taffy).
-- Décorations (souligné/barré), `letter_spacing`/`line_height` dans `TextStyle`.
+- **`TextLayout`** on cosmic-text: `hit_test`/`caret_rect`/`selection_rects` and
+  min/max intrinsics → the brick for migrating `TextInput` and, eventually, the
+  wrapping paragraph (measurement under constraint, taffy measure closures).
+- Decorations (underline/strikethrough), `letter_spacing`/`line_height` in
+  `TextStyle`.

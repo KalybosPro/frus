@@ -1,34 +1,33 @@
-# Jalon 65 — `RichText::wrap()` : le paragraphe riche replié
+# Jalon 65 — `RichText::wrap()`: the wrapped rich paragraph
 
-Clôture de l'histoire « paragraphe » : la mécanique de mesure sous contraintes du
-jalon 64 (`MeasureFn` taffy, `measure_key` anti-cache-obsolète), appliquée au
-texte **riche** (jalon 62).
+Closing the "paragraph" story: milestone 64's measurement-under-constraint
+mechanics (taffy `MeasureFn`, the `measure_key` that stops the cache going
+stale), applied to **rich** text (milestone 62).
 
-## Ce qui change
+## What changes
 
-- **`Primitive::RichText` porte `max_width: Option<f32>`** (+ `Scene::
-  rich_text_wrapped`) : le rendu GPU replie les runs à la **même largeur que la
-  mise en page** ; l'échelle DPI s'applique à la largeur de repli.
-- **`frus_text::measure_runs_wrapped(runs, max_width)`** — la mesure riche sous
-  contrainte de largeur (`measure_runs` délègue, non contraint).
-- **`RichText::wrap()`** : dimensions libres, `measure()` = closure possédée sur
-  les runs aplatis, `paint()` = `rich_text_wrapped(bounds.width)`.
-- **`TextSpan::measure_hash`** (frus-core) : l'empreinte de mesure de l'arbre —
-  textes, tailles, graisses, italiques — **sans aplatir** l'arbre à chaque frame,
-  et **sans les couleurs** : recolorer un span ne doit pas invalider la mise en
-  page (le test l'épingle explicitement).
+- **`Primitive::RichText` carries `max_width: Option<f32>`** (+
+  `Scene::rich_text_wrapped`): GPU rendering wraps the runs at the **same width
+  as the layout**; DPI scaling applies to the wrapping width.
+- **`frus_text::measure_runs_wrapped(runs, max_width)`** — rich measurement under
+  a width constraint (`measure_runs` delegates to it, unconstrained).
+- **`RichText::wrap()`**: free dimensions, `measure()` = an owned closure over
+  the flattened runs, `paint()` = `rich_text_wrapped(bounds.width)`.
+- **`TextSpan::measure_hash`** (frus-core): the tree's measurement fingerprint —
+  texts, sizes, weights, italics — **without flattening** the tree each frame,
+  and **without the colours**: recolouring a span must not invalidate the layout
+  (a test pins this explicitly).
 
 ## Validation
 
-- `wrapped_rich_text_measures_and_keys_by_content` : repli borné en largeur et
-  plus haut qu'en libre ; la clé de mesure **suit le contenu** mais **ignore la
-  couleur** ; sans `.wrap()`, ni mesure ni clé (contrat des hooks).
-- **237 tests** au total, tout vert ; build sans avertissement ; démo sans
-  panique. La ligne d'accroche riche de l'écran About se replie désormais à la
-  largeur de sa carte.
+- `wrapped_rich_text_measures_and_keys_by_content`: wrapping bounded in width and
+  taller than when free; the measure key **follows the content** but **ignores
+  the colour**; without `.wrap()`, neither measure nor key (the hooks' contract).
+- **237 tests** in total, all green; a warning-free build; the demo did not
+  panic. The About screen's rich tagline now wraps to its card's width.
 
-## Suite (§5 restants)
+## What's left (remaining §5)
 
-Décorations de texte (souligné/barré), `letter_spacing`/`line_height`,
-consolidation `ColorScheme` (+ `from_seed` HCT), `content_padding` → taffy,
-rayons par coin (shader SDF), `Alignment`, RTL.
+Text decorations (underline/strikethrough), `letter_spacing`/`line_height`,
+consolidating `ColorScheme` (+ HCT `from_seed`), `content_padding` → taffy,
+per-corner radii (SDF shader), `Alignment`, RTL.

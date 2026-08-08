@@ -1,44 +1,44 @@
-# Jalon 72 — Scopes de focus : la modale piège Tab, les flèches et le clic
+# Jalon 72 — Focus scopes: the modal traps Tab, arrows and clicks
 
-Suite du §6 : les **scopes de focus** (le brief les listait « peuvent attendre » —
-ils ne pouvaient plus : Échap fermait la modale du dessus depuis le jalon 71,
-mais **Tab s'en échappait** vers l'interface d'arrière-plan voilée).
+A continuation of §6: **focus scopes** (the brief listed them as "can wait" —
+they could not any longer: Escape had been closing the topmost modal since
+milestone 71, but **Tab escaped from it** into the scrimmed background
+interface).
 
-## Le mécanisme
+## The mechanism
 
-Pendant le rendu des overlays, chaque overlay **modal** (voilé : `Center`, tiroirs
-`Left`/`Right`, feuille `Bottom`) marque l'index de son premier focusable —
-`focus_scope_start`. Le dernier rendu (le plus au-dessus, portails imbriqués
-compris) l'emporte. Les overlays ancrés (`Below`, `Tooltip`) ne piègent pas.
+While the overlays are rendered, each **modal** overlay (scrimmed: `Center`, the
+`Left`/`Right` drawers, the `Bottom` sheet) marks the index of its first
+focusable — `focus_scope_start`. The last rendered (the topmost, nested portals
+included) wins. Anchored overlays (`Below`, `Tooltip`) do not trap.
 
-Le **pool de focus participants** (`focus_pool`) devient alors la tranche des
-focusables du scope, et les trois portes d'entrée du focus la respectent :
+The **pool of participating focusables** (`focus_pool`) then becomes the scope's
+slice of focusables, and the three ways into focus all respect it:
 
-- **Tab** (`focus_next`) : boucle **dans** la modale ; un focus courant hors
-  scope (pris avant l'ouverture) est traité comme « aucun » — Tab **entre** dans
-  le piège.
-- **Flèches** (`focus_directional`) : les candidats sont piégés ; le point de
-  départ peut être hors scope (le premier coup de flèche fait entrer).
-- **Focus au clic** (`focus_hit`) : un clic sur le voile ne focalise plus un
-  champ d'arrière-plan.
+- **Tab** (`focus_next`): cycles **inside** the modal; a current focus outside the
+  scope (taken before it opened) is treated as "none" — so Tab **enters** the
+  trap.
+- **Arrows** (`focus_directional`): the candidates are trapped; the starting
+  point may be outside the scope (the first arrow press moves in).
+- **Focus on click** (`focus_hit`): a click on the scrim no longer focuses a
+  background field.
 
-Sans modale, `focus_scope_start` est `None` : tous les focusables participent —
-comportement historique strictement inchangé (les tests Tab existants passent
-tels quels).
+With no modal, `focus_scope_start` is `None`: every focusable participates — the
+historical behaviour, strictly unchanged (the existing Tab tests pass as they
+are).
 
 ## Validation
 
-- **249 tests**, tout vert — le nouveau test épingle : Tab entre dans la modale,
-  y circule et y **boucle** ; les flèches ne sortent pas du scope ; le clic sur
-  la zone d'un bouton d'arrière-plan ne focalise rien ; sans modale, Tab commence
-  au fond comme avant.
-- Build sans avertissement ; démo sans panique. La modale de confirmation, le
-  tiroir et la feuille de la démo piègent désormais le clavier — combiné à
-  Échap (J71) et aux anneaux clavier-seul (J70), le clavier des modales est
-  complet.
+- **249 tests**, all green — the new test pins: Tab enters the modal, moves
+  around inside it and **cycles** there; the arrows do not leave the scope; a
+  click on a background button's area focuses nothing; with no modal, Tab starts
+  at the back as before.
+- A warning-free build; the demo did not panic. The demo's confirmation modal,
+  drawer and sheet now trap the keyboard — combined with Escape (J71) and the
+  keyboard-only rings (J70), the keyboard story for modals is complete.
 
-## Suite (§6)
+## What's next (§6)
 
-Modèle clavier régularisé (physical + logical + character), scrolling en 4
-pièces (`Position/Controller/Physics/Activity` — la rencontre avec la couche
-`Simulation` du jalon 53), split `padding`/`viewInsets`.
+A regularised keyboard model (physical + logical + character), scrolling in 4
+pieces (`Position/Controller/Physics/Activity` — where it meets milestone 53's
+`Simulation` layer), the `padding`/`viewInsets` split.

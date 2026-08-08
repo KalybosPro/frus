@@ -1,53 +1,55 @@
-# Jalon 58 — Thème : state-layers Material bakées + rôles M3 étendus
+# Jalon 58 — Theme: baked-in Material state layers + extended M3 roles
 
-Suite du système de design (§5). Le thème de Frus était un **sac plat de couleurs**
-et chaque widget réinventait ses états d'interaction (survol/pression) à la main —
-`Button` éclaircissait au survol, assombrissait à la pression, et codait sa variante
-`Danger` **en dur** (hors thème). Ce jalon introduit la **règle d'états bakée** de
-Material et commence l'**élargissement des rôles**, de façon strictement additive
-(les ~130 accès aux champs plats existants restent intacts).
+A continuation of the design system (§5). frus's theme was a **flat bag of
+colours** and each widget reinvented its interaction states by hand — `Button`
+lightened on hover, darkened on press, and hard-coded its `Danger` variant
+(outside the theme). This milestone introduces Material's **baked-in state rule**
+and starts **widening the roles**, in a strictly additive way (the ~130 existing
+flat field accesses stay intact).
 
-## State-layer bakée dans le thème
+## A state layer baked into the theme
 
-`Theme::state_layer(base, on, status)` superpose la couleur de contenu `on` sur
-`base` à faible opacité, selon l'état : **survol 8 %**, **focus 10 %**, **pression
-12 %**, en tenant compte des progressions animées (`hover_progress`/
-`focus_progress`). C'est la règle « rôle→couleur selon `Status` » du brief, **bakée
-dans le thème** : le widget reste déclaratif (il fournit sa couleur de base et sa
-couleur de contenu ; le thème décide de l'overlay), et tous les widgets partagent la
-même sensation d'états.
+`Theme::state_layer(base, on, status)` overlays the content colour `on` on top of
+`base` at a low opacity, according to the state: **hover 8%**, **focus 10%**,
+**press 12%**, taking the animated progressions into account
+(`hover_progress`/`focus_progress`). This is the brief's "role→colour according
+to `Status`" rule, **baked into the theme**: the widget stays declarative (it
+supplies its base colour and its content colour; the theme decides the overlay),
+and every widget shares the same feel for states.
 
-## Rôles M3 étendus (clair/sombre écrits à la main)
+## Extended M3 roles (light/dark written by hand)
 
-Cinq rôles ajoutés au `Theme`, interpolés au fondu de thème (`lerp`) :
-`primary_container` / `on_primary_container` (surfaces tonales douces), `error` /
-`on_error` (danger thémé), `outline_variant` (contour discret). Les champs plats
-existants (`background`, `surface`, `primary`, `on_surface`, `muted ≈
-on_surface_variant`, `border ≈ outline`, …) gardent **exactement** leurs valeurs :
-zéro régression visuelle sur les 60+ widgets qui les utilisent.
+Five roles added to `Theme`, interpolated by the theme fade (`lerp`):
+`primary_container` / `on_primary_container` (soft tonal surfaces), `error` /
+`on_error` (a themed danger), `outline_variant` (a muted outline). The existing
+flat fields (`background`, `surface`, `primary`, `on_surface`, `muted ≈
+on_surface_variant`, `border ≈ outline`, …) keep **exactly** their values: zero
+visual regression across the 60+ widgets that use them.
 
-## Adoption : `Button`
+## Adoption: `Button`
 
-`Button` abandonne sa logique d'états ad hoc au profit de `theme.state_layer(base,
-on, &status)`, et sa variante `Danger` référence désormais les rôles `error` /
-`on_error` au lieu d'une couleur codée en dur. Les rôles et la state-layer sont donc
-**réellement employés**, pas de l'infrastructure morte. Les tests de `Button`
-(qui vérifient le message de clic, pas les couleurs) passent inchangés.
+`Button` drops its ad-hoc state logic in favour of `theme.state_layer(base, on,
+&status)`, and its `Danger` variant now references the `error` / `on_error` roles
+instead of a hard-coded colour. So the roles and the state layer are **genuinely
+used**, not dead infrastructure. `Button`'s tests (which check the click message,
+not the colours) pass unchanged.
 
 ## Validation
 
-- `frus-widgets` : **130 tests** (+1 : `state_layer` — repos neutre, survol tire de
-  8 % vers le contenu, pression plus forte que le survol).
-- Reste vert : `frus-core` 46, `frus-demo` 15, shell 7, gpu 4 (readback offscreen),
-  layout 3, text 2. `cargo build --workspace` sans avertissement.
-- Rendu non observable sous WSLg-root ; le changement d'aspect de `Button` (états
-  Material corrects) est intentionnel et conforme au spec, non pinné par un test.
+- `frus-widgets`: **130 tests** (+1: `state_layer` — neutral at rest, hover pulls
+  8% towards the content colour, press stronger than hover).
+- Everything else green: `frus-core` 46, `frus-demo` 15, shell 7, gpu 4
+  (offscreen readback), layout 3, text 2. `cargo build --workspace` with no
+  warnings.
+- Rendering is not observable under WSLg-root; `Button`'s change of appearance
+  (correct Material states) is intentional and matches the spec, and is not
+  pinned by a test.
 
-## Suite (§5, vers la `ColorScheme` complète)
+## What's next (§5, towards a complete `ColorScheme`)
 
-- Généraliser l'adoption de `state_layer` aux autres widgets à survol thémé
-  (checkbox, switch, list rows, menu items…), au fil de l'eau.
-- Compléter les rôles (`secondary`/`tertiary`, `surface_container*`,
-  `inverse_surface`, `scrim`) puis regrouper sous une vraie `ColorScheme` ; ajouter
-  `TextTheme` (15 slots) avec `TextStyle`, et `from_seed` (HCT) plus tard.
-- Câbler `BoxDecoration::content_padding` (jalon 57) dans taffy.
+- Generalise adopting `state_layer` to the other widgets with a themed hover
+  (checkbox, switch, list rows, menu items…), as we go.
+- Complete the roles (`secondary`/`tertiary`, `surface_container*`,
+  `inverse_surface`, `scrim`) and then group them under a real `ColorScheme`; add
+  `TextTheme` (15 slots) with `TextStyle`, and `from_seed` (HCT) later.
+- Wire `BoxDecoration::content_padding` (milestone 57) into taffy.

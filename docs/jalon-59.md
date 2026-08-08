@@ -1,45 +1,47 @@
-# Jalon 59 — Généralisation des state-layers Material
+# Jalon 59 — Generalising the Material state layers
 
-Le jalon 58 a introduit `Theme::state_layer` (la règle d'états bakée) et l'a adoptée
-dans `Button`. Ce jalon **propage** cette règle aux widgets qui réinventaient
-chacun leur survol avec un pourcentage arbitraire (`surface.lerp(on_surface, 0.05..
-0.08 · hover)`), sans réponse au focus ni à la pression.
+Milestone 58 introduced `Theme::state_layer` (the baked-in state rule) and
+adopted it in `Button`. This milestone **propagates** that rule to the widgets
+that each reinvented their own hover with an arbitrary percentage
+(`surface.lerp(on_surface, 0.05..0.08 · hover)`), with no response to focus or
+press.
 
-## Widgets migrés
+## Widgets migrated
 
-Six surfaces de survol passent à `theme.state_layer(theme.surface, theme.on_surface,
-&status)` :
+Six hover surfaces move to `theme.state_layer(theme.surface, theme.on_surface,
+&status)`:
 
-- **menu** (ligne d'action) — était 7 %
-- **dropdown** (en-tête) — était 6 %
-- **collapsible** (en-tête) — était 5 %
-- **autocomplete** (champ) — était 7 %
-- **datepicker** (cellule de jour non sélectionnée) — était 8 %
-- **tree** (ligne cliquable, sous sa garde de survol) — était 5 %
+- **menu** (action row) — was 7%
+- **dropdown** (header) — was 6%
+- **collapsible** (header) — was 5%
+- **autocomplete** (field) — was 7%
+- **datepicker** (unselected day cell) — was 8%
+- **tree** (clickable row, under its hover guard) — was 5%
 
-Bénéfice : un **survol unifié à 8 %**, et surtout l'ajout **gratuit** des réponses
-**focus (10 %)** et **pression (12 %)** partout, là où ces widgets n'y réagissaient
-pas. Au repos (`hover_progress = 0`, pas de focus/pression), `state_layer` renvoie la
-couleur de base **inchangée** — l'apparence au repos est identique, donc aucune
-régression.
+The benefit: a **unified 8% hover**, and above all the **free** addition of
+**focus (10%)** and **press (12%)** responses everywhere, where those widgets did
+not react to them at all. At rest (`hover_progress = 0`, no focus or press),
+`state_layer` returns the base colour **unchanged** — so the resting appearance
+is identical and there is no regression.
 
-## Laissés tels quels (sémantique différente)
+## Left as they were (different semantics)
 
-- **breadcrumb**, **chip** : interpolent une **couleur de texte** (`muted →
-  on_surface`) au survol, pas un fond — ce n'est pas une state-layer.
-- **switch** : couleur de piste selon la **valeur** (position), pas l'interaction.
-- **navrail** : pastille de survol/sélection dessinée en `fill_rect` teinté — une
-  migration ultérieure possible, mais structurée autrement.
+- **breadcrumb**, **chip**: they interpolate a **text colour** (`muted →
+  on_surface`) on hover, not a background — that is not a state layer.
+- **switch**: the track colour follows the **value** (the position), not the
+  interaction.
+- **navrail**: the hover/selection pill is drawn as a tinted `fill_rect` — a
+  later migration is possible, but it is structured differently.
 
 ## Validation
 
-- `frus-widgets` **130 tests**, `frus-demo` **15**, verts — l'apparence au repos est
-  inchangée (state-layer neutre à l'état de repos), donc les tests de structure/rendu
-  passent sans modification.
-- `cargo build --workspace` sans avertissement.
+- `frus-widgets` **130 tests**, `frus-demo` **15**, green — the resting
+  appearance is unchanged (the state layer is neutral at rest), so the
+  structure/rendering tests pass without modification.
+- `cargo build --workspace` with no warnings.
 
-## Suite
+## What's next
 
-- **navrail** et autres survols structurés (pastilles) à unifier au fil de l'eau.
-- Système de **typographie** (`TextStyle`/`TextSpan`/`TextTheme`) — l'autre moitié
-  d'un défaut premium (jalon suivant).
+- **navrail** and other structured hovers (pills) to be unified as we go.
+- The **typography** system (`TextStyle`/`TextSpan`/`TextTheme`) — the other half
+  of a premium default (the next milestone).

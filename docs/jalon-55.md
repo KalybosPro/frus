@@ -1,74 +1,74 @@
-# Jalon 55 — Cache de frontière de relayout (layout retenu au-dessus de taffy)
+# Jalon 55 — Relayout boundary cache (retained layout on top of taffy)
 
-Première brique du **layout retenu** réclamé par `docs/idees-flutter.md` (§1) — et
-prérequis des deux items moteur restants (listes « dirty » par phase, invalidation
-ciblée).
+The first brick of the **retained layout** called for in `docs/prior-art.md` (§1) —
+and a prerequisite of the two remaining engine items (per-phase "dirty" lists,
+targeted invalidation).
 
-## Le problème
+## The problem
 
-Frus reconstruit l'arbre de widgets à chaque frame (Elm). Jusqu'ici, **chaque
-racine de mise en page** (`build_ui`, chaque défilable, chaque écran de navigation,
-chaque overlay, chaque élément de liste virtualisée, chaque couche de pile) relançait
-taffy *from scratch* : `Layout::new()` → `build_layout` (allocation de tout l'arbre
-taffy) → `compute` → `absolute_rects`. Or la géométrie ne dépend **que** du *style*
-et de la *structure* de l'arbre et des *contraintes* du parent — **pas** des couleurs
-ni du texte, qui ne touchent que la peinture. Un survol, un curseur qui clignote, une
-couleur ou une opacité qui s'anime → layout **identique**, pourtant intégralement
-recalculé.
+frus rebuilds the widget tree every frame (Elm). Until now, **every layout root**
+(`build_ui`, each scrollable, each navigation screen, each overlay, each
+virtualised list item, each stack layer) restarted taffy *from scratch*:
+`Layout::new()` → `build_layout` (allocating the whole taffy tree) → `compute` →
+`absolute_rects`. But the geometry depends **only** on the tree's *style* and
+*structure* and on the parent's *constraints* — **not** on colours or text, which
+only affect painting. A hover, a blinking caret, an animating colour or opacity →
+identical layout, yet fully recomputed.
 
-## La solution : un cache par racine, indexé par identité
+## The solution: a per-root cache, indexed by identity
 
-Nouveau module `frus-widgets/relayout.rs` : `LayoutCache` mémorise, par racine
-(`WidgetId`), `(empreinte, contraintes, rectangles)`. À chaque racine :
+A new module `frus-widgets/relayout.rs`: `LayoutCache` remembers, per root
+(`WidgetId`), `(signature, constraints, rectangles)`. At each root:
 
-1. **Empreinte de mise en page** (`layout_signature`) : un hash 64-bit du sous-arbre
-   qui suit **exactement** le branchement de `build_layout` (défilable/navigateur/
-   liste/pile = feuille ; portail = ancre seule), mêlant pour chaque nœud son
-   `Style::layout_hash` (nouveau — champs géométriques hachés par motif binaire) et le
-   nombre d'enfants. Couleurs/texte/messages **exclus**.
-2. Si empreinte **et** contraintes sont inchangées → on **réutilise les rectangles**
-   et taffy n'est pas rappelé. Sinon, recalcul et mémorisation.
+1. **A layout signature** (`layout_signature`): a 64-bit hash of the subtree that
+   follows `build_layout`'s branching **exactly** (scrollable/navigator/list/stack
+   = a leaf; portal = the anchor only), mixing each node's `Style::layout_hash`
+   (new — geometric fields hashed by bit pattern) with its child count. Colours,
+   text and messages are **excluded**.
+2. If both the signature **and** the constraints are unchanged → the **rectangles
+   are reused** and taffy is not called. Otherwise, recompute and remember.
 
-Le résultat est **bit-à-bit identique** au calcul complet : sur un *hit* on renvoie
-les rectangles qu'on aurait produits. Seule la performance change. Le pire cas d'une
-collision de hash (astronomiquement improbable, 64 bits) est un layout figé d'une
-frame — jamais un crash.
+The result is **bit-for-bit identical** to the full computation: on a *hit* we
+return the rectangles we would have produced. Only the performance changes. The
+worst case of a hash collision (astronomically improbable at 64 bits) is one
+frame of frozen layout — never a crash.
 
-Les **7 sites** de layout de `ui.rs` passent par le cache (racine principale,
-défilable, écran, overlay, élément de liste, couche de pile, `LayoutBuilder`),
-chacun sous une identité distincte. Le cache vit dans le `Runtime` derrière un
-`RefCell` (mutabilité intérieure : `build_ui` ne tient qu'un `&Runtime`). En fin de
-frame, `end_frame()` **évince** les racines non touchées (widgets disparus) et fige
-des compteurs `(hits, misses)` de diagnostic.
+The **7 layout sites** in `ui.rs` go through the cache (main root, scrollable,
+screen, overlay, list item, stack layer, `LayoutBuilder`), each under a distinct
+identity. The cache lives in the `Runtime` behind a `RefCell` (interior
+mutability: `build_ui` only holds a `&Runtime`). At the end of the frame,
+`end_frame()` **evicts** the roots that were not touched (widgets that have gone)
+and freezes `(hits, misses)` diagnostic counters.
 
-## Pourquoi c'est le bon socle
+## Why this is the right foundation
 
-- **Non régressif** : sortie identique, prouvée par les 122 tests existants inchangés.
-- **Gain réel** : pendant toute animation de couleur/opacité/survol (le cas le plus
-  fréquent), l'empreinte est stable → taffy est **entièrement sauté** chaque frame.
-  Idem au défilement (offset ≠ layout) et pendant une transition d'écran (les écrans
-  sont statiques, seul le décalage de peinture bouge).
-- **Prérequis des phases** : « empreinte changée » *est* le bit « layout sale » d'une
-  racine — la base du futur pipeline `build → layout → paint → composite` à listes
-  « dirty » séparées.
+- **Non-regressive**: identical output, proven by the 122 existing tests,
+  unchanged.
+- **A real gain**: during any colour/opacity/hover animation (the most frequent
+  case), the signature is stable → taffy is **skipped entirely** each frame. The
+  same goes for scrolling (offset ≠ layout) and during a screen transition (the
+  screens are static, only the paint offset moves).
+- **A prerequisite of the phases**: "the signature changed" *is* a root's "layout
+  dirty" bit — the basis of the future `build → layout → paint → composite`
+  pipeline with separate "dirty" lists.
 
 ## Validation
 
-- `frus-widgets` : **129 tests** (+7 : 6 unitaires du cache — empreinte stable/qui
-  change, hit/miss, éviction — et 1 bout-en-bout par `build_ui` : frame 2 réutilise la
-  racine, un redimensionnement la recalcule).
-- Toute la suite existante verte (sortie inchangée) : `frus-core` 37, `frus-demo` 15,
-  shell 7, layout 3, gpu 4, text 2.
-- `cargo build --workspace` sans avertissement ; démo lancée 8 s sans panique
-  (défilement, transitions, overlays, chrono continus) — cache actif dans le chemin
-  chaud, aucun conflit d'emprunt `RefCell`.
+- `frus-widgets`: **129 tests** (+7: 6 unit tests of the cache — stable/changing
+  signature, hit/miss, eviction — and 1 end-to-end through `build_ui`: frame 2
+  reuses the root, a resize recomputes it).
+- The whole existing suite green (output unchanged): `frus-core` 37, `frus-demo`
+  15, shell 7, layout 3, gpu 4, text 2.
+- `cargo build --workspace` with no warnings; the demo ran for 8 s without
+  panicking (scrolling, transitions, overlays and the stopwatch all continuous) —
+  the cache active in the hot path, with no `RefCell` borrow conflict.
 
-## Limites / suite
+## Limits / what's next
 
-- Le cache retient le **résultat** (rectangles) par racine ; il ne retient pas encore
-  l'arbre taffy lui-même (pas de `mark_dirty` par nœud intra-racine). Un changement
-  minime dans une grande racine recalcule toute la racine — l'étape suivante, si
-  besoin, est un arbre taffy persistant réconcilié par identité.
-- Prochain jalon (§1) : **phases de frame + listes « dirty » séparées**
-  (`build → layout → paint → composite`), chaque `Msg`/`Command` posant le bit le plus
-  étroit possible — le cache de relayout en est la moitié « layout ».
+- The cache retains the **result** (rectangles) per root; it does not yet retain
+  the taffy tree itself (no per-node `mark_dirty` within a root). A tiny change in
+  a large root recomputes the whole root — the next step, if needed, is a
+  persistent taffy tree reconciled by identity.
+- Next milestone (§1): **frame phases + separate "dirty" lists**
+  (`build → layout → paint → composite`), with each `Msg`/`Command` setting the
+  narrowest possible bit — the relayout cache being its "layout" half.

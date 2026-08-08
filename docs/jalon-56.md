@@ -1,76 +1,75 @@
-# Jalon 56 — Phases de frame : build conditionnel (build → paint)
+# Jalon 56 — Frame phases: conditional build (build → paint)
 
-Deuxième item moteur du §1 de `docs/idees-flutter.md` : **séparer la frame en
-passes indépendamment invalidées**, chacune ne s'exécutant que si son bit « dirty »
-est posé. Le jalon 55 a fourni la moitié « layout » (cache de relayout) ; celui-ci
-ajoute la séparation **build → paint** au niveau du shell.
+The second engine item of §1 in `docs/prior-art.md`: **splitting the frame into
+independently invalidated passes**, each running only if its "dirty" bit is set.
+Milestone 55 provided the "layout" half (the relayout cache); this one adds the
+**build → paint** split at the shell level.
 
-## L'observation clé
+## The key observation
 
-Dans le modèle Elm de Frus, la `view` est une **fonction pure de
-`(état de l'app, thème, taille)`**. Elle ne lit **jamais** le `Runtime` — survol,
-focus, offsets de scroll, curseurs, progressions d'animation d'interaction vivent
-dans le shell, hors de la vue. Donc :
+In frus's Elm model, `view` is a **pure function of
+`(app state, theme, size)`**. It **never** reads the `Runtime` — hover, focus,
+scroll offsets, carets and interaction animation progress all live in the shell,
+outside the view. Therefore:
 
-> Une frame d'animation d'interaction (un survol qui monte, un scroll à ressort, un
-> curseur qui clignote) **ne change pas la sortie de `view`** — elle n'a besoin que
-> de **repeindre** l'arbre déjà construit.
+> A frame of interaction animation (a hover rising, a spring scroll, a blinking
+> caret) **does not change `view`'s output** — it only needs to **repaint** the
+> tree that is already built.
 
-Jusqu'ici, chaque frame reconstruisait pourtant tout l'arbre (`app.view()` +
-détection montages/sorties) avant de peindre.
+Until now, though, every frame rebuilt the whole tree (`app.view()` + mount/exit
+detection) before painting.
 
-## Le bit `build_dirty`
+## The `build_dirty` bit
 
-`App` gagne un drapeau `build_dirty`. La phase **build** (`app.view()` + montages +
-capture des sorties) ne s'exécute que si l'état a pu changer :
+`App` gains a `build_dirty` flag. The **build** phase (`app.view()` + mounts +
+capturing exits) only runs if the state could have changed:
 
 ```
-need_build = build_dirty || app_animating || (aucun arbre retenu)
+need_build = build_dirty || app_animating || (no retained tree)
 ```
 
-- `build_dirty` est posé **exactement** aux six seuls points qui mutent l'état de
-  l'app : `dispatch` (tout `Msg`), `on_resize`, `on_insets`, et les trois hooks du
-  geste retour (`back_gesture` ×2, `back_gesture_end`) ; plus la (re)création de
-  surface.
-- `app_animating` (retour de `app.tick`) couvre les animations *propres à l'app*
-  (fondu de thème, transition d'écran, détente de geste) qui, elles, modifient bien
-  l'état lu par la vue à chaque frame.
+- `build_dirty` is set at **exactly** the six points that mutate the app's state:
+  `dispatch` (any `Msg`), `on_resize`, `on_insets`, and the three back-gesture
+  hooks (`back_gesture` ×2, `back_gesture_end`); plus surface (re)creation.
+- `app_animating` (the return of `app.tick`) covers the *app's own* animations
+  (theme fade, screen transition, gesture settle) which do change the state the
+  view reads each frame.
 
-Sinon, l'**arbre retenu** (`self.tree`, déjà conservé pour le routage clavier) est
-réutilisé tel quel. La phase **paint** — avance des animations du `Runtime` puis
-`build_ui` (dont la mise en page passe par le cache de relayout du jalon 55) —
-s'exécute, elle, à chaque frame animée.
+Otherwise the **retained tree** (`self.tree`, already kept for keyboard routing)
+is reused as-is. The **paint** phase — advancing the `Runtime`'s animations, then
+`build_ui` (whose layout goes through milestone 55's relayout cache) — does run
+on every animated frame.
 
-## Pourquoi c'est correct (et sûr)
+## Why this is correct (and safe)
 
-La direction du risque est asymétrique : **construire quand ce n'est pas nécessaire
-est inoffensif** (juste un peu plus lent, comme avant) ; **sauter quand il le
-fallait** serait un bug (UI figée). Comme l'état de l'app n'est mutable **que** par
-`update`/`tick`/`on_resize`/`on_insets`/`back_gesture*` — toutes marquées
-`build_dirty` (ou couvertes par `app_animating`) — et que `view`/`theme` prennent
-`&self`, l'arbre retenu ne peut jamais devenir obsolète sans qu'un rebuild soit
-programmé. Le survol/scroll/focus/curseur ne changent que le `Runtime`, jamais la
-vue.
+The risk is asymmetric: **building when it was not necessary is harmless** (just
+slightly slower, as before); **skipping when it was needed** would be a bug (a
+frozen UI). Since the app's state is mutable **only** through
+`update`/`tick`/`on_resize`/`on_insets`/`back_gesture*` — all of which mark
+`build_dirty` (or are covered by `app_animating`) — and since `view`/`theme` take
+`&self`, the retained tree can never go stale without a rebuild being scheduled.
+Hover, scrolling, focus and the caret only change the `Runtime`, never the view.
 
-## Résultat
+## Result
 
-- Survol, scroll à inertie, curseur clignotant, fondu d'apparition/disparition,
-  spinner : **peinture seule**, sans reconstruire ni ré-allouer l'arbre de widgets.
-- Combiné au jalon 55, une telle frame ne fait plus **ni** `view()` **ni** taffy —
-  seulement le parcours de peinture. C'est la discipline « un survol ne touche que
-  paint » du brief.
+- Hover, inertial scrolling, a blinking caret, appearance/disappearance fades, a
+  spinner: **paint only**, without rebuilding or reallocating the widget tree.
+- Combined with milestone 55, such a frame does **neither** `view()` **nor**
+  taffy — only the paint walk. That is the brief's "a hover only touches paint"
+  discipline.
 
 ## Validation
 
-- Toute la suite verte, comportement inchangé : `frus-widgets` 129, `frus-core` 37,
+- The whole suite green, behaviour unchanged: `frus-widgets` 129, `frus-core` 37,
   `frus-demo` 15, `frus-shell` 7, layout 3, gpu 4, text 2.
-- `cargo build --workspace` sans avertissement ; démo lancée sans panique ni conflit
-  d'emprunt. (La boucle de rendu n'est pas observable sous WSLg-root — rendu logiciel
-  llvmpipe — ; la correction repose sur l'argument de pureté ci-dessus et les tests.)
+- `cargo build --workspace` with no warnings; the demo ran without panicking and
+  with no borrow conflict. (The render loop is not observable under WSLg-root —
+  llvmpipe software rendering — so correctness rests on the purity argument above
+  plus the tests.)
 
-## Suite possible (§1 / §12)
+## Possible next steps (§1 / §12)
 
-- Un vrai **système de listes « dirty » par nœud** (pas seulement par frame) : ne
-  repeindre que les sous-arbres touchés (régions de dommage + scissor GPU, §12).
-- Arbre taffy **persistant** réconcilié par identité (au-delà du cache de résultat du
-  jalon 55) pour un relayout incrémental intra-racine.
+- A real **per-node "dirty" list system** (not just per frame): repainting only
+  the touched subtrees (damage regions + GPU scissor, §12).
+- A **persistent** taffy tree reconciled by identity (beyond milestone 55's
+  result cache) for incremental relayout within a root.

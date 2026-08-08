@@ -1,57 +1,56 @@
-# Jalon 61 — AppBar/NavBar personnalisables (degré Flutter)
+# Jalon 61 — Fully customisable AppBar/NavBar
 
-Directive utilisateur (permanente) : *l'AppBar de frus est différente de celle de
-Flutter — mais **tout doit être personnalisable comme chez Flutter***. Le jalon 60
-avait justement **codé en dur** la graisse medium des titres d'AppBar/NavBar : le
-contre-exemple exact. Ce jalon corrige et établit la règle : **les constantes
-privées ne sont que des défauts, jamais la seule option**.
+A standing directive from the user: *frus's AppBar is a different design — but
+**everything about it must be customisable by the application***. Milestone 60
+had just **hard-coded** the medium weight of AppBar/NavBar titles: precisely the
+counter-example. This milestone fixes that and establishes the rule: **private
+constants are defaults only, never the only option**.
 
-## `AppBar` : chaque décision a une surcharge
+## `AppBar`: every decision has an override
 
-Le design *adaptatif* de frus (repli automatique en overflow selon la largeur)
-reste — c'est le **degré de personnalisation** qui rejoint Flutter :
+frus's *adaptive* design (automatic folding into overflow according to width)
+stays — what changes is the **degree of customisation**:
 
-- **`title_style(TextStyle)`** — taille/graisse/italique/couleur du titre
-  (défaut : 20 px medium, couleur du thème). La mesure du budget suit le style.
-- **`title_widget(impl Widget)`** — le titre devient un **widget arbitraire**
-  (logo, rangée composée…), comme le `title: Widget` de Flutter. Sa largeur
-  déclarée alimente le budget de repli.
-- **`action_widget(impl Widget)`** — une action **widget libre** (badge, avatar,
-  champ…), insérée dans l'ordre. Toujours **en ligne** : un widget arbitraire ne
-  peut pas se replier en ligne de menu texte — les actions *libellées* restent les
-  seules repliables (c'est le contrat du design adaptatif).
-- **`action_size(f32)`**, **`gap(f32)`** — tailles/espacements (défauts 16/8).
-- **`background(Color)`**, **`height(f32)`** — chrome optionnel (défaut : rangée
-  nue, le parent décide).
-- `leading` était déjà un slot widget libre.
+- **`title_style(TextStyle)`** — the title's size/weight/italic/colour (default:
+  20 px medium, the theme's colour). The budget measurement follows the style.
+- **`title_widget(impl Widget)`** — the title becomes an **arbitrary widget**
+  (a logo, a composed row…). Its declared width feeds the folding budget.
+- **`action_widget(impl Widget)`** — a **free widget** action (badge, avatar,
+  field…), inserted in order. Always **inline**: an arbitrary widget cannot fold
+  into a text menu row — labelled actions remain the only foldable ones (that is
+  the adaptive design's contract).
+- **`action_size(f32)`**, **`gap(f32)`** — sizes and spacing (defaults 16/8).
+- **`background(Color)`**, **`height(f32)`** — optional chrome (default: a bare
+  row, the parent decides).
+- `leading` was already a free widget slot.
 
-L'algorithme de repli est généralisé : les largeurs des widgets libres sont
-comptées d'office (toujours en ligne), les actions libellées se replient en
-préfixe, dans l'ordre. **Comportement par défaut inchangé** — les deux tests
-existants de repli passent tels quels.
+The folding algorithm is generalised: the widths of free widgets are always
+counted (they are always inline), and labelled actions fold from the front, in
+order. **The default behaviour is unchanged** — the two existing folding tests
+pass as they are.
 
-## `NavBar` : idem
+## `NavBar`: likewise
 
-- **`title_style(TextStyle)`** (défaut : 20 px medium ; la couleur du style
-  l'emporte sur celle du thème si précisée).
-- **`height(f32)`** (défaut : 56 px).
+- **`title_style(TextStyle)`** (default: 20 px medium; the style's colour wins
+  over the theme's when specified).
+- **`height(f32)`** (default: 56 px).
 
-## Règle établie (mémoire projet)
+## The rule this establishes (project memory)
 
-Chaque décision visuelle/structurelle d'un widget doit avoir un chemin de
-surcharge : builders avec défauts thémés, slots `impl Widget` là où Flutter en
-offre. À appliquer aux widgets existants au fil de l'eau et à tout nouveau widget.
+Every visual or structural decision a widget makes must have an override path:
+builders with themed defaults, and `impl Widget` slots wherever a slot makes
+sense. To be applied to the existing widgets as we go, and to every new widget.
 
 ## Validation
 
-- `frus-widgets` : **136 tests** (+4 : style de titre surchargé, titre-widget
-  remplaçant le texte, action-widget jamais repliée même à l'étroit, NavBar
-  style+hauteur surchargés).
-- Comportement par défaut inchangé : tests de repli existants verts, démo 15,
-  total 15 suites vertes. Build sans avertissement.
+- `frus-widgets`: **136 tests** (+4: overridden title style, a title widget
+  replacing the text, an action widget never folded even when cramped, NavBar
+  style and height overridden).
+- Default behaviour unchanged: the existing folding tests green, demo 15, all 15
+  suites green. A warning-free build.
 
-## Suite
+## What's next
 
-- Propager le même audit de personnalisation aux autres widgets composés
-  (Scaffold, NavRail/BottomBar, Drawer, BottomSheet…), au fil de l'eau.
-- Reprendre le fil typographique : `TextSpan` + `TextLayout` (cosmic-text).
+- Propagate the same customisation audit to the other composed widgets
+  (Scaffold, NavRail/BottomBar, Drawer, BottomSheet…), as we go.
+- Pick the typography thread back up: `TextSpan` + `TextLayout` (cosmic-text).

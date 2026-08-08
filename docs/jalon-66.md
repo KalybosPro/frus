@@ -1,44 +1,48 @@
-# Jalon 66 — `BorderRadius` : rayons d'arrondi **par coin** (SDF)
+# Jalon 66 — `BorderRadius`: **per-corner** radii (SDF)
 
-Dernier manque du modèle de boîte §5 : les coins ne pouvaient être arrondis
-qu'uniformément (un seul `f32` traversait scène → GPU). Impossible d'exprimer une
-feuille montante aux seuls coins hauts arrondis, un onglet, un segment de groupe.
+The last gap in the §5 box model: corners could only be rounded uniformly (a
+single `f32` travelled from the scene to the GPU). There was no way to express a
+sheet rising with only its top corners rounded, a tab, or a segment in a group.
 
 ## `BorderRadius` (frus-core, `Copy`)
 
-`{ top_left, top_right, bottom_right, bottom_left }` avec `uniform`, `top`,
-`bottom`, `inflate` (enveloppe d'ombre), `scale` (DPI), et **`clamped`** (rayons
-négatifs bornés à zéro avant rendu, comme le préconise le brief).
+`{ top_left, top_right, bottom_right, bottom_left }` with `uniform`, `top`,
+`bottom`, `inflate` (the shadow envelope), `scale` (DPI), and **`clamped`**
+(negative radii clamped to zero before rendering, as the brief recommends).
 
-**`impl From<f32>`** est la clé de la migration : tous les points d'entrée
+**`impl From<f32>`** is the key to the migration: every entry point
 (`Scene::draw_rect`/`gradient_rect`/`shadow`, `BoxDecoration::radius`,
-`Container::radius`) prennent désormais `impl Into<BorderRadius>` — **chaque appel
-existant passant un `f32` compile et rend à l'identique**, et un appel passant un
-`BorderRadius` obtient le par-coin. Conforme à la règle « personnalisable comme
-Flutter » : `Container::new().radius(BorderRadius::top(12.0))`.
+`Container::radius`) now takes `impl Into<BorderRadius>` — **every existing call
+passing an `f32` compiles and renders identically**, and a call passing a
+`BorderRadius` gets per-corner behaviour. In line with the "everything must be
+customisable" rule: `Container::new().radius(BorderRadius::top(12.0))`.
 
-## Le pipeline
+## The pipeline
 
-- `Primitive::Rect.radius` devient `BorderRadius` ; `scaled` met les 4 rayons à
-  l'échelle DPI.
-- **Instance GPU** : nouvel attribut `radii: vec4` (tl, tr, br, bl), bornés à zéro
-  côté peintre ; l'ancien slot `params.x` est libéré.
-- **Shader** : `corner_radius(p, radii)` choisit le rayon du **quadrant** du
-  fragment (coordonnées centrées, y vers le bas), puis la SDF classique inchangée —
-  bordure, flou d'ombre et dégradé fonctionnent tels quels avec le rayon par coin.
+- `Primitive::Rect.radius` becomes a `BorderRadius`; `scaled` scales all 4 radii
+  for DPI.
+- **GPU instance**: a new `radii: vec4` attribute (tl, tr, br, bl), clamped to
+  zero on the painter side; the old `params.x` slot is freed.
+- **Shader**: `corner_radius(p, radii)` picks the radius of the fragment's
+  **quadrant** (centred coordinates, y downwards), and then the classic SDF is
+  unchanged — border, shadow blur and gradient all work as they are with a
+  per-corner radius.
 
 ## Validation
 
-- **Preuve GPU par readback** : `per_corner_radius_rounds_only_selected_corners` —
-  un rectangle au seul coin haut-gauche arrondi (30 px) : pixel (0,0) découpé,
-  les trois autres coins **carrés**, centre plein. Sur vrai device wgpu.
-- Rétro-compatibilité : `rounded_rect_leaves_corner_transparent` (rayon uniforme
-  via `f32`) passe inchangé — le chemin `From<f32>` est pixel-identique.
-- **238 tests** au total, tout vert ; build sans avertissement ; démo sans panique.
+- **GPU proof by readback**: `per_corner_radius_rounds_only_selected_corners` —
+  a rectangle with only its top-left corner rounded (30 px): pixel (0,0) cut
+  away, the other three corners **square**, the centre solid. On a real wgpu
+  device.
+- Backward compatibility: `rounded_rect_leaves_corner_transparent` (a uniform
+  radius through `f32`) passes unchanged — the `From<f32>` path is
+  pixel-identical.
+- **238 tests** in total, all green; a warning-free build; the demo did not
+  panic.
 
-## Suite (§5 restants)
+## What's left (remaining §5)
 
-Décorations de texte (souligné/barré), `letter_spacing`/`line_height`,
-consolidation `ColorScheme` (+ `from_seed` HCT), `content_padding` → taffy,
-`Alignment`, RTL (§14). Adoption opportuniste du par-coin (BottomSheet aux coins
-hauts, onglets, segments) au fil de l'eau.
+Text decorations (underline/strikethrough), `letter_spacing`/`line_height`,
+consolidating `ColorScheme` (+ HCT `from_seed`), `content_padding` → taffy,
+`Alignment`, RTL (§14). Opportunistic adoption of per-corner radii (BottomSheet's
+top corners, tabs, segments) as we go.

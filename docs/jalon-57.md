@@ -1,62 +1,62 @@
-# Jalon 57 — `BoxDecoration` : le modèle de décoration de boîte (§5)
+# Jalon 57 — `BoxDecoration`: the box decoration model (§5)
 
-Les fondations moteur (Bloc A du brief : phases, cache de relayout, physique
-d'animation) étant posées, ce jalon ouvre le **système de design** (§5) par sa
-« clé de voûte peignable » : un **modèle de décoration réutilisable**, là où chaque
-widget réinventait jusqu'ici son fond/dégradé/bordure/ombre à la main.
+With the engine foundations in place (the brief's Block A: phases, relayout
+cache, animation physics), this milestone opens the **design system** (§5) with
+its "paintable keystone": a **reusable decoration model**, where until now every
+widget reinvented its own background/gradient/border/shadow by hand.
 
-## Ce qui manquait
+## What was missing
 
-`Container::paint` composait sa décoration en ligne (résolution de couleur,
-`scene.shadow`, `scene.gradient_rect`/`draw_rect`), sans type partageable. Aucun
-`BoxDecoration`, aucune primitive de peinture nommée. Tout widget voulant une boîte
-décorée dupliquait cette logique.
+`Container::paint` composed its decoration inline (colour resolution,
+`scene.shadow`, `scene.gradient_rect`/`draw_rect`), with no shareable type. No
+`BoxDecoration`, no named paint primitive. Any widget wanting a decorated box
+duplicated that logic.
 
-## Les types cœur (dans `frus-core`, purs, `Copy`)
+## The core types (in `frus-core`, pure, `Copy`)
 
-Nouveau module `decoration.rs` :
+A new `decoration.rs` module:
 
-- **`Border { width, color }`** — bordure uniforme (`is_visible`).
-- **`LinearGradient { end, direction }`** — dégradé du fond vers `end`, ancré en
-  espace `[0,1]²`.
-- **`BoxShadow { color, offset, blur, spread }`** — ombre douce, avec `bounds(rect)`
-  (l'enveloppe décalée/floutée/élargie).
-- **`BoxDecoration { color?, gradient?, border?, radius, shadow? }`** — la boîte
-  décorée complète, avec :
-  - **`paint_into(scene, rect, opacity)`** : abaisse la décoration en primitives de
-    `Scene` dans l'**ordre fixe** ombre → fond (uni ou dégradé) → bordure ;
-    `opacity` module toutes les couleurs (fondu d'apparition).
-  - **`content_padding()`** : la marge à réserver pour la bordure — destinée à
-    alimenter taffy pour qu'un fond bordé ne mange pas son contenu.
+- **`Border { width, color }`** — a uniform border (`is_visible`).
+- **`LinearGradient { end, direction }`** — a gradient from the background
+  towards `end`, anchored in `[0,1]²` space.
+- **`BoxShadow { color, offset, blur, spread }`** — a soft shadow, with
+  `bounds(rect)` (the offset/blurred/spread envelope).
+- **`BoxDecoration { color?, gradient?, border?, radius, shadow? }`** — the
+  complete decorated box, with:
+  - **`paint_into(scene, rect, opacity)`**: lowers the decoration into `Scene`
+    primitives in the **fixed order** shadow → background (solid or gradient) →
+    border; `opacity` modulates every colour (the appearance fade).
+  - **`content_padding()`**: the margin to reserve for the border — intended to
+    feed taffy so that a bordered background does not eat into its content.
 
-Également, des helpers `Color` réclamés par le brief : **`with_alpha`**,
-**`from_argb_u32`** (`0xAARRGGBB`), **`compute_luminance`** (WCAG, sur canaux
-linéarisés — base d'un calcul de contraste).
+Also, the `Color` helpers the brief called for: **`with_alpha`**,
+**`from_argb_u32`** (`0xAARRGGBB`), **`compute_luminance`** (WCAG, on linearised
+channels — the basis of a contrast computation).
 
-## Intégration : `Container` adopte `BoxDecoration`
+## Integration: `Container` adopts `BoxDecoration`
 
-`Container::paint` **compose** désormais un `BoxDecoration` (couleur résolue par
-l'état survol/pressé, dégradé, bordure, ombre) et le peint via `paint_into`. La
-logique de peinture en ligne disparaît — remplacée par le modèle partagé. Le rendu
-est **strictement identique** : les 129 tests de `frus-widgets` (dont ceux qui
-inspectent les primitives produites) et les 15 de la démo passent inchangés.
+`Container::paint` now **composes** a `BoxDecoration` (colour resolved from the
+hover/pressed state, gradient, border, shadow) and paints it through
+`paint_into`. The inline painting logic disappears — replaced by the shared
+model. The rendering is **strictly identical**: `frus-widgets`' 129 tests
+(including the ones that inspect the produced primitives) and the demo's 15 pass
+unchanged.
 
 ## Validation
 
-- `frus-core` : **46 tests** (+9 : ordre de peinture fixe, `content_padding`,
-  bordure seule, fondu d'opacité, bornes d'ombre ; `with_alpha`/`from_argb_u32`/
-  luminance WCAG).
-- `frus-widgets` **129**, `frus-demo` **15**, reste vert — sortie bit-à-bit
-  identique après refactor de `Container`.
-- `cargo build --workspace` sans avertissement.
+- `frus-core`: **46 tests** (+9: the fixed paint order, `content_padding`, a
+  border alone, opacity fading, shadow bounds; `with_alpha`/`from_argb_u32`/WCAG
+  luminance).
+- `frus-widgets` **129**, `frus-demo` **15**, everything else green — bit-for-bit
+  identical output after refactoring `Container`.
+- `cargo build --workspace` with no warnings.
 
-## Suite (§5)
+## What's next (§5)
 
-- **`content_padding` → taffy** : câbler la réserve de bordure dans le style pour
-  que les widgets bordés dimensionnent correctement (aujourd'hui la bordure est
-  purement peinte).
-- **Rayons par coin** (`BorderRadius` 4 coins) — nécessite une évolution du shader
-  SDF (rayon unique aujourd'hui).
-- **`Alignment`**, `EdgeInsetsDirectional::resolve(dir)` (RTL), `Gradient`
-  radial/sweep, `TextStyle`/`TextSpan`, puis le **thème structuré** (rôles M3 +
-  échelle typographique), state-layer bakée.
+- **`content_padding` → taffy**: wiring the border reserve into the style so that
+  bordered widgets size correctly (today the border is purely painted).
+- **Per-corner radii** (a 4-corner `BorderRadius`) — this needs the SDF shader to
+  evolve (a single radius today).
+- **`Alignment`**, `EdgeInsetsDirectional::resolve(dir)` (RTL), radial/sweep
+  `Gradient`, `TextStyle`/`TextSpan`, then the **structured theme** (M3 roles +
+  type scale), and a baked-in state layer.

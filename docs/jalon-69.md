@@ -1,60 +1,60 @@
-# Jalon 69 — Gestes, paliers 0+1 : entrée normalisée + appui long
+# Jalon 69 — Gestures, stages 0+1: normalised input + long press
 
-Ouverture du **Bloc B** du brief (§3, « le plus gros manque structurel côté
-entrée »), par ses deux premiers paliers — en livrant au passage une capacité
-nouvelle : **`on_long_press`**.
+Opening the brief's **Block B** (§3, "the biggest structural gap on the input
+side"), through its first two stages — delivering a new capability along the
+way: **`on_long_press`**.
 
-## Palier 0 — l'entrée pointeur normalisée
+## Stage 0 — normalised pointer input
 
-Les quatre sources winit (souris pressée/relâchée, curseur, tactile 4 phases)
-convergent vers **une** entrée : `PointerEvent { kind: Down/Move/Up/Cancel,
-position (px logiques), touch }` → `App::pointer()`. Le **`Cancel` est
-première-classe** (le brief y insiste : app en arrière-plan, geste volé →
-abandonner sans callback de succès) — il réinitialise glissement, pression et
-reconnaisseur. Non-jetable : c'est le socle sur lequel l'arène (palier 2) se
-branchera. *(Le chemin de hit-test complet `Vec<HitEntry>` et le `PointerRouter`
-multi-pointeurs sont différés avec l'arène — pour ne pas livrer d'API morte.)*
+The four winit sources (mouse pressed/released, cursor, 4-phase touch) converge
+on **one** input: `PointerEvent { kind: Down/Move/Up/Cancel, position (logical
+px), touch }` → `App::pointer()`. **`Cancel` is first-class** (the brief insists
+on it: app backgrounded, gesture stolen → give up with no success callback) — it
+resets dragging, pressing and the recogniser. Not throwaway: it is the base the
+arena (stage 2) will plug into. *(The full `Vec<HitEntry>` hit-test path and the
+multi-pointer `PointerRouter` are deferred along with the arena — so as not to
+ship a dead API.)*
 
-## Palier 1 — le reconnaisseur tap-ou-appui-long (vocabulaire d'arène)
+## Stage 1 — the tap-or-long-press recogniser (arena vocabulary)
 
-`PressRecognizer` (frus-shell, machine **pure** — les instants sont passés en
-paramètres, donc testable au tick près) :
+`PressRecognizer` (frus-shell, a **pure** machine — the instants are passed as
+parameters, so it is testable tick by tick):
 
-- L'**appui long accepte avidement** au franchissement du délai (500 ms
-  immobile) : le message est émis immédiatement et le relâchement suivant est
-  **avalé** (l'appui long évince le tap) — exactement la sémantique d'arène.
-- Le **tap accepte passivement** : relâchement avant l'échéance → le chemin de
-  clic existant, intact.
-- Mouvement au-delà du **slop** (8 px) → l'appui long est rejeté, le geste
-  redevient glissement/défilement. `Cancel` → abandon.
-- **Réveil précis** : `ControlFlow::WaitUntil(échéance)` arme la boucle winit
-  pile au bon moment (`new_events(ResumeTimeReached)` fait tirer le
-  reconnaisseur) — zéro frame de polling, cohérent avec la discipline
-  « 0 CPU au repos ».
+- The **long press accepts greedily** when the delay is crossed (500 ms without
+  moving): the message is emitted immediately and the following release is
+  **swallowed** (the long press evicts the tap) — exactly the arena semantics.
+- The **tap accepts passively**: a release before the deadline → the existing
+  click path, intact.
+- Movement beyond the **slop** (8 px) → the long press is rejected and the
+  gesture becomes a drag/scroll again. `Cancel` → give up.
+- **Precise wake-up**: `ControlFlow::WaitUntil(deadline)` arms the winit loop at
+  exactly the right moment (`new_events(ResumeTimeReached)` fires the
+  recogniser) — zero polling frames, consistent with the "0 CPU at rest"
+  discipline.
 
-Un appui capturé par une barre/poignée/sélection ne candidate pas ; un
-défilement tactile **pas encore en mouvement** reste candidat (le slop tranche).
+A press captured by a bar, handle or selection does not stand as a candidate; a
+touch scroll **not yet moving** stays a candidate (the slop decides).
 
-## L'API : `on_long_press`
+## The API: `on_long_press`
 
-- `Widget::on_long_press()` (hook, délégué par `Box`/`Keyed`/`Responsive`) ;
-  builder `Container::on_long_press(msg)`.
-- `Ui::long_press_at(point)` : cible la plus au-dessus (collectée comme les
-  hits, bornée au visible).
-- **Démo** : appui long sur une ligne de tâche = suppression (le motif mobile),
-  en plus du bouton ×.
+- `Widget::on_long_press()` (a hook, delegated by `Box`/`Keyed`/`Responsive`);
+  the `Container::on_long_press(msg)` builder.
+- `Ui::long_press_at(point)`: the topmost target (collected like the hits,
+  bounded to what is visible).
+- **Demo**: a long press on a task row deletes it (the mobile idiom), alongside
+  the × button.
 
 ## Validation
 
-- **245 tests**, tout vert — dont 5 tests du reconnaisseur (tire une seule fois à
-  l'échéance ; tap avant l'échéance non avalé ; slop rejette ; cible non
-  intéressée inerte ; cancel abandonne) et la collecte du plus-au-dessus.
-  Comportements existants intacts (clics, drags, geste retour, demo 15).
-- Build sans avertissement ; démo sans panique.
+- **245 tests**, all green — including 5 recogniser tests (fires exactly once at
+  the deadline; a tap before the deadline is not swallowed; the slop rejects; an
+  uninterested target stays inert; cancel gives up) and topmost collection.
+  Existing behaviours intact (clicks, drags, the back gesture, demo 15).
+- A warning-free build; the demo did not panic.
 
-## Suite (Bloc B)
+## What's next (Block B)
 
-- **Palier 2** : la vraie arène (`Arena::resolve/close/sweep` pures renvoyant les
-  outcomes), `PointerRouter`, chemin de hit-test complet, multi-pointeurs — quand
-  des régions imbriquées indépendamment défilables l'exigeront.
-- Vélocité LSQ, scale/pinch : palier 3 (différé).
+- **Stage 2**: the real arena (pure `Arena::resolve/close/sweep` returning the
+  outcomes), `PointerRouter`, the full hit-test path, multi-pointer — when
+  independently scrollable nested regions demand it.
+- LSQ velocity, scale/pinch: stage 3 (deferred).

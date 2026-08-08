@@ -1,53 +1,54 @@
-# Jalon 71 — Touches feuille→racine (3 états) : Échap ferme partout
+# Jalon 71 — Leaf→root key handling (3 states): Escape closes everywhere
 
-Deuxième item du §6 : le **routage des touches** en montée, avec le résultat à
-trois états du brief — et son payoff immédiat : **Échap ferme la modale, le menu,
-le tiroir ou la feuille du dessus, depuis n'importe où** (aucune touche Échap
-n'existait jusqu'ici).
+The second item of §6: **key routing** on the way up, with the brief's
+three-state result — and its immediate payoff: **Escape closes the topmost modal,
+menu, drawer or sheet, from anywhere** (there was no Escape key at all until
+now).
 
-## L'infrastructure
+## The infrastructure
 
 - **`KeyResponse<Msg> { Ignored, Handled(Option<Msg>), Skip }`** — `Ignored`
-  continue de remonter, `Handled` consomme (message éventuel émis), `Skip`
-  arrête la montée **sans** repli.
-- **`Widget::on_key(&Key) -> KeyResponse`** (hook, délégué par `Box`/`Keyed`/
-  `Responsive`) — le focalisé reçoit d'abord, puis chaque ancêtre.
-- **`find_path(root, id) -> Vec<&dyn Widget>`** — le chemin racine→cible (mêmes
-  identités `child_id` que tous les parcours), parcouru **en sens inverse** pour
-  la montée.
-- **`Key::Escape`** ajouté (jamais routé vers l'édition : un champ texte
-  l'ignore, il remonte).
+  keeps propagating up, `Handled` consumes (emitting the message if there is
+  one), `Skip` stops the propagation **without** a fallback.
+- **`Widget::on_key(&Key) -> KeyResponse`** (a hook, delegated by
+  `Box`/`Keyed`/`Responsive`) — the focused widget receives it first, then each
+  ancestor.
+- **`find_path(root, id) -> Vec<&dyn Widget>`** — the root→target path (the same
+  `child_id` identities as every other walk), traversed **in reverse** for the
+  climb.
+- **`Key::Escape`** added (never routed to editing: a text field ignores it, so
+  it climbs).
 
-## Le routage d'Échap (shell)
+## Routing Escape (shell)
 
-1. **Montée** le long du chemin de focus : le premier `Handled`/`Skip` arrête.
-   `Portal` consomme Échap (`Handled(on_dismiss)`) — le cas « focus dans le
-   dialogue ».
-2. **Repli** si tout le chemin a ignoré (ou sans focus) : fermeture de l'overlay
-   **le plus au-dessus** — `Ui::top_dismiss()`, mémorisé pendant le rendu des
-   overlays (le dernier rendu est le plus haut ; les portails imbriqués suivent).
+1. **Climb** along the focus path: the first `Handled`/`Skip` stops it. `Portal`
+   consumes Escape (`Handled(on_dismiss)`) — the "focus inside the dialogue"
+   case.
+2. **Fallback** if the whole path ignored it (or there is no focus): closing the
+   **topmost** overlay — `Ui::top_dismiss()`, recorded while the overlays are
+   rendered (the last rendered is the topmost; nested portals follow).
 
-Leçon attrapée par le test : sous une modale ouverte, le voile plein-écran
-intercepte le hit-test — tout ce qui est derrière est inatteignable au pointeur.
-Les **deux** chemins sont donc nécessaires : la montée depuis le focus *intérieur*
-au dialogue, et le repli overlay-du-dessus pour tous les autres cas.
+The lesson the test caught: under an open modal, the full-screen scrim
+intercepts the hit-test — anything behind is unreachable by pointer. So **both**
+paths are needed: the climb from focus *inside* the dialogue, and the
+topmost-overlay fallback for every other case.
 
-## Payoff démo (sans changement de code démo)
+## Demo payoff (with no demo code change)
 
-Tous les overlays existants déclarent déjà leur fermeture (`.dismiss(...)`) :
-la modale de confirmation, les menus, le tiroir et la feuille répondent à Échap
-gratuitement.
+Every existing overlay already declares its dismissal (`.dismiss(...)`): the
+confirmation modal, the menus, the drawer and the sheet all answer Escape for
+free.
 
 ## Validation
 
-- **248 tests**, tout vert — le nouveau test épingle : la fermeture du dessus
-  (`top_dismiss`), le chemin racine→contenu traversant le portail, la
-  consommation d'Échap en montée par le portail, le chemin vide pour une cible
-  inconnue, et l'absence de fermeture sans overlay.
-- Build sans avertissement ; démo sans panique.
+- **248 tests**, all green — the new test pins: closing the topmost
+  (`top_dismiss`), the root→content path crossing the portal, the portal
+  consuming Escape on the climb, an empty path for an unknown target, and no
+  dismissal when there is no overlay.
+- A warning-free build; the demo did not panic.
 
-## Suite (§6)
+## What's next (§6)
 
-Modèle clavier régularisé (physical + logical + character), scrolling en 4 pièces
-(`Position/Controller/Physics/Activity`), split `padding`/`viewInsets`, scopes de
-focus (piéger Tab dans une modale).
+A regularised keyboard model (physical + logical + character), scrolling in 4
+pieces (`Position/Controller/Physics/Activity`), the `padding`/`viewInsets`
+split, focus scopes (trapping Tab inside a modal).
