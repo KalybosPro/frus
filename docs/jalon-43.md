@@ -1,20 +1,20 @@
-# Jalon 43 — Layout adaptatif (navigation & maître-détail)
+# Jalon 43 — Adaptive layout (navigation & master-detail)
 
-Deuxième étage de la responsivité : au-delà des primitives (jalon 42), des
-**structures d'écran qui changent de forme** selon la [`SizeClass`].
+The second storey of responsiveness: beyond the primitives (milestone 42),
+**screen structures that change shape** according to the [`SizeClass`].
 
-## Lot A — `NavRail` + `BottomBar`
+## Batch A — `NavRail` + `BottomBar`
 
-Les deux présentations d'une navigation principale à sélection unique, même API
-`new(selected, on_select).item(icon, label)` (l'« icône » est un glyphe texte) :
+The two presentations of a single-selection main navigation, sharing the API
+`new(selected, on_select).item(icon, label)` (the "icon" is a text glyph):
 
-- `BottomBar` — barre horizontale en bas (téléphone), items à largeur partagée.
-- `NavRail` — rail vertical à gauche (tablette/bureau), items à largeur fixe.
+- `BottomBar` — a horizontal bar at the bottom (phone), items sharing the width.
+- `NavRail` — a vertical rail on the left (tablet/desktop), fixed-width items.
 
-Un leaf interne `NavItem` peint la pastille de sélection (fond `primary`), le
-glyphe et le libellé, centrés ; survol et sélection thémés au paint.
+An internal `NavItem` leaf paints the selection pill (`primary` background), the
+glyph and the label, centred; hover and selection themed at paint time.
 
-## Lot B — `NavScaffold` (l'ossature adaptative)
+## Batch B — `NavScaffold` (the adaptive skeleton)
 
 ```rust
 NavScaffold::new(size_class, selected, on_select)
@@ -22,45 +22,47 @@ NavScaffold::new(size_class, selected, on_select)
     .body(content)
 ```
 
-Choisit **automatiquement** la présentation selon la classe : **BottomBar** en
-Compact (corps au-dessus, barre en bas — colonne), **NavRail** en Medium/Expanded
-(rail à gauche, corps à droite — rangée). Le `NavScaffold` **est** lui-même le
-conteneur flex ; le corps est enveloppé dans un panneau `flex(1)` qui remplit le
-reste. `body()` finalise (un seul bras construit la navigation, donc `on_select`
-n'est déplacé qu'une fois).
+**Automatically** picks the presentation according to the class: **BottomBar** in
+Compact (body on top, bar at the bottom — a column), **NavRail** in
+Medium/Expanded (rail on the left, body on the right — a row). The `NavScaffold`
+**is** itself the flex container; the body is wrapped in a `flex(1)` panel that
+fills the rest. `body()` finalises (only one arm builds the navigation, so
+`on_select` is moved only once).
 
-## Lot C — `TwoPane` (maître-détail)
+## Batch C — `TwoPane` (master-detail)
 
 ```rust
 TwoPane::new(size_class).ratio(0.36).show_detail(flag).list(a).detail(b)
 ```
 
-**Côte à côte** en Expanded (largeurs proportionnelles via `flex_grow` =
-`ratio` / `1 - ratio`), **panneau unique** sinon (la liste, ou le détail si
-`show_detail` — l'app le passe à `true` en « naviguant »). `detail()` finalise.
+**Side by side** in Expanded (proportional widths through `flex_grow` = `ratio` /
+`1 - ratio`), a **single pane** otherwise (the list, or the detail when
+`show_detail` — the app sets it to `true` when "navigating"). `detail()`
+finalises.
 
 ## Infrastructure
 
-Nouvelle impl `Widget for Box<dyn Widget<Msg>>` (délègue tout) : permet de
-composer un widget **déjà boxé** là où un `impl Widget` est attendu (p. ex.
-`Flex::child`) — indispensable pour envelopper les panneaux du `TwoPane`.
+A new `Widget for Box<dyn Widget<Msg>>` impl (delegating everything): it allows
+an **already boxed** widget to be composed where an `impl Widget` is expected
+(e.g. `Flex::child`) — indispensable for wrapping the `TwoPane`'s panes.
 
-## Démo
+## Demo
 
-L'accueil passe sous un `NavScaffold` (destinations **Tasks / Stats / About**) :
-rail à gauche en grand, barre en bas en étroit. La section **Stats** est un
-`TwoPane` maître-détail (liste de métriques | panneau de détail), côte à côte en
-grand, panneau unique avec retour en étroit.
+Home moves under a `NavScaffold` (destinations **Tasks / Stats / About**): a rail
+on the left when large, a bar at the bottom when narrow. The **Stats** section is
+a master-detail `TwoPane` (metrics list | detail pane), side by side when large,
+a single pane with a back action when narrow.
 
 ## Tests
 
-`NavRail`/`BottomBar` (émission d'index, sélection, flexibilité des items),
-`NavScaffold` (colonne+barre en Compact, rangée+rail en Expanded), `TwoPane`
-(deux panneaux proportionnels en Expanded, un seul sinon).
+`NavRail`/`BottomBar` (index emission, selection, item flexibility),
+`NavScaffold` (column+bar in Compact, row+rail in Expanded), `TwoPane` (two
+proportional panes in Expanded, a single one otherwise).
 
-## Limites (v1)
+## Limits (v1)
 
-- Pas de **drawer** (le 3ᵉ palier Material) : bar ↔ rail seulement.
-- `TwoPane` bascule côte-à-côte uniquement en Expanded (pas de réglage du seuil).
-- La navigation par destinations est indépendante de la pile de routes existante
-  (geste retour / push-pop) — les deux coexistent dans la démo.
+- No **drawer** (Material's 3rd tier): bar ↔ rail only.
+- `TwoPane` only switches to side-by-side in Expanded (the threshold is not
+  configurable).
+- Destination-based navigation is independent of the existing route stack (back
+  gesture / push-pop) — the two coexist in the demo.

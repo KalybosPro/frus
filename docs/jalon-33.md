@@ -1,43 +1,43 @@
-# Jalon 33 — Nouveaux widgets : Collapsible, Menu, Chip
+# Jalon 33 — New widgets: Collapsible, Menu, Chip
 
-Trois widgets de plus (disclosure / actions / étiquettes).
+Three more widgets (disclosure / actions / labels).
 
 ## Widgets
 
-- **`Collapsible::new(titre, open, on_toggle).content(w)`** — section **repliable**
-  contrôlée. Composite `[en-tête, contenu?]` : le contenu n'est réalisé que si
-  ouvert → son apparition/disparition profite **gratuitement** des fondus de
-  montage/démontage. En-tête cliquable (titre + chevron ▸/▾), focusable.
-- **`Menu::new(ancre, open, on_dismiss).item(label, msg)`** — menu d'actions
-  **flottant** (via `Portal`, placement `Below`). Fermeture au **clic extérieur**.
-  Items cliquables focusables.
-- **`Chip::new(label).on_remove(msg)`** — étiquette compacte (tag / filtre) avec
-  croix de suppression optionnelle (cliquable, focusable).
+- **`Collapsible::new(title, open, on_toggle).content(w)`** — a controlled
+  **collapsible** section. A `[header, content?]` composite: the content is only
+  realised when open → so its appearance and disappearance get the mount/unmount
+  fades **for free**. Clickable header (title + chevron ▸/▾), focusable.
+- **`Menu::new(anchor, open, on_dismiss).item(label, msg)`** — a **floating**
+  action menu (through `Portal`, `Below` placement). Closes on an **outside
+  click**. The items are clickable and focusable.
+- **`Chip::new(label).on_remove(msg)`** — a compact label (tag / filter) with an
+  optional remove cross (clickable, focusable).
 
-## Généralisation utile
+## A useful generalisation
 
-La **fermeture au clic extérieur** (`overlay_dismiss`) ne concernait que les
-modales `Center` ; elle s'applique désormais à **tout overlay** (dont les menus
-`Below`) : un hit plein écran, sous le contenu, émet le message de fermeture. Le
-voile sombre reste, lui, réservé aux modales.
+Closing on an outside click (`overlay_dismiss`) only applied to `Center` modals;
+it now applies to **every overlay** (including `Below` menus): a full-screen hit,
+underneath the content, emits the dismiss message. The dark scrim, on the other
+hand, stays reserved for modals.
 
-## Démo (intégration)
+## Demo (integration)
 
-- **Menu** « ⋯ » dans l'en-tête (actions : Sauvegarder, Effacer les terminées).
-- **Chip** du filtre actif (hors « Toutes »), supprimable → revient à « Toutes ».
-- **Collapsible** « Options avancées » dans l'onglet « À propos » des Réglages,
-  contenant des `Chip` (« beta », « expérimental »).
+- A "⋯" **Menu** in the header (actions: Save, Clear completed).
+- A **Chip** for the active filter (other than "All"), removable → back to "All".
+- A **Collapsible** "Advanced options" in the Settings "About" tab, containing
+  `Chip`s ("beta", "experimental").
 
 ## Tests
 
-- `Collapsible` : `[en-tête]` fermé, `[en-tête, contenu]` ouvert ; l'en-tête émet
-  la bascule.
-- `Menu` : fermé → pas d'overlay ; ouvert → overlay + `overlay_dismiss` ; un clic
-  loin de l'ancre émet la fermeture.
-- `Chip` : libellé seul, ou libellé + croix cliquable qui émet la suppression.
-- 62 tests frus-widgets ; démo + chrono non régressés.
+- `Collapsible`: `[header]` when closed, `[header, content]` when open; the
+  header emits the toggle.
+- `Menu`: closed → no overlay; open → overlay + `overlay_dismiss`; a click far
+  from the anchor emits the dismiss.
+- `Chip`: label alone, or label + a clickable cross that emits the removal.
+- 62 frus-widgets tests; demo and stopwatch did not regress.
 
-## Limites (v1)
+## Limits (v1)
 
-- `Menu` : largeur fixe, pas de sous-menus ni de séparateurs d'items.
-- `Collapsible` : pas d'animation de hauteur (le contenu fond, il ne « glisse » pas).
+- `Menu`: fixed width, no submenus and no item separators.
+- `Collapsible`: no height animation (the content fades, it does not "slide").

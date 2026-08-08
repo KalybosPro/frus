@@ -1,77 +1,76 @@
-# Jalon 50 — Premier run sur Android physique
+# Jalon 50 — First run on physical Android
 
-frus tourne désormais sur un **téléphone Android réel** (Huawei STK-L21, arm64,
-Android 10, GPU Mali-G51) : rendu Vulkan, tactile (tap + défilement au doigt),
-navigation, et toute la bibliothèque de widgets. Même code que le bureau ; seule
-la **couche shell** gagne un point d'entrée et une gestion du cycle de vie
-spécifiques à Android.
+frus now runs on a **real Android phone** (Huawei STK-L21, arm64, Android 10,
+Mali-G51 GPU): Vulkan rendering, touch (tap + finger scrolling), navigation, and
+the whole widget library. The same code as the desktop; only the **shell layer**
+gains an Android-specific entry point and lifecycle handling.
 
-## Ce qu'il a fallu ajouter
+## What had to be added
 
-### 1. Point d'entrée `android_main`
-Android n'appelle pas `main()`. La démo devient une **bibliothèque `cdylib`**
-(le `.so` chargé par l'activité native) exposant `android_main(app: AndroidApp)`,
-en plus d'un binaire bureau (`src/bin/frus-demo.rs`). Les deux appellent le même
-code :
-- bureau → `frus_demo::run_desktop()` → `frus_shell::run` ;
+### 1. The `android_main` entry point
+Android does not call `main()`. The demo becomes a **`cdylib` library** (the `.so`
+loaded by the native activity) exposing `android_main(app: AndroidApp)`, on top of
+a desktop binary (`src/bin/frus-demo.rs`). Both call the same code:
+- desktop → `frus_demo::run_desktop()` → `frus_shell::run`;
 - Android → `android_main` → `frus_shell::run_android(app, android_app)`.
 
-`frus-shell` gagne `run_android` (boucle winit construite avec
-`.with_android_app(...)`, logs vers logcat via `android_logger`). `winit` reçoit
-la feature `android-native-activity` uniquement sur la cible Android. `arboard`
-(presse-papier) et `env_logger` deviennent **desktop-only** (ne compilent pas
-pour Android) ; le presse-papier est neutralisé par un petit wrapper `clip`.
+`frus-shell` gains `run_android` (a winit loop built with
+`.with_android_app(...)`, logs to logcat through `android_logger`). `winit` gets
+the `android-native-activity` feature on the Android target only. `arboard`
+(clipboard) and `env_logger` become **desktop-only** (they do not compile for
+Android); the clipboard is neutralised by a small `clip` wrapper.
 
-### 2. Entrées tactiles
-Le pilote ne gérait que la souris. Les bras souris sont factorisés en helpers
-`pointer_down / pointer_move / pointer_up`, que `WindowEvent::Touch` réutilise
-(un doigt = un pointeur). En plus, une variante de glissement `Drag::Scroll`
-implémente le **défilement au doigt** : sous `TOUCH_SLOP` (8 px) le geste reste
-un tap ; au-delà, il défile la zone scrollable sous le doigt.
+### 2. Touch input
+The driver only handled the mouse. The mouse arms are factored into
+`pointer_down / pointer_move / pointer_up` helpers, which `WindowEvent::Touch`
+reuses (one finger = one pointer). On top of that, a `Drag::Scroll` drag variant
+implements **finger scrolling**: below `TOUCH_SLOP` (8 px) the gesture stays a
+tap; beyond it, it scrolls the scrollable area under the finger.
 
-### 3. Cycle de vie de la surface
-Android **détruit la surface** en arrière-plan. Ajout de `suspended` (relâche
-renderer + fenêtre) ; `resumed` les recrée. L'effet de démarrage `init` n'est
-joué qu'une fois (drapeau `started`), pas à chaque retour au premier plan.
+### 3. Surface lifecycle
+Android **destroys the surface** in the background. Added `suspended` (releases
+the renderer + the window); `resumed` recreates them. The `init` start-up effect
+is played only once (a `started` flag), not on every return to the foreground.
 
-### 4. Limites GPU réelles (correctif transverse)
-`downlevel_defaults()` plafonne la texture max à **2048**, alors que l'écran fait
-1080×2340 → `surface.configure` paniquait. Le renderer demande désormais
-`downlevel_defaults().using_resolution(adapter.limits())` : compat downlevel mais
-résolution réelle de l'adaptateur. (Bénéfique aussi sur desktop haute résolution.)
+### 4. Real GPU limits (a cross-cutting fix)
+`downlevel_defaults()` caps the maximum texture at **2048**, whereas the screen is
+1080×2340 → `surface.configure` was panicking. The renderer now asks for
+`downlevel_defaults().using_resolution(adapter.limits())`: downlevel
+compatibility but the adapter's real resolution. (Beneficial on high-resolution
+desktops too.)
 
-### 5. Police embarquée (correctif transverse)
-`FontSystem::new()` s'appuie sur les polices système ; sur Android, fontdb ne lit
-pas `fonts.xml`, donc l'alias « sans-serif » ne résout **aucune** police par
-défaut → panic « no default font found » de cosmic-text. `frus-text` embarque
-désormais **DejaVu Sans / Sans Mono** (`include_bytes!`) et expose
-`new_font_system()` : polices système (repli emoji/scripts) **plus** la police
-embarquée fixée comme famille par défaut. `frus-gpu` (rendu glyphon) réutilise ce
-même `FontSystem` → rendu texte déterministe sur toute plateforme, façon Flutter.
+### 5. Bundled font (a cross-cutting fix)
+`FontSystem::new()` relies on the system fonts; on Android, fontdb does not read
+`fonts.xml`, so the "sans-serif" alias resolves to **no** default font → a
+cosmic-text "no default font found" panic. `frus-text` now bundles **DejaVu Sans
+/ Sans Mono** (`include_bytes!`) and exposes `new_font_system()`: the system
+fonts (emoji/script fallback) **plus** the bundled font set as the default
+family. `frus-gpu` (glyphon rendering) reuses that same `FontSystem` →
+deterministic text rendering on every platform.
 
-## Outillage (WSL) & workflow appareil
-- Build **dans WSL** (cross-compilation, build scripts Linux — le natif Windows
-  reste bloqué par Smart App Control). SDK/NDK (r26d) + `cargo-apk` installés dans
-  WSL ; cible `aarch64-linux-android`.
-- `cargo apk build -p frus-demo --lib` → APK signé (clé debug auto).
-- **Installation via l'`adb.exe` de Windows** (téléphone branché côté Windows,
-  aucun usbipd) : copier l'APK sur un chemin `/mnt/...`, puis
+## Tooling (WSL) & device workflow
+- Build **inside WSL** (cross-compilation, Linux build scripts — native Windows
+  is still blocked by Smart App Control). SDK/NDK (r26d) + `cargo-apk` installed
+  in WSL; target `aarch64-linux-android`.
+- `cargo apk build -p frus-demo --lib` → a signed APK (automatic debug key).
+- **Installation through Windows' `adb.exe`** (the phone is plugged into the
+  Windows side, no usbipd): copy the APK to a `/mnt/...` path, then
   `adb.exe install -r` + `adb.exe shell am start -n com.frus.demo/android.app.NativeActivity`.
-- Métadonnées cargo-apk dans `frus-demo/Cargo.toml` (`package = com.frus.demo`,
+- cargo-apk metadata in `frus-demo/Cargo.toml` (`package = com.frus.demo`,
   `min_sdk 24`, `target_sdk 34`, `build_targets = ["aarch64-linux-android"]`).
 
-## Validation sur appareil
-- Rendu : Tasks, Log (liste virtuelle 5000 lignes), Settings (Switch, Slider,
+## Validation on the device
+- Rendering: Tasks, Log (a 5000-row virtual list), Settings (Switch, Slider,
   RadioGroup, Dropdown, Rating, Stepper, DatePicker, Tabs, Breadcrumb, Card).
-- Tap → navigation ; swipe → défilement (Row 1 → Row 11) ; chrono qui tourne ;
-  aucun crash. Backend Vulkan (Mali-G51).
-- Non-régression bureau : workspace bâti, **162 tests** verts, démo lancée.
+- Tap → navigation; swipe → scrolling (Row 1 → Row 11); the stopwatch running; no
+  crash. Vulkan backend (Mali-G51).
+- Desktop non-regression: the workspace built, **162 tests** green, the demo ran.
 
-## Limites (v1)
-- Pas d'IME / clavier logiciel : les champs texte reçoivent le focus mais la
-  saisie soft-keyboard n'est pas encore branchée.
-- L'en-tête de la démo se chevauche en très petite largeur (raffinement de mise
-  en page côté démo, pas un défaut du framework).
-- Un seul ABI empaqueté (`arm64-v8a`) ; pas d'`armeabi-v7a`/`x86_64`.
-- Pas encore de tuiles d'inset système (barre d'état / gestes) : l'UI s'étend
-  sous la barre d'état.
+## Limits (v1)
+- No IME / soft keyboard: text fields receive focus but soft-keyboard input is
+  not wired up yet.
+- The demo's header overlaps at very small widths (a layout refinement on the
+  demo side, not a framework defect).
+- A single ABI packaged (`arm64-v8a`); no `armeabi-v7a`/`x86_64`.
+- No system inset handling yet (status bar / gestures): the UI extends under the
+  status bar.

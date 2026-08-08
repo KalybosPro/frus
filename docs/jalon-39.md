@@ -1,46 +1,46 @@
-# Jalon 39 — Correctif clic + nouveaux widgets : DatePicker, Carousel, Alert
+# Jalon 39 — Click fix + new widgets: DatePicker, Carousel, Alert
 
-## Correctif critique (commité à part : `a82eeae`)
+## Critical fix (committed separately: `a82eeae`)
 
-Depuis J29 (boutons focusables), le handler d'appui posait un `Drag::TextSelect`
-sur **tout** widget focalisé (code prévu pour les seuls champs texte) ; au
-relâchement, ce faux glissement était consommé **avant** le dispatch → **les
-clics souris étaient avalés** (le clavier marchait). Correctif : ne démarrer la
-sélection que si `cursor_at()` renvoie `Some` (invariant : `TextInput` → `Some`,
-boutons → `None`). Signalé par l'utilisateur en testant l'app réelle.
+Since J29 (focusable buttons), the press handler had been setting a
+`Drag::TextSelect` on **any** focused widget (code written for text fields
+only); on release, that spurious drag was consumed **before** the dispatch → so
+**mouse clicks were being swallowed** (the keyboard still worked). The fix: only
+start a selection if `cursor_at()` returns `Some` (the invariant: `TextInput` →
+`Some`, buttons → `None`). Reported by the user while testing the real app.
 
 ## Widgets
 
-- **`DatePicker::new(année, mois, jour, on_select, on_nav)`** — calendrier mensuel
-  contrôlé, bâti sur `Grid` (7 colonnes). En-tête « ‹ Mois Année › », jours de
-  semaine, grille des jours (case sélectionnée en avant, cases vides avant le 1er).
-  **Calcul de date maison** : bissextile, jours/mois, jour de semaine (Sakamoto) —
-  aucune dépendance temporelle.
-- **`Carousel::new(index, total, on_change, slide_courant)`** — flèches ‹ ›
-  (désactivées aux bornes) autour du slide courant **fourni par l'app** (un seul
-  réalisé). `on_change(index∓1)`.
-- **`Alert::new("texte").title("...").warning()`** — encadré de message
-  **persistant** (Info/Succès/Alerte/Erreur : fond teinté + barre d'accent +
-  glyphe), à distinguer du `Toast` transitoire.
+- **`DatePicker::new(year, month, day, on_select, on_nav)`** — a controlled
+  monthly calendar, built on `Grid` (7 columns). A "‹ Month Year ›" header,
+  weekday names, and the grid of days (the selected cell brought forward, empty
+  cells before the 1st). **Hand-rolled date maths**: leap years, days per month,
+  weekday (Sakamoto) — no time dependency.
+- **`Carousel::new(index, total, on_change, current_slide)`** — ‹ › arrows
+  (disabled at the bounds) around the current slide **supplied by the app** (only
+  one is realised). `on_change(index∓1)`.
+- **`Alert::new("text").title("...").warning()`** — a **persistent** message box
+  (Info/Success/Warning/Error: tinted background + accent bar + glyph), to be
+  distinguished from the transient `Toast`.
 
-## Démo
+## Demo
 
-- `Alert` (« Astuce ») en tête de la carte todo.
-- `DatePicker` dans la carte de contrôles des Réglages (état année/mois/jour +
-  navigation de mois).
-- `Carousel` (3 slides) dans l'onglet « À propos ».
+- An `Alert` ("Tip") at the top of the todo card.
+- A `DatePicker` in the Settings controls card (year/month/day state + month
+  navigation).
+- A `Carousel` (3 slides) in the "About" tab.
 
 ## Tests
 
-- Correctif : `only_text_inputs_place_a_cursor` (Button `cursor_at` = None, TextInput = Some).
-- `DatePicker` : math de date (bissextile, jour de semaine), 3 enfants (en-tête /
-  jours / grille), nombre de cellules = cases vides + jours du mois.
-- `Carousel` : flèches bornées ; ‹/› → `on_change`.
-- `Alert` : variante → barre d'accent + titre + texte peints.
-- 85 tests frus-widgets.
+- The fix: `only_text_inputs_place_a_cursor` (Button `cursor_at` = None,
+  TextInput = Some).
+- `DatePicker`: date maths (leap years, weekday), 3 children (header / weekdays /
+  grid), cell count = empty cells + days in the month.
+- `Carousel`: bounded arrows; ‹/› → `on_change`.
+- `Alert`: variant → accent bar + title + text painted.
+- 85 frus-widgets tests.
 
-## Limites (v1)
+## Limits (v1)
 
-- `DatePicker` : sélection d'un seul jour (pas de plage) ; pas de saisie clavier
-  de date.
-- `Alert` : texte mono-ligne (pas de retour à la ligne automatique).
+- `DatePicker`: a single day selected (no range); no keyboard date entry.
+- `Alert`: single-line text (no automatic wrapping).

@@ -1,44 +1,42 @@
-# Jalon 51 — Insets système (zone de sécurité / SafeArea)
+# Jalon 51 — System insets (safe area / SafeArea)
 
-Sur mobile, l'interface débordait **sous les barres système** (barre d'état en
-haut, barre de navigation en bas). Le framework remonte désormais les **insets**
-de la plateforme jusqu'à l'application, qui écarte son contenu de ces zones — le
-fond, lui, s'étend bord à bord. C'est l'équivalent de `MediaQuery.padding` +
-`SafeArea` de Flutter.
+On mobile, the interface spilled **under the system bars** (the status bar at the
+top, the navigation bar at the bottom). The framework now carries the platform's
+**insets** up to the application, which keeps its content clear of those zones —
+while the background still extends edge to edge.
 
-## Source des insets (Android)
+## Where the insets come from (Android)
 
-`android-activity` expose `AndroidApp::content_rect()` : le rectangle de contenu
-**hors** barres système, en px physiques. Le shell garde une poignée de
-l'activité (`run_android`), et à chaque frame en dérive les insets :
+`android-activity` exposes `AndroidApp::content_rect()`: the content rectangle
+**excluding** the system bars, in physical px. The shell keeps a handle on the
+activity (`run_android`), and derives the insets from it each frame:
 
 ```
 inset.top    = content.top
 inset.left   = content.left
-inset.right  = largeur_surface  − content.right
-inset.bottom = hauteur_surface  − content.bottom
+inset.right  = surface_width  − content.right
+inset.bottom = surface_height − content.bottom
 ```
 
-converti en px **logiques** (÷ échelle). Un rectangle dégénéré (avant la première
-mise en page) donne des insets nuls. Sur les plateformes de bureau : toujours zéro
-(pas de poignée Android).
+converted into **logical** px (÷ scale). A degenerate rectangle (before the first
+layout) gives zero insets. On desktop platforms: always zero (no Android handle).
 
-## Propagation à l'application
+## Propagation to the application
 
-Nouveau point d'entrée du trait `Application`, sur le modèle de `on_resize` :
+A new `Application` trait entry point, on the model of `on_resize`:
 
 ```rust
-fn on_insets(&mut self, _insets: Insets) {}   // défaut : no-op
+fn on_insets(&mut self, _insets: Insets) {}   // default: no-op
 ```
 
-Le shell appelle `on_insets` quand les insets **changent** (juste après
-`on_resize`, avant la construction de la vue). L'app les stocke et s'en sert.
+The shell calls `on_insets` when the insets **change** (just after `on_resize`,
+before building the view). The app stores them and uses them.
 
-## Application côté démo
+## How the demo applies them
 
-L'interface est construite aux dimensions **internes** (fenêtre moins insets),
-puis enrobée d'un conteneur plein-fenêtre à fond `background` avec
-`padding_each(insets)` :
+The interface is built at the **inner** dimensions (window minus insets), then
+wrapped in a full-window container with a `background` fill and
+`padding_each(insets)`:
 
 ```rust
 let w = width  - insets.left - insets.right;
@@ -49,23 +47,22 @@ Container::new().width(width).height(height).color(theme.background)
     .child(nav)
 ```
 
-Le fond couvre tout l'écran (y compris sous les barres) ; le contenu reste dans
-la zone sûre. Insets nuls → aucun enrobage (desktop inchangé).
+The background covers the whole screen (including under the bars); the content
+stays inside the safe area. Zero insets → no wrapping (desktop unchanged).
 
 ## Validation
 
-- **Sur l'appareil** (Huawei, Android 10) : insets mesurés `top 84 px`,
-  `bottom 45 px`, `left/right 0` ; le contenu dégage la barre d'état et la barre
-  de navigation, fond bord à bord (capture confirmée).
-- **Desktop** : `Insets::ZERO` partout, aucune régression (build + tests verts,
-  test `on_insets_updates_safe_area`).
+- **On the device** (Huawei, Android 10): measured insets `top 84 px`,
+  `bottom 45 px`, `left/right 0`; the content clears the status bar and the
+  navigation bar, background edge to edge (confirmed by a screenshot).
+- **Desktop**: `Insets::ZERO` everywhere, no regression (build + tests green,
+  `on_insets_updates_safe_area` test).
 
-## Limites (v1)
+## Limits (v1)
 
-- Les **overlays** (feuille modale, tiroir, menus) se positionnent encore par
-  rapport à la fenêtre entière, pas à la zone sûre — une feuille peut affleurer
-  la barre de navigation.
-- Pas encore de `viewInsets` du **clavier logiciel** (remontée du contenu au-dessus
-  du clavier) : ce sera le jalon IME.
-- Les insets ne reconfigurent pas le **palier** responsive (calculé sur la largeur
-  pleine) ; sans effet en pratique (insets latéraux nuls en portrait).
+- **Overlays** (modal sheet, drawer, menus) are still positioned relative to the
+  whole window, not to the safe area — a sheet can graze the navigation bar.
+- No **soft keyboard** `viewInsets` yet (raising the content above the keyboard):
+  that will be the IME milestone.
+- The insets do not re-drive the responsive **tier** (computed on the full
+  width); no effect in practice (side insets are zero in portrait).

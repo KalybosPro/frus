@@ -1,53 +1,54 @@
-# Jalon 46 — Animation du tiroir (glissement + fondu)
+# Jalon 46 — Drawer animation (slide + fade)
 
-Le `Drawer` du jalon 45 s'ouvrait/fermait instantanément. Il **glisse** désormais
-depuis le bord gauche, voile compris, **sans aucun câblage côté application**.
+The `Drawer` from milestone 45 opened and closed instantly. It now **slides** in
+from the left edge, scrim included, **with no wiring at all on the application
+side**.
 
-## Principe : animation pilotée par le runtime
+## Principle: animation driven by the runtime
 
-Le framework interpole déjà une valeur par widget vers la cible déclarée par
-`Widget::anim_target` (mécanisme des interrupteurs, etc.), via
-`Runtime::advance_values`, appelé à chaque frame par le shell. On s'y branche :
+The framework already interpolates a per-widget value towards the target declared
+by `Widget::anim_target` (the mechanism behind switches and the like), through
+`Runtime::advance_values`, called every frame by the shell. We hook into that:
 
-- `Drawer::anim_target()` renvoie `Some(1.0)` ouvert / `Some(0.0)` fermé. Le
-  runtime fait tendre la **progression** `0↔1` vers cette cible et redemande une
-  frame tant qu'elle bouge — l'app ne gère aucun ressort.
-- Le `Drawer` propose **toujours** son overlay quand un panneau existe ; c'est la
-  progression qui décide de l'affichage.
+- `Drawer::anim_target()` returns `Some(1.0)` when open / `Some(0.0)` when
+  closed. The runtime drives the **progress** `0↔1` towards that target and
+  requests another frame for as long as it moves — the app handles no spring at
+  all.
+- The `Drawer` **always** offers its overlay when a panel exists; it is the
+  progress that decides whether it shows.
 
-## Application de la progression
+## Applying the progress
 
-Le parcours de `build_ui` lit la progression animée du tiroir
-(`Runtime::value_or(id, cible)` — la cible sert de repli au premier rendu, comme
-au montage) et la joint à l'overlay. `process_overlays` l'exploite pour le
-placement `Left` :
+The `build_ui` walk reads the drawer's animated progress
+(`Runtime::value_or(id, target)` — the target is the fallback on the first
+render, as on mount) and attaches it to the overlay. `process_overlays` uses it
+for `Left` placement:
 
-- **Glissement** : `pos.x = -(1 - progression) · largeur` (le panneau entre par la
-  gauche) ;
-- **Fondu du voile** : opacité `0.5 · progression` (synchronisée avec le
-  glissement) ;
-- progression ≤ 0 → overlay non émis (ni voile, ni panneau, ni zone de fermeture).
+- **Slide**: `pos.x = -(1 - progress) · width` (the panel comes in from the
+  left);
+- **Scrim fade**: opacity `0.5 · progress` (synchronised with the slide);
+- progress ≤ 0 → no overlay emitted (no scrim, no panel, no dismiss zone).
 
-Les autres overlays (menus, tooltips, modales) n'ont pas d'`anim_target` : leur
-progression vaut `1.0`, comportement inchangé.
+The other overlays (menus, tooltips, modals) have no `anim_target`: their
+progress is `1.0`, so their behaviour is unchanged.
 
-## Nouveautés d'API
+## API additions
 
-- `Runtime::value_or(id, default)` : valeur animée, ou `default` si le widget n'a
-  jamais été animé (rendu isolé / montage).
-- La pile d'overlays interne transporte une progression `0..=1`.
+- `Runtime::value_or(id, default)`: the animated value, or `default` if the
+  widget has never been animated (isolated render / mount).
+- The internal overlay stack carries a `0..=1` progress.
 
-Aucune signature publique de `Drawer` ne change : `Drawer::new(open)` suffit,
-l'animation vient en prime.
+No public `Drawer` signature changes: `Drawer::new(open)` is enough, and the
+animation comes as a bonus.
 
 ## Tests
 
-- `frus-widgets` : `anim_target` reflète l'état ouvert/fermé ; tiroir fermé →
-  aucun voile ; **mi-animation** (progression 0.5 injectée) → panneau à moitié
-  rentré (bord droit ≈ largeur/2).
+- `frus-widgets`: `anim_target` reflects the open/closed state; a closed drawer →
+  no scrim; **mid-animation** (progress 0.5 injected) → the panel half in (right
+  edge ≈ width/2).
 
-## Limites (v1)
+## Limits (v1)
 
-- Ressort non utilisé ici : l'interpolation est linéaire (durée fixe partagée avec
-  les autres valeurs animées) — suffisant et cohérent visuellement.
-- Toujours un seul côté (`Left`).
+- No spring here: the interpolation is linear (a fixed duration shared with the
+  other animated values) — sufficient and visually consistent.
+- Still a single side (`Left`).

@@ -1,20 +1,20 @@
-# Jalon 35 — Layout : grille (`Grid`)
+# Jalon 35 — Layout: grid (`Grid`)
 
-Le jalon layout dédié : une **grille** à colonnes égales, via le **CSS Grid de
-taffy** (déjà dans la dépendance) plutôt qu'un composite bricolé.
+The dedicated layout milestone: an equal-column **grid**, through **taffy's CSS
+Grid** (already in the dependency) rather than an improvised composite.
 
-## Approche
+## Approach
 
-Le manque de `Grid` venait d'un piège : un composite « builder » ne peut pas
-reconstruire des enfants `Box<dyn Widget>`. La bonne réponse n'est pas un widget
-qui reconstruit des lignes, mais **déléguer la disposition au moteur de layout**.
+`Grid` was missing because of a trap: a "builder" composite cannot rebuild
+`Box<dyn Widget>` children. The right answer is not a widget that rebuilds rows,
+but **delegating the arrangement to the layout engine**.
 
-- `Style` gagne `grid_columns: Option<usize>`.
-- `to_taffy` : si `Some(n)` → `display: Grid` + `grid_template_columns = n × 1fr`.
-  Les enfants se placent **automatiquement** (auto-flow, ligne par ligne) ; les
-  lignes sont dimensionnées au contenu → la hauteur du conteneur suit toute seule.
-- `Grid` est donc un **conteneur normal** : `cell()` n'est qu'un `push` d'enfant,
-  aucune branche spéciale dans `build_ui`, aucun problème de propriété.
+- `Style` gains `grid_columns: Option<usize>`.
+- `to_taffy`: if `Some(n)` → `display: Grid` + `grid_template_columns = n × 1fr`.
+  The children place themselves **automatically** (auto-flow, row by row); the
+  rows are sized to their content → the container's height follows on its own.
+- So `Grid` is a **normal container**: `cell()` is just a child `push`, with no
+  special branch in `build_ui` and no ownership problem.
 
 ## API
 
@@ -24,22 +24,22 @@ Grid::new(3).gap(10.0).width(360.0)
     .cell(d)
 ```
 
-## Démo
+## Demo
 
-Onglet « À propos » des Réglages : une grille **3 colonnes** de tuiles de
-statistiques (Total / Actives / Terminées).
+The Settings "About" tab: a **3-column** grid of statistics tiles (Total /
+Active / Done).
 
 ## Tests
 
-- `cells_flow_into_rows_and_columns` : dans une grille 2 colonnes, `a`/`b` sur la
-  même ligne (même `y`, `b` à droite), `c` sous `a` (même `x`, `y` plus bas), `d`
-  aligné (colonne de `b`, ligne de `c`), et **colonnes égales** (`a.width ==
-  b.width`). Preuve directe que la grille dispose correctement.
-- 69 tests frus-widgets ; démo + chrono non régressés.
+- `cells_flow_into_rows_and_columns`: in a 2-column grid, `a`/`b` on the same row
+  (same `y`, `b` to the right), `c` under `a` (same `x`, lower `y`), `d` aligned
+  (`b`'s column, `c`'s row), and **equal columns** (`a.width == b.width`). Direct
+  proof that the grid arranges correctly.
+- 69 frus-widgets tests; demo and stopwatch did not regress.
 
-## Limites (v1)
+## Limits (v1)
 
-- **Colonnes égales** (`1fr`) uniquement ; pas encore de largeurs de colonnes
-  variables (`px` / `auto` / `minmax`) ni de spans de cellules.
-- Pas de `Table` (en-têtes / bordures de cellules) — candidat pour le prochain
-  lot de widgets, bâti sur `Grid`.
+- **Equal columns** (`1fr`) only; no variable column widths (`px` / `auto` /
+  `minmax`) and no cell spans yet.
+- No `Table` (headers / cell borders) — a candidate for the next batch of
+  widgets, built on `Grid`.

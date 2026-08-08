@@ -1,34 +1,35 @@
-# Jalon 34 — Nouveaux widgets : Avatar, Stepper, Rating
+# Jalon 34 — New widgets: Avatar, Stepper, Rating
 
-Trois widgets de plus (affichage / saisie numérique / note).
+Three more widgets (display / numeric input / rating).
 
 ## Widgets
 
-- **`Avatar::new("Ada Lovelace")`** — pastille ronde d'**initiales** (2 premières
-  lettres des mots, en majuscules), fond d'accent (`.color()` pour surcharger,
-  `.size()`). Rendu pur.
-- **`Stepper::new(valeur, on_change).range(min, max).step(n)`** — sélecteur
-  numérique **−/valeur/+**, contrôlé. Composite `[−, texte, +]` ; les boutons
-  émettent la **valeur bornée** (le stepper clamp lui-même à `[min, max]`).
-- **`Rating::new(valeur, max, on_rate)`** — note en **étoiles cliquables** ;
-  cliquer la i-ᵉ émet `on_rate(i + 1)`. Étoiles pleines `primary` / vides `muted`,
-  focusables (accessibles au clavier).
+- **`Avatar::new("Ada Lovelace")`** — a round **initials** pill (the first 2
+  letters of the words, uppercased), on an accent background (`.color()` to
+  override, `.size()`). Pure rendering.
+- **`Stepper::new(value, on_change).range(min, max).step(n)`** — a controlled
+  **−/value/+** numeric selector. A `[−, text, +]` composite; the buttons emit
+  the **clamped value** (the stepper clamps to `[min, max]` itself).
+- **`Rating::new(value, max, on_rate)`** — a rating in **clickable stars**;
+  clicking the i-th emits `on_rate(i + 1)`. Full stars `primary` / empty ones
+  `muted`, focusable (reachable from the keyboard).
 
-## Démo (intégration)
+## Demo (integration)
 
-- **`Avatar`** (initiales) à gauche de chaque ligne de tâche.
-- **`Rating`** (« Votre avis ») et **`Stepper`** (« Quantité ») dans la carte de
-  contrôles des Réglages.
+- An **`Avatar`** (initials) to the left of each task row.
+- A **`Rating`** ("Your feedback") and a **`Stepper`** ("Quantity") in the
+  Settings controls card.
 
 ## Tests
 
-- `Avatar` : 2 initiales majuscules ; peint cercle + initiale.
-- `Stepper` : `+`/`−` émettent la valeur ±pas, **bornée** à la plage.
-- `Rating` : `max` étoiles ; clic i-ᵉ → `on_rate(i+1)` ; pleines ≠ vides (couleur).
-- 68 tests frus-widgets ; démo + chrono non régressés.
+- `Avatar`: 2 uppercase initials; paints a circle + the initial.
+- `Stepper`: `+`/`−` emit the value ±step, **clamped** to the range.
+- `Rating`: `max` stars; clicking the i-th → `on_rate(i+1)`; full ≠ empty
+  (colour).
+- 68 frus-widgets tests; demo and stopwatch did not regress.
 
-## Limites (v1)
+## Limits (v1)
 
-- `Stepper` : largeur du texte variable (léger décalage des boutons selon la valeur).
-- `Rating` : demi-étoiles non gérées ; pas de survol « prévisualisation ».
-- `Avatar` : initiales ou couleur unie (pas d'image — pas encore de widget image).
+- `Stepper`: the text width varies (the buttons shift slightly with the value).
+- `Rating`: no half stars; no hover "preview".
+- `Avatar`: initials or a solid colour (no image — there is no image widget yet).

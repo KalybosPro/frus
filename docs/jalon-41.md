@@ -1,42 +1,41 @@
-# Jalon 41 — Colorimétrie sRGB / linéaire
+# Jalon 41 — sRGB / linear colour handling
 
-Corrige une dette notée dans `color.rs` : les couleurs étaient envoyées **telles
-quelles** (valeurs sRGB) à une surface **sRGB**. Le GPU les traite comme
-linéaires et ré-encode linéaire→sRGB à l'écriture → **double encodage** → couleurs
-**délavées** (trop claires) à l'écran.
+Fixes a debt noted in `color.rs`: colours were being sent **as-is** (sRGB values)
+to an **sRGB** surface. The GPU treats them as linear and re-encodes linear→sRGB
+on write → **double encoding** → **washed-out** (too light) colours on screen.
 
-## Correctif
+## The fix
 
-Une cible sRGB ré-encode linéaire→sRGB en sortie ; il faut donc lui envoyer du
-**linéaire** pour restituer la couleur voulue.
+An sRGB target re-encodes linear→sRGB on output; so it has to be sent **linear**
+values to reproduce the intended colour.
 
-- **`frus-core`** : `Color::to_linear()` / `to_srgb()` (conversion par composante,
-  alpha inchangé), avec la vraie courbe sRGB (seuil 0.04045, exposant 2.4).
-- **Quads** (`quad.wgsl`) : le fragment convertit la couleur finale sRGB→linéaire
-  avant de l'écrire (`srgb_to_linear`).
-- **Texte** (`glyphon`) : les couleurs sont converties en linéaire avant d'être
-  passées à glyphon (même raison ; l'alpha reste tel quel).
+- **`frus-core`**: `Color::to_linear()` / `to_srgb()` (per-component conversion,
+  alpha untouched), with the real sRGB curve (threshold 0.04045, exponent 2.4).
+- **Quads** (`quad.wgsl`): the fragment converts the final colour sRGB→linear
+  before writing it (`srgb_to_linear`).
+- **Text** (`glyphon`): the colours are converted to linear before being passed
+  to glyphon (same reason; the alpha stays as it is).
 
-Les couleurs de la scène restent **authoring-friendly** (sRGB, comme un sélecteur
-de couleur) ; la conversion se fait au tout dernier moment, à la frontière GPU.
+The scene's colours stay **authoring-friendly** (sRGB, like a colour picker); the
+conversion happens at the very last moment, at the GPU boundary.
 
 ## Tests
 
-- `frus-core` : points fixes (0→0, 1→1), milieu (`0.5` sRGB → `~0.214` linéaire),
-  aller-retour `to_linear→to_srgb`, alpha préservé.
-- Les rendus offscreen (tests GPU) utilisent des couleurs **pures** (0/1),
-  invariantes par la conversion → toujours verts.
+- `frus-core`: fixed points (0→0, 1→1), the midpoint (`0.5` sRGB → `~0.214`
+  linear), a `to_linear→to_srgb` round trip, alpha preserved.
+- The offscreen renders (GPU tests) use **pure** colours (0/1), which are
+  invariant under the conversion → still green.
 
-## À valider à l'œil (hors WSL)
+## To be checked by eye (outside WSL)
 
-Le rendu logiciel WSL ne me permet pas de **juger les couleurs**. Sur un vrai
-écran, les couleurs devraient être **plus riches / saturées** (plus délavées), et
-le texte lisible (ni trop clair, ni trop sombre). Hypothèse : glyphon n'applique
-pas lui-même la conversion — **à confirmer visuellement** ; si le texte paraît trop
-sombre, retirer la conversion côté texte.
+WSL's software rendering does not let me **judge colours**. On a real screen the
+colours should be **richer / more saturated** (less washed out), and the text
+legible (neither too light nor too dark). The hypothesis: glyphon does not apply
+the conversion itself — **to be confirmed visually**; if the text looks too dark,
+remove the conversion on the text side.
 
-## Limites (v1)
+## Limits (v1)
 
-- Les **dégradés** sont interpolés en espace sRGB puis convertis (mélange
-  légèrement différent d'un mélange en linéaire) — acceptable en v1.
-- Pas de gestion d'espaces colorimétriques larges (P3, etc.).
+- **Gradients** are interpolated in sRGB space and then converted (a slightly
+  different blend from one done in linear) — acceptable for v1.
+- No wide colour space handling (P3, etc.).

@@ -1,38 +1,40 @@
-# Jalon 37 — Nouveaux widgets : Breadcrumb, Pagination, Skeleton
+# Jalon 37 — New widgets: Breadcrumb, Pagination, Skeleton
 
-Trois widgets, chacun mettant en valeur un aspect différent du framework.
+Three widgets, each highlighting a different aspect of the framework.
 
 ## Widgets
 
-- **`Breadcrumb::new(on_select).crumb("Accueil").crumb("Réglages")`** — fil
-  d'Ariane : segments cliquables séparés par « › » ; le **dernier** est la page
-  courante (mise en avant, non cliquable). Cliquer le i-ᵉ émet `on_select(i)`.
-- **`Pagination::new(courante, total, on_select)`** — sélecteur de page (pages
-  **1-indexées**) : ‹ préc. · **fenêtre** de pages autour de la courante · suiv. ›.
-  Préc./suiv. **désactivés** aux bornes. Cliquer une page émet `on_select(p)`.
-- **`Skeleton::new().width(w).height(h)`** — placeholder de chargement dont
-  l'intensité **pulse dans le temps** (shimmer). Réutilise l'horloge continue
-  (`Status::time` + `continuous()`) : le framework redessine tout seul.
+- **`Breadcrumb::new(on_select).crumb("Home").crumb("Settings")`** — a
+  breadcrumb trail: clickable segments separated by "›"; the **last** one is the
+  current page (highlighted, not clickable). Clicking the i-th emits
+  `on_select(i)`.
+- **`Pagination::new(current, total, on_select)`** — a page selector (pages are
+  **1-indexed**): ‹ prev · a **window** of pages around the current one · next ›.
+  Prev/next are **disabled** at the bounds. Clicking a page emits
+  `on_select(p)`.
+- **`Skeleton::new().width(w).height(h)`** — a loading placeholder whose
+  intensity **pulses over time** (shimmer). It reuses the continuous clock
+  (`Status::time` + `continuous()`): the framework redraws on its own.
 
-## Démo
+## Demo
 
-- **`Breadcrumb`** « Accueil › Réglages » en tête de l'écran Réglages (cliquer
-  « Accueil » dépile).
-- **`Pagination`** (page contrôlée) et deux **`Skeleton`** animés dans l'onglet
-  « À propos ».
+- A **`Breadcrumb`** "Home › Settings" at the top of the Settings screen
+  (clicking "Home" pops).
+- A **`Pagination`** (controlled page) and two animated **`Skeleton`**s in the
+  "About" tab.
 
 ## Tests
 
-- `Breadcrumb` : `N` segments + `N−1` séparateurs ; liens cliquables, courant non
-  cliquable.
-- `Pagination` : fenêtre correcte (courante ±2) ; préc./suiv. bornés (désactivés
-  en première/dernière page).
-- `Skeleton` : `continuous() == true` ; l'opacité peinte **dépend du temps**.
-- 77 tests frus-widgets ; démo + chrono non régressés.
+- `Breadcrumb`: `N` segments + `N−1` separators; links clickable, the current one
+  not.
+- `Pagination`: the correct window (current ±2); prev/next bounded (disabled on
+  the first/last page).
+- `Skeleton`: `continuous() == true`; the painted opacity **depends on time**.
+- 77 frus-widgets tests; demo and stopwatch did not regress.
 
-## Limites (v1)
+## Limits (v1)
 
-- `Pagination` : fenêtre simple (pas d'ellipses « 1 … 5 … 20 »).
-- `Skeleton` : pulsation d'opacité (pas de dégradé glissant, qui exigerait un
-  shader dédié).
-- `Breadcrumb` : pas de troncature/`…` pour les chemins très longs.
+- `Pagination`: a simple window (no "1 … 5 … 20" ellipses).
+- `Skeleton`: an opacity pulse (no sliding gradient, which would need a dedicated
+  shader).
+- `Breadcrumb`: no truncation or "…" for very long paths.

@@ -1,39 +1,39 @@
-# Jalon 36 — Nouveaux widgets : Table, SegmentedControl, Toast
+# Jalon 36 — New widgets: Table, SegmentedControl, Toast
 
-Trois widgets, dont un bâti sur la grille du jalon précédent.
+Three widgets, one of them built on the previous milestone's grid.
 
 ## Widgets
 
-- **`Table::new(colonnes).header(&["Nom","Note"]).row(&["Ada","5"])`** — tableau de
-  données **texte**, bâti sur `Grid` (colonnes égales). En-tête stylé (fond léger,
-  texte discret) + cellules ; délègue son layout au `Grid`. Cellules riches →
-  utiliser `Grid` directement.
-- **`SegmentedControl::new(sel, on_select).segment("Jour").segment("Semaine")`** —
-  sélecteur segmenté **contrôlé** (boutons connectés, actif en avant). Cliquer le
-  i-ᵉ émet `on_select(i)`.
-- **`Toast::new("Enregistré").success()`** — notification transitoire (carte +
-  barre d'accent selon la variante Info/Succès/Erreur). Le *widget* est passif ;
-  le *système* (minuterie, empilement) est du ressort de l'app.
+- **`Table::new(columns).header(&["Name","Score"]).row(&["Ada","5"])`** — a
+  **text** data table, built on `Grid` (equal columns). A styled header (light
+  background, muted text) + cells; it delegates its layout to the `Grid`. For
+  rich cells → use `Grid` directly.
+- **`SegmentedControl::new(sel, on_select).segment("Day").segment("Week")`** — a
+  **controlled** segmented selector (connected buttons, the active one brought
+  forward). Clicking the i-th emits `on_select(i)`.
+- **`Toast::new("Saved").success()`** — a transient notification (card + accent
+  bar according to the Info/Success/Error variant). The *widget* is passive; the
+  *system* (timer, stacking) is the app's business.
 
-## Démo — vitrine du modèle `update → Command`
+## Demo — a showcase of the `update → Command` model
 
-- **`SegmentedControl`** remplace les trois boutons de filtre de la liste.
-- **`Toast`** « Sauvegardé » s'affiche en bas-centre au clic sur **Sauvegarder**
-  (couche `Stack`), puis **s'auto-ferme après 2 s** via un `Command` minuté
-  (`Command::perform(|| { sleep(2s); DismissToast })`) — démonstration d'un effet
-  temporisé.
-- **`Table`** de métriques (Widgets / Jalons) dans l'onglet « À propos ».
+- A **`SegmentedControl`** replaces the list's three filter buttons.
+- A **`Toast`** "Saved" appears bottom-centre when **Save** is clicked (a `Stack`
+  layer), then **closes itself after 2 s** through a timed `Command`
+  (`Command::perform(|| { sleep(2s); DismissToast })`) — demonstrating a delayed
+  effect.
+- A metrics **`Table`** (Widgets / Milestones) in the "About" tab.
 
 ## Tests
 
-- `Table` : `colonnes × (1 en-tête + N lignes)` cellules ; textes peints.
-- `SegmentedControl` : N segments ; clic i-ᵉ → `on_select(i)`.
-- `Toast` : carte + barre d'accent (couleur de variante) + texte.
-- 72 tests frus-widgets ; démo + chrono non régressés.
+- `Table`: `columns × (1 header + N rows)` cells; the texts are painted.
+- `SegmentedControl`: N segments; clicking the i-th → `on_select(i)`.
+- `Toast`: card + accent bar (the variant's colour) + text.
+- 72 frus-widgets tests; demo and stopwatch did not regress.
 
-## Limites (v1)
+## Limits (v1)
 
-- `Table` : cellules **texte** ; pas de tri, sélection de ligne, ni largeurs de
-  colonnes variables (héritées des limites de `Grid`).
-- `Toast` : pas de file/empilement intégré (géré par l'app) ni d'animation
-  d'entrée/sortie dédiée (le fondu de montage/démontage s'applique).
+- `Table`: **text** cells; no sorting, row selection, or variable column widths
+  (inherited from `Grid`'s limits).
+- `Toast`: no built-in queue or stacking (the app handles that) and no dedicated
+  entry/exit animation (the mount/unmount fade applies).

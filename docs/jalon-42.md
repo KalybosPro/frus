@@ -1,56 +1,57 @@
-# Jalon 42 — Responsivité par défaut
+# Jalon 42 — Responsive by default
 
-Rend l'adaptation à la taille **facile et par défaut**, en trois primitives
-complémentaires (chacune construite et testée séparément).
+Makes adapting to size **easy and the default**, through three complementary
+primitives (each built and tested separately).
 
-## Lot A — Classes de taille (`SizeClass`)
+## Batch A — Size classes (`SizeClass`)
 
-`frus-core` : `SizeClass { Compact, Medium, Expanded }` (breakpoints Material 3,
-px logiques : < 600 / 600–840 / ≥ 840), `SizeClass::from_width(w)`, `rank()`.
+`frus-core`: `SizeClass { Compact, Medium, Expanded }` (Material 3 breakpoints,
+in logical px: < 600 / 600–840 / ≥ 840), `SizeClass::from_width(w)`, `rank()`.
 
-`frus-widgets` : le widget `Responsive` — `responsive(width).compact(a).medium(b)
-.expanded(c)` — choisit un sous-arbre selon le palier, avec **repli gracieux**
-(palier le plus proche, en préférant plus petit à égalité d'écart). Il **délègue
-tout** à la variante choisie (comme `Keyed`), donc s'insère n'importe où.
+`frus-widgets`: the `Responsive` widget — `responsive(width).compact(a).medium(b)
+.expanded(c)` — picks a subtree according to the tier, with a **graceful
+fallback** (the nearest tier, preferring the smaller one when the distance
+ties). It **delegates everything** to the chosen variant (like `Keyed`), so it
+slots in anywhere.
 
-## Lot B — `Wrap` (flex-wrap)
+## Batch B — `Wrap` (flex-wrap)
 
-`Style.flex_wrap: bool` → `taffy::FlexWrap::Wrap`. `Flex::wrap()` l'active ;
-`Wrap::new()` est le point d'entrée nommé (rangée qui passe à la ligne). Les
-enfants qui débordent l'axe principal **refluent** sur une nouvelle ligne, sans
-breakpoint. Hauteur pilotée par le contenu (vraie mise en page multi-lignes) :
-c'est le bon outil pour « barre d'actions / tuiles 3→2→1 ».
+`Style.flex_wrap: bool` → `taffy::FlexWrap::Wrap`. `Flex::wrap()` enables it;
+`Wrap::new()` is the named entry point (a row that wraps). Children that overflow
+the main axis **reflow** onto a new line, with no breakpoint. The height is
+driven by the content (real multi-line layout): it is the right tool for an
+"action bar / 3→2→1 tiles".
 
-## Lot C — `LayoutBuilder`
+## Batch C — `LayoutBuilder`
 
-`LayoutBuilder::new(|size| widget)` construit son contenu **à partir de sa boîte
-réelle** (façon Flutter `LayoutBuilder`), pas seulement selon la fenêtre : un
-composant s'adapte quel que soit l'endroit où il est placé. Même mécanique que la
-liste virtualisée — feuille de layout, contenu construit à la volée, rendu via
-`render_item` — donc **pas d'état retenu** (survol/clic OK, pas de focus persistant
-ni d'overlay différé) et **taille propre = son style** (fixez hauteur/`flex`).
+`LayoutBuilder::new(|size| widget)` builds its content **from its real box**, not
+just from the window: a component adapts wherever it is placed. The same
+mechanics as the virtualised list — a layout leaf, content built on the fly,
+rendered through `render_item` — so **no retained state** (hover and clicks are
+fine, no persistent focus and no deferred overlay) and **its own size = its
+style** (set a height or `flex`).
 
-Choisir le bon primitif : **`Wrap`** pour un reflow à hauteur automatique,
-**`Responsive`** pour brancher sur la classe de la fenêtre, **`LayoutBuilder`**
-pour brancher sur la boîte réelle mesurée (à hauteur fixe).
+Picking the right primitive: **`Wrap`** for a reflow at automatic height,
+**`Responsive`** to branch on the window's class, **`LayoutBuilder`** to branch
+on the real measured box (at fixed height).
 
-## Démo
+## Demo
 
-Carte de tâches responsive : largeur par palier (Lot A), en-tête dont les
-boutons d'action **refluent** en `Wrap` (Lot B), et ligne de résumé en
-`LayoutBuilder` qui raccourcit son texte quand la boîte est étroite (Lot C). Les
-champs internes (saisie, barre de progression) suivent la largeur de carte.
+A responsive task card: width per tier (Batch A), a header whose action buttons
+**reflow** in a `Wrap` (Batch B), and a summary line in a `LayoutBuilder` that
+shortens its text when the box is narrow (Batch C). The internal fields (input,
+progress bar) follow the card's width.
 
 ## Tests
 
-- `frus-core` : seuils + ordre de `SizeClass`.
-- `frus-widgets` : `Responsive` (choix par largeur, repli), `Wrap` (style), et
-  `LayoutBuilder` (reçoit sa boîte réelle, adapte le nombre de tuiles).
-- `frus-layout` : `flex_wrap` déplace réellement l'enfant qui déborde à la ligne
-  suivante (test fonctionnel de reflow).
+- `frus-core`: `SizeClass`'s thresholds + ordering.
+- `frus-widgets`: `Responsive` (choice by width, fallback), `Wrap` (style), and
+  `LayoutBuilder` (receives its real box, adapts the number of tiles).
+- `frus-layout`: `flex_wrap` really does move the overflowing child onto the next
+  line (a functional reflow test).
 
-## Limites (v1)
+## Limits (v1)
 
-- `LayoutBuilder` a une hauteur fixe (feuille) : il ne mesure pas son propre
-  contenu — utilisez `Wrap` quand la hauteur doit suivre le reflow.
-- `Wrap` : lignes de même hauteur (pas de packing type masonry).
+- `LayoutBuilder` has a fixed height (it is a leaf): it does not measure its own
+  content — use `Wrap` when the height has to follow the reflow.
+- `Wrap`: rows of equal height (no masonry-style packing).

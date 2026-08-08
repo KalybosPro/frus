@@ -1,44 +1,44 @@
-# Jalon 48 — Glissement du tiroir en courbe de ressort
+# Jalon 48 — Drawer slide on a spring curve
 
-Le tiroir glissait **linéairement** (durée fixe des valeurs animées). Il suit
-désormais une **courbe en ressort**, pour une arrivée douce cohérente avec les
-transitions d'écran de l'app.
+The drawer slid **linearly** (the fixed duration of animated values). It now
+follows a **spring curve**, for a soft arrival consistent with the app's screen
+transitions.
 
-## `spring_ease(t)` — réponse indicielle critique
+## `spring_ease(t)` — the critically damped step response
 
-Une fonction fermée qui remappe la progression linéaire `t ∈ [0,1]` :
+A closed-form function that remaps linear progress `t ∈ [0,1]`:
 
 ```text
-y(τ) = 1 − e^(−ω·τ)·(1 + ω·τ)     (ω = 8, renormalisée pour f(1) = 1)
+y(τ) = 1 − e^(−ω·τ)·(1 + ω·τ)     (ω = 8, renormalised so that f(1) = 1)
 ```
 
-C'est la **réponse indicielle d'un ressort en amortissement critique** : départ
-au repos (pente nulle), montée franche, décélération douce, **sans dépassement**
-(`f(0) = 0`, `f(1) = 1`, monotone). Contrairement à `spring_step` (intégration
-pas à pas avec vélocité, utilisée pour les gestes/écrans), c'est une forme
-**fermée** — pas d'état de vélocité à conserver, idéale pour remapper une
-progression déjà interpolée par le runtime.
+It is the **step response of a critically damped spring**: it starts at rest
+(zero slope), rises decisively, decelerates gently, and **never overshoots**
+(`f(0) = 0`, `f(1) = 1`, monotonic). Unlike `spring_step` (step-by-step
+integration with a velocity, used for gestures and screens), this is a **closed**
+form — no velocity state to keep, ideal for remapping a progress the runtime has
+already interpolated.
 
-Pas de dépassement : essentiel pour un panneau accosté à un bord (un dépassement
-laisserait apparaître un interstice au bord de la fenêtre).
+No overshoot: essential for a panel docked to an edge (an overshoot would open a
+gap at the window's edge).
 
 ## Application
 
-`process_overlays` applique `spring_ease` à la progression des seuls tiroirs
-(`Placement::Left` / `Right`) avant d'en déduire le décalage de glissement et
-l'opacité du voile. Les autres overlays (menus, tooltips, modales) gardent leur
-progression brute.
+`process_overlays` applies `spring_ease` to the progress of drawers only
+(`Placement::Left` / `Right`) before deriving the slide offset and the scrim's
+opacity. The other overlays (menus, tooltips, modals) keep their raw progress.
 
-Le runtime continue de piloter la progression **linéaire** `0↔1` (aucune
-animation à câbler côté app, jalon 46) ; la courbe n'intervient qu'au **rendu**.
+The runtime carries on driving the **linear** `0↔1` progress (no animation to
+wire on the app side, milestone 46); the curve only comes in at **render** time.
 
 ## Tests
 
-- `frus-widgets` : `spring_ease` — `f(0)=0`, `f(1)=1`, croissante, bornée à `≤ 1`
-  (aucun dépassement), déjà bien avancée à mi-parcours, bornée hors domaine.
-- Le test de mi-animation du tiroir dérive désormais son attendu de la courbe
-  (`spring_ease(0.5)·largeur`).
+- `frus-widgets`: `spring_ease` — `f(0)=0`, `f(1)=1`, increasing, bounded at
+  `≤ 1` (no overshoot), already well advanced at the halfway point, clamped
+  outside its domain.
+- The drawer's mid-animation test now derives its expectation from the curve
+  (`spring_ease(0.5)·width`).
 
-## Limites (v1)
+## Limits (v1)
 
-- Courbe unique (amortissement critique) ; ni raideur ni rebond réglables.
+- A single curve (critical damping); neither stiffness nor bounce is adjustable.

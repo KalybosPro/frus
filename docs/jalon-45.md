@@ -1,34 +1,33 @@
-# Jalon 45 — Responsivité widgets avancée
+# Jalon 45 — Advanced widget responsiveness
 
-Trois compléments à la navigation adaptative : un **tiroir latéral**, des
-**badges de notification** sur les destinations, et deux **nouveaux axes** de
-responsivité (orientation et hauteur).
+Three complements to adaptive navigation: a **side drawer**, **notification
+badges** on the destinations, and two **new axes** of responsiveness
+(orientation and height).
 
-## Lot A — `Drawer` (tiroir latéral, 3ᵉ palier Material)
+## Batch A — `Drawer` (side drawer, Material's 3rd tier)
 
-`Drawer` complète `NavRail` (rail) et `BottomBar` (barre) : un panneau
-plein-hauteur qui glisse depuis le bord gauche par-dessus le corps, avec un
-voile qui le referme au clic extérieur.
+`Drawer` completes `NavRail` (rail) and `BottomBar` (bar): a full-height panel
+that slides in from the left edge over the body, with a scrim that closes it on
+an outside click.
 
 ```rust
 Drawer::new(open)
     .on_dismiss(Msg::CloseMenu)
-    .panel(nav_list)   // contenu du tiroir
-    .body(main_screen) // fond, toujours visible
+    .panel(nav_list)   // the drawer's content
+    .body(main_screen) // the background, always visible
 ```
 
-Implémentation : un nouveau **placement d'overlay** `Placement::Left`. Le
-panneau (`DrawerPanel`, interne) a une largeur fixe (`DRAWER_WIDTH = 280`) et une
-hauteur `Percent(1.0)` ; l'overlay `Left` est calculé avec la **hauteur
-contrainte à la fenêtre** (largeur libre), de sorte que le panneau se déploie sur
-toute la hauteur. Le voile et la fermeture au clic réutilisent le mécanisme des
-modales `Center`. Fermé, le `Drawer` n'émet aucun overlay (le corps seul est
-rendu).
+Implementation: a new **overlay placement**, `Placement::Left`. The panel
+(`DrawerPanel`, internal) has a fixed width (`DRAWER_WIDTH = 280`) and a
+`Percent(1.0)` height; the `Left` overlay is computed with its **height
+constrained to the window** (free width), so that the panel unfolds over the full
+height. The scrim and click-to-close reuse the `Center` modal mechanism. When
+closed, the `Drawer` emits no overlay at all (only the body is rendered).
 
-## Lot B — Badges / compteurs sur les destinations
+## Batch B — Badges / counters on destinations
 
-Une destination de navigation peut porter un **compteur de notifications** : une
-pastille rouge en haut-droite du glyphe, plafonnée à `99+`.
+A navigation destination can carry a **notification counter**: a red pill at the
+top right of the glyph, capped at `99+`.
 
 ```rust
 NavRail::new(sel, Msg::Go).item("✉", "Mail").badge(5)
@@ -36,46 +35,45 @@ BottomBar::new(sel, Msg::Go).item("✉", "Mail").badge(5)
 NavScaffold::new(class, sel, Msg::Go).destination("✔", "Tasks").badge(active)
 ```
 
-`.badge(count)` décore la **dernière** destination ajoutée ; `count == 0` ne peint
-rien (badge masqué). Le rouge est constant (une alerte se lit rouge quel que soit
-le thème).
+`.badge(count)` decorates the **last** destination added; `count == 0` paints
+nothing (the badge is hidden). The red is constant (an alert reads as red
+whatever the theme).
 
-## Lot C — Axes supplémentaires : orientation & hauteur
+## Batch C — Extra axes: orientation & height
 
-`frus-core` gagne :
+`frus-core` gains:
 
-- `Orientation { Portrait, Landscape }` avec `Orientation::from_size(w, h)`
-  (convention : carré → portrait), `is_portrait()`, `is_landscape()` ;
-- `SizeClass::from_height(h)` — mêmes seuils que la largeur, pour piloter l'axe
-  **vertical** (fenêtre courte → `Compact` en hauteur).
+- `Orientation { Portrait, Landscape }` with `Orientation::from_size(w, h)` (the
+  convention: square → portrait), `is_portrait()`, `is_landscape()`;
+- `SizeClass::from_height(h)` — the same thresholds as for width, to drive the
+  **vertical** axis (a short window → `Compact` in height).
 
-Réexportés depuis `frus-widgets` et `frus-shell`. L'app compose ces primitives
-comme elle veut (le shell fournit déjà `on_resize(w, h)`).
+Re-exported from `frus-widgets` and `frus-shell`. The app composes these
+primitives however it likes (the shell already provides `on_resize(w, h)`).
 
-## Démo
+## Demo
 
-- **Tiroir** : un bouton « ☰ » dans l'en-tête ouvre un tiroir listant les
-  sections (Tasks / Stats / About) + un accès aux réglages ; choisir une section
-  ou naviguer le referme. Le geste retour est neutralisé tant qu'il est ouvert.
-- **Badge** : la destination « Tasks » du `NavScaffold` affiche le nombre de
-  tâches actives.
-- **Orientation / hauteur** : `on_resize` journalise l'orientation ; en fenêtre
-  **courte** (`from_height == Compact`), l'astuce est masquée et la liste se
-  réduit (200 px au lieu de 320).
+- **Drawer**: a "☰" button in the header opens a drawer listing the sections
+  (Tasks / Stats / About) plus a way into the settings; choosing a section or
+  navigating closes it. The back gesture is neutralised while it is open.
+- **Badge**: the `NavScaffold`'s "Tasks" destination shows the number of active
+  tasks.
+- **Orientation / height**: `on_resize` logs the orientation; in a **short**
+  window (`from_height == Compact`) the tip is hidden and the list shrinks
+  (200 px instead of 320).
 
 ## Tests
 
-- `frus-core` : `from_height`, `Orientation::from_size` (portrait/paysage/carré).
-- `frus-widgets` : `Drawer` — overlay présent seulement si ouvert, voile +
-  panneau plein-hauteur, aucun hit de fermeture si fermé ; badge — décore le bon
-  élément, plafond `99+`.
-- `frus-demo` : le tiroir bascule et se referme au choix d'une section / à la
-  navigation ; `on_resize` suit l'orientation.
+- `frus-core`: `from_height`, `Orientation::from_size`
+  (portrait/landscape/square).
+- `frus-widgets`: `Drawer` — an overlay only when open, scrim + full-height
+  panel, no dismiss hit when closed; badge — decorates the right item, `99+` cap.
+- `frus-demo`: the drawer toggles and closes when a section is chosen or on
+  navigation; `on_resize` tracks the orientation.
 
-## Limites (v1)
+## Limits (v1)
 
-- Pas d'animation de glissement du tiroir (ouverture/fermeture instantanées).
-- `Placement::Left` uniquement (pas de tiroir à droite) — trivial à ajouter au
-  besoin.
-- Pas de tiroir *permanent* (toujours visible en Expanded) : c'est le rail qui
-  joue ce rôle ; le tiroir reste modal.
+- No slide animation for the drawer (opening and closing are instant).
+- `Placement::Left` only (no right-hand drawer) — trivial to add if needed.
+- No *permanent* drawer (always visible in Expanded): the rail plays that role;
+  the drawer stays modal.

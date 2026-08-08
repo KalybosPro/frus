@@ -1,54 +1,55 @@
-# Jalon 47 — Tiroir droit & tiroir permanent
+# Jalon 47 — Right drawer & permanent drawer
 
-Deux compléments au `Drawer` : l'accostage au bord **droit** et un mode
-**permanent** (accosté dans le flux, toujours visible).
+Two complements to `Drawer`: docking to the **right** edge, and a **permanent**
+mode (docked in the flow, always visible).
 
-## Tiroir droit — `Placement::Right`
+## Right drawer — `Placement::Right`
 
-Symétrique de `Left` : un panneau plein-hauteur collé au bord droit, avec voile
-et glissement animé (le même mécanisme piloté par le runtime, jalon 46).
+Symmetrical to `Left`: a full-height panel stuck to the right edge, with a scrim
+and an animated slide (the same runtime-driven mechanism, milestone 46).
 
-- `process_overlays` place le panneau `Right` en `x = largeur_fenêtre −
-  progression · largeur_panneau` (le bord droit reste collé, le panneau entre par
-  la droite), hauteur contrainte à la fenêtre.
-- Le voile s'applique aussi (`Center | Left | Right`).
-- API : `Drawer::new(open).right()`.
+- `process_overlays` places a `Right` panel at
+  `x = window_width − progress · panel_width` (the right edge stays stuck, the
+  panel comes in from the right), with its height constrained to the window.
+- The scrim applies here too (`Center | Left | Right`).
+- API: `Drawer::new(open).right()`.
 
-Le liseré du `DrawerPanel` passe sur le bord **intérieur** (gauche pour un tiroir
-droit, droite pour un tiroir gauche).
+The `DrawerPanel`'s edge line moves to the **inner** edge (left for a right-hand
+drawer, right for a left-hand one).
 
-## Tiroir permanent — `Drawer::permanent(bool)`
+## Permanent drawer — `Drawer::permanent(bool)`
 
-Quand `permanent` est vrai (typiquement au palier `Expanded`), le panneau n'est
-plus un overlay modal : il est **accosté dans le flux**, toujours visible à côté
-du corps, **sans voile ni animation**.
+When `permanent` is true (typically at the `Expanded` tier), the panel is no
+longer a modal overlay: it is **docked in the flow**, always visible next to the
+body, **with no scrim and no animation**.
 
-- Le `Drawer` devient une **rangée** : `[panneau, corps]` (gauche) ou
-  `[corps, panneau]` (droite) ; le panneau garde sa largeur fixe, le corps prend
-  le reste (`flex(1)`).
-- `overlay()` renvoie `None` et `anim_target()` renvoie `None` (rien à animer).
-- `open` / `on_dismiss` sont ignorés dans ce mode.
+- The `Drawer` becomes a **row**: `[panel, body]` (left) or `[body, panel]`
+  (right); the panel keeps its fixed width and the body takes the rest
+  (`flex(1)`).
+- `overlay()` returns `None` and `anim_target()` returns `None` (nothing to
+  animate).
+- `open` / `on_dismiss` are ignored in this mode.
 
-C'est le pendant « accosté » du rail : un tiroir qui, en grand écran, cesse
-d'être escamotable.
+It is the "docked" counterpart of the rail: a drawer that, on a large screen,
+stops being collapsible.
 
-## Démo
+## Demo
 
-Le tiroir applicatif est désormais **accosté à droite** :
+The application's drawer is now **docked on the right**:
 
-- **Compact / Medium** : modal, glissant, ouvert par le bouton « ☰ » ;
-- **Expanded** : **permanent** — le « hamburger » disparaît, le panneau se dote
-  à droite. On obtient une mise en page à **3 zones** : rail (`NavScaffold`) ·
-  corps · panneau du tiroir.
+- **Compact / Medium**: modal, sliding, opened by the "☰" button;
+- **Expanded**: **permanent** — the hamburger disappears and the panel docks on
+  the right. The result is a **3-zone** layout: rail (`NavScaffold`) · body ·
+  drawer panel.
 
 ## Tests
 
-- `frus-widgets` : `right()` → `Placement::Right` ; permanent → pas d'overlay,
-  pas d'`anim_target`, rangée à 2 enfants, **aucun voile**, panneau accosté
-  plein-hauteur à gauche (x ≈ 0) ; permanent + `right()` → panneau collé au bord
-  droit (x + largeur ≈ largeur fenêtre).
+- `frus-widgets`: `right()` → `Placement::Right`; permanent → no overlay, no
+  `anim_target`, a 2-child row, **no scrim**, a full-height panel docked on the
+  left (x ≈ 0); permanent + `right()` → the panel stuck to the right edge
+  (x + width ≈ window width).
 
-## Limites (v1)
+## Limits (v1)
 
-- En permanent, pas de bascule « replier/déplier » (le panneau est figé) — c'est
-  le rôle du mode modal aux paliers plus étroits.
+- In permanent mode there is no collapse/expand toggle (the panel is fixed) —
+  that is the modal mode's role at the narrower tiers.

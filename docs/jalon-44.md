@@ -1,54 +1,55 @@
-# Jalon 44 — Échelle & taille dynamiques
+# Jalon 44 — Dynamic scale & size
 
-Trois ajouts côté **shell/plateforme** pour que la responsivité réagisse à la
-taille et à la densité **en direct**.
+Three additions on the **shell/platform** side so that responsiveness reacts to
+size and density **live**.
 
-## Lot A — Densité / échelle utilisateur
+## Batch A — User density / scale
 
-`Application::density(&self) -> f32` (défaut `1.0`) : un facteur de zoom
-**applicatif** appliqué par-dessus l'échelle DPI système. Le shell calcule
-`échelle_totale = scale_système × densité` et l'utilise partout :
+`Application::density(&self) -> f32` (default `1.0`): an **application-level**
+zoom factor applied on top of the system DPI scale. The shell computes
+`total_scale = system_scale × density` and uses it everywhere:
 
-- taille **logique** passée à `view` = physique / échelle_totale (l'UI grandit /
-  se resserre) ;
-- scène mise à l'échelle totale au rendu (net en HiDPI) ;
-- curseur, molette (PixelDelta), largeur du geste retour divisés par la totale.
+- the **logical** size passed to `view` = physical / total_scale (the UI grows or
+  tightens);
+- the scene is scaled by the total at render time (crisp on HiDPI);
+- the cursor, the wheel (PixelDelta) and the back gesture's width are divided by
+  the total.
 
-L'app change `density` par message → toute l'UI zoome (façon zoom navigateur),
-sans qu'aucun widget ne s'en préoccupe.
+The app changes `density` through a message → the whole UI zooms (like browser
+zoom), with no widget having to care.
 
-## Lot B — Breakpoints pilotés par la vraie taille
+## Batch B — Breakpoints driven by the real size
 
-`Application::on_resize(&mut self, width, height)` (défaut no-op) : le shell suit
-la taille **logique** courante et, à **chaque changement** (redimensionnement de
-la fenêtre *ou* de la densité), appelle `on_resize` **avant** `view`. L'app peut
-alors réagir au **changement de palier** dans sa logique (fermer un tiroir en
-rétrécissant, réinitialiser une sélection…), pas seulement au rendu.
+`Application::on_resize(&mut self, width, height)` (default no-op): the shell
+tracks the current **logical** size and, on **every change** (window resize *or*
+density change), calls `on_resize` **before** `view`. The app can then react to a
+**tier change** in its logic (closing a drawer as it narrows, resetting a
+selection…), not only in its rendering.
 
-`SizeClass` est ré-exporté depuis `frus-shell` pour l'usage côté app.
+`SizeClass` is re-exported from `frus-shell` for use on the app side.
 
-## Lot C — Redimensionnement fluide
+## Batch C — Smooth resizing
 
-`Resized` et `ScaleFactorChanged` reconfigurent la surface et redemandent une
-frame ; `RedrawRequested` reconstruit toujours la `view` à la taille logique
-**vivante** et déclenche `on_resize` au moindre écart — donc le reflow responsive
-suit le drag sans latence ni surface obsolète. Un changement de densité (via un
-message) force lui aussi un redraw, donc le même chemin.
+`Resized` and `ScaleFactorChanged` reconfigure the surface and request another
+frame; `RedrawRequested` always rebuilds the `view` at the **live** logical size
+and triggers `on_resize` on the slightest difference — so the responsive reflow
+follows the drag with no latency and no stale surface. A density change (through
+a message) also forces a redraw, hence the same path.
 
-## Démo
+## Demo
 
-Boutons **A− / A+** dans l'en-tête : zooment toute l'UI (densité `0.8..=1.4`).
-`on_resize` mémorise le palier courant (`size_class`), ferme le détail Stats en
-passant en Compact, et journalise chaque changement de palier.
+**A− / A+** buttons in the header: they zoom the whole UI (density `0.8..=1.4`).
+`on_resize` remembers the current tier (`size_class`), closes the Stats detail
+when going Compact, and logs every tier change.
 
 ## Tests
 
-- `frus-demo` : densité bornée (`0.8..=1.4`, garde-fou `0.0 → 1.0`) ; `on_resize`
-  met à jour le palier et ferme le détail en Compact.
-- Le câblage winit (échelle du curseur/scène) n'est pas testable unitairement
-  (comme le jalon fenêtre) — validé par compilation + démo sans régression.
+- `frus-demo`: density clamped (`0.8..=1.4`, with a `0.0 → 1.0` guard);
+  `on_resize` updates the tier and closes the detail in Compact.
+- The winit wiring (cursor/scene scaling) is not unit-testable (as with the
+  window milestone) — validated by compilation + the demo without regression.
 
-## Limites (v1)
+## Limits (v1)
 
-- Pas de transition animée du zoom (changement de densité instantané).
-- `on_resize` est appelé au fil du redraw (pas d'événement dédié hors frame).
+- No animated zoom transition (density changes instantly).
+- `on_resize` is called along with the redraw (no dedicated out-of-frame event).
