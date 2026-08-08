@@ -1,618 +1,601 @@
-# Idées tirées de Flutter pour Frus
+# Ideas from mature UI toolkits, for frus
 
-> Analyse du dépôt **flutter-master** (framework complet, ~570 k lignes Dart dans
-> `packages/flutter/lib/src`) en vue d'orienter l'architecture de Frus.
-> Objectif : voler ce que Flutter a **prouvé** (moteur de réconciliation, protocole
-> de layout, arène de gestes, physique d'animation, scrolling, tokens de thème),
-> et **rejeter** ce que l'architecture Elm + taffy + wgpu de Frus rend inutile
-> (StatefulWidget, GlobalKey, InheritedWidget, ChangeNotifier comme état d'app).
->
-> Les strings d'UI restent en anglais ; ce document est en français (convention projet).
+> Notes from reading a mature, full-featured retained-mode UI toolkit (~570 k lines of
+> framework source), with frus's architecture in mind.
+> The aim: **take what the prior art has proven** (the reconciliation engine, the layout
+> protocol, the gesture arena, animation physics, scrolling, theme tokens), and **reject**
+> what frus's Elm + taffy + wgpu architecture makes pointless (stateful widgets, global
+> keys, inherited/ambient-dependency widgets, observable notifiers as app state).
 
 ---
 
-## 0. Le fil conducteur (à lire en premier)
+## 0. The through line (read this first)
 
-Un même principe ressort de **tous** les sous-systèmes analysés. C'est la décision
-architecturale porteuse ; tout le reste en découle :
+One principle comes back in **every** subsystem studied. It is the load-bearing
+architectural decision; everything else follows from it:
 
-> **Le shell retient l'état ; la `view` pure ne déclare que l'intention ; tout se
-> déverse en `Msg`.**
+> **The shell holds the state; the pure `view` only declares intent; everything drains
+> out as `Msg`.**
 
-Concrètement :
+Concretely:
 
-- **L'état vivant dans le temps** (arène de gestes, contrôleurs d'animation, offsets
-  de scroll, focus, curseurs d'édition, nœuds retenus de réconciliation, caches de
-  hit-test) vit dans `frus-shell`, **hors** de l'arbre `Box<dyn Widget>`, **clé par
-  `child_id`/`Keyed`**. Frus fait déjà ça pour hover/focus/edit/scroll dans
-  [`runtime.rs`](../crates/frus-widgets/src/runtime.rs) — il faut généraliser le
-  motif, pas l'inventer.
-- **La `view` ne porte que des descripteurs déclaratifs** : `on_tap: Msg`,
-  `on_drag: fn(Delta) -> Msg`, l'identité stable, l'intention de recevoir tel type
-  de reconnaisseur. Jamais l'état de la gesture/animation en cours.
-- **La réconciliation par identité est le pivot.** La `view` est reconstruite chaque
-  frame ; le shell ré-associe l'état retenu au nouvel arbre par `child_id`. Le mode
-  de défaillance est toujours le même (déjà noté dans CLAUDE.md) : un parcours d'ids
-  incohérent casse hover/focus/édition/animation/**drag en cours** au réordonnancement.
-- **Discipline de phases.** Séparer la frame en passes ordonnées et **indépendamment
-  invalidées** — `build → layout → paint → composite` — chacune drainée depuis sa
-  propre liste de « dirty ». Un survol ne touche que *paint* ; un changement de texte,
-  *layout+paint* ; un changement de thème (Frus se thème au paint), *paint* seul.
+- **State that lives across time** (the gesture arena, animation controllers, scroll
+  offsets, focus, editing carets, retained reconciliation nodes, hit-test caches) lives in
+  `frus-shell`, **outside** the `Box<dyn Widget>` tree, **keyed by `child_id`/`Keyed`**.
+  frus already does this for hover/focus/edit/scroll in
+  [`runtime.rs`](../crates/frus-widgets/src/runtime.rs) — the pattern needs generalising,
+  not inventing.
+- **The `view` carries declarative descriptors only**: `on_tap: Msg`,
+  `on_drag: fn(Delta) -> Msg`, the stable identity, the intent to receive a given kind of
+  recogniser. Never the state of the gesture or animation in flight.
+- **Reconciliation by identity is the pivot.** The `view` is rebuilt every frame; the
+  shell re-attaches the retained state to the new tree by `child_id`. The failure mode is
+  always the same (already noted in CLAUDE.md): an inconsistent id walk breaks
+  hover/focus/editing/animation/**a drag in flight** on reorder.
+- **Phase discipline.** Split the frame into ordered, **independently invalidated** passes
+  — `build → layout → paint → composite` — each drained from its own dirty list. A hover
+  touches *paint* only; a text change, *layout+paint*; a theme change (frus themes at
+  paint time), *paint* alone.
 
-Le reste du document décline ce principe sous-système par sous-système, avec les
-manques réels de Frus en ligne de mire.
+The rest of the document works that principle through subsystem by subsystem, with frus's
+actual gaps in view.
 
 ---
 
-## 1. Pipeline de rendu & protocole de layout
-*(source : `rendering/object.dart`, `box.dart`, `layer.dart`, `binding.dart` ; `scheduler/{binding,ticker}.dart`)*
+## 1. Render pipeline & layout protocol
+*(scope: the render-object protocol, box layout, the layer tree, the frame binding; the
+scheduler and its ticker)*
 
-### Le protocole
-- **Contraintes vers le bas, tailles vers le haut.** Le parent passe un
-  `BoxConstraints (min/max W/H)` immuable ; l'enfant choisit sa `size` dedans et la
-  remonte. Un parent ne lit la taille d'un enfant que s'il l'a demandé
-  (`parentUsesSize`) — ce booléen est ce qui rend le relayout incrémental possible.
-- **Frontières de relayout.** Un nœud est frontière ssi
+### The protocol
+- **Constraints down, sizes up.** The parent passes an immutable
+  `BoxConstraints (min/max W/H)`; the child picks its `size` within them and reports it
+  back. A parent only reads a child's size if it asked for it (`parentUsesSize`) — that
+  boolean is what makes incremental relayout possible.
+- **Relayout boundaries.** A node is a boundary iff
   `!parentUsesSize || sizedByParent || constraints.isTight || parent == None`.
-  Quand il devient sale, il s'ajoute **lui-même** à la liste de layout ; sinon il
-  remonte jusqu'à la première frontière. Une édition de texte profonde ne relaie que
-  son sous-arbre, jamais toute la fenêtre.
-- **Parent-data.** L'offset/le flex d'un enfant vivent sur `child.parentData`, pas
-  sur l'enfant → l'enfant reste réutilisable et re-parentable (colle à `Keyed`).
+  When it goes dirty it adds **itself** to the layout list; otherwise it walks up to the
+  first boundary. A deep text edit relays out its own subtree, never the whole window.
+- **Parent data.** A child's offset/flex live on `child.parentData`, not on the child →
+  the child stays reusable and re-parentable (fits `Keyed`).
 
-### Coexistence avec taffy
-Taffy **est** votre `performLayout` pour flex/grid : ne réimplémentez pas ces maths.
-Ce qu'il faut voler *au-dessus* de taffy :
-1. **Cache de frontière de relayout** : par racine de layout, mémoriser
-   `(dernières_contraintes, taille_cachée, needs_layout)` et **ne pas ré-invoquer
-   taffy** si contraintes + drapeau inchangés. **Le plus gros gain layout**, et il
-   vit hors de taffy.
-2. **Tailles intrinsèques** (`min/max intrinsic width`) routées vers la closure de
-   mesure de taffy — pour le texte et le contenu peint sur mesure.
-3. **Séparation parent-data** pour un réordonnancement bon marché.
+### Coexisting with taffy
+Taffy **is** your `performLayout` for flex/grid: do not reimplement that maths. What to
+take *on top of* taffy:
+1. **A relayout-boundary cache**: per layout root, remember
+   `(last_constraints, cached_size, needs_layout)` and **do not re-invoke taffy** if the
+   constraints and the flag are unchanged. **The biggest layout win**, and it lives outside
+   taffy.
+2. **Intrinsic sizes** (`min/max intrinsic width`) routed into taffy's measure closure —
+   for text and custom-painted content.
+3. **Parent-data separation**, for cheap reordering.
 
-### Frontières de repeinture & arbre de layers → wgpu
-- Un `RepaintBoundary` possède son propre **batch de dessin retenu** ; quand il
-  devient sale, seul lui se re-record, le reste est **réémis par référence**.
-- **Analogue wgpu pour Frus** : donner aux frontières de repeinture un fragment
-  caché (liste de quads persistée ; ou une **texture wgpu** pour du contenu vraiment
-  coûteux, façon `RenderRepaintBoundary.toImage`). Le cas d'école immédiat : **la
-  BottomSheet à ressort glissant au-dessus d'un contenu statique** — cachez le
-  contenu en une texture, ne réémettez que les quads de la feuille.
-- Les « compositing bits » (n'allouer une vraie texture/passe que si clip/opacité<1/
-  blur/transform) sont à **différer** : inlinez tout tant qu'il n'y a pas de vrais
-  layers matériels.
+### Repaint boundaries & the layer tree → wgpu
+- A `RepaintBoundary` owns its own **retained draw batch**; when it goes dirty, only it
+  re-records, the rest is **re-emitted by reference**.
+- **The wgpu analogue for frus**: give repaint boundaries a cached fragment (a persisted
+  quad list; or a **wgpu texture** for genuinely expensive content, the way a boundary can
+  be rasterised to an image). The immediate textbook case: **a spring-driven bottom sheet
+  sliding over static content** — cache the content as a texture, re-emit only the sheet's
+  quads.
+- The "compositing bits" (only allocate a real texture/pass when there is a
+  clip/opacity<1/blur/transform) can be **deferred**: inline everything until there are
+  real material layers.
 
-### Ticker / vsync → piloter l'animation
-- Discipline clé : **aucune frame n'est produite si personne n'en demande une.** Le
-  ticker est un « one-shot auto-reprogrammé » : tant qu'une animation est active il
-  redemande une frame ; à l'arrêt, retour à l'idle → **0 CPU/GPU au repos**.
-- **Pour Frus (winit)** : `window.request_redraw()` est votre source vsync.
-  À chaque redraw, avant le build, livrez le **timestamp de frame** aux animateurs
-  actifs ; puis `if une_animation_active { request_redraw() }`. Au repos,
-  `ControlFlow::Wait`. Pilotez par le **timestamp de la frame**, pas par un delta
-  mesuré dans le handler, et **clampez les gros deltas** (fenêtre en arrière-plan)
-  pour éviter l'explosion des ressorts. Coupez les animateurs hors-écran (lifecycle
-  Android que vous gérez déjà) — l'idée `muted`.
+### Ticker / vsync → driving animation
+- The key discipline: **no frame is produced unless someone asks for one.** The ticker is a
+  self-rescheduling one-shot: while an animation is active it asks for another frame; when
+  it stops, back to idle → **0 CPU/GPU at rest**.
+- **For frus (winit)**: `window.request_redraw()` is your vsync source. On each redraw,
+  before the build, hand the **frame timestamp** to the active animators; then
+  `if any_animation_active { request_redraw() }`. At rest, `ControlFlow::Wait`. Drive from
+  the **frame timestamp**, not from a delta measured in the handler, and **clamp large
+  deltas** (a backgrounded window) so springs do not explode. Cut off-screen animators (the
+  Android lifecycle you already handle) — the `muted` idea.
 
-### Traduction Rust
-- **Arène / slotmap de nœuds clés par `Id`**, liens parents en `Id`. `markNeedsLayout`/
-  `markNeedsPaint` deviennent « pousser un `Id` dans un `Vec` dirty » — pas d'aliasing,
-  pas d'emprunt mutable vers le haut. Ce design *colle mieux* à Rust qu'à Dart.
-- **Pas de GC → durées de vie explicites** des textures/buffers wgpu cachés : liez la
-  vie de chaque batch/texture au slot du nœud, libérez à sa suppression (wrapper RAII
-  `Drop`, plus sûr que le refcount manuel de Flutter).
-- **Les phases séparées imposent la sûreté d'aliasing** : chaque passe prend l'arène
-  en `&mut` exclusif → le type system fait gratuitement ce que Flutter vérifie par
-  asserts debug.
+### Rust translation
+- **An arena / slotmap of nodes keyed by `Id`**, parent links as `Id`. `markNeedsLayout` /
+  `markNeedsPaint` become "push an `Id` into a dirty `Vec`" — no aliasing, no mutable
+  borrow walking upwards. This design fits Rust *better* than it fits a GC language.
+- **No GC → explicit lifetimes** for cached wgpu textures/buffers: tie each batch/texture's
+  life to the node's slot, free it on removal (an RAII `Drop` wrapper, safer than manual
+  refcounting).
+- **Separate phases enforce aliasing safety**: each pass takes the arena as an exclusive
+  `&mut` → the type system does for free what the prior art checks with debug asserts.
 
-### À NE PAS copier
-Les trois arbres Widget/Element/RenderObject avec `setState` impératif ; les maths
-flex/grid (taffy) ; `InheritedWidget` ; le walking `markNeeds*` d'un arbre à pointeurs
-parents mutables (→ arène/slotmap à la place).
+### Do NOT copy
+The three parallel widget/element/render trees with imperative `setState`; the flex/grid
+maths (taffy); ambient-dependency widgets; the `markNeeds*` walk over a tree of mutable
+parent pointers (→ arena/slotmap instead).
 
 ---
 
-## 2. Modèle Widget/Element & Foundation
-*(source : `widgets/framework.dart`, `foundation/{key,change_notifier,diagnostics}.dart`)*
+## 2. The widget/element model & foundations
+*(scope: the widget framework, keys, change notifiers, diagnostics)*
 
-### Ce qu'il faut adopter
-- **Deux arbres : config immuable (`Box<dyn Widget>`) + nœud retenu.** La discipline
-  de *réutilisation* est le cœur de votre « rebuild pattern ». Le nœud retenu de Frus
-  n'a PAS besoin d'être gras comme un Element (qui stocke le `State` utilisateur) :
-  en Elm l'app possède l'état logique, donc le nœud ne garde que l'**éphémère**
-  (hover/pressed/focus/curseur/horloges d'anim/offset scroll). Appelez-le « nœud de
-  paint retenu », pas « Element ».
-- **`can_reuse = TypeId + Key`** (l'analogue de `runtimeType + key`) + **l'algo de
-  diff de liste en trois phases** (`updateChildren`) : préfixe commun haut→bas, suffixe
-  commun, puis map `Key→nœud` du milieu *keyé*. C'est la façon prouvée de rendre
-  insert/remove/reorder en O(n) **sans perdre l'état éphémère**. Les enfants du milieu
-  *non-keyés* qui ne s'alignent plus positionnellement sont détruits (état perdu) —
-  d'où l'importance des clés.
-- **Clés = `enum { Index(u32), Value(SmallKey), Unique(u64) }`, `Hash + Eq`.**
-  Formalisez `child_id`/`Keyed`. Les clés sont **le** correctif du bug
-  « réordonner perd l'état ». Vous avez déjà `WidgetId::child`/`keyed` dans
-  [`interaction.rs`](../crates/frus-widgets/src/interaction.rs) — c'est exactement
-  la bonne fondation.
-- **Trait de dump diagnostique de l'arbre** (`DiagnosticableTree`) : `short()`,
-  `props()`, `children()`, avec un `dump_deep()` indenté, derrière
-  `#[cfg(debug_assertions)]`. **Investissement minuscule, levier de debug énorme** —
-  surtout pour la classe de bugs identité/réordonnancement que vous avez déjà notée.
-  Dumpez **les deux** arbres (ce que `view` a produit vs ce qui a été retenu/réutilisé) ;
-  ce diff côte-à-côte est l'outil n°1 pour déboguer la stabilité d'identité.
-  `#[derive(Debug)]` n'est pas un substitut.
+### What to adopt
+- **Two trees: immutable config (`Box<dyn Widget>`) + a retained node.** The *reuse*
+  discipline is the heart of your rebuild pattern. frus's retained node does NOT need to be
+  as fat as an element (which stores the user's `State`): under Elm the app owns the
+  logical state, so the node keeps only the **ephemeral** part
+  (hover/pressed/focus/caret/animation clocks/scroll offset). Call it a "retained paint
+  node", not an "element".
+- **`can_reuse = TypeId + Key`** (the analogue of `runtimeType + key`) plus the
+  **three-phase list diff**: common prefix top→down, common suffix, then a `Key→node` map
+  over the *keyed* middle. That is the proven way to make insert/remove/reorder O(n)
+  **without losing the ephemeral state**. *Unkeyed* middle children that no longer line up
+  positionally are destroyed (state lost) — hence the importance of keys.
+- **Keys = `enum { Index(u32), Value(SmallKey), Unique(u64) }`, `Hash + Eq`.** Formalise
+  `child_id`/`Keyed`. Keys are **the** fix for the "reordering loses state" bug. You
+  already have `WidgetId::child`/`keyed` in
+  [`interaction.rs`](../crates/frus-widgets/src/interaction.rs) — exactly the right
+  foundation.
+- **A diagnostic tree-dump trait**: `short()`, `props()`, `children()`, with an indented
+  `dump_deep()`, behind `#[cfg(debug_assertions)]`. **A tiny investment, enormous debugging
+  leverage** — especially for the identity/reordering class of bug you have already hit.
+  Dump **both** trees (what `view` produced vs what was retained/reused); that side-by-side
+  diff is the number one tool for debugging identity stability. `#[derive(Debug)]` is not a
+  substitute.
 
-### Ce qu'il faut adapter
-- **Contexte ambiant** → une seule struct immuable `Env`
-  `{ theme, size_class, text_direction, insets/safe-area, scale }` passée
-  **explicitement** vers le bas (dans `paint`, et dans `measure` si besoin), avec un
-  *shadowing* par sous-arbre (`Env::with_theme(...)`). Ça **remplace tout le graphe de
-  dépendances `InheritedWidget`**. Frus se thème déjà au paint → un changement de thème
-  n'a même pas à ré-exécuter `view`, juste repeindre : c'est *strictement plus simple*,
-  gardez-le.
-- **BuildContext** → jamais un handle vivant vers un arbre mutable. Arène plate +
-  `NodeId` : les parcours ancêtre/enfant deviennent des sauts d'index sans conflit
-  d'emprunt.
+### What to adapt
+- **Ambient context** → a single immutable `Env` struct
+  `{ theme, size_class, text_direction, insets/safe-area, scale }` passed **explicitly**
+  downwards (into `paint`, and into `measure` if needed), with per-subtree shadowing
+  (`Env::with_theme(...)`). That **replaces the whole ambient-dependency graph**. frus
+  already themes at paint time → a theme change need not even re-run `view`, just repaint:
+  that is *strictly simpler*, keep it.
+- **A build context** → never a live handle into a mutable tree. A flat arena +
+  `NodeId`: ancestor/child walks become index hops with no borrow conflicts.
 
-### Ce qu'il faut rejeter (anti-patterns pour Elm)
-`StatefulWidget`/`State`/lifecycle ; **`GlobalKey`** (re-parentage cross-arbre via
-registre global mutable — cauchemar de durées de vie en Rust ; en Elm l'app déplace
-l'état dans `update`, et overlays/portails se modélisent en **couche top-level séparée
-dans `view`**) ; `ChangeNotifier`/`ValueNotifier`/`InheritedNotifier` comme état d'app
-(graphe observable mutable = antithèse de la source unique via `update`) ;
-`updateShouldNotify`/invalidation par dépendants (mort-né puisque Frus repeint au lieu
-de rebuild sur changement ambiant).
+### What to reject (anti-patterns under Elm)
+Stateful widgets with their own `State`/lifecycle; **global keys** (cross-tree re-parenting
+through a mutable global registry — a lifetime nightmare in Rust; under Elm the app moves
+the state in `update`, and overlays/portals are modelled as a **separate top-level layer in
+`view`**); observable notifiers as app state (a mutable observable graph is the antithesis
+of a single source driven through `update`); dependant-based invalidation (stillborn, since
+frus repaints rather than rebuilds on an ambient change).
 
-> **Résumé** : garder le *moteur de réconciliation* de Flutter (split config/retenu,
-> canUpdate, diff de liste keyé, clés, diagnostics) ; jeter sa *machinerie d'état et de
-> données ambiantes* (StatefulWidget, GlobalKey, InheritedWidget, ChangeNotifier) —
-> Elm résout déjà ce pour quoi elles existaient.
+> **Summary**: keep the prior art's *reconciliation engine* (config/retained split, the
+> can-update rule, the keyed list diff, keys, diagnostics); throw away its *state and
+> ambient-data machinery* — Elm already solves what those exist for.
 
 ---
 
-## 3. Gestes — l'arène (le joyau)
-*(source : `gestures/{arena,binding,recognizer,tap,monodrag,long_press,scale,pointer_router,hit_test,events,velocity_tracker}.dart`)*
+## 3. Gestures — the arena (the crown jewel)
+*(scope: the arena, the gesture binding, recognisers, tap/drag/long-press/scale, the
+pointer router, hit testing, pointer events, velocity tracking)*
 
-**État actuel de Frus** : [`interaction.rs`](../crates/frus-widgets/src/interaction.rs)
-gère clic/press/hover/focus + édition texte. Pas d'arène, pas de drag/longpress/scale
-disambiguation. C'est le plus gros manque structurel côté entrée.
+**frus today**: [`interaction.rs`](../crates/frus-widgets/src/interaction.rs) handles
+click/press/hover/focus + text editing. No arena, no drag/long-press/scale disambiguation.
+That is the biggest structural gap on the input side.
 
-### Le pipeline (4 pièces découplées, tenues par un `GestureBinding` à longue vie)
-1. **Hit-test** (`hit_test.dart`) : construit un chemin ordonné de cibles sous le
-   pointeur, **du plus interne au plus externe**, et le **cache par id de pointeur au
-   down** (réutilisé jusqu'au up — correction *et* perf : les moves routent là où la
-   pression a commencé).
-2. **PointerRouter** (`pointer_router.dart`) : table d'abonnement par id de pointeur ;
-   les reconnaisseurs s'abonnent au flux brut. **Itère sur une copie** pour permettre
-   à un callback de se désabonner en plein dispatch.
-3. **Arène** (`arena.dart`) : le désambiguïsateur, une par id de pointeur.
-4. **Reconnaisseurs** (`recognizer.dart` + tap/drag/longpress/scale) : machines à états
-   qui consomment le flux, concourent dans l'arène, émettent les callbacks sémantiques.
+### The pipeline (4 decoupled pieces, held by a long-lived gesture binding)
+1. **Hit test**: builds an ordered path of targets under the pointer, **innermost to
+   outermost**, and **caches it by pointer id at down** (reused until up — correctness
+   *and* performance: moves route to where the press began).
+2. **Pointer router**: a subscription table per pointer id; recognisers subscribe to the
+   raw stream. **Iterate over a copy** so a callback can unsubscribe mid-dispatch.
+3. **The arena**: the disambiguator, one per pointer id.
+4. **Recognisers** (tap/drag/long-press/scale): state machines that consume the stream,
+   compete in the arena, and emit semantic callbacks.
 
-### L'arène, règle centrale
-> *« Le premier membre à accepter, ou le dernier à ne pas rejeter, gagne. »*
+### The arena, central rule
+> *"The first member to accept, or the last one not to reject, wins."*
 
-- **Modèle** : liste **ordonnée** de membres (ordre = profondeur hit-test, interne
-  d'abord) + drapeaux `open/held/pending_sweep` + `eager_winner`.
-- **Cycle** : `add` (tant qu'ouverte) → `close` (le down fini de se dispatcher) →
-  `resolve(accepted|rejected)`. Accepté **fermé** = gagne tout de suite (tous les
-  autres reçoivent `reject`) ; accepté **ouvert** = `eager_winner` en attente.
-- **`sweep`** (au pointer-up) : brise l'égalité — **le premier membre de la liste (le
-  plus interne) gagne**, le reste est rejeté. Évite qu'un doigt levé ne déclenche rien.
-- **`hold`/`release`** : un reconnaisseur qui doit survivre au up (double-tap, timer de
-  long-press) `hold` pour neutraliser le `sweep`, puis `release` le rejoue.
-- **Garantie** : chaque membre reçoit **exactement un** `accept` XOR `reject`.
+- **Model**: an **ordered** list of members (order = hit-test depth, innermost first) plus
+  `open/held/pending_sweep` flags and an `eager_winner`.
+- **Cycle**: `add` (while open) → `close` (the down has finished dispatching) →
+  `resolve(accepted|rejected)`. Accepting while **closed** = wins immediately (everyone
+  else gets `reject`); accepting while **open** = a pending `eager_winner`.
+- **`sweep`** (on pointer-up): breaks the tie — **the first member in the list (the
+  innermost) wins**, the rest are rejected. Stops a lifted finger from triggering nothing.
+- **`hold`/`release`**: a recogniser that must survive the up (double-tap, a long-press
+  timer) calls `hold` to neutralise the `sweep`, then `release` replays it.
+- **Guarantee**: every member gets **exactly one** `accept` XOR `reject`.
 
-### La disambiguation canonique tap-vs-drag
-- **Tap** accepte **passivement** : il attend d'être le dernier debout. Le doigt bouge
-  au-delà du slop → `reject` immédiat. Le doigt se lève sur place → tap gagne au `sweep`.
-- **Drag** accepte **avidement** : dès que la distance projetée sur son axe dépasse le
-  slop → `accept`, ce qui **évince le tap**. Les drags directionnels projettent le delta
-  sur leur axe → un drag horizontal cohabite avec un scroll vertical dans la même arène.
+### The canonical tap-vs-drag disambiguation
+- **Tap accepts passively**: it waits to be the last one standing. The finger moves beyond
+  the slop → immediate `reject`. The finger lifts in place → tap wins at the `sweep`.
+- **Drag accepts eagerly**: as soon as the distance projected on its axis exceeds the slop
+  → `accept`, which **evicts the tap**. Directional drags project the delta onto their axis
+  → a horizontal drag coexists with a vertical scroll in the same arena.
 
-### Modèle d'événement pointeur
-`Down/Move/Up/Cancel` (+ Hover/pan-zoom à différer). Chaque événement : `pointer`(id),
-`position` (globale, px logique), `delta`, `buttons` (bitfield), `kind`, `timestamp`.
-**`Cancel` est critique** (app en arrière-plan, gesture volée) : abandonner sans callback
-de succès. **Vélocité** : ring buffer des derniers ~100 ms ; commencez par une moyenne
-pondérée, passez au fit moindres-carrés (LSQ) plus tard pour des flings précis.
+### The pointer event model
+`Down/Move/Up/Cancel` (+ hover/pan-zoom, deferred). Every event carries: `pointer` (id),
+`position` (global, logical px), `delta`, `buttons` (a bitfield), `kind`, `timestamp`.
+**`Cancel` is critical** (app backgrounded, gesture stolen): give up with no success
+callback. **Velocity**: a ring buffer of the last ~100 ms; start with a weighted average,
+move to a least-squares fit later for accurate flings.
 
-### Traduction Rust (résout la ré-entrance de Dart)
-- **`Arena::resolve/close/sweep` PURES** : elles mutent les maps de l'arène et
-  **renvoient un `Vec<(MemberId, Disposition)>`** de callbacks à appliquer, au lieu de
-  rappeler ré-entramment. Le shell draine ce `Vec` après la fin de l'emprunt → boucle
-  explicite au lieu d'une pile d'appels ; ça remplace proprement `scheduleMicrotask`.
-- **Ids `Copy` partout** (`MemberId`/`PointerId`/`RouteId`), jamais de références
-  possédées. Reconnaisseurs = machines à états renvoyant `Option<GestureEvent>`, ne
-  tenant aucune référence vers l'app.
-- **Timers** (tap-vs-longpress, hold/release) : `ControlFlow::WaitUntil` de winit ou
-  une petite roue de timers ; au tir, injecter un tick synthétique.
+### Rust translation (which solves the re-entrancy problem)
+- **`Arena::resolve/close/sweep` are PURE**: they mutate the arena's maps and **return a
+  `Vec<(MemberId, Disposition)>`** of callbacks to apply, instead of calling back
+  re-entrantly. The shell drains that `Vec` once the borrow ends → an explicit loop instead
+  of a call stack; this cleanly replaces scheduling a microtask.
+- **`Copy` ids everywhere** (`MemberId`/`PointerId`/`RouteId`), never owned references.
+  Recognisers are state machines returning `Option<GestureEvent>`, holding no reference
+  into the app.
+- **Timers** (tap-vs-long-press, hold/release): winit's `ControlFlow::WaitUntil` or a small
+  timer wheel; on fire, inject a synthetic tick.
 
-### Chemin de migration (par paliers)
-- **Palier 0 (fondation, à faire d'abord)** : normaliser l'entrée winit en `PointerEvent`
-  (avec `Cancel` explicite) ; hit-tester l'arbre taffy en `Vec<HitEntry>` (interne
-  d'abord) caché par id ; un `PointerRouter`. **Non-jetable.**
-- **Palier 1 (MVP sans arène complète)** : un reconnaisseur « tap-ou-drag » codé en dur
-  (down→*possible* ; mouvement > slop avant up → drag + supprime tap ; up avant slop →
-  tap) + long-press par timer. Couvre ~90 % des besoins. **Faites-le parler déjà le
-  vocabulaire de l'arène** (« accepte avidement au franchissement de slop » / « accepte
-  passivement au up ») pour que le passage au palier 2 soit une substitution, pas une
-  réécriture.
-- **Palier 2 (vraie arène)** : dès qu'il y a des régions imbriquées indépendamment
-  scrollables, ou un draggable dans un scrollable dans une carte tappable. Portez
-  `arena.dart` quasi verbatim (versions **pures, renvoyant les outcomes**) +
-  `PrimaryPointerGestureRecognizer` (base deadline+slop réutilisée par tap ET longpress).
-- **Palier 3 (à différer)** : vélocité LSQ, scale/rotation (pinch-zoom), teams,
-  multi-drag, molette, resampling.
+### Migration path (in tiers)
+- **Tier 0 (the foundation, do this first)**: normalise winit input into `PointerEvent`
+  (with an explicit `Cancel`); hit-test the taffy tree into a `Vec<HitEntry>` (innermost
+  first) cached by id; a pointer router. **Not throwaway work.**
+- **Tier 1 (an MVP without the full arena)**: one hard-coded "tap-or-drag" recogniser
+  (down → *possible*; movement > slop before up → drag, suppress tap; up before slop →
+  tap) plus a timer-based long-press. Covers ~90 % of the need. **Make it speak the
+  arena's vocabulary already** ("accepts eagerly on slop crossing" / "accepts passively on
+  up") so moving to tier 2 is a substitution, not a rewrite.
+- **Tier 2 (the real arena)**: as soon as there are independently scrollable nested
+  regions, or a draggable inside a scrollable inside a tappable card. Port the arena almost
+  verbatim (**pure versions returning outcomes**) plus a primary-pointer recogniser base
+  (deadline+slop, reused by tap AND long-press).
+- **Tier 3 (deferred)**: least-squares velocity, scale/rotation (pinch-zoom), teams,
+  multi-drag, the wheel, resampling.
 
 ---
 
-## 4. Animation & physique
-*(source : `animation/{animation,animation_controller,tween,curves,animations}.dart` ; `physics/{simulation,spring_simulation,friction_simulation,clamped_simulation}.dart`)*
+## 4. Animation & physics
+*(scope: the animation value/controller/tween/curve family; simulations — spring, friction,
+clamped)*
 
-**État actuel de Frus** : ressorts codés en dur par-widget (`spring_step`, `scroll_axis`
-dans [`runtime.rs`](../crates/frus-widgets/src/runtime.rs)). Ça marche mais ne se
-généralise pas. Flutter offre une abstraction unique très portable.
+**frus today**: springs hard-coded per widget (`spring_step`, `scroll_axis` in
+[`runtime.rs`](../crates/frus-widgets/src/runtime.rs)). It works but does not generalise.
+The prior art offers one very portable abstraction.
 
-### L'abstraction cœur
-- **`Animation<double>`** = valeur observable dans `[0,1]` + `status`
-  (`dismissed/forward/reverse/completed`). Le producteur (ticker), le consommateur
-  (widget) et le façonneur (tween/courbe) sont **découplés**.
-- **`AnimationController`** *est* une `Animation<double>` : il possède un `Ticker` et,
-  surtout, **tout ce qu'il fait est exprimé comme une `Simulation`** (fonction pure
-  `x(t)`). `forward`/`animateTo` → simulation d'interpolation d'une courbe sur une
-  durée ; `fling`/`animateWith` → simulation physique (ressort/friction). **Une seule
-  boucle de tick pour tout.** C'est l'idée la plus portable : *un pilote, des fonctions
-  temps→valeur enfichables*.
+### The core abstraction
+- **`Animation<f64>`** = an observable value in `[0,1]` + a `status`
+  (`dismissed/forward/reverse/completed`). The producer (the ticker), the consumer (the
+  widget) and the shaper (tween/curve) are **decoupled**.
+- **`AnimationController`** *is* an `Animation<f64>`: it owns a `Ticker` and, above all,
+  **everything it does is expressed as a `Simulation`** (a pure function `x(t)`).
+  `forward`/`animate_to` → a simulation interpolating a curve over a duration;
+  `fling`/`animate_with` → a physical simulation (spring/friction). **One tick loop for
+  everything.** That is the most portable idea here: *one driver, pluggable time→value
+  functions*.
 
 ### Tween + Curve
-- **`Tween<T>` / `Animatable<T>`** : une méthode `transform(t) -> T`. Un seul contrôleur
-  `[0,1]` pilote arbitrairement de valeurs typées (Color, Rect, Offset, opacité…).
-- **`Curve.transform(t)`** mappe `[0,1]→[0,1]`. Portez : `Linear`, `Cubic` (Bézier par
-  recherche binaire → donne tous les presets `easeInOut` en constantes), et surtout
-  **`Interval(begin,end,curve)`** qui déverrouille **gratuitement les animations
-  étagées** (staggered) : plusieurs valeurs, un contrôleur, chacune sur une sous-fenêtre.
+- **`Tween<T>` / `Animatable<T>`**: one method, `transform(t) -> T`. A single `[0,1]`
+  controller drives arbitrary typed values (Color, Rect, Offset, opacity…).
+- **`Curve.transform(t)`** maps `[0,1]→[0,1]`. Port: `Linear`, `Cubic` (Bézier by binary
+  search → gives every `easeInOut` preset as constants), and above all
+  **`Interval(begin,end,curve)`**, which unlocks **staggered animations for free**: several
+  values, one controller, each on a sub-window.
 
-### Simulations — maths directement portables
-Interface : `{ x(t), dx(t), is_done(t), tolerance }` (défaut 1e-3).
+### Simulations — maths that ports directly
+The interface: `{ x(t), dx(t), is_done(t), tolerance }` (default 1e-3).
 
-**Ressort** — `SpringDescription { mass m, stiffness k, damping c }` ;
-`with_damping_ratio` : `c = ratio · 2·√(m·k)`. Soit `x₀ = start − end`, `v₀` vitesse
-initiale ; position rapportée = `end + sol.x(t)`. Choix par le discriminant `c² − 4mk` :
+**Spring** — `SpringDescription { mass m, stiffness k, damping c }`;
+`with_damping_ratio`: `c = ratio · 2·√(m·k)`. With `x₀ = start − end` and `v₀` the initial
+velocity, the reported position is `end + sol.x(t)`. The case is chosen by the
+discriminant `c² − 4mk`:
 
 ```
-// Critique (c² − 4mk == 0)
+// Critically damped (c² − 4mk == 0)
 r = −c/(2m); c1 = x₀; c2 = v₀ − r·x₀
 x(t)  = (c1 + c2·t)·e^(r·t)
 dx(t) = r·(c1 + c2·t)·e^(r·t) + c2·e^(r·t)
 
-// Suramorti (c² − 4mk > 0)
+// Overdamped (c² − 4mk > 0)
 cmk = c² − 4mk; r1 = (−c − √cmk)/(2m); r2 = (−c + √cmk)/(2m)
 c2 = (v₀ − r1·x₀)/(r2 − r1); c1 = x₀ − c2
 x(t)  = c1·e^(r1·t) + c2·e^(r2·t)
 dx(t) = c1·r1·e^(r1·t) + c2·r2·e^(r2·t)
 
-// Sous-amorti (c² − 4mk < 0, oscille)
+// Underdamped (c² − 4mk < 0, oscillates)
 w = √(4mk − c²)/(2m); r = −c/(2m); c1 = x₀; c2 = (v₀ − r·x₀)/w
 x(t)  = e^(r·t)·(c1·cos(w·t) + c2·sin(w·t))
 dx(t) = e^(r·t)·(c2·w·cos(w·t) − c1·w·sin(w·t)) + r·e^(r·t)·(c2·sin(w·t) + c1·cos(w·t))
 ```
-`is_done = near_zero(x, tol.dist) && near_zero(dx, tol.vel)`. `fling` utilise un ressort
-critique (`ratio 1`, `stiffness 500`) qui s'arrête sur la position seule.
+`is_done = near_zero(x, tol.dist) && near_zero(dx, tol.vel)`. `fling` uses a critically
+damped spring (`ratio 1`, `stiffness 500`) that stops on position alone.
 
-**Friction** (momentum de scroll/fling), `drag ∈ (0,1)` :
+**Friction** (scroll/fling momentum), `drag ∈ (0,1)`:
 ```
 dx(t) = v₀ · drag^t
 x(t)  = x₀ + (v₀/ln(drag))·(drag^t − 1)
 finalX (t→∞) = x₀ − v₀/ln(drag)
 is_done = |dx(t)| < tol.vel
-// through(x0,x1,v0,v1) : drag = e^((v₀−v₁)/(x₀−x₁))
+// through(x0,x1,v0,v1): drag = e^((v₀−v₁)/(x₀−x₁))
 ```
-`ClampedSimulation` épingle la position dans une plage (la vitesse continue de rapporter)
-— pour le scroll.
+`ClampedSimulation` pins the position into a range (velocity keeps reporting) — for scroll.
 
-### Implicite vs explicite = même machine
-Les animations implicites (façon `AnimatedContainer`) = un contrôleur *caché* qui, à
-chaque rebuild, diffe les props cible et re-cible un `Tween (begin=valeur_courante,
-end=nouvelle_cible)` sur `durée+courbe`. **On a l'implicite gratuitement dès qu'on a
-l'explicite + un helper diff-et-recible.**
+### Implicit vs explicit = the same machine
+Implicit animations (the animated-container style) are a *hidden* controller that, on each
+rebuild, diffs the target props and re-targets a `Tween (begin = current value, end = new
+target)` over `duration+curve`. **You get the implicit form for free the moment you have
+the explicit one plus a diff-and-retarget helper.**
 
-### Mapping Elm — recommandation
-Deux options ; **recommandé : B (runtime retenu à côté de la vue pure).**
-- **A — animations comme subscriptions émettant des `Msg` tick (pur)** : la vue reste
-  pure, mais 60–120 Hz de `Msg` traversent `update`, et l'interruption/re-ciblage
-  (drag→fling) force à mettre les objets simulation dans le modèle immuable → douleur.
-- **B — recommandé** : petit **registre impératif de contrôleurs dans le shell**, clé
-  par identité (`child_id`/`Keyed`). Créés/pilotés par `Command` (`Command::animate(id,
-  spec)`, `Command::fling(id, v)`). **La vue lit la valeur courante au paint**
-  (`ctx.animation(id).value`) — cohérent avec « les widgets se thèment au paint ».
-  **Seules** les transitions de statut (démarré/fini) repassent par `update` en `Msg` ;
-  les changements de valeur par-frame déclenchent juste une repeinture.
-  Vous avez déjà une feuille à ressort et une boucle frame/command → vous avez *prouvé*
-  que vous avez besoin d'état d'animation retenu ; formalisez-le.
+### Elm mapping — recommendation
+Two options; **recommended: B (a retained runtime beside the pure view).**
+- **A — animations as subscriptions emitting tick `Msg`s (pure)**: the view stays pure, but
+  60–120 Hz of `Msg` cross `update`, and interruption/re-targeting (drag→fling) forces the
+  simulation objects into the immutable model → pain.
+- **B — recommended**: a small **imperative registry of controllers in the shell**, keyed
+  by identity (`child_id`/`Keyed`). Created and driven by `Command`
+  (`Command::animate(id, spec)`, `Command::fling(id, v)`). **The view reads the current
+  value at paint time** (`ctx.animation(id).value`) — consistent with "widgets theme
+  themselves at paint time". **Only** status transitions (started/finished) go back through
+  `update` as a `Msg`; per-frame value changes just trigger a repaint.
+  You already have a spring-driven sheet and a frame/command loop → you have *proven* you
+  need retained animation state; formalise it.
 
-### Recommandations classées
-1. **Portez la physique maintenant** (maths pures, 0 couplage) : `trait Simulation`,
-   `SpringSimulation` (3 cas), `FrictionSimulation` (forme close ; sautez Newton/
-   `constantDeceleration`), `ClampedSimulation`. **Généralisez votre ressort de
-   BottomSheet en `trait Simulation`** pour que fling, momentum de scroll et feuille
-   partagent un seul chemin.
-2. **Pilote minimal** : `AnimationController` = valeur bornée + statut + `Box<dyn
-   Simulation>` + `tick(elapsed)` (~5 lignes). `forward/reverse/animate_to/fling`.
-3. **`Curve` + `Tween`/`Animatable`** : `Linear`, `Cubic`, `Interval` (staggered gratuit).
-4. **Implicite** en helper mince une fois l'explicite en place.
-5. Câblez le tout en **registre piloté par `Command`, clé par `child_id`**, valeurs lues
-   au paint.
+### Ranked recommendations
+1. **Port the physics now** (pure maths, zero coupling): `trait Simulation`,
+   `SpringSimulation` (3 cases), `FrictionSimulation` (closed form; skip Newton /
+   `constantDeceleration`), `ClampedSimulation`. **Generalise your bottom-sheet spring into
+   `trait Simulation`** so fling, scroll momentum and the sheet share one path.
+2. **A minimal driver**: `AnimationController` = a bounded value + a status +
+   `Box<dyn Simulation>` + `tick(elapsed)` (~5 lines). `forward/reverse/animate_to/fling`.
+3. **`Curve` + `Tween`/`Animatable`**: `Linear`, `Cubic`, `Interval` (staggered for free).
+4. **The implicit form** as a thin helper once the explicit one is in place.
+5. Wire it all up as a **`Command`-driven registry keyed by `child_id`**, with values read
+   at paint time.
 
-**À différer** : splines/`Curve2D`, courbes elastic/bounce, friction desktop à Newton,
-scaling « désactiver les animations », `TickerFuture` (un `Msg` de complétion suffit).
+**Deferred**: splines / 2-D curves, elastic/bounce curves, Newton-based desktop friction,
+an "animations disabled" scale factor, a completion future (a completion `Msg` is enough).
 
 ---
 
-## 5. Peinture & thème
-*(source : `painting/{box_decoration,borders,box_border,box_shadow,edge_insets,alignment,border_radius,gradient,text_style,text_span,text_painter,colors}.dart` ; `material/{theme_data,color_scheme,text_theme}.dart`)*
+## 5. Painting & theme
+*(scope: box decoration, borders, shadows, edge insets, alignment, border radius,
+gradients, text style/spans/painting, colours; theme data, colour scheme, text theme)*
 
-**État actuel de Frus** : `Scene` n'a que **2 primitives, `Rect` et `Text`**
-([`scene.rs`](../crates/frus-core/src/scene.rs)) ; `Theme` est un **sac plat de 11
-couleurs + radius + spacing**, dark/light + lerp
-([`theme.rs`](../crates/frus-widgets/src/theme.rs)). Deux chantiers : enrichir les
-primitives de scène, et structurer le thème en rôles/échelles.
+**frus today**: `Scene` has only **2 primitives, `Rect` and `Text`**
+([`scene.rs`](../crates/frus-core/src/scene.rs)); `Theme` is a **flat bag of 11 colours +
+radius + spacing**, dark/light + lerp
+([`theme.rs`](../crates/frus-widgets/src/theme.rs)). Two work items: enrich the scene
+primitives, and structure the theme into roles and scales.
 
-### Vocabulaire de peinture → types cœur Rust (dans `frus-core`, sRGB, px logique)
-- **`EdgeInsets` {left,top,right,bottom}** + variante `EdgeInsetsDirectional
-  {start,top,end,bottom}` avec **`.resolve(dir) -> EdgeInsets`** (le RTL échange
-  start/end — toute l'histoire RTL tient là). Helpers : `all`, `symmetric`,
+### Painting vocabulary → core Rust types (in `frus-core`, sRGB, logical px)
+- **`EdgeInsets` {left,top,right,bottom}** plus an `EdgeInsetsDirectional
+  {start,top,end,bottom}` variant with **`.resolve(dir) -> EdgeInsets`** (RTL swaps
+  start/end — the whole RTL story lives there). Helpers: `all`, `symmetric`,
   `deflate_rect`, `inflate_size`.
-- **`Alignment {x,y}`** fraction dans `[-1,1]²` (`(0,0)`=centre) + `within_rect(r)`,
+- **`Alignment {x,y}`**, a fraction in `[-1,1]²` (`(0,0)` = centre) + `within_rect(r)`,
   `inscribe`.
-- **`Radius {x,y}`** (elliptique !) + **`BorderRadius`** (4 coins). `to_rrect` **clampe
-  les rayons négatifs à 0** avant rendu — faites pareil au bord GPU.
-- **`BorderSide {color,width,style,stroke_align}`** : concept porteur = **`stroke_align`
-  ∈ [-1 intérieur, 0 centre, 1 extérieur]** (décide si le trait mange le contenu et
-  comment inset le fond pour éviter le bleed AI). Bordures uniformes = un `rrect_stroke` ;
-  non-uniformes = 4 trapèzes (à différer).
-- **`BoxShadow {color,offset,blur_radius,spread_radius}`** ; `sigma ≈ 0.57735·blur +
-  0.5`. Implémentez une **primitive de scène « RRect flou analytique »** dans `frus-gpu`
-  (shader, pas de vraie passe gaussienne).
-- **`Gradient`** enum (Linear/Radial/Sweep) unifié par `colors + stops?(uniforme si
-  None) + tile_mode`, **ancres en fractions** (`Alignment`) → indépendant de la taille,
-  pixellisé seulement dans `create_shader(rect)`.
-- **`Color`** : ajoutez `with_alpha(f32)`, `lerp`, `compute_luminance()` (WCAG, sur
-  canaux linéarisés), `from_argb_u32`.
+- **`Radius {x,y}`** (elliptical!) + **`BorderRadius`** (4 corners). `to_rrect` **clamps
+  negative radii to 0** before rendering — do the same at the GPU edge.
+- **`BorderSide {color,width,style,stroke_align}`**: the load-bearing concept is
+  **`stroke_align` ∈ [-1 inside, 0 centred, 1 outside]** (it decides whether the stroke
+  eats into the content, and how to inset the fill to avoid anti-aliasing bleed). Uniform
+  borders = one `rrect_stroke`; non-uniform = 4 trapezoids (defer).
+- **`BoxShadow {color,offset,blur_radius,spread_radius}`**; `sigma ≈ 0.57735·blur + 0.5`.
+  Implement an **"analytic blurred rrect" scene primitive** in `frus-gpu` (a shader, not a
+  real Gaussian pass).
+- **`Gradient`** enum (Linear/Radial/Sweep) unified by `colors + stops? (uniform if None) +
+  tile_mode`, with **fractional anchors** (`Alignment`) → size-independent, pixellated only
+  in `create_shader(rect)`.
+- **`Color`**: add `with_alpha(f32)`, `lerp`, `compute_luminance()` (WCAG, on linearised
+  channels), `from_argb_u32`.
 
-### Modèle de décoration (la clé de voûte peignable)
-`BoxDecoration { color?, gradient?, image?, border?, border_radius, shadows, shape }`
-avec **ordre de peinture fixe : ombres → fond(couleur/gradient) → image → bordure**.
-En immédiat, *lowerez* `BoxDecoration → Vec<Primitive>` au paint (pas de painter retenu),
-mais gardez le cache « le shader de gradient dépend du rect ». `content_padding()`
-(= dimensions de la bordure) **alimente taffy** pour qu'un conteneur bordé réserve la
-place. Différez `ShapeDecoration`/`ShapeBorder` (stadium, superellipse) et
-`DecorationImage`/`ImageProvider`.
+### The decoration model (the paintable keystone)
+`BoxDecoration { color?, gradient?, image?, border?, border_radius, shadows, shape }` with a
+**fixed paint order: shadows → fill (colour/gradient) → image → border**. For now, *lower*
+`BoxDecoration → Vec<Primitive>` at paint time (no retained painter), but keep the "the
+gradient shader depends on the rect" cache. `content_padding()` (= the border's dimensions)
+**feeds taffy** so that a bordered container reserves the room. Defer shape decorations /
+shape borders (stadium, superellipse) and decoration images / image providers.
 
-### Texte
-- **`TextStyle`** (color, font, size, weight, italic, letter/word spacing, `height`
-  =multiple, decoration, shadows) avec **`merge()` + `inherit`** = la cascade
-  (span > DefaultTextStyle > thème). **`TextSpan`** = arbre `{text?, style?, children}`
-  → à aplatir en runs `(byte_range, Attrs)` pour cosmic-text.
-- **`TextLayout`** mince sur cosmic-text exposant : `size`, `min/max_intrinsic_width`
-  (layout à `∞` pour max, `0` pour min → nourrit taffy), `hit_test(p) -> TextPosition`,
-  `caret_rect(pos)`, `selection_rects(range)`, `line_metrics()`. cosmic-text fournit
-  déjà shaping/line-break/hit/curseur ; le travail = résoudre la cascade `TextStyle →
-  Attrs` et exposer intrinsèques + caret/sélection.
+### Text
+- **`TextStyle`** (color, font, size, weight, italic, letter/word spacing, `height` = a
+  multiple, decoration, shadows) with **`merge()` + `inherit`** = the cascade
+  (span > default text style > theme). **`TextSpan`** = a `{text?, style?, children}` tree
+  → flatten into `(byte_range, Attrs)` runs for cosmic-text.
+- **`TextLayout`**, thin over cosmic-text, exposing: `size`, `min/max_intrinsic_width`
+  (lay out at `∞` for max, `0` for min → feeds taffy), `hit_test(p) -> TextPosition`,
+  `caret_rect(pos)`, `selection_rects(range)`, `line_metrics()`. cosmic-text already
+  provides shaping/line breaking/hit testing/caret; the work is resolving the
+  `TextStyle → Attrs` cascade and exposing intrinsics plus caret/selection.
 
-### Architecture de thème (Material 3)
-- **`ColorScheme` = rôles sémantiques dérivés d'une graine** : `from_seed(seed,
-  brightness)` produit ~30 **rôles** (`primary/onPrimary/primaryContainer/…`,
+### Theme architecture (Material 3)
+- **`ColorScheme` = semantic roles derived from a seed**: `from_seed(seed, brightness)`
+  produces ~30 **roles** (`primary/onPrimary/primaryContainer/…`,
   `surface/onSurface/onSurfaceVariant/surfaceContainer*`, `outline/outlineVariant`,
-  `error/…`, `shadow/scrim/inverseSurface/surfaceTint`). Les widgets référencent des
-  **rôles**, jamais des couleurs littérales → un swap de thème recolore tout et garantit
-  le contraste (paires `X`/`onX`).
-- **`TextTheme` = échelle typographique nommée** : 15 slots (`displayLarge…labelSmall`).
-  Les widgets choisissent un slot, pas une taille en dur.
-- **`Theme` recommandé** (dans `frus-core` ou un `frus-theme`, pour que les widgets se
-  thèment sans tirer le shell) :
+  `error/…`, `shadow/scrim/inverseSurface/surfaceTint`). Widgets reference **roles**, never
+  literal colours → swapping the theme recolours everything and guarantees contrast (the
+  `X`/`onX` pairs).
+- **`TextTheme` = a named type scale**: 15 slots (`displayLarge…labelSmall`). Widgets pick a
+  slot, not a hard-coded size.
+- **The recommended `Theme`** (in `frus-core` or a `frus-theme`, so widgets can theme
+  themselves without pulling in the shell):
   `{ brightness, color: ColorScheme, text: TextTheme, shape: ShapeScheme,
   elevation: ElevationScheme, spacing: SpacingScale }`.
-- **Livrez un ColorScheme clair/sombre écrit à la main d'abord** ; ajoutez `from_seed`
-  (algorithme HCT/`material-color-utilities`, portable en Rust) plus tard.
-- Puisque Frus se thème au paint, `paint(theme, status)` résout rôle→couleur selon le
-  `Status` (Default/Hover/Press/Disabled/Focus) et applique une **state-layer** (overlay
-  `onX` à 8 %/12 %) — **bakez cette règle dans le thème** pour que les widgets restent
-  déclaratifs.
+- **Ship a hand-written light/dark ColorScheme first**; add `from_seed` (the HCT algorithm
+  from the Material colour utilities, portable to Rust) later.
+- Since frus themes at paint time, `paint(theme, status)` resolves role→colour according to
+  the `Status` (Default/Hover/Press/Disabled/Focus) and applies a **state layer** (an `onX`
+  overlay at 8 %/12 %) — **bake that rule into the theme** so widgets stay declarative.
 
-### sRGB / linéaire / alpha prémultiplié (bord GPU) — pièges
-- Auteur en **sRGB**, conversion linéaire **seulement au bord GPU**, avec la vraie courbe
-  (`x≤0.04045 ? x/12.92 : ((x+0.055)/1.055)^2.4`), **pas** `pow(2.2)`.
-- **Interpolation** : couleurs d'UI discrètes → lerp en espace gamma (comme CSS/Flutter) ;
-  stops de gradient sur GPU → mieux en linéaire. Choisissez et **soyez cohérent** (goldens
-  stables).
-- **Alpha prémultiplié** : wgpu attend du prémultiplié (`rgb *= a`) **après** passage en
-  linéaire ; alignez le blend state (`PREMULTIPLIED_ALPHA_BLENDING`) et l'accord avec
-  glyphon/images sous peine de franges.
-- **Format de surface** : cible `*Srgb` → le shader sort du **linéaire** (HW encode) ;
-  cible `Rgba8Unorm` → encodez vous-même. **Une seule convention `frus-gpu`, documentée,
-  centralisée** — c'est la source n°1 des « couleurs délavées/trop sombres ».
+### sRGB / linear / premultiplied alpha (the GPU edge) — pitfalls
+- Author in **sRGB**, convert to linear **only at the GPU edge**, with the real curve
+  (`x≤0.04045 ? x/12.92 : ((x+0.055)/1.055)^2.4`), **not** `pow(2.2)`.
+- **Interpolation**: discrete UI colours → lerp in gamma space (as CSS does); gradient stops
+  on the GPU → better in linear. Pick one and **be consistent** (stable goldens).
+- **Premultiplied alpha**: wgpu expects premultiplied (`rgb *= a`) **after** the conversion
+  to linear; line the blend state up (`PREMULTIPLIED_ALPHA_BLENDING`) and agree with
+  glyphon/images, or you get fringing.
+- **Surface format**: an `*Srgb` target → the shader outputs **linear** (the hardware
+  encodes); an `Rgba8Unorm` target → encode it yourself. **One `frus-gpu` convention,
+  documented and centralised** — this is the number one source of "washed-out / too dark"
+  colours.
 
-### Types à définir, par priorité
-1. Helpers `Color` + **convention sRGB↔linéaire + prémultiplié verrouillée dans
-   `frus-gpu`** (tout en dépend).
-2. `EdgeInsets`(+directional) & `Alignment`.
-3. `Radius`/`BorderRadius` (+ clamp négatif).
-4. `BoxShadow` + primitive de scène RRect-flou.
-5. **`BoxDecoration`** (ordre fixe + `content_padding`→taffy) — clé de voûte.
-6. `BorderSide`/`Border` (uniforme d'abord).
-7. `Gradient` (Linear d'abord).
-8. `TextStyle`(+merge) & `TextSpan`.
-9. `TextLayout` sur cosmic-text.
-10. **`Theme` = ColorScheme(rôles M3) + TextTheme(15 slots) + Shape + Elevation +
-    Spacing** ; clair/sombre à la main, `from_seed` après ; state-layer bakée.
+### Types to define, by priority
+1. `Color` helpers + **the sRGB↔linear + premultiplied convention locked down in
+   `frus-gpu`** (everything depends on it).
+2. `EdgeInsets` (+ directional) & `Alignment`.
+3. `Radius`/`BorderRadius` (+ the negative clamp).
+4. `BoxShadow` + a blurred-rrect scene primitive.
+5. **`BoxDecoration`** (fixed order + `content_padding`→taffy) — the keystone.
+6. `BorderSide`/`Border` (uniform first).
+7. `Gradient` (Linear first).
+8. `TextStyle` (+ merge) & `TextSpan`.
+9. `TextLayout` over cosmic-text.
+10. **`Theme` = ColorScheme (M3 roles) + TextTheme (15 slots) + Shape + Elevation +
+    Spacing**; light/dark by hand, `from_seed` afterwards; the state layer baked in.
 
 ---
 
-## 6. Plateforme, focus, scrolling, navigation & a11y
-*(source : `widgets/{focus_manager,focus_traversal,scroll_position,scroll_physics,scroll_activity,scroll_controller,scrollable,overlay,navigator,media_query,safe_area}.dart` ; `services/{hardware_keyboard,text_input,platform_channel,system_channels}.dart` ; `semantics/semantics.dart`)*
+## 6. Platform, focus, scrolling, navigation & a11y
+*(scope: focus management and traversal, scroll position/physics/activity/controller, the
+scrollable and its viewport, overlays, the navigator, media queries and safe areas;
+hardware keyboard, text input, platform channels; semantics)*
 
 ### Focus
-Arbre `FocusNode` parallèle à l'arbre widget (identité stable → `child_id`), un
-`primary_focus` dans le shell, **dispatch des touches feuille→racine** rendant un résultat
-à 3 états (`handled/ignored/skipRemaining` ; `ignored` continue de remonter). Une politique
-de traversée reading-order/géométrique pour Tab + flèches. **`FocusHighlightMode
-{traditional, touch}`** : ne peindre l'anneau de focus que si la dernière interaction était
-clavier. Les scopes (piéger le focus dans dialogues/feuilles) peuvent attendre.
+A focus-node tree parallel to the widget tree (stable identity → `child_id`), one
+`primary_focus` in the shell, **key dispatch from leaf to root** returning a three-state
+result (`handled/ignored/skipRemaining`; `ignored` keeps bubbling). A reading-order /
+geometric traversal policy for Tab and the arrow keys. **A focus highlight mode
+`{traditional, touch}`**: only paint the focus ring if the last interaction was from the
+keyboard. Scopes (trapping focus inside dialogs/sheets) can wait.
 
-### Clavier & saisie — deux voies indépendantes (à garder séparées)
-- **(a) Touches matérielles** : modèle régularisé `KeyDown/Up/Repeat` portant
-  **physicalKey** (position HID, indépendante du layout) **+ logicalKey** (sens sous le
-  layout) **+ character?**, avec un tracker des touches pressées/modificateurs. Alimente
-  le focus. **Ignorez le `RawKeyEvent` déprécié.** winit fournit tout côté desktop.
-- **(b) Texte/IME** : le texte composé **ne passe pas** par les key events. Un « client »
-  possède un `TextEditingValue { text, selection, composing }` — **le `composing` (région
-  provisoire IME) est essentiel pour Gboard/CJK**. Le shell possède l'unique connexion
-  active. Desktop : winit `Ime::Preedit/Commit` → `composing`. **Android : le clavier
-  logiciel ne produit aucune touche matérielle** ; il faut un équivalent `TextInputControl`
-  au-dessus du FFI (§ suivant), exposant un `InputConnection`, et **piloter `viewInsets`**
-  pour que le contenu monte au-dessus du clavier.
+### Keyboard & input — two independent paths (keep them separate)
+- **(a) Hardware keys**: a regularised `KeyDown/Up/Repeat` model carrying a **physical key**
+  (HID position, layout-independent) **+ a logical key** (the meaning under the layout)
+  **+ a character?**, with a tracker for pressed keys and modifiers. It feeds focus. winit
+  provides all of this on desktop.
+- **(b) Text/IME**: composed text does **not** come through key events. A "client" owns a
+  `TextEditingValue { text, selection, composing }` — **the `composing` region (the IME's
+  provisional text) is essential for on-screen keyboards and CJK**. The shell owns the one
+  active connection. Desktop: winit's `Ime::Preedit/Commit` → `composing`. **Android: the
+  soft keyboard produces no hardware keys at all**; it needs a text-input control on top of
+  the FFI (next section) exposing an input connection, and it must **drive `viewInsets`** so
+  the content rises above the keyboard.
 
-### Scrolling — le sous-système à copier le plus soigneusement
-Séparation en 4 pièces à responsabilité unique :
-- **`ScrollPosition`** : l'état — `pixels`, `min/maxScrollExtent`, `viewportDimension` ;
-  `Listenable` ; **ne démarre aucun mouvement lui-même**, délègue à l'*activity*.
-- **`ScrollController`** : la façade que l'app tient — `offset`, `animateTo`, `jumpTo`.
-- **`ScrollPhysics`** : chaîne composable — `applyPhysicsToUserOffset` (résistance),
-  `applyBoundaryConditions` (clamp aux bords), **`createBallisticSimulation(metrics,
-  velocity) -> Simulation?`** (le momentum de fling : renvoie un ressort/friction que le
-  ticker échantillonne). Variantes `Clamping`(Android)/`Bouncing`(iOS).
-- **`ScrollActivity`** : la machine « comment ça bouge » — `Idle/Hold/Drag/Ballistic/
-  Driven`.
-- **Adaptation taffy** : taffy layoute **tout** le contenu une fois → `maxScrollExtent =
-  contentSize − viewportDimension`. Un viewport Frus = **clip + translation des enfants
-  de `-pixels`**. **Pas besoin de slivers paresseux pour la v1** (acceptez le coût de
-  layout complet, optimisez après). Pilotez l'activity ballistique depuis votre boucle
-  ticker winit. Colle à Elm : `pixels` en état retenu, l'activity/ticker émet des `Msg`.
-  Vous avez déjà un ressort de scroll dans `runtime.rs` — c'est le germe de la physics.
+### Scrolling — the subsystem to copy most carefully
+Split into 4 single-responsibility pieces:
+- **`ScrollPosition`**: the state — `pixels`, `min/maxScrollExtent`, `viewportDimension`;
+  observable; **it starts no motion itself**, it delegates to the *activity*.
+- **`ScrollController`**: the façade the app holds — `offset`, `animate_to`, `jump_to`.
+- **`ScrollPhysics`**: a composable chain — `apply_physics_to_user_offset` (resistance),
+  `apply_boundary_conditions` (clamp at the edges), **`create_ballistic_simulation(metrics,
+  velocity) -> Option<Simulation>`** (fling momentum: it returns a spring/friction that the
+  ticker samples). `Clamping` (Android) / `Bouncing` (iOS) variants.
+- **`ScrollActivity`**: the "how it moves" machine — `Idle/Hold/Drag/Ballistic/Driven`.
+- **Adapting to taffy**: taffy lays out **all** the content once →
+  `maxScrollExtent = contentSize − viewportDimension`. A frus viewport = **a clip plus a
+  translation of the children by `-pixels`**. **No lazy slivers needed for v1** (accept the
+  full-layout cost, optimise afterwards). Drive the ballistic activity from your winit
+  ticker loop. It fits Elm: `pixels` as retained state, the activity/ticker emitting `Msg`.
+  You already have a scroll spring in `runtime.rs` — that is the seed of the physics.
 
-### Overlay, Navigator & insets ambiants
-- **`Overlay`** = pile de couches flottantes indépendantes (`OverlayEntry`, `opaque`,
-  `maintainState`) — substrat de tout ce qui est « au-dessus » (dialogues, feuilles,
-  tooltips, feedback de drag). **`OverlayPortal`** ancre un enfant d'overlay à la position
-  d'un widget — directement pertinent pour votre BottomSheet.
-- **`Navigator`** = pile de `Route` qui **poussent des `OverlayEntry`** ; `ModalRoute`
-  ajoute barrière + scope de focus. → **Recastez BottomSheet/modale en overlay entry +
-  scope de focus + scrim** ; une pile de routes légère viendra après.
-- **Insets ambiants** : distinguez **`padding`** (notch/barres — statique) de
-  **`viewInsets`** (clavier — dynamique). `SafeArea` **consomme puis remet à zéro** pour
-  les descendants (`removePadding`) → une SafeArea dans une SafeArea ne padde pas deux
-  fois. Vous avez déjà `on_insets`/SafeArea (Jalon 51) ; formalisez ces deux valeurs et
-  la règle consume-then-zero, et alimentez `viewInsets.bottom` depuis la hauteur du
-  clavier Android.
+### Overlay, navigator & ambient insets
+- **An `Overlay`** = a stack of independent floating layers (`OverlayEntry`, `opaque`,
+  `maintainState`) — the substrate for everything "above" (dialogs, sheets, tooltips, drag
+  feedback). **A portal entry** anchors an overlay child to a widget's position — directly
+  relevant to your bottom sheet.
+- **A `Navigator`** = a stack of `Route`s that **push `OverlayEntry`s**; a modal route adds
+  a barrier and a focus scope. → **Recast the bottom sheet/modal as an overlay entry + a
+  focus scope + a scrim**; a lightweight route stack can come afterwards.
+- **Ambient insets**: distinguish **`padding`** (notch/bars — static) from **`viewInsets`**
+  (the keyboard — dynamic). A `SafeArea` **consumes then zeroes** them for its descendants
+  (`removePadding`) → a SafeArea inside a SafeArea does not pad twice. You already have
+  `on_insets`/SafeArea (milestone 51); formalise those two values and the consume-then-zero
+  rule, and feed `viewInsets.bottom` from the Android keyboard height.
 
-### Frontière native (channels)
-Flutter : un `BinaryMessenger` async bidirectionnel sous des façades typées
-(`MethodChannel`/`EventChannel`), canaux nommés centralisés (`textinput`, `keyevent`,
-`platform`, `lifecycle`, `system`). **Pour Frus** : desktop = winit *est* la frontière
-(câblage direct). **Android** = seam JNI/FFI (vous avez déjà `android_main`). Ne bâtissez
-pas un bus dynamique string+codec : définissez des **enums Rust typées traversant le FFI,
-une par sujet** (textinput, insets/window/lifecycle, system=clipboard/haptics/orientation/
-back). Volez la *discipline* : **une frontière étroite, async, bidirectionnelle**, avec
-formes app→natif et natif→app.
+### The native boundary (channels)
+The prior art uses an async bidirectional binary messenger under typed façades (method and
+event channels), with centralised named channels (`textinput`, `keyevent`, `platform`,
+`lifecycle`, `system`). **For frus**: on desktop, winit *is* the boundary (wire directly).
+**Android** is a JNI/FFI seam (you already have `android_main`). Do not build a dynamic
+string+codec bus: define **typed Rust enums crossing the FFI, one per subject** (text input,
+insets/window/lifecycle, system = clipboard/haptics/orientation/back). Steal the
+*discipline*: **one narrow, async, bidirectional boundary**, with app→native and native→app
+shapes.
 
-### Sémantique / accessibilité (planifier, ne pas sur-construire)
-Flutter bâtit un **arbre sémantique parallèle** (label/value/hint/flags/role/actions),
-batché puis flushé vers Android `AccessibilityNodeInfo`. **Minimal Frus** : une annotation
-optionnelle par widget (`role`, `label`, `value`, `flags`, rect, quelques `actions` :
-activate/scroll/focus), un arbre plat clé par identité, pont Android via un provider de
-vues virtuelles sur le FFI. Réutilisez l'arbre de focus pour l'ordre de lecture au début.
-**Bakez le hook `label` dans les widgets dès maintenant** pour éviter un retrofit massif.
+### Semantics / accessibility (plan it, do not over-build)
+The prior art builds a **parallel semantics tree** (label/value/hint/flags/role/actions),
+batched then flushed to the platform's accessibility node API. **The frus minimum**: an
+optional per-widget annotation (`role`, `label`, `value`, `flags`, rect, a few `actions`:
+activate/scroll/focus), a flat tree keyed by identity, bridged to Android through a virtual
+view provider over the FFI. Reuse the focus tree for reading order at first. **Bake the
+`label` hook into the widgets right now** to avoid a massive retrofit.
 
-### Ordre de construction recommandé (§6)
-1. **Arbre de focus + routage des touches** (prérequis de tout).
-2. **Modèle clavier régularisé** (winit → physical+logical+character).
-3. **Scrolling** (les 4 pièces + viewport clip+translate ; clamping d'abord).
-4. **Insets : split `padding`/`viewInsets` + consume-then-zero** (petit refactor de
-   SafeArea, débloque l'évitement clavier).
-5. **Couche Overlay pour modales/feuilles** (recast BottomSheet).
-6. **Saisie/IME** (desktop winit d'abord, puis Android via FFI + `composing`).
-7. **Channels FFI typés Android**.
-8. **Hooks sémantiques** (annotations maintenant, arbre + pont Android en dernier).
+### Recommended build order (§6)
+1. **The focus tree + key routing** (a prerequisite for everything).
+2. **The regularised keyboard model** (winit → physical+logical+character).
+3. **Scrolling** (the 4 pieces + a clip+translate viewport; clamping first).
+4. **Insets: split `padding`/`viewInsets` + consume-then-zero** (a small SafeArea refactor,
+   unblocks keyboard avoidance).
+5. **An overlay layer for modals/sheets** (recast the bottom sheet).
+6. **Input/IME** (desktop winit first, then Android via the FFI + `composing`).
+7. **Typed FFI channels for Android**.
+8. **Semantics hooks** (annotations now, the tree + the Android bridge last).
 
 ---
 
-## 7. Feuille de route proposée (prochains jalons)
+## 7. Proposed roadmap (the next milestones)
 
-En croisant les 6 briefs avec l'état réel de Frus (61 widgets breadth-first, Scene à
-2 primitives, thème plat, ressorts par-widget, pas d'arène/focus/scroll générique), voici
-un ordre à fort levier. Frus est **large mais peu profond** : ces jalons ajoutent la
-*profondeur de moteur* qui manque sous la vitrine de widgets.
+Crossing the 6 briefs with frus's actual state (61 widgets breadth-first, a 2-primitive
+Scene, a flat theme, per-widget springs, no generic arena/focus/scroll), here is a
+high-leverage order. frus is **broad but shallow**: these milestones add the *engine depth*
+missing under the widget shop window.
 
-**Bloc A — Fondations moteur (le plus gros levier)**
-1. **Phases de frame + listes dirty séparées** (`build→layout→paint→composite`),
-   chaque `Msg`/`Command` posant le bit le plus étroit possible. (§1, §0)
-2. **Cache de frontière de relayout au-dessus de taffy** `(contraintes, taille, dirty)`.
-   (§1)
-3. **Pilote d'animation auto-reprogrammé** lié à `request_redraw`, timestamp de frame,
-   retour à l'idle au repos ; **généraliser le ressort BottomSheet en `trait
+**Block A — engine foundations (the biggest leverage)**
+1. **Frame phases + separate dirty lists** (`build→layout→paint→composite`), each
+   `Msg`/`Command` setting the narrowest possible bit. (§1, §0)
+2. **A relayout-boundary cache on top of taffy** — `(constraints, size, dirty)`. (§1)
+3. **A self-rescheduling animation driver** tied to `request_redraw`, driven by the frame
+   timestamp, back to idle at rest; **generalise the bottom-sheet spring into `trait
    Simulation`**. (§1, §4)
 
-**Bloc B — Entrée & mouvement**
-4. **Palier 0 gestes** : `PointerEvent` normalisé (+`Cancel`), hit-test taffy caché par
-   id, `PointerRouter`. (§3)
-5. **Palier 1 gestes** : reconnaisseur tap-ou-drag + long-press, parlant déjà le
-   vocabulaire d'arène → `on_tap/on_drag/on_long_press` émettant des `Msg`. (§3)
-6. **Scrolling** : `ScrollPosition/Controller/Physics/Activity` + viewport clip+translate
-   sur taffy, fling via ticker. (§6)
+**Block B — input & motion**
+4. **Gesture tier 0**: a normalised `PointerEvent` (+`Cancel`), a taffy hit test cached by
+   id, a pointer router. (§3)
+5. **Gesture tier 1**: a tap-or-drag recogniser plus long-press, already speaking the
+   arena's vocabulary → `on_tap/on_drag/on_long_press` emitting `Msg`. (§3)
+6. **Scrolling**: `ScrollPosition/Controller/Physics/Activity` + a clip+translate viewport
+   over taffy, fling driven by the ticker. (§6)
 
-**Bloc C — Système de design & texte**
-7. **Types de peinture cœur** : `EdgeInsets`/`Alignment`/`BorderRadius`/`BoxShadow` +
-   **primitives de scène** RRect-arrondi/ombre/gradient dans `frus-gpu` (verrouiller la
-   convention sRGB/prémultiplié). (§5)
-8. **`BoxDecoration`** (ordre fixe, `content_padding`→taffy). (§5)
-9. **Thème structuré** : `ColorScheme` (rôles M3, clair/sombre à la main) + `TextTheme`
-   (15 slots) + Shape/Elevation/Spacing + state-layer bakée. Migration progressive des
-   61 widgets vers les rôles. (§5)
-10. **`TextLayout`** sur cosmic-text (intrinsèques→taffy, caret, sélection). (§5)
+**Block C — design system & text**
+7. **Core painting types**: `EdgeInsets`/`Alignment`/`BorderRadius`/`BoxShadow` +
+   **scene primitives** for rounded rects/shadows/gradients in `frus-gpu` (lock the
+   sRGB/premultiplied convention down). (§5)
+8. **`BoxDecoration`** (fixed order, `content_padding`→taffy). (§5)
+9. **A structured theme**: `ColorScheme` (M3 roles, light/dark by hand) + `TextTheme`
+   (15 slots) + Shape/Elevation/Spacing + a baked-in state layer. Migrate the 61 widgets
+   to the roles progressively. (§5)
+10. **`TextLayout`** over cosmic-text (intrinsics→taffy, caret, selection). (§5)
 
-**Bloc D — Structure & finitions**
-11. **Focus + clavier régularisé** (feuille→racine, 3 états, highlight mode). (§6)
-12. **Insets `padding`/`viewInsets` + consume-then-zero** ; **Overlay** pour modales
-    (recast BottomSheet). (§6)
-13. **Clés formalisées** (`enum {Index,Value,Unique}`) + **dump diagnostique** des deux
-    arbres (config vs retenu). (§2)
-14. **Saisie/IME** (desktop puis Android FFI), **channels FFI typés**, **hooks
-    sémantiques** (labels dès maintenant). (§6)
+**Block D — structure & finishing**
+11. **Focus + a regularised keyboard** (leaf→root, three states, highlight mode). (§6)
+12. **`padding`/`viewInsets` + consume-then-zero**; an **Overlay** for modals (recast the
+    bottom sheet). (§6)
+13. **Formalised keys** (`enum {Index,Value,Unique}`) + a **diagnostic dump** of both trees
+    (config vs retained). (§2)
+14. **Input/IME** (desktop then Android FFI), **typed FFI channels**, **semantics hooks**
+    (labels right now). (§6)
 
-**Palier 2+ / à différer** : vraie arène de gestes (imbrications scrollables), vélocité
-LSQ, scale/pinch, slivers paresseux, `from_seed` HCT, `ShapeBorder`/images, compositing
-bits, arbre sémantique complet.
-
----
+**Tier 2+ / deferred**: the real gesture arena (nested scrollables), least-squares
+velocity, scale/pinch, lazy slivers, HCT `from_seed`, shape borders/images, compositing
+bits, a full semantics tree.
 
 ---
----
 
-# PARTIE II — Ce qui manque pour gagner le marché
+# PART II — What is missing to win the market
 
-> La Partie I (§0–§7) donne le **moteur** : elle assure que Frus n'est pas plafonné
-> architecturalement. Mais un moteur excellent ne gagne pas un marché. Ce qui gagne,
-> c'est l'**ergonomie pour le dev**, la **portée** (plateformes), le **tooling**, le
-> **design par défaut**, et un **positionnement clair face aux vrais concurrents** —
-> qui ne sont **pas Flutter**, mais l'écosystème UI Rust (iced, egui, Slint, Dioxus,
-> gpui, Xilem…). Cette partie couvre tout ça.
+> Part I (§0–§7) covers the **engine**: it makes sure frus is not architecturally capped.
+> But an excellent engine does not win a market. What wins is **developer ergonomics**,
+> **reach** (platforms), **tooling**, **the default design**, and **clear positioning
+> against the real competitors** — which are **not** the big cross-platform toolkits, but
+> the Rust UI ecosystem (iced, egui, Slint, Dioxus, gpui, Xilem…). This part covers all of
+> that.
 >
-> Fil conducteur de la Partie II : **un dev Rust doit se sentir chez lui dès la
-> minute 1** — cargo, types, messages exhaustifs, zéro lutte avec le borrow checker,
-> compilation supportable, et un défaut magnifique sans config.
+> The through line of Part II: **a Rust developer must feel at home from minute 1** —
+> cargo, types, exhaustive messages, zero fights with the borrow checker, bearable compile
+> times, and a beautiful default with no configuration.
 
 ---
 
-## 8. Ergonomie Rust — le cœur (les devs Rust doivent se sentir chez eux)
+## 8. Rust ergonomics — the core (Rust developers must feel at home)
 
-C'est **la** priorité de la demande. Un dev Rust juge un framework en 10 minutes sur :
-« est-ce que ça compile vite, est-ce que l'API lit bien, est-ce que je me bats avec le
-borrow checker, est-ce que les erreurs sont claires ». Décisions concrètes :
+This is **the** priority. A Rust developer judges a framework in 10 minutes on: "does it
+compile fast, does the API read well, am I fighting the borrow checker, are the errors
+clear". Concrete decisions:
 
-### API : builders qui lisent bien + macros *optionnelles*
-- **Évitez `Box::new(...)` partout.** Fournissez des fonctions libres qui renvoient
-  `impl Widget<Msg>` et des méthodes builder chaînables. Le sweet spot (celui d'iced) :
+### API: builders that read well + *optional* macros
+- **Avoid `Box::new(...)` everywhere.** Provide free functions returning
+  `impl Widget<Msg>` and chainable builder methods. The sweet spot (iced's):
   ```rust
   column![
       text("Hello").size(24),
@@ -620,293 +603,292 @@ borrow checker, est-ce que les erreurs sont claires ». Décisions concrètes :
       row![checkbox("Enable", cfg.enabled).on_toggle(Msg::Toggle)].spacing(8),
   ].spacing(12).padding(16)
   ```
-  Les macros `row!`/`column!`/`stack!` ne font qu'emballer `vec![...]` en gérant le
-  `Box`/`into()` — **jamais** un DSL magique qui casse rust-analyzer. Un dev doit
-  pouvoir tout écrire en Rust pur *sans* macro s'il préfère.
-- **`into()` implicite** : `impl From<&str> for Text`, `impl From<T: Widget> for Element`
-  pour que les enfants s'écrivent sans cérémonie.
-- **`#[must_use]`** sur les widgets/commands, **newtypes** partout (`Spacing(f32)`,
-  `Radius(f32)`) — les devs Rust adorent que le type raconte l'intention.
+  The `row!`/`column!`/`stack!` macros only wrap `vec![...]`, handling the `Box`/`into()`
+  — **never** a magic DSL that breaks rust-analyzer. A developer must be able to write it
+  all in plain Rust *without* macros if they prefer.
+- **Implicit `into()`**: `impl From<&str> for Text`, `impl From<T: Widget> for Element`, so
+  children can be written without ceremony.
+- **`#[must_use]`** on widgets/commands, **newtypes** throughout (`Spacing(f32)`,
+  `Radius(f32)`) — Rust developers love a type that states the intent.
 
-### Le générique `Widget<Msg>` : la composition par `.map()` est **le** point vital
-C'est la friction n°1 d'Elm en Rust et **le** déverrouilleur de scalabilité. Un
-sous-composant émet son propre `ChildMsg` ; le parent le remappe :
+### The `Widget<Msg>` generic: composition through `.map()` is **the** vital point
+This is Elm-in-Rust's number one friction and **the** unlock for scalability. A
+sub-component emits its own `ChildMsg`; the parent remaps it:
 ```rust
 child.view().map(Msg::Child)   // Widget<ChildMsg> -> Widget<Msg>
 ```
-`Element::map` doit être **first-class, zéro-coût perçu, et documenté en page 1**. Sans
-lui, tout finit dans un « god enum » `Msg` ingérable. Avec lui, Frus compose comme iced.
-Vérifiez que `map` traverse aussi `on_edit`/gestures/subscriptions, pas seulement le clic.
+`Element::map` must be **first-class, perceived as zero-cost, and documented on page 1**.
+Without it, everything ends up in one unmanageable "god enum" `Msg`. With it, frus composes
+like iced. Check that `map` also traverses `on_edit`/gestures/subscriptions, not just
+clicks.
 
-### Zéro lutte avec le borrow checker (design par valeur)
-- **La `view` prend `&State` et rend une valeur possédée** ; les widgets sont `Copy`/
-  `Clone`-friendly ou construits à la volée. Jamais d'API qui force `Rc<RefCell<>>` côté
-  utilisateur.
-- **`paint(&self, …)`**, ids `Copy`, état retenu dans le shell (déjà votre modèle) →
-  l'utilisateur ne tient jamais de référence mutable dans un arbre. C'est *déjà* le bon
-  choix ; protégez-le comme un invariant d'API.
-- **Messages = `enum` + `#[derive(Clone, Debug)]`** ; l'exhaustivité du `match` dans
-  `update` est un **filet de sécurité que les devs Rust adorent** — le compilateur
-  interdit d'oublier un cas.
+### Zero fights with the borrow checker (a by-value design)
+- **The `view` takes `&State` and returns an owned value**; widgets are `Copy`/`Clone`
+  friendly or built on the fly. Never an API that forces `Rc<RefCell<>>` on the user.
+- **`paint(&self, …)`**, `Copy` ids, retained state in the shell (already your model) → the
+  user never holds a mutable reference into a tree. That is *already* the right call;
+  protect it as an API invariant.
+- **Messages = `enum` + `#[derive(Clone, Debug)]`**; the exhaustive `match` in `update` is a
+  **safety net Rust developers love** — the compiler forbids forgetting a case.
 
-### Compilation supportable (sinon vous perdez avant de commencer)
-- **Découpage en crates** (vous l'avez déjà : core/gpu/layout/text/widgets/shell) →
-  recompilation incrémentale ciblée. Gardez `frus-demo` **mince**.
-- **Feature flags par famille de widgets** (`features = ["forms", "nav", "data"]`) : un
-  dev ne compile que ce qu'il utilise → binaire *et* temps de compile réduits.
-- **Mode dev à liaison dynamique** (façon Bevy `dynamic_linking`) : une feature qui
-  charge `frus` en `.so`/`.dll` pour couper le temps de link en debug.
-- Documentez l'usage du **backend Cranelift** en debug et de `lld`/`mold` comme linker —
-  gains de temps de compile immédiats, très appréciés.
+### Bearable compile times (otherwise you lose before you start)
+- **Crate splitting** (you already have it: core/gpu/layout/text/widgets/shell) → targeted
+  incremental recompilation. Keep `frus-demo` **thin**.
+- **Feature flags per widget family** (`features = ["forms", "nav", "data"]`): a developer
+  compiles only what they use → smaller binary *and* shorter compiles.
+- **A dynamically-linked dev mode** (Bevy's `dynamic_linking` style): a feature that loads
+  `frus` as a `.so`/`.dll` to cut link time in debug.
+- Document using the **Cranelift backend** in debug and `lld`/`mold` as the linker —
+  immediate compile-time wins, and much appreciated.
 
-### rust-analyzer & découvrabilité
-- Types **concrets et nommés**, pas des `impl Trait` opaques partout dans les signatures
-  publiques critiques (l'autocomplétion et les messages d'erreur en pâtissent).
-- **Doc-tests exécutables** et `examples/` lançables par `cargo run --example gallery`.
-  Un dev Rust apprend par l'exemple compilable, pas par la prose.
-
----
-
-## 9. Composition & Elm à l'échelle (tuer le boilerplate)
-
-Elm est simple sur une petite app et **verbeux** sur une grande si on ne donne pas les
-outils. Ce qu'il faut fournir *en tant que framework* (pas laisser chaque dev réinventer) :
-
-- **Le pattern « composant » documenté et outillé** : `{ Model, Msg, update, view }` par
-  sous-partie, branché au parent via `child.update(msg)` + `child.view().map(Msg::Child)`.
-  Fournissez un **exemple canonique** (une app à 3 écrans) qui montre le remapping des
-  Msg et des Command — c'est la référence que les devs copieront.
-- **Namespacing des messages** : `enum Msg { Header(header::Msg), List(list::Msg), … }`
-  au lieu d'un enum plat de 200 variantes.
-- **Mémoïsation (`lazy`/`memo`)** : le talon d'Achille perf d'Elm est que `view` se
-  reconstruit entièrement chaque frame. Fournissez un `lazy(deps, || build_subtree())`
-  (comme `iced::widget::lazy`) qui **ne reconstruit un sous-arbre que si `deps` change** ;
-  combiné à votre réconciliation par `child_id`, ça borne le coût de rebuild. **À prévoir
-  tôt** — c'est ce qui rend les grosses listes/tableaux (vous avez déjà `table`, `tree`,
-  `list`) tenables.
-- **Reconnaître la tension « signals »** : Dioxus/Leptos/floem/Xilem vont vers la
-  réactivité fine (signaux) pour la perf et l'ergonomie. Frus a choisi Elm — **assumez-le**
-  (débogage prévisible, source unique, tests triviaux) et compensez la perf par
-  `lazy`+réconciliation, plutôt que d'hybridiser. Notez-le comme choix explicite, pas
-  comme oubli.
+### rust-analyzer & discoverability
+- **Concrete, named types**, not opaque `impl Trait` everywhere in the critical public
+  signatures (autocompletion and error messages suffer).
+- **Runnable doc-tests** and `examples/` launchable with `cargo run --example gallery`. A
+  Rust developer learns from a compilable example, not from prose.
 
 ---
 
-## 10. Async, effets & `Command` (indispensable aux vraies apps)
+## 9. Composition & Elm at scale (killing the boilerplate)
 
-Une app réelle fait de l'IO : réseau, disque, timers, sous-processus. Sans un modèle
-d'effets propre, Frus reste une démo. Le modèle Elm/iced :
+Elm is simple on a small app and **verbose** on a large one unless you supply the tools.
+What to provide *as a framework* (rather than letting every developer reinvent it):
 
-- **`Command<Msg>` intègre le futur** : `Command::perform(future, |result| Msg::…)`
-  exécute une `Future` **hors thread UI** et réinjecte un `Msg` au résultat. C'est le
-  seul pont autorisé du monde impur vers `update`.
-- **Runtime async pluggable** : ne vous mariez pas à tokio en dur. Un trait
-  `Executor` (impl pour tokio / async-std / smol / un pool maison) que le dev choisit à
-  `run(app, settings)`. Beaucoup de devs Rust ont *déjà* un runtime ; ne leur en imposez
-  pas un second.
-- **`Subscription<Msg>`** pour les flux longs : websocket, ticks d'horloge, événements
-  système, watch de fichiers. Déclarées dans `subscription(state)`, diffées par identité
-  (démarre/arrête quand elles apparaissent/disparaissent) — exactement le modèle iced,
-  et ça sert *aussi* votre pilote d'animation (§4).
-- **Annulation & batching** : `Command::batch([...])`, et une `Command` liée à un `id`
-  annulable (une requête qu'on abandonne si l'écran change). Sans annulation, les apps
-  fuient des tâches.
-- **Règle d'or** : `update` reste **pur et synchrone** ; tout le côté impur vit dans les
-  Command/Subscription exécutées par le shell. C'est ce qui garde `update` testable
-  (§13) — un avantage Elm que vous ne devez jamais sacrifier.
-
----
-
-## 11. Portée = marché : desktop, mobile, **web**, embarqué
-
-La portée, c'est l'adressable. Chaque plateforme manquante est un marché perdu.
-
-- **Web (wasm) — le plus gros différenciateur.** wgpu cible **WebGPU avec repli WebGL2**.
-  Un `view` Frus qui tourne dans le navigateur *sans réécriture* est un argument massif
-  (c'est ce qui a fait décoller Dioxus/Leptos). winit supporte le canvas web. Priorité
-  haute : ça multiplie l'audience et fait des démos partageables par URL (adoption).
-- **iOS** : vous avez **déjà Android** (rare et précieux — iced/egui y sont faibles).
-  Compléter par iOS fait de Frus **le** framework Rust « desktop + mobile beau », un
-  créneau quasi vide.
-- **Embarquer dans une app existante** : rendu dans une sous-fenêtre winit *ou* rendu
-  **offscreen vers une texture** que l'hôte compose. Ça ouvre le marché « une vue Frus
-  dans une app Qt/natif/jeu ».
-- **Multi-fenêtre** : plusieurs `Window`, une `Application` — nécessaire pour de vrais
-  outils desktop (palettes, inspecteurs).
-- **Embarqué/`no_std`** : probablement hors scope, mais **c'est là que Slint gagne**
-  (microcontrôleurs, IHM industrielles). Décidez consciemment de ne pas y aller — ou d'y
-  aller comme axe de conquête distinct.
-
-Chaque cible partage le même `view`/`update` : la portée est surtout un travail de
-**frus-shell** (le seam winit/plateforme) et de `frus-gpu` (backends wgpu), pas du code
-applicatif. C'est un avantage structurel — capitalisez dessus dans le marketing.
+- **A documented, tooled "component" pattern**: `{ Model, Msg, update, view }` per
+  sub-part, plugged into the parent through `child.update(msg)` +
+  `child.view().map(Msg::Child)`. Provide a **canonical example** (a three-screen app)
+  showing how Msg and Command are remapped — that is the reference developers will copy.
+- **Message namespacing**: `enum Msg { Header(header::Msg), List(list::Msg), … }` instead of
+  a flat 200-variant enum.
+- **Memoisation (`lazy`/`memo`)**: Elm's performance Achilles' heel is that `view` is
+  rebuilt entirely every frame. Provide a `lazy(deps, || build_subtree())` (like
+  `iced::widget::lazy`) that **only rebuilds a subtree when `deps` changes**; combined with
+  your `child_id` reconciliation, that bounds the rebuild cost. **Plan it early** — it is
+  what keeps large lists/tables (you already have `table`, `tree`, `list`) tractable.
+- **Acknowledge the "signals" tension**: Dioxus/Leptos/floem/Xilem are moving towards
+  fine-grained reactivity (signals) for performance and ergonomics. frus chose Elm — **own
+  it** (predictable debugging, a single source of truth, trivial tests) and compensate on
+  performance with `lazy` + reconciliation, rather than hybridising. Record it as an
+  explicit choice, not an oversight.
 
 ---
 
-## 12. Ingénierie de performance (au-delà du pipeline §1)
+## 10. Async, effects & `Command` (indispensable for real apps)
 
-Le pipeline de phases (§1) donne le *quand recalculer*. Voici le *comment dessiner vite* —
-ce qui fait la fluidité perçue et « démarre/scrolle sans jank » :
+A real app does IO: network, disk, timers, subprocesses. Without a clean effect model, frus
+stays a demo. The Elm/iced model:
 
-- **Batching GPU / minimiser les draw calls.** Regroupez les quads en **un seul buffer
-  instancié** par pipeline (rects arrondis, ombres, glyphes). Une UND typique doit tenir
-  en une poignée de draw calls, pas un par widget. Vos primitives de scène (§5) doivent
-  être conçues pour l'instancing dès le départ.
-- **Atlas de glyphes.** glyphon gère déjà un atlas ; assurez-vous de **ne pas re-shaper**
-  un texte inchangé (cache par `(texte, style, largeur)` → `TextLayout`). Le texte est
-  souvent le poste n°1 en CPU.
-- **Régions de dommage (damage/scissor).** Couplé aux frontières de repeinture (§1) :
-  ne re-rendez que le **rect sale** via un scissor rect wgpu. Un curseur qui clignote ne
-  doit pas re-dessiner l'écran.
-- **Zéro alloc par frame** sur le chemin chaud : bump-arena réinitialisée chaque frame
-  pour l'arbre `view` (contre le churn Elm noté au but 2), buffers GPU réutilisés.
-- **Budget de frame explicite** (16,6 ms @60 Hz, 8,3 ms @120 Hz) et **profilage
-  intégré** (`tracy`/`puffin` derrière une feature). Un framework qui gagne se *mesure*.
-- **Harnais de benchmark reproductible** : rendu **offscreen + readback pixel** (vous
-  avez déjà ce pattern côté WSL/llvmpipe) → golden perf + non-régression en CI.
-
----
-
-## 13. Tests, tooling & hot-reload — la DX qui fait gagner
-
-C'est souvent ce qui *décide* l'adoption, à moteur égal.
-
-- **`update` pur = tests unitaires triviaux** (avantage Elm massif) : `assert_eq!(
-  update(state, Msg::Increment).0, expected)` sans GPU ni fenêtre. **Mettez ça en avant** ;
-  c'est un argument que ni egui ni gpui n'ont aussi propre.
-- **Tests de rendu headless (golden/snapshot)** : rendu offscreen → comparaison d'image
-  de référence, tolérance de pixels. Vous avez déjà l'infra WSL/offscreen — packagez-la
-  en `frus-test`.
-- **Hot-reload** : la faiblesse identifiée (but 4). Deux leviers, à combiner :
-  1. **Rechargement préservant l'état** — Elm rend ça *plus facile* que partout ailleurs :
-     l'état est **une struct unique** ; sérialisez-la (serde), rechargez la lib, ré-hydratez.
-     Regardez `hot-lib-reloader` et surtout **`subsecond`** (le hot-patching Rust de
-     Dioxus) — c'est l'état de l'art et ça marche avec du Rust pur.
-  2. **Live preview** de la `view` (façon Slint) : un mode où éditer `view` recharge sans
-     relancer. Combiné à (1), vous approchez l'itération Flutter.
-- **Inspector runtime** : exposez le **dump diagnostique** (§2) en overlay (arbre + rects
-  + ids + état retenu). Un dev qui *voit* pourquoi son identité casse au réordonnancement
-  reste. C'est peu de code pour un énorme retour.
-- **`cargo`-natif** : `cargo new --template frus-app`, `cargo run`, `cargo test` marchent
-  sans outil externe. Le dev Rust ne veut pas d'un CLI propriétaire (le péché de certains
-  concurrents). Restez dans cargo autant que possible.
+- **`Command<Msg>` embeds the future**: `Command::perform(future, |result| Msg::…)` runs a
+  `Future` **off the UI thread** and injects a `Msg` back with the result. It is the only
+  sanctioned bridge from the impure world into `update`.
+- **A pluggable async runtime**: do not marry tokio. An `Executor` trait (implemented for
+  tokio / async-std / smol / a homemade pool) that the developer picks at
+  `run(app, settings)`. Many Rust developers *already* have a runtime; do not impose a
+  second one.
+- **`Subscription<Msg>`** for long-lived streams: websockets, clock ticks, system events,
+  file watching. Declared in `subscription(state)`, diffed by identity (started/stopped as
+  they appear/disappear) — exactly iced's model, and it *also* serves your animation driver
+  (§4).
+- **Cancellation & batching**: `Command::batch([...])`, plus a `Command` bound to a
+  cancellable `id` (a request you abandon when the screen changes). Without cancellation,
+  apps leak tasks.
+- **The golden rule**: `update` stays **pure and synchronous**; everything impure lives in
+  the Commands/Subscriptions the shell runs. That is what keeps `update` testable (§13) —
+  an Elm advantage you must never sacrifice.
 
 ---
 
-## 14. i18n / l10n / RTL / accessibilité (approfondi)
+## 11. Reach = market: desktop, mobile, **web**, embedded
 
-- **RTL & bidi** : la base directionnelle est prévue (§5, `EdgeInsetsDirectional::resolve`).
-  Étendez au **miroir de layout** (row inversée en RTL) et au **texte bidi** (cosmic-text
-  le gère — exposez-le). Un `TextDirection` dans l'`Env` (§2) propagé au paint.
-- **Localisation** : intégrez **Fluent** (`fluent-rs`, le standard i18n Rust de Mozilla)
-  pour les messages, et les formats nombres/dates/pluriels par locale. Ne réinventez pas.
-- **Accessibilité : adoptez AccessKit — ne réinventez PAS.** `AccessKit` est le standard
-  Rust cross-plateforme d'a11y (UIA Windows, AT-SPI Linux, macOS, et un provider Android/
-  web) ; **egui, Slint, Xilem et Bevy l'utilisent déjà**. Vous mappez votre annotation
-  sémantique par widget (§6 : role/label/value/actions) vers l'arbre AccessKit, et il
-  parle aux lecteurs d'écran natifs. C'est *le* raccourci pour une a11y crédible et un
-  **argument de conformité** (marché entreprise/public). Bakez le hook `label` dans les
-  widgets **dès maintenant** (§6) ; branchez AccessKit ensuite.
+Reach is the addressable market. Every missing platform is a lost one.
 
----
+- **Web (wasm) — the biggest differentiator.** wgpu targets **WebGPU with a WebGL2
+  fallback**. A frus `view` running in the browser *without a rewrite* is a massive
+  argument (it is what made Dioxus/Leptos take off). winit supports the web canvas. High
+  priority: it multiplies the audience and makes demos shareable by URL (adoption).
+- **iOS**: you **already have Android** (rare and valuable — iced/egui are weak there).
+  Adding iOS makes frus **the** "beautiful desktop + mobile" Rust framework, a nearly empty
+  niche.
+- **Embedding inside an existing app**: render into a winit sub-window *or* render
+  **offscreen into a texture** the host composites. That opens the "a frus view inside a
+  Qt/native/game app" market.
+- **Multi-window**: several `Window`s, one `Application` — necessary for real desktop tools
+  (palettes, inspectors).
+- **Embedded/`no_std`**: probably out of scope, but **that is where Slint wins**
+  (microcontrollers, industrial HMIs). Decide consciously not to go there — or to go there
+  as a distinct line of attack.
 
-## 15. Distribution & packaging (la dernière ligne droite avant l'utilisateur)
-
-- **Binaire unique, sans runtime à installer** (contre Electron/Tauri-webview) — argument
-  de vente : « un `.exe`/`.app` autonome de quelques Mo ». Assumez le poids wgpu (but 3),
-  mais restez sous Flutter.
-- **Bundling par plateforme** : `cargo-apk` (déjà, Android), `cargo-bundle`/`cargo-dist`
-  pour `.app`/`.msi`/`.deb`/AppImage, wasm-bindgen + trunk pour le web. Documentez une
-  commande par cible.
-- **Assets embarqués** (polices, images, i18n) via `include_bytes!`/`rust-embed` → **zéro
-  fichier externe**, démarrage déterministe (et ça sert le but 3 : ne jamais scanner les
-  polices système).
-- **Taille** : `opt-level="z"`/`s`, `lto=true`, `strip=true`, `panic="abort"` en release ;
-  documentez un profil « minimal ». Publiez les chiffres (un « hello world » à N Mo) —
-  la transparence sur la taille rassure.
+Every target shares the same `view`/`update`: reach is mostly work in **frus-shell** (the
+winit/platform seam) and `frus-gpu` (the wgpu backends), not in application code. That is a
+structural advantage — capitalise on it in the messaging.
 
 ---
 
-## 16. Positionnement : comment Frus gagne le marché Rust UI
+## 12. Performance engineering (beyond the §1 pipeline)
 
-**Le piège** : viser Flutter. Le marché adressable de Frus, ce sont les devs **Rust** qui
-choisissent un toolkit UI *aujourd'hui*. Les vrais concurrents :
+The phase pipeline (§1) gives you the *when to recompute*. Here is the *how to draw fast* —
+what makes for perceived smoothness and "starts and scrolls without jank":
 
-| Framework | Modèle | Rendu | Forces | Faiblesses (la brèche de Frus) |
+- **GPU batching / minimising draw calls.** Group quads into **a single instanced buffer**
+  per pipeline (rounded rects, shadows, glyphs). A typical UI should fit in a handful of
+  draw calls, not one per widget. Your scene primitives (§5) must be designed for
+  instancing from the start.
+- **A glyph atlas.** glyphon already manages one; make sure you **do not re-shape**
+  unchanged text (cache by `(text, style, width)` → `TextLayout`). Text is often the number
+  one CPU cost.
+- **Damage regions (scissor).** Coupled with repaint boundaries (§1): re-render only the
+  **dirty rect** through a wgpu scissor rect. A blinking caret must not redraw the screen.
+- **Zero allocation per frame** on the hot path: a bump arena reset every frame for the
+  `view` tree (against the Elm churn noted in goal 2), reused GPU buffers.
+- **An explicit frame budget** (16.6 ms @60 Hz, 8.3 ms @120 Hz) and **built-in profiling**
+  (`tracy`/`puffin` behind a feature). A framework that wins *measures* itself.
+- **A reproducible benchmark harness**: **offscreen rendering + pixel readback** (you
+  already have that pattern on the WSL/llvmpipe side) → perf goldens and non-regression in
+  CI.
+
+---
+
+## 13. Tests, tooling & hot reload — the DX that wins
+
+At equal engines, this is often what *decides* adoption.
+
+- **A pure `update` = trivial unit tests** (a massive Elm advantage):
+  `assert_eq!(update(state, Msg::Increment).0, expected)` with no GPU and no window.
+  **Lead with this**; it is an argument neither egui nor gpui has as cleanly.
+- **Headless render tests (golden/snapshot)**: render offscreen → compare against a
+  reference image, with a pixel tolerance. You already have the WSL/offscreen
+  infrastructure — package it as `frus-test`.
+- **Hot reload**: the identified weakness (goal 4). Two levers, to be combined:
+  1. **State-preserving reload** — Elm makes this *easier* than anywhere else: the state is
+     **a single struct**; serialise it (serde), reload the library, rehydrate.
+     Look at `hot-lib-reloader` and especially **`subsecond`** (Dioxus's Rust hot patching)
+     — that is the state of the art and it works with plain Rust.
+  2. **Live preview** of the `view` (Slint style): a mode where editing `view` reloads
+     without a restart. Combined with (1), you close in on best-in-class iteration speed.
+- **A runtime inspector**: expose the **diagnostic dump** (§2) as an overlay (tree + rects +
+  ids + retained state). A developer who can *see* why their identity breaks on reorder
+  stays. Little code, enormous return.
+- **Cargo-native**: `cargo new --template frus-app`, `cargo run`, `cargo test` all work with
+  no external tool. Rust developers do not want a proprietary CLI (the sin of some
+  competitors). Stay inside cargo as much as possible.
+
+---
+
+## 14. i18n / l10n / RTL / accessibility (in depth)
+
+- **RTL & bidi**: the directional base is planned (§5, `EdgeInsetsDirectional::resolve`).
+  Extend it to **layout mirroring** (a row reversed in RTL) and **bidi text** (cosmic-text
+  handles it — expose it). A `TextDirection` in the `Env` (§2), propagated to paint.
+- **Localisation**: integrate **Fluent** (`fluent-rs`, Mozilla's Rust i18n standard) for
+  messages, plus per-locale number/date/plural formats. Do not reinvent it.
+- **Accessibility: adopt AccessKit — do NOT reinvent it.** AccessKit is the cross-platform
+  Rust a11y standard (UIA on Windows, AT-SPI on Linux, macOS, plus Android/web providers);
+  **egui, Slint, Xilem and Bevy already use it**. You map your per-widget semantic
+  annotation (§6: role/label/value/actions) onto the AccessKit tree, and it talks to the
+  native screen readers. That is *the* shortcut to credible a11y and a **compliance
+  argument** (the enterprise/public-sector market). Bake the `label` hook into the widgets
+  **right now** (§6); wire AccessKit up afterwards.
+
+---
+
+## 15. Distribution & packaging (the last stretch before the user)
+
+- **A single binary, no runtime to install** (against Electron/Tauri-webview) — a selling
+  point: "a self-contained `.exe`/`.app` of a few MB". Accept the wgpu weight (goal 3), but
+  stay well under the mainstream cross-platform toolkits.
+- **Per-platform bundling**: `cargo-apk` (already, for Android), `cargo-bundle`/`cargo-dist`
+  for `.app`/`.msi`/`.deb`/AppImage, wasm-bindgen + trunk for the web. Document one command
+  per target.
+- **Embedded assets** (fonts, images, i18n) through `include_bytes!`/`rust-embed` → **zero
+  external files**, deterministic startup (and it serves goal 3: never scan the system
+  fonts).
+- **Size**: `opt-level="z"`/`s`, `lto=true`, `strip=true`, `panic="abort"` in release;
+  document a "minimal" profile. Publish the numbers (a "hello world" at N MB) —
+  transparency about size reassures.
+
+---
+
+## 16. Positioning: how frus wins the Rust UI market
+
+**The trap**: aiming at the big cross-platform toolkits. frus's addressable market is the
+**Rust** developers choosing a UI toolkit *today*. The real competitors:
+
+| Framework | Model | Rendering | Strengths | Weaknesses (frus's opening) |
 |---|---|---|---|---|
-| **iced** | **Elm** (le + proche !) | wgpu | Mature, propre, cross-desktop | Austère, **mobile faible**, peu de design system, peu de widgets riches |
-| **egui** | Immédiat | wgpu/gl | Ultra-simple, roi des outils/jeux | Non-retenu, style limité, pas « app grand public » |
-| **Slint** | DSL `.slint` | maison/Skia | **Live preview**, embarqué, tooling | Langage propriétaire (pas Rust pur), licence commerciale |
-| **Dioxus** | React/RSX + signaux | webview/wgpu(Blitz) | **Hot reload**, web/mobile, familier | Rendu natif jeune, pas Elm |
-| **gpui** (Zed) | Impératif retenu | GPU maison | **Perf extrême**, prouvé par Zed | Peu documenté/ouvert, courbe raide |
-| **Xilem** | Réactif (diff) | Vello/wgpu | Backing Linebender, futur | Expérimental, API mouvante |
-| **floem / Makepad / Freya** | Signaux / DSL shader / Skia+Dioxus | divers | Niches (éditeurs, design live) | Petits écosystèmes |
+| **iced** | **Elm** (the closest!) | wgpu | Mature, clean, cross-desktop | Austere, **weak on mobile**, little design system, few rich widgets |
+| **egui** | Immediate | wgpu/gl | Ultra-simple, king of tools/games | Not retained, limited styling, not "consumer app" material |
+| **Slint** | A `.slint` DSL | in-house/Skia | **Live preview**, embedded, tooling | A proprietary language (not plain Rust), commercial licence |
+| **Dioxus** | React/RSX + signals | webview/wgpu (Blitz) | **Hot reload**, web/mobile, familiar | Young native rendering, not Elm |
+| **gpui** (Zed) | Imperative retained | In-house GPU | **Extreme performance**, proven by Zed | Thinly documented/open, steep curve |
+| **Xilem** | Reactive (diff) | Vello/wgpu | Linebender backing, the future | Experimental, API in flux |
+| **floem / Makepad / Freya** | Signals / shader DSL / Skia+Dioxus | various | Niches (editors, live design) | Small ecosystems |
 
-**Le créneau vide que Frus occupe :** *« iced, mais avec un vrai design system Material 3,
-des animations physiques, et le mobile qui marche »*. Vous avez **déjà** trois wedges que
-peu ont réunis :
-1. **Android fonctionnel** (Jalon 50) — iced/egui/Slint-pur y sont faibles.
-2. **61 widgets** dont des riches (table, tree, datepicker, carousel, autocomplete) —
-   large *avant* les autres.
-3. **Theming structuré + animations à ressort** — la voie vers un défaut *magnifique*.
+**The empty slot frus occupies:** *"iced, but with a real Material 3 design system,
+physical animations, and mobile that works"*. You **already** have three wedges few have
+combined:
+1. **Working Android** (milestone 50) — iced/egui/pure-Slint are weak there.
+2. **61 widgets**, including rich ones (table, tree, date picker, carousel, autocomplete) —
+   broad *before* the others.
+3. **Structured theming + spring animations** — the road to a *beautiful* default.
 
-**Ce qu'il faut ajouter pour transformer l'essai (par ordre d'impact sur l'adoption) :**
-1. **Un défaut visuellement superbe, sans config** (thème M3 §5 + animations §4). La
-   première capture d'écran décide. C'est le levier marketing n°1.
-2. **Web (wasm)** (§11) — démos partageables par URL = adoption virale.
-3. **DX : hot-reload + compile rapide + `cargo`-natif** (§8, §13) — la friction qui fait
-   fuir.
-4. **iOS** (§11) — verrouille le créneau « le framework Rust desktop+mobile ».
-5. **AccessKit + i18n** (§14) — débloque le marché entreprise/public.
-6. **Docs + galerie d'exemples + `cargo new` template** (§8) — la porte d'entrée.
+**What to add to convert (in order of impact on adoption):**
+1. **A visually superb default, with no configuration** (the M3 theme §5 + the animations
+   §4). The first screenshot decides. That is marketing lever number one.
+2. **Web (wasm)** (§11) — demos shareable by URL = viral adoption.
+3. **DX: hot reload + fast compiles + cargo-native** (§8, §13) — the friction that drives
+   people away.
+4. **iOS** (§11) — locks in the "the Rust desktop+mobile framework" slot.
+5. **AccessKit + i18n** (§14) — unlocks the enterprise/public-sector market.
+6. **Docs + an example gallery + a `cargo new` template** (§8) — the front door.
 
-**Honnêteté stratégique** : on ne « gagne » pas en battant *tout le monde partout*. On
-gagne en **dominant un créneau** : *belles apps Rust, desktop + mobile + web, sans GC,
-démarrage instantané, design par défaut premium.* C'est défendable, c'est vide, et vos
-buts 2 et 3 (mémoire, légèreté/démarrage) en sont la preuve technique. Le reste de la
-Partie II est la liste de ce qui manque pour *tenir* ce créneau.
-
----
-
-## 17. Synthèse stratégique — les 3 piliers & la roadmap consolidée
-
-**Les 3 piliers différenciateurs** (à ne jamais diluer) :
-- **Pilier A — Performance native honnête** : sans GC, démarrage instantané (polices
-  bundlées, init GPU paresseuse), empreinte maîtrisée, 120 Hz sans jank. *(buts 2 & 3 ;
-  §1, §12, §15)*
-- **Pilier B — Le plus beau des toolkits Rust, sans effort** : design M3 par défaut,
-  animations physiques, 61+ widgets polis. *(§4, §5)*
-- **Pilier C — Le seul « desktop + mobile + web » Rust confortable** : Android déjà là,
-  puis iOS + wasm, sur un `view`/`update` partagé, avec une DX qui ne fait pas fuir.
-  *(§8, §10, §11, §13)*
-
-**Ordre consolidé** (fusionne la roadmap §7 avec la Partie II) :
-1. **Fondations moteur** (Bloc A du §7) — phases/dirty, cache relayout, pilote d'animation.
-2. **DX minimale qui retient** — `.map()` first-class (§8), `lazy`/memo (§9), `Command`
-   async + `Subscription` (§10), inspector + tests headless (§13). *Sans ça, personne ne
-   reste, quel que soit le moteur.*
-3. **Design par défaut premium** — thème M3, primitives de scène (rrect/ombre/gradient),
-   `BoxDecoration`, `TextLayout` (§5) + animations généralisées (§4). *Le pilier B, votre
-   marketing.*
-4. **Entrée & mouvement** — gestes paliers 0→1, scrolling physique (§3, §6).
-5. **Portée** — web/wasm d'abord (adoption), puis iOS ; multi-fenêtre, embedding (§11).
-6. **Confiance & conformité** — AccessKit, i18n Fluent, focus/clavier (§14, §6).
-7. **Distribution** — bundling par cible, template `cargo new`, galerie d'exemples,
-   binaire minimal chiffré (§15, §8).
-8. **Hot-reload state-preserving** (`subsecond`) — le coup de grâce sur le but 4 (§13).
-
-**À différer sans culpabilité** : vraie arène de gestes (imbrications), signals, slivers
-paresseux, `from_seed` HCT, `no_std`/embarqué, arbre sémantique complet au-delà d'AccessKit.
+**Strategic honesty**: you do not "win" by beating *everyone everywhere*. You win by
+**dominating one slot**: *beautiful Rust apps, desktop + mobile + web, no GC, instant
+startup, a premium default design.* That is defensible, it is empty, and goals 2 and 3
+(memory, lightness/startup) are its technical proof. The rest of Part II is the list of what
+is missing to *hold* that slot.
 
 ---
 
-## Annexe — à NE PAS copier de Flutter (récapitulatif)
-- `StatefulWidget`/`State`/lifecycle, `GlobalKey`, `InheritedWidget` + graphe de
-  dépendances, `ChangeNotifier`/`ValueNotifier` comme état d'app → **Elm les remplace**.
-- Les maths flex/grid `performLayout` → **taffy**.
-- Le walking `markNeeds*` d'un arbre à pointeurs parents mutables → **arène/slotmap +
-  listes dirty d'`Id`**.
-- La double voie `RawKeyEvent`/`KeyEventManager` (dépréciée) → modèle KeyEvent unique.
-- Slivers paresseux → différer jusqu'à ce que le coût du layout-complet-au-scroll morde.
-- La ré-entrance `scheduleMicrotask` (arène) → fonctions **pures renvoyant les outcomes**,
-  drainées après l'emprunt.
+## 17. Strategic synthesis — the 3 pillars & the consolidated roadmap
+
+**The 3 differentiating pillars** (never to be diluted):
+- **Pillar A — honest native performance**: no GC, instant startup (bundled fonts, lazy GPU
+  init), a controlled footprint, 120 Hz without jank. *(goals 2 & 3; §1, §12, §15)*
+- **Pillar B — the most beautiful Rust toolkit, effortlessly**: M3 design by default,
+  physical animations, 61+ polished widgets. *(§4, §5)*
+- **Pillar C — the only comfortable "desktop + mobile + web" Rust option**: Android already
+  there, then iOS + wasm, on a shared `view`/`update`, with a DX that does not drive people
+  away. *(§8, §10, §11, §13)*
+
+**The consolidated order** (merging the §7 roadmap with Part II):
+1. **Engine foundations** (block A of §7) — phases/dirty lists, the relayout cache, the
+   animation driver.
+2. **The minimum DX that retains people** — first-class `.map()` (§8), `lazy`/memo (§9),
+   async `Command` + `Subscription` (§10), the inspector + headless tests (§13). *Without
+   these, nobody stays, whatever the engine.*
+3. **A premium default design** — the M3 theme, the scene primitives
+   (rrect/shadow/gradient), `BoxDecoration`, `TextLayout` (§5) + generalised animations
+   (§4). *Pillar B, your marketing.*
+4. **Input & motion** — gesture tiers 0→1, physical scrolling (§3, §6).
+5. **Reach** — web/wasm first (adoption), then iOS; multi-window, embedding (§11).
+6. **Trust & compliance** — AccessKit, Fluent i18n, focus/keyboard (§14, §6).
+7. **Distribution** — per-target bundling, a `cargo new` template, an example gallery, a
+   measured minimal binary (§15, §8).
+8. **State-preserving hot reload** (`subsecond`) — the finishing blow on goal 4 (§13).
+
+**Deferrable without guilt**: the real gesture arena (nesting), signals, lazy slivers, HCT
+`from_seed`, `no_std`/embedded, a full semantics tree beyond AccessKit.
+
+---
+
+## Appendix — what NOT to copy from the prior art (recap)
+- Stateful widgets with their own `State`/lifecycle, global keys, ambient-dependency
+  widgets and their dependency graph, observable notifiers as app state → **Elm replaces
+  them**.
+- The flex/grid `performLayout` maths → **taffy**.
+- The `markNeeds*` walk over a tree of mutable parent pointers → **an arena/slotmap +
+  dirty lists of `Id`**.
+- The dual (deprecated) raw-key-event path → one key event model.
+- Lazy slivers → defer until the cost of full-layout-on-scroll bites.
+- Arena re-entrancy through microtask scheduling → **pure functions returning the
+  outcomes**, drained after the borrow ends.
