@@ -5,7 +5,7 @@
 //! A minimal app implements `update` and `view` and nothing else. Every other method
 //! has a default: a fixed dark theme, no animation, no navigation.
 
-use frus_widgets::{Theme, Widget, WindowInsets};
+use frus_widgets::{ScrollPhysics, Theme, Widget, WindowInsets};
 
 use crate::command::Command;
 use crate::subscription::Subscription;
@@ -80,6 +80,16 @@ pub trait Application {
     /// 20%, `0.9` tightens it. It can change at runtime through the state.
     fn density(&self) -> f32 {
         1.0
+    }
+
+    /// How the app's scrollables behave at their edges and after a fling.
+    ///
+    /// The default is what the running platform does — bouncing where the system
+    /// scroll views bounce, clamping elsewhere — so an app that says nothing feels
+    /// native on each target. Override it to pin one behaviour everywhere; an
+    /// individual [`frus_widgets::Scroll`] can still ask for its own.
+    fn scroll_physics(&self) -> ScrollPhysics {
+        ScrollPhysics::platform_default()
     }
 
     /// Called when the surface's **logical** size changes, whether the window was

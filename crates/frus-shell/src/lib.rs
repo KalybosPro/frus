@@ -37,7 +37,7 @@ pub use net::{fetch, FetchError, Method, Request};
 
 /// Re-export: size classes and orientation, so the application can drive its own
 /// responsive behaviour.
-pub use frus_widgets::{Orientation, SizeClass};
+pub use frus_widgets::{Orientation, ScrollPhysics, SizeClass};
 
 /// Re-export of the Android entry type (supplied by `winit` / `android-activity`),
 /// so an application can type its `android_main` without depending on winit.

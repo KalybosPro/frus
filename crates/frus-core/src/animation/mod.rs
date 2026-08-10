@@ -21,7 +21,8 @@ mod tween;
 pub use controller::{AnimationController, Status};
 pub use curve::Curve;
 pub use simulation::{
-    ClampedSimulation, FrictionSimulation, Simulation, SpringDescription, SpringSimulation,
-    Tolerance,
+    BouncingScrollSimulation, ClampedSimulation, ClampingScrollSimulation, FrictionSimulation,
+    Simulation, SpringDescription, SpringSimulation, Tolerance, BOUNCING_DRAG, CLAMPING_FRICTION,
+    MAX_SPRING_TRANSFER_VELOCITY,
 };
 pub use tween::{Animatable, Animation, Curved, Lerp, Tween, TweenSequence};

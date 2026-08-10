@@ -169,6 +169,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.scroll_axis()
     }
 
+    fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
+        self.inner.scroll_physics()
+    }
+
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         self.inner.overlay()
     }

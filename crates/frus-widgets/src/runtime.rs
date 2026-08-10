@@ -8,10 +8,12 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Rect, Size};
+use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Rect, Simulation, Size};
 
 use crate::interaction::{InputState, WidgetId};
+use crate::physics::{Ballistic, ScrollPhysics};
 use crate::relayout::LayoutCache;
+use crate::ui::Scrollable;
 
 /// Scroll offsets `(x, y)`, per scrollable region.
 pub type ScrollState = HashMap<WidgetId, (f32, f32)>;
@@ -43,6 +45,36 @@ impl Edit {
 /// **Default** transition duration, in seconds. A widget can set its own through
 /// [`crate::widget::Widget::anim_duration`].
 pub(crate) const ANIM_DURATION: f32 = 0.12;
+
+/// The fling in flight on one scroll region: one simulation per axis, and the time
+/// elapsed since the finger let go.
+///
+/// The two axes share a clock — they were launched by the same gesture — and either
+/// may be `None`, since a fling usually runs on one axis only. The whole thing is
+/// `Copy`, so sampling it costs no allocation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScrollBallistic {
+    pub x: Option<Ballistic>,
+    pub y: Option<Ballistic>,
+    /// Seconds since the release.
+    pub elapsed: f32,
+}
+
+impl ScrollBallistic {
+    /// A fling on both axes at once (either may be `None`), starting now.
+    pub fn new(x: Option<Ballistic>, y: Option<Ballistic>) -> Self {
+        Self {
+            x,
+            y,
+            elapsed: 0.0,
+        }
+    }
+
+    /// Is there anything left to run?
+    pub fn is_empty(&self) -> bool {
+        self.x.is_none() && self.y.is_none()
+    }
+}
 
 /// Stiffness of the scroll spring (px·s⁻²).
 const SCROLL_K: f32 = 200.0;
@@ -289,6 +321,10 @@ pub struct Runtime {
     pub scroll_target: ScrollState,
     /// Scroll velocity (for the spring), per region.
     pub scroll_velocity: ScrollState,
+    /// The **ballistic** motion still running after a fling, per region — the
+    /// simulation the platform's physics handed us, sampled frame by frame by
+    /// [`Runtime::advance_scroll`]. Absent = no fling in flight.
+    pub scroll_ballistic: HashMap<WidgetId, ScrollBallistic>,
     /// Retained transform (scale + translation) of each
     /// [`InteractiveViewer`](crate::InteractiveViewer), per viewport. Absent =
     /// identity (scale 1, no translation).
@@ -762,19 +798,40 @@ impl Runtime {
         animating
     }
 
-    /// Drives every **current** scroll offset towards its **target** through a
-    /// spring (smooth scrolling), with an elastic pull at the edges (the bounce).
-    /// `maxes` supplies `(max_x, max_y)` per region (from the last frame).
-    /// Returns `true` if a scroll is still moving.
-    pub fn advance_scroll(&mut self, maxes: &[(WidgetId, f32, f32)], dt: f32) -> bool {
-        let ids: Vec<WidgetId> = self.scroll_target.keys().copied().collect();
+    /// Advances every scroll region by `dt`, and returns `true` if any is still
+    /// moving.
+    ///
+    /// Two motions live here, and they are not the same thing:
+    ///
+    /// - a **fling**, when the finger let go with speed: the region's physics built
+    ///   a simulation ([`ScrollBallistic`]), and we sample it. This is where the
+    ///   platform's feel lives — spline deceleration that stops at the edge, or
+    ///   friction that hands over to a spring and bounces.
+    /// - a **glide to a target**, for the discrete inputs (the wheel, a programmatic
+    ///   scroll): a spring eases the offset across to where it was asked to go.
+    ///
+    /// A fling wins while it runs: it drives the offset directly and keeps the
+    /// target in step, so the spring has nothing to pull against.
+    ///
+    /// `regions` describes the scrollables of the last frame; `default` is the
+    /// application's physics, used by every region that did not ask for its own.
+    pub fn advance_scroll(&mut self, regions: &[Scrollable], default: ScrollPhysics, dt: f32) -> bool {
         let mut animating = false;
+        let ballistic_ids: Vec<WidgetId> = self.scroll_ballistic.keys().copied().collect();
+        for id in ballistic_ids {
+            if self.advance_ballistic(id, regions, default, dt) {
+                animating = true;
+            }
+        }
+
+        let ids: Vec<WidgetId> = self.scroll_target.keys().copied().collect();
         for id in ids {
-            let (max_x, max_y) = maxes
-                .iter()
-                .find(|(i, _, _)| *i == id)
-                .map(|(_, x, y)| (*x, *y))
-                .unwrap_or((0.0, 0.0));
+            // Under a fling this region's offset is already settled for the frame.
+            if self.scroll_ballistic.contains_key(&id) {
+                continue;
+            }
+            let area = regions.iter().find(|area| area.id == id);
+            let (max_x, max_y) = area.map(|a| (a.max_x, a.max_y)).unwrap_or((0.0, 0.0));
             let current = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
             let target = self.scroll_target.get(&id).copied().unwrap_or(current);
             let vel = self.scroll_velocity.get(&id).copied().unwrap_or((0.0, 0.0));
@@ -794,6 +851,126 @@ impl Runtime {
             }
         }
         animating
+    }
+
+    /// Samples one region's fling for this frame. Returns `true` while it runs.
+    ///
+    /// An axis ends either because its simulation says so, or because it hit an edge
+    /// the physics does not let it cross — under clamping physics the simulation
+    /// knows nothing of the bounds, so reaching one **stops that axis dead**, which
+    /// is exactly the behaviour a platform without a bounce wants.
+    fn advance_ballistic(
+        &mut self,
+        id: WidgetId,
+        regions: &[Scrollable],
+        default: ScrollPhysics,
+        dt: f32,
+    ) -> bool {
+        let Some(mut fling) = self.scroll_ballistic.get(&id).copied() else {
+            return false;
+        };
+        // A region that vanished from the frame (a route changed under the fling)
+        // has nothing left to move.
+        let Some(area) = regions.iter().find(|area| area.id == id).copied() else {
+            self.scroll_ballistic.remove(&id);
+            return false;
+        };
+        let physics = area.physics_or(default);
+        fling.elapsed += dt;
+        let t = fling.elapsed;
+        let current = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+
+        let axis = |sim: &mut Option<Ballistic>, previous: f32, max: f32| -> f32 {
+            let Some(active) = sim.as_ref() else {
+                return previous;
+            };
+            let mut position = active.x(t);
+            let mut finished = active.is_done(t);
+            if !physics.allows_overscroll() {
+                let pinned = position.clamp(0.0, max);
+                // Hitting the edge is the end of the motion, not a pause at it.
+                finished |= pinned != position;
+                position = pinned;
+            }
+            if finished {
+                *sim = None;
+            }
+            position
+        };
+
+        let x = axis(&mut fling.x, current.0, area.max_x);
+        let y = axis(&mut fling.y, current.1, area.max_y);
+        self.scroll.insert(id, (x, y));
+        // The glide-to-target path must not fight the fling, nor yank the offset
+        // back when the fling ends.
+        self.scroll_target.insert(id, (x, y));
+        self.scroll_velocity.remove(&id);
+
+        if fling.is_empty() {
+            self.scroll_ballistic.remove(&id);
+            self.scroll_target.remove(&id);
+            false
+        } else {
+            self.scroll_ballistic.insert(id, fling);
+            true
+        }
+    }
+
+    /// Launches a fling on `area` from the release `velocity` (px/s, in scroll
+    /// space), under `physics`. A release too slow to fling leaves any overscroll to
+    /// be sprung back, and otherwise does nothing.
+    pub fn fling_scroll(
+        &mut self,
+        area: Scrollable,
+        physics: ScrollPhysics,
+        velocity: (f32, f32),
+    ) -> bool {
+        let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+        let min_velocity = physics.min_fling_velocity();
+        // Below the threshold the gesture was not a fling — but an offset left out
+        // of range still has to come home, so the physics is asked either way, with
+        // a velocity of zero.
+        let vx = if velocity.0.abs() >= min_velocity {
+            velocity.0
+        } else {
+            0.0
+        };
+        let vy = if velocity.1.abs() >= min_velocity {
+            velocity.1
+        } else {
+            0.0
+        };
+        let x = physics.ballistic(area.metrics_x(current.0), vx);
+        let y = physics.ballistic(area.metrics_y(current.1), vy);
+        if x.is_none() && y.is_none() {
+            return false;
+        }
+        self.scroll_ballistic
+            .insert(area.id, ScrollBallistic::new(x, y));
+        self.scroll_velocity.remove(&area.id);
+        true
+    }
+
+    /// Cancels any fling on `id` — a new gesture, a wheel notch or a programmatic
+    /// scroll takes precedence over momentum from the last one.
+    pub fn stop_scroll_fling(&mut self, id: WidgetId) -> Option<ScrollBallistic> {
+        self.scroll_ballistic.remove(&id)
+    }
+    /// Catches a fling under a new press: stops it, and returns the momentum the
+    /// next release inherits from it, per axis, in px/s.
+    ///
+    /// It is what makes repeated swipes accelerate on the platforms that do that;
+    /// where they do not, [`ScrollPhysics::carried_momentum`] returns zero and this
+    /// is simply a stop.
+    pub fn catch_scroll_fling(&mut self, id: WidgetId, physics: ScrollPhysics) -> (f32, f32) {
+        let Some(fling) = self.scroll_ballistic.remove(&id) else {
+            return (0.0, 0.0);
+        };
+        let carried = |sim: Option<Ballistic>| {
+            sim.map(|s| physics.carried_momentum(s.dx(fling.elapsed)))
+                .unwrap_or(0.0)
+        };
+        (carried(fling.x), carried(fling.y))
     }
 
     /// Advances the pan *fling* of the interactive viewports: each velocity moves the
@@ -868,6 +1045,18 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A vertical scroll region `max` px long, in a 400 px viewport, with no
+    /// physics of its own.
+    fn region(id: WidgetId, max: f32) -> Scrollable {
+        Scrollable {
+            id,
+            viewport: Rect::new(0.0, 0.0, 300.0, 400.0),
+            max_x: 0.0,
+            max_y: max,
+            physics: None,
+        }
+    }
 
     #[test]
     fn hover_rises_then_falls_and_clears() {
@@ -1204,9 +1393,9 @@ mod tests {
         let mut rt = Runtime::default();
         rt.scroll_target.insert(id, (0.0, 100.0));
         rt.scroll_velocity.insert(id, (0.0, 0.0));
-        let maxes = [(id, 0.0, 200.0)];
+        let regions = [region(id, 200.0)];
         for _ in 0..600 {
-            if !rt.advance_scroll(&maxes, 0.016) {
+            if !rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016) {
                 break;
             }
         }
@@ -1260,14 +1449,104 @@ mod tests {
         // Target beyond the bound (overshoot) → must come back to max.
         rt.scroll_target.insert(id, (0.0, 240.0));
         rt.scroll_velocity.insert(id, (0.0, 0.0));
-        let maxes = [(id, 0.0, 200.0)];
+        let regions = [region(id, 200.0)];
         for _ in 0..1000 {
-            if !rt.advance_scroll(&maxes, 0.016) {
+            if !rt.advance_scroll(&regions, ScrollPhysics::Clamping, 0.016) {
                 break;
             }
         }
         let (_, y) = rt.scroll.get(&id).copied().unwrap();
         assert!((y - 200.0).abs() < 1.0, "back at the max bound: {y}");
+    }
+
+    /// Runs a fling to completion and answers where the content came to rest.
+    fn settle(physics: ScrollPhysics, max: f32, from: f32, velocity: f32) -> f32 {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        let area = region(id, max);
+        rt.scroll.insert(id, (0.0, from));
+        rt.fling_scroll(area, physics, (0.0, velocity));
+        for _ in 0..1200 {
+            if !rt.advance_scroll(&[area], physics, 1.0 / 60.0) {
+                break;
+            }
+        }
+        assert!(
+            rt.scroll_ballistic.is_empty(),
+            "the fling should have finished"
+        );
+        rt.scroll.get(&id).copied().unwrap().1
+    }
+
+    #[test]
+    fn a_clamping_fling_stops_at_the_edge() {
+        // Far more momentum than there is content: it must stop exactly at the end,
+        // with no overshoot to spring back from.
+        let rest = settle(ScrollPhysics::Clamping, 400.0, 0.0, 6000.0);
+        assert_eq!(rest, 400.0, "stopped dead at the end, at {rest}");
+        // And symmetrically at the start.
+        let rest = settle(ScrollPhysics::Clamping, 400.0, 400.0, -6000.0);
+        assert_eq!(rest, 0.0, "stopped dead at the start, at {rest}");
+    }
+
+    #[test]
+    fn a_clamping_fling_that_fits_lands_where_the_platform_says() {
+        // 1000 px/s covers about 194 px under the platform's spline.
+        let rest = settle(ScrollPhysics::Clamping, 4000.0, 0.0, 1000.0);
+        assert!((rest - 194.0).abs() < 3.0, "landed at {rest}");
+    }
+
+    #[test]
+    fn a_bouncing_fling_overshoots_then_settles_back_on_the_edge() {
+        let id = WidgetId::ROOT;
+        let physics = ScrollPhysics::Bouncing;
+        let mut rt = Runtime::default();
+        let area = region(id, 400.0);
+        rt.scroll.insert(id, (0.0, 300.0));
+        rt.fling_scroll(area, physics, (0.0, 4000.0));
+        let mut peak: f32 = 0.0;
+        for _ in 0..1200 {
+            let moving = rt.advance_scroll(&[area], physics, 1.0 / 60.0);
+            peak = peak.max(rt.scroll.get(&id).copied().unwrap().1);
+            if !moving {
+                break;
+            }
+        }
+        assert!(peak > 400.0, "it should have gone past the end, peak {peak}");
+        let rest = rt.scroll.get(&id).copied().unwrap().1;
+        assert!((rest - 400.0).abs() < 1.0, "came back to the end, at {rest}");
+    }
+
+    #[test]
+    fn an_overscrolled_offset_comes_home_even_without_a_fling() {
+        // A release too slow to fling still owes the content its edge back.
+        for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
+            let rest = settle(physics, 400.0, 460.0, 5.0);
+            assert!(
+                (rest - 400.0).abs() < 1.0,
+                "{physics:?} left the content at {rest}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_release_with_nothing_to_do_starts_no_fling() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        rt.scroll.insert(id, (0.0, 100.0));
+        assert!(!rt.fling_scroll(region(id, 400.0), ScrollPhysics::Clamping, (0.0, 5.0)));
+        assert!(rt.scroll_ballistic.is_empty());
+    }
+
+    #[test]
+    fn a_fling_on_a_region_that_vanished_is_dropped() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        rt.fling_scroll(region(id, 400.0), ScrollPhysics::Clamping, (0.0, 2000.0));
+        assert!(!rt.scroll_ballistic.is_empty());
+        // The route changed: the scrollable is no longer part of the frame.
+        assert!(!rt.advance_scroll(&[], ScrollPhysics::Clamping, 1.0 / 60.0));
+        assert!(rt.scroll_ballistic.is_empty());
     }
 
     #[test]

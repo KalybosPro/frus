@@ -8,6 +8,7 @@ use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
+use crate::physics::ScrollPhysics;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -39,6 +40,9 @@ pub struct Scroll<Msg> {
     height_explicit: bool,
     flex_grow: f32,
     axis: Axis,
+    /// Edge and fling behaviour, when this area wants one of its own; `None`
+    /// follows the application, which follows the platform.
+    physics: Option<ScrollPhysics>,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -52,6 +56,7 @@ impl<Msg> Scroll<Msg> {
             height_explicit: false,
             flex_grow: 0.0,
             axis: Axis::Vertical,
+            physics: None,
             content: Vec::new(),
         }
     }
@@ -59,6 +64,16 @@ impl<Msg> Scroll<Msg> {
     /// Chooses the scrolling axis or axes; vertical by default.
     pub fn axis(mut self, axis: Axis) -> Self {
         self.axis = axis;
+        self
+    }
+
+    /// Overrides how this area behaves at its edges and after a fling.
+    ///
+    /// Left unset, it follows the application's choice, which itself defaults to
+    /// what the running platform does — so setting this is for the cases where the
+    /// content wants a particular feel, not for making an app feel native.
+    pub fn physics(mut self, physics: ScrollPhysics) -> Self {
+        self.physics = Some(physics);
         self
     }
 
@@ -140,5 +155,9 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
 
     fn scroll_axis(&self) -> Axis {
         self.axis
+    }
+
+    fn scroll_physics(&self) -> Option<ScrollPhysics> {
+        self.physics
     }
 }

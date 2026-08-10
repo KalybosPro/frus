@@ -280,6 +280,13 @@ pub trait Widget<Msg> {
         crate::scroll::Axis::Vertical
     }
 
+    /// The edge and fling behaviour of a scrollable container, when this widget
+    /// wants one in particular. `None` — the usual answer — leaves the choice to
+    /// the application, which defaults to what the platform does.
+    fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
+        None
+    }
+
     /// If the widget is a portal, returns its floating content and its placement.
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         None
@@ -593,6 +600,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scroll_axis(&self) -> Axis {
         (**self).scroll_axis()
+    }
+    fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
+        (**self).scroll_physics()
     }
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         (**self).overlay()

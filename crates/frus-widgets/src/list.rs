@@ -12,6 +12,7 @@ use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
+use crate::physics::ScrollPhysics;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -32,6 +33,7 @@ pub struct List<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
+    physics: Option<ScrollPhysics>,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
 }
 
@@ -49,8 +51,16 @@ impl<Msg> List<Msg> {
             width: Dimension::Auto,
             height: Dimension::Length(200.0),
             flex_grow: 0.0,
+            physics: None,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
         }
+    }
+
+    /// Overrides how the list behaves at its edges and after a fling; see
+    /// [`crate::scroll::Scroll::physics`].
+    pub fn physics(mut self, physics: ScrollPhysics) -> Self {
+        self.physics = Some(physics);
+        self
     }
 
     /// Sets the viewport width, in logical pixels.
@@ -98,6 +108,10 @@ impl<Msg> Widget<Msg> for List<Msg> {
             item_height: self.item_height,
             build: &*self.build,
         })
+    }
+
+    fn scroll_physics(&self) -> Option<ScrollPhysics> {
+        self.physics
     }
 }
 

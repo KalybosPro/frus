@@ -8,6 +8,7 @@ use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect
 use frus_layout::{Layout, NodeId};
 
 use crate::interaction::{Status, WidgetId};
+use crate::physics::{ScrollMetrics, ScrollPhysics};
 use crate::portal::Placement;
 use crate::relayout::Constraints;
 use crate::runtime::Runtime;
@@ -35,6 +36,42 @@ pub struct Scrollbar {
     pub thumb_len: f32,
     /// Offset maximal correspondant.
     pub max: f32,
+}
+
+/// A scrollable area of the frame: where it is, how far it may scroll, and how it
+/// is meant to behave at its edges.
+///
+/// The registry the shell and the runtime both read. It carries the area's own
+/// [`ScrollPhysics`] only when the widget asked for one — resolving the default is
+/// the application's job, through [`Scrollable::physics_or`].
+#[derive(Copy, Clone, Debug)]
+pub struct Scrollable {
+    pub id: WidgetId,
+    /// The viewport, in absolute coordinates.
+    pub viewport: Rect,
+    /// Largest horizontal offset the content may rest at (0 = nothing to scroll).
+    pub max_x: f32,
+    /// Largest vertical offset the content may rest at.
+    pub max_y: f32,
+    /// The area's own physics, when it asked for one.
+    pub physics: Option<ScrollPhysics>,
+}
+
+impl Scrollable {
+    /// This area's physics, falling back to the application's choice.
+    pub fn physics_or(&self, default: ScrollPhysics) -> ScrollPhysics {
+        self.physics.unwrap_or(default)
+    }
+
+    /// The horizontal axis as the physics sees it, at `offset`.
+    pub fn metrics_x(&self, offset: f32) -> ScrollMetrics {
+        ScrollMetrics::new(offset, self.max_x, self.viewport.width)
+    }
+
+    /// The vertical axis as the physics sees it, at `offset`.
+    pub fn metrics_y(&self, offset: f32) -> ScrollMetrics {
+        ScrollMetrics::new(offset, self.max_y, self.viewport.height)
+    }
 }
 
 /// Direction of arrow-key focus navigation.
@@ -77,7 +114,7 @@ struct BoundaryData<Msg> {
     long_presses: Vec<Hit<Msg>>,
     dismisses: Vec<Msg>,
     focusables: Vec<(WidgetId, Rect)>,
-    scrollables: Vec<(WidgetId, Rect, f32, f32)>,
+    scrollables: Vec<Scrollable>,
     draggables: Vec<(WidgetId, Rect)>,
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
@@ -177,7 +214,7 @@ pub struct Ui<Msg> {
     /// focusable takes part).
     focus_scope_start: Option<usize>,
     /// (id, viewport, offset max x, offset max y)
-    scrollables: Vec<(WidgetId, Rect, f32, f32)>,
+    scrollables: Vec<Scrollable>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
     /// **Reorderables** (column headers, Kanban cards): (id, visible bounds). Tracked
@@ -329,13 +366,13 @@ impl<Msg: Clone> Ui<Msg> {
         }
     }
 
-    /// Topmost scrollable area containing `point`: (id, max x, max y).
-    pub fn scroll_hit(&self, point: Point) -> Option<(WidgetId, f32, f32)> {
+    /// Topmost scrollable area containing `point`.
+    pub fn scroll_hit(&self, point: Point) -> Option<Scrollable> {
         self.scrollables
             .iter()
             .rev()
-            .find(|(_, rect, _, _)| rect.contains(point))
-            .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
+            .find(|area| area.viewport.contains(point))
+            .copied()
     }
 
     /// Frame of a **focusable** widget `id`, when it is present this frame — so the shell can
@@ -368,16 +405,26 @@ impl<Msg: Clone> Ui<Msg> {
     pub fn scrollable_viewport(&self, id: WidgetId) -> Option<Rect> {
         self.scrollables
             .iter()
-            .find(|(sid, _, _, _)| *sid == id)
-            .map(|(_, rect, _, _)| *rect)
+            .find(|area| area.id == id)
+            .map(|area| area.viewport)
     }
 
-    /// Scroll bounds `(id, max_x, max_y)` of every scrollable area, to drive the inertia on
-    /// the framework's side.
+    /// Every scrollable area of the frame — geometry, bounds and physics — which is
+    /// what the runtime needs to drive momentum and edges.
+    pub fn scroll_regions(&self) -> &[Scrollable] {
+        &self.scrollables
+    }
+
+    /// The area `id`, when it is present this frame.
+    pub fn scroll_region(&self, id: WidgetId) -> Option<Scrollable> {
+        self.scrollables.iter().find(|area| area.id == id).copied()
+    }
+
+    /// Scroll bounds `(id, max_x, max_y)` of every scrollable area.
     pub fn scrollable_maxes(&self) -> Vec<(WidgetId, f32, f32)> {
         self.scrollables
             .iter()
-            .map(|(id, _, max_x, max_y)| (*id, *max_x, *max_y))
+            .map(|area| (area.id, area.max_x, area.max_y))
             .collect()
     }
 
@@ -553,7 +600,7 @@ struct Builder<'a, Msg> {
     focusables: Vec<(WidgetId, Rect)>,
     /// Start of the topmost modal overlay's focus scope.
     focus_scope_start: Option<usize>,
-    scrollables: Vec<(WidgetId, Rect, f32, f32)>,
+    scrollables: Vec<Scrollable>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
     reorderables: Vec<(WidgetId, Rect)>,
@@ -743,8 +790,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             for (_, r) in &mut self.focusables[base.focusables..] {
                 *r = matrix.apply_rect(*r);
             }
-            for (_, r, _, _) in &mut self.scrollables[base.scrollables..] {
-                *r = matrix.apply_rect(*r);
+            for area in &mut self.scrollables[base.scrollables..] {
+                area.viewport = matrix.apply_rect(area.viewport);
             }
             for (_, r) in &mut self.draggables[base.draggables..] {
                 *r = matrix.apply_rect(*r);
@@ -1010,7 +1057,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 {
                     let max_y = (content_h - visible_h).max(0.0);
                     if max_y > 0.0 {
-                        self.scrollables.push((id, vp, 0.0, max_y));
+                        self.scrollables.push(Scrollable {
+                            id,
+                            viewport: vp,
+                            max_x: 0.0,
+                            max_y,
+                            physics: widget.scroll_physics(),
+                        });
                         let offset_y = self
                             .runtime
                             .scroll
@@ -1205,7 +1258,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
             let max_x = (content_size.width - viewport.width).max(0.0);
             let max_y = (content_size.height - viewport.height).max(0.0);
-            self.scrollables.push((id, viewport, max_x, max_y));
+            self.scrollables.push(Scrollable {
+                id,
+                viewport,
+                max_x,
+                max_y,
+                physics: widget.scroll_physics(),
+            });
 
             let content_translation = (viewport.x - offset_x, viewport.y - offset_y);
             let mut content_index = 0;
@@ -1233,7 +1292,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let (_, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
             let content_h = vlist.count as f32 * vlist.item_height;
             let max_y = (content_h - viewport.height).max(0.0);
-            self.scrollables.push((id, viewport, 0.0, max_y));
+            self.scrollables.push(Scrollable {
+                id,
+                viewport,
+                max_x: 0.0,
+                max_y,
+                physics: widget.scroll_physics(),
+            });
 
             if vlist.item_height > 0.0 && vlist.count > 0 {
                 let first = (offset_y / vlist.item_height).floor().max(0.0) as usize;
@@ -2713,6 +2778,40 @@ mod tests {
     }
 
     #[test]
+    fn a_scroll_area_carries_its_physics_into_the_registry() {
+        let content = Container::<Msg>::new().width(100.0).height(400.0);
+        // Unset: the region says nothing and the application decides.
+        let plain = Scroll::new().width(200.0).height(100.0).child(content);
+        let rt = Runtime::default();
+        let ui = build_ui(&plain, Size::new(200.0, 100.0), &rt, &Theme::default());
+        assert_eq!(ui.scroll_regions()[0].physics, None);
+        assert_eq!(
+            ui.scroll_regions()[0].physics_or(ScrollPhysics::Clamping),
+            ScrollPhysics::Clamping,
+            "an area with no opinion follows the application"
+        );
+
+        // Set: the area's own choice wins over the application's.
+        let bouncy = Scroll::new()
+            .width(200.0)
+            .height(100.0)
+            .physics(ScrollPhysics::Bouncing)
+            .child(Container::<Msg>::new().width(100.0).height(400.0));
+        let ui = build_ui(&bouncy, Size::new(200.0, 100.0), &rt, &Theme::default());
+        let area = ui.scroll_regions()[0];
+        assert_eq!(area.physics, Some(ScrollPhysics::Bouncing));
+        assert_eq!(
+            area.physics_or(ScrollPhysics::Clamping),
+            ScrollPhysics::Bouncing
+        );
+        // And the metrics it hands the physics describe the right axis.
+        let metrics = area.metrics_y(10.0);
+        assert_eq!(metrics.pixels, 10.0);
+        assert_eq!(metrics.max, 300.0); // 400 of content in a 100 viewport
+        assert_eq!(metrics.viewport, 100.0);
+    }
+
+    #[test]
     fn scroll_translates_and_clips_content() {
         let content = Flex::<Msg>::column()
             .gap(0.0)
@@ -2735,9 +2834,10 @@ mod tests {
 
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(200.0, 100.0), &rt, &Theme::default());
-        let (sid, _viewport, max_x, max_y) = ui.scrollables[0];
-        assert_eq!(max_y, 80.0); // 180 - 100
-        assert_eq!(max_x, 0.0);
+        let area = ui.scrollables[0];
+        let sid = area.id;
+        assert_eq!(area.max_y, 80.0); // 180 - 100
+        assert_eq!(area.max_x, 0.0);
         assert_eq!(ui.first_rect().0.y, 0.0);
         assert_eq!(ui.first_rect().1, Rect::new(0.0, 0.0, 200.0, 100.0));
 
@@ -2859,7 +2959,7 @@ mod tests {
         let filled = ui
             .scrollables
             .iter()
-            .any(|(_, vp, _mx, my)| vp.height > 300.0 && *my > 0.0);
+            .any(|area| area.viewport.height > 300.0 && area.max_y > 0.0);
         assert!(
             filled,
             "a column fills the board's height then scrolls (scrollables: {:?})",

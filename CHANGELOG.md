@@ -13,7 +13,27 @@ any release may break.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Scroll physics per platform** (J277). `ScrollPhysics::{Bouncing, Clamping}` names how a
+  scrollable behaves at its edges and after a fling, and defaults to what the running
+  platform does. Clamping follows the platform's spline deceleration and stops dead at the
+  edge; bouncing resists progressively past the edge (a real rubber band) and springs back.
+  Set it app-wide with `Application::scroll_physics`, or per area with `Scroll::physics` /
+  `List::physics`.
+- `ClampingScrollSimulation` and `BouncingScrollSimulation` in `frus-core`, plus
+  `FrictionSimulation::time_at_x`.
+
+### Changed
+
+- The scroll registry exposes `Ui::scroll_regions()` / `scroll_region(id)` returning a
+  `Scrollable` (id, viewport, bounds, physics); `Ui::scroll_hit` returns one too, instead of
+  a tuple.
+- The wheel's elastic overshoot now exists only where the physics allows overscroll.
+
+### Removed
+
+- `gesture::fling_destination` and its constants, superseded by the physics layer.
 
 ## [0.1.0] - 2026-08-08
 

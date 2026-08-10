@@ -16,29 +16,12 @@ use std::time::Duration;
 
 use web_time::Instant;
 
-use frus_widgets::{FrictionSimulation, Point, Tolerance};
+use frus_widgets::Point;
 
 /// How long a motionless press must last before the long press is accepted.
 pub(crate) const LONG_PRESS_DELAY: Duration = Duration::from_millis(500);
 /// The movement, in logical px, beyond which the long press is rejected.
 const SLOP: f32 = 8.0;
-
-/// A fling's deceleration: the fraction of the velocity left after 1 s
-/// (`dx(t) = v·drag^t`, scrolling's usual friction constant).
-const FLING_DRAG: f32 = 0.135;
-/// The minimum release velocity, in px/s, that triggers a fling.
-const FLING_MIN_VELOCITY: f32 = 50.0;
-
-/// A scroll fling's **ballistic** destination: the final position of a
-/// [`FrictionSimulation`] started at `velocity` from `current` — the finger's
-/// momentum, in closed form. `None` below the velocity threshold, since a slow
-/// release does not carry the content along.
-pub(crate) fn fling_destination(current: f32, velocity: f32) -> Option<f32> {
-    if velocity.abs() < FLING_MIN_VELOCITY {
-        return None;
-    }
-    Some(FrictionSimulation::new(FLING_DRAG, current, velocity, Tolerance::PIXELS).final_x())
-}
 
 /// A **normalised** pointer event, mouse or finger: routing's single input — tier 0
 /// of the brief, with an explicit `Cancel`.
@@ -149,26 +132,6 @@ mod tests {
 
     fn start() -> Instant {
         Instant::now()
-    }
-
-    #[test]
-    fn fling_projects_a_friction_final_position() {
-        // Below the threshold there is no fling.
-        assert_eq!(fling_destination(100.0, 0.0), None);
-        assert_eq!(fling_destination(100.0, 30.0), None);
-
-        // Momentum: destination = position + v / ln(1/drag), in closed form.
-        let dest = fling_destination(0.0, 2000.0).expect("fling");
-        let expected = 2000.0 / (1.0f32 / FLING_DRAG).ln();
-        assert!(
-            (dest - expected).abs() < 1.0,
-            "dest = {dest}, expected ≈ {expected}"
-        );
-        assert!(dest > 900.0 && dest < 1100.0, "≈ 1000 px of travel: {dest}");
-
-        // Symmetrical, backwards.
-        let back = fling_destination(500.0, -2000.0).expect("backward fling");
-        assert!((back - (500.0 - expected)).abs() < 1.0);
     }
 
     #[test]

@@ -242,6 +242,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .unwrap_or(Axis::Vertical)
     }
 
+    fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
+        self.inner.as_ref().and_then(|w| w.scroll_physics())
+    }
+
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         self.inner.as_ref().and_then(|w| w.overlay())
     }

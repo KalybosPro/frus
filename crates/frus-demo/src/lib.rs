@@ -53,9 +53,10 @@ use frus_widgets::{
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
     Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, RichText,
-    Scaffold, Scroll, SegmentedControl, Size, SizeClass, Skeleton, Slider, SnackbarQueue,
-    SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs, TextInput, TextSpan, Theme,
-    Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant, Widget, WindowInsets,
+    Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, Skeleton, Slider,
+    SnackbarQueue, SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs, TextInput,
+    TextSpan, Theme, Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant, Widget,
+    WindowInsets,
 };
 
 /// The demo logo, **decoded** from an embedded PNG (milestone 91) and shared across the whole
@@ -195,6 +196,9 @@ enum Msg {
     SetMenu(usize),
     Push(Route),
     Pop,
+    /// Flips the log list between the two scroll behaviours, so the difference can
+    /// be felt side by side on one device.
+    ToggleScrollPhysics,
     /// A tick of the stopwatch (the timer subscription).
     Tick,
     /// Starts/stops the stopwatch.
@@ -371,6 +375,9 @@ struct TodoApp {
     theme_from: Option<Theme>,
     /// Progress of the theme fade (`0 → 1`).
     theme_progress: f32,
+    /// Does the log list bounce at its ends rather than stop dead? `false` leaves
+    /// it on the platform's own behaviour.
+    journal_bounces: bool,
     /// The screen stack (empty = the home screen).
     routes: Vec<Route>,
     /// The outgoing screen during a transition.
@@ -711,6 +718,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.theme_from = Some(theme_of(app));
             app.seed_index = (app.seed_index + 1) % (THEME_SEEDS.len() + 1);
             app.theme_progress = 0.0;
+            Command::none()
+        }
+        Msg::ToggleScrollPhysics => {
+            app.journal_bounces = !app.journal_bounces;
             Command::none()
         }
         Msg::ToggleRtl => {
@@ -1528,7 +1539,7 @@ fn screen(
     match route {
         Route::Home => todo_screen(app, theme, width, height),
         Route::Settings => Box::new(settings_screen(app, theme, width, height)),
-        Route::Journal => Box::new(journal_screen(theme, width, height)),
+        Route::Journal => Box::new(journal_screen(app, theme, width, height)),
         Route::Wizard => wizard_screen(app, theme, width, height),
         Route::Grid => grid_screen(app, theme, width, height),
         Route::Charts => charts_screen(app, theme, width, height),
@@ -2287,10 +2298,11 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
     )
 }
 
-/// The "Journal" screen: a **virtualised list** of 5000 rows.
-fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+/// The "Journal" screen: a **virtualised list** of 5000 rows, and the place where
+/// the two scroll behaviours can be compared by hand (milestone 277).
+fn journal_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
     let t = *theme; // Theme is Copy — captured by the item factory.
-    let list = List::new(5000, 44.0, move |i| {
+    let mut list = List::new(5000, 44.0, move |i| {
         Container::<Msg>::new()
             .height(44.0)
             .radius(8.0)
@@ -2300,8 +2312,28 @@ fn journal_screen(theme: &Theme, width: f32, height: f32) -> Container<Msg> {
             .child(text(format!("Row {}", i + 1)).size(16.0))
     })
     .width((width - 48.0).max(200.0))
-    .height((height - 104.0).max(160.0));
-    let content = column![list].padding(24.0);
+    .height((height - 152.0).max(160.0));
+    // Unset, the list follows the platform. The toggle overrides it, which is the
+    // point of the demonstration: fling to an end and feel the difference.
+    if app.journal_bounces {
+        list = list.physics(ScrollPhysics::Bouncing);
+    }
+    let label = if app.journal_bounces {
+        "Edges: bounce"
+    } else {
+        "Edges: platform default"
+    };
+    let content = column![
+        row![
+            text(label).size(14.0).color(theme.muted),
+            spacer(),
+            button("Switch", Msg::ToggleScrollPhysics).variant(Variant::Secondary),
+        ]
+        .gap(12.0),
+        list,
+    ]
+    .gap(12.0)
+    .padding(24.0);
     let screen = column![NavBar::new("Log · 5000 rows").on_back(Msg::Pop), content]
         .width(width)
         .height(height);

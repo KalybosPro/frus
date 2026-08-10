@@ -62,6 +62,7 @@ mod navrail;
 mod navscaffold;
 mod pagination;
 mod paintcache;
+mod physics;
 mod popover;
 mod portal;
 mod progressbar;
@@ -150,6 +151,9 @@ pub use navrail::{BottomBar, NavRail};
 pub use navscaffold::NavScaffold;
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
+pub use physics::{
+    Ballistic, ScrollMetrics, ScrollPhysics, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
+};
 pub use popover::Popover;
 pub use portal::{Placement, Portal};
 pub use progressbar::ProgressBar;
@@ -160,7 +164,9 @@ pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
-pub use runtime::{spring_ease, spring_step, Anim, Edit, Runtime, ScrollState};
+pub use runtime::{
+    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState,
+};
 pub use scaffold::{fab_button, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
@@ -185,7 +191,7 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
-    FocusDirection, Scrollbar, Ui,
+    FocusDirection, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{ReorderAxis, Widget};
 

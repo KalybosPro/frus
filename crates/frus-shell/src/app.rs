@@ -214,6 +214,10 @@ enum Drag {
         id: WidgetId,
         last: Point,
         moved: bool,
+        /// The speed inherited from a fling this press interrupted, per axis, in
+        /// px/s — added to the release velocity so repeated swipes build momentum
+        /// where the platform does that. Zero when the content was already still.
+        carried: (f32, f32),
         velocity: (f32, f32),
         last_t: Instant,
     },
@@ -1276,15 +1280,25 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.request_redraw();
                     return;
                 }
-                if let Some((id, max_x, max_y)) =
-                    self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor))
-                {
-                    // Scrolling with inertia: the wheel pushes the TARGET, with a
-                    // little elastic overshoot, and the spring eases across to it.
+                if let Some(area) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
+                    // Scrolling with inertia: the wheel pushes the TARGET and the
+                    // spring eases across to it. How far past the ends that target
+                    // may go is the physics' call — a little elastic overshoot where
+                    // the platform bounces, none at all where it does not.
+                    let id = area.id;
+                    let physics = area.physics_or(self.app.scroll_physics());
+                    let over = if physics.allows_overscroll() {
+                        SCROLL_OVER
+                    } else {
+                        0.0
+                    };
+                    // A notch of the wheel is a new intent: it takes over from the
+                    // momentum of the last gesture.
+                    self.runtime.stop_scroll_fling(id);
                     let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                     let target = self.runtime.scroll_target.entry(id).or_insert(current);
-                    target.0 = (target.0 - dx).clamp(-SCROLL_OVER, max_x + SCROLL_OVER);
-                    target.1 = (target.1 - dy).clamp(-SCROLL_OVER, max_y + SCROLL_OVER);
+                    target.0 = (target.0 - dx).clamp(-over, area.max_x + over);
+                    target.1 = (target.1 - dy).clamp(-over, area.max_y + over);
                     self.runtime.scroll_velocity.entry(id).or_insert((0.0, 0.0));
                     self.request_redraw();
                 }
@@ -1457,11 +1471,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // Scroll and pan inertia; the bounds and viewports come from the
                 // previous frame.
-                let scroll_maxes = self
+                let scroll_regions = self
                     .ui
                     .as_ref()
-                    .map(|ui| ui.scrollable_maxes())
+                    .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
+                let scroll_physics = self.app.scroll_physics();
                 let interactive_bounds = self
                     .ui
                     .as_ref()
@@ -1503,7 +1518,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self.runtime.advance_sizes(tree, dt)
                     | self.runtime.advance_radii(tree, dt)
                     | self.runtime.advance_paddings(tree, dt)
-                    | self.runtime.advance_scroll(&scroll_maxes, dt)
+                    | self
+                        .runtime
+                        .advance_scroll(&scroll_regions, scroll_physics, dt)
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | reorder_animating
                     | app_animating;
@@ -1882,11 +1899,17 @@ impl<A: Application> App<A> {
         // text selection — prepare a finger scroll on the area under the finger. A
         // release without movement, under TOUCH_SLOP, stays a tap.
         if touch && self.drag.is_none() {
-            if let Some((id, _, _)) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
+            if let Some(area) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
+                // A finger back on the content catches it: the fling stops where it
+                // is rather than sliding under the finger, and hands the next
+                // release whatever momentum the platform lets a swipe build on.
+                let physics = area.physics_or(self.app.scroll_physics());
+                let carried = self.runtime.catch_scroll_fling(area.id, physics);
                 self.drag = Some(Drag::Scroll {
-                    id,
+                    id: area.id,
                     last: self.cursor,
                     moved: false,
+                    carried,
                     velocity: (0.0, 0.0),
                     last_t: Instant::now(),
                 });
@@ -1997,17 +2020,18 @@ impl<A: Application> App<A> {
                 self.set_announcement(announcement);
             }
         }
-        // Fling: the finger's momentum projects a ballistic destination through
-        // friction, and the existing scroll spring eases across to it, rubber band
-        // included.
+        // Fling: the finger's momentum is handed to the area's physics, which
+        // returns the motion that follows — a spline that stops at the edge, or
+        // friction that hands over to a spring and bounces.
         if let Some(Drag::Scroll {
             id,
             moved: true,
+            carried,
             velocity,
             ..
         }) = &ended
         {
-            self.fling(*id, *velocity);
+            self.fling(*id, (velocity.0 + carried.0, velocity.1 + carried.1));
         }
         // A pan fling: the momentum launches the content, which `advance_interactive`
         // decelerates and bounds frame by frame.
@@ -2329,6 +2353,7 @@ impl<A: Application> App<A> {
                 id,
                 last,
                 moved,
+                carried: _,
                 velocity,
                 last_t,
             } => {
@@ -2339,20 +2364,27 @@ impl<A: Application> App<A> {
                     *moved = true;
                 }
                 if *moved {
-                    let maxes = self
-                        .ui
-                        .as_ref()
-                        .map(|u| u.scrollable_maxes())
-                        .unwrap_or_default();
-                    let (mx, my) = maxes
-                        .iter()
-                        .find(|(i, _, _)| *i == *id)
-                        .map(|(_, x, y)| (*x, *y))
-                        .unwrap_or((0.0, 0.0));
+                    let area = self.ui.as_ref().and_then(|u| u.scroll_region(*id));
+                    let physics = area
+                        .map(|a| a.physics_or(self.app.scroll_physics()))
+                        .unwrap_or_else(|| self.app.scroll_physics());
                     let cur = self.runtime.scroll.get(id).copied().unwrap_or((0.0, 0.0));
-                    // The finger pushes the content, so we follow the delta at once.
-                    let nx = (cur.0 - dx).clamp(0.0, mx);
-                    let ny = (cur.1 - dy).clamp(0.0, my);
+                    // The finger pushes the content, so we follow the delta at once —
+                    // but only as far as the physics allows. Past an edge, bouncing
+                    // physics resists more and more (the rubber band) while clamping
+                    // physics refuses the move outright.
+                    let axis = |metrics: frus_widgets::ScrollMetrics, delta: f32| {
+                        let applied = physics.apply_user_offset(metrics, delta);
+                        let proposed = metrics.pixels + applied;
+                        proposed - physics.apply_boundary_conditions(metrics, proposed)
+                    };
+                    let (nx, ny) = match area {
+                        Some(area) => (
+                            axis(area.metrics_x(cur.0), -dx),
+                            axis(area.metrics_y(cur.1), -dy),
+                        ),
+                        None => (cur.0 - dx, cur.1 - dy),
+                    };
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
                     self.runtime.scroll_velocity.remove(id);
@@ -2408,29 +2440,16 @@ impl<A: Application> App<A> {
     /// form, bounds it with the elastic overshoot, and primes the scroll spring with
     /// the finger's momentum.
     fn fling(&mut self, id: WidgetId, velocity: (f32, f32)) {
-        let (max_x, max_y) = self
-            .ui
-            .as_ref()
-            .map(|ui| ui.scrollable_maxes())
-            .unwrap_or_default()
-            .iter()
-            .find(|(i, _, _)| *i == id)
-            .map(|(_, x, y)| (*x, *y))
-            .unwrap_or((0.0, 0.0));
-        let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
-
-        let dest_x = crate::gesture::fling_destination(current.0, velocity.0)
-            .map(|d| d.clamp(-SCROLL_OVER, max_x + SCROLL_OVER));
-        let dest_y = crate::gesture::fling_destination(current.1, velocity.1)
-            .map(|d| d.clamp(-SCROLL_OVER, max_y + SCROLL_OVER));
-        if dest_x.is_none() && dest_y.is_none() {
-            return; // a slow release does not carry the content along
+        let Some(area) = self.ui.as_ref().and_then(|ui| ui.scroll_region(id)) else {
+            return;
+        };
+        let physics = area.physics_or(self.app.scroll_physics());
+        // The physics decides everything from here: whether there is a fling at all,
+        // how far it runs, and what happens at the edges. A release too slow to
+        // fling still gets a chance to spring an overscroll back.
+        if self.runtime.fling_scroll(area, physics, velocity) {
+            self.request_redraw();
         }
-        self.runtime.scroll_target.insert(
-            id,
-            (dest_x.unwrap_or(current.0), dest_y.unwrap_or(current.1)),
-        );
-        self.runtime.scroll_velocity.insert(id, velocity);
     }
 
     /// The topmost **reorderable** widget under `point`, as `(id, flat index)`. It
