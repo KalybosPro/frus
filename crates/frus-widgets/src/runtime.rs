@@ -332,6 +332,8 @@ pub struct Runtime {
     /// The retained pull of each [`crate::Refresh`] area, keyed by the area. Absent =
     /// nothing pulled and nothing spinning.
     pub refresh: HashMap<WidgetId, crate::refresh::RefreshPull>,
+    /// The retained swipe of each [`crate::Dismissible`] item. Absent = at rest.
+    pub dismiss: HashMap<WidgetId, crate::dismiss::DismissState>,
     /// The region a finger is currently holding, if any.
     ///
     /// A scroll offset has **one owner at a time**. While a drag owns it, nothing
@@ -1003,6 +1005,51 @@ impl Runtime {
     /// one gesture would say the same thing twice.
     pub fn refresh_pull(&mut self, id: WidgetId, overscroll: f32, extent: f32) {
         crate::refresh::pull_into(&mut self.refresh, id, overscroll, extent);
+    }
+
+    /// Moves the dismissible `id` by `delta` px along its axis, over an item of
+    /// `extent` px.
+    pub fn dismiss_drag(
+        &mut self,
+        id: WidgetId,
+        delta: f32,
+        extent: f32,
+        axis: crate::dismiss::DismissAxis,
+    ) {
+        crate::dismiss::drag_into(&mut self.dismiss, id, delta, extent, axis);
+    }
+
+    /// The finger lets go of the dismissible `id`. Returns the direction it is being
+    /// dismissed in, or `None` when it slides back.
+    pub fn dismiss_release(
+        &mut self,
+        id: WidgetId,
+        velocity: f32,
+        cross: f32,
+        axis: crate::dismiss::DismissAxis,
+        threshold: f32,
+    ) -> Option<crate::dismiss::DismissDirection> {
+        crate::dismiss::release_of(&mut self.dismiss, id, velocity, cross, axis, threshold)
+    }
+
+    /// How much of a dismissed item's box is left, while its gap closes. `None` = not
+    /// collapsing, so the item keeps the size its style asks for.
+    pub fn dismiss_extent_factor(&self, id: WidgetId) -> Option<f32> {
+        self.dismiss
+            .get(&id)
+            .filter(|s| s.phase() == crate::dismiss::DismissPhase::Collapse)
+            .map(|s| s.extent_factor())
+    }
+
+    /// Advances every dismissible of the frame by `dt`. Returns `(still animating, the
+    /// items whose gap has just closed)` — the second being what the shell turns into
+    /// messages.
+    pub fn advance_dismiss(
+        &mut self,
+        items: &[crate::dismiss::Dismissable],
+        dt: f32,
+    ) -> (bool, Vec<(WidgetId, crate::dismiss::DismissDirection)>) {
+        crate::dismiss::advance_all(&mut self.dismiss, items, dt)
     }
 
     /// Calls off the pull of `id` without asking for anything — the list scrolled away

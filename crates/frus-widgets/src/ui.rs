@@ -8,6 +8,7 @@ use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect
 use frus_layout::{Layout, NodeId};
 
 use crate::barrier::Barrier;
+use crate::dismiss::{Dismissable, DismissPhase};
 use crate::refresh::Refreshable;
 use crate::interaction::{Status, WidgetId};
 use crate::physics::{ScrollMetrics, ScrollPhysics};
@@ -252,6 +253,8 @@ pub struct Ui<Msg> {
     interactives: Vec<(WidgetId, Rect)>,
     /// Pull-to-refresh areas of the frame, with their configuration.
     refreshes: Vec<Refreshable>,
+    /// Swipe-to-dismiss items of the frame, with their configuration.
+    dismissables: Vec<Dismissable>,
     wants_animation: bool,
     /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
     /// shell maps it onto AccessKit.
@@ -312,6 +315,21 @@ impl<Msg: Clone> Ui<Msg> {
     /// with. The shell steps them and reads their `refreshing` flag from here.
     pub fn refresh_areas(&self) -> &[Refreshable] {
         &self.refreshes
+    }
+
+    /// The frame's **dismissible items**, with the configuration each was built with.
+    pub fn dismissables(&self) -> &[Dismissable] {
+        &self.dismissables
+    }
+
+    /// The topmost dismissible item containing `point` — the candidate a press has to
+    /// weigh against the scrollable underneath it.
+    pub fn dismissable_at(&self, point: Point) -> Option<Dismissable> {
+        self.dismissables
+            .iter()
+            .rev()
+            .find(|item| item.rect.contains(point))
+            .copied()
     }
 
     /// Topmost focusable widget containing `point`: (id, its bounds).
@@ -540,6 +558,23 @@ pub(crate) fn effective_style<Msg>(
             style.padding = padding;
         }
     }
+    // A dismissed item closing its gap. It collapses along the axis it was **not**
+    // swiped along — a row swiped sideways loses its height — which is what makes the
+    // neighbours slide up rather than the row narrow to a sliver. Only an explicit
+    // length can shrink: an `Auto` box has no number to scale, which is why
+    // `Dismissible` asks for a size (see its docs).
+    if let Some(spec) = widget.dismissible() {
+        if let Some(factor) = runtime.dismiss_extent_factor(id) {
+            let axis = if spec.axis.is_horizontal() {
+                &mut style.height
+            } else {
+                &mut style.width
+            };
+            if let frus_layout::Dimension::Length(extent) = *axis {
+                *axis = frus_layout::Dimension::Length(extent * factor);
+            }
+        }
+    }
     style
 }
 
@@ -670,6 +705,8 @@ struct Builder<'a, Msg> {
     refresh_host: Option<WidgetId>,
     /// The frame's refresh areas, in paint order.
     refreshes: Vec<Refreshable>,
+    /// The frame's dismissible items, in paint order.
+    dismissables: Vec<Dismissable>,
     /// Layout direction: in RTL, each root's rects are **mirrored** horizontally about the
     /// root's width.
     rtl: bool,
@@ -1504,6 +1541,73 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &child_rects,
                 &mut child_index,
             );
+        } else if let Some(spec) = widget.dismissible() {
+            // A dismissible item is a stack whose **last** layer — the item itself — is
+            // offset by however far it has been swiped, and whose earlier layers, the
+            // backgrounds, show only through the strip the item has uncovered. Clipping
+            // them is what makes a background read as something the item is sliding
+            // *off*, rather than a block that was always there.
+            let bounds = draw_rect;
+            let state = self.runtime.dismiss.get(&id).copied();
+            let progress = state.map(|s| s.progress()).unwrap_or(0.0);
+            let layers = widget.children();
+            let last = layers.len().saturating_sub(1);
+            // Which background: the first covers a swipe towards the end, the second —
+            // when there is one — the other way. With only one, it serves both.
+            let shown_background = if progress < 0.0 && last >= 2 { 1 } else { 0 };
+            let strip = crate::dismiss::revealed_strip(bounds, progress);
+
+            for (i, layer) in layers.iter().enumerate() {
+                let is_item = i == last;
+                if !is_item && (i != shown_background || progress == 0.0) {
+                    // Not the background this direction shows: skip it, and skip the
+                    // rects it would have consumed — it is laid out separately, so
+                    // there is no index to keep in step.
+                    continue;
+                }
+                let offset = if is_item {
+                    if spec.axis.is_horizontal() {
+                        (bounds.width * progress, 0.0)
+                    } else {
+                        (0.0, bounds.height * progress)
+                    }
+                } else {
+                    (0.0, 0.0)
+                };
+                let layer_clip = if is_item {
+                    clip.intersect(bounds)
+                } else {
+                    clip.intersect(strip)
+                };
+                if layer_clip.width <= 0.0 || layer_clip.height <= 0.0 {
+                    continue;
+                }
+                let cid = child_id(id, i, layer.as_ref());
+                let layer_rects = self.cached_rects(
+                    cid,
+                    layer.as_ref(),
+                    Constraints::definite(Size::new(bounds.width, bounds.height)),
+                );
+                let mut layer_index = 0;
+                self.walk(
+                    layer.as_ref(),
+                    cid,
+                    (bounds.x + offset.0, bounds.y + offset.1),
+                    layer_clip,
+                    &layer_rects,
+                    &mut layer_index,
+                );
+            }
+
+            self.dismissables.push(Dismissable {
+                id,
+                rect: bounds,
+                spec,
+            });
+            // A swipe that is settling, flying or collapsing drives itself.
+            if state.is_some_and(|s| s.phase() != DismissPhase::Drag) {
+                self.wants_animation = true;
+            }
         } else if widget.stack() {
             // A stack: each layer fills the box, rendered in order.
             let bounds = draw_rect;
@@ -2062,6 +2166,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         depth: 0,
         refresh_host: None,
         refreshes: Vec::new(),
+        dismissables: Vec::new(),
         rtl: theme.direction.is_rtl(),
         semantics: Vec::new(),
     };
@@ -2107,6 +2212,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         reorderables: builder.reorderables,
         interactives: builder.interactives,
         refreshes: builder.refreshes,
+        dismissables: builder.dismissables,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
     };

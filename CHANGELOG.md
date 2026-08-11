@@ -8,13 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 281 so far, each documenting the objective, the alternatives
+> record — one per step, 282 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **Swipe to dismiss** (J282). `Dismissible::new(row).on_dismiss(msg)` slides a row aside,
+  flies it out past 40 % of its width (or on a fling), then collapses its box so the
+  neighbours close the gap before the message goes out. Inside a list, the shell arbitrates
+  the shared gesture by **direction** at the drag threshold: along the item's axis is a
+  swipe, across it is a scroll, and the loser never sees the gesture. A fling must beat the
+  other axis by a clear margin, so a hurried scroll cannot throw rows out.
 - **Pull to refresh** (J281). `Refresh::new(list).on_refresh(msg).refreshing(flag)` turns a
   drag past a scrollable's top edge into a message, using the movement the physics already
   refuses — no new measurement in the gesture path. The threshold is proportional to the
@@ -58,6 +64,11 @@ any release may break.
 
 ### Fixed
 
+- **`Keyed` now forwards the structural questions** — `stack`, `continuous`,
+  `draws_own_focus`, `repaint_boundary` (J282). A transparent wrapper that answered them for
+  itself changed how its content was laid out: any keyed stack had its layers put in flow
+  instead of on top of one another, and any keyed continuously-animating widget quietly
+  dropped frames. Found on a device.
 - **`MediaQuery` reuses `frus_core::Orientation`** instead of the duplicate enum the first
   draft declared (J280).
 - The last two French assertion messages in `clip.rs` are English (J280).

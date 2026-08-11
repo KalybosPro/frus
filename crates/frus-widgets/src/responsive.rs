@@ -320,6 +320,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.barrier())
     }
 
+    fn dismissible(&self) -> Option<crate::dismiss::DismissSpec> {
+        self.inner.as_ref().and_then(|w| w.dismissible())
+    }
+
+    fn on_dismissed(&self, direction: crate::dismiss::DismissDirection) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_dismissed(direction))
+    }
+
     fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
         self.inner.as_ref().and_then(|w| w.refresh())
     }

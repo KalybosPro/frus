@@ -415,6 +415,20 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget is a **dismissible item** ([`crate::Dismissible`]), its
+    /// configuration for this frame. The shell gives a mostly-sideways drag on it to
+    /// the dismissal and a mostly-up-and-down one to the enclosing scrollable. `None` =
+    /// not dismissible.
+    fn dismissible(&self) -> Option<crate::dismiss::DismissSpec> {
+        None
+    }
+
+    /// The message a dismissed item dispatches, once it has flown out **and** its gap
+    /// has closed. `None` = the swipe is shown but removes nothing.
+    fn on_dismissed(&self, _direction: crate::dismiss::DismissDirection) -> Option<Msg> {
+        None
+    }
+
     /// If the widget is a **refresh area** ([`crate::Refresh`]), its configuration for
     /// this frame. Any scrollable inside it routes the movement its physics refuses at
     /// the top edge into the pull, instead of into the overscroll glow. `None` = not a
@@ -683,6 +697,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn barrier(&self) -> Option<crate::barrier::Barrier> {
         (**self).barrier()
+    }
+    fn dismissible(&self) -> Option<crate::dismiss::DismissSpec> {
+        (**self).dismissible()
+    }
+    fn on_dismissed(&self, direction: crate::dismiss::DismissDirection) -> Option<Msg> {
+        (**self).on_dismissed(direction)
     }
     fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
         (**self).refresh()

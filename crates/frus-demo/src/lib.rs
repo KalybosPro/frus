@@ -52,7 +52,8 @@ use frus_widgets::{
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
-    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, Refresh,
+    Dismissible, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect,
+    Refresh,
     RichText,
     Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, Skeleton, Slider,
     SnackbarQueue, SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs, TextInput,
@@ -2605,6 +2606,26 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
         .child(screen)
 }
 
+/// One task row, **swipeable**: dragging it sideways past 40 % of its width — or
+/// flicking it — deletes it, the same thing the × and the long press already do. The
+/// row's height is explicit because a `Dismissible` overlays its background under its
+/// child, which makes it a layout leaf.
+fn todo_row_swipeable(todo: &Todo, theme: &Theme) -> Dismissible<Msg> {
+    Dismissible::new(todo_row(todo, theme))
+        .height(TODO_ROW_HEIGHT)
+        .on_dismiss(Msg::DeleteTodo(todo.id))
+        .background(
+            Container::new()
+                .radius(10.0)
+                .color(theme.error)
+                .padding_each(0.0, 16.0, 0.0, 16.0)
+                .child(row![text("Delete").size(16.0).color(theme.on_error)].align(Align::Center)),
+        )
+}
+
+/// The height of a task row. Fixed, because a swipeable row is a layout leaf.
+const TODO_ROW_HEIGHT: f32 = 62.0;
+
 /// One task row: a checkbox, the label (dimmed **and struck through** when done) and a delete
 /// button.
 fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
@@ -2775,7 +2796,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     }) {
         // A stable identity by `id`: the retained state (hover/animations) does not jump when a
         // task in the middle is deleted.
-        list = list.child(keyed(todo.id, todo_row(todo, theme)));
+        list = list.child(keyed(todo.id, todo_row_swipeable(todo, theme)));
         shown += 1;
     }
     if shown == 0 {

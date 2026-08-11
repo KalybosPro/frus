@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-281 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+282 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -88,7 +88,10 @@ The web target renders and animates but is missing its platform integrations. Ea
   - 🟢 **Pull-to-refresh — done** (milestone 281): `Refresh`, device-verified under both
     physics. Left: the same machinery on the **bottom** edge for load-more, and a way for
     an application to start the indicator itself.
-  - 🟡 **Swipe-to-dismiss** list items, with the settle animation and an undo window.
+  - 🟢 **Swipe-to-dismiss — done** (milestone 282): `Dismissible`, with the shared-gesture
+    arbitration that lets it live inside a list. Left: a confirmation step (an undo window
+    needs the message to be able to refuse), cross-axis drift, and the on-device check of
+    the gesture itself.
   - 🟡 **A paged view** (snap-per-page scrolling), sharing the physics from milestone 277.
   - 🔴 **Shared-element transitions** between screens — needs a design first: two trees,
     one flight, and identity across a rebuild.

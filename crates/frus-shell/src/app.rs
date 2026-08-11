@@ -250,6 +250,21 @@ enum Drag {
         /// px/s — added to the release velocity so repeated swipes build momentum
         /// where the platform does that. Zero when the content was already still.
         carried: (f32, f32),
+        /// A dismissible item under the finger, still in the running. Both gestures
+        /// start the same way, so neither is chosen at the press: the first movement
+        /// past the threshold decides by **direction**, and the loser never sees the
+        /// gesture. Cleared once the scroll has won.
+        dismiss: Option<frus_widgets::Dismissable>,
+    },
+    /// Swiping a [`frus_widgets::Dismissible`] item aside. `last` is the previous
+    /// position, for the delta; the item is already past the threshold by the time this
+    /// exists, since it is only ever reached by winning the direction test.
+    Dismiss {
+        item: frus_widgets::Dismissable,
+        last: Point,
+        /// `false` until the finger has passed the threshold — a press that never
+        /// travels is still a tap on the row.
+        moved: bool,
     },
     /// The "back" gesture: the framework measures the finger's progress and velocity
     /// and passes them to the application, which decides on the navigation.
@@ -1547,6 +1562,14 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .as_ref()
                     .map(|ui| ui.refresh_areas().to_vec())
                     .unwrap_or_default();
+                let dismissables = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.dismissables().to_vec())
+                    .unwrap_or_default();
+                // Filled by the dismissal step below, dispatched once the tree is no
+                // longer borrowed.
+                let mut dismissed: Vec<A::Message> = Vec::new();
                 let interactive_bounds = self
                     .ui
                     .as_ref()
@@ -1593,6 +1616,17 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .advance_scroll(&scroll_regions, scroll_physics, dt)
                     | self.runtime.advance_glow(dt)
                     | self.runtime.advance_refresh(&refresh_areas, dt)
+                    | {
+                        // A dismissed item announces itself only once its gap has
+                        // finished closing. The messages are *collected* here and
+                        // dispatched below: the retained tree is borrowed for the whole
+                        // of this frame, and `dispatch` rebuilds it.
+                        let (moving, done) = self.runtime.advance_dismiss(&dismissables, dt);
+                        dismissed.extend(done.into_iter().filter_map(|(id, direction)| {
+                            find_widget(tree, id).and_then(|widget| widget.on_dismissed(direction))
+                        }));
+                        moving
+                    }
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | reorder_animating
                     | app_animating;
@@ -1651,6 +1685,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
+
+                // The rows whose gap has just finished closing: the tree is no longer
+                // borrowed, so the application can be told — and rebuild.
+                for message in dismissed {
+                    self.dispatch(message);
+                }
 
                 // Focus return: when the focused widget has **vanished**, an overlay
                 // having closed, go back to the trigger. Done before the AccessKit
@@ -1770,6 +1810,18 @@ impl<A: Application> App<A> {
                 self.press.cancel();
                 // A cancelled gesture still owes the offset back, or the region
                 // would stay frozen under a finger that is no longer there.
+                if let Some(Drag::Dismiss { item, .. }) = self.drag {
+                    // A cancelled swipe asks for nothing: zero velocity puts it back.
+                    self.runtime.dismiss_release(
+                        item.id,
+                        0.0,
+                        0.0,
+                        item.spec.axis,
+                        // Unreachable threshold: a cancel never dismisses, however far
+                        // the item had already travelled.
+                        f32::INFINITY,
+                    );
+                }
                 if let Some(Drag::Scroll { id, .. }) = self.drag {
                     self.runtime.release_scroll(id);
                     self.runtime.glow_scroll_end(id);
@@ -2009,6 +2061,24 @@ impl<A: Application> App<A> {
                     last: self.cursor,
                     moved: false,
                     carried,
+                    dismiss: self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.dismissable_at(self.cursor)),
+                });
+                self.begin_gesture();
+            }
+        }
+
+        // 3b) A dismissible item with nothing scrollable under it: there is no gesture to
+        // arbitrate against, so the swipe is prepared directly. It still waits for the
+        // threshold, or a tap on the row would start sliding it.
+        if self.drag.is_none() {
+            if let Some(item) = self.ui.as_ref().and_then(|ui| ui.dismissable_at(self.cursor)) {
+                self.drag = Some(Drag::Dismiss {
+                    item,
+                    last: self.cursor,
+                    moved: false,
                 });
                 self.begin_gesture();
             }
@@ -2123,6 +2193,28 @@ impl<A: Application> App<A> {
         // Fling: the finger's momentum is handed to the area's physics, which
         // returns the motion that follows — a spline that stops at the edge, or
         // friction that hands over to a spring and bounces.
+        // A swiped item: the release velocity decides between flying out and sliding
+        // back, using the same fitted estimate a fling uses.
+        if let Some(Drag::Dismiss { item, moved, .. }) = &ended {
+            if *moved {
+                let estimate = self.gesture_estimate();
+                let horizontal = item.spec.axis.is_horizontal();
+                let (along, across) = if horizontal {
+                    (estimate.velocity.x, estimate.velocity.y)
+                } else {
+                    (estimate.velocity.y, estimate.velocity.x)
+                };
+                self.runtime.dismiss_release(
+                    item.id,
+                    along,
+                    across,
+                    item.spec.axis,
+                    item.spec.threshold,
+                );
+                self.request_redraw();
+                return;
+            }
+        }
         if let Some(Drag::Scroll { id, .. }) = &ended {
             // The finger gives the offset back before anything is flung at it.
             self.runtime.release_scroll(*id);
@@ -2458,12 +2550,37 @@ impl<A: Application> App<A> {
                 last,
                 moved,
                 carried: _,
+                dismiss,
             } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
                 // Under the threshold we do not scroll yet; the gesture may be a tap.
                 if !*moved && (dx * dx + dy * dy) > slop * slop {
                     *moved = true;
+                    // The moment of arbitration. A scroll and a swipe start identically,
+                    // so the question is not who is on top but **which way the finger
+                    // went**: along the item's swipe axis it is a dismissal, across it a
+                    // scroll. Deciding once, here, is what keeps the loser out of the
+                    // gesture entirely — a swipe that also scrolled the list would be
+                    // worse than either.
+                    if let Some(item) = dismiss.take() {
+                        let along = if item.spec.axis.is_horizontal() {
+                            dx.abs() > dy.abs()
+                        } else {
+                            dy.abs() > dx.abs()
+                        };
+                        if along {
+                            // The list gives the offset back untouched: it never moved.
+                            self.runtime.release_scroll(*id);
+                            self.drag = Some(Drag::Dismiss {
+                                item,
+                                last: *last,
+                                moved: true,
+                            });
+                            self.handle_drag();
+                            return;
+                        }
+                    }
                 }
                 if *moved {
                     let area = self.ui.as_ref().and_then(|u| u.scroll_region(*id));
@@ -2520,6 +2637,20 @@ impl<A: Application> App<A> {
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
                     self.runtime.scroll_velocity.remove(id);
+                    *last = self.cursor;
+                    self.track_gesture();
+                }
+            }
+            Drag::Dismiss { item, last, moved } => {
+                let dx = self.cursor.x - last.x;
+                let dy = self.cursor.y - last.y;
+                if !*moved && (dx * dx + dy * dy) > slop * slop {
+                    *moved = true;
+                }
+                if *moved {
+                    let delta = if item.spec.axis.is_horizontal() { dx } else { dy };
+                    self.runtime
+                        .dismiss_drag(item.id, delta, item.extent(), item.spec.axis);
                     *last = self.cursor;
                     self.track_gesture();
                 }

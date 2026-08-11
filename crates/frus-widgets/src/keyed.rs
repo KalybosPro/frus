@@ -129,6 +129,27 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.focusable()
     }
 
+    // The **structural** questions the walk and the layout ask before they look at a
+    // widget's children. A transparent wrapper that answered these for itself would
+    // change how its content is laid out — a keyed stack would have its layers put in
+    // flow instead of on top of one another — which is exactly what a wrapper that
+    // claims to be transparent must not do.
+    fn stack(&self) -> bool {
+        self.inner.stack()
+    }
+
+    fn continuous(&self) -> bool {
+        self.inner.continuous()
+    }
+
+    fn draws_own_focus(&self) -> bool {
+        self.inner.draws_own_focus()
+    }
+
+    fn repaint_boundary(&self) -> bool {
+        self.inner.repaint_boundary()
+    }
+
     fn draggable(&self) -> bool {
         self.inner.draggable()
     }
@@ -245,6 +266,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.barrier()
     }
 
+    fn dismissible(&self) -> Option<crate::dismiss::DismissSpec> {
+        self.inner.dismissible()
+    }
+
+    fn on_dismissed(&self, direction: crate::dismiss::DismissDirection) -> Option<Msg> {
+        self.inner.on_dismissed(direction)
+    }
+
     fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
         self.inner.refresh()
     }
@@ -290,6 +319,28 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
 mod tests {
     use super::*;
     use crate::{Container, Text};
+
+    /// The structural questions decide **how the content is laid out**, so a
+    /// transparent wrapper must pass them through. Answering them for itself made a
+    /// keyed stack lay its layers out in flow instead of on top of one another — found
+    /// on a device, wrapping a swipeable row in `keyed(...)`.
+    #[test]
+    fn structural_questions_pass_through() {
+        let stack = crate::Stack::<()>::new()
+            .width(100.0)
+            .height(50.0)
+            .layer(Container::new())
+            .layer(Container::new());
+        assert!(Widget::<()>::stack(&stack));
+        assert!(
+            Widget::<()>::stack(&Keyed::new(1u64, stack)),
+            "a keyed stack is still a stack"
+        );
+
+        let spinner = crate::Spinner::new();
+        assert!(Widget::<()>::continuous(&spinner));
+        assert!(Widget::<()>::continuous(&Keyed::new(2u64, spinner)));
+    }
 
     #[test]
     fn reports_key_and_delegates() {
