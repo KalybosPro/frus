@@ -15,6 +15,12 @@ any release may break.
 
 ### Added
 
+- **Real velocity estimation** (J278). `VelocityTracker` keeps the last 20 pointer
+  positions and fits a quadratic through them, so a gesture that slows down as the finger
+  lifts is still read as the throw it was; the platforms that bounce instead use a weighted
+  average of the last three sample velocities, picked by `VelocityTracker::platform_default`.
+  `VelocityEstimate` carries the travel alongside the speed, and `PolynomialFit` exposes the
+  least-squares solver.
 - **Scroll physics per platform** (J277). `ScrollPhysics::{Bouncing, Clamping}` names how a
   scrollable behaves at its edges and after a fling, and defaults to what the running
   platform does. Clamping follows the platform's spline deceleration and stops dead at the
@@ -26,6 +32,10 @@ any release may break.
 
 ### Changed
 
+- A fling now needs **distance as well as speed**: a fast twitch that covered less than the
+  drag threshold no longer throws the content, per axis (J278).
+- The drag threshold follows the pointer: 18 logical px for a finger, 1 px for a mouse or
+  trackpad, where it used to be 8 px for everything (J278).
 - The scroll registry exposes `Ui::scroll_regions()` / `scroll_region(id)` returning a
   `Scrollable` (id, viewport, bounds, physics); `Ui::scroll_hit` returns one too, instead of
   a tuple.

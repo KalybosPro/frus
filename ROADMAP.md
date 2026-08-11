@@ -77,7 +77,7 @@ The web target renders and animates but is missing its platform integrations. Ea
 ### Framework depth
 
 - 🟡 **Text rendering edge cases.** Bidi runs, complex scripts, font fallback chains, emoji, vertical metrics. Real bug reports welcome here.
-- 🟡 **Scrolling physics — the visible half.** The behaviour landed in `docs/milestone-277.md`: `ScrollPhysics::{Bouncing, Clamping}`, the platform's own fling curves, a real rubber band, and per-app / per-area overrides. What is missing is the **overscroll glow** a clamping platform draws when a fling reaches an end — nothing is painted there today. Also unported: the second bouncing deceleration profile, and a least-squares velocity estimate over a window (the release velocity is still an exponential smoothing of the last two samples).
+- 🟡 **Scrolling physics — the visible half.** The behaviour landed in `docs/milestone-277.md`: `ScrollPhysics::{Bouncing, Clamping}`, the platform's own fling curves, a real rubber band, and per-app / per-area overrides. What is missing is the **overscroll glow** a clamping platform draws when a fling reaches an end — nothing is painted there today. Also unported: the second bouncing deceleration profile. The velocity estimate itself landed in `docs/milestone-278.md`.
 - 🔴 **Rebuild memoization.** `view` rebuilds the whole tree each frame. It has not been a bottleneck yet, but it will be. Wants benchmarks first, then a design.
 - 🟡 **Renderer batching.** Fewer draw calls for scenes with many small primitives; atlas the common shapes.
 - 🟡 **More widgets.** Rich text editing, video, maps, virtualized lists for very large datasets.

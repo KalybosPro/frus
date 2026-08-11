@@ -17,8 +17,8 @@ use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
     reflow_reorder_columns, subtree_ids, Color, Cursor as UiCursor, Edit, FocusDirection, Insets,
-    Key, KeyResponse, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, Size, Theme, Ui, Widget,
-    WidgetId, WindowInsets,
+    Key, KeyResponse, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, Size, Theme, Ui,
+    VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -127,9 +127,44 @@ type SubHandle = Option<web_timer::Interval>;
 /// Scroll speed, in pixels per wheel notch.
 const SCROLL_SPEED: f32 = 40.0;
 
-/// The movement threshold, in logical px, beyond which a touch press becomes a
-/// scroll rather than a tap.
-const TOUCH_SLOP: f32 = 8.0;
+/// The distance a **finger** must travel before the framework is confident the
+/// gesture is a drag rather than a tap, in logical px.
+///
+/// 18 px is large for a screen measurement, and deliberately so: a thumb covers a
+/// wide contact patch and rolls as it presses, so a smaller threshold turns taps
+/// near the edge of a button into aborted drags. It is the value the mature
+/// toolkits settled on after starting at 8 and hearing that targets were too hard
+/// to hit.
+const TOUCH_SLOP: f32 = 18.0;
+
+/// The same threshold for a **precise** pointer — a mouse or a trackpad. It knows
+/// exactly where it is, so almost any movement is intentional.
+const PRECISE_SLOP: f32 = 1.0;
+
+/// The velocity a release should be flung with, per axis — zero on an axis the
+/// gesture did not really travel along.
+///
+/// Speed alone is not a fling. A finger that twitches fast over three pixels
+/// produces a large velocity and no intent; requiring the gesture to have
+/// **covered ground** as well is what separates the two, and the distance that says
+/// "this was a drag" is the same `slop` that started it.
+///
+/// The gate is per axis because a scroll is two independent axes: a swipe running
+/// down the screen must not fling sideways on the little horizontal wobble a thumb
+/// always adds.
+fn fling_velocity(estimate: VelocityEstimate, slop: f32) -> (f32, f32) {
+    let gate = |velocity: f32, travelled: f32| {
+        if travelled.abs() > slop {
+            velocity
+        } else {
+            0.0
+        }
+    };
+    (
+        gate(estimate.velocity.x, estimate.offset.0),
+        gate(estimate.velocity.y, estimate.offset.1),
+    )
+}
 
 /// The elastic overshoot allowed past the scroll bounds, in px — the rubber band.
 const SCROLL_OVER: f32 = 48.0;
@@ -197,19 +232,16 @@ enum Drag {
     /// Panning an interactive viewport (`InteractiveViewer`): the pointer pushes the
     /// content. `last` is the previous position, for the delta; `moved` tells a real
     /// pan from a plain tap, by the `TOUCH_SLOP` threshold, so a click on a child can
-    /// still get through. `velocity`, in px/s and smoothed, feeds the fling on
-    /// release; `viewport` bounds the pan to the frame.
+    /// still get through. `viewport` bounds the pan to the frame. The release
+    /// velocity comes from the shell's gesture tracker.
     Pan {
         id: WidgetId,
         last: Point,
         moved: bool,
-        velocity: (f32, f32),
-        last_t: Instant,
         viewport: frus_widgets::Rect,
     },
     /// Scrolling a scrollable area with a finger. `moved` tells a real scroll from a
-    /// plain tap, movement staying under the `TOUCH_SLOP` threshold. The velocity — in
-    /// **scroll** space, px/s, smoothed — feeds the fling.
+    /// plain tap, movement staying under the `TOUCH_SLOP` threshold.
     Scroll {
         id: WidgetId,
         last: Point,
@@ -218,17 +250,10 @@ enum Drag {
         /// px/s — added to the release velocity so repeated swipes build momentum
         /// where the platform does that. Zero when the content was already still.
         carried: (f32, f32),
-        velocity: (f32, f32),
-        last_t: Instant,
     },
     /// The "back" gesture: the framework measures the finger's progress and velocity
     /// and passes them to the application, which decides on the navigation.
-    Back {
-        start_x: f32,
-        last_x: f32,
-        last_t: Instant,
-        velocity: f32,
-    },
+    Back { start_x: f32 },
 }
 
 /// The driver: an `event → frame` loop around an [`Application`].
@@ -287,6 +312,17 @@ pub struct App<A: Application> {
     build_dirty: bool,
     /// The mouse drag under way.
     drag: Option<Drag>,
+    /// Was the pointer that started the drag under way a finger? A mouse is
+    /// precise and needs almost no slop; a finger needs a lot.
+    pointer_touch: bool,
+    /// The pointer history of the drag under way, and the instant it began.
+    ///
+    /// One tracker for all of them: at most one drag is active at a time, and every
+    /// kind of drag asks the same question on release — how fast was the finger
+    /// going. Keeping it here rather than in each [`Drag`] variant means the
+    /// gesture's clock and its history start together, in one place.
+    gesture_velocity: VelocityTracker,
+    gesture_start: Instant,
     /// The pointer's **smoothed** abscissa during a reorder: it springs toward the
     /// real position, giving the columns' sliding a gentle inertia — the background
     /// catches up with the ghost, which sticks to the pointer.
@@ -375,6 +411,9 @@ impl<A: Application> App<A> {
             last_frame: None,
             build_dirty: true,
             drag: None,
+            pointer_touch: false,
+            gesture_velocity: VelocityTracker::platform_default(),
+            gesture_start: Instant::now(),
             reorder_x: 0.0,
             reorder_y: 0.0,
             #[cfg(desktop)]
@@ -1757,6 +1796,7 @@ impl<A: Application> App<A> {
     /// A pointer press, mouse or finger, at `self.cursor`. `touch` enables finger
     /// scrolling when no other gesture captures the press.
     fn pointer_down(&mut self, touch: bool) {
+        self.pointer_touch = touch;
         // 0) The back gesture: a press on the **leading edge** — left under LTR,
         // right under RTL — if the app allows it.
         let on_back_edge = if self.is_rtl() {
@@ -1767,10 +1807,8 @@ impl<A: Application> App<A> {
         if on_back_edge && self.app.can_go_back() {
             self.drag = Some(Drag::Back {
                 start_x: self.cursor.x,
-                last_x: self.cursor.x,
-                last_t: Instant::now(),
-                velocity: 0.0,
             });
+            self.begin_gesture();
             self.build_dirty = true;
             self.app.back_gesture(0.0);
             self.request_redraw();
@@ -1910,9 +1948,8 @@ impl<A: Application> App<A> {
                     last: self.cursor,
                     moved: false,
                     carried,
-                    velocity: (0.0, 0.0),
-                    last_t: Instant::now(),
                 });
+                self.begin_gesture();
             }
         }
 
@@ -1931,10 +1968,9 @@ impl<A: Application> App<A> {
                     id,
                     last: self.cursor,
                     moved: false,
-                    velocity: (0.0, 0.0),
-                    last_t: Instant::now(),
                     viewport,
                 });
+                self.begin_gesture();
             }
         }
         self.request_redraw();
@@ -1944,8 +1980,11 @@ impl<A: Application> App<A> {
     /// when the release lands back on the widget that was pressed.
     fn pointer_up(&mut self) {
         let ended = self.drag.take();
-        if let Some(Drag::Back { velocity, .. }) = ended {
-            // The app decides — commit or cancel — from the velocity.
+        if let Some(Drag::Back { .. }) = ended {
+            // The app decides — commit or cancel — from the velocity, which it wants
+            // in **fractions of the screen** per second, not pixels.
+            let sign = if self.is_rtl() { -1.0 } else { 1.0 };
+            let velocity = sign * self.gesture_estimate().velocity.x / self.logical_width();
             self.build_dirty = true;
             self.app.back_gesture_end(velocity);
             self.request_redraw();
@@ -2027,23 +2066,24 @@ impl<A: Application> App<A> {
             id,
             moved: true,
             carried,
-            velocity,
             ..
         }) = &ended
         {
-            self.fling(*id, (velocity.0 + carried.0, velocity.1 + carried.1));
+            // In **scroll space**: the content moves opposite the finger.
+            let estimate = self.gesture_estimate();
+            let velocity = self.fling_velocity(estimate);
+            self.fling(*id, (-velocity.0 + carried.0, -velocity.1 + carried.1));
         }
         // A pan fling: the momentum launches the content, which `advance_interactive`
         // decelerates and bounds frame by frame.
         if let Some(Drag::Pan {
-            id,
-            moved: true,
-            velocity,
-            ..
+            id, moved: true, ..
         }) = &ended
         {
+            let estimate = self.gesture_estimate();
+            let velocity = self.fling_velocity(estimate);
             if velocity.0.hypot(velocity.1) > PAN_FLING_MIN {
-                self.runtime.interactive_velocity.insert(*id, *velocity);
+                self.runtime.interactive_velocity.insert(*id, velocity);
             }
         }
         if ended.is_some() && !was_tap {
@@ -2254,6 +2294,8 @@ impl<A: Application> App<A> {
         let Some(mut drag) = self.drag.take() else {
             return;
         };
+        // How far this pointer has to travel before a press counts as a drag.
+        let slop = self.hit_slop();
         match &mut drag {
             Drag::Scrollbar {
                 id,
@@ -2313,7 +2355,7 @@ impl<A: Application> App<A> {
                 // Past the threshold this is a real drag, and no longer a sort.
                 let dx = self.cursor.x - start.x;
                 let dy = self.cursor.y - start.y;
-                if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
+                if !*moved && (dx * dx + dy * dy) > slop * slop {
                     *moved = true;
                 }
                 // The ghost card follows the pointer, so redraw on every move.
@@ -2325,28 +2367,19 @@ impl<A: Application> App<A> {
                 id,
                 last,
                 moved,
-                velocity,
-                last_t,
                 viewport,
             } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
-                if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
+                if !*moved && (dx * dx + dy * dy) > slop * slop {
                     *moved = true;
                 }
                 if *moved {
                     let view = self.runtime.interactive.entry(*id).or_default();
                     // The finger pushes the content, bounded to the frame.
                     *view = view.pan(dx, dy).clamped(*viewport);
-                    // A smoothed velocity, exponentially averaged: the fling's momentum.
-                    let now = Instant::now();
-                    let dt = (now - *last_t).as_secs_f32();
-                    if dt > 1e-4 {
-                        velocity.0 = velocity.0 * 0.5 + (dx / dt) * 0.5;
-                        velocity.1 = velocity.1 * 0.5 + (dy / dt) * 0.5;
-                    }
-                    *last_t = now;
                     *last = self.cursor;
+                    self.track_gesture();
                 }
             }
             Drag::Scroll {
@@ -2354,13 +2387,11 @@ impl<A: Application> App<A> {
                 last,
                 moved,
                 carried: _,
-                velocity,
-                last_t,
             } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
                 // Under the threshold we do not scroll yet; the gesture may be a tap.
-                if !*moved && (dx * dx + dy * dy) > TOUCH_SLOP * TOUCH_SLOP {
+                if !*moved && (dx * dx + dy * dy) > slop * slop {
                     *moved = true;
                 }
                 if *moved {
@@ -2388,52 +2419,65 @@ impl<A: Application> App<A> {
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
                     self.runtime.scroll_velocity.remove(id);
-                    // The velocity in scroll space, the content moving opposite the
-                    // finger, exponentially smoothed: the fling's momentum.
-                    let now = Instant::now();
-                    let dt = (now - *last_t).as_secs_f32();
-                    if dt > 1e-4 {
-                        let inst = (-dx / dt, -dy / dt);
-                        velocity.0 = velocity.0 * 0.5 + inst.0 * 0.5;
-                        velocity.1 = velocity.1 * 0.5 + inst.1 * 0.5;
-                    }
-                    *last_t = now;
                     *last = self.cursor;
+                    self.track_gesture();
                 }
             }
-            Drag::Back {
-                start_x,
-                last_x,
-                last_t,
-                velocity,
-            } => {
-                let scale = self.total_scale();
-                let width = self
-                    .window
-                    .as_ref()
-                    .map(|w| w.inner_size().width as f32 / scale)
-                    .unwrap_or(1.0)
-                    .max(1.0);
-                let now = Instant::now();
-                let x = self.cursor.x;
+            Drag::Back { start_x } => {
+                let width = self.logical_width();
                 // Under RTL the finger slides **left** from the right edge, so progress
-                // and velocity run the other way.
+                // runs the other way.
                 let sign = if self.is_rtl() { -1.0 } else { 1.0 };
-                let progress = (sign * (x - *start_x) / width).clamp(0.0, 1.0);
-                let dt = (now - *last_t).as_secs_f32();
-                if dt > 1e-4 {
-                    // The instantaneous velocity, in fractions per second, exponentially smoothed.
-                    let inst = sign * (x - *last_x) / width / dt;
-                    *velocity = *velocity * 0.5 + inst * 0.5;
-                    *last_x = x;
-                    *last_t = now;
-                }
+                let progress = (sign * (self.cursor.x - *start_x) / width).clamp(0.0, 1.0);
+                self.track_gesture();
                 self.build_dirty = true;
                 self.app.back_gesture(progress);
             }
         }
         self.drag = Some(drag);
         self.request_redraw();
+    }
+
+    /// How far the pointer must travel before a press becomes a drag, given what
+    /// kind of pointer it is.
+    fn hit_slop(&self) -> f32 {
+        if self.pointer_touch {
+            TOUCH_SLOP
+        } else {
+            PRECISE_SLOP
+        }
+    }
+
+    /// Seconds since the drag under way began — the clock the velocity tracker's
+    /// samples are stamped with.
+    fn gesture_now(&self) -> f32 {
+        (Instant::now() - self.gesture_start).as_secs_f32()
+    }
+
+    /// Starts a fresh gesture: the history of the previous one must not leak into
+    /// the next, or a flick left then right would fling the wrong way.
+    fn begin_gesture(&mut self) {
+        self.gesture_velocity = VelocityTracker::platform_default();
+        self.gesture_start = Instant::now();
+        self.track_gesture();
+    }
+
+    /// Records where the pointer is now.
+    fn track_gesture(&mut self) {
+        let now = self.gesture_now();
+        self.gesture_velocity.add_position(now, self.cursor);
+    }
+
+    /// What the gesture tracker makes of the drag as it stands.
+    fn gesture_estimate(&self) -> VelocityEstimate {
+        self.gesture_velocity
+            .estimate(self.gesture_now())
+            .unwrap_or(VelocityEstimate::STILL)
+    }
+
+    /// [`fling_velocity`], gated on this pointer's slop.
+    fn fling_velocity(&self, estimate: VelocityEstimate) -> (f32, f32) {
+        fling_velocity(estimate, self.hit_slop())
     }
 
     /// A scroll fling: projects each axis's ballistic destination, friction in closed
@@ -2904,10 +2948,48 @@ fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::{
-        draw_ghost_card, drop_insertion_line, resolve_focus, spring_toward, Rect, Scene, Theme,
+        draw_ghost_card, drop_insertion_line, fling_velocity, resolve_focus, spring_toward, Rect,
+        Scene, Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
     use frus_widgets::WidgetId;
     use std::collections::HashSet;
+
+    /// An estimate reading `velocity` px/s after travelling `offset` px.
+    fn released(velocity: (f32, f32), offset: (f32, f32)) -> VelocityEstimate {
+        VelocityEstimate {
+            velocity: frus_widgets::Velocity::new(velocity.0, velocity.1),
+            confidence: 1.0,
+            duration: 0.05,
+            offset,
+        }
+    }
+
+    #[test]
+    fn a_fast_twitch_that_went_nowhere_is_not_a_fling() {
+        // 2000 px/s, but the finger covered 3 px: a wobble on lift-off, not a throw.
+        let (x, y) = fling_velocity(released((0.0, 2000.0), (0.0, 3.0)), TOUCH_SLOP);
+        assert_eq!((x, y), (0.0, 0.0));
+        // The same speed over a real distance is.
+        let (_, y) = fling_velocity(released((0.0, 2000.0), (0.0, 60.0)), TOUCH_SLOP);
+        assert_eq!(y, 2000.0);
+    }
+
+    #[test]
+    fn the_fling_gate_is_per_axis() {
+        // A vertical swipe with the sideways wobble a thumb always adds: the wobble
+        // must not fling the content horizontally.
+        let (x, y) = fling_velocity(released((300.0, 1500.0), (5.0, 120.0)), TOUCH_SLOP);
+        assert_eq!(x, 0.0, "the wobble is not a horizontal fling");
+        assert_eq!(y, 1500.0, "the swipe still flings vertically");
+    }
+
+    #[test]
+    fn a_precise_pointer_needs_almost_no_travel() {
+        // The same 3 px that a finger's slop rejects is a deliberate mouse drag.
+        let estimate = released((0.0, 900.0), (0.0, 3.0));
+        assert_eq!(fling_velocity(estimate, TOUCH_SLOP).1, 0.0);
+        assert_eq!(fling_velocity(estimate, PRECISE_SLOP).1, 900.0);
+    }
 
     #[test]
     fn insertion_line_sits_on_the_target_top_edge() {

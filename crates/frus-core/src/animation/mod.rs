@@ -17,6 +17,7 @@ mod controller;
 mod curve;
 mod simulation;
 mod tween;
+mod velocity;
 
 pub use controller::{AnimationController, Status};
 pub use curve::Curve;
@@ -26,3 +27,7 @@ pub use simulation::{
     MAX_SPRING_TRANSFER_VELOCITY,
 };
 pub use tween::{Animatable, Animation, Curved, Lerp, Tween, TweenSequence};
+pub use velocity::{
+    PolynomialFit, Velocity, VelocityEstimate, VelocityStrategy, VelocityTracker,
+    BOUNCING_FLING_WEIGHTS, DESKTOP_FLING_WEIGHTS,
+};

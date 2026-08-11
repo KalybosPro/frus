@@ -208,7 +208,8 @@ pub use frus_core::{
 /// `frus_widgets` without depending on `frus-core` directly.
 pub use frus_core::{
     AnimationController, ClampedSimulation, Curve, FrictionSimulation, Lerp, Simulation,
-    SpringDescription, SpringSimulation, Tolerance, Tween,
+    SpringDescription, SpringSimulation, Tolerance, Tween, Velocity, VelocityEstimate,
+    VelocityStrategy, VelocityTracker,
 };
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.

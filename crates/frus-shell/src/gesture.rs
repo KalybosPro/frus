@@ -21,7 +21,11 @@ use frus_widgets::Point;
 /// How long a motionless press must last before the long press is accepted.
 pub(crate) const LONG_PRESS_DELAY: Duration = Duration::from_millis(500);
 /// The movement, in logical px, beyond which the long press is rejected.
-const SLOP: f32 = 8.0;
+///
+/// A long press is a finger gesture, so it uses the finger threshold: a thumb held
+/// still for half a second still wanders several pixels, and rejecting on less than
+/// that makes the gesture feel broken.
+const SLOP: f32 = 18.0;
 
 /// A **normalised** pointer event, mouse or finger: routing's single input — tier 0
 /// of the brief, with an explicit `Cancel`.
@@ -169,11 +173,12 @@ mod tests {
         let mut rec = PressRecognizer::new();
         let t0 = start();
         rec.down(Point::new(0.0, 0.0), t0, true);
-        // Below the slop: still a candidate.
-        rec.moved(Point::new(4.0, 4.0));
+        // Below the slop: still a candidate. Stated relative to SLOP so the test
+        // keeps testing the boundary if the threshold is ever retuned.
+        rec.moved(Point::new(SLOP * 0.3, SLOP * 0.3));
         assert!(rec.deadline().is_some());
         // Beyond it: rejected, the deadline vanishes, time no longer fires anything.
-        rec.moved(Point::new(10.0, 10.0));
+        rec.moved(Point::new(SLOP, SLOP));
         assert!(rec.deadline().is_none());
         assert!(!rec.poll(t0 + Duration::from_secs(1)));
         assert!(!rec.up(), "an ordinary click is still possible");
