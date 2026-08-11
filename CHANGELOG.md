@@ -15,6 +15,11 @@ any release may break.
 
 ### Added
 
+- **The overscroll glow** (J279). A platform that clamps now answers a refused drag or a
+  fling landing on an edge with an arc of light, instead of with silence: `OverscrollGlow`,
+  fed by the movement `apply_boundary_conditions` refuses, by a ballistic stopped at an edge,
+  and by a wheel notch past the end. Bouncing physics feeds none of it — the bounce is
+  already the answer. `Path::oval` and `Curve::Decelerate` in `frus-core` came with it.
 - **Real velocity estimation** (J278). `VelocityTracker` keeps the last 20 pointer
   positions and fits a quadratic through them, so a gesture that slows down as the finger
   lifts is still read as the throw it was; the platforms that bounce instead use a weighted
@@ -29,6 +34,13 @@ any release may break.
   `List::physics`.
 - `ClampingScrollSimulation` and `BouncingScrollSimulation` in `frus-core`, plus
   `FrictionSimulation::time_at_x`.
+
+### Fixed
+
+- **A scroll offset now has one owner at a time** (J279). The edge spring kept retracting an
+  overscrolled offset *while a finger was still holding it*, so a rubber band was dragged
+  home as fast as it was stretched — on a slow drag it never appeared at all. Found on a
+  physical device, not by a test.
 
 ### Changed
 

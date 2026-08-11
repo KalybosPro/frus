@@ -1336,9 +1336,31 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.runtime.stop_scroll_fling(id);
                     let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                     let target = self.runtime.scroll_target.entry(id).or_insert(current);
-                    target.0 = (target.0 - dx).clamp(-over, area.max_x + over);
-                    target.1 = (target.1 - dy).clamp(-over, area.max_y + over);
+                    let (wanted_x, wanted_y) = (target.0 - dx, target.1 - dy);
+                    target.0 = wanted_x.clamp(-over, area.max_x + over);
+                    target.1 = wanted_y.clamp(-over, area.max_y + over);
+                    let refused = (wanted_x - target.0, wanted_y - target.1);
                     self.runtime.scroll_velocity.entry(id).or_insert((0.0, 0.0));
+                    // A notch that asks to go past the end deserves the same
+                    // acknowledgement a finger gets: the wheel is a gesture too.
+                    let cursor = self.cursor;
+                    for (refused, vertical, extent) in [
+                        (refused.0, false, area.viewport.width),
+                        (refused.1, true, area.viewport.height),
+                    ] {
+                        if refused.abs() < 1e-3 {
+                            continue;
+                        }
+                        let edge = frus_widgets::edge_for(vertical, refused);
+                        let (offset, cross) =
+                            frus_widgets::glow_cross_axis(area.viewport, edge, cursor);
+                        self.runtime
+                            .glow_pull(id, edge, refused, extent, offset, cross);
+                        // A wheel has no "lift off", so the pull is released at once
+                        // and simply fades — otherwise it would hang until the hold
+                        // timer expired.
+                        self.runtime.glow_scroll_end(id);
+                    }
                     self.request_redraw();
                 }
             }
@@ -1560,6 +1582,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     | self
                         .runtime
                         .advance_scroll(&scroll_regions, scroll_physics, dt)
+                    | self.runtime.advance_glow(dt)
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | reorder_animating
                     | app_animating;
@@ -1720,6 +1743,12 @@ impl<A: Application> App<A> {
             }
             PointerKind::Cancel => {
                 self.press.cancel();
+                // A cancelled gesture still owes the offset back, or the region
+                // would stay frozen under a finger that is no longer there.
+                if let Some(Drag::Scroll { id, .. }) = self.drag {
+                    self.runtime.release_scroll(id);
+                    self.runtime.glow_scroll_end(id);
+                }
                 self.drag = None;
                 self.runtime.input.pressed = None;
                 self.request_redraw();
@@ -1943,6 +1972,8 @@ impl<A: Application> App<A> {
                 // release whatever momentum the platform lets a swipe build on.
                 let physics = area.physics_or(self.app.scroll_physics());
                 let carried = self.runtime.catch_scroll_fling(area.id, physics);
+                // The offset belongs to the finger until it lifts.
+                self.runtime.hold_scroll(area.id);
                 self.drag = Some(Drag::Scroll {
                     id: area.id,
                     last: self.cursor,
@@ -2062,6 +2093,12 @@ impl<A: Application> App<A> {
         // Fling: the finger's momentum is handed to the area's physics, which
         // returns the motion that follows — a spline that stops at the edge, or
         // friction that hands over to a spring and bounces.
+        if let Some(Drag::Scroll { id, .. }) = &ended {
+            // The finger gives the offset back before anything is flung at it.
+            self.runtime.release_scroll(*id);
+            // A pull held against an edge now fades at the "let go" rate.
+            self.runtime.glow_scroll_end(*id);
+        }
         if let Some(Drag::Scroll {
             id,
             moved: true,
@@ -2404,18 +2441,37 @@ impl<A: Application> App<A> {
                     // but only as far as the physics allows. Past an edge, bouncing
                     // physics resists more and more (the rubber band) while clamping
                     // physics refuses the move outright.
+                    // What the physics refuses is exactly the distance the user asked
+                    // for and did not get — which is what the glow acknowledges.
                     let axis = |metrics: frus_widgets::ScrollMetrics, delta: f32| {
                         let applied = physics.apply_user_offset(metrics, delta);
                         let proposed = metrics.pixels + applied;
-                        proposed - physics.apply_boundary_conditions(metrics, proposed)
+                        let refused = physics.apply_boundary_conditions(metrics, proposed);
+                        (proposed - refused, refused)
                     };
-                    let (nx, ny) = match area {
-                        Some(area) => (
-                            axis(area.metrics_x(cur.0), -dx),
-                            axis(area.metrics_y(cur.1), -dy),
-                        ),
-                        None => (cur.0 - dx, cur.1 - dy),
+                    let (nx, ny, refused) = match area {
+                        Some(area) => {
+                            let (nx, rx) = axis(area.metrics_x(cur.0), -dx);
+                            let (ny, ry) = axis(area.metrics_y(cur.1), -dy);
+                            (nx, ny, Some((area, rx, ry)))
+                        }
+                        None => (cur.0 - dx, cur.1 - dy, None),
                     };
+                    if let Some((area, rx, ry)) = refused {
+                        let cursor = self.cursor;
+                        for (refused, vertical, extent) in
+                            [(rx, false, area.viewport.width), (ry, true, area.viewport.height)]
+                        {
+                            if refused.abs() < 1e-3 {
+                                continue;
+                            }
+                            let edge = frus_widgets::edge_for(vertical, refused);
+                            let (offset, cross) =
+                                frus_widgets::glow_cross_axis(area.viewport, edge, cursor);
+                            self.runtime
+                                .glow_pull(area.id, edge, refused, extent, offset, cross);
+                        }
+                    }
                     self.runtime.scroll.insert(*id, (nx, ny));
                     self.runtime.scroll_target.insert(*id, (nx, ny));
                     self.runtime.scroll_velocity.remove(id);

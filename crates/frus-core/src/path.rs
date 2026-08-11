@@ -180,6 +180,42 @@ impl Path {
             .close()
     }
 
+    /// An **ellipse** inscribed in `r`, by the same four-cubic approximation as
+    /// [`Path::circle`] — which it generalises: a square `r` gives that circle back.
+    ///
+    /// A circle scaled along one axis, in other words, without needing a transform
+    /// to say so: it is how a wide, shallow arc (an overscroll glow, a soft
+    /// highlight) is drawn as a plain filled path.
+    pub fn oval(r: Rect) -> Self {
+        const K: f32 = 0.552_284_75;
+        let (rx, ry) = (r.width * 0.5, r.height * 0.5);
+        let (cx, cy) = (r.x + rx, r.y + ry);
+        let (kx, ky) = (rx * K, ry * K);
+        Self::new()
+            .move_to(Point::new(cx, cy - ry))
+            .cubic_to(
+                Point::new(cx + kx, cy - ry),
+                Point::new(cx + rx, cy - ky),
+                Point::new(cx + rx, cy),
+            )
+            .cubic_to(
+                Point::new(cx + rx, cy + ky),
+                Point::new(cx + kx, cy + ry),
+                Point::new(cx, cy + ry),
+            )
+            .cubic_to(
+                Point::new(cx - kx, cy + ry),
+                Point::new(cx - rx, cy + ky),
+                Point::new(cx - rx, cy),
+            )
+            .cubic_to(
+                Point::new(cx - rx, cy - ky),
+                Point::new(cx - kx, cy - ry),
+                Point::new(cx, cy - ry),
+            )
+            .close()
+    }
+
     /// A copy scaled by `factor` about the origin — used for logical-to-physical
     /// conversion, or to fit a `24×24` icon to its real size.
     pub fn scaled(&self, factor: f32) -> Path {

@@ -60,6 +60,7 @@ mod navbar;
 mod navigator;
 mod navrail;
 mod navscaffold;
+mod overscroll;
 mod pagination;
 mod paintcache;
 mod physics;
@@ -149,6 +150,9 @@ pub use navbar::NavBar;
 pub use navigator::Navigator;
 pub use navrail::{BottomBar, NavRail};
 pub use navscaffold::NavScaffold;
+pub use overscroll::{
+    cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
+};
 pub use pagination::Pagination;
 pub use paintcache::PaintCache;
 pub use physics::{

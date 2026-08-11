@@ -12,6 +12,10 @@
 pub enum Curve {
     /// The identity: `f(t) = t`.
     Linear,
+    /// A quadratic ease-out, `f(t) = 1 − (1 − t)²`: fast at once, then coasting to
+    /// a stop. It is the shape of something *arriving* — a glow flaring at an edge,
+    /// a value settling — where the interesting part is the start.
+    Decelerate,
     /// A cubic Bézier defined by its two control points `(x1,y1)` and `(x2,y2)` —
     /// the same parameterisation as CSS's `cubic-bezier()`.
     Cubic { x1: f32, y1: f32, x2: f32, y2: f32 },
@@ -83,6 +87,10 @@ impl Curve {
         let t = t.clamp(0.0, 1.0);
         match self {
             Curve::Linear => t,
+            Curve::Decelerate => {
+                let remaining = 1.0 - t;
+                1.0 - remaining * remaining
+            }
             Curve::Cubic { x1, y1, x2, y2 } => cubic_bezier(*x1, *y1, *x2, *y2, t),
             Curve::CriticalSpring { omega } => {
                 // y(tau) = 1 - e^{-omega*tau}(1 + omega*tau), renormalised by y(1).

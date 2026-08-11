@@ -1277,8 +1277,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &mut content_index,
             );
 
-            // Scrollbars, over the content (not clipped by it).
+            // The overscroll glow, then the scrollbars, over the content (not
+            // clipped by it).
             self.scene.set_clip(clip);
+            self.add_overscroll_glow(id, viewport);
             if max_y > 0.0 {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
             }
@@ -1327,6 +1329,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
 
             self.scene.set_clip(clip);
+            self.add_overscroll_glow(id, viewport);
             if max_y > 0.0 {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
             }
@@ -1780,6 +1783,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
 impl<Msg: Clone> Builder<'_, Msg> {
     /// Draws a scrollbar (track + thumb) and registers it for hit-testing a drag.
+    /// Paints the region's overscroll glows over its viewport.
+    ///
+    /// The colour is the scheme's **secondary**: the edge feedback is an
+    /// acknowledgement, not a call to action, so it must read as part of the surface
+    /// rather than compete with whatever primary-coloured control sits nearby.
+    fn add_overscroll_glow(&mut self, id: WidgetId, viewport: Rect) {
+        if let Some(glows) = self.runtime.scroll_glow.get(&id) {
+            glows.paint(viewport, self.theme.scheme.secondary, &mut self.scene);
+        }
+    }
+
     fn add_scrollbar(
         &mut self,
         id: WidgetId,
@@ -2775,6 +2789,45 @@ mod tests {
             .focus_hit(Point::new(10.0, 10.0))
             .expect("the email field under the cursor");
         assert_eq!(email, hit_id, "find_by_key == the field's focus identity");
+    }
+
+    #[test]
+    fn an_overscroll_glow_is_painted_over_its_scroll_area() {
+        let tree = Scroll::<Msg>::new()
+            .width(200.0)
+            .height(100.0)
+            .child(Container::<Msg>::new().width(100.0).height(400.0));
+        let size = Size::new(200.0, 100.0);
+
+        // Quiet: nothing extra is drawn.
+        let rt = Runtime::default();
+        let plain = build_ui(&tree, size, &rt, &Theme::default()).scene.len();
+
+        // A fling has just landed on the bottom edge.
+        let mut rt = Runtime::default();
+        let id = build_ui(&tree, size, &rt, &Theme::default()).scroll_regions()[0].id;
+        rt.glow_absorb(id, crate::overscroll::GlowEdge::Bottom, 4000.0);
+        rt.advance_glow(0.02);
+        let ui = build_ui(&tree, size, &rt, &Theme::default());
+        assert_eq!(
+            ui.scene.len(),
+            plain + 1,
+            "the glow adds exactly one shape to the frame"
+        );
+        // The glow sits under the scrollbars, so it is not the last primitive: it is
+        // the only filled path in the frame.
+        let clip = ui
+            .scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Path { clip, .. } => Some(*clip),
+                _ => None,
+            })
+            .expect("the glow is a filled path");
+        // Drawn against the bottom of the viewport, and inside it.
+        assert!((clip.y + clip.height - 100.0).abs() < 1.0, "clip = {clip:?}");
+        assert!(clip.width <= 200.0 + 1e-3);
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Rect, Simulation, Size};
 
 use crate::interaction::{InputState, WidgetId};
+use crate::overscroll::{edge_for, GlowEdge, ScrollGlows};
 use crate::physics::{Ballistic, ScrollPhysics};
 use crate::relayout::LayoutCache;
 use crate::ui::Scrollable;
@@ -325,6 +326,17 @@ pub struct Runtime {
     /// simulation the platform's physics handed us, sampled frame by frame by
     /// [`Runtime::advance_scroll`]. Absent = no fling in flight.
     pub scroll_ballistic: HashMap<WidgetId, ScrollBallistic>,
+    /// The overscroll glows of each region — the edge feedback a platform that
+    /// clamps needs, since it has no bounce to speak with. Absent = all quiet.
+    pub scroll_glow: HashMap<WidgetId, ScrollGlows>,
+    /// The region a finger is currently holding, if any.
+    ///
+    /// A scroll offset has **one owner at a time**. While a drag owns it, nothing
+    /// else may move it: without this, the edge spring keeps retracting the offset
+    /// between two moves of the finger, and a rubber band pulled against a bouncing
+    /// edge is dragged back as fast as it is stretched — it never appears at all.
+    /// At most one, because at most one gesture is live.
+    pub scroll_held: Option<WidgetId>,
     /// Retained transform (scale + translation) of each
     /// [`InteractiveViewer`](crate::InteractiveViewer), per viewport. Absent =
     /// identity (scale 1, no translation).
@@ -830,6 +842,10 @@ impl Runtime {
             if self.scroll_ballistic.contains_key(&id) {
                 continue;
             }
+            // Under a finger it belongs to the finger, full stop.
+            if self.scroll_held == Some(id) {
+                continue;
+            }
             let area = regions.iter().find(|area| area.id == id);
             let (max_x, max_y) = area.map(|a| (a.max_x, a.max_y)).unwrap_or((0.0, 0.0));
             let current = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
@@ -880,7 +896,10 @@ impl Runtime {
         let t = fling.elapsed;
         let current = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
 
-        let axis = |sim: &mut Option<Ballistic>, previous: f32, max: f32| -> f32 {
+        // An axis that slams into an edge reports the speed it lost there, so the
+        // glow can show what the clamp swallowed.
+        let mut absorbed: Vec<(GlowEdge, f32)> = Vec::new();
+        let mut axis = |sim: &mut Option<Ballistic>, previous: f32, max: f32, vertical: bool| {
             let Some(active) = sim.as_ref() else {
                 return previous;
             };
@@ -888,8 +907,11 @@ impl Runtime {
             let mut finished = active.is_done(t);
             if !physics.allows_overscroll() {
                 let pinned = position.clamp(0.0, max);
-                // Hitting the edge is the end of the motion, not a pause at it.
-                finished |= pinned != position;
+                if pinned != position {
+                    // Hitting the edge is the end of the motion, not a pause at it.
+                    finished = true;
+                    absorbed.push((edge_for(vertical, position - pinned), active.dx(t)));
+                }
                 position = pinned;
             }
             if finished {
@@ -898,8 +920,11 @@ impl Runtime {
             position
         };
 
-        let x = axis(&mut fling.x, current.0, area.max_x);
-        let y = axis(&mut fling.y, current.1, area.max_y);
+        let x = axis(&mut fling.x, current.0, area.max_x, false);
+        let y = axis(&mut fling.y, current.1, area.max_y, true);
+        for (edge, velocity) in absorbed {
+            self.glow_absorb(id, edge, velocity);
+        }
         self.scroll.insert(id, (x, y));
         // The glide-to-target path must not fight the fling, nor yank the offset
         // back when the fling ends.
@@ -949,6 +974,75 @@ impl Runtime {
             .insert(area.id, ScrollBallistic::new(x, y));
         self.scroll_velocity.remove(&area.id);
         true
+    }
+
+    /// A finger takes hold of `id`: from now until [`Runtime::release_scroll`],
+    /// this region's offset moves only when the finger says so. Any fling in
+    /// flight is caught, since the finger has just overruled it.
+    pub fn hold_scroll(&mut self, id: WidgetId) {
+        self.scroll_held = Some(id);
+    }
+
+    /// The finger lets go: the offset is up for grabs again — a fling, a spring
+    /// back from an overscroll, or nothing.
+    pub fn release_scroll(&mut self, id: WidgetId) {
+        if self.scroll_held == Some(id) {
+            self.scroll_held = None;
+        }
+    }
+
+    /// Tells the glow on one edge of `id` that a finger is dragging past it.
+    ///
+    /// `overscroll` is the movement the physics **refused** — which is exactly the
+    /// distance the user asked for and did not get, and so exactly what the glow is
+    /// there to acknowledge.
+    pub fn glow_pull(
+        &mut self,
+        id: WidgetId,
+        edge: GlowEdge,
+        overscroll: f32,
+        extent: f32,
+        cross_offset: f32,
+        cross_extent: f32,
+    ) {
+        if overscroll.abs() < 1e-3 {
+            return;
+        }
+        self.scroll_glow
+            .entry(id)
+            .or_default()
+            .edge_mut(edge)
+            .pull(overscroll, extent, cross_offset, cross_extent);
+    }
+
+    /// Tells the glow on one edge of `id` that a fling just landed on it.
+    pub fn glow_absorb(&mut self, id: WidgetId, edge: GlowEdge, velocity: f32) {
+        self.scroll_glow
+            .entry(id)
+            .or_default()
+            .edge_mut(edge)
+            .absorb_impact(velocity);
+    }
+
+    /// Tells every glow of `id` that the gesture is over, so a held pull can fade.
+    pub fn glow_scroll_end(&mut self, id: WidgetId) {
+        if let Some(glows) = self.scroll_glow.get_mut(&id) {
+            glows.scroll_end();
+        }
+    }
+
+    /// Advances every glow by `dt`, dropping those that have gone quiet. Returns
+    /// `true` while any is still animating.
+    pub fn advance_glow(&mut self, dt: f32) -> bool {
+        if self.scroll_glow.is_empty() {
+            return false;
+        }
+        let mut animating = false;
+        self.scroll_glow.retain(|_, glows| {
+            animating |= glows.advance(dt);
+            !glows.is_idle()
+        });
+        animating
     }
 
     /// Cancels any fling on `id` — a new gesture, a wheel notch or a programmatic
@@ -1536,6 +1630,110 @@ mod tests {
         rt.scroll.insert(id, (0.0, 100.0));
         assert!(!rt.fling_scroll(region(id, 400.0), ScrollPhysics::Clamping, (0.0, 5.0)));
         assert!(rt.scroll_ballistic.is_empty());
+    }
+
+    #[test]
+    fn a_held_region_is_not_dragged_back_by_the_spring() {
+        // The bug the device found: while a finger holds an overscrolled offset,
+        // the edge spring kept retracting it between two moves, so a rubber band
+        // was pulled back as fast as it was stretched and never appeared.
+        let id = WidgetId::ROOT;
+        let physics = ScrollPhysics::Bouncing;
+        let area = region(id, 400.0);
+        let pulled = -60.0;
+
+        let mut held = Runtime::default();
+        held.hold_scroll(id);
+        held.scroll.insert(id, (0.0, pulled));
+        held.scroll_target.insert(id, (0.0, pulled));
+        for _ in 0..10 {
+            held.advance_scroll(&[area], physics, 1.0 / 60.0);
+        }
+        assert_eq!(
+            held.scroll.get(&id).copied().unwrap().1,
+            pulled,
+            "a held offset must not move on its own"
+        );
+
+        // The same offset, let go: now it must come home.
+        let mut free = Runtime::default();
+        free.scroll.insert(id, (0.0, pulled));
+        free.scroll_target.insert(id, (0.0, pulled));
+        while free.advance_scroll(&[area], physics, 1.0 / 60.0) {}
+        assert!(
+            free.scroll.get(&id).copied().unwrap().1.abs() < 1.0,
+            "a released overscroll springs back"
+        );
+    }
+
+    #[test]
+    fn releasing_a_region_that_was_never_held_changes_nothing() {
+        let mut rt = Runtime::default();
+        rt.hold_scroll(WidgetId::ROOT);
+        rt.release_scroll(WidgetId::ROOT.child(1));
+        assert_eq!(
+            rt.scroll_held,
+            Some(WidgetId::ROOT),
+            "another region's release must not steal the hold"
+        );
+        rt.release_scroll(WidgetId::ROOT);
+        assert_eq!(rt.scroll_held, None);
+    }
+
+    #[test]
+    fn a_clamping_fling_lights_the_edge_it_slams_into() {
+        let id = WidgetId::ROOT;
+        let physics = ScrollPhysics::Clamping;
+        let mut rt = Runtime::default();
+        let area = region(id, 400.0);
+        // Far more momentum than there is content: it will reach the end.
+        rt.fling_scroll(area, physics, (0.0, 6000.0));
+        while rt.advance_scroll(&[area], physics, 1.0 / 60.0) {}
+        let glows = rt.scroll_glow.get(&id).expect("the edge should have lit up");
+        assert!(!glows.edge(GlowEdge::Bottom).is_idle(), "the end glows");
+        assert!(
+            glows.edge(GlowEdge::Top).is_idle(),
+            "and only the end — the fling never touched the start"
+        );
+        // It is a flash, not a permanent mark.
+        while rt.advance_glow(1.0 / 60.0) {}
+        assert!(rt.scroll_glow.is_empty(), "the glow is dropped once quiet");
+    }
+
+    #[test]
+    fn a_bouncing_fling_lights_nothing() {
+        // The bounce *is* the feedback: a glow on top of it would say the same
+        // thing twice.
+        let id = WidgetId::ROOT;
+        let physics = ScrollPhysics::Bouncing;
+        let mut rt = Runtime::default();
+        let area = region(id, 400.0);
+        rt.fling_scroll(area, physics, (0.0, 6000.0));
+        while rt.advance_scroll(&[area], physics, 1.0 / 60.0) {}
+        assert!(rt.scroll_glow.is_empty());
+    }
+
+    #[test]
+    fn a_pull_that_was_refused_lights_the_edge_and_fades() {
+        let id = WidgetId::ROOT;
+        let mut rt = Runtime::default();
+        rt.glow_pull(id, GlowEdge::Top, -30.0, 600.0, 150.0, 300.0);
+        assert!(!rt.scroll_glow.get(&id).unwrap().is_idle());
+        rt.glow_scroll_end(id);
+        let mut frames = 0;
+        while rt.advance_glow(1.0 / 60.0) {
+            frames += 1;
+            assert!(frames < 200, "the glow never faded");
+        }
+        assert!(rt.scroll_glow.is_empty());
+    }
+
+    #[test]
+    fn a_refusal_of_nothing_lights_nothing() {
+        let mut rt = Runtime::default();
+        rt.glow_pull(WidgetId::ROOT, GlowEdge::Top, 0.0, 600.0, 150.0, 300.0);
+        assert!(rt.scroll_glow.is_empty(), "a zero pull is not an overscroll");
+        assert!(!rt.advance_glow(1.0 / 60.0));
     }
 
     #[test]
