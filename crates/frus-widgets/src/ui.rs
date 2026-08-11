@@ -11,6 +11,7 @@ use crate::barrier::Barrier;
 use crate::dismiss::{Dismissable, DismissPhase};
 use crate::refresh::Refreshable;
 use crate::interaction::{Status, WidgetId};
+use crate::pageview::PageSnap;
 use crate::physics::{ScrollMetrics, ScrollPhysics};
 use crate::portal::Placement;
 use crate::relayout::Constraints;
@@ -62,6 +63,9 @@ pub struct Scrollable {
     /// Movement refused at its **top** edge feeds that area's pull instead of the
     /// overscroll glow.
     pub refresh: Option<WidgetId>,
+    /// Set when this area rests **only on pages** ([`crate::PageView`]): the release
+    /// springs to a page boundary instead of flinging.
+    pub page: Option<PageSnap>,
 }
 
 impl Scrollable {
@@ -189,6 +193,7 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.rotated_quarter_turns().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
+        || widget.page_view().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
         || widget.overlay().is_some()
@@ -612,6 +617,7 @@ pub(crate) fn build_layout<Msg>(
         || widget.fitted().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
+        || widget.page_view().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
     {
@@ -1247,6 +1253,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             max_y,
                             physics: widget.scroll_physics(),
                             refresh: self.refresh_host,
+                            page: None,
                         });
                         let offset_y = self
                             .runtime
@@ -1449,6 +1456,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 max_y,
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
+                page: None,
             });
 
             let content_translation = (viewport.x - offset_x, viewport.y - offset_y);
@@ -1486,6 +1494,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 max_y,
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
+                page: None,
             });
 
             if vlist.item_height > 0.0 && vlist.count > 0 {
@@ -1519,6 +1528,85 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if max_y > 0.0 {
                 self.add_scrollbar(id, viewport, true, offset_y, max_y);
             }
+        } else if let Some(pages) = widget.page_view() {
+            // A paged view: like a virtualised list turned on its side, and with the
+            // page extent — the whole geometry — derived from the viewport rather than
+            // given. Only the pages the viewport touches are built.
+            let viewport = draw_rect;
+            let content_clip = clip.intersect(viewport);
+            let snap = pages.snap(viewport);
+            let (viewport_along, page_across) = if snap.horizontal {
+                (viewport.width, viewport.height)
+            } else {
+                (viewport.height, viewport.width)
+            };
+            let total = pages.count as f32 * snap.extent;
+            let max = (total - viewport_along).max(0.0);
+            // With no retained offset this is the view's **first** frame, and it opens
+            // on the page it was asked for. Reading the initial page here rather than
+            // correcting it a frame later is what keeps page 0 from flashing past on
+            // the way to page 3.
+            let along = match self.runtime.scroll.get(&id).copied() {
+                Some((x, y)) => {
+                    if snap.horizontal {
+                        x
+                    } else {
+                        y
+                    }
+                }
+                None => snap
+                    .offset_of(snap.requested.min(pages.count.saturating_sub(1)))
+                    .clamp(0.0, max),
+            };
+            self.scrollables.push(Scrollable {
+                id,
+                viewport,
+                max_x: if snap.horizontal { max } else { 0.0 },
+                max_y: if snap.horizontal { 0.0 } else { max },
+                physics: widget.scroll_physics(),
+                refresh: self.refresh_host,
+                page: Some(snap),
+            });
+
+            if pages.count > 0 {
+                let first = (along / snap.extent).floor().max(0.0) as usize;
+                let last = (((along + viewport_along) / snap.extent).ceil() as usize)
+                    .min(pages.count)
+                    .max(first + 1);
+                for index in first..last.min(pages.count) {
+                    let page = (pages.build)(index);
+                    let start = index as f32 * snap.extent - along;
+                    let (size, origin) = if snap.horizontal {
+                        (
+                            Size::new(snap.extent, page_across),
+                            (viewport.x + start, viewport.y),
+                        )
+                    } else {
+                        (
+                            Size::new(page_across, snap.extent),
+                            (viewport.x, viewport.y + start),
+                        )
+                    };
+
+                    // A page is **given** its box, not asked for one: it fills the
+                    // panel even when its content is a single centred line.
+                    let page_rects =
+                        self.cached_rects(id.child(index), page.as_ref(), Constraints::filled(size));
+
+                    let mut page_index = 0;
+                    self.render_item(
+                        page.as_ref(),
+                        id.child(index),
+                        origin,
+                        content_clip,
+                        &page_rects,
+                        &mut page_index,
+                    );
+                }
+            }
+
+            self.scene.set_clip(clip);
+            self.add_overscroll_glow(id, viewport);
         } else if let Some(build) = widget.layout_builder() {
             // Builds the content from the actual box, then lays it out and renders it inside
             // (like a list item: with no retained state).

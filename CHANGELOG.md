@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 282 so far, each documenting the objective, the alternatives
+> record — one per step, 283 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **A paged view** (J283). `PageView::new(count, build)` scrolls panel by panel and never
+  comes to rest between two: at the release, a spring to one page replaces the fling. The
+  rule is the one paged views everywhere use — any release with speed is a flick and turns
+  the page, however short the drag; only letting go slowly rounds to the nearer one. Pages
+  are virtualised, `page(n)` and `on_page_changed(msg)` bind both directions to a single
+  number held by the application, and past an edge the platform's ordinary physics takes
+  the content home.
 - **Swipe to dismiss** (J282). `Dismissible::new(row).on_dismiss(msg)` slides a row aside,
   flies it out past 40 % of its width (or on a fling), then collapses its box so the
   neighbours close the gap before the message goes out. Inside a list, the shell arbitrates

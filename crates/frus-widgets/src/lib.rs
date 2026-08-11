@@ -66,6 +66,7 @@ mod navrail;
 mod navscaffold;
 mod overscroll;
 mod pagination;
+mod pageview;
 mod paintcache;
 mod physics;
 mod popover;
@@ -167,9 +168,11 @@ pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
 };
 pub use pagination::Pagination;
+pub use pageview::{PageSnap, PagedView, PageView};
 pub use paintcache::PaintCache;
 pub use physics::{
-    Ballistic, ScrollMetrics, ScrollPhysics, MAX_FLING_VELOCITY, MIN_FLING_VELOCITY,
+    page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, MAX_FLING_VELOCITY,
+    MIN_FLING_VELOCITY,
 };
 pub use popover::Popover;
 pub use portal::{Placement, Portal};

@@ -199,6 +199,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.virtual_list())
     }
 
+    fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {
+        self.inner.as_ref().and_then(|w| w.page_view())
+    }
+
+    fn on_page_changed(&self, page: usize) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_page_changed(page))
+    }
+
     fn layout_builder(&self) -> Option<&dyn Fn(frus_core::Size) -> Box<dyn Widget<Msg>>> {
         self.inner.as_ref().and_then(|w| w.layout_builder())
     }

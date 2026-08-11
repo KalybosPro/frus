@@ -182,6 +182,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.virtual_list()
     }
 
+    fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {
+        self.inner.page_view()
+    }
+
+    fn on_page_changed(&self, page: usize) -> Option<Msg> {
+        self.inner.on_page_changed(page)
+    }
+
     fn layout_builder(&self) -> Option<&dyn Fn(frus_core::Size) -> Box<dyn Widget<Msg>>> {
         self.inner.layout_builder()
     }

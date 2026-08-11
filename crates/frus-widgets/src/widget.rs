@@ -268,6 +268,17 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget is a **paged view**, returns its description (page count,
+    /// axis, factory). Like a virtualised list, only the visible pages are built.
+    fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {
+        None
+    }
+
+    /// Message sent by a paged view when the page on screen changes.
+    fn on_page_changed(&self, _page: usize) -> Option<Msg> {
+        None
+    }
+
     /// If the widget builds its content **from its actual box**, returns the
     /// `size → widget` factory. The content is built on the fly: no retained state
     /// and no overlay (like a virtualised list item).
@@ -634,6 +645,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
         (**self).virtual_list()
+    }
+    fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {
+        (**self).page_view()
+    }
+    fn on_page_changed(&self, page: usize) -> Option<Msg> {
+        (**self).on_page_changed(page)
     }
     fn layout_builder(&self) -> Option<&dyn Fn(Size) -> Box<dyn Widget<Msg>>> {
         (**self).layout_builder()

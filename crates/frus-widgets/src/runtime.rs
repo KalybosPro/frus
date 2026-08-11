@@ -101,7 +101,7 @@ fn scroll_axis(current: f32, vel: f32, target: f32, max: f32, dt: f32) -> (f32, 
     }
 }
 
-/// Progressions d'animation d'un widget (`0.0..=1.0`).
+/// A widget's animation progresses (`0.0..=1.0`).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Anim {
     pub hover: f32,
@@ -334,6 +334,14 @@ pub struct Runtime {
     pub refresh: HashMap<WidgetId, crate::refresh::RefreshPull>,
     /// The retained swipe of each [`crate::Dismissible`] item. Absent = at rest.
     pub dismiss: HashMap<WidgetId, crate::dismiss::DismissState>,
+    /// The page each [`crate::PageView`] was last **told to show**, so that a request
+    /// is acted on when it *changes* rather than re-asserted every frame — which
+    /// would leave the offset unswipeable. Absent = never seen, so the next request
+    /// is the initial page and arrives without an animation.
+    pub page_requested: HashMap<WidgetId, usize>,
+    /// The page each paged view was last **reported as showing**, so that
+    /// `on_page_changed` fires on a change and not on every frame of the motion.
+    pub page_shown: HashMap<WidgetId, usize>,
     /// The region a finger is currently holding, if any.
     ///
     /// A scroll offset has **one owner at a time**. While a drag owns it, nothing
@@ -956,6 +964,29 @@ impl Runtime {
         velocity: (f32, f32),
     ) -> bool {
         let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+        // A paged area does not fling: it goes to **a** page, and the release speed
+        // only says which one. The raw velocity is passed on rather than the
+        // fling-filtered one, because the question a page view asks of a release is
+        // "which way did it go", to which 60 px/s is as clear an answer as 2000.
+        if let Some(snap) = area.page {
+            let (metrics, velocity) = if snap.horizontal {
+                (area.metrics_x(current.0), velocity.0)
+            } else {
+                (area.metrics_y(current.1), velocity.1)
+            };
+            let motion = physics.page_ballistic(metrics, velocity, snap.extent);
+            if motion.is_none() {
+                return false;
+            }
+            let ballistic = if snap.horizontal {
+                ScrollBallistic::new(motion, None)
+            } else {
+                ScrollBallistic::new(None, motion)
+            };
+            self.scroll_ballistic.insert(area.id, ballistic);
+            self.scroll_velocity.remove(&area.id);
+            return true;
+        }
         let min_velocity = physics.min_fling_velocity();
         // Below the threshold the gesture was not a fling — but an offset left out
         // of range still has to come home, so the physics is asked either way, with
@@ -979,6 +1010,82 @@ impl Runtime {
             .insert(area.id, ScrollBallistic::new(x, y));
         self.scroll_velocity.remove(&area.id);
         true
+    }
+
+    /// Acts on the page each paged view is **asking** for.
+    ///
+    /// A request is honoured when it *changes*, never re-asserted: the widget is
+    /// rebuilt every frame and carries the same number each time, so a view that
+    /// obeyed it on every frame could not be swiped at all — the finger would move
+    /// the offset and the next frame would put it straight back.
+    ///
+    /// The **first** sighting of a region is its initial page, and arrives without
+    /// an animation: an application opening on page 3 wants to be on page 3, not to
+    /// watch it fly there.
+    pub fn sync_pages(&mut self, regions: &[Scrollable]) {
+        for area in regions {
+            let Some(snap) = area.page else { continue };
+            let previous = self.page_requested.insert(area.id, snap.requested);
+            if previous == Some(snap.requested) {
+                continue;
+            }
+            let max = if snap.horizontal { area.max_x } else { area.max_y };
+            let offset = snap
+                .offset_of(snap.requested.min(snap.count.saturating_sub(1)))
+                .clamp(0.0, max);
+            let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+            let target = if snap.horizontal {
+                (offset, current.1)
+            } else {
+                (current.0, offset)
+            };
+            match previous {
+                // Never seen: this is where the view opens.
+                None => {
+                    self.scroll.insert(area.id, target);
+                    self.scroll_target.remove(&area.id);
+                    self.scroll_velocity.remove(&area.id);
+                }
+                // A change under way: glide, and let go of anything already moving
+                // the offset — the application has just overruled it.
+                Some(_) => {
+                    self.scroll_ballistic.remove(&area.id);
+                    self.scroll_target.insert(area.id, target);
+                }
+            }
+        }
+    }
+
+    /// The paged views whose page **on screen** has just changed, and the page each
+    /// now shows.
+    ///
+    /// Reported as soon as the rounding tips — mid-drag, not once the spring has
+    /// settled — because that is when a reader would say they are on the next page.
+    /// A caller turns each into a message; the runtime holds no messages of its own.
+    ///
+    /// A view **appearing** is not a page change: the first sighting of a region is
+    /// recorded silently, whatever page it opens on. An application that opens on
+    /// page 3 already knows it is on page 3, and being told so on the first frame
+    /// would only invite it to answer.
+    pub fn page_changes(&mut self, regions: &[Scrollable]) -> Vec<(WidgetId, usize)> {
+        let mut changed = Vec::new();
+        for area in regions {
+            let Some(snap) = area.page else { continue };
+            let offset = self.scroll.get(&area.id).copied().unwrap_or_else(|| {
+                let start = snap.offset_of(snap.requested);
+                if snap.horizontal {
+                    (start, 0.0)
+                } else {
+                    (0.0, start)
+                }
+            });
+            let page = snap.page_at(if snap.horizontal { offset.0 } else { offset.1 });
+            match self.page_shown.insert(area.id, page) {
+                Some(previous) if previous != page => changed.push((area.id, page)),
+                _ => {}
+            }
+        }
+        changed
     }
 
     /// A finger takes hold of `id`: from now until [`Runtime::release_scroll`],
@@ -1230,7 +1337,94 @@ mod tests {
             max_y: max,
             physics: None,
             refresh: None,
+            page: None,
         }
+    }
+
+    /// A three-page horizontal view, 300 px wide, asking for `requested`.
+    fn paged_region(id: WidgetId, requested: usize) -> Scrollable {
+        Scrollable {
+            id,
+            viewport: Rect::new(0.0, 0.0, 300.0, 400.0),
+            max_x: 600.0,
+            max_y: 0.0,
+            physics: None,
+            refresh: None,
+            page: Some(crate::PageSnap {
+                extent: 300.0,
+                count: 3,
+                requested,
+                horizontal: true,
+            }),
+        }
+    }
+
+    #[test]
+    fn a_paged_release_springs_to_a_page_and_never_coasts() {
+        let id = WidgetId::ROOT.child(0);
+        let mut rt = Runtime::default();
+        let area = paged_region(id, 0);
+        rt.scroll.insert(id, (40.0, 0.0));
+        // A flick far too slow to fling an ordinary list still turns the page.
+        assert!(rt.fling_scroll(area, ScrollPhysics::Clamping, (60.0, 0.0)));
+        for _ in 0..200 {
+            rt.advance_scroll(&[area], ScrollPhysics::Clamping, 1.0 / 60.0);
+        }
+        let (x, _) = rt.scroll[&id];
+        assert!((x - 300.0).abs() < 1.0, "settled at {x}");
+    }
+
+    #[test]
+    fn a_hard_fling_on_a_paged_view_crosses_one_page() {
+        let id = WidgetId::ROOT.child(0);
+        let mut rt = Runtime::default();
+        let area = paged_region(id, 0);
+        rt.scroll.insert(id, (10.0, 0.0));
+        rt.fling_scroll(area, ScrollPhysics::Clamping, (7000.0, 0.0));
+        for _ in 0..300 {
+            rt.advance_scroll(&[area], ScrollPhysics::Clamping, 1.0 / 60.0);
+        }
+        let (x, _) = rt.scroll[&id];
+        assert!((x - 300.0).abs() < 1.0, "a fling must not skip pages: {x}");
+    }
+
+    #[test]
+    fn the_page_asked_for_is_taken_on_the_first_sighting_and_on_a_change() {
+        let id = WidgetId::ROOT.child(0);
+        let mut rt = Runtime::default();
+        // First sighting: the view opens there, with no animation to watch.
+        rt.sync_pages(&[paged_region(id, 2)]);
+        assert_eq!(rt.scroll[&id], (600.0, 0.0));
+        assert!(rt.scroll_target.get(&id).is_none());
+
+        // Asked again for the same page while the finger has moved it: left alone,
+        // or the view could not be swiped at all.
+        rt.scroll.insert(id, (450.0, 0.0));
+        rt.sync_pages(&[paged_region(id, 2)]);
+        assert_eq!(rt.scroll[&id], (450.0, 0.0));
+
+        // A new page: a glide, not a jump.
+        rt.sync_pages(&[paged_region(id, 0)]);
+        assert_eq!(rt.scroll[&id], (450.0, 0.0));
+        assert_eq!(rt.scroll_target[&id], (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_page_change_is_reported_once_and_never_on_arrival() {
+        let id = WidgetId::ROOT.child(0);
+        let mut rt = Runtime::default();
+        let area = paged_region(id, 1);
+        // The view appearing is not a page change, whatever page it opens on.
+        assert!(rt.page_changes(&[area]).is_empty());
+
+        // Half a page across: the rounding has not tipped yet.
+        rt.scroll.insert(id, (440.0, 0.0));
+        assert!(rt.page_changes(&[area]).is_empty());
+        // Past the middle: reported, and only once.
+        rt.scroll.insert(id, (460.0, 0.0));
+        assert_eq!(rt.page_changes(&[area]), vec![(id, 2)]);
+        rt.scroll.insert(id, (600.0, 0.0));
+        assert!(rt.page_changes(&[area]).is_empty());
     }
 
     #[test]
@@ -1418,7 +1612,7 @@ mod tests {
             "mi-parcours = {mid:?}"
         );
 
-        // Fin : atteint le bleu.
+        // The end: blue reached.
         rt.advance_colors(&to_blue, 1.0);
         assert_eq!(rt.anim_color(id), Some(blue));
 

@@ -34,6 +34,10 @@ pub(crate) struct Constraints {
     pub h: f32,
     pub free_x: bool,
     pub free_y: bool,
+    /// **Fill** the box rather than hug the content: an unset (`Auto`) dimension of
+    /// the root becomes the available size. For content that is *given* its box —
+    /// a page of a [`crate::PageView`] — rather than asked how big it wants to be.
+    pub fill: bool,
 }
 
 impl Constraints {
@@ -44,6 +48,15 @@ impl Constraints {
             h: size.height,
             free_x: false,
             free_y: false,
+            fill: false,
+        }
+    }
+
+    /// A box the content is **handed**: constrained on both axes, and filled.
+    pub fn filled(size: Size) -> Self {
+        Self {
+            fill: true,
+            ..Self::definite(size)
         }
     }
 
@@ -54,6 +67,7 @@ impl Constraints {
             h,
             free_x,
             free_y,
+            fill: false,
         }
     }
 }
@@ -140,7 +154,11 @@ fn compute_rects<Msg>(
     let node = build_layout(root, key, runtime, &mut layout);
     // `compute_scroll(_, _, false, false)` is equivalent to `compute` (both axes
     // `Definite`): a single path covers both cases.
-    layout.compute_scroll(node, c.w, c.h, c.free_x, c.free_y);
+    if c.fill {
+        layout.compute_filled(node, c.w, c.h);
+    } else {
+        layout.compute_scroll(node, c.w, c.h, c.free_x, c.free_y);
+    }
     layout
         .absolute_rects(node)
         .into_iter()
@@ -194,6 +212,7 @@ fn hash_node<Msg, H: Hasher>(
         || widget.fitted().is_some()
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
+        || widget.page_view().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
     {

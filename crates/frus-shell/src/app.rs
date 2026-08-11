@@ -1604,6 +1604,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     None => false,
                 };
 
+                // A paged view that has been asked for another page glides across to
+                // it. Done before the springs are stepped, so the request is honoured
+                // in the frame it arrives rather than the one after.
+                self.runtime.sync_pages(&scroll_regions);
+
                 let animating = self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
                     | self.runtime.advance_values(tree, dt)
@@ -1686,9 +1691,27 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // Keep the interface, for hit testing. The tree is already retained.
                 self.ui = Some(ui);
 
-                // The rows whose gap has just finished closing: the tree is no longer
-                // borrowed, so the application can be told — and rebuild.
-                for message in dismissed {
+                // The paged views that have just turned a page, read off **this**
+                // frame's regions: a page change is worth reporting the moment it
+                // reads as one, not a frame later.
+                let paged = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.scroll_regions().to_vec())
+                    .unwrap_or_default();
+                let turned: Vec<A::Message> = self
+                    .runtime
+                    .page_changes(&paged)
+                    .into_iter()
+                    .filter_map(|(id, page)| {
+                        find_widget(tree, id).and_then(|widget| widget.on_page_changed(page))
+                    })
+                    .collect();
+
+                // The rows whose gap has just finished closing, and the pages that have
+                // turned: the tree is no longer borrowed, so the application can be told
+                // — and rebuild.
+                for message in dismissed.into_iter().chain(turned) {
                     self.dispatch(message);
                 }
 

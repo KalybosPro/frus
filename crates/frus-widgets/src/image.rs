@@ -31,7 +31,7 @@ impl Image {
         }
     }
 
-    /// Change le mode d'ajustement.
+    /// Changes the fit mode.
     pub fn fit(mut self, fit: BoxFit) -> Self {
         self.fit = fit;
         self

@@ -256,6 +256,71 @@ impl ScrollPhysics {
             }
         }
     }
+
+    /// The motion that follows the finger lifting off a **paged** area, where the
+    /// content may not come to rest between two pages. `extent` is the distance
+    /// from one page to the next.
+    ///
+    /// This replaces the fling rather than correcting it afterwards: a paged view
+    /// never coasts. Whatever the release speed, the content springs to **one**
+    /// page — the next one on a flick, the nearer one otherwise. A fling that
+    /// crossed three pages and then had to be caught and pulled back would be a
+    /// different, worse gesture.
+    ///
+    /// Past an edge and still heading out, there is no page to go to, so the
+    /// ordinary physics takes over — which is what brings the overscroll home,
+    /// with the platform's own bounce or clamp.
+    pub fn page_ballistic(
+        self,
+        metrics: ScrollMetrics,
+        velocity: f32,
+        extent: f32,
+    ) -> Option<Ballistic> {
+        if (velocity <= 0.0 && metrics.pixels <= metrics.min)
+            || (velocity >= 0.0 && metrics.pixels >= metrics.max)
+        {
+            return self.ballistic(metrics, velocity);
+        }
+        let tolerance = self.tolerance();
+        let target = page_target(metrics, extent, velocity, tolerance.velocity);
+        if (target - metrics.pixels).abs() < tolerance.distance {
+            return None;
+        }
+        Some(Ballistic::Spring(SpringSimulation::new(
+            self.spring(),
+            metrics.pixels,
+            target,
+            velocity,
+            tolerance,
+        )))
+    }
+}
+
+/// Which page an offset sits on, as a **fraction**: `1.5` is halfway between the
+/// second and the third. `extent` is the distance from one page to the next.
+pub fn page_of(pixels: f32, extent: f32) -> f32 {
+    pixels / extent.max(1.0)
+}
+
+/// The offset the content must come to rest at after a release at `velocity`.
+///
+/// The rule is the one every paged view uses, and it is not "nearest page":
+/// **any** release with speed above the tolerance counts as a flick and moves the
+/// page half a unit *the way the finger went* before rounding. So a flick that
+/// covered a tenth of the viewport still turns the page, while letting go slowly
+/// falls back to whichever page is nearer. A gesture is an intention, not a
+/// measurement.
+pub fn page_target(metrics: ScrollMetrics, extent: f32, velocity: f32, tolerance: f32) -> f32 {
+    let mut page = page_of(metrics.pixels, extent);
+    if velocity < -tolerance {
+        page -= 0.5;
+    } else if velocity > tolerance {
+        page += 0.5;
+    }
+    // A view whose content is not a whole number of pages — every one of them once
+    // the pages are narrower than the viewport — has a last page that is not at a
+    // page boundary. Resting past the end is not a page, it is an overscroll.
+    (page.round() * extent.max(1.0)).clamp(metrics.min, metrics.max)
 }
 
 /// The friction applied to the first pixels of overscroll, before the band
@@ -471,6 +536,67 @@ mod tests {
         let after = ScrollMetrics::new(430.0, 400.0, 600.0);
         assert!(after.out_of_range());
         assert_eq!(after.overscroll_past(), 30.0);
+    }
+
+    /// A three-page view, 300 px per page: offsets 0, 300, 600.
+    fn paged(pixels: f32) -> ScrollMetrics {
+        ScrollMetrics::new(pixels, 600.0, 300.0)
+    }
+
+    #[test]
+    fn letting_go_slowly_falls_back_to_the_nearer_page() {
+        assert_eq!(page_target(paged(130.0), 300.0, 0.0, 2.0), 0.0);
+        assert_eq!(page_target(paged(170.0), 300.0, 0.0, 2.0), 300.0);
+    }
+
+    #[test]
+    fn a_flick_turns_the_page_however_short_it_was() {
+        // A tenth of a page, thrown forward: the page turns.
+        assert_eq!(page_target(paged(30.0), 300.0, 900.0, 2.0), 300.0);
+        // And the same distance thrown back stays put rather than going forward.
+        assert_eq!(page_target(paged(30.0), 300.0, -900.0, 2.0), 0.0);
+        // Dragged most of the way and flicked back: the flick wins over the drag.
+        assert_eq!(page_target(paged(260.0), 300.0, -900.0, 2.0), 0.0);
+    }
+
+    #[test]
+    fn a_page_target_never_lands_outside_the_content() {
+        // Pages narrower than the viewport: the last one is not on a boundary.
+        let metrics = ScrollMetrics::new(430.0, 450.0, 300.0);
+        assert_eq!(page_target(metrics, 240.0, 900.0, 2.0), 450.0);
+        assert_eq!(page_target(ScrollMetrics::new(5.0, 600.0, 300.0), 300.0, -900.0, 2.0), 0.0);
+    }
+
+    #[test]
+    fn a_paged_release_always_settles_on_a_page() {
+        for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
+            // Released mid-page with no speed at all: it still has to go somewhere.
+            let sim = physics.page_ballistic(paged(190.0), 0.0, 300.0).unwrap();
+            assert!((sim.x(3.0) - 300.0).abs() < 1.0, "settled at {}", sim.x(3.0));
+            // A hard fling crosses exactly one page, not three.
+            let sim = physics.page_ballistic(paged(10.0), 6000.0, 300.0).unwrap();
+            assert!((sim.x(3.0) - 300.0).abs() < 1.0, "settled at {}", sim.x(3.0));
+        }
+    }
+
+    #[test]
+    fn resting_on_a_page_starts_nothing() {
+        assert!(ScrollPhysics::Clamping
+            .page_ballistic(paged(300.0), 0.0, 300.0)
+            .is_none());
+    }
+
+    #[test]
+    fn past_an_edge_the_ordinary_physics_takes_the_content_home() {
+        // No page out there: bouncing springs back, clamping has nothing to do.
+        let out = ScrollMetrics::new(-40.0, 600.0, 300.0);
+        let sim = ScrollPhysics::Bouncing
+            .page_ballistic(out, -50.0, 300.0)
+            .unwrap();
+        assert!((sim.x(3.0) - 0.0).abs() < 1.0, "settled at {}", sim.x(3.0));
+        assert!(ScrollPhysics::Clamping
+            .page_ballistic(ScrollMetrics::new(0.0, 600.0, 300.0), -900.0, 300.0)
+            .is_none());
     }
 
     #[test]

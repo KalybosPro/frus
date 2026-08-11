@@ -67,6 +67,33 @@ impl<T> Layout<T> {
         );
     }
 
+    /// Computes the layout of content that is **handed a box**: both axes are
+    /// definite, and an unset (`Auto`) root dimension takes the box's size instead
+    /// of hugging the content.
+    ///
+    /// The distinction from [`Layout::compute`] is who decides the size. A widget
+    /// laid out in the ordinary way is asked how big it wants to be; a page of a
+    /// paged view is *told*, and a page that hugged its content would leave the rest
+    /// of the panel empty and unclickable.
+    pub fn compute_filled(&mut self, root: NodeId, width: f32, height: f32) {
+        if let Ok(current) = self.tree.style(root) {
+            let mut style = current.clone();
+            let mut changed = false;
+            if matches!(style.size.width, taffy::Dimension::Auto) {
+                style.size.width = taffy::Dimension::Length(width);
+                changed = true;
+            }
+            if matches!(style.size.height, taffy::Dimension::Auto) {
+                style.size.height = taffy::Dimension::Length(height);
+                changed = true;
+            }
+            if changed {
+                let _ = self.tree.set_style(root, style);
+            }
+        }
+        self.compute(root, Size::new(width, height));
+    }
+
     /// Computes the layout of scrollable content: each axis is either constrained
     /// to the viewport or **free**, in which case the content takes its natural
     /// size, according to `free_x` and `free_y`.

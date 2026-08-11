@@ -130,7 +130,7 @@ mod tests {
             .segment("Mois");
         let children = Widget::<Msg>::children(&seg);
         assert_eq!(children.len(), 3);
-        // Cliquer le 3ᵉ segment → Select(2).
+        // Clicking the 3rd segment → Select(2).
         assert_eq!(children[2].on_click(), Some(Msg::Select(2)));
     }
 

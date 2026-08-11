@@ -52,7 +52,8 @@ use frus_widgets::{
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
-    Dismissible, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect,
+    Dismissible, PageView, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup,
+    Rating, Rect,
     Refresh,
     RichText,
     Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, Skeleton, Slider,
@@ -157,6 +158,9 @@ enum Route {
     Data,
     /// A **Kanban** board: columns of cards, drag-and-drop between columns (milestone 247).
     Board,
+    /// A paged **walkthrough**: one panel per swipe, dots, and buttons that drive the
+    /// same view the finger does (milestone 283).
+    Tour,
 }
 
 /// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
@@ -209,6 +213,8 @@ enum Msg {
     ToggleTimer,
     /// Changes the active Settings tab.
     SetSettingsTab(usize),
+    /// The walkthrough's page, whether the finger or a button asked for it.
+    TourPage(usize),
     /// Opens/closes the actions menu.
     ToggleActions,
     /// Expands/collapses "Advanced options".
@@ -387,6 +393,9 @@ struct TodoApp {
     journal_reloading: f32,
     /// How many times the log has been reloaded, so a completed pull leaves a trace.
     journal_reloads: usize,
+    /// The walkthrough's page. The application owns it: the finger reports its changes
+    /// here, and the buttons write to it, so both drive the same one value.
+    tour_page: usize,
     /// The screen stack (empty = the home screen).
     routes: Vec<Route>,
     /// The outgoing screen during a transition.
@@ -793,6 +802,10 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::ToggleTimer => {
             app.running = !app.running;
+            Command::none()
+        }
+        Msg::TourPage(page) => {
+            app.tour_page = page;
             Command::none()
         }
         Msg::SetSettingsTab(i) => {
@@ -1280,6 +1293,7 @@ impl Application for TodoApp {
             Route::Charts => 5,
             Route::Data => 6,
             Route::Board => 7,
+            Route::Tour => 8,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -1316,6 +1330,7 @@ impl Application for TodoApp {
                         "5" => self.routes.push(Route::Charts),
                         "6" => self.routes.push(Route::Data),
                         "7" => self.routes.push(Route::Board),
+                        "8" => self.routes.push(Route::Tour),
                         _ => {}
                     }
                 }
@@ -1570,6 +1585,7 @@ fn screen(
         Route::Charts => charts_screen(app, theme, width, height),
         Route::Data => data_screen(app, theme, width, height),
         Route::Board => board_screen(app, theme, width, height),
+        Route::Tour => tour_screen(app, theme, width, height),
     }
 }
 
@@ -1920,6 +1936,94 @@ fn board_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dy
         NavBar::new("Kanban board").on_back(Msg::Pop),
         board_area,
         hint_bar
+    ]
+    .width(width)
+    .height(height);
+    Box::new(
+        Container::new()
+            .width(width)
+            .height(height)
+            .color(theme.background)
+            .child(screen),
+    )
+}
+
+/// The walkthrough's panels: a glyph, a title, and a line of body text.
+const TOUR_PAGES: [(&str, &str, &str); 4] = [
+    (
+        "\u{1F44B}",
+        "Welcome",
+        "Swipe sideways, or use the picker below. Both drive the same page.",
+    ),
+    (
+        "\u{1F446}",
+        "One panel at a time",
+        "A release never rests between two panels: it springs to one of them.",
+    ),
+    (
+        "\u{26A1}",
+        "A flick is enough",
+        "You need not drag a panel all the way across; a short flick turns it.",
+    ),
+    (
+        "\u{2713}",
+        "That is the tour",
+        "The picker follows the finger as soon as the page reads as changed.",
+    ),
+];
+
+/// One panel of the walkthrough. Built on demand — a page that is off screen does
+/// not exist — so it takes the theme by value rather than borrowing the frame's.
+fn tour_panel(index: usize, theme: Theme) -> Container<Msg> {
+    let (glyph, title, body) = TOUR_PAGES[index];
+    // Every other panel takes the surface colour, so a swipe is visible even at the
+    // moment the two panels are half and half.
+    let background = if index % 2 == 0 {
+        theme.surface
+    } else {
+        theme.background
+    };
+    Container::new().color(background).padding(32.0).child(
+        column![
+            text(glyph).size(56.0),
+            text(title).size(24.0).weight(FontWeight::Bold),
+            text(body).size(15.0).color(theme.muted).wrap(),
+        ]
+        .gap(16.0)
+        .align(Align::Center)
+        .justify(Justify::Center),
+    )
+}
+
+/// A paged walkthrough: the finger and the picker drive **one** page number, held by
+/// the application (milestone 283).
+///
+/// This is the whole point of the two-way binding: `on_page_changed` writes the page
+/// the finger reached into the state, and `page` reads it back out. Neither side owns
+/// it, so neither can drift from the other.
+fn tour_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    let last = TOUR_PAGES.len() - 1;
+    let page = app.tour_page.min(last);
+    let palette = *theme;
+    let pages = PageView::new(TOUR_PAGES.len(), move |index| tour_panel(index, palette))
+        .width(width)
+        .flex(1.0)
+        .page(page)
+        .on_page_changed(Msg::TourPage);
+
+    let picker = Pagination::new(page + 1, TOUR_PAGES.len(), |p| Msg::TourPage(p - 1));
+    let position = text(format!("Panel {} of {}", page + 1, TOUR_PAGES.len()))
+        .size(13.0)
+        .color(theme.muted);
+    let footer = Container::new()
+        .width(width)
+        .padding(20.0)
+        .child(column![picker, position].gap(10.0).align(Align::Center));
+
+    let screen = column![
+        NavBar::new("Guided tour").on_back(Msg::Pop),
+        pages,
+        footer
     ]
     .width(width)
     .height(height);
@@ -3029,6 +3133,9 @@ fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
                 .variant(Variant::Secondary)
                 .size(15.0),
             button("Data table →", Msg::Push(Route::Data))
+                .variant(Variant::Secondary)
+                .size(15.0),
+            button("Guided tour →", Msg::Push(Route::Tour))
                 .variant(Variant::Secondary)
                 .size(15.0),
             button("Kanban board →", Msg::Push(Route::Board))
