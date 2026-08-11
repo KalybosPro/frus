@@ -1540,6 +1540,13 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     .map(|ui| ui.scroll_regions().to_vec())
                     .unwrap_or_default();
                 let scroll_physics = self.app.scroll_physics();
+                // The refresh areas of the frame, with the `refreshing` flag each was
+                // built with: that flag is what tells a spinning indicator when to stop.
+                let refresh_areas = self
+                    .ui
+                    .as_ref()
+                    .map(|ui| ui.refresh_areas().to_vec())
+                    .unwrap_or_default();
                 let interactive_bounds = self
                     .ui
                     .as_ref()
@@ -1585,6 +1592,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .runtime
                         .advance_scroll(&scroll_regions, scroll_physics, dt)
                     | self.runtime.advance_glow(dt)
+                    | self.runtime.advance_refresh(&refresh_areas, dt)
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
                     | reorder_animating
                     | app_animating;
@@ -1765,6 +1773,11 @@ impl<A: Application> App<A> {
                 if let Some(Drag::Scroll { id, .. }) = self.drag {
                     self.runtime.release_scroll(id);
                     self.runtime.glow_scroll_end(id);
+                    // A cancelled gesture asks for nothing: the indicator slides back
+                    // rather than promising a refresh nobody requested.
+                    if let Some(host) = self.refresh_host_of(id) {
+                        self.runtime.refresh_cancel(host);
+                    }
                 }
                 self.drag = None;
                 self.runtime.input.pressed = None;
@@ -2115,6 +2128,10 @@ impl<A: Application> App<A> {
             self.runtime.release_scroll(*id);
             // A pull held against an edge now fades at the "let go" rate.
             self.runtime.glow_scroll_end(*id);
+            // And a pull-to-refresh gesture is answered: releasing it armed is the
+            // whole point of the gesture, so the message goes out now rather than
+            // after the indicator has finished settling.
+            self.release_refresh(*id);
         }
         if let Some(Drag::Scroll {
             id,
@@ -2475,6 +2492,14 @@ impl<A: Application> App<A> {
                         None => (cur.0 - dx, cur.1 - dy, None),
                     };
                     if let Some((area, rx, ry)) = refused {
+                        // A pull-to-refresh area listening above this scrollable takes
+                        // the **top** edge; the glow takes the other three. Both answer
+                        // "there is nothing more that way", and giving both would say it
+                        // twice — the indicator being the more useful of the two, since
+                        // it leads somewhere.
+                        if let Some(host) = area.refresh {
+                            self.feed_refresh(host, physics, area.viewport.height, cur.1, ny, ry);
+                        }
                         let cursor = self.cursor;
                         for (refused, vertical, extent) in
                             [(rx, false, area.viewport.width), (ry, true, area.viewport.height)]
@@ -2483,6 +2508,9 @@ impl<A: Application> App<A> {
                                 continue;
                             }
                             let edge = frus_widgets::edge_for(vertical, refused);
+                            if area.refresh.is_some() && edge == frus_widgets::GlowEdge::Top {
+                                continue;
+                            }
                             let (offset, cross) =
                                 frus_widgets::glow_cross_axis(area.viewport, edge, cursor);
                             self.runtime
@@ -2509,6 +2537,74 @@ impl<A: Application> App<A> {
         }
         self.drag = Some(drag);
         self.request_redraw();
+    }
+
+    /// The refresh area a scrollable sits inside, if any.
+    fn refresh_host_of(&self, scrollable: WidgetId) -> Option<WidgetId> {
+        self.ui
+            .as_ref()
+            .and_then(|ui| ui.scroll_region(scrollable))
+            .and_then(|area| area.refresh)
+    }
+
+    /// Ends the pull of whichever refresh area holds `scrollable`, and dispatches its
+    /// message when the pull was armed.
+    fn release_refresh(&mut self, scrollable: WidgetId) {
+        let Some(host) = self.refresh_host_of(scrollable) else {
+            return;
+        };
+        if !self.runtime.refresh_release(host) {
+            return;
+        }
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), host))
+            .and_then(|widget| widget.on_refresh());
+        if let Some(message) = message {
+            self.dispatch(message);
+        }
+    }
+
+    /// Feeds one move of a drag into the pull of the refresh area `host`.
+    ///
+    /// The two physics put the overscroll in **different places**, so the signal is
+    /// read differently:
+    ///
+    /// - **Clamping** refuses the movement and pins the offset at the edge, so the
+    ///   refused amount is the only trace the gesture leaves. It is incremental, and
+    ///   the physics returns nothing at all for a move back towards the content — so
+    ///   an eased-off pull holds rather than retracting, which is right: the finger has
+    ///   not let go.
+    /// - **Bouncing** lets the offset go past the edge, so the *depth* it reached is
+    ///   the signal, and the change in that depth is signed. The indicator therefore
+    ///   follows the rubber band back in as the finger returns, which is also right:
+    ///   there, the content itself is already saying so.
+    ///
+    /// Leaving the top edge at all ends the pull. The gesture has become an ordinary
+    /// scroll, and an indicator still hanging there would be promising something the
+    /// release is no longer going to deliver.
+    fn feed_refresh(
+        &mut self,
+        host: WidgetId,
+        physics: frus_widgets::ScrollPhysics,
+        extent: f32,
+        before: f32,
+        after: f32,
+        refused_y: f32,
+    ) {
+        if after > 0.5 {
+            self.runtime.refresh_cancel(host);
+            return;
+        }
+        let pulled = if physics.allows_overscroll() {
+            (-after).max(0.0) - (-before).max(0.0)
+        } else {
+            -refused_y
+        };
+        if pulled.abs() > 1e-3 {
+            self.runtime.refresh_pull(host, pulled, extent);
+        }
     }
 
     /// How far the pointer must travel before a press becomes a drag, given what

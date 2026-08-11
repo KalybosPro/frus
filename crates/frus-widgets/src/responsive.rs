@@ -70,7 +70,7 @@ impl<Msg> Responsive<Msg> {
 
 /// A responsive selector for a given width, in logical px.
 ///
-/// `responsive(w).compact(a).medium(b).expanded(c)` — voir [`Responsive`].
+/// `responsive(w).compact(a).medium(b).expanded(c)` — see [`Responsive`].
 pub fn responsive<Msg>(width: f32) -> Responsive<Msg> {
     Responsive::new(SizeClass::from_width(width))
 }
@@ -318,6 +318,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
 
     fn barrier(&self) -> Option<crate::barrier::Barrier> {
         self.inner.as_ref().and_then(|w| w.barrier())
+    }
+
+    fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
+        self.inner.as_ref().and_then(|w| w.refresh())
+    }
+
+    fn on_refresh(&self) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_refresh())
     }
 
     fn interactive(&self) -> Option<(f32, f32)> {

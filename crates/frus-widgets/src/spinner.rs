@@ -10,8 +10,61 @@ use crate::widget::Widget;
 
 /// Number of dots in the ring.
 const DOTS: usize = 8;
-/// Tours par seconde.
+/// Turns per second.
 const SPEED: f32 = 1.1;
+
+/// How the ring reads: **turning**, which means work is happening, or **filling**,
+/// which means a gesture is part of the way to asking for some.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum RingMode {
+    /// A bright head advancing, the dots behind it fading out. `head` is in turns.
+    Spinning { head: f32 },
+    /// The first `progress` of the ring, clockwise from the top. `0..=1`.
+    Filling { progress: f32 },
+}
+
+/// Draws the framework's activity ring: `DOTS` dots on a circle of `radius` about
+/// `(cx, cy)`, each `dot` px in radius.
+///
+/// Shared by [`Spinner`] and by the pull-to-refresh indicator, so the two cannot drift
+/// into looking like different frameworks' idea of "busy".
+pub(crate) fn paint_activity_ring(
+    scene: &mut Scene,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    dot: f32,
+    color: Color,
+    mode: RingMode,
+) {
+    for i in 0..DOTS {
+        let fraction = i as f32 / DOTS as f32;
+        let angle = fraction * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+        let alpha = match mode {
+            RingMode::Spinning { head } => {
+                let head = head.fract() * DOTS as f32;
+                // The angular distance behind the head: 0 is the head, about 1 the tail.
+                let behind = (i as f32 - head).rem_euclid(DOTS as f32) / DOTS as f32;
+                0.15 + 0.85 * (1.0 - behind)
+            }
+            // A partial dot at the leading edge, so the fill grows smoothly instead of
+            // clicking round one eighth at a time.
+            RingMode::Filling { progress } => ((progress - fraction) * DOTS as f32).clamp(0.0, 1.0),
+        };
+        if alpha <= 0.0 {
+            continue;
+        }
+        let px = cx + radius * angle.cos();
+        let py = cy + radius * angle.sin();
+        scene.draw_rect(
+            Rect::new(px - dot, py - dot, dot * 2.0, dot * 2.0),
+            color.fade(alpha),
+            dot,
+            0.0,
+            Color::TRANSPARENT,
+        );
+    }
+}
 
 /// A circular loading indicator: a ring of dots that spins.
 pub struct Spinner {
@@ -55,31 +108,18 @@ impl<Msg> Widget<Msg> for Spinner {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let o = status.opacity;
         let side = bounds.width.min(bounds.height);
-        let cx = bounds.x + bounds.width * 0.5;
-        let cy = bounds.y + bounds.height * 0.5;
-        let ring = side * 0.36;
-        let dot = (side * 0.12).max(1.0);
-
-        // A bright head advancing over time; the dots behind it fade out.
-        let head = (status.time * SPEED).fract() * DOTS as f32;
-        for i in 0..DOTS {
-            let angle =
-                (i as f32 / DOTS as f32) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
-            let px = cx + ring * angle.cos();
-            let py = cy + ring * angle.sin();
-            // The angular distance behind the head: 0 is the head, about 1 the tail.
-            let behind = (i as f32 - head).rem_euclid(DOTS as f32) / DOTS as f32;
-            let alpha = (0.15 + 0.85 * (1.0 - behind)) * o;
-            scene.draw_rect(
-                Rect::new(px - dot, py - dot, dot * 2.0, dot * 2.0),
-                theme.primary.fade(alpha),
-                dot,
-                0.0,
-                Color::TRANSPARENT,
-            );
-        }
+        paint_activity_ring(
+            scene,
+            bounds.x + bounds.width * 0.5,
+            bounds.y + bounds.height * 0.5,
+            side * 0.36,
+            (side * 0.12).max(1.0),
+            theme.primary.fade(status.opacity),
+            RingMode::Spinning {
+                head: status.time * SPEED,
+            },
+        );
     }
 
     fn on_click(&self) -> Option<Msg> {

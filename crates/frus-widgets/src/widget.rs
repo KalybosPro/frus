@@ -415,6 +415,21 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget is a **refresh area** ([`crate::Refresh`]), its configuration for
+    /// this frame. Any scrollable inside it routes the movement its physics refuses at
+    /// the top edge into the pull, instead of into the overscroll glow. `None` = not a
+    /// refresh area.
+    fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
+        None
+    }
+
+    /// The message a refresh area dispatches when an armed pull is released. `None` =
+    /// the pull is shown but asks for nothing, which is what an area still waiting for
+    /// its `on_refresh` looks like.
+    fn on_refresh(&self) -> Option<Msg> {
+        None
+    }
+
     /// What the widget **withholds** from the frame on behalf of its whole subtree:
     /// input targets, primitives, accessibility nodes. The walk visits the subtree
     /// normally and then discards whatever it added to the selected registries, so a
@@ -668,6 +683,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn barrier(&self) -> Option<crate::barrier::Barrier> {
         (**self).barrier()
+    }
+    fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
+        (**self).refresh()
+    }
+    fn on_refresh(&self) -> Option<Msg> {
+        (**self).on_refresh()
     }
     fn interactive(&self) -> Option<(f32, f32)> {
         (**self).interactive()

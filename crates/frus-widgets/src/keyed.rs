@@ -245,6 +245,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.barrier()
     }
 
+    fn refresh(&self) -> Option<crate::refresh::RefreshSpec> {
+        self.inner.refresh()
+    }
+
+    fn on_refresh(&self) -> Option<Msg> {
+        self.inner.on_refresh()
+    }
+
     fn interactive(&self) -> Option<(f32, f32)> {
         self.inner.interactive()
     }

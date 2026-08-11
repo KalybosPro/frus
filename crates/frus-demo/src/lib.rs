@@ -52,7 +52,8 @@ use frus_widgets::{
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
-    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, RichText,
+    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, Refresh,
+    RichText,
     Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, Skeleton, Slider,
     SnackbarQueue, SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs, TextInput,
     TextSpan, Theme, Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant, Widget,
@@ -199,6 +200,8 @@ enum Msg {
     /// Flips the log list between the two scroll behaviours, so the difference can
     /// be felt side by side on one device.
     ToggleScrollPhysics,
+    /// The log list was pulled past its top edge: reload it.
+    ReloadJournal,
     /// A tick of the stopwatch (the timer subscription).
     Tick,
     /// Starts/stops the stopwatch.
@@ -378,6 +381,11 @@ struct TodoApp {
     /// Does the log list bounce at its ends rather than stop dead? `false` leaves
     /// it on the platform's own behaviour.
     journal_bounces: bool,
+    /// Is the log list reloading? The pull-to-refresh indicator spins for exactly as
+    /// long as this is true — the application owns the answer, not the framework.
+    journal_reloading: f32,
+    /// How many times the log has been reloaded, so a completed pull leaves a trace.
+    journal_reloads: usize,
     /// The screen stack (empty = the home screen).
     routes: Vec<Route>,
     /// The outgoing screen during a transition.
@@ -722,6 +730,12 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         }
         Msg::ToggleScrollPhysics => {
             app.journal_bounces = !app.journal_bounces;
+            Command::none()
+        }
+        Msg::ReloadJournal => {
+            // A stand-in for the request a real application would fire here: the
+            // indicator spins for as long as `journal_reloading` counts down in `tick`.
+            app.journal_reloading = 1.2;
             Command::none()
         }
         Msg::ToggleRtl => {
@@ -1411,6 +1425,16 @@ impl Application for TodoApp {
 
     fn tick(&mut self, dt: f32) -> bool {
         let mut animating = false;
+
+        // The stand-in reload behind the log list's pull-to-refresh.
+        if self.journal_reloading > 0.0 {
+            self.journal_reloading -= dt;
+            if self.journal_reloading <= 0.0 {
+                self.journal_reloading = 0.0;
+                self.journal_reloads += 1;
+            }
+            animating = true;
+        }
 
         // The theme fade.
         if self.theme_from.is_some() {
@@ -2323,14 +2347,25 @@ fn journal_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Cont
     } else {
         "Edges: platform default"
     };
+    // Pull the list past its top edge to reload it. The indicator spins for exactly as
+    // long as the application says it is working — here, a countdown in `tick`.
+    let pullable = Refresh::new(list)
+        .on_refresh(Msg::ReloadJournal)
+        .refreshing(app.journal_reloading > 0.0);
+    let reloads = if app.journal_reloads == 0 {
+        "Pull to reload".to_string()
+    } else {
+        format!("Reloaded {}×", app.journal_reloads)
+    };
     let content = column![
         row![
             text(label).size(14.0).color(theme.muted),
             spacer(),
+            text(reloads).size(14.0).color(theme.muted),
             button("Switch", Msg::ToggleScrollPhysics).variant(Variant::Secondary),
         ]
         .gap(12.0),
-        list,
+        pullable,
     ]
     .gap(12.0)
     .padding(24.0);

@@ -8,6 +8,7 @@ use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect
 use frus_layout::{Layout, NodeId};
 
 use crate::barrier::Barrier;
+use crate::refresh::Refreshable;
 use crate::interaction::{Status, WidgetId};
 use crate::physics::{ScrollMetrics, ScrollPhysics};
 use crate::portal::Placement;
@@ -56,6 +57,10 @@ pub struct Scrollable {
     pub max_y: f32,
     /// The area's own physics, when it asked for one.
     pub physics: Option<ScrollPhysics>,
+    /// The [`crate::Refresh`] area this scrollable sits inside, when there is one.
+    /// Movement refused at its **top** edge feeds that area's pull instead of the
+    /// overscroll glow.
+    pub refresh: Option<WidgetId>,
 }
 
 impl Scrollable {
@@ -245,6 +250,8 @@ pub struct Ui<Msg> {
     /// Interactive viewports (`InteractiveViewer`): (id, the screen viewport). The shell
     /// routes panning (dragging) and zooming (wheel / pinch) to them.
     interactives: Vec<(WidgetId, Rect)>,
+    /// Pull-to-refresh areas of the frame, with their configuration.
+    refreshes: Vec<Refreshable>,
     wants_animation: bool,
     /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
     /// shell maps it onto AccessKit.
@@ -299,6 +306,12 @@ impl<Msg: Clone> Ui<Msg> {
             .rev()
             .find(|hit| hit.contains(point))
             .and_then(|hit| hit.msg.clone())
+    }
+
+    /// The frame's **pull-to-refresh areas**, with the configuration each was built
+    /// with. The shell steps them and reads their `refreshing` flag from here.
+    pub fn refresh_areas(&self) -> &[Refreshable] {
+        &self.refreshes
     }
 
     /// Topmost focusable widget containing `point`: (id, its bounds).
@@ -650,6 +663,13 @@ struct Builder<'a, Msg> {
     /// Current depth of the walk (for the dump's indentation and the palette of the
     /// inspector's outlines).
     depth: usize,
+    /// The [`crate::Refresh`] area currently being walked, if any: every scrollable
+    /// registered under it records it, so the shell knows where to send the movement
+    /// its physics refuses. Saved and restored around the subtree, so sibling areas do
+    /// not inherit one another's.
+    refresh_host: Option<WidgetId>,
+    /// The frame's refresh areas, in paint order.
+    refreshes: Vec<Refreshable>,
     /// Layout direction: in RTL, each root's rects are **mirrored** horizontally about the
     /// root's width.
     rtl: bool,
@@ -896,6 +916,33 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects: &[Rect],
         index: &mut usize,
     ) {
+        // A **refresh area**: the subtree is walked with this widget named as the host, so
+        // every scrollable inside records where to send the movement its physics refuses at
+        // the top edge. The indicator is then painted **over** the subtree — painting it in
+        // the widget's own `paint` would put it under the list it belongs to.
+        if let Some(spec) = widget.refresh() {
+            let viewport = rects[*index]
+                .translate(translation.0, translation.1)
+                .intersect(clip);
+            let outer = self.refresh_host.replace(id);
+            self.walk_node(widget, id, translation, clip, rects, index);
+            self.refresh_host = outer;
+
+            let area = Refreshable {
+                id,
+                viewport,
+                spec,
+            };
+            if let Some(pull) = self.runtime.refresh.get(&id) {
+                crate::refresh::paint_refresh(&mut self.scene, &area, pull, self.theme, clip);
+                // A pull that is settling, spinning or fading away drives itself, so the
+                // frame after this one has to happen.
+                self.wants_animation = true;
+            }
+            self.refreshes.push(area);
+            return;
+        }
+
         // A **barrier** (`IgnorePointer`, `AbsorbPointer`, a hidden `Visibility`,
         // `ExcludeSemantics`): the subtree is walked exactly as usual, and then whatever it
         // added to the withheld registries is dropped again.
@@ -1162,6 +1209,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             max_x: 0.0,
                             max_y,
                             physics: widget.scroll_physics(),
+                            refresh: self.refresh_host,
                         });
                         let offset_y = self
                             .runtime
@@ -1363,6 +1411,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 max_x,
                 max_y,
                 physics: widget.scroll_physics(),
+                refresh: self.refresh_host,
             });
 
             let content_translation = (viewport.x - offset_x, viewport.y - offset_y);
@@ -1399,6 +1448,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 max_x: 0.0,
                 max_y,
                 physics: widget.scroll_physics(),
+                refresh: self.refresh_host,
             });
 
             if vlist.item_height > 0.0 && vlist.count > 0 {
@@ -2010,6 +2060,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         theme,
         inspector: inspect.then(Vec::new),
         depth: 0,
+        refresh_host: None,
+        refreshes: Vec::new(),
         rtl: theme.direction.is_rtl(),
         semantics: Vec::new(),
     };
@@ -2054,6 +2106,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         draggables: builder.draggables,
         reorderables: builder.reorderables,
         interactives: builder.interactives,
+        refreshes: builder.refreshes,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
     };

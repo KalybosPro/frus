@@ -71,6 +71,8 @@ mod portal;
 mod progressbar;
 mod radio;
 mod rating;
+/// Pull-to-refresh: the [`refresh::Refresh`] widget and its retained pull.
+pub mod refresh;
 mod relayout;
 mod reorder;
 mod responsive;
@@ -168,6 +170,7 @@ pub use portal::{Placement, Portal};
 pub use progressbar::ProgressBar;
 pub use radio::RadioGroup;
 pub use rating::Rating;
+pub use refresh::{Refresh, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;
 pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
@@ -176,8 +179,8 @@ pub use rotatedbox::RotatedBox;
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState,
 };
-pub use scaffold::{fab_button, Scaffold};
 pub use safearea::SafeArea;
+pub use scaffold::{fab_button, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
 pub use skeleton::Skeleton;

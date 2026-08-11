@@ -329,6 +329,9 @@ pub struct Runtime {
     /// The overscroll glows of each region — the edge feedback a platform that
     /// clamps needs, since it has no bounce to speak with. Absent = all quiet.
     pub scroll_glow: HashMap<WidgetId, ScrollGlows>,
+    /// The retained pull of each [`crate::Refresh`] area, keyed by the area. Absent =
+    /// nothing pulled and nothing spinning.
+    pub refresh: HashMap<WidgetId, crate::refresh::RefreshPull>,
     /// The region a finger is currently holding, if any.
     ///
     /// A scroll offset has **one owner at a time**. While a drag owns it, nothing
@@ -991,6 +994,36 @@ impl Runtime {
         }
     }
 
+    /// Feeds `overscroll` px of refused movement into the pull of the refresh area
+    /// `id`, over a scrollable of `extent` px.
+    ///
+    /// This is the same measurement the glow is fed — what
+    /// `apply_boundary_conditions` refused — routed to a different consumer. Where a
+    /// refresh area is listening, the glow on that edge stands down: two answers to
+    /// one gesture would say the same thing twice.
+    pub fn refresh_pull(&mut self, id: WidgetId, overscroll: f32, extent: f32) {
+        crate::refresh::pull_into(&mut self.refresh, id, overscroll, extent);
+    }
+
+    /// Calls off the pull of `id` without asking for anything — the list scrolled away
+    /// from its top edge, or the gesture was cancelled.
+    pub fn refresh_cancel(&mut self, id: WidgetId) {
+        crate::refresh::cancel_of(&mut self.refresh, id);
+    }
+
+    /// Ends the pull of `id`. Returns `true` when it was armed, and so when the
+    /// application should be asked to refresh.
+    pub fn refresh_release(&mut self, id: WidgetId) -> bool {
+        crate::refresh::release_of(&mut self.refresh, id)
+    }
+
+    /// Advances every refresh area of the frame by `dt`, reading each one's current
+    /// `refreshing` flag from `areas`, and drops those that have gone quiet. Returns
+    /// `true` while any is still moving.
+    pub fn advance_refresh(&mut self, areas: &[crate::refresh::Refreshable], dt: f32) -> bool {
+        crate::refresh::advance_all(&mut self.refresh, areas, dt)
+    }
+
     /// Tells the glow on one edge of `id` that a finger is dragging past it.
     ///
     /// `overscroll` is the movement the physics **refused** — which is exactly the
@@ -1149,6 +1182,7 @@ mod tests {
             max_x: 0.0,
             max_y: max,
             physics: None,
+            refresh: None,
         }
     }
 

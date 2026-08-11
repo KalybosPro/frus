@@ -8,13 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 280 so far, each documenting the objective, the alternatives
+> record — one per step, 281 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **Pull to refresh** (J281). `Refresh::new(list).on_refresh(msg).refreshing(flag)` turns a
+  drag past a scrollable's top edge into a message, using the movement the physics already
+  refuses — no new measurement in the gesture path. The threshold is proportional to the
+  scrollable (25 % of its extent, armed at two thirds of that), an armed pull only ends by
+  letting go, and the indicator spins for exactly as long as the application says it is
+  working. Where a `Refresh` listens, the top overscroll glow stands down.
 - **An ambient description of the surface** (J280). `MediaQuery::of()` gives any widget
   built during `view` the surface size, the DPI scale, the app density and the occupied
   edges — system bars, notch, soft keyboard — with nothing threaded down from the
