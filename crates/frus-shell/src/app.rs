@@ -17,8 +17,8 @@ use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
     reflow_reorder_columns, subtree_ids, Color, Cursor as UiCursor, Edit, FocusDirection, Insets,
-    Key, KeyResponse, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, Size, Theme, Ui,
-    VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    Key, KeyResponse, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, Size, Theme,
+    Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -1453,7 +1453,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // `(state, theme, size)` and never of the `Runtime`.
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
-                    let tree = self.app.view(&theme, width, height);
+                    let tree = self
+                        .media_query(width, height)
+                        .scope(|| self.app.view(&theme, width, height));
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -1675,6 +1677,21 @@ impl<A: Application> App<A> {
     /// The total scale: system DPI × app density (physical = logical × this).
     fn total_scale(&self) -> f32 {
         (self.scale * self.app.density()).max(0.1)
+    }
+
+    /// The surface description installed around every call to `view`, so that any
+    /// widget built there can read it with `MediaQuery::of()` instead of having the
+    /// application carry it down by hand.
+    ///
+    /// Everything in it is already known to the shell — the logical size it is about
+    /// to lay out for, the DPI scale, the app's density, and the insets last reported
+    /// by the platform. It is assembled here, in one place, rather than at each of the
+    /// call sites.
+    fn media_query(&self, width: f32, height: f32) -> MediaQuery {
+        MediaQuery::new(Size::new(width, height))
+            .with_device_pixel_ratio(self.scale)
+            .with_density(self.app.density())
+            .with_insets(self.last_insets)
     }
 
     /// The current layout direction; RTL flips both the layout and the gestures.
@@ -2861,7 +2878,10 @@ impl<A: Application> App<A> {
             // and the next frame redoes the full pass: mounts, leaving fades and all.
             if let Some((width, height)) = self.last_size {
                 let theme = self.app.theme();
-                self.tree = Some(self.app.view(&theme, width, height));
+                self.tree = Some(
+                    self.media_query(width, height)
+                        .scope(|| self.app.view(&theme, width, height)),
+                );
             }
         }
     }

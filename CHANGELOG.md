@@ -8,13 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 277 so far, each documenting the objective, the alternatives
+> record — one per step, 280 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **An ambient description of the surface** (J280). `MediaQuery::of()` gives any widget
+  built during `view` the surface size, the DPI scale, the app density and the occupied
+  edges — system bars, notch, soft keyboard — with nothing threaded down from the
+  application. The framework installs it around `view`; `MediaQuery::scope` re-describes it
+  for a subtree, nests, and restores itself even through a panic.
+- **`SafeArea`** (J280), which insets its child away from those occupied edges. Per-edge
+  (`Edges`), with `minimum` as a floor rather than an addition, and the soft keyboard left
+  alone unless `avoid_keyboard()` asks for it. `SafeArea::build` consumes the padding it
+  applies, so safe areas can nest without avoiding the same notch twice.
+- **Widgets that withhold part of the frame** (J280): `IgnorePointer` (invisible to input,
+  which falls through), `AbsorbPointer` (invisible to input, which stops there),
+  `Visibility` (hidden, optionally keeping its box, its input or its announcements),
+  `Offstage` (gone from the layout entirely) and `ExcludeSemantics`. All five go through one
+  mechanism, `Widget::barrier`, applied *after* the subtree is walked — so a target
+  registered several levels down is withheld just as surely as one at the top.
 - **The overscroll glow** (J279). A platform that clamps now answers a refused drag or a
   fling landing on an edge with an arc of light, instead of with silence: `OverscrollGlow`,
   fed by the movement `apply_boundary_conditions` refuses, by a ballistic stopped at an edge,
@@ -37,6 +52,9 @@ any release may break.
 
 ### Fixed
 
+- **`MediaQuery` reuses `frus_core::Orientation`** instead of the duplicate enum the first
+  draft declared (J280).
+- The last two French assertion messages in `clip.rs` are English (J280).
 - **A scroll offset now has one owner at a time** (J279). The edge spring kept retracting an
   overscrolled offset *while a finger was still holding it*, so a rubber band was dragged
   home as fast as it was stretched — on a slow drag it never appeared at all. Found on a

@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-276 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+280 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -80,7 +80,22 @@ The web target renders and animates but is missing its platform integrations. Ea
 - 🟢 **Scrolling physics — done, with two loose ends.** `ScrollPhysics::{Bouncing, Clamping}` with the platform's own fling curves, a real rubber band and per-app / per-area overrides (`docs/milestone-277.md`); a fitted velocity estimate (`docs/milestone-278.md`); the overscroll glow, device-verified (`docs/milestone-279.md`). Left: the **stretch** overscroll effect newer platform versions use instead of a glow (needs a render-target effect), and the second bouncing deceleration profile.
 - 🔴 **Rebuild memoization.** `view` rebuilds the whole tree each frame. It has not been a bottleneck yet, but it will be. Wants benchmarks first, then a design.
 - 🟡 **Renderer batching.** Fewer draw calls for scenes with many small primitives; atlas the common shapes.
-- 🟡 **More widgets.** Rich text editing, video, maps, virtualized lists for very large datasets.
+- 🟡 **More widgets.** The catalogue is broad but not complete. Landed in milestone 280:
+  the ambient surface description (`MediaQuery`, `SafeArea`) and the widgets that withhold
+  part of the frame (`IgnorePointer`, `AbsorbPointer`, `Visibility`, `Offstage`,
+  `ExcludeSemantics`). Still unclaimed, roughly in order of how often they are reached for:
+
+  - 🟡 **Pull-to-refresh** on a scrollable — the overscroll machinery from milestone 279
+    already measures the pull; this is the gesture-to-command half.
+  - 🟡 **Swipe-to-dismiss** list items, with the settle animation and an undo window.
+  - 🟡 **A paged view** (snap-per-page scrolling), sharing the physics from milestone 277.
+  - 🔴 **Shared-element transitions** between screens — needs a design first: two trees,
+    one flight, and identity across a rebuild.
+  - 🟢 **The constraint boxes**: `ConstrainedBox`, `LimitedBox`, `OverflowBox`, intrinsic
+    width/height, baseline alignment. Self-contained layout work.
+  - 🟡 **A general drag-and-drop pair** (`Draggable` / `DragTarget`) underneath the reorder
+    machinery that already exists for tables and boards.
+  - 🟡 Rich text editing, video, maps, virtualized lists for very large datasets.
 - 🔴 **Router / deep linking.** `navigator.rs` handles in-app navigation; URLs, deep links, and browser history are not modelled.
 - 🟡 **State persistence.** A blessed way to save and restore app state across lifecycle transitions.
 

@@ -241,6 +241,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.clip_path()
     }
 
+    fn barrier(&self) -> Option<crate::barrier::Barrier> {
+        self.inner.barrier()
+    }
+
     fn interactive(&self) -> Option<(f32, f32)> {
         self.inner.interactive()
     }

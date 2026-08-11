@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId};
 
+use crate::barrier::Barrier;
 use crate::interaction::{Status, WidgetId};
 use crate::physics::{ScrollMetrics, ScrollPhysics};
 use crate::portal::Placement;
@@ -87,7 +88,10 @@ pub enum FocusDirection {
 struct Hit<Msg> {
     id: WidgetId,
     rect: Rect,
-    msg: Msg,
+    /// The message the target emits, or `None` for a target that **swallows** input
+    /// without doing anything — an [`crate::AbsorbPointer`]. Such a target still wins
+    /// the hit test, which is exactly what stops the click reaching what is behind it.
+    msg: Option<Msg>,
     /// **Inverse** transform (screen → the flat frame) of a transformed subtree
     /// (`Transform::scale`/`rotate`/a composition): the test point is passed through it to
     /// get back to the untransformed frame where `rect` lives. `None` = an axis-aligned,
@@ -138,6 +142,23 @@ struct Snapshot {
 /// (a scale/rotation layer): only what the subtree has just added is re-mapped. Distinct from
 /// [`Snapshot`] (the boundary cache) because it **includes `reorderables`** — those are never
 /// cached but do have to be transformed. See [`transform_interaction_registries`].
+/// Lengths of the registries a [`Barrier`] withholds from, on entering its subtree: the
+/// point each is truncated back to on the way out. Distinct from [`XformBase`] because a
+/// barrier also covers the **scene** and the **scrollbars**, and distinct from [`Snapshot`]
+/// because it covers the registries that are never cached.
+struct BarrierBase {
+    scene: usize,
+    hits: usize,
+    long_presses: usize,
+    focusables: usize,
+    scrollables: usize,
+    scrollbars: usize,
+    draggables: usize,
+    reorderables: usize,
+    interactives: usize,
+    semantics: usize,
+}
+
 struct XformBase {
     hits: usize,
     long_presses: usize,
@@ -257,12 +278,13 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|hit| hit.id)
     }
 
-    /// The message tied to a given clickable widget.
+    /// The message tied to a given clickable widget. `None` for a target that swallows
+    /// input without emitting anything.
     pub fn msg_for(&self, id: WidgetId) -> Option<Msg> {
         self.hits
             .iter()
             .find(|hit| hit.id == id)
-            .map(|hit| hit.msg.clone())
+            .and_then(|hit| hit.msg.clone())
     }
 
     /// Dismissal message of the **topmost** overlay (for Escape).
@@ -276,7 +298,7 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .rev()
             .find(|hit| hit.contains(point))
-            .map(|hit| hit.msg.clone())
+            .and_then(|hit| hit.msg.clone())
     }
 
     /// Topmost focusable widget containing `point`: (id, its bounds).
@@ -756,6 +778,62 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.semantics.extend(data.semantics);
     }
 
+    /// Lengths of every registry a [`Barrier`] can withhold from, taken before its subtree
+    /// is walked.
+    fn barrier_base(&self) -> BarrierBase {
+        BarrierBase {
+            scene: self.scene.primitives().len(),
+            hits: self.hits.len(),
+            long_presses: self.long_presses.len(),
+            focusables: self.focusables.len(),
+            scrollables: self.scrollables.len(),
+            scrollbars: self.scrollbars.len(),
+            draggables: self.draggables.len(),
+            reorderables: self.reorderables.len(),
+            interactives: self.interactives.len(),
+            semantics: self.semantics.len(),
+        }
+    }
+
+    /// Drops what the subtree added since `base`, according to `barrier`, and — for an
+    /// absorbing barrier — puts a message-less hit target in its place so that input stops
+    /// at the barrier instead of reaching whatever is painted behind it.
+    fn apply_barrier(&mut self, barrier: Barrier, base: &BarrierBase, id: WidgetId, own: Rect) {
+        if barrier.pointer {
+            self.hits.truncate(base.hits);
+            self.long_presses.truncate(base.long_presses);
+            self.focusables.truncate(base.focusables);
+            self.scrollables.truncate(base.scrollables);
+            self.scrollbars.truncate(base.scrollbars);
+            self.draggables.truncate(base.draggables);
+            self.reorderables.truncate(base.reorderables);
+            self.interactives.truncate(base.interactives);
+            // The modal focus scope is an index **into** `focusables`. A barrier that cut
+            // away the focusable it pointed at would leave it dangling past the end, and
+            // every later slice of the pool would then be empty — no focusable at all,
+            // rather than the ones the barrier meant to spare.
+            if let Some(start) = self.focus_scope_start {
+                self.focus_scope_start = Some(start.min(self.focusables.len()));
+            }
+        }
+        if barrier.absorb && own.width > 0.0 && own.height > 0.0 {
+            self.hits.push(Hit {
+                id,
+                rect: own,
+                msg: None,
+                xform: None,
+            });
+        }
+        if barrier.paint {
+            // The clip is baked into each primitive when it is pushed, so dropping the tail
+            // leaves nothing for the next sibling to repair.
+            let _hidden = self.scene.split_off(base.scene);
+        }
+        if barrier.semantics {
+            self.semantics.truncate(base.semantics);
+        }
+    }
+
     /// Lower bounds of the interaction registries **before** a transformed composited subtree.
     fn xform_base(&self) -> XformBase {
         XformBase {
@@ -818,6 +896,27 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects: &[Rect],
         index: &mut usize,
     ) {
+        // A **barrier** (`IgnorePointer`, `AbsorbPointer`, a hidden `Visibility`,
+        // `ExcludeSemantics`): the subtree is walked exactly as usual, and then whatever it
+        // added to the withheld registries is dropped again.
+        //
+        // Removing afterwards rather than skipping the walk is what makes it exact. A widget
+        // deep inside registers its click target, focus stop, scrollable area or accessibility
+        // node without knowing that something above is holding the subtree out of the frame;
+        // truncating at the barrier catches every one of them, including those added by
+        // widgets written after this code. It also keeps the walk's rect indexing untouched,
+        // which a skipped subtree would break.
+        if let Some(barrier) = widget.barrier().filter(|b| !b.is_none()) {
+            let base = self.barrier_base();
+            // The barrier's own box, before `walk_node` advances the index past it.
+            let own = rects[*index]
+                .translate(translation.0, translation.1)
+                .intersect(clip);
+            self.walk_node(widget, id, translation, clip, rects, index);
+            self.apply_barrier(barrier, &base, id, own);
+            return;
+        }
+
         // An opacity group: the subtree is painted normally, then its range of primitives is
         // **drained** into a composited layer at the group's opacity — so overlaps do not
         // double-blend. The animated opacity is the value the runtime tweened; otherwise the
@@ -1024,7 +1123,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.hits.push(Hit {
                     id,
                     rect: visible,
-                    msg,
+                    msg: Some(msg),
                     xform: None,
                 });
             }
@@ -1032,7 +1131,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.long_presses.push(Hit {
                     id,
                     rect: visible,
-                    msg,
+                    msg: Some(msg),
                     xform: None,
                 });
             }
@@ -1578,7 +1677,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.hits.push(Hit {
                     id,
                     rect: visible,
-                    msg,
+                    msg: Some(msg),
                     xform: None,
                 });
             }
@@ -1586,7 +1685,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.long_presses.push(Hit {
                     id,
                     rect: visible,
-                    msg,
+                    msg: Some(msg),
                     xform: None,
                 });
             }
@@ -1758,7 +1857,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.hits.push(Hit {
                     id: oid,
                     rect: window,
-                    msg,
+                    msg: Some(msg),
                     xform: None,
                 });
             }

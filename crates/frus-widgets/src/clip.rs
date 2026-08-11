@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(
             layer.0,
             ClipShape::RRect(BorderRadius::uniform(8.0)),
-            "forme arrondie de rayon 8"
+            "a rounded shape of radius 8"
         );
         assert!(
             layer
@@ -246,7 +246,7 @@ mod tests {
             Primitive::Layer { clip_shape, .. } => Some(clip_shape.clone()),
             _ => None,
         });
-        assert_eq!(shape, Some(ClipShape::Oval), "forme ellipse");
+        assert_eq!(shape, Some(ClipShape::Oval), "an elliptical shape");
     }
 
     /// `ClipPath` emits a layer with a `Path` shape, **offset to the screen position**

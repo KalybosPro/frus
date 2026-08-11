@@ -316,6 +316,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.clip_path())
     }
 
+    fn barrier(&self) -> Option<crate::barrier::Barrier> {
+        self.inner.as_ref().and_then(|w| w.barrier())
+    }
+
     fn interactive(&self) -> Option<(f32, f32)> {
         self.inner.as_ref().and_then(|w| w.interactive())
     }

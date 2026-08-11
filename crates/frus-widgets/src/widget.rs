@@ -415,6 +415,17 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// What the widget **withholds** from the frame on behalf of its whole subtree:
+    /// input targets, primitives, accessibility nodes. The walk visits the subtree
+    /// normally and then discards whatever it added to the selected registries, so a
+    /// target registered deep inside is caught just as surely as one at the top.
+    /// `None` = nothing withheld (the default). See [`crate::Barrier`],
+    /// [`crate::IgnorePointer`], [`crate::AbsorbPointer`], [`crate::Visibility`],
+    /// [`crate::ExcludeSemantics`].
+    fn barrier(&self) -> Option<crate::barrier::Barrier> {
+        None
+    }
+
     /// If the widget is an **interactive viewport** (`InteractiveViewer`), returns its
     /// scale bounds `(min, max)`. The paint walk renders its child in a transformed
     /// layer (retained scale + translation, clipped to the viewport); the shell routes
@@ -654,6 +665,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn clip_path(&self) -> Option<&frus_core::Path> {
         (**self).clip_path()
+    }
+    fn barrier(&self) -> Option<crate::barrier::Barrier> {
+        (**self).barrier()
     }
     fn interactive(&self) -> Option<(f32, f32)> {
         (**self).interactive()
