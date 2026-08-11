@@ -186,6 +186,14 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.page_view()
     }
 
+    fn intrinsic(&self) -> Option<(crate::constraints::IntrinsicAxis, Option<f32>)> {
+        self.inner.intrinsic()
+    }
+
+    fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
+        self.inner.overflow_box()
+    }
+
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         self.inner.on_page_changed(page)
     }

@@ -194,6 +194,7 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.page_view().is_some()
+        || widget.overflow_box().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
         || widget.overlay().is_some()
@@ -608,6 +609,39 @@ pub(crate) fn build_layout<Msg>(
             style.height = frus_layout::Dimension::Length(h);
         }
         return layout.leaf(style, ());
+    }
+    // `Intrinsic`: one axis is taken from what the content would **like** to be, not from
+    // the space on offer. The content is measured once, unconstrained, and the answer is
+    // written into this node's style as a length — the same trick `RotatedBox` uses, except
+    // that here the child stays inside, laid out normally within the size it asked for.
+    if let Some((axis, step)) = widget.intrinsic() {
+        let mut style = effective_style(widget, id, runtime);
+        if let Some(child) = widget.children().first() {
+            let child = child.as_ref();
+            let cid = child_id(id, 0, child);
+            let nat = natural_size(child, cid, runtime);
+            let quantise = |extent: f32| match step {
+                Some(step) if step > 0.0 => (extent / step).ceil() * step,
+                _ => extent,
+            };
+            match axis {
+                crate::constraints::IntrinsicAxis::Width => {
+                    style.width = frus_layout::Dimension::Length(quantise(nat.width));
+                }
+                crate::constraints::IntrinsicAxis::Height => {
+                    style.height = frus_layout::Dimension::Length(quantise(nat.height));
+                }
+            }
+            let node = build_layout(child, cid, runtime, layout);
+            return layout.container(style, &[node]);
+        }
+        return layout.leaf(style, ());
+    }
+    // `OverflowBox`: a leaf, because its child is laid out **separately**, to constraints of
+    // its own. That separation is the whole feature — a child sharing this node's layout
+    // could never be bigger than it.
+    if widget.overflow_box().is_some() {
+        return layout.leaf(effective_style(widget, id, runtime), ());
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
@@ -1607,6 +1641,32 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
+        } else if let Some(overflow) = widget.overflow_box() {
+            // The child is laid out to constraints of its own — which is why it can
+            // come out bigger than the box holding it — then anchored inside it and
+            // rendered **without** the box's clip. A spill that got clipped here would
+            // be no spill at all; a `ClipRect` above is how a caller asks for one.
+            let own = draw_rect;
+            if let Some(child) = widget.children().first() {
+                let child = child.as_ref();
+                let cid = child_id(id, 0, child);
+                let asked = overflow.child_size(Size::new(own.width, own.height));
+                let child_rects = if overflow.unconstrained {
+                    // Unconstrained: the child is asked how big it wants to be, and
+                    // gets exactly that.
+                    self.cached_rects(cid, child, Constraints::scroll(0.0, 0.0, true, true))
+                } else {
+                    self.cached_rects(cid, child, Constraints::filled(asked))
+                };
+                let size = child_rects
+                    .first()
+                    .map(|r| Size::new(r.width, r.height))
+                    .unwrap_or(asked);
+                let origin = overflow.origin(own, size);
+
+                let mut child_index = 0;
+                self.render_item(child, cid, origin, clip, &child_rects, &mut child_index);
+            }
         } else if let Some(build) = widget.layout_builder() {
             // Builds the content from the actual box, then lays it out and renders it inside
             // (like a list item: with no retained state).

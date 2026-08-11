@@ -8,13 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 283 so far, each documenting the objective, the alternatives
+> record — one per step, 284 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **The constraint boxes** (J284). `SizedBox` (fixed, `expand`, `shrink`),
+  `ConstrainedBox` (floors and ceilings on either axis, with `tight`/`loose`), `Intrinsic`
+  (a box the size its content would *like* to be, with an optional step), and `OverflowBox`
+  (a child laid out to constraints of its own, free to be bigger than its box and painted
+  over its neighbours, with an `unconstrained` variant). `Style` gained the ceilings it was
+  missing: `max_width` and `max_height`.
 - **A paged view** (J283). `PageView::new(count, build)` scrolls panel by panel and never
   comes to rest between two: at the release, a spring to one page replaces the fling. The
   rule is the one paged views everywhere use — any release with speed is a flick and turns

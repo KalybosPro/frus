@@ -28,6 +28,7 @@ mod chip;
 mod clip;
 mod collapsible;
 mod colorpicker;
+mod constraints;
 mod container;
 mod custompaint;
 mod datatable;
@@ -127,6 +128,10 @@ pub use chip::Chip;
 pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;
+pub use constraints::{
+    ConstrainedBox, Intrinsic, IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow,
+    OverflowBox, SizedBox,
+};
 pub use container::Container;
 pub use custompaint::CustomPaint;
 pub use datatable::{

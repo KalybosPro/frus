@@ -203,6 +203,14 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.page_view())
     }
 
+    fn intrinsic(&self) -> Option<(crate::constraints::IntrinsicAxis, Option<f32>)> {
+        self.inner.as_ref().and_then(|w| w.intrinsic())
+    }
+
+    fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
+        self.inner.as_ref().and_then(|w| w.overflow_box())
+    }
+
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_page_changed(page))
     }

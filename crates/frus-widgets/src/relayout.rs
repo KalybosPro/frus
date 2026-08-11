@@ -213,6 +213,7 @@ fn hash_node<Msg, H: Hasher>(
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.page_view().is_some()
+        || widget.overflow_box().is_some()
         || widget.layout_builder().is_some()
         || widget.stack()
     {

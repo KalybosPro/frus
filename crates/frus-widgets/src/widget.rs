@@ -279,6 +279,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget takes one axis from its content's **preferred** size, returns
+    /// that axis and the step its measurement is rounded up to. See
+    /// [`crate::Intrinsic`].
+    fn intrinsic(&self) -> Option<(crate::constraints::IntrinsicAxis, Option<f32>)> {
+        None
+    }
+
+    /// If the widget lays its child out to constraints of **its own**, which the
+    /// child may exceed, returns them. See [`crate::OverflowBox`].
+    fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
+        None
+    }
+
     /// If the widget builds its content **from its actual box**, returns the
     /// `size → widget` factory. The content is built on the fly: no retained state
     /// and no overlay (like a virtualised list item).
@@ -648,6 +661,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {
         (**self).page_view()
+    }
+    fn intrinsic(&self) -> Option<(crate::constraints::IntrinsicAxis, Option<f32>)> {
+        (**self).intrinsic()
+    }
+    fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
+        (**self).overflow_box()
     }
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         (**self).on_page_changed(page)

@@ -97,6 +97,11 @@ pub struct Style {
     /// **Minimum** height: a floor the layout never goes below — for instance a row
     /// that grows with tall content and never shrinks (`Auto` = no floor).
     pub min_height: Dimension,
+    /// **Maximum** width: a ceiling the layout never goes above, whatever the content
+    /// or the space on offer asks for (`Auto` = no ceiling).
+    pub max_width: Dimension,
+    /// **Maximum** height: the same ceiling on the vertical axis (`Auto` = none).
+    pub max_height: Dimension,
     /// The main-axis grow factor (flexbox).
     pub flex_grow: f32,
     /// The main-axis direction, for a container.
@@ -131,6 +136,8 @@ impl Default for Style {
             height: Dimension::Auto,
             min_width: Dimension::Auto,
             min_height: Dimension::Auto,
+            max_width: Dimension::Auto,
+            max_height: Dimension::Auto,
             flex_grow: 0.0,
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
@@ -170,6 +177,8 @@ impl Style {
         dim(self.height, hasher);
         dim(self.min_width, hasher);
         dim(self.min_height, hasher);
+        dim(self.max_width, hasher);
+        dim(self.max_height, hasher);
         self.flex_grow.to_bits().hash(hasher);
         (self.flex_direction as u8).hash(hasher);
         (self.justify as u8).hash(hasher);
@@ -203,6 +212,10 @@ impl Style {
             min_size: taffy::Size {
                 width: self.min_width.to_taffy(),
                 height: self.min_height.to_taffy(),
+            },
+            max_size: taffy::Size {
+                width: self.max_width.to_taffy(),
+                height: self.max_height.to_taffy(),
             },
             flex_grow: self.flex_grow,
             flex_direction: self.flex_direction.to_taffy(),

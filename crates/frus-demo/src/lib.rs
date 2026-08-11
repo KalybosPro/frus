@@ -53,7 +53,7 @@ use frus_widgets::{
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
     Dismissible, PageView, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup,
-    Rating, Rect,
+    Rating, Rect, SizedBox,
     Refresh,
     RichText,
     Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, Skeleton, Slider,
@@ -2135,7 +2135,9 @@ fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
             .align(Align::Center),
         )
     } else {
-        Box::new(Container::new().width(0.0).height(0.0))
+        // Nothing to show: an empty box says that more plainly than a zero-sized
+        // container with a colour it never uses.
+        Box::new(SizedBox::empty())
     };
     let chart = dashboard_chart(app, app.chart_kind, 240.0, true);
     // The **companion** chart: the complementary family (bars when the main one is lines, and the
