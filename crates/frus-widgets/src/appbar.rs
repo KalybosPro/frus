@@ -47,6 +47,21 @@ const LEADING_SLOT: f32 = 56.0;
 /// The bar's horizontal margin: the content does not touch the edges (Material
 /// style). Counted in the folding budget.
 const H_PAD: f32 = 8.0;
+/// The width the title is never squeezed below, in px. A title cut to nothing tells a
+/// reader less than a title cut to two characters and an ellipsis.
+const TITLE_MIN: f32 = 64.0;
+/// What a truncated title ends with.
+const ELLIPSIS: &str = "\u{2026}";
+/// The glyph on the overflow button.
+const OVERFLOW_GLYPH: &str = "\u{22ef}";
+/// The elevation shadow's colour. Only its alpha is local; the hue is the theme's
+/// job, and a bar that needs another one sets its own background instead.
+const SHADOW: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 0.0,
+    a: 0.22,
+};
 
 /// The title: styled text, or any widget at all.
 enum Title<Msg> {
@@ -73,6 +88,12 @@ pub struct AppBar<Msg> {
     gap: f32,
     background: Option<Color>,
     height: Option<f32>,
+    center_title: bool,
+    bottom: Option<Box<dyn Widget<Msg>>>,
+    leading_width: Option<f32>,
+    title_spacing: f32,
+    foreground: Option<Color>,
+    elevation: f32,
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
@@ -89,6 +110,12 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             gap: GAP,
             background: None,
             height: None,
+            center_title: false,
+            bottom: None,
+            leading_width: None,
+            title_spacing: GAP * 2.0,
+            foreground: None,
+            elevation: 0.0,
         }
     }
 
@@ -167,6 +194,76 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
+    /// Centres the title in the space left between the leading and the actions,
+    /// rather than starting it flush after the leading.
+    ///
+    /// Which of the two reads better is a platform convention and a house style, not
+    /// something a bar can work out for itself, so it is asked for rather than
+    /// guessed. Centred, the title still yields to the actions first: it is centred in
+    /// what is left, not in the window.
+    pub fn center_title(mut self, centered: bool) -> Self {
+        self.center_title = centered;
+        self
+    }
+
+    /// A widget **under** the bar, spanning its width — a row of tabs, a search field,
+    /// a progress bar. It belongs to the bar, so it sits inside the background.
+    pub fn bottom(mut self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.bottom = Some(Box::new(widget));
+        self
+    }
+
+    /// The width reserved for the leading slot. Unset, it is the Material slot width;
+    /// a leading wider than that would otherwise push the title without the folding
+    /// budget knowing, and the actions would run off the edge.
+    pub fn leading_width(mut self, width: f32) -> Self {
+        self.leading_width = Some(width);
+        self
+    }
+
+    /// The gap between the leading and the title.
+    pub fn title_spacing(mut self, spacing: f32) -> Self {
+        self.title_spacing = spacing;
+        self
+    }
+
+    /// The colour of the bar's own text — the title, and the labelled actions. Unset,
+    /// each follows the theme.
+    pub fn foreground(mut self, color: Color) -> Self {
+        self.foreground = Some(color);
+        self
+    }
+
+    /// A shadow under the bar, in px of blur. `0` — the default — draws none, which is
+    /// what a bar sitting on a surface of the same colour wants.
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.elevation = elevation.max(0.0);
+        self
+    }
+
+    /// The longest prefix of `content` that fits in `max_width`, ending in an ellipsis
+    /// when anything was cut. Returns `content` untouched when it already fits.
+    fn truncated(content: &str, style: &TextStyle, max_width: f32) -> String {
+        let measure = |text: &str| {
+            frus_text::measure_styled(text, style.size, style.weight, style.italic).width
+        };
+        if max_width <= 0.0 || measure(content) <= max_width {
+            return content.to_string();
+        }
+        // Character by character from the end: a title is short, and a binary search
+        // over char boundaries would buy nothing at this length.
+        let mut chars: Vec<char> = content.chars().collect();
+        while !chars.is_empty() {
+            chars.pop();
+            let kept: String = chars.iter().collect();
+            let candidate = format!("{}{ELLIPSIS}", kept.trim_end());
+            if measure(&candidate) <= max_width {
+                return candidate;
+            }
+        }
+        ELLIPSIS.to_string()
+    }
+
     /// The width an action button would take for this label.
     fn action_width(label: &str, size: f32) -> f32 {
         frus_text::measure(label, size).width + BTN_PAD_X * 2.0
@@ -180,12 +277,19 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         }
     }
 
-    /// Assembles the bar into a widget ready to display (the row `leading · title ·
-    /// spring · inline actions · overflow`).
+    /// Assembles the bar into a widget ready to display (the row `leading . title .
+    /// spring . inline actions . overflow`, over an optional `bottom`).
+    ///
+    /// The order in which space is handed out is worth stating, because it is a
+    /// decision and not an accident: **the actions are served first and the title
+    /// yields.** A title cut short is still a title; an action pushed off the edge is
+    /// gone. So the folding budget is computed against the title's *floor*, and
+    /// whatever is left afterwards is what the title gets - with an ellipsis if it
+    /// does not fit.
     pub fn build(self) -> Box<dyn Widget<Msg>> {
         let AppBar {
             title,
-            title_style,
+            mut title_style,
             width,
             leading,
             overflow,
@@ -194,12 +298,23 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             gap,
             background,
             height,
+            center_title,
+            bottom,
+            leading_width,
+            title_spacing,
+            foreground,
+            elevation,
         } = self;
 
-        // The horizontal budget left for the inline actions, after the leading, the
-        // title and the margins. Conservative: when in doubt, fold.
-        let leading_w = if leading.is_some() { LEADING_SLOT } else { 0.0 };
-        let title_w = match &title {
+        if let Some(color) = foreground {
+            title_style.color = Some(color);
+        }
+        let leading_w = match (&leading, leading_width) {
+            (None, _) => 0.0,
+            (Some(_), Some(w)) => w,
+            (Some(widget), None) => Self::widget_width(widget.as_ref()).max(LEADING_SLOT),
+        };
+        let natural_title = match &title {
             Title::Text(content) => {
                 frus_text::measure_styled(
                     content,
@@ -211,10 +326,23 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
             Title::Widget(widget) => Self::widget_width(widget.as_ref()),
         };
-        // The horizontal margin eats into the budget on both sides (the content does
-        // not touch the edges). An unset `width` (f32::MAX) stays roughly infinite.
-        let budget = width - H_PAD * 2.0 - leading_w - title_w - gap * 3.0;
-        let overflow_btn_w = Self::action_width("⋯", action_size) + gap;
+
+        // The room the actions may claim: everything except the margins, the leading,
+        // the spacing, and what the title is **reserved**.
+        //
+        // The order matters and it is a decision. A bar that folds actions into an
+        // overflow already has a way of making room, and that is the one to use first:
+        // the title keeps its natural width — up to half the bar, so a long one cannot
+        // starve the actions — and the actions fold to fit what is left. Truncating
+        // the title is the *last* resort, for when even one action and the overflow
+        // button will not fit beside it.
+        let fixed = H_PAD * 2.0 + leading_w + title_spacing + gap;
+        let room = (width - fixed).max(0.0);
+        let title_reserve = natural_title
+            .min(room * 0.5)
+            .max(TITLE_MIN.min(natural_title));
+        let budget = room - title_reserve;
+        let overflow_btn_w = Self::action_width(OVERFLOW_GLYPH, action_size) + gap;
 
         // Each action's width; free widgets are **always** inline.
         let widths: Vec<f32> = actions
@@ -233,10 +361,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .sum();
 
         // How many **labelled** actions fit inline? If everything fits, no overflow;
-        // otherwise reserve the `⋯` button and the free widgets, and keep as many
-        // labelled ones as possible (a prefix, in order).
-        let kept_labeled = if total <= budget {
-            usize::MAX
+        // otherwise reserve the overflow button and the free widgets and keep as many
+        // labelled ones as possible, in order - so it is the last actions that fold,
+        // which is where a reader has learnt to go looking for them.
+        let (kept_labeled, actions_w) = if total <= budget {
+            (usize::MAX, total)
         } else {
             let mut used = overflow_btn_w + custom_total;
             let mut kept = 0;
@@ -251,18 +380,31 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                     break;
                 }
             }
-            kept
+            (kept, used)
         };
+
+        // What is left for the title, once the actions have taken theirs.
+        let title_room = (width - fixed - actions_w).max(TITLE_MIN.min(natural_title));
 
         let mut row = Flex::row().align(Align::Center).gap(gap);
         if let Some(leading) = leading {
             row = row.child(leading);
+            if title_spacing > gap {
+                row = row.child(Container::new().width(title_spacing - gap));
+            }
+        }
+        // Centred: a spring on either side of the title. Otherwise one spring after it,
+        // which is what pushes the actions to the right.
+        if center_title {
+            row = row.child(Container::new().flex(1.0));
         }
         match title {
-            Title::Text(content) => row = row.child(Text::styled(content, title_style)),
+            Title::Text(content) => {
+                let content = Self::truncated(&content, &title_style, title_room);
+                row = row.child(Text::styled(content, title_style));
+            }
             Title::Widget(widget) => row = row.child(widget),
         }
-        // The spring: it pushes the actions to the right.
         row = row.child(Container::new().flex(1.0));
 
         let mut labeled_seen = 0;
@@ -287,10 +429,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
         if !folded.is_empty() {
             match overflow {
-                // A controlled overflow menu: `⋯` opens it, the items emit the actions.
+                // A controlled overflow menu: the glyph opens it, the items emit the
+                // actions.
                 Some((open, toggle)) => {
                     let mut menu = Menu::new(
-                        button("⋯", toggle.clone())
+                        button(OVERFLOW_GLYPH, toggle.clone())
                             .variant(Variant::Secondary)
                             .size(action_size),
                         open,
@@ -314,16 +457,43 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             }
         }
 
-        // The horizontal margin (+ optional chrome: background, height). The row is
-        // always framed so that the content does not touch the edges.
-        let mut chrome = Container::new().padding_each(0.0, H_PAD, 0.0, H_PAD);
+        // The toolbar proper: the row, with its horizontal margin and any imposed
+        // height. The `bottom` sits under it inside the same background - it belongs to
+        // the bar, rather than being something the application places beneath one.
+        // The row is given the bar's width less its margins, so that the springs
+        // inside it have something to share: a row that hugged its content would leave
+        // a centred title with no space to be centred in.
+        let row = if width.is_finite() {
+            row.width((width - H_PAD * 2.0).max(0.0))
+        } else {
+            row
+        };
+        let mut toolbar = Container::new().padding_each(0.0, H_PAD, 0.0, H_PAD);
+        if let Some(h) = height {
+            toolbar = toolbar.height(h);
+        }
+        let toolbar = toolbar.child(row);
+
+        let content: Box<dyn Widget<Msg>> = match bottom {
+            Some(bottom) => Box::new(Flex::column().child(toolbar).child(bottom)),
+            None => Box::new(toolbar),
+        };
+
+        // The bar **occupies** the width it was told about rather than hugging its
+        // content. Hugging made two things quietly wrong: a background painted only
+        // behind the text instead of across the bar, and a centred title with no free
+        // space to be centred in.
+        let mut chrome = Container::new();
+        if width.is_finite() {
+            chrome = chrome.width(width);
+        }
         if let Some(color) = background {
             chrome = chrome.color(color);
         }
-        if let Some(h) = height {
-            chrome = chrome.height(h);
+        if elevation > 0.0 {
+            chrome = chrome.shadow(0.0, elevation * 0.25, elevation, SHADOW);
         }
-        Box::new(chrome.child(row))
+        Box::new(chrome.child(content))
     }
 }
 
@@ -475,6 +645,143 @@ mod tests {
         assert!(
             !texts.contains(&"ignored".to_string()),
             "the text title is replaced"
+        );
+    }
+
+    /// The texts a bar paints, in paint order.
+    fn texts_of(bar: &dyn Widget<Msg>, width: f32) -> Vec<String> {
+        let ui = build_ui(
+            bar,
+            Size::new(width, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_title_too_long_for_the_bar_is_cut_not_pushed_off() {
+        const W: f32 = 320.0;
+        let bar = AppBar::new("A title far too long to fit in a narrow application bar")
+            .width(W)
+            .overflow(false, Msg::Menu)
+            .action("One", Msg::A)
+            .build();
+        let texts = texts_of(bar.as_ref(), W);
+        let title = texts.first().expect("a title");
+        assert!(title.ends_with('\u{2026}'), "cut with an ellipsis: {title}");
+        assert!(
+            title.len() < "A title far too long to fit in a narrow application bar".len(),
+            "actually shortened: {title}"
+        );
+        // And the action survived: it is the actions that are served first.
+        assert!(texts.iter().any(|t| t == "One"), "{texts:?}");
+    }
+
+    #[test]
+    fn a_title_that_fits_is_left_exactly_as_it_was() {
+        let bar = AppBar::<Msg>::new("Short").width(900.0).build();
+        assert_eq!(texts_of(bar.as_ref(), 900.0).first().map(String::as_str), Some("Short"));
+    }
+
+    #[test]
+    fn a_centred_title_sits_between_the_two_ends() {
+        const W: f32 = 800.0;
+        let centred = AppBar::new("Task")
+            .width(W)
+            .center_title(true)
+            .leading(button("M", Msg::Menu).size(16.0))
+            .build();
+        let flush = AppBar::new("Task")
+            .width(W)
+            .leading(button("M", Msg::Menu).size(16.0))
+            .build();
+        let x_of = |bar: &dyn Widget<Msg>| {
+            let ui = build_ui(bar, Size::new(W, 80.0), &Runtime::default(), &Theme::default());
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, position, .. } if text == "Task" => {
+                        Some(position.x)
+                    }
+                    _ => None,
+                })
+                .expect("the title")
+        };
+        let centred_x = x_of(centred.as_ref());
+        let flush_x = x_of(flush.as_ref());
+        assert!(
+            centred_x > flush_x + 100.0,
+            "centred ({centred_x}) should sit well right of flush ({flush_x})"
+        );
+        assert!(centred_x < W * 0.6, "and not off to the right: {centred_x}");
+    }
+
+    #[test]
+    fn a_bottom_slot_is_part_of_the_bar() {
+        let bar = AppBar::<Msg>::new("Title")
+            .width(600.0)
+            .bottom(Text::new("Tabs").size(14.0))
+            .build();
+        let texts = texts_of(bar.as_ref(), 600.0);
+        assert!(texts.iter().any(|t| t == "Tabs"), "{texts:?}");
+        // Under the title, not beside it.
+        let ui = build_ui(
+            bar.as_ref(),
+            Size::new(600.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let y = |wanted: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, position, .. } if text == wanted => {
+                        Some(position.y)
+                    }
+                    _ => None,
+                })
+                .expect("the text")
+        };
+        assert!(y("Tabs") > y("Title"), "the bottom slot sits under the toolbar");
+    }
+
+    #[test]
+    fn a_wide_leading_is_counted_in_the_budget() {
+        // A leading far wider than the Material slot: declared, it must eat into what
+        // the actions may claim, so more of them fold.
+        let narrow = AppBar::new("Title")
+            .width(520.0)
+            .overflow(false, Msg::Menu)
+            .action("Action One", Msg::A)
+            .action("Action Two", Msg::B)
+            .build();
+        let wide = AppBar::new("Title")
+            .width(520.0)
+            .leading_width(300.0)
+            .leading(button("M", Msg::Menu).size(16.0))
+            .overflow(false, Msg::Menu)
+            .action("Action One", Msg::A)
+            .action("Action Two", Msg::B)
+            .build();
+        let inline = |bar: &dyn Widget<Msg>| {
+            texts_of(bar, 520.0)
+                .iter()
+                .filter(|t| t.starts_with("Action"))
+                .count()
+        };
+        assert!(
+            inline(wide.as_ref()) < inline(narrow.as_ref()),
+            "a wide leading must push actions into the overflow"
         );
     }
 

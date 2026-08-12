@@ -8,13 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 286 so far, each documenting the objective, the alternatives
+> record — one per step, 287 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **`AppBar`, reviewed against the reference** (J287). New: `center_title`, `bottom` (a
+  widget under the toolbar, inside the same background), `leading_width`, `title_spacing`,
+  `foreground`, `elevation`. The layout policy is now stated and tested: the title keeps
+  its natural width up to half the bar, the actions fold into the overflow to fit what is
+  left, and truncating the title with an ellipsis is the last resort.
 - **Shared-element transitions** (J286). `Hero::new(tag, widget)` on both sides of a route
   change makes the two one element: the transition flies it from where it was to where it
   is going, taking both originals out of the frame for the duration. What travels is the
@@ -89,6 +94,14 @@ any release may break.
   `FrictionSimulation::time_at_x`.
 
 ### Fixed
+
+- **The app bar hugged its content instead of occupying its width** (J287) — true since it
+  existed. `background(color)` painted a stripe behind the text rather than across the bar,
+  and nothing could be centred for want of free space.
+- **A long app-bar title pushed the actions off the edge** (J287). It is now cut with an
+  ellipsis, and only after the actions have folded.
+- **The app bar's leading slot was a fixed 56 px** (J287) whatever widget was in it, so a
+  wider one silently broke the folding budget.
 
 - **A wrapper that nests must forward the structural questions too** (J285) — the mirror of
   the `Keyed` bug fixed in J282. A layout leaf (`Dismissible`, `Stack`) wrapped in an
