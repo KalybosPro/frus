@@ -162,6 +162,19 @@ pub fn measure_wrapped(
         lines += 1.0;
     }
 
+    // **Rounded up**, and this matters more than it looks. The layout engine rounds
+    // the boxes it hands out to whole pixels, so a natural width of 146.4 becomes a
+    // box of 146 — narrower than the text that asked for it. The text is then shaped
+    // again at 146 when painting, wraps onto a second line, and overlaps whatever the
+    // layout put below it on the strength of a one-line height. A ceiling here is what
+    // keeps the measurement and the painting talking about the same box.
+    //
+    // Under a constraint the ceiling is clamped back to it: the text did fit that
+    // width, and a box a fraction wider than allowed is a different bug.
+    let width = match max_width {
+        Some(max) => width.ceil().min(max),
+        None => width.ceil(),
+    };
     Size::new(width, lines.max(1.0) * line_h)
 }
 
@@ -206,6 +219,13 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
         width = width.max(run.line_w);
         height = height.max(run.line_top + run.line_height);
     }
+    // Rounded up for the same reason as [`measure_wrapped`]: a box rounded down below
+    // the width the text asked for makes the text wrap when it is painted, on a height
+    // that says it did not.
+    let width = match max_width {
+        Some(max) => width.ceil().min(max),
+        None => width.ceil(),
+    };
     Size::new(width, height)
 }
 
@@ -751,6 +771,46 @@ mod tests {
         let bold = measure_styled(text, 20.0, FontWeight::Bold, false);
         assert_eq!(semibold.width, bold.width);
         assert!(bold.width > regular.width);
+    }
+
+    /// The natural width is a **whole** number, and never less than what the text
+    /// needs. The layout engine rounds the boxes it hands out to whole pixels, so a
+    /// measurement of 146.4 becomes a box of 146 — and the text, shaped again at 146
+    /// when it is painted, wraps onto a line the layout never reserved.
+    #[test]
+    fn the_natural_width_is_never_rounded_down_below_the_text() {
+        for text in ["Write code", "Bonjour le monde", "A", "iiiii"] {
+            for size in [12.0_f32, 15.0, 20.0, 24.0] {
+                let natural = measure_styled(text, size, FontWeight::Bold, false);
+                assert_eq!(
+                    natural.width,
+                    natural.width.ceil(),
+                    "a whole number for {text:?} at {size}: {}",
+                    natural.width
+                );
+                // Given exactly that width, the text still fits on one line.
+                let at_its_width =
+                    measure_wrapped(text, size, FontWeight::Bold, false, Some(natural.width));
+                assert_eq!(
+                    at_its_width.height, natural.height,
+                    "{text:?} at {size} wrapped inside its own width"
+                );
+            }
+        }
+    }
+
+    /// Under a constraint the ceiling is clamped back to it: a box wider than allowed
+    /// is a different bug from the one above.
+    #[test]
+    fn a_constrained_measurement_never_exceeds_its_constraint() {
+        let measured = measure_wrapped(
+            "A rather long sentence that has to wrap somewhere",
+            18.0,
+            FontWeight::Regular,
+            false,
+            Some(120.0),
+        );
+        assert!(measured.width <= 120.0, "{}", measured.width);
     }
 
     #[test]

@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 288 so far, each documenting the objective, the alternatives
+> record — one per step, 289 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -102,6 +102,13 @@ any release may break.
 
 ### Fixed
 
+- **A wrapping text reserved one line and painted two** (J289), found on a device in J286
+  and misdiagnosed there. The cause was half a pixel: the measurement returned the shaped
+  width as it came (146.4), the layout rounded the box down to 146, and the text — shaped
+  again at 146 when painted — wrapped onto a line the layout had not reserved, so the next
+  thing sat on top of it. Text measurements now round **up** (clamped back to the
+  constraint when there is one), in `measure_wrapped` and `measure_runs_wrapped` alike. It
+  only showed on a text sized to fit, where the box comes from the measurement itself.
 - **A persistent footer ignored its alignment** (J288) — the same defect the app bar had in
   J287, and found the same way. The row hugged its content, so there was no free space for
   the alignment to place anything in. An alignment is a claim on free space: whoever aligns

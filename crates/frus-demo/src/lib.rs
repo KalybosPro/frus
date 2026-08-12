@@ -2044,13 +2044,9 @@ fn task_screen(
     };
     let avatar = Hero::new(id, Avatar::new(label.clone()).size(96.0));
     let state = if done { "Done" } else { "Still to do" };
-    // **Not** `.wrap()`: a wrapping text that is shrunk to fit — which is what happens
-    // to it in a centred column — reports the height of a single line, and the line
-    // below then overlaps it. A framework defect, recorded in the milestone note; this
-    // screen stays on one line rather than showing it off.
     let body = column![
         avatar,
-        text(label).size(24.0).weight(FontWeight::Bold),
+        text(label).size(24.0).weight(FontWeight::Bold).wrap(),
         text(state).size(15.0).color(theme.muted),
     ]
     .gap(18.0)
@@ -3443,6 +3439,72 @@ mod tests {
         reduce(&mut app, Msg::ToggleDrawer);
         reduce(&mut app, Msg::Push(Route::Settings));
         assert!(!app.drawer_open);
+    }
+
+    /// A long task's own screen: its title **wraps**, and what follows clears the
+    /// lines it wrapped onto. The device found this one (milestone 289) — the title
+    /// used to be painted on two lines with the state label sitting on the second.
+    #[test]
+    fn a_long_task_title_wraps_without_overlapping_what_follows() {
+        let mut app = TodoApp::default();
+        reduce(
+            &mut app,
+            Msg::DraftChanged("A rather long task name that certainly wraps".to_string()),
+        );
+        reduce(&mut app, Msg::AddTodo);
+        let id = app.todos[0].id;
+        reduce(&mut app, Msg::OpenTask(id));
+        // Past the route transition, so the task's screen is the one on show.
+        for _ in 0..40 {
+            Application::tick(&mut app, 0.05);
+        }
+        let theme = Theme::dark();
+        let tree = Application::view(&app, &theme, 424.0, 918.0);
+        let ui = build_ui(
+            tree.as_ref(),
+            Size::new(424.0, 918.0),
+            &Runtime::default(),
+            &theme,
+        );
+        let texts: Vec<(String, f32, Option<f32>)> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Text {
+                    position,
+                    text,
+                    max_width,
+                    ..
+                } => Some((text.clone(), position.y, *max_width)),
+                _ => None,
+            })
+            .collect();
+        let title = texts
+            .iter()
+            .find(|(t, _, _)| t.starts_with("A rather long"))
+            .expect("the task's title is on its screen");
+        let state = texts
+            .iter()
+            .find(|(t, _, _)| t == "Still to do")
+            .expect("the state label is under it");
+        // The title is wrapped: it is painted with a width narrower than one line of
+        // it would need.
+        assert!(
+            title.2.is_some_and(|w| w < 400.0),
+            "the title is a paragraph in a narrow box: {:?}",
+            title.2
+        );
+        // Two lines at 24 px is about 58 px, plus the column's 18 px gap: 76. One line
+        // would put the state label 46 px below. 60 separates the two cleanly, and it
+        // is the failure this test exists for — the label used to land on the second
+        // line, which the layout had not reserved.
+        assert!(
+            state.1 - title.1 > 60.0,
+            "the state label overlaps the wrapped title: title y={}, state y={}",
+            title.1,
+            state.1
+        );
     }
 
     #[test]

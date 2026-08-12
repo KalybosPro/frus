@@ -183,6 +183,84 @@ mod tests {
     use super::*;
     use frus_core::Primitive;
 
+    /// A paragraph **sized to fit** — centred on a column's cross axis, so it gets
+    /// its natural width rather than the whole row — must be given a box the text
+    /// still fits in, and the thing below it must clear the lines it really has.
+    ///
+    /// This failed on a device before the measurement was rounded up: the natural
+    /// width came back as a fraction, the layout rounded the box down below it, the
+    /// text wrapped onto a second line when painted, and the label underneath sat on
+    /// top of that line — the layout having reserved the height of one.
+    #[test]
+    fn a_paragraph_sized_to_fit_is_not_squeezed_into_wrapping() {
+        use crate::{build_ui, Container, Flex, Runtime, Size};
+        use frus_core::FontWeight;
+        use frus_layout::Align;
+
+        const MARK: Color = Color {
+            r: 1.0,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        // Two labels: one that fits on a line at its natural width, one that cannot
+        // fit the box at all and must reserve every line it wraps onto.
+        for (label, lines) in [("Write code", 1.0_f32), ("A rather long task name that certainly wraps", 2.0)] {
+            let tree = Container::<()>::new().width(400.0).height(600.0).child(
+                Flex::column()
+                    .width(376.0)
+                    .align(Align::Center)
+                    .gap(18.0)
+                    .child(Text::new(label).size(24.0).weight(FontWeight::Bold).wrap())
+                    .child(Container::new().height(20.0).color(MARK)),
+            );
+            let ui = build_ui(
+                &tree,
+                Size::new(400.0, 600.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            let paragraph = ui
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Text {
+                        position, max_width, ..
+                    } => Some((*position, max_width.unwrap_or(f32::MAX))),
+                    _ => None,
+                })
+                .expect("the paragraph is painted");
+            let below = ui
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                    _ => None,
+                })
+                .expect("the label under it is painted");
+            // What the box it was given really costs, shaped at that width.
+            let painted = frus_text::measure_wrapped(
+                label,
+                24.0,
+                FontWeight::Bold,
+                false,
+                Some(paragraph.1),
+            );
+            assert!(
+                (painted.height / frus_text::line_height(24.0) - lines).abs() < 0.01,
+                "{label:?} wrapped onto {} lines in a box of {}",
+                painted.height / frus_text::line_height(24.0),
+                paragraph.1
+            );
+            assert!(
+                below.y >= paragraph.0.y + painted.height - 0.01,
+                "{label:?}: the label underneath overlaps the paragraph ({below:?} vs {painted:?})"
+            );
+        }
+    }
+
     #[test]
     fn text_paints_a_text_primitive() {
         let text = Text::new("Salut")

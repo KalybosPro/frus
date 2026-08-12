@@ -359,6 +359,40 @@ mod tests {
         );
     }
 
+    /// The same measured leaf, but **centred** on the cross axis instead of
+    /// stretched. Centring means the item is sized to fit rather than filled, and the
+    /// height must still be the one that goes with the width it ends up at.
+    #[test]
+    fn a_centred_measured_leaf_reports_the_height_of_the_width_it_got() {
+        let measure: crate::MeasureFn = Box::new(|w, _| {
+            let w = w.unwrap_or(250.0).min(250.0);
+            let lines = (250.0 / w).ceil();
+            Size::new(w, lines * 20.0)
+        });
+        let mut layout: Layout<()> = Layout::new();
+        let text = layout.measured_leaf(Style::default(), (), measure);
+        let root = layout.container(
+            Style {
+                width: Dimension::Length(100.0),
+                flex_direction: FlexDirection::Column,
+                align: Align::Center,
+                ..Default::default()
+            },
+            &[text],
+        );
+        layout.compute(root, Size::new(100.0, 600.0));
+        let rects = layout.absolute_rects(root);
+        let (text_rect, _) = rects[1];
+        assert!(
+            text_rect.width <= 100.0,
+            "wrapped to the offered width: {text_rect:?}"
+        );
+        assert!(
+            text_rect.height >= 60.0,
+            "3 lines expected (250/100 -> 3 x 20): {text_rect:?}"
+        );
+    }
+
     #[test]
     fn justify_center_centers_child() {
         let mut layout: Layout<()> = Layout::new();
