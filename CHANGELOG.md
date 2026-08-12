@@ -95,6 +95,11 @@ any release may break.
 
 ### Fixed
 
+- **A wide empty band above the app bar on Android** (J288). The safe area is derived from
+  the space the system leaves the activity, and the default theme reserves an action bar the
+  app never draws: the shell read those 56dp as a system inset and padded them away on top
+  of the status bar — 143 physical px of nothing on the demo's phone. The manifests (and the
+  project template) now ask for `Theme.DeviceDefault.NoActionBar`.
 - **The app bar hugged its content instead of occupying its width** (J287) — true since it
   existed. `background(color)` painted a stripe behind the text rather than across the bar,
   and nothing could be centred for want of free space.

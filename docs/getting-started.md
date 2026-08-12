@@ -57,6 +57,18 @@ cargo apk run                        # build + install + launch on the device
 Android prerequisites: SDK + NDK installed, `ANDROID_HOME`/`ANDROID_NDK_ROOT`
 set, and a device connected (`adb devices`).
 
+The template's manifest metadata asks for a theme **without** a title bar:
+
+```toml
+[package.metadata.android.application]
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+```
+
+Keep it. The safe area is derived from the space the system leaves the activity,
+and a theme that reserves an action bar makes that space 56dp shorter than the
+window — which the app then pads away as if it were a system bar, leaving a wide
+empty band above its own app bar.
+
 ## Testing
 
 Because `update` is pure, the logic is testable **without a GPU or a window**:

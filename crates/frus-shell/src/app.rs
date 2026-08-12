@@ -694,6 +694,13 @@ impl<A: Application> App<A> {
     /// The system insets — the safe area — in **logical** px. On Android they are
     /// derived from the activity's content rect, outside the system bars; zero
     /// elsewhere.
+    ///
+    /// The content rect is what the system leaves the activity, so it excludes
+    /// **any** decoration the theme asks for — a title bar included. An app whose
+    /// manifest keeps the default theme therefore reports a top inset of the status
+    /// bar *plus* 56dp of action bar that is never drawn, and the shell dutifully
+    /// pads it away: a wide empty band above the app bar. The manifests here ask for
+    /// `Theme.DeviceDefault.NoActionBar`, and so must any frus app.
     fn compute_insets(&self, phys_w: u32, phys_h: u32, scale: f32) -> Insets {
         #[cfg(android)]
         if let Some(app) = &self.android_app {

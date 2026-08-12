@@ -27,6 +27,11 @@ build_targets = ["aarch64-linux-android"]
 [package.metadata.android.application]
 label = "frus fetch"
 
+# No system title bar: the framework draws its own app bar, and a theme that keeps
+# one makes Android report a content rect 56dp shorter than the window — which the
+# shell reads as a safe-area inset and pads a second time. See milestone 288.
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+
 [package.metadata.android.sdk]
 min_sdk_version = 24
 target_sdk_version = 34
