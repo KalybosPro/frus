@@ -266,6 +266,18 @@ enum Drag {
         /// travels is still a tap on the row.
         moved: bool,
     },
+    /// Carrying a [`frus_widgets::Draggable`] towards a [`frus_widgets::DragTarget`].
+    /// `over` is the target the pointer is on now, when it would accept the payload —
+    /// kept here so that entering and leaving one costs a comparison rather than a
+    /// second hit test.
+    Item {
+        source: frus_widgets::DragSource,
+        start: Point,
+        /// `false` until the finger has passed the threshold: a press that never
+        /// travels is a plain click on whatever is inside.
+        moved: bool,
+        over: Option<WidgetId>,
+    },
     /// The "back" gesture: the framework measures the finger's progress and velocity
     /// and passes them to the application, which decides on the navigation.
     Back { start_x: f32 },
@@ -356,6 +368,10 @@ pub struct App<A: Application> {
     press: PressRecognizer,
     /// The pressed target's long-press message, captured on the press.
     long_press_msg: Option<A::Message>,
+    /// A [`frus_widgets::Draggable`] that asked to be lifted by a **hold**, waiting
+    /// for the long-press deadline. Inside a scrollable this is the only way up: the
+    /// plain drag belongs to the scroll, and a hold is the one signal it cannot claim.
+    pending_lift: Option<frus_widgets::DragSource>,
     /// The last click's instant, for double-click detection.
     last_click_time: Option<Instant>,
     /// A counter for the keys of leaving events, which fade out.
@@ -435,6 +451,7 @@ impl<A: Application> App<A> {
             announce: String::new(),
             press: PressRecognizer::new(),
             long_press_msg: None,
+            pending_lift: None,
             last_click_time: None,
             leaving_counter: 0,
             running_subs: HashMap::new(),
@@ -832,11 +849,33 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
         if matches!(cause, StartCause::ResumeTimeReached { .. }) && self.press.poll(Instant::now())
         {
+            // Two claims on one hold: a widget asking for a message, and an item asking
+            // to be lifted. Serving both would do a discrete action *and* start a drag
+            // from the same gesture, which is never what anyone meant. **The lift
+            // wins** — it changes what the rest of the gesture means, and the message
+            // would be acting on something the finger is still holding.
+            let lifting = self.pending_lift.is_some();
             if let Some(message) = self.long_press_msg.take() {
-                self.dispatch(message);
+                if !lifting {
+                    self.dispatch(message);
+                }
             }
-            // A pending touch scroll no longer has any reason to exist.
-            self.drag = None;
+            // A pending touch scroll no longer has any reason to exist — unless the
+            // hold was the lift of an item, in which case the scroll hands the gesture
+            // over and the item is already up: the hold *was* the threshold.
+            if let Some(source) = self.pending_lift.take() {
+                if let Some(Drag::Scroll { id, .. }) = self.drag {
+                    self.runtime.release_scroll(id);
+                }
+                self.drag = Some(Drag::Item {
+                    source,
+                    start: self.cursor,
+                    moved: true,
+                    over: None,
+                });
+            } else {
+                self.drag = None;
+            }
             self.request_redraw();
         }
 
@@ -1660,10 +1699,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     (ui, scene.scaled(scale))
                 } else {
                     let ui = build_ui(tree, Size::new(width, height), &self.runtime, &theme);
-                    // The preview of a column reorder under way, on top of the scene.
+                    // The preview of a column reorder, or a lifted item, on top of the
+                    // scene.
                     let scene = if matches!(self.drag, Some(Drag::Reorder { moved: true, .. })) {
                         let mut scene = ui.scene().clone();
                         self.paint_reorder_preview(&ui, &theme, &mut scene);
+                        scene.scaled(scale)
+                    } else if matches!(self.drag, Some(Drag::Item { moved: true, .. })) {
+                        let mut scene = ui.scene().clone();
+                        self.paint_drag_ghost(&ui, &theme, &mut scene);
                         scene.scaled(scale)
                     } else {
                         // Scene: logical → physical (DPI × density), for a crisp render.
@@ -1807,8 +1851,21 @@ impl<A: Application> App<A> {
                 } else {
                     None
                 };
-                self.press
-                    .down(self.cursor, Instant::now(), self.long_press_msg.is_some());
+                // An item that lifts on a hold: the scroll keeps the gesture for now,
+                // and the deadline decides. Nothing is taken from the scroll unless the
+                // finger actually stays put, which is not a scroll.
+                self.pending_lift = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.drag_source_at(self.cursor))
+                    .filter(|source| {
+                        self.tree
+                            .as_ref()
+                            .and_then(|tree| find_widget(tree.as_ref(), source.id))
+                            .is_some_and(|widget| widget.drag_needs_long_press())
+                    });
+                let interested = self.long_press_msg.is_some() || self.pending_lift.is_some();
+                self.press.down(self.cursor, Instant::now(), interested);
             }
             PointerKind::Move => {
                 self.press.moved(self.cursor);
@@ -1820,7 +1877,11 @@ impl<A: Application> App<A> {
                 }
             }
             PointerKind::Up => {
-                if self.press.up() {
+                // The recogniser is always told, but a lifted item owes a drop: the
+                // long press that started it must not also eat its ending.
+                let swallow = self.press.up();
+                self.pending_lift = None;
+                if swallow && !matches!(self.drag, Some(Drag::Item { moved: true, .. })) {
                     // The long press evicted the tap, so the release is swallowed.
                     self.drag = None;
                     self.runtime.input.pressed = None;
@@ -1831,6 +1892,7 @@ impl<A: Application> App<A> {
             }
             PointerKind::Cancel => {
                 self.press.cancel();
+                self.pending_lift = None;
                 // A cancelled gesture still owes the offset back, or the region
                 // would stay frozen under a finger that is no longer there.
                 if let Some(Drag::Dismiss { item, .. }) = self.drag {
@@ -2107,6 +2169,35 @@ impl<A: Application> App<A> {
             }
         }
 
+        // 3c) A draggable item, when nothing above has taken the gesture. It comes
+        // **after** the touch scroll on purpose: a widget that took every drag inside a
+        // list would silently stop that list scrolling, and a list that does not scroll
+        // is a worse bug than an item that does not lift. With a pointer there is no
+        // touch scroll to lose to, so it lifts everywhere.
+        if self.drag.is_none() {
+            if let Some(source) = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.drag_source_at(self.cursor))
+                .filter(|source| {
+                    // One that asked for a hold waits for the deadline instead.
+                    !self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), source.id))
+                        .is_some_and(|widget| widget.drag_needs_long_press())
+                })
+            {
+                self.drag = Some(Drag::Item {
+                    source,
+                    start: self.cursor,
+                    moved: false,
+                    over: None,
+                });
+                self.begin_gesture();
+            }
+        }
+
         // 4) An interactive viewport (`InteractiveViewer`) under the pointer: prepare a
         // **pan**, with mouse or finger. Like the touch scroll it engages only past the
         // threshold, so a tap goes through to the child, a button for instance.
@@ -2151,6 +2242,7 @@ impl<A: Application> App<A> {
             Some(Drag::Scroll { moved: false, .. })
                 | Some(Drag::Pan { moved: false, .. })
                 | Some(Drag::Reorder { moved: false, .. })
+                | Some(Drag::Item { moved: false, .. })
         );
         // Reordering: on the drop, the target column is the reorderable header under
         // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
@@ -2237,6 +2329,40 @@ impl<A: Application> App<A> {
                 self.request_redraw();
                 return;
             }
+        }
+        if let Some(Drag::Item {
+            source,
+            moved: true,
+            over,
+            ..
+        }) = &ended
+        {
+            // The drop, then the source's own answer. In that order: an application
+            // that reacts to both should see the thing arrive before it is told the
+            // journey is over.
+            self.runtime.drag_over = None;
+            let accepted = over.is_some();
+            let dropped = over.and_then(|id| {
+                self.tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), id))
+                    .and_then(|widget| widget.on_drop(source.payload))
+            });
+            let ended_msg = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), source.id))
+                .and_then(|widget| widget.on_dropped(accepted));
+            for message in dropped.into_iter().chain(ended_msg) {
+                self.dispatch(message);
+            }
+            self.request_redraw();
+            return;
+        }
+        if let Some(Drag::Item { .. }) = &ended {
+            // Lifted but never moved: nothing was dropped, and the click below still
+            // has its say.
+            self.runtime.drag_over = None;
         }
         if let Some(Drag::Scroll { id, .. }) = &ended {
             // The finger gives the offset back before anything is flung at it.
@@ -2567,6 +2693,43 @@ impl<A: Application> App<A> {
                     *last = self.cursor;
                     self.track_gesture();
                 }
+            }
+            Drag::Item {
+                source,
+                start,
+                moved,
+                over,
+            } => {
+                let dx = self.cursor.x - start.x;
+                let dy = self.cursor.y - start.y;
+                // Under the threshold nothing is lifted: the press may still be a click
+                // on whatever the draggable wraps.
+                if !*moved && (dx * dx + dy * dy) > slop * slop {
+                    *moved = true;
+                }
+                if !*moved {
+                    return;
+                }
+                // The target under the pointer, but only if it would take this payload:
+                // a target that refuses is not highlighted, so the answer is visible
+                // before the finger lifts rather than after.
+                let payload = source.payload;
+                let candidate = self
+                    .ui
+                    .as_ref()
+                    .and_then(|ui| ui.drop_zone_at(self.cursor))
+                    .filter(|zone| {
+                        self.tree
+                            .as_ref()
+                            .and_then(|tree| find_widget(tree.as_ref(), zone.id))
+                            .is_some_and(|widget| widget.accepts_drag(payload))
+                    })
+                    .map(|zone| zone.id);
+                if *over != candidate {
+                    *over = candidate;
+                    self.runtime.drag_over = candidate;
+                }
+                self.request_redraw();
             }
             Drag::Scroll {
                 id,
@@ -2952,6 +3115,58 @@ impl<A: Application> App<A> {
             .map(|p| p.translated(gx, gy).with_clip(Rect::UNBOUNDED))
             .collect();
         draw_ghost_card(scene, theme, src.translate(gx, gy), &ghost);
+    }
+
+    /// The lifted item: its own primitives dimmed where it sits, and a copy of them
+    /// floating under the pointer.
+    ///
+    /// The copy is taken from the frame rather than built again, so it cannot drift
+    /// from what is on screen — a rebuilt "feedback" widget is a second definition of
+    /// the same thing, and two definitions is one too many. The same reason the
+    /// reorder ghost works this way.
+    fn paint_drag_ghost(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
+        let Some(Drag::Item {
+            source,
+            start,
+            moved: true,
+            ..
+        }) = &self.drag
+        else {
+            return;
+        };
+        let widget = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), source.id));
+        // A rich item paints its background itself and its content through children,
+        // under other owners, so the whole subtree is captured — the same reason the
+        // reorder ghost does.
+        let owners: std::collections::HashSet<u64> = widget
+            .map(|w| subtree_ids(w, source.id).iter().map(|i| i.as_u64()).collect())
+            .unwrap_or_else(|| std::iter::once(source.id.as_u64()).collect());
+        let opacity = widget.map(|w| w.drag_ghost_opacity()).unwrap_or(1.0);
+        let dx = self.cursor.x - start.x;
+        let dy = self.cursor.y - start.y;
+
+        // What is left behind, faded in place: the item is being carried, not deleted.
+        let original: Vec<Primitive> = scene.primitives().to_vec();
+        scene.clear();
+        for primitive in &original {
+            if owners.contains(&primitive.owner()) {
+                scene.push_faded(primitive, opacity);
+            } else {
+                scene.push_primitive(primitive.clone());
+            }
+        }
+
+        let ghost: Vec<Primitive> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter(|p| owners.contains(&p.owner()))
+            .map(|p| p.translated(dx, dy).with_clip(Rect::UNBOUNDED))
+            .collect();
+        draw_ghost_card(scene, theme, source.rect.translate(dx, dy), &ghost);
     }
 
     /// The **insertion** line of the vertical preview: a thin band at the edge of the

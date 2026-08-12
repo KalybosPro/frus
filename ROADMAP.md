@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-284 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+285 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -90,12 +90,12 @@ The web target renders and animates but is missing its platform integrations. Ea
     an application to start the indicator itself.
   - 🟢 **Swipe-to-dismiss — done** (milestone 282): `Dismissible`, with the shared-gesture
     arbitration that lets it live inside a list. Left: a confirmation step (an undo window
-    needs the message to be able to refuse), cross-axis drift, and the on-device check of
-    the gesture itself.
+    needs the message to be able to refuse) and cross-axis drift. The on-device check is
+    **done** (2026-08-12).
   - 🟢 **A paged view — done** (milestone 283): `PageView`, virtualised, snapping on the
     milestone-277 physics, with `page`/`on_page_changed` binding both directions to one
-    number. Left: per-page transformations (parallax, depth), padded ends below a
-    `viewport_fraction` of 1, keyboard paging, and the on-device check.
+    number, device-verified in both directions. Left: per-page transformations (parallax,
+    depth), padded ends below a `viewport_fraction` of 1, and keyboard paging.
   - 🔴 **Shared-element transitions** between screens — needs a design first: two trees,
     one flight, and identity across a rebuild.
   - 🟢 **The constraint boxes — mostly done** (milestone 284): `SizedBox`,
@@ -104,8 +104,11 @@ The web target renders and animates but is missing its platform integrations. Ea
     **`LimitedBox`** needs to know whether the incoming constraint was *unbounded*, which
     taffy owns and never tells a widget; **baseline alignment** needs the text measurement
     to report a baseline, which the measure hook cannot return.
-  - 🟡 **A general drag-and-drop pair** (`Draggable` / `DragTarget`) underneath the reorder
-    machinery that already exists for tables and boards.
+  - 🟢 **A general drag-and-drop pair — done** (milestone 285): `Draggable` /
+    `DragTarget`, with a `u64` payload, a ghost lifted out of the frame, and a lift that
+    yields to any scrollable under it (`long_press()` inside a list). Device-verified.
+    Left: auto-scroll at a viewport's edges while carrying, a typed payload, a fly-back
+    on a refused drop, and migrating `Kanban`/`Table` onto it.
   - 🟡 Rich text editing, video, maps, virtualized lists for very large datasets.
 - 🔴 **Router / deep linking.** `navigator.rs` handles in-app navigation; URLs, deep links, and browser history are not modelled.
 - 🟡 **State persistence.** A blessed way to save and restore app state across lifecycle transitions.

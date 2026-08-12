@@ -211,6 +211,34 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.overflow_box())
     }
 
+    fn drag_payload(&self) -> Option<u64> {
+        self.inner.as_ref().and_then(|w| w.drag_payload())
+    }
+
+    fn drag_needs_long_press(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.drag_needs_long_press())
+    }
+
+    fn drag_ghost_opacity(&self) -> f32 {
+        self.inner.as_ref().map_or(1.0, |w| w.drag_ghost_opacity())
+    }
+
+    fn on_dropped(&self, accepted: bool) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_dropped(accepted))
+    }
+
+    fn drop_zone(&self) -> bool {
+        self.inner.as_ref().is_some_and(|w| w.drop_zone())
+    }
+
+    fn accepts_drag(&self, payload: u64) -> bool {
+        self.inner.as_ref().is_none_or(|w| w.accepts_drag(payload))
+    }
+
+    fn on_drop(&self, payload: u64) -> Option<Msg> {
+        self.inner.as_ref().and_then(|w| w.on_drop(payload))
+    }
+
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         self.inner.as_ref().and_then(|w| w.on_page_changed(page))
     }

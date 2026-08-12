@@ -342,6 +342,11 @@ pub struct Runtime {
     /// The page each paged view was last **reported as showing**, so that
     /// `on_page_changed` fires on a change and not on every frame of the motion.
     pub page_shown: HashMap<WidgetId, usize>,
+    /// The drop target a drag is currently **over**, when it would accept it. The
+    /// target paints its own "drop it here" state from this, through
+    /// [`crate::interaction::Status::drag_over`] — the shell decides *which* target,
+    /// the widget decides what that looks like.
+    pub drag_over: Option<WidgetId>,
     /// The region a finger is currently holding, if any.
     ///
     /// A scroll offset has **one owner at a time**. While a drag owns it, nothing

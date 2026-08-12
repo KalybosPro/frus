@@ -37,6 +37,7 @@ mod datetimepicker;
 mod datetimerange;
 /// Swipe-to-dismiss: the [`dismiss::Dismissible`] widget and its retained state.
 pub mod dismiss;
+mod dragdrop;
 mod divider;
 mod drawer;
 mod dropdown;
@@ -140,6 +141,7 @@ pub use datatable::{
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
+pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use dismiss::{
     Dismissable, DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState,
     Dismissible,

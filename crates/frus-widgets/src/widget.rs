@@ -199,6 +199,43 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If this widget can be **picked up** and dropped elsewhere, what it carries.
+    /// See [`crate::Draggable`].
+    fn drag_payload(&self) -> Option<u64> {
+        None
+    }
+
+    /// Does this item lift on a **long press** rather than on the first movement?
+    /// The answer inside a scrollable, where a plain drag belongs to the scroll.
+    fn drag_needs_long_press(&self) -> bool {
+        false
+    }
+
+    /// How solid the item left behind looks while a copy of it is being dragged.
+    fn drag_ghost_opacity(&self) -> f32 {
+        1.0
+    }
+
+    /// Message sent when a drag of this item ends, `true` if a target took it.
+    fn on_dropped(&self, _accepted: bool) -> Option<Msg> {
+        None
+    }
+
+    /// Is this widget a **drop target**? See [`crate::DragTarget`].
+    fn drop_zone(&self) -> bool {
+        false
+    }
+
+    /// Would this target take `payload`? Only asked of a drop target.
+    fn accepts_drag(&self, _payload: u64) -> bool {
+        true
+    }
+
+    /// Message sent when an accepted item is dropped on this target.
+    fn on_drop(&self, _payload: u64) -> Option<Msg> {
+        None
+    }
+
     /// If this widget is a **reorderable header**, its column index. The shell uses
     /// it to identify the **source** column (on press) and the **target** column
     /// (under the pointer on release) of a reordering drag.
@@ -667,6 +704,27 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
         (**self).overflow_box()
+    }
+    fn drag_payload(&self) -> Option<u64> {
+        (**self).drag_payload()
+    }
+    fn drag_needs_long_press(&self) -> bool {
+        (**self).drag_needs_long_press()
+    }
+    fn drag_ghost_opacity(&self) -> f32 {
+        (**self).drag_ghost_opacity()
+    }
+    fn on_dropped(&self, accepted: bool) -> Option<Msg> {
+        (**self).on_dropped(accepted)
+    }
+    fn drop_zone(&self) -> bool {
+        (**self).drop_zone()
+    }
+    fn accepts_drag(&self, payload: u64) -> bool {
+        (**self).accepts_drag(payload)
+    }
+    fn on_drop(&self, payload: u64) -> Option<Msg> {
+        (**self).on_drop(payload)
     }
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         (**self).on_page_changed(page)

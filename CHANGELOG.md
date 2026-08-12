@@ -8,13 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 284 so far, each documenting the objective, the alternatives
+> record — one per step, 285 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **Drag and drop** (J285). `Draggable::new(w).payload(id)` and
+  `DragTarget::new(w).on_drop(|payload| …)`: a general pair for carrying a thing onto
+  another thing, where the two ends need not know of each other. A draggable **yields to a
+  scrollable** underneath it, so a list never loses its scroll; inside one, `long_press()`
+  is the lift, being the one signal a scroll cannot claim. What floats under the finger is
+  the item's own painting, lifted out of the frame; what is left behind is faded, not
+  removed. A target paints its own "drop it here" state from `Status::drag_over`, and one
+  that refuses the payload is never offered the drop.
 - **The constraint boxes** (J284). `SizedBox` (fixed, `expand`, `shrink`),
   `ConstrainedBox` (floors and ceilings on either axis, with `tight`/`loose`), `Intrinsic`
   (a box the size its content would *like* to be, with an optional step), and `OverflowBox`
@@ -76,6 +84,17 @@ any release may break.
   `FrictionSimulation::time_at_x`.
 
 ### Fixed
+
+- **A wrapper that nests must forward the structural questions too** (J285) — the mirror of
+  the `Keyed` bug fixed in J282. A layout leaf (`Dismissible`, `Stack`) wrapped in an
+  ordinary container had no content size, so it resolved to zero on the wrapper's main axis
+  and vanished silently. `Draggable` and `DragTarget` now forward `stack()` and
+  `continuous()` from their child.
+- **A stack's layers are given their box** (J285) rather than asked what size they would
+  like, which is what "each layer fills the box" always meant. An unsized layer used to hug
+  its content and collapse to nothing, invisibly.
+- **One hold cannot mean two things** (J285): a long-press *message* and a hold-to-lift on
+  the same widget are now arbitrated — the lift wins — instead of both firing.
 
 - **`Keyed` now forwards the structural questions** — `stack`, `continuous`,
   `draws_own_focus`, `repaint_boundary` (J282). A transparent wrapper that answered them for

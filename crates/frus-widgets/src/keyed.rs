@@ -194,6 +194,34 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.overflow_box()
     }
 
+    fn drag_payload(&self) -> Option<u64> {
+        self.inner.drag_payload()
+    }
+
+    fn drag_needs_long_press(&self) -> bool {
+        self.inner.drag_needs_long_press()
+    }
+
+    fn drag_ghost_opacity(&self) -> f32 {
+        self.inner.drag_ghost_opacity()
+    }
+
+    fn on_dropped(&self, accepted: bool) -> Option<Msg> {
+        self.inner.on_dropped(accepted)
+    }
+
+    fn drop_zone(&self) -> bool {
+        self.inner.drop_zone()
+    }
+
+    fn accepts_drag(&self, payload: u64) -> bool {
+        self.inner.accepts_drag(payload)
+    }
+
+    fn on_drop(&self, payload: u64) -> Option<Msg> {
+        self.inner.on_drop(payload)
+    }
+
     fn on_page_changed(&self, page: usize) -> Option<Msg> {
         self.inner.on_page_changed(page)
     }

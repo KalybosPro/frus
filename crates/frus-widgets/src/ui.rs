@@ -9,6 +9,7 @@ use frus_layout::{Layout, NodeId};
 
 use crate::barrier::Barrier;
 use crate::dismiss::{Dismissable, DismissPhase};
+use crate::dragdrop::{DragSource, DropZone};
 use crate::refresh::Refreshable;
 use crate::interaction::{Status, WidgetId};
 use crate::pageview::PageSnap;
@@ -130,6 +131,8 @@ struct BoundaryData<Msg> {
     focusables: Vec<(WidgetId, Rect)>,
     scrollables: Vec<Scrollable>,
     draggables: Vec<(WidgetId, Rect)>,
+    drag_sources: Vec<DragSource>,
+    drop_zones: Vec<DropZone>,
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
@@ -143,6 +146,8 @@ struct Snapshot {
     focusables: usize,
     scrollables: usize,
     draggables: usize,
+    drag_sources: usize,
+    drop_zones: usize,
     semantics: usize,
     overlays: usize,
     focus_scope_start: Option<usize>,
@@ -164,6 +169,8 @@ struct BarrierBase {
     scrollables: usize,
     scrollbars: usize,
     draggables: usize,
+    drag_sources: usize,
+    drop_zones: usize,
     reorderables: usize,
     interactives: usize,
     semantics: usize,
@@ -175,6 +182,8 @@ struct XformBase {
     focusables: usize,
     scrollables: usize,
     draggables: usize,
+    drag_sources: usize,
+    drop_zones: usize,
     reorderables: usize,
     semantics: usize,
 }
@@ -250,6 +259,8 @@ pub struct Ui<Msg> {
     scrollables: Vec<Scrollable>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    drag_sources: Vec<DragSource>,
+    drop_zones: Vec<DropZone>,
     /// **Reorderables** (column headers, Kanban cards): (id, visible bounds). Tracked
     /// independently of clicking — a card is not clickable but can still be picked up and
     /// dropped onto.
@@ -505,6 +516,24 @@ impl<Msg: Clone> Ui<Msg> {
             .map(|(id, rect)| (*id, *rect))
     }
 
+    /// Topmost **drag source** under `point`, with what it carries.
+    pub fn drag_source_at(&self, point: Point) -> Option<DragSource> {
+        self.drag_sources
+            .iter()
+            .rev()
+            .find(|source| source.rect.contains(point))
+            .copied()
+    }
+
+    /// Topmost **drop target** under `point`.
+    pub fn drop_zone_at(&self, point: Point) -> Option<DropZone> {
+        self.drop_zones
+            .iter()
+            .rev()
+            .find(|zone| zone.rect.contains(point))
+            .copied()
+    }
+
     /// Topmost **reorderable** widget under `point`: its id. The basis of reordering
     /// drag-and-drop (the source on press, the target on drop) — independent of clickability.
     pub fn reorderable_at(&self, point: Point) -> Option<WidgetId> {
@@ -713,6 +742,8 @@ struct Builder<'a, Msg> {
     scrollables: Vec<Scrollable>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
+    drag_sources: Vec<DragSource>,
+    drop_zones: Vec<DropZone>,
     reorderables: Vec<(WidgetId, Rect)>,
     interactives: Vec<(WidgetId, Rect)>,
     /// Deferred overlays: (content, id, the anchor's bounds, placement, dismissal, progress
@@ -834,6 +865,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             focusables: self.focusables.len(),
             scrollables: self.scrollables.len(),
             draggables: self.draggables.len(),
+            drag_sources: self.drag_sources.len(),
+            drop_zones: self.drop_zones.len(),
             semantics: self.semantics.len(),
             overlays: self.overlays.len(),
             focus_scope_start: self.focus_scope_start,
@@ -856,6 +889,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             focusables: self.focusables[snap.focusables..].to_vec(),
             scrollables: self.scrollables[snap.scrollables..].to_vec(),
             draggables: self.draggables[snap.draggables..].to_vec(),
+            drag_sources: self.drag_sources[snap.drag_sources..].to_vec(),
+            drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
         })
     }
@@ -872,6 +907,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.focusables.extend(data.focusables);
         self.scrollables.extend(data.scrollables);
         self.draggables.extend(data.draggables);
+        self.drag_sources.extend(data.drag_sources);
+        self.drop_zones.extend(data.drop_zones);
         self.semantics.extend(data.semantics);
     }
 
@@ -886,6 +923,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             scrollables: self.scrollables.len(),
             scrollbars: self.scrollbars.len(),
             draggables: self.draggables.len(),
+            drag_sources: self.drag_sources.len(),
+            drop_zones: self.drop_zones.len(),
             reorderables: self.reorderables.len(),
             interactives: self.interactives.len(),
             semantics: self.semantics.len(),
@@ -903,6 +942,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scrollables.truncate(base.scrollables);
             self.scrollbars.truncate(base.scrollbars);
             self.draggables.truncate(base.draggables);
+            self.drag_sources.truncate(base.drag_sources);
+            self.drop_zones.truncate(base.drop_zones);
             self.reorderables.truncate(base.reorderables);
             self.interactives.truncate(base.interactives);
             // The modal focus scope is an index **into** `focusables`. A barrier that cut
@@ -939,6 +980,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             focusables: self.focusables.len(),
             scrollables: self.scrollables.len(),
             draggables: self.draggables.len(),
+            drag_sources: self.drag_sources.len(),
+            drop_zones: self.drop_zones.len(),
             reorderables: self.reorderables.len(),
             semantics: self.semantics.len(),
         }
@@ -967,6 +1010,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             for area in &mut self.scrollables[base.scrollables..] {
                 area.viewport = matrix.apply_rect(area.viewport);
+            }
+            for source in &mut self.drag_sources[base.drag_sources..] {
+                source.rect = matrix.apply_rect(source.rect);
+            }
+            for zone in &mut self.drop_zones[base.drop_zones..] {
+                zone.rect = matrix.apply_rect(zone.rect);
             }
             for (_, r) in &mut self.draggables[base.draggables..] {
                 *r = matrix.apply_rect(*r);
@@ -1264,6 +1313,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             if widget.draggable() {
                 self.draggables.push((id, visible));
+            }
+            if let Some(payload) = widget.drag_payload() {
+                self.drag_sources.push(DragSource {
+                    id,
+                    rect: visible,
+                    payload,
+                });
+            }
+            if widget.drop_zone() {
+                self.drop_zones.push(DropZone { id, rect: visible });
             }
             if widget.reorder_index().is_some() {
                 self.reorderables.push((id, visible));
@@ -1734,7 +1793,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let layer_rects = self.cached_rects(
                     cid,
                     layer.as_ref(),
-                    Constraints::definite(Size::new(bounds.width, bounds.height)),
+                    Constraints::filled(Size::new(bounds.width, bounds.height)),
                 );
                 let mut layer_index = 0;
                 self.walk(
@@ -1761,10 +1820,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let bounds = draw_rect;
             let layer_clip = clip.intersect(bounds);
             for (i, layer) in widget.children().iter().enumerate() {
+                // A layer is **given** the box, not asked what size it would like: that
+                // is what a stack means. An unsized layer that hugged its content would
+                // collapse to nothing — invisibly, since a stack draws no box of its own.
                 let layer_rects = self.cached_rects(
                     child_id(id, i, layer.as_ref()),
                     layer.as_ref(),
-                    Constraints::definite(Size::new(bounds.width, bounds.height)),
+                    Constraints::filled(Size::new(bounds.width, bounds.height)),
                 );
                 let mut layer_index = 0;
                 self.walk(
@@ -1905,6 +1967,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         status.anim_color = self.runtime.anim_color(id);
         status.anim_radius = self.runtime.anim_radius(id);
         status.time = self.runtime.time;
+        status.drag_over = self.runtime.drag_over == Some(id);
         status.scroll_y = self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
@@ -2303,6 +2366,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         scrollables: Vec::new(),
         scrollbars: Vec::new(),
         draggables: Vec::new(),
+        drag_sources: Vec::new(),
+        drop_zones: Vec::new(),
         reorderables: Vec::new(),
         interactives: Vec::new(),
         overlays: Vec::new(),
@@ -2357,6 +2422,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         scrollables: builder.scrollables,
         scrollbars: builder.scrollbars,
         draggables: builder.draggables,
+        drag_sources: builder.drag_sources,
+        drop_zones: builder.drop_zones,
         reorderables: builder.reorderables,
         interactives: builder.interactives,
         refreshes: builder.refreshes,

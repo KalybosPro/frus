@@ -118,6 +118,10 @@ pub struct Status {
     /// The `(start, end)` range **being composed** by the IME (provisional,
     /// underlined text); `None` outside composition. In character indices.
     pub composing: Option<(usize, usize)>,
+    /// Is a drag currently **over this widget**, and would it be accepted? Only
+    /// ever true for a [`crate::DragTarget`]; it is what lets one paint the "drop it
+    /// here" state itself rather than have the shell paint it from outside.
+    pub drag_over: bool,
     /// The hover transition's progress (`0.0..=1.0`).
     pub hover_progress: f32,
     /// The focus transition's progress (`0.0..=1.0`).
@@ -155,6 +159,7 @@ impl Default for Status {
             cursor: None,
             selection: None,
             composing: None,
+            drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
             opacity: 1.0,
@@ -199,6 +204,7 @@ impl InputState {
             cursor: None,
             selection: None,
             composing: None,
+            drag_over: false,
             hover_progress: 0.0,
             focus_progress: 0.0,
             opacity: 1.0,

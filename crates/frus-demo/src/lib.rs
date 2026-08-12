@@ -52,8 +52,8 @@ use frus_widgets::{
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
-    Dismissible, PageView, Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup,
-    Rating, Rect, SizedBox,
+    Dismissible, Draggable, DragTarget, PageView, Pagination, Placement, Popover, Portal,
+    ProgressBar, RadioGroup, Rating, Rect, SizedBox,
     Refresh,
     RichText,
     Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, Skeleton, Slider,
@@ -183,6 +183,8 @@ enum Msg {
     ClearDraft,
     AddTodo,
     ToggleTodo(u64),
+    /// A task dropped on one of the two state zones: set it done, or set it active.
+    SetTodoDone(u64, bool),
     DeleteTodo(u64),
     SetFilter(Filter),
     AskClearDone,
@@ -699,6 +701,12 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::ToggleTodo(id) => {
             if let Some(todo) = app.todos.iter_mut().find(|t| t.id == id) {
                 todo.done = !todo.done;
+            }
+            Command::none()
+        }
+        Msg::SetTodoDone(id, done) => {
+            if let Some(todo) = app.todos.iter_mut().find(|t| t.id == id) {
+                todo.done = done;
             }
             Command::none()
         }
@@ -2716,6 +2724,19 @@ fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Con
 /// flicking it — deletes it, the same thing the × and the long press already do. The
 /// row's height is explicit because a `Dismissible` overlays its background under its
 /// child, which makes it a layout leaf.
+/// The row, made **liftable**: held down, it can be carried to one of the state zones
+/// below the filters.
+///
+/// It lifts on a **hold**, not on the first movement, because the same finger on the
+/// same row already means two other things — dragging sideways dismisses it, dragging
+/// up and down scrolls the list. Three gestures on one row, told apart by what the
+/// finger does rather than by what is on top.
+fn todo_row_draggable(todo: &Todo, theme: &Theme) -> Draggable<Msg> {
+    Draggable::new(todo_row_swipeable(todo, theme))
+        .payload(todo.id)
+        .long_press()
+}
+
 fn todo_row_swipeable(todo: &Todo, theme: &Theme) -> Dismissible<Msg> {
     Dismissible::new(todo_row(todo, theme))
         .height(TODO_ROW_HEIGHT)
@@ -2757,8 +2778,9 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
     .align(Align::Center)
     .gap(12.0);
     Container::new()
-        // A long press on the row deletes it (the mobile pattern, alongside the ×).
-        .on_long_press(Msg::DeleteTodo(id))
+        // No long press here: the hold is what **lifts** the row for dragging
+        // (`todo_row_draggable`), and one hold cannot mean two things. Deleting is the
+        // ×, or a swipe.
         .radius(10.0)
         .color(theme.surface)
         .border(1.0, theme.border)
@@ -2892,6 +2914,25 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             .child(Chip::new(name).on_remove(Msg::SetFilter(Filter::All)));
     }
 
+    // Two zones a held task can be carried to. They are `DragTarget`s and nothing else:
+    // the highlight while a task hovers one is the target's own, from `Status`.
+    let zone = |label: &str, done: bool, theme: &Theme| {
+        DragTarget::new(
+            Container::new()
+                .flex(1.0)
+                .padding(12.0)
+                .radius(10.0)
+                .color(theme.surface)
+                .child(row![text(label).size(14.0).color(theme.muted)].justify(Justify::Center)),
+        )
+        .on_drop(move |payload| Msg::SetTodoDone(payload, done))
+    };
+    let zones = row![
+        zone("↓ Mark active", false, theme),
+        zone("✓ Mark done", true, theme)
+    ]
+    .gap(8.0);
+
     // The filtered list (or the empty state).
     let mut list = Flex::column().gap(8.0);
     let mut shown = 0;
@@ -2902,7 +2943,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     }) {
         // A stable identity by `id`: the retained state (hover/animations) does not jump when a
         // task in the middle is deleted.
-        list = list.child(keyed(todo.id, todo_row_swipeable(todo, theme)));
+        list = list.child(keyed(todo.id, todo_row_draggable(todo, theme)));
         shown += 1;
     }
     if shown == 0 {
@@ -3015,6 +3056,7 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
     card_body = card_body
         .child(keyed("draft-row", input_row))
         .child(keyed("filters", filters))
+        .child(keyed("drop-zones", zones))
         .child(keyed("todo-list", list))
         .child(Divider::new())
         .child(progress)
