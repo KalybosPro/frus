@@ -26,7 +26,7 @@ use frus_layout::Style;
 
 use crate::interaction::{Status, WidgetId};
 use crate::theme::Theme;
-use crate::widget::Widget;
+use crate::widget::{sizing_of, Widget};
 
 /// The opacity left behind where a lifted item was.
 const GHOSTED_OPACITY: f32 = 0.35;
@@ -51,27 +51,6 @@ pub struct DropZone {
     pub id: WidgetId,
     /// Where it sits, in absolute coordinates.
     pub rect: Rect,
-}
-
-/// The **sizing** half of a style: the fields that decide how big a box is, and none
-/// of the ones that decide what happens inside it.
-///
-/// A wrapper that copied its child's whole style would inset that child twice — once
-/// by its own padding, then again by the child's, which is the same number. Copying
-/// only the sizing gives the wrapper the box its child would have had, and leaves the
-/// insetting to the one widget that meant it.
-fn sizing_of(style: Style) -> Style {
-    Style {
-        width: style.width,
-        height: style.height,
-        min_width: style.min_width,
-        min_height: style.min_height,
-        max_width: style.max_width,
-        max_height: style.max_height,
-        flex_grow: style.flex_grow,
-        aspect_ratio: style.aspect_ratio,
-        ..Default::default()
-    }
 }
 
 /// A widget that can be **picked up** and dropped on a [`DragTarget`].

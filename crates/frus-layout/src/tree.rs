@@ -185,7 +185,7 @@ impl<T> Layout<T> {
                     }
                 },
             )
-            .expect("calcul de la mise en page");
+            .expect("computing the layout");
     }
 
     /// Walks the tree in prefix order and returns, for each node, its rectangle in

@@ -10,6 +10,7 @@ use frus_layout::{Layout, NodeId};
 use crate::barrier::Barrier;
 use crate::dismiss::{Dismissable, DismissPhase};
 use crate::dragdrop::{DragSource, DropZone};
+use crate::hero::{lerp_rect, HeroSpot};
 use crate::refresh::Refreshable;
 use crate::interaction::{Status, WidgetId};
 use crate::pageview::PageSnap;
@@ -774,6 +775,13 @@ struct Builder<'a, Msg> {
     /// its physics refuses. Saved and restored around the subtree, so sibling areas do
     /// not inherit one another's.
     refresh_host: Option<WidgetId>,
+    /// Which screen of a route transition the walk is inside (`0` = leaving, `1` =
+    /// entering); `None` outside one. Recorded on each hero so the two sides of a
+    /// flight are told apart rather than guessed from paint order.
+    hero_screen: Option<u8>,
+    /// The shared elements seen so far, each with the widget that declared it (needed
+    /// to lift its subtree's painting) and the transition screen it belongs to.
+    heroes: Vec<(HeroSpot, &'a dyn Widget<Msg>)>,
     /// The frame's refresh areas, in paint order.
     refreshes: Vec<Refreshable>,
     /// The frame's dismissible items, in paint order.
@@ -934,6 +942,89 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// Drops what the subtree added since `base`, according to `barrier`, and — for an
     /// absorbing barrier — puts a message-less hit target in its place so that input stops
     /// at the barrier instead of reaching whatever is painted behind it.
+    /// Resolves the **shared elements** of a route transition: every tag that appears
+    /// on both screens flies from where it was to where it is going.
+    ///
+    /// Called once, after both screens have been drawn, because that is the first
+    /// moment both boxes are known. `hero_base` and `scene_base` mark where those two
+    /// screens started.
+    ///
+    /// What flies is the **destination**'s own painting, mapped onto the box it is
+    /// travelling through. Both originals are taken out of the frame: a thing that is
+    /// flying is not also sitting at either end, and leaving them in is the difference
+    /// between a shared element and three copies of one.
+    fn fly_heroes(&mut self, hero_base: usize, scene_base: usize, progress: f32) {
+        let spots: Vec<(HeroSpot, &'a dyn Widget<Msg>)> = self.heroes.split_off(hero_base);
+        if spots.len() < 2 {
+            return;
+        }
+        // The pairs: one tag, one hero on each side. A tag on one side only has nothing
+        // to fly to, and a tag used more than once per side is ambiguous — both are
+        // left alone rather than guessed at.
+        let mut flights: Vec<(Rect, Rect, &'a dyn Widget<Msg>, WidgetId, WidgetId)> = Vec::new();
+        for (from, _) in spots.iter().filter(|(s, _)| s.screen == 0) {
+            let mut matching = spots.iter().filter(|(s, _)| s.screen == 1 && s.tag == from.tag);
+            let Some((to, widget)) = matching.next() else {
+                continue;
+            };
+            if matching.next().is_some() {
+                continue;
+            }
+            flights.push((from.rect, to.rect, *widget, from.id, to.id));
+        }
+        if flights.is_empty() {
+            return;
+        }
+
+        // Everything the two screens painted, so the originals can be taken out and the
+        // travelling copies laid on top.
+        let painted = self.scene.split_off(scene_base);
+        let mut hidden: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        for (_, _, widget, from_id, to_id) in &flights {
+            for id in subtree_ids(*widget, *to_id) {
+                hidden.insert(id.as_u64());
+            }
+            // The source's subtree is the *other* screen's widget, whose identity is
+            // rooted at `from_id`; the same relative shape, so the ids follow.
+            for id in subtree_ids(*widget, *from_id) {
+                hidden.insert(id.as_u64());
+            }
+        }
+        for primitive in &painted {
+            if !hidden.contains(&primitive.owner()) {
+                self.scene.push_primitive(primitive.clone());
+            }
+        }
+
+        self.scene.set_clip(Rect::UNBOUNDED);
+        for (from, to, _, _, to_id) in &flights {
+            let travelling = lerp_rect(*from, *to, progress);
+            if to.width <= 0.0 || to.height <= 0.0 {
+                continue;
+            }
+            let (sx, sy) = (travelling.width / to.width, travelling.height / to.height);
+            let pivot = Point::new(to.x, to.y);
+            let owners: std::collections::HashSet<u64> = subtree_ids(
+                flights
+                    .iter()
+                    .find(|(_, _, _, _, id)| id == to_id)
+                    .map(|(_, _, w, _, _)| *w)
+                    .expect("the flight just matched"),
+                *to_id,
+            )
+            .iter()
+            .map(|id| id.as_u64())
+            .collect();
+            for primitive in painted.iter().filter(|p| owners.contains(&p.owner())) {
+                let flown = primitive
+                    .scaled_about_xy(pivot, sx, sy)
+                    .translated(travelling.x - to.x, travelling.y - to.y)
+                    .with_clip(Rect::UNBOUNDED);
+                self.scene.push_primitive(flown);
+            }
+        }
+    }
+
     fn apply_barrier(&mut self, barrier: Barrier, base: &BarrierBase, id: WidgetId, own: Rect) {
         if barrier.pointer {
             self.hits.truncate(base.hits);
@@ -1290,6 +1381,24 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.scene.set_clip(clip);
         self.draw_focus_ring(draw_rect, &status, widget);
 
+        // A shared element is recorded **whether or not it is on screen**: half way
+        // through a transition the one being left behind has usually slid off the edge,
+        // and its box is exactly what the flight starts from. Every other registry here
+        // is about what a pointer can reach, which is why they are inside the guard.
+        if let Some(screen) = self.hero_screen {
+            if let Some(tag) = widget.hero_tag() {
+                self.heroes.push((
+                    HeroSpot {
+                        tag,
+                        screen,
+                        id,
+                        rect: draw_rect,
+                    },
+                    widget,
+                ));
+            }
+        }
+
         let visible = draw_rect.intersect(clip);
         if visible.width > 0.0 && visible.height > 0.0 {
             if let Some(msg) = widget.on_click() {
@@ -1384,6 +1493,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 ];
                 // Depth order: the one offset furthest left (the back one) goes first.
                 let (back, front) = if off[0] <= off[1] { (0, 1) } else { (1, 0) };
+                // Where the shared elements of this transition start, in both the
+                // registry and the scene: everything after this point belongs to the
+                // two screens, and the flight is resolved from it once both are drawn.
+                let hero_base = self.heroes.len();
+                let scene_base = self.scene.primitives().len();
+                let outer_screen = self.hero_screen.replace(back as u8);
                 self.render_screen(
                     children[back].as_ref(),
                     child_id(id, back, children[back].as_ref()),
@@ -1401,6 +1516,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     self.scene
                         .fill_rect(scrim, self.theme.scheme.scrim.with_alpha(0.22 * coverage));
                 }
+                self.hero_screen = Some(front as u8);
                 self.render_screen(
                     children[front].as_ref(),
                     child_id(id, front, children[front].as_ref()),
@@ -1408,6 +1524,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     off[front],
                     clip,
                 );
+                self.hero_screen = outer_screen;
+                self.fly_heroes(hero_base, scene_base, progress);
             } else if let Some(screen) = children.first() {
                 self.render_screen(
                     screen.as_ref(),
@@ -2378,6 +2496,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         inspector: inspect.then(Vec::new),
         depth: 0,
         refresh_host: None,
+        hero_screen: None,
+        heroes: Vec::new(),
         refreshes: Vec::new(),
         dismissables: Vec::new(),
         rtl: theme.direction.is_rtl(),

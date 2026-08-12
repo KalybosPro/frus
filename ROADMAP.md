@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-285 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+286 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -77,6 +77,7 @@ The web target renders and animates but is missing its platform integrations. Ea
 ### Framework depth
 
 - 🟡 **Text rendering edge cases.** Bidi runs, complex scripts, font fallback chains, emoji, vertical metrics. Real bug reports welcome here.
+- 🟡 **A wrapping text that is shrunk to fit reports one line's height** (found on a device, milestone 286). `Text::wrap()` centred on a column's cross axis is laid out at the narrow width and wraps onto two lines, but reserves the height of one, so whatever follows overlaps it. Giving it a definite width does not help, which suggests the height is settled before the width is — look at the order of taffy's measure passes in `frus-layout/src/tree.rs` and at what `known.width` actually carries on each.
 - 🟢 **Scrolling physics — done, with two loose ends.** `ScrollPhysics::{Bouncing, Clamping}` with the platform's own fling curves, a real rubber band and per-app / per-area overrides (`docs/milestone-277.md`); a fitted velocity estimate (`docs/milestone-278.md`); the overscroll glow, device-verified (`docs/milestone-279.md`). Left: the **stretch** overscroll effect newer platform versions use instead of a glow (needs a render-target effect), and the second bouncing deceleration profile.
 - 🔴 **Rebuild memoization.** `view` rebuilds the whole tree each frame. It has not been a bottleneck yet, but it will be. Wants benchmarks first, then a design.
 - 🟡 **Renderer batching.** Fewer draw calls for scenes with many small primitives; atlas the common shapes.
@@ -96,8 +97,10 @@ The web target renders and animates but is missing its platform integrations. Ea
     milestone-277 physics, with `page`/`on_page_changed` binding both directions to one
     number, device-verified in both directions. Left: per-page transformations (parallax,
     depth), padded ends below a `viewport_fraction` of 1, and keyboard paging.
-  - 🔴 **Shared-element transitions** between screens — needs a design first: two trees,
-    one flight, and identity across a rebuild.
+  - 🟢 **Shared-element transitions — done** (milestone 286): `Hero`, device-verified.
+    The "two trees" half turned out to be free — the navigator already holds both screens
+    in one frame. Left: a curved flight path, a cross-fade between the two contents, and
+    shared elements that move *within* a screen rather than between routes.
   - 🟢 **The constraint boxes — mostly done** (milestone 284): `SizedBox`,
     `ConstrainedBox`, `Intrinsic`, `OverflowBox`, and `max_width`/`max_height` on `Style`.
     Two are left, and both need something the layout does not yet surface:

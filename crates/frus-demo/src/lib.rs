@@ -52,7 +52,7 @@ use frus_widgets::{
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
     Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
-    Dismissible, Draggable, DragTarget, PageView, Pagination, Placement, Popover, Portal,
+    Dismissible, Draggable, DragTarget, Hero, PageView, Pagination, Placement, Popover, Portal,
     ProgressBar, RadioGroup, Rating, Rect, SizedBox,
     Refresh,
     RichText,
@@ -161,6 +161,9 @@ enum Route {
     /// A paged **walkthrough**: one panel per swipe, dots, and buttons that drive the
     /// same view the finger does (milestone 283).
     Tour,
+    /// One task, on its own screen. Its avatar is a **shared element** with the row it
+    /// was opened from, and flies between the two (milestone 286).
+    Task(u64),
 }
 
 /// The back gesture: the progress follows the finger, then a spring settle (commit/cancel)
@@ -217,6 +220,8 @@ enum Msg {
     SetSettingsTab(usize),
     /// The walkthrough's page, whether the finger or a button asked for it.
     TourPage(usize),
+    /// Opens one task's own screen.
+    OpenTask(u64),
     /// Opens/closes the actions menu.
     ToggleActions,
     /// Expands/collapses "Advanced options".
@@ -812,6 +817,12 @@ fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             app.running = !app.running;
             Command::none()
         }
+        Msg::OpenTask(id) => {
+            app.nav_from = Some(current_route(app));
+            app.routes.push(Route::Task(id));
+            start_nav(app, true);
+            Command::none()
+        }
         Msg::TourPage(page) => {
             app.tour_page = page;
             Command::none()
@@ -1302,6 +1313,9 @@ impl Application for TodoApp {
             Route::Data => 6,
             Route::Board => 7,
             Route::Tour => 8,
+            // A task screen is not restored: the task it names may not exist any more,
+            // and reopening a screen about nothing is worse than opening the list.
+            Route::Task(_) => 0,
         };
         out.push_str(&format!("route {route}\n"));
         out.push_str(&format!("draft {}\n", self.draft));
@@ -1594,6 +1608,7 @@ fn screen(
         Route::Data => data_screen(app, theme, width, height),
         Route::Board => board_screen(app, theme, width, height),
         Route::Tour => tour_screen(app, theme, width, height),
+        Route::Task(id) => task_screen(app, theme, width, height, id),
     }
 }
 
@@ -2009,6 +2024,55 @@ fn tour_panel(index: usize, theme: Theme) -> Container<Msg> {
 /// This is the whole point of the two-way binding: `on_page_changed` writes the page
 /// the finger reached into the state, and `page` reads it back out. Neither side owns
 /// it, so neither can drift from the other.
+/// One task on its own screen (milestone 286).
+///
+/// The avatar carries the **same** `Hero` tag as the one on the row this screen was
+/// opened from, so the two are understood to be one thing and the transition flies it
+/// from the row into place instead of fading one out and the other in.
+fn task_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+    id: u64,
+) -> Box<dyn Widget<Msg>> {
+    let todo = app.todos.iter().find(|t| t.id == id);
+    let (label, done) = match todo {
+        Some(todo) => (todo.text.clone(), todo.done),
+        // Deleted while its screen was open: say so rather than show an empty page.
+        None => ("This task no longer exists.".to_string(), false),
+    };
+    let avatar = Hero::new(id, Avatar::new(label.clone()).size(96.0));
+    let state = if done { "Done" } else { "Still to do" };
+    // **Not** `.wrap()`: a wrapping text that is shrunk to fit — which is what happens
+    // to it in a centred column — reports the height of a single line, and the line
+    // below then overlaps it. A framework defect, recorded in the milestone note; this
+    // screen stays on one line rather than showing it off.
+    let body = column![
+        avatar,
+        text(label).size(24.0).weight(FontWeight::Bold),
+        text(state).size(15.0).color(theme.muted),
+    ]
+    .gap(18.0)
+    .align(Align::Center)
+    .justify(Justify::Center)
+    .flex(1.0);
+
+    let screen = column![
+        NavBar::new("Task").on_back(Msg::Pop),
+        Container::new().width(width).padding(24.0).flex(1.0).child(body)
+    ]
+    .width(width)
+    .height(height);
+    Box::new(
+        Container::new()
+            .width(width)
+            .height(height)
+            .color(theme.background)
+            .child(screen),
+    )
+}
+
 fn tour_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
     let last = TOUR_PAGES.len() - 1;
     let page = app.tour_page.min(last);
@@ -2767,7 +2831,11 @@ fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         label = label.strikethrough();
     }
     let line = row![
-        Avatar::new(todo.text.clone()).size(30.0),
+        // The shared element: the same avatar, tagged by the task's id, appears bigger
+        // on the task's own screen and flies between the two.
+        Container::new()
+            .on_click(Msg::OpenTask(id))
+            .child(Hero::new(id, Avatar::new(todo.text.clone()).size(30.0))),
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
         label,
         spacer(),

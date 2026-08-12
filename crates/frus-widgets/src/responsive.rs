@@ -211,6 +211,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.overflow_box())
     }
 
+    fn hero_tag(&self) -> Option<u64> {
+        self.inner.as_ref().and_then(|w| w.hero_tag())
+    }
+
     fn drag_payload(&self) -> Option<u64> {
         self.inner.as_ref().and_then(|w| w.drag_payload())
     }

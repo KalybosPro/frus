@@ -21,6 +21,27 @@ pub enum ReorderAxis {
     Vertical,
 }
 
+/// The **sizing** half of a style: the fields that decide how big a box is, and none
+/// of the ones that decide what happens inside it.
+///
+/// For a wrapper that nests its child ([`crate::Draggable`], [`crate::Hero`]) and wants
+/// the box its child would have had. Copying the *whole* style would inset that child
+/// twice — once by the wrapper's padding, then again by the child's, which is the same
+/// number.
+pub(crate) fn sizing_of(style: Style) -> Style {
+    Style {
+        width: style.width,
+        height: style.height,
+        min_width: style.min_width,
+        min_height: style.min_height,
+        max_width: style.max_width,
+        max_height: style.max_height,
+        flex_grow: style.flex_grow,
+        aspect_ratio: style.aspect_ratio,
+        ..Default::default()
+    }
+}
+
 /// A widget: a composable interface element.
 ///
 /// `Msg` is the application message type emitted on interaction (a message-passing
@@ -196,6 +217,13 @@ pub trait Widget<Msg> {
     /// e.g. a slider). The shell tries it **before** `on_drag`; a widget implements
     /// only one of the two.
     fn on_drag_delta(&self, _dx: f32) -> Option<Msg> {
+        None
+    }
+
+    /// If this widget is a **shared element**, its tag. Two heroes with the same tag on
+    /// the two sides of a route transition are one thing in two places.
+    /// See [`crate::Hero`].
+    fn hero_tag(&self) -> Option<u64> {
         None
     }
 
@@ -704,6 +732,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn overflow_box(&self) -> Option<crate::constraints::Overflow> {
         (**self).overflow_box()
+    }
+    fn hero_tag(&self) -> Option<u64> {
+        (**self).hero_tag()
     }
     fn drag_payload(&self) -> Option<u64> {
         (**self).drag_payload()

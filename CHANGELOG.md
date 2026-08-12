@@ -8,13 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 285 so far, each documenting the objective, the alternatives
+> record — one per step, 286 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **Shared-element transitions** (J286). `Hero::new(tag, widget)` on both sides of a route
+  change makes the two one element: the transition flies it from where it was to where it
+  is going, taking both originals out of the frame for the duration. What travels is the
+  destination's own painting, lifted out of the frame — not a widget built for the
+  occasion. An unmatched tag, or one used twice on a side, is left alone.
 - **Drag and drop** (J285). `Draggable::new(w).payload(id)` and
   `DragTarget::new(w).on_drop(|payload| …)`: a general pair for carrying a thing onto
   another thing, where the two ends need not know of each other. A draggable **yields to a

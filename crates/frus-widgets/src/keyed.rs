@@ -194,6 +194,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.overflow_box()
     }
 
+    fn hero_tag(&self) -> Option<u64> {
+        self.inner.hero_tag()
+    }
+
     fn drag_payload(&self) -> Option<u64> {
         self.inner.drag_payload()
     }
