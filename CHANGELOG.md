@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 287 so far, each documenting the objective, the alternatives
+> record — one per step, 288 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **`Scaffold` and `body`, reviewed against the reference** (J288). New:
+  `window_insets` (the system bars and the keyboard, kept apart because only one of them
+  may be declined), `resize_to_avoid_bottom_inset`, `extend_body`,
+  `extend_body_behind_app_bar`, a leading `drawer` beside the trailing `end_drawer`, and
+  `persistent_footer` with its alignment. A slot the body is told to run under moves to an
+  overlay layer rather than being drawn over, so nothing has to be measured; with neither
+  flag set the assembled tree is unchanged.
 - **`AppBar`, reviewed against the reference** (J287). New: `center_title`, `bottom` (a
   widget under the toolbar, inside the same background), `leading_width`, `title_spacing`,
   `foreground`, `elevation`. The layout policy is now stated and tested: the title keeps
@@ -95,6 +102,18 @@ any release may break.
 
 ### Fixed
 
+- **A persistent footer ignored its alignment** (J288) — the same defect the app bar had in
+  J287, and found the same way. The row hugged its content, so there was no free space for
+  the alignment to place anything in. An alignment is a claim on free space: whoever aligns
+  must first be told how much there is.
+- **A scaffold with no bottom bar ran its body under the system navigation bar** (J288).
+  The body's bottom clearance falls to whoever is last in the column, and with no bar and
+  no footer there was nobody. It is the scroll **viewport** that shrinks, not the content
+  that gets padded — otherwise the last field of a form sits under the keyboard with empty
+  space behind it, unreachable.
+- **`Scaffold::fab` no longer warns that it intercepts clicks** (J288). It never did: only
+  a widget that asks for clicks enters the hit registry, so the transparent remainder of an
+  overlay layer is not a target. Now tested rather than warned about.
 - **A wide empty band above the app bar on Android** (J288). The safe area is derived from
   the space the system leaves the activity, and the default theme reserves an action bar the
   app never draws: the shell read those 56dp as a system inset and padded them away on top

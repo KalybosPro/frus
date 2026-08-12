@@ -2486,19 +2486,17 @@ fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<d
         );
     }
 
-    let inner = column![steps, content, nav].gap(24.0).padding(24.0);
-    // It scrolls vertically when the content overflows (small screens, an open keyboard).
-    let body = Scroll::new().width(width).flex(1.0).child(inner);
-    let screen = column![NavBar::new("Sign-up wizard").on_back(Msg::Pop), body]
-        .width(width)
-        .height(height);
-    Box::new(
-        Container::new()
-            .width(width)
-            .height(height)
-            .color(theme.background)
-            .child(screen),
-    )
+    // A Scaffold, for what a form wants from one (milestone 288): Back / Next go in
+    // the **persistent footer**, so they stay put while the steps scroll and are not
+    // hunted for at the end of a long form; and the body is shortened by the keyboard
+    // rather than covered by it, which is the default and is what a form needs.
+    let inner = column![steps, content].gap(24.0).padding(24.0);
+    Scaffold::new(width, height)
+        .background(theme.background)
+        .app_bar(NavBar::new("Sign-up wizard").on_back(Msg::Pop))
+        .body(inner)
+        .persistent_footer(nav)
+        .build()
 }
 
 /// The "Journal" screen: a **virtualised list** of 5000 rows, and the place where
