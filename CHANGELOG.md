@@ -8,12 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 291 so far, each documenting the objective, the alternatives
+> record — one per step, 292 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **An application weighs 4.9 MB, not 286** (J292). The demo installed at 286 MB because
+  `cargo apk run` builds in **debug** and nothing stripped the `.so` on the way in. There
+  is now a `[profile.release]` — fat LTO, one codegen unit, `panic = "abort"`, `strip` — in
+  the workspace and in the project template, and a *Shipping* section in the guide that
+  says to use it, with the signing step a release APK needs. Same code, 59× smaller.
+- **The bundled fonts are a choice** (J292). 3.4 MB of faces, ~40% of a minimal app, split
+  into four features (`bundled-sans`, `-italic`, `-mono`, `-arabic`), all on by default and
+  forwarded to the facade so an application can drop what it does not draw — a megabyte off
+  a counter. Dropping one is never a crash: `available_style` asks the database what it can
+  serve, so italic without an oblique face comes out upright rather than panicking on
+  Android, and a family nobody loaded resolves to the generic one. `frus::fonts::add_font`
+  and `set_default_family` let an application ship its own faces instead.
 
 - **A bottom app bar, cut with a notch** (J291). `BottomAppBar` carries the actions of the
   screen you are on, as against the navigation bar's choice of screen, and a docked FAB

@@ -8,7 +8,8 @@
 //! **lazily** and shared behind a `Mutex`. That is a pragmatic v1 choice;
 //! unifying it with the renderer's own `FontSystem` will come later.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
 use frus_core::{FontWeight, Point, Rect, Size, TextRun};
@@ -16,33 +17,130 @@ use frus_core::{FontWeight, Point, Rect, Size, TextRun};
 /// The default line-height to font-size ratio.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
 
-/// The **bundled** fallback font (sans-serif) and its monospace variant. Bundling
-/// them guarantees deterministic text rendering on **every** platform — Android
-/// above all, where the system "sans-serif" alias, defined in `fonts.xml` and not
-/// read by fontdb, resolves to no font at all.
+// --- The bundled fonts ---
+//
+// Bundling guarantees deterministic text on **every** platform — Android above all,
+// where the system "sans-serif" alias, defined in `fonts.xml` and not read by fontdb,
+// resolves to no font at all.
+//
+// It is also the single largest thing frus puts in an application: about 3.4 MB of
+// faces, ~1.8 MB once the APK compresses them, which is roughly **40%** of a minimal
+// frus app (milestone 292). So each group is a cargo feature, on by default, and an
+// application that ships its own faces can turn off the ones it does not need:
+//
+// ```toml
+// frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+// ```
+//
+// Turning one off never turns an API into a panic — see [`available_style`] and
+// [`family_for`], which resolve to what is actually loaded.
+
+/// The bundled sans-serif, regular and bold. cosmic-text demands an **exact** weight
+/// match on the primary family, so both are needed for `.bold()` to shape rather than
+/// fall through to platform lists that do not exist on Android.
+#[cfg(feature = "bundled-sans")]
 const DEJAVU_SANS: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
-/// The **bold, oblique and bold-oblique** faces are bundled too: cosmic-text demands
-/// an **exact** style match on the primary family, so without an oblique face a
-/// plain `.italic()` **panics** ("no default font found") anywhere only the bundled
-/// fonts exist — caught on the Android device.
-/// The full {400, 700} × {upright, italic} matrix makes every style the API can
-/// reach safe and deterministic.
+#[cfg(feature = "bundled-sans")]
 const DEJAVU_SANS_BOLD: &[u8] = include_bytes!("../assets/DejaVuSans-Bold.ttf");
+/// The **oblique** faces, for the same reason one step further: cosmic-text demands an
+/// exact *style* match too, so without them a plain `.italic()` used to **panic** ("no
+/// default font found") — caught on the Android device. They are 1.28 MB of the 3.4,
+/// so they are separable; when they are absent italic text is rendered **upright**
+/// rather than not at all.
+#[cfg(feature = "bundled-italic")]
 const DEJAVU_SANS_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-Oblique.ttf");
+#[cfg(feature = "bundled-italic")]
 const DEJAVU_SANS_BOLD_OBLIQUE: &[u8] = include_bytes!("../assets/DejaVuSans-BoldOblique.ttf");
+/// The monospace face — only ever reached by widgets that ask for it (`Kbd`, code).
+#[cfg(feature = "bundled-mono")]
 const DEJAVU_MONO: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
 /// **Arabic** (Noto Naskh): DejaVu does not cover the Arabic script — it has no
 /// contextual joining forms — so this face provides the fallback for Arabic runs.
-/// It is bundled for deterministic rendering everywhere, Android included, where no
-/// system font is loaded at all.
+#[cfg(feature = "bundled-arabic")]
 const NOTO_ARABIC: &[u8] = include_bytes!("../assets/NotoNaskhArabic-Regular.ttf");
+#[cfg(feature = "bundled-arabic")]
 const NOTO_ARABIC_BOLD: &[u8] = include_bytes!("../assets/NotoNaskhArabic-Bold.ttf");
 
-/// The bundled fonts' internal family name; it must match the TTFs.
+/// The bundled fonts' internal family names; they must match the TTFs.
+#[cfg(feature = "bundled-sans")]
 const SANS_FAMILY: &str = "DejaVu Sans";
+#[cfg(feature = "bundled-mono")]
 const MONO_FAMILY: &str = "DejaVu Sans Mono";
 /// The bundled Arabic face's family (Noto Naskh).
+#[cfg(feature = "bundled-arabic")]
 const ARABIC_FAMILY: &str = "Noto Naskh Arabic";
+
+// --- The families text actually resolves to ---
+//
+// `None` means "nothing is loaded for this role": text falls back to the generic
+// family and lets the platform answer, which is the best that can be done and is what
+// the desktop wants anyway. An application that ships its own faces names them here
+// through [`set_default_family`] / [`set_monospace_family`].
+
+#[cfg(feature = "bundled-sans")]
+static SANS: RwLock<Option<&'static str>> = RwLock::new(Some(SANS_FAMILY));
+#[cfg(not(feature = "bundled-sans"))]
+static SANS: RwLock<Option<&'static str>> = RwLock::new(None);
+#[cfg(feature = "bundled-mono")]
+static MONO: RwLock<Option<&'static str>> = RwLock::new(Some(MONO_FAMILY));
+#[cfg(not(feature = "bundled-mono"))]
+static MONO: RwLock<Option<&'static str>> = RwLock::new(None);
+#[cfg(feature = "bundled-arabic")]
+static ARABIC: RwLock<Option<&'static str>> = RwLock::new(Some(ARABIC_FAMILY));
+#[cfg(not(feature = "bundled-arabic"))]
+static ARABIC: RwLock<Option<&'static str>> = RwLock::new(None);
+/// Whether an italic face exists for the default family. Set when the font system is
+/// built, by looking at what was actually loaded rather than at what was asked for.
+static ITALIC: AtomicBool = AtomicBool::new(cfg!(feature = "bundled-italic"));
+
+/// Faces the application supplies itself. Every `FontSystem` frus builds loads them,
+/// so they must be registered **before the application runs** — the renderer builds
+/// its own system at start-up, exactly like declaring fonts in a manifest.
+static EXTRA_FONTS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+/// Registers a font face from its bytes (TTF/OTF), for the whole process.
+///
+/// Call it **before** starting the application: the renderer builds its font database
+/// at start-up and a face added afterwards will measure but not paint.
+///
+/// ```ignore
+/// frus_text::add_font(include_bytes!("../fonts/Inter-Regular.ttf").to_vec());
+/// frus_text::set_default_family("Inter");
+/// ```
+pub fn add_font(data: Vec<u8>) {
+    // Anything already measuring gets it too, so tests and tools do not have to care
+    // about ordering.
+    if let Some(system) = FONT_SYSTEM.get() {
+        if let Ok(mut system) = system.lock() {
+            system.db_mut().load_font_data(data.clone());
+        }
+    }
+    EXTRA_FONTS.lock().expect("font registry").push(data);
+}
+
+/// Names the family text uses by default — the one an application ships instead of,
+/// or alongside, the bundled sans. The face itself must be registered with
+/// [`add_font`], or be present on the system.
+pub fn set_default_family(name: &'static str) {
+    *SANS.write().expect("family registry") = Some(name);
+}
+
+/// Names the family monospaced text uses. See [`set_default_family`].
+pub fn set_monospace_family(name: &'static str) {
+    *MONO.write().expect("family registry") = Some(name);
+}
+
+/// The family a generic role resolves to, or the generic family when nothing is
+/// loaded for it and the platform is the better judge.
+fn family_or_generic(
+    slot: &RwLock<Option<&'static str>>,
+    generic: cosmic_text::Family<'static>,
+) -> cosmic_text::Family<'static> {
+    match *slot.read().expect("family registry") {
+        Some(name) => cosmic_text::Family::Name(name),
+        None => generic,
+    }
+}
 
 /// `true` when `text` holds at least one character of the **Arabic** script
 /// (the Arabic, Supplement, Extended-A and Presentation Forms A/B blocks).
@@ -62,9 +160,32 @@ fn contains_arabic(text: &str) -> bool {
 /// at the source, and measurement **and** rendering share the rule.
 pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
     if contains_arabic(text) {
-        cosmic_text::Family::Name(ARABIC_FAMILY)
+        // No Arabic face loaded: the sans is a better guess than a family name that
+        // resolves to nothing, and on the desktop the system usually has one.
+        match *ARABIC.read().expect("family registry") {
+            Some(name) => cosmic_text::Family::Name(name),
+            None => family_or_generic(&SANS, cosmic_text::Family::SansSerif),
+        }
     } else {
-        cosmic_text::Family::Name(SANS_FAMILY)
+        family_or_generic(&SANS, cosmic_text::Family::SansSerif)
+    }
+}
+
+/// The monospaced family, for the widgets that ask for one.
+pub fn monospace_family() -> cosmic_text::Family<'static> {
+    family_or_generic(&MONO, cosmic_text::Family::Monospace)
+}
+
+/// The style **actually available** for the default family. Italic when an oblique
+/// face is loaded, upright when none is — because cosmic-text demands an exact style
+/// match, and asking for one that does not exist sends it to platform fallback lists
+/// that are empty on Android. Turning off `bundled-italic` should cost you slanted
+/// text, not text.
+pub fn available_style(italic: bool) -> Style {
+    if italic && ITALIC.load(Ordering::Relaxed) {
+        Style::Italic
+    } else {
+        Style::Normal
     }
 }
 
@@ -76,24 +197,60 @@ pub fn family_for(text: &str) -> cosmic_text::Family<'static> {
 pub fn new_font_system() -> FontSystem {
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
-    db.load_font_data(DEJAVU_SANS.to_vec());
-    db.load_font_data(DEJAVU_SANS_BOLD.to_vec());
-    db.load_font_data(DEJAVU_SANS_OBLIQUE.to_vec());
-    db.load_font_data(DEJAVU_SANS_BOLD_OBLIQUE.to_vec());
+    #[cfg(feature = "bundled-sans")]
+    {
+        db.load_font_data(DEJAVU_SANS.to_vec());
+        db.load_font_data(DEJAVU_SANS_BOLD.to_vec());
+    }
+    #[cfg(feature = "bundled-italic")]
+    {
+        db.load_font_data(DEJAVU_SANS_OBLIQUE.to_vec());
+        db.load_font_data(DEJAVU_SANS_BOLD_OBLIQUE.to_vec());
+    }
+    #[cfg(feature = "bundled-mono")]
     db.load_font_data(DEJAVU_MONO.to_vec());
-    db.load_font_data(NOTO_ARABIC.to_vec());
-    db.load_font_data(NOTO_ARABIC_BOLD.to_vec());
-    // Makes every generic family resolve to a font that is actually present.
-    db.set_sans_serif_family(SANS_FAMILY);
-    db.set_serif_family(SANS_FAMILY);
-    db.set_cursive_family(SANS_FAMILY);
-    db.set_fantasy_family(SANS_FAMILY);
-    db.set_monospace_family(MONO_FAMILY);
+    #[cfg(feature = "bundled-arabic")]
+    {
+        db.load_font_data(NOTO_ARABIC.to_vec());
+        db.load_font_data(NOTO_ARABIC_BOLD.to_vec());
+    }
+    // Whatever the application supplied itself, over the bundled faces.
+    for face in EXTRA_FONTS.lock().expect("font registry").iter() {
+        db.load_font_data(face.clone());
+    }
+    // Makes every generic family resolve to a font that is actually present — but
+    // only when one is: pointing `sans-serif` at a family nobody loaded is worse than
+    // leaving fontdb's own answer alone.
+    if let Some(sans) = *SANS.read().expect("family registry") {
+        db.set_sans_serif_family(sans);
+        db.set_serif_family(sans);
+        db.set_cursive_family(sans);
+        db.set_fantasy_family(sans);
+    }
+    if let Some(mono) = *MONO.read().expect("family registry") {
+        db.set_monospace_family(mono);
+    }
+    // What is *actually* there decides whether italic is asked for, since an
+    // application may have supplied an oblique face of its own — or none.
+    ITALIC.store(has_italic_face(db), Ordering::Relaxed);
     font_system
 }
 
+/// Does the database hold an oblique or italic face for the default family?
+fn has_italic_face(db: &cosmic_text::fontdb::Database) -> bool {
+    let sans = *SANS.read().expect("family registry");
+    db.faces().any(|face| {
+        face.style != cosmic_text::fontdb::Style::Normal
+            && match sans {
+                Some(name) => face.families.iter().any(|(family, _)| family == name),
+                None => true,
+            }
+    })
+}
+
+static FONT_SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
+
 fn font_system() -> &'static Mutex<FontSystem> {
-    static FONT_SYSTEM: OnceLock<Mutex<FontSystem>> = OnceLock::new();
     FONT_SYSTEM.get_or_init(|| Mutex::new(new_font_system()))
 }
 
@@ -151,7 +308,7 @@ pub fn measure_wrapped(
     let attrs = Attrs::new()
         .family(family_for(text))
         .weight(Weight(available_weight(weight)))
-        .style(if italic { Style::Italic } else { Style::Normal });
+        .style(available_style(italic));
     buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut font_system, false);
 
@@ -202,11 +359,7 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
             Attrs::new()
                 .family(family_for(&run.text))
                 .weight(Weight(available_weight(run.weight)))
-                .style(if run.italic {
-                    Style::Italic
-                } else {
-                    Style::Normal
-                })
+                .style(available_style(run.italic))
                 .metrics(Metrics::new(run.size, line_height(run.size))),
         )
     });
@@ -304,7 +457,7 @@ impl TextLayout {
             let attrs = Attrs::new()
                 .family(family_for(text))
                 .weight(Weight(available_weight(weight)))
-                .style(if italic { Style::Italic } else { Style::Normal });
+                .style(available_style(italic));
             buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(&mut font_system, false);
 
@@ -624,6 +777,7 @@ mod tests {
     /// cosmic-text demands an *exact* style and weight match on the primary family:
     /// without a bundled oblique face, `.italic()` panicked on the device.
     #[test]
+    #[cfg(all(feature = "bundled-sans", feature = "bundled-italic", feature = "bundled-mono"))]
     fn embedded_only_font_system_shapes_every_style() {
         let mut db = cosmic_text::fontdb::Database::new();
         db.load_font_data(DEJAVU_SANS.to_vec());
@@ -665,6 +819,7 @@ mod tests {
     /// fails to resolve here, the glyphs come out empty — the blank seen on the
     /// device.
     #[test]
+    #[cfg(all(feature = "bundled-sans", feature = "bundled-arabic"))]
     fn arabic_shapes_with_embedded_only_font_system() {
         let mut db = cosmic_text::fontdb::Database::new();
         db.load_font_data(DEJAVU_SANS.to_vec());
@@ -703,6 +858,7 @@ mod tests {
     /// With no width constraint (`None`) they start at x about 0. This is the cause
     /// of the blank Arabic text on the device.
     #[test]
+    #[cfg(all(feature = "bundled-sans", feature = "bundled-arabic"))]
     fn rtl_right_aligns_to_buffer_width() {
         let mut db = cosmic_text::fontdb::Database::new();
         db.load_font_data(DEJAVU_SANS.to_vec());
@@ -733,6 +889,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "bundled-sans", feature = "bundled-arabic"))]
     fn arabic_falls_back_to_the_embedded_naskh_face() {
         // DejaVu does not cover Arabic: the bundled fallback (Noto Naskh) has to take
         // over and **shape** the glyphs, giving a non-zero, sensible width. A missing
@@ -811,6 +968,30 @@ mod tests {
             Some(120.0),
         );
         assert!(measured.width <= 120.0, "{}", measured.width);
+    }
+
+    /// Italic text measures whatever faces are bundled. This is the guard on the
+    /// promise that dropping `bundled-italic` costs slanted text and not text: asking
+    /// cosmic-text for a style it has no face for used to reach the platform fallback
+    /// lists, which are empty on Android, and panic there.
+    #[test]
+    fn italic_measures_whether_or_not_an_oblique_face_is_bundled() {
+        let measured = measure_styled("Slanted", 16.0, FontWeight::Regular, true);
+        assert!(measured.width > 0.0, "nothing shaped");
+    }
+
+    /// A style is only ever *asked for* when the database can answer it — the whole
+    /// point of [`available_style`], and true in either configuration.
+    #[test]
+    fn italic_is_only_asked_for_when_a_face_can_answer() {
+        // Measuring is what builds the font system, which is what reads the database.
+        let _ = measure("x", 12.0);
+        assert_eq!(available_style(false), Style::Normal, "upright asked for italic");
+        assert_eq!(
+            available_style(true) == Style::Italic,
+            ITALIC.load(Ordering::Relaxed),
+            "italic asked for without a face to answer it"
+        );
     }
 
     #[test]

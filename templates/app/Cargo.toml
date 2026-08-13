@@ -33,3 +33,20 @@ theme = "@android:style/Theme.DeviceDefault.NoActionBar"
 [package.metadata.android.sdk]
 min_sdk_version = 24
 target_sdk_version = 34
+
+# --- What you ship ---
+#
+# `cargo apk run` and `cargo run` build in **debug**, and a debug build carries its
+# symbols: on Android that is a ~300 MB `.so` where a release one is a few megabytes.
+# Build with `--release` for anything that leaves your machine:
+#
+#     cargo apk build --release        # the APK to install or upload
+#     cargo build --release            # the desktop binary
+#
+# These settings are what make that release build small without costing frame time.
+[profile.release]
+opt-level = 3        # frames first: a UI is measured in milliseconds
+lto = "fat"          # cross-crate inlining, and the dead code goes out with it
+codegen-units = 1    # a single unit: better optimisation, slower build
+panic = "abort"      # no unwinding tables (cargo ignores this for tests)
+strip = true         # symbols and debuginfo out of the shipped binary

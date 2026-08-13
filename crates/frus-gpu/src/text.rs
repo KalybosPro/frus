@@ -179,11 +179,9 @@ impl TextPainter {
                         // cross-family fallback, so we choose at the source.
                         .family(frus_text::family_for(text))
                         .weight(glyphon::Weight(frus_text::available_weight(*weight)))
-                        .style(if *italic {
-                            glyphon::Style::Italic
-                        } else {
-                            glyphon::Style::Normal
-                        });
+                        // Upright when no oblique face is loaded: an application
+                        // that dropped `bundled-italic` gets straight text, not none.
+                        .style(frus_text::available_style(*italic));
                     buffer.set_text(
                         &mut self.font_system,
                         text,
@@ -248,11 +246,7 @@ impl TextPainter {
                             glyphon::Attrs::new()
                                 .family(frus_text::family_for(&run.text))
                                 .weight(glyphon::Weight(frus_text::available_weight(run.weight)))
-                                .style(if run.italic {
-                                    glyphon::Style::Italic
-                                } else {
-                                    glyphon::Style::Normal
-                                })
+                                .style(frus_text::available_style(run.italic))
                                 .metrics(glyphon::Metrics::new(
                                     run.size,
                                     run.size * LINE_HEIGHT_FACTOR,

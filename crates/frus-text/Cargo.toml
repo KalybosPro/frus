@@ -5,6 +5,23 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+# The **bundled fonts** (milestone 292). They are ~3.4 MB of faces — about 40% of a
+# minimal frus app once the APK has compressed them — so each group is a feature. All
+# are on by default, because deterministic text everywhere is the right default and
+# Android has no usable system font list; an application that ships its own faces
+# (`frus_text::add_font`) turns off the ones it does not need. Turning one off never
+# turns an API into a panic: the missing role falls back to what is loaded.
+[features]
+default = ["bundled-sans", "bundled-italic", "bundled-mono", "bundled-arabic"]
+# The sans-serif, regular + bold — what almost every application actually draws.
+bundled-sans = []
+# The oblique faces (~1.28 MB). Without them, italic text renders upright.
+bundled-italic = []
+# The monospace face (~343 kB), reached only by widgets that ask for one.
+bundled-mono = []
+# The Arabic Naskh faces (~357 kB), needed for Arabic to shape at all on Android.
+bundled-arabic = []
+
 [dependencies]
 frus-core = { path = "../frus-core" }
 cosmic-text.workspace = true

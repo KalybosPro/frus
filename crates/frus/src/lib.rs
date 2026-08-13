@@ -38,6 +38,13 @@ pub use frus_shell::{anyhow, log};
 pub use frus_shell::main;
 pub use frus_widgets::{column, row};
 
+// Fonts: registering the application's own faces, and naming the families text
+// resolves to. An application that ships its own can drop the bundled ones through
+// the `bundled-*` features — see the "Shipping" section of the getting-started guide.
+pub mod fonts {
+    pub use frus_text::{add_font, set_default_family, set_monospace_family};
+}
+
 // Cross-platform HTTP (feature `net`): the `frus::fetch(url).await` shorthand and the
 // `frus::Request` builder (method / headers / body / timeout) — see [`frus::net`].
 #[cfg(feature = "net")]

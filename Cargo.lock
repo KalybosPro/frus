@@ -1243,6 +1243,7 @@ name = "frus"
 version = "0.1.0"
 dependencies = [
  "frus-shell",
+ "frus-text",
  "frus-widgets",
 ]
 

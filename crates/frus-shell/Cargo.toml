@@ -10,9 +10,18 @@ license.workspace = true
 # does no networking bundles neither ureq nor its TLS stack.
 # The `json` feature, which implies `net`, adds `Request::json_body` / `send_json`
 # through serde.
+#
+# The `bundled-*` features forward the **bundled fonts** (milestone 292): they are
+# ~3.4 MB of faces, and an application that ships its own turns off the ones it does
+# not need. All on by default.
 [features]
 net = ["dep:ureq"]
 json = ["net", "dep:serde", "dep:serde_json"]
+default = ["frus-gpu/default", "frus-widgets/default"]
+bundled-sans = ["frus-gpu/bundled-sans", "frus-widgets/bundled-sans"]
+bundled-italic = ["frus-gpu/bundled-italic", "frus-widgets/bundled-italic"]
+bundled-mono = ["frus-gpu/bundled-mono", "frus-widgets/bundled-mono"]
+bundled-arabic = ["frus-gpu/bundled-arabic", "frus-widgets/bundled-arabic"]
 
 # The `cfg` aliases (`desktop` / `android` / `ios` / `web`) — see `build.rs`. Already
 # in the tree, since winit uses it, so nothing extra is downloaded.
@@ -20,8 +29,8 @@ json = ["net", "dep:serde", "dep:serde_json"]
 cfg_aliases = "0.2"
 
 [dependencies]
-frus-gpu = { path = "../frus-gpu" }
-frus-widgets = { path = "../frus-widgets" }
+frus-gpu = { path = "../frus-gpu", default-features = false }
+frus-widgets = { path = "../frus-widgets", default-features = false }
 winit.workspace = true
 anyhow.workspace = true
 log.workspace = true

@@ -7,11 +7,27 @@ license.workspace = true
 
 # The `net` feature forwards the shell layer's HTTP `fetch` helper (see `frus::fetch`).
 # `json` (implies `net`) forwards `Request::json_body` / `send_json` (typed JSON).
+#
+# The `bundled-*` features forward the **bundled fonts** (milestone 292). They are
+# ~3.4 MB of faces, about 40% of a minimal frus app once compressed into the APK, so
+# an application that ships its own can drop the ones it does not need:
+#
+#     frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+#
+# Dropping one is never a panic: italic falls back to upright, a missing script falls
+# back to the sans, and a missing sans falls back to the platform's own.
 [features]
 net = ["frus-shell/net"]
 json = ["frus-shell/json"]
+default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
+bundled-sans = ["frus-shell/bundled-sans", "frus-widgets/bundled-sans", "frus-text/bundled-sans"]
+bundled-italic = ["frus-shell/bundled-italic", "frus-widgets/bundled-italic", "frus-text/bundled-italic"]
+bundled-mono = ["frus-shell/bundled-mono", "frus-widgets/bundled-mono", "frus-text/bundled-mono"]
+bundled-arabic = ["frus-shell/bundled-arabic", "frus-widgets/bundled-arabic", "frus-text/bundled-arabic"]
 
 # The facade only re-exports: no `cdylib` of its own. The app stays `rlib` + `cdylib`.
 [dependencies]
-frus-shell = { path = "../frus-shell" }
-frus-widgets = { path = "../frus-widgets" }
+frus-shell = { path = "../frus-shell", default-features = false }
+frus-widgets = { path = "../frus-widgets", default-features = false }
+# Directly, for `frus::fonts`: registering the application's own faces.
+frus-text = { path = "../frus-text", default-features = false }

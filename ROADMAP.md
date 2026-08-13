@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-291 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+292 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -53,6 +53,14 @@ The web target renders and animates but is missing its platform integrations. Ea
 - 🟡 **IME / soft keyboard** on mobile browsers — a hidden input overlay, composition events, viewport insets.
 - 🟡 **Live-reload** for the wasm target.
 - 🟢 **A proper web example page** — the current `index.html` is minimal.
+
+### Size
+
+Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` at all. What is left is real work, not settings.
+
+- 🟡 **Subset the bundled faces at build time.** DejaVu covers far more of Unicode than any one application draws, and the four `bundled-*` features are a coarse instrument next to a `pyftsubset` step over the glyphs a build actually references. This is where the next megabyte is, and it needs a tool in the build.
+- 🟢 **A size regression check in CI.** Nothing notices today if the floor doubles. Build `frus-hello` for `aarch64-linux-android` in release, compare the stripped `.so` against a committed budget, fail on a jump.
+- 🟢 **Document `--split-per-abi`-style packaging.** The examples build `aarch64` only; an application targeting more than one ABI wants a split rather than a fat APK, and nothing says so.
 
 ### Quality
 

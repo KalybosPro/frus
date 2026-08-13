@@ -34,6 +34,23 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+# **Release** profile: what a user actually installs (milestone 292).
+#
+# The default `cargo apk build` is a *debug* build, and on Android that means a
+# 300 MB `.so` of which ~98% is symbols nobody ships. These settings are what turn
+# it into an app: build with `--release` for anything that leaves your machine.
+#
+# `opt-level = 3` and not `"z"` on purpose: a UI framework is measured in
+# milliseconds per frame, and the size saved by optimising for size is small next to
+# what `lto` + `strip` already take off. The web has its own profile below, where
+# the trade goes the other way because the binary is *downloaded*.
+[profile.release]
+opt-level = 3        # frames first
+lto = "fat"          # cross-crate inlining, and the dead code goes out with it
+codegen-units = 1    # a single unit: better optimisation, slower build
+panic = "abort"      # no unwinding tables (cargo ignores this for tests)
+strip = true         # symbols and debuginfo out of the shipped binary
+
 # **Web** profile: optimises for the SIZE of the downloaded `.wasm` (milestone 131).
 # Kept separate from the native release profile (which stays tuned for speed) — select it
 # with `cargo build --profile web-release --target wasm32-unknown-unknown`.

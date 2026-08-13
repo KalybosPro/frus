@@ -5,9 +5,19 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+# The **bundled fonts** are forwarded from `frus-text` (milestone 292) so that an
+# application can drop the faces it does not ship through the facade alone:
+#   frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
+[features]
+default = ["frus-text/default"]
+bundled-sans = ["frus-text/bundled-sans"]
+bundled-italic = ["frus-text/bundled-italic"]
+bundled-mono = ["frus-text/bundled-mono"]
+bundled-arabic = ["frus-text/bundled-arabic"]
+
 [dependencies]
 frus-core = { path = "../frus-core" }
-frus-text = { path = "../frus-text" }
+frus-text = { path = "../frus-text", default-features = false }
 wgpu.workspace = true
 glyphon.workspace = true
 bytemuck.workspace = true
