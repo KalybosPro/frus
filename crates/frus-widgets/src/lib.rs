@@ -198,7 +198,7 @@ pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState,
 };
 pub use safearea::SafeArea;
-pub use scaffold::{fab_button, Scaffold};
+pub use scaffold::{fab_button, FabLocation, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
 pub use skeleton::Skeleton;

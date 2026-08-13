@@ -8,13 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 289 so far, each documenting the objective, the alternatives
+> record — one per step, 290 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **The FAB has a location, not a corner** (J290). `FabLocation` places it at either end
+  or centred, **floating** clear of the bottom bar or **docked** astride its top edge —
+  the placement a notched bar is cut for. `EndFloat` is what the scaffold already did, so
+  nothing moves unless it is asked to. The reference's `mini` twins are not variants here:
+  a mini FAB is a smaller button, and `fab_size(40.0)` docks it correctly. Docking needs a
+  height the scaffold cannot measure, so it is declared — 56 px by default.
 - **`Scaffold` and `body`, reviewed against the reference** (J288). New:
   `window_insets` (the system bars and the keyboard, kept apart because only one of them
   may be declined), `resize_to_avoid_bottom_inset`, `extend_body`,

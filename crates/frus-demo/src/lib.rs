@@ -50,7 +50,8 @@ use frus_widgets::{
     button, column, keyed, row, spacer, text, Alert, Align, AnimationController, AppBar,
     Autocomplete, Avatar, Axis, BarChart, BoxFit, Breadcrumb, Card, Carousel, Checkbox, Chip,
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
-    Dropdown, ErrorSummary, Flex, FontWeight, Grid, Icon, IconName, Image, ImageData, ImageHandle,
+    Dropdown, ErrorSummary, fab_button, FabLocation, Flex, FontWeight, Grid, Icon, IconName, Image,
+    ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
     Dismissible, Draggable, DragTarget, Hero, PageView, Pagination, Placement, Popover, Portal,
     ProgressBar, RadioGroup, Rating, Rect, SizedBox,
@@ -3151,6 +3152,12 @@ fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn
             app.drawer_open,
             Msg::ToggleDrawer,
         )
+        // Floating, not docked (milestone 290). Docking was tried here first and the
+        // device settled it: this bar carries three destinations, so a button astride
+        // its top edge lands on one of them. Docking is for a bar cut with a notch to
+        // receive it, which frus has not got yet.
+        .fab_location(FabLocation::EndFloat)
+        .fab(fab_button("+", Msg::AddTodo))
         .bottom_sheet(quick_actions_sheet(theme), app.sheet_open, Msg::ToggleSheet)
         .build();
 

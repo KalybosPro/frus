@@ -19,7 +19,8 @@
 //!     .drawer(menu, app.menu_open, Msg::ToggleMenu)          // leading edge
 //!     .end_drawer(filters, app.drawer_open, Msg::ToggleDrawer)
 //!     .persistent_footer(row![cancel, save])  // never scrolls away
-//!     .fab(button("＋", Msg::AddTodo))        // floating action button
+//!     .fab_location(FabLocation::EndFloat)   // or docked, at either end
+//!     .fab(fab_button("+", Msg::AddTodo))    // floating action button
 //!     .bottom_sheet(sheet, app.sheet_open, Msg::ToggleSheet)
 //!     .build()
 //! ```
@@ -47,6 +48,50 @@ use crate::widget::Widget;
 const FAB_MARGIN: f32 = 16.0;
 /// The padding around the persistent footer's row.
 const FOOTER_PAD: f32 = 12.0;
+/// The height a floating action button is assumed to have, absent
+/// [`Scaffold::fab_size`]. The conventional Material diameter.
+const FAB_SIZE: f32 = 56.0;
+
+/// Where the floating action button sits.
+///
+/// Two questions, and they are independent: which end of the row, and whether the
+/// button **floats** clear of the bottom bar or **docks** astride its top edge. The
+/// docked placements are the ones a notched bottom bar is cut for.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum FabLocation {
+    /// Leading end, clear of the bar.
+    StartFloat,
+    /// Centred, clear of the bar.
+    CenterFloat,
+    /// Trailing end, clear of the bar — the default, and where a thumb reaches.
+    #[default]
+    EndFloat,
+    /// Leading end, centred on the bar's top edge.
+    StartDocked,
+    /// Centred on the bar's top edge, horizontally centred.
+    CenterDocked,
+    /// Trailing end, centred on the bar's top edge.
+    EndDocked,
+}
+
+impl FabLocation {
+    /// Whether the button straddles the bar's top edge rather than floating above it.
+    pub fn docked(self) -> bool {
+        matches!(
+            self,
+            FabLocation::StartDocked | FabLocation::CenterDocked | FabLocation::EndDocked
+        )
+    }
+
+    /// Which end of the row it goes to.
+    pub fn justify(self) -> Justify {
+        match self {
+            FabLocation::StartFloat | FabLocation::StartDocked => Justify::Start,
+            FabLocation::CenterFloat | FabLocation::CenterDocked => Justify::Center,
+            FabLocation::EndFloat | FabLocation::EndDocked => Justify::End,
+        }
+    }
+}
 
 /// An adaptive screen shell. A fluent builder finished by [`Scaffold::build`].
 pub struct Scaffold<Msg> {
@@ -66,6 +111,8 @@ pub struct Scaffold<Msg> {
     drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     end_drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     fab: Option<Box<dyn Widget<Msg>>>,
+    fab_location: FabLocation,
+    fab_size: f32,
     persistent_footer: Option<Box<dyn Widget<Msg>>>,
     persistent_footer_alignment: Justify,
     bottom_sheet: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
@@ -92,6 +139,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             drawer: None,
             end_drawer: None,
             fab: None,
+            fab_location: FabLocation::default(),
+            fab_size: FAB_SIZE,
             persistent_footer: None,
             persistent_footer_alignment: Justify::End,
             bottom_sheet: None,
@@ -229,6 +278,25 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
+    /// Where the FAB sits: which end of the row, and whether it floats clear of the
+    /// bottom bar or docks astride its top edge. [`FabLocation::EndFloat`] by default.
+    pub fn fab_location(mut self, location: FabLocation) -> Self {
+        self.fab_location = location;
+        self
+    }
+
+    /// The height the FAB is taken to have when it is **docked**, since that
+    /// placement puts its centre on the bar's edge and so has to know how tall it is.
+    /// 56 px — the conventional diameter — unless said otherwise.
+    ///
+    /// A declared number rather than a measured one, and that is a divergence worth
+    /// naming: the scaffold is handed the button as an opaque widget it cannot
+    /// measure. A button of another size docks correctly once it says so.
+    pub fn fab_size(mut self, size: f32) -> Self {
+        self.fab_size = size;
+        self
+    }
+
     /// A strip pinned **between the body and the bottom bar**, always visible: the
     /// screen's committing actions (Save, Cancel), which must not be scrolled away.
     ///
@@ -272,6 +340,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             drawer,
             end_drawer,
             fab,
+            fab_location,
+            fab_size,
             persistent_footer,
             persistent_footer_alignment,
             bottom_sheet,
@@ -454,19 +524,33 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             main
         };
 
-        // The FAB anchored bottom-right, above the bottom bar and the inset.
+        // The FAB, in a layer of its own over the shell, at the corner it was given.
         let mut content: Box<dyn Widget<Msg>> = main;
         if let Some(fab) = fab {
+            // Where the body stops: the top of the bottom bar, which is what both
+            // vertical placements are measured from.
             let nav_h = if compact && has_nav { BAR_HEIGHT } else { 0.0 };
-            let fab_bottom = bottom_clear + nav_h + FAB_MARGIN;
+            let content_bottom = bottom_clear + nav_h;
+            let fab_bottom = if fab_location.docked() {
+                // Docked: the button's **centre** on that edge, straddling the bar.
+                (content_bottom - fab_size / 2.0).max(0.0)
+            } else {
+                // Floating: clear of the edge by the usual margin.
+                content_bottom + FAB_MARGIN
+            };
+            let (left_pad, right_pad) = match fab_location.justify() {
+                Justify::Start => (insets.left + FAB_MARGIN, 0.0),
+                Justify::End => (0.0, insets.right + FAB_MARGIN),
+                _ => (0.0, 0.0),
+            };
             let fab_layer = Flex::column()
                 .width(width)
                 .height(height)
                 .justify(Justify::End)
                 .child(
-                    Flex::row().justify(Justify::End).child(
+                    Flex::row().justify(fab_location.justify()).child(
                         Container::new()
-                            .padding_each(0.0, insets.right + FAB_MARGIN, fab_bottom, 0.0)
+                            .padding_each(0.0, right_pad, fab_bottom, left_pad)
                             .child(fab),
                     ),
                 );
@@ -798,6 +882,50 @@ mod tests {
         assert!(
             (centre - (W - 100.0) / 2.0).abs() < 2.0,
             "centre: {centre}"
+        );
+    }
+
+    /// The FAB goes to the end it was given, and a docked one straddles the bar's
+    /// top edge instead of floating clear of it.
+    #[test]
+    fn the_fab_goes_where_it_was_placed() {
+        let at = |location| {
+            let scaffold = Scaffold::new(W, H)
+                .body(Container::<Msg>::new())
+                .nav(0, Msg::Go)
+                .destination("H", "Home")
+                .fab_location(location)
+                .fab_size(56.0)
+                .fab(marked::<Msg>(56.0).width(56.0))
+                .build();
+            marks(scaffold)[0]
+        };
+
+        // Horizontally: the three ends, in order and distinct.
+        let start = at(FabLocation::StartFloat);
+        let centre = at(FabLocation::CenterFloat);
+        let end = at(FabLocation::EndFloat);
+        assert!(start.x < centre.x && centre.x < end.x, "{start:?} {centre:?} {end:?}");
+        assert!((start.x - FAB_MARGIN).abs() < 1.0, "leading margin: {start:?}");
+        assert!(
+            (end.x + end.width - (W - FAB_MARGIN)).abs() < 1.0,
+            "trailing margin: {end:?}"
+        );
+        assert!(
+            (centre.x + centre.width / 2.0 - W / 2.0).abs() < 1.0,
+            "centred: {centre:?}"
+        );
+
+        // Vertically: floating clears the bar; docked has its centre on the bar's edge.
+        let bar_top = H - BAR_HEIGHT;
+        assert!(
+            (end.y + end.height - (bar_top - FAB_MARGIN)).abs() < 1.0,
+            "floating clear of the bar: {end:?}"
+        );
+        let docked = at(FabLocation::EndDocked);
+        assert!(
+            (docked.y + docked.height / 2.0 - bar_top).abs() < 1.0,
+            "centred on the bar's top edge: {docked:?}"
         );
     }
 
