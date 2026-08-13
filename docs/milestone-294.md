@@ -67,6 +67,25 @@ into the plan is on the roadmap.
 The decoration quads (underline, strikethrough) are rectangles, and they move with the
 text they belong to rather than into a level of their own.
 
+### And the rule is already broken in practice
+
+Written down and then immediately tested against the device, which is the right order
+to find this out in. Opening the demo's overflow menu shows the labels *underneath* it
+— "Add", "Done", "Buy milk" — reading straight through the panel. Any menu, dropdown,
+dialog or sheet over text does it, because no widget in frus uses `scene.layer`: an
+overlay is an ordinary container drawn late, and the text beneath it is drawn later
+still.
+
+This is not new and it is not from this milestone: text has been a final pass since the
+renderer was written, and the golden `table_column_menu.png` — committed, green, and
+byte-identical before and after this change — has the Score column's "5" and "3"
+showing through the menu panel. It was blessed that way.
+
+So "covering text needs a layer" is a statement of what the renderer does, not a design
+anyone should keep. It is recorded on the roadmap as a defect with this evidence rather
+than as an enhancement, and the fix is the same one named above: give `Primitive::Text`
+the box it was laid out in, and the planner can order it like everything else.
+
 ## Verification
 
 - `cargo test -p frus-gpu` — 22 passing, six of them new and none needing a GPU: the
