@@ -50,7 +50,7 @@ use frus_widgets::{
     button, column, keyed, row, spacer, text, Alert, Align, AnimationController, AppBar,
     Autocomplete, Avatar, Axis, BarChart, BoxFit, Breadcrumb, Card, Carousel, Checkbox, Chip,
     Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker, Divider,
-    Dropdown, ErrorSummary, fab_button, FabLocation, Flex, FontWeight, Grid, Icon, IconName, Image,
+    bar_spacer, BottomAppBar, Dropdown, ErrorSummary, fab_button, FabLocation, Flex, FontWeight, Grid, Icon, IconName, Image,
     ImageData, ImageHandle,
     Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation,
     Dismissible, Draggable, DragTarget, Hero, PageView, Pagination, Placement, Popover, Portal,
@@ -2055,19 +2055,40 @@ fn task_screen(
     .justify(Justify::Center)
     .flex(1.0);
 
-    let screen = column![
-        NavBar::new("Task").on_back(Msg::Pop),
-        Container::new().width(width).padding(24.0).flex(1.0).child(body)
-    ]
-    .width(width)
-    .height(height);
-    Box::new(
-        Container::new()
-            .width(width)
-            .height(height)
-            .color(theme.background)
-            .child(screen),
-    )
+    // A bottom app bar and a **docked** button (milestone 291): the screen's own
+    // actions along the bottom, and the one that matters most astride the bar's top
+    // edge, in a notch cut to receive it.
+    Scaffold::new(width, height)
+        .background(theme.background)
+        .app_bar(NavBar::new("Task").on_back(Msg::Pop))
+        .body(Container::new().width(width).padding(24.0).child(body))
+        .bottom_app_bar(
+            // Unfilled actions, as a bottom app bar carries: icons and words, not
+            // filled buttons. Also the only thing that works today — see the renderer
+            // note in milestone 291: a filled button on a **notched** bar is painted
+            // over by the bar's own outline.
+            BottomAppBar::new().color(theme.surface).child(
+                Flex::row()
+                    .align(Align::Center)
+                    .gap(16.0)
+                    .child(
+                        Container::new()
+                            .padding(8.0)
+                            .on_click(Msg::DeleteTodo(id))
+                            .child(text("Delete").size(15.0).color(theme.error)),
+                    )
+                    .child(
+                        Container::new()
+                            .padding(8.0)
+                            .on_click(Msg::Pop)
+                            .child(text("Back").size(15.0).color(theme.muted)),
+                    )
+                    .child(bar_spacer()),
+            ),
+        )
+        .fab_location(FabLocation::EndDocked)
+        .fab(fab_button(if done { "↺" } else { "✓" }, Msg::ToggleTodo(id)))
+        .build()
 }
 
 fn tour_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {

@@ -8,13 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 290 so far, each documenting the objective, the alternatives
+> record — one per step, 291 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
 
+- **A bottom app bar, cut with a notch** (J291). `BottomAppBar` carries the actions of the
+  screen you are on, as against the navigation bar's choice of screen, and a docked FAB
+  sits in a notch cut into its top edge. The notch is the **scaffold's** to cut, not the
+  bar's — it is the party that knows where both are — which is why `bottom_app_bar` takes
+  the bar by its own type rather than as an opaque widget. The curve is the reference's:
+  two quadratics onto the button's circle and an arc between them, so the bar meets it
+  tangentially. `Path::arc_to` came with it.
 - **The FAB has a location, not a corner** (J290). `FabLocation` places it at either end
   or centred, **floating** clear of the bottom bar or **docked** astride its top edge —
   the placement a notched bar is cut for. `EndFloat` is what the scaffold already did, so

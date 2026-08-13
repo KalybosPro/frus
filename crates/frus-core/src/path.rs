@@ -149,6 +149,41 @@ impl Path {
             .close()
     }
 
+    /// Continues the path along a **circular arc**, from `start` to `end` (radians,
+    /// measured from the positive x axis, y downwards), around `center`.
+    ///
+    /// The current point is assumed to be the arc's start; nothing moves it there,
+    /// because an arc that jumped to its own beginning could not be part of an
+    /// outline. Approximated by cubics, split so that no piece spans more than a
+    /// quarter turn — which is where the constant used by [`Path::circle`] stops
+    /// being accurate enough.
+    pub fn arc_to(mut self, center: Point, radius: f32, start: f32, end: f32) -> Self {
+        let sweep = end - start;
+        if sweep.abs() < 1e-6 || radius <= 0.0 {
+            return self;
+        }
+        let pieces = (sweep.abs() / std::f32::consts::FRAC_PI_2).ceil().max(1.0);
+        let step = sweep / pieces;
+        // The control-point distance for a cubic that fits a `step` arc exactly at
+        // its ends and its middle. At a quarter turn this is the familiar 0.5523.
+        let k = 4.0 / 3.0 * (step / 4.0).tan();
+        let mut angle = start;
+        for _ in 0..pieces as usize {
+            let next = angle + step;
+            let (s0, c0) = angle.sin_cos();
+            let (s1, c1) = next.sin_cos();
+            let p0 = Point::new(center.x + radius * c0, center.y + radius * s0);
+            let p1 = Point::new(center.x + radius * c1, center.y + radius * s1);
+            self = self.cubic_to(
+                Point::new(p0.x - k * radius * s0, p0.y + k * radius * c0),
+                Point::new(p1.x + k * radius * s1, p1.y - k * radius * c1),
+                p1,
+            );
+            angle = next;
+        }
+        self
+    }
+
     /// A circle, approximated by **four cubic arcs** (the Bézier constant `0.5523`,
     /// which is exact at the nodes).
     pub fn circle(center: Point, radius: f32) -> Self {
@@ -255,6 +290,42 @@ mod tests {
                 PathVerb::Close,
             ]
         );
+    }
+
+    /// An arc lands where it was told to and stays on the circle in between — the
+    /// property that matters, since the arc is one segment of a larger outline.
+    #[test]
+    fn an_arc_ends_on_the_circle_it_was_given() {
+        use std::f32::consts::PI;
+        let centre = Point::new(50.0, 40.0);
+        let radius = 12.0;
+        for (start, end) in [
+            (0.0, PI),           // half a turn
+            (PI, 0.0),           // and back the other way
+            (0.3, 0.5),          // a sliver
+            (-PI, PI * 0.75),    // more than a half turn: several pieces
+        ] {
+            let on = |a: f32| {
+                Point::new(centre.x + radius * a.cos(), centre.y + radius * a.sin())
+            };
+            let path = Path::new().move_to(on(start)).arc_to(centre, radius, start, end);
+            let last = match path.verbs().last() {
+                Some(PathVerb::CubicTo { to, .. }) => *to,
+                other => panic!("an arc ends on a cubic, got {other:?}"),
+            };
+            let want = on(end);
+            assert!(
+                (last.x - want.x).abs() < 0.01 && (last.y - want.y).abs() < 0.01,
+                "arc {start}..{end} ended at {last:?}, wanted {want:?}"
+            );
+            // Every node the arc puts down sits on the circle.
+            for verb in path.verbs() {
+                if let PathVerb::CubicTo { to, .. } = verb {
+                    let d = ((to.x - centre.x).powi(2) + (to.y - centre.y).powi(2)).sqrt();
+                    assert!((d - radius).abs() < 0.01, "node off the circle: {d}");
+                }
+            }
+        }
     }
 
     #[test]

@@ -39,6 +39,7 @@ use frus_layout::Justify;
 use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
+use crate::bottomappbar::BottomAppBar;
 use crate::navrail::{BottomBar, NavRail, BAR_HEIGHT, RAIL_WIDTH};
 use crate::scroll::Scroll;
 use crate::stack::Stack;
@@ -110,6 +111,7 @@ pub struct Scaffold<Msg> {
     destinations: Vec<(String, String, Option<u32>)>,
     drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     end_drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
+    bottom_app_bar: Option<BottomAppBar<Msg>>,
     fab: Option<Box<dyn Widget<Msg>>>,
     fab_location: FabLocation,
     fab_size: f32,
@@ -138,6 +140,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             destinations: Vec::new(),
             drawer: None,
             end_drawer: None,
+            bottom_app_bar: None,
             fab: None,
             fab_location: FabLocation::default(),
             fab_size: FAB_SIZE,
@@ -278,6 +281,20 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
+    /// A **bottom app bar** in place of the navigation one: the actions belonging to
+    /// the screen you are on, rather than a choice of screen.
+    ///
+    /// Taken by its own type, not as an opaque widget, so that the scaffold can cut
+    /// the bar's notch once it knows where it is putting the FAB. A docked button and
+    /// a bar that does not know about it would sit on top of each other.
+    ///
+    /// A scaffold given both this and [`Scaffold::destination`]s keeps the navigation
+    /// — being able to leave the screen outranks the actions on it.
+    pub fn bottom_app_bar(mut self, bar: BottomAppBar<Msg>) -> Self {
+        self.bottom_app_bar = Some(bar);
+        self
+    }
+
     /// Where the FAB sits: which end of the row, and whether it floats clear of the
     /// bottom bar or docks astride its top edge. [`FabLocation::EndFloat`] by default.
     pub fn fab_location(mut self, location: FabLocation) -> Self {
@@ -339,6 +356,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             destinations,
             drawer,
             end_drawer,
+            bottom_app_bar,
             fab,
             fab_location,
             fab_size,
@@ -382,6 +400,33 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         } else {
             None
         };
+
+        // Where the button's centre falls, in the window's own coordinates. Needed
+        // before the bottom bar is built, because a notched bar is cut around it.
+        let fab_centre_x = match fab_location.justify() {
+            Justify::Start => insets.left + FAB_MARGIN + fab_size / 2.0,
+            Justify::Center => width / 2.0,
+            _ => width - insets.right - FAB_MARGIN - fab_size / 2.0,
+        };
+
+        // A bottom app bar takes the bottom slot when there is no navigation in it —
+        // being able to leave the screen outranks the actions on it. Its notch is cut
+        // here, since the scaffold is the only party that knows both positions.
+        let mut bottom_bar_height = 0.0;
+        let nav: Option<Box<dyn Widget<Msg>>> = match (nav, bottom_app_bar) {
+            (Some(nav), _) => Some(nav),
+            (None, Some(bar)) => {
+                bottom_bar_height = bar.declared_height();
+                let bar = if fab.is_some() && fab_location.docked() {
+                    bar.notched_at(fab_centre_x - insets.left, fab_size / 2.0)
+                } else {
+                    bar
+                };
+                Some(Box::new(bar))
+            }
+            (None, None) => None,
+        };
+        let has_nav = has_nav || bottom_bar_height > 0.0;
 
         // The persistent footer: its own row, aligned as asked, kept clear of the side
         // insets. It sits between the body and the bottom bar and never scrolls.
@@ -529,7 +574,13 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         if let Some(fab) = fab {
             // Where the body stops: the top of the bottom bar, which is what both
             // vertical placements are measured from.
-            let nav_h = if compact && has_nav { BAR_HEIGHT } else { 0.0 };
+            let nav_h = if bottom_bar_height > 0.0 {
+                bottom_bar_height
+            } else if compact && has_nav {
+                BAR_HEIGHT
+            } else {
+                0.0
+            };
             let content_bottom = bottom_clear + nav_h;
             let fab_bottom = if fab_location.docked() {
                 // Docked: the button's **centre** on that edge, straddling the bar.
@@ -634,6 +685,10 @@ pub fn fab_button<Msg: Clone + 'static>(
     crate::Button::new(label)
         .variant(Variant::Primary)
         .size(24.0)
+        // **Round**, and not only because the convention is round: a docked button
+        // sits in a circular notch, and a square one would leave the bar curving
+        // around a shape that is not there.
+        .radius(FAB_SIZE / 2.0)
         .on_press(message)
 }
 
@@ -927,6 +982,53 @@ mod tests {
             (docked.y + docked.height / 2.0 - bar_top).abs() < 1.0,
             "centred on the bar's top edge: {docked:?}"
         );
+    }
+
+    /// A bottom app bar takes the bottom slot, the docked button lands on its top
+    /// edge, and the bar is cut to receive it — the three facts that have to agree.
+    #[test]
+    fn a_docked_button_is_received_by_the_bar_it_sits_on() {
+        use crate::BottomAppBar;
+        let bar_height = 64.0;
+        let scaffold = Scaffold::new(W, H)
+            .body(Container::<Msg>::new())
+            .bottom_app_bar(BottomAppBar::new().height(bar_height).color(MARK))
+            .fab_location(FabLocation::EndDocked)
+            .fab_size(56.0)
+            .fab(Container::<Msg>::new().width(56.0).height(56.0))
+            .build();
+        let ui = build_ui(
+            scaffold.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        // The bar paints itself as a **path**, not a rectangle: that is the notch.
+        let outline = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Path { path, fill, .. } if *fill == Some(MARK) => {
+                    Some(path.clone())
+                }
+                _ => None,
+            })
+            .expect("a notched bar paints an outline");
+
+        let bar_top = H - bar_height;
+        let fab_centre_x = W - FAB_MARGIN - 28.0;
+        // No node of the outline intrudes into the button's circle.
+        for verb in outline.verbs() {
+            let p = match verb {
+                frus_core::PathVerb::MoveTo(p) | frus_core::PathVerb::LineTo(p) => *p,
+                frus_core::PathVerb::QuadTo { to, .. }
+                | frus_core::PathVerb::CubicTo { to, .. } => *to,
+                frus_core::PathVerb::Close => continue,
+            };
+            let d = ((p.x - fab_centre_x).powi(2) + (p.y - bar_top).powi(2)).sqrt();
+            assert!(d >= 27.9, "the bar cuts into the button: {p:?} ({d})");
+        }
     }
 
     /// Two drawers, two edges, and a screen may have both.

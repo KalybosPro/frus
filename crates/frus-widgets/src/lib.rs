@@ -17,6 +17,7 @@ mod autocomplete;
 mod avatar;
 mod badge;
 mod barrier;
+mod bottomappbar;
 mod bottomsheet;
 mod breadcrumb;
 mod button;
@@ -198,6 +199,7 @@ pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState,
 };
 pub use safearea::SafeArea;
+pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use scaffold::{fab_button, FabLocation, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;
