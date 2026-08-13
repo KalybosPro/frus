@@ -6,6 +6,9 @@
 //! unused during a frame are evicted. Drawing issues one instanced quad per image,
 //! with the texture bound in group 1; UV, tint and clip all ride on the instance.
 
+use std::ops::Range;
+
+use crate::batch::{Batch, Kind};
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
@@ -261,14 +264,23 @@ impl ImagePainter {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &Scene,
-    ) -> u32 {
+        batches: &[Batch],
+    ) -> Vec<Range<u32>> {
         for cached in self.cache.values_mut() {
             cached.used = false;
         }
         self.instances.clear();
         self.frame_ids.clear();
 
-        for primitive in scene.primitives() {
+        // Filled **in batch order**, so a batch is one contiguous run of instances.
+        let mut ranges = Vec::with_capacity(batches.len());
+        for batch in batches {
+            let start = self.instances.len() as u32;
+            if batch.kind != Kind::Image {
+                ranges.push(start..start);
+                continue;
+            }
+            for &member in &batch.members {
             if let Primitive::Image {
                 image,
                 rect,
@@ -276,7 +288,7 @@ impl ImagePainter {
                 tint,
                 clip,
                 ..
-            } = primitive
+            } = &scene.primitives()[member]
             {
                 let id = image.id();
                 self.ensure_texture(device, queue, image);
@@ -291,6 +303,8 @@ impl ImagePainter {
                 });
                 self.frame_ids.push(id);
             }
+            }
+            ranges.push(start..self.instances.len() as u32);
         }
 
         // Evict the textures unused during this frame.
@@ -298,7 +312,7 @@ impl ImagePainter {
 
         let count = self.instances.len();
         if count == 0 {
-            return 0;
+            return ranges;
         }
         if count > self.instance_capacity {
             let new_capacity = count.next_power_of_two();
@@ -315,7 +329,7 @@ impl ImagePainter {
             0,
             bytemuck::cast_slice(&self.instances),
         );
-        count as u32
+        ranges
     }
 
     /// Uploads an image's texture unless it is already cached.
@@ -388,22 +402,18 @@ impl ImagePainter {
     }
 
     /// Draws the images: one instanced quad each, with the texture bound per draw.
-    pub(crate) fn draw<'pass>(
-        &'pass self,
-        pass: &mut wgpu::RenderPass<'pass>,
-        instance_count: u32,
-    ) {
-        if instance_count == 0 {
+    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, range: Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
         pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        for (i, id) in self.frame_ids.iter().enumerate() {
-            if let Some(cached) = self.cache.get(id) {
+        // One call per image even inside a batch: each carries its own texture.
+        for inst in range {
+            if let Some(cached) = self.cache.get(&self.frame_ids[inst as usize]) {
                 pass.set_bind_group(1, &cached.bind_group, &[]);
-                let inst = i as u32;
                 pass.draw(0..QUAD_VERTEX_COUNT, inst..inst + 1);
             }
         }

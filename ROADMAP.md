@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-293 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+294 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -67,6 +67,8 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 - 🟢 **Clear the clippy backlog.** ~50 warnings, mostly `type_complexity`, `field_reassign_with_default`, and `map_or` simplifications. Then make `-D warnings` blocking in CI.
 - 🟢 **Format the tree.** One `cargo fmt --all` commit, then make the fmt check blocking. Do this on its own, never mixed with a feature.
 - 🟡 **Widen golden coverage.** Many widgets have logic tests but no pixel test. Every widget should have at least one.
+- 🟡 **Make the goldens a required check.** They run on CI under lavapipe, whose rasterisation differs from hardware, so the golden step stays advisory — and an advisory check went red for five milestones without anyone noticing (J294). Establish what tolerance absorbs the lavapipe difference, apply it through `assert_golden_with`, then drop `continue-on-error` from the golden step.
+- 🟡 **Give text its laid-out bounds.** `Primitive::Text` records where text starts, not the box it occupies, so the renderer's batch planner (J294) cannot order text against anything and text keeps a pass above the frame. Recording the bounds at emission would fold text into the plan and make "draw this over that label" work without a layer.
 - 🟡 **Benchmarks.** There is no performance harness at all. Frame time, layout cost, scene build, and text shaping all need one before any optimization claim can be honest.
 - 🟢 **Fix the broken intra-doc links.** `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features` reports ~11 errors — links to private items and one to a type that no longer exists. Then make the strict rustdoc pass blocking in CI.
 

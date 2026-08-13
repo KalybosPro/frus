@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 293 so far, each documenting the objective, the alternatives
+> record — one per step, 294 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **The renderer draws in the order the scene asked for** (J294). It drew one pass per
+  kind of primitive — rect, image, path, text — so every path covered every rectangle in
+  the frame, wherever the two sat in the scene. Found on a device in J291 (a filled button
+  on a notched bar), and it applied to `CustomPaint`, the charts, `ClipPath` and the
+  overscroll glow just as much. Primitives are now given a **level** from what they
+  cover, and a level costs one draw call per kind it holds: a twelve-row list is 3 draw
+  calls, where ordering primitive-against-primitive would have cost 25. Text keeps a pass
+  of its own above the frame, which is now a written rule rather than an accident.
+  `frus_gpu::draw_calls(scene)` reports the cost.
+- **47 stale goldens, and the process that hid them** (J294). The golden suite had been
+  red since J289 — a deliberate change to text measurement that moved glyphs by a pixel —
+  and nobody saw it: the routine test command excludes `frus-test`, and the CI job that
+  does run the goldens was wholly advisory. The goldens are re-blessed, and the GPU job is
+  split so that everything asserting on numbers rather than pixels is required.
 
 ### Changed
 

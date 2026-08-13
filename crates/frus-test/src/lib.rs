@@ -203,3 +203,64 @@ fn read_png(path: &Path) -> Snapshot {
         rgba: buf,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use frus_core::Size;
+    use frus_widgets::{
+        build_ui, button, row, text, Align, Card, Checkbox, Container, Flex, Icon, IconName,
+        Runtime, Theme, Widget,
+    };
+
+    /// Batching has to survive contact with a real widget tree, or the fix for
+    /// milestone 291 would have traded a rendering bug for a frame-time one.
+    ///
+    /// This is a screen shaped like the ones frus draws: a card, rows, buttons with
+    /// icons — rectangles and paths alternating all the way down. If the planner is
+    /// sound, near enough all of them share two draw calls, because a button's
+    /// background does not cover the previous button's icon. If it ever needs one per
+    /// widget, this test says so long before a phone does.
+    #[test]
+    fn a_real_screen_still_batches() {
+        let mut rows: Vec<Box<dyn Widget<()>>> = Vec::new();
+        for i in 0..12 {
+            rows.push(Box::new(
+                row![
+                    Checkbox::new(i % 2 == 0),
+                    text(format!("Task number {i}")).size(15.0),
+                    Container::new().flex(1.0),
+                    Icon::new(IconName::Close).size(16.0),
+                    button("Open", ()),
+                ]
+                .gap(12.0)
+                .align(Align::Center)
+                .height(48.0),
+            ));
+        }
+        let mut list = Flex::column().gap(8.0);
+        for r in rows {
+            list = list.child_boxed(r);
+        }
+        let screen = Container::new()
+            .width(400.0)
+            .height(800.0)
+            .padding(16.0)
+            .child(Card::new().padding(12.0).child(list));
+
+        let ui = build_ui(
+            &screen,
+            Size::new(400.0, 800.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let calls = frus_gpu::draw_calls(ui.scene());
+        let primitives = ui.scene().primitives().len();
+        // Three today — the card's rectangles, the ticks and icons above them, and
+        // the buttons above those. The bound has a little room so that an honest
+        // extra level does not fail the build, and none at all for one call a widget.
+        assert!(
+            calls <= 4,
+            "{calls} draw calls for {primitives} primitives: batching broke down"
+        );
+    }
+}

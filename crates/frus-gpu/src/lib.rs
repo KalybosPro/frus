@@ -11,6 +11,7 @@
 // without depending on `wgpu` directly.
 pub use wgpu;
 
+mod batch;
 mod compositor;
 mod image;
 mod offscreen;
@@ -18,6 +19,17 @@ mod painter;
 mod path;
 mod renderer;
 mod text;
+
+/// How many draw calls a scene's rectangles, images and paths will cost.
+///
+/// The renderer draws them interleaved, in the scene's order wherever they cover one
+/// another, and batched wherever they do not — so this number says how well a screen
+/// batches. A frame of real interface should be a handful; one draw call per widget
+/// means something is breaking every batch, and that is worth noticing before a
+/// device does. Text and layers are not counted: they have passes of their own.
+pub fn draw_calls(scene: &Scene) -> usize {
+    batch::plan(scene).len()
+}
 
 // The data types — geometry, colour, scene — come from the shared foundation.
 pub use frus_core::{Color, Rect, Scene};

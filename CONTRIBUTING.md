@@ -164,6 +164,14 @@ snapshot.assert_golden(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/goldens/card.
 - A failing golden writes `<name>.actual.png` next to the reference so you can diff them. Those files are gitignored.
 - Goldens depend on the rasterizer; text antialiasing varies across drivers. `assert_golden_with` takes a channel tolerance and a pixel budget for that reason. If a golden fails only on your machine, say so in the PR rather than loosening it silently.
 
+**Run the goldens yourself when you change what pixels come out.** `cargo test --workspace` includes them, but the headless CI job does not, and the CI job that does is advisory for the goldens because it renders on software Vulkan. That gap once let a deliberate change to text metrics leave 47 goldens red for five milestones with nobody looking (milestone 294). If your change touches text measurement, layout, painting or the renderer:
+
+```sh
+cargo test -p frus-test --test goldens
+```
+
+If they change, **look at the `.actual.png` files** before deciding. A shift of a pixel or two on every glyph is a text-metric change and probably intended; a shape that has moved, vanished or changed colour is not. Accept them with `FRUS_UPDATE_GOLDENS=1` only once you have looked, and say in the commit message what moved and why.
+
 ## Code style
 
 - `cargo fmt --all` before committing. **Note:** the tree is not fully rustfmt-clean yet, so run `cargo fmt` on *your files only* rather than reformatting everything in a feature PR — a whole-tree format is its own separate PR.

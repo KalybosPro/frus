@@ -4,8 +4,10 @@
 
 use bytemuck::{Pod, Zeroable};
 use frus_core::{Color, Primitive, Scene};
+use std::ops::Range;
 use wgpu::util::DeviceExt;
 
+use crate::batch::{Batch, Kind};
 use crate::text::DecorationQuad;
 
 /// A vertex of the unit quad, its corner in `[0,1]²`.
@@ -217,52 +219,73 @@ impl Painter {
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
 
-    /// Translates the scene's primitives into GPU instances and uploads them,
-    /// growing the buffer if needed. Returns the instance count.
+    /// Appends one rectangle primitive's instance. Anything else is another painter's
+    /// business and is skipped.
+    fn push(&mut self, primitive: &Primitive) {
+        match primitive {
+            Primitive::Rect {
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                radius,
+                border_width,
+                border_color,
+                blur,
+                clip,
+                ..
+            } => self.instances.push(Instance {
+                rect: rect.to_array(),
+                color: color.to_array(),
+                color2: color2.to_array(),
+                border_color: border_color.to_array(),
+                params: [0.0, *border_width, *blur, 0.0],
+                gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
+                clip: clip.to_array(),
+                // Negative radii are clamped to zero before rendering.
+                radii: radius.clamped().to_array(),
+            }),
+            // Text, vector paths and images are rendered by their own painters
+            // (TextPainter, PathPainter, ImagePainter).
+            Primitive::Text { .. }
+            | Primitive::RichText { .. }
+            | Primitive::Path { .. }
+            | Primitive::Image { .. }
+            | Primitive::Layer { .. } => {}
+        }
+    }
+
+    /// Translates the scene's rectangles into GPU instances and uploads them, growing
+    /// the buffer if needed.
+    ///
+    /// The buffer is filled **in batch order**, not scene order, so every batch is one
+    /// contiguous run of instances and therefore one draw call. Returns the range each
+    /// batch occupies — empty for the batches another painter owns — plus, last, the
+    /// range of the text decorations.
     fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &Scene,
         decorations: &[DecorationQuad],
-    ) -> u32 {
+        batches: &[Batch],
+    ) -> (Vec<Range<u32>>, Range<u32>) {
         self.instances.clear();
-        for primitive in scene.primitives() {
-            match primitive {
-                Primitive::Rect {
-                    rect,
-                    color,
-                    color2,
-                    gradient_dir,
-                    radius,
-                    border_width,
-                    border_color,
-                    blur,
-                    clip,
-                    ..
-                } => self.instances.push(Instance {
-                    rect: rect.to_array(),
-                    color: color.to_array(),
-                    color2: color2.to_array(),
-                    border_color: border_color.to_array(),
-                    params: [0.0, *border_width, *blur, 0.0],
-                    gradient: [gradient_dir[0], gradient_dir[1], 0.0, 0.0],
-                    clip: clip.to_array(),
-                    // Negative radii are clamped to zero before rendering.
-                    radii: radius.clamped().to_array(),
-                }),
-                // Text, vector paths and images are rendered by their own painters
-                // (TextPainter, PathPainter, ImagePainter).
-                Primitive::Text { .. }
-                | Primitive::RichText { .. }
-                | Primitive::Path { .. }
-                | Primitive::Image { .. }
-                | Primitive::Layer { .. } => {}
+        let mut ranges = Vec::with_capacity(batches.len());
+        for batch in batches {
+            let start = self.instances.len() as u32;
+            if batch.kind == Kind::Rect {
+                for &index in &batch.members {
+                    self.push(&scene.primitives()[index]);
+                }
             }
+            ranges.push(start..self.instances.len() as u32);
         }
 
         // Text decoration quads (underline, strikethrough): plain rectangles, drawn
-        // in the quad pass, and therefore beneath the glyphs.
+        // in the quad pass, and therefore beneath the glyphs. They go last, with the
+        // text they belong to, rather than into a batch of their own.
+        let decoration_start = self.instances.len() as u32;
         for quad in decorations {
             self.instances.push(Instance {
                 rect: quad.rect.to_array(),
@@ -275,10 +298,11 @@ impl Painter {
                 radii: [0.0, 0.0, 0.0, 0.0],
             });
         }
+        let decoration_range = decoration_start..self.instances.len() as u32;
 
         let count = self.instances.len();
         if count == 0 {
-            return 0;
+            return (ranges, decoration_range);
         }
         if count > self.instance_capacity {
             let new_capacity = count.next_power_of_two();
@@ -295,36 +319,34 @@ impl Painter {
             0,
             bytemuck::cast_slice(&self.instances),
         );
-        count as u32
+        (ranges, decoration_range)
     }
 
-    /// Prepares the render by uploading the instances, and returns their count.
-    /// `decorations` are the quads coming from text (see
-    /// [`TextPainter::prepare_frame`]). Call it **before** opening the render pass.
+    /// Prepares the render by uploading the instances laid out for `batches`, and
+    /// returns each batch's range plus the decorations'. `decorations` are the quads
+    /// coming from text (see [`TextPainter::prepare_frame`]). Call it **before**
+    /// opening the render pass.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &Scene,
         decorations: &[DecorationQuad],
-    ) -> u32 {
-        self.prepare(device, queue, scene, decorations)
+        batches: &[Batch],
+    ) -> (Vec<Range<u32>>, Range<u32>) {
+        self.prepare(device, queue, scene, decorations, batches)
     }
 
-    /// Draws the rectangles into an already-open render pass.
-    pub(crate) fn draw<'pass>(
-        &'pass self,
-        pass: &mut wgpu::RenderPass<'pass>,
-        instance_count: u32,
-    ) {
-        if instance_count == 0 {
+    /// Draws one batch's rectangles into an already-open render pass.
+    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, range: Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
         pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        pass.draw(0..QUAD_VERTEX_COUNT, 0..instance_count);
+        pass.draw(0..QUAD_VERTEX_COUNT, range);
     }
 }
 
@@ -397,7 +419,9 @@ mod tests {
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
+        let batches = crate::batch::plan(&scene);
+        let (ranges, _) =
+            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -413,7 +437,9 @@ mod tests {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            painter.draw(&mut pass, count);
+            for range in &ranges {
+                painter.draw(&mut pass, range.clone());
+            }
         }
 
         // Copy the texture into a CPU-readable buffer.
@@ -508,7 +534,9 @@ mod tests {
             Color::TRANSPARENT,
         );
 
-        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
+        let batches = crate::batch::plan(&scene);
+        let (ranges, _) =
+            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -526,7 +554,9 @@ mod tests {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            painter.draw(&mut pass, count);
+            for range in &ranges {
+                painter.draw(&mut pass, range.clone());
+            }
         }
 
         let bytes_per_row = SIZE * 4;
@@ -624,7 +654,9 @@ mod tests {
             Color::TRANSPARENT,
         );
 
-        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
+        let batches = crate::batch::plan(&scene);
+        let (ranges, _) =
+            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -642,7 +674,9 @@ mod tests {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            painter.draw(&mut pass, count);
+            for range in &ranges {
+                painter.draw(&mut pass, range.clone());
+            }
         }
 
         let bytes_per_row = SIZE * 4;
@@ -741,7 +775,9 @@ mod tests {
             Color::rgb(1.0, 0.0, 0.0),
         );
 
-        let count = painter.prepare_frame(&device, &queue, &scene, &[]);
+        let batches = crate::batch::plan(&scene);
+        let (ranges, _) =
+            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -759,7 +795,9 @@ mod tests {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            painter.draw(&mut pass, count);
+            for range in &ranges {
+                painter.draw(&mut pass, range.clone());
+            }
         }
 
         let bytes_per_row = SIZE * 4;

@@ -52,16 +52,23 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Golden / GPU tests — need a working Vulkan device. On CI that is lavapipe
-  # (software Vulkan), whose rasterization differs subtly from real hardware, so
-  # this job is advisory for now.
+  # (software Vulkan), whose rasterization differs subtly from real hardware.
   #
-  # TODO: once goldens are confirmed stable under lavapipe, drop
-  # `continue-on-error` and make this a required check.
+  # Only the **goldens** are sensitive to that, so only they are advisory. The rest
+  # of the GPU-backed tests — clipping, transforms, batching — assert on numbers and
+  # not on pixels, and they are required.
+  #
+  # This split exists because the old arrangement made the whole job advisory, and a
+  # deliberate text-metric change (milestone 289) left 47 goldens red for five
+  # milestones with nobody looking. See milestone 294.
+  #
+  # TODO: once goldens are confirmed stable under lavapipe — most likely by allowing
+  # a channel tolerance rather than demanding exact bytes — fold the golden step back
+  # in and drop `continue-on-error` from it too.
   # ---------------------------------------------------------------------------
   gpu-test:
-    name: GPU & golden tests (advisory)
+    name: GPU tests
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -75,11 +82,21 @@ jobs:
             libxkbcommon-dev libwayland-dev libx11-dev
           vulkaninfo --summary || true
 
-      - name: Test
+      - name: Test (GPU, everything but the goldens — required)
         env:
           WGPU_BACKEND: vulkan
           LIBGL_ALWAYS_SOFTWARE: "1"
-        run: cargo test -p frus-gpu -p frus-test
+        run: |
+          cargo test -p frus-gpu
+          cargo test -p frus-test --lib
+          cargo test -p frus-test --test clip --test multiline_scroll --test transforms
+
+      - name: Goldens (advisory — lavapipe rasterises differently from hardware)
+        continue-on-error: true
+        env:
+          WGPU_BACKEND: vulkan
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: cargo test -p frus-test --test goldens
 
       - name: Upload failed golden diffs
         if: failure()

@@ -10,6 +10,7 @@
 //! ([`Painters::warm_up`]): the first real frame compiles no shader, so it never
 //! stutters.
 
+use crate::batch;
 use bytemuck::{Pod, Zeroable};
 use frus_core::{BoxFit, Color, ImageData, Path, Point, Primitive, Rect, Scene};
 use wgpu::util::DeviceExt;
@@ -431,6 +432,9 @@ pub(crate) struct Painters {
     msaa: Option<MsaaScratch>,
     /// Layer textures kept across frames, indexed by the layer's rank.
     layer_cache: Vec<CachedLayer>,
+    /// How many batches the planner produced since creation — the batching's proof:
+    /// a frame of a real screen should be a handful, not one per widget.
+    batch_count: u64,
     /// How many layer pre-passes were actually rendered — the cache's proof.
     #[allow(dead_code)]
     layer_renders: u64,
@@ -444,6 +448,7 @@ impl Painters {
         sample_count: u32,
     ) -> Self {
         Self {
+            batch_count: 0,
             rect: Painter::new(device, format, sample_count),
             image: ImagePainter::new(device, format, sample_count),
             path: PathPainter::new(device, format, sample_count),
@@ -454,6 +459,11 @@ impl Painters {
             layer_cache: Vec::new(),
             layer_renders: 0,
         }
+    }
+
+    /// Batches planned since creation, for the batching test.
+    pub(crate) fn batch_count(&self) -> u64 {
+        self.batch_count
     }
 
     /// Layer pre-passes rendered since creation, for the cache test.
@@ -587,9 +597,16 @@ impl Painters {
         self.composite
             .prepare(device, queue, &layers, w as f32, h as f32);
         let decorations = self.text.prepare_frame(device, queue, scene, w, h);
-        let rect_count = self.rect.prepare_frame(device, queue, scene, &decorations);
-        let image_count = self.image.prepare_frame(device, queue, scene);
-        let path_count = self.path.prepare_frame(device, queue, scene);
+        // What may share a draw call, and in what order — see `batch`. Rectangles,
+        // images and paths are interleaved by the scene's order wherever they cover
+        // one another; text keeps its own pass above them.
+        let batches = batch::plan(scene);
+        let (rect_ranges, decoration_range) =
+            self.rect
+                .prepare_frame(device, queue, scene, &decorations, &batches);
+        let image_ranges = self.image.prepare_frame(device, queue, scene, &batches);
+        let path_ranges = self.path.prepare_frame(device, queue, scene, &batches);
+        self.batch_count += batches.len() as u64;
 
         // With MSAA we paint into the multisampled texture then resolve to `target`;
         // without it we paint straight into `target`.
@@ -621,9 +638,16 @@ impl Painters {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            self.rect.draw(&mut pass, rect_count);
-            self.image.draw(&mut pass, image_count);
-            self.path.draw(&mut pass, path_count);
+            for (i, batch) in batches.iter().enumerate() {
+                match batch.kind {
+                    batch::Kind::Rect => self.rect.draw(&mut pass, rect_ranges[i].clone()),
+                    batch::Kind::Image => self.image.draw(&mut pass, image_ranges[i].clone()),
+                    batch::Kind::Path => self.path.draw(&mut pass, path_ranges[i].clone()),
+                }
+            }
+            // The decoration quads go with the text they underline, not with the
+            // rectangles they happen to be made of.
+            self.rect.draw(&mut pass, decoration_range);
             self.text.draw(&mut pass);
             self.composite.draw(&mut pass);
         }
@@ -726,9 +750,13 @@ impl Painters {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let decorations = self.text.prepare_frame(device, queue, &sub, w, h);
-        let rect_count = self.rect.prepare_frame(device, queue, &sub, &decorations);
-        let image_count = self.image.prepare_frame(device, queue, &sub);
-        let path_count = self.path.prepare_frame(device, queue, &sub);
+        let batches = batch::plan(&sub);
+        let (rect_ranges, decoration_range) =
+            self.rect
+                .prepare_frame(device, queue, &sub, &decorations, &batches);
+        let image_ranges = self.image.prepare_frame(device, queue, &sub, &batches);
+        let path_ranges = self.path.prepare_frame(device, queue, &sub, &batches);
+        self.batch_count += batches.len() as u64;
 
         // With MSAA the layer is painted multisampled then resolved to its
         // single-sample texture, the one the compositor samples afterwards.
@@ -757,9 +785,14 @@ impl Painters {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            self.rect.draw(&mut pass, rect_count);
-            self.image.draw(&mut pass, image_count);
-            self.path.draw(&mut pass, path_count);
+            for (i, batch) in batches.iter().enumerate() {
+                match batch.kind {
+                    batch::Kind::Rect => self.rect.draw(&mut pass, rect_ranges[i].clone()),
+                    batch::Kind::Image => self.image.draw(&mut pass, image_ranges[i].clone()),
+                    batch::Kind::Path => self.path.draw(&mut pass, path_ranges[i].clone()),
+                }
+            }
+            self.rect.draw(&mut pass, decoration_range);
             self.text.draw(&mut pass);
         }
         queue.submit(std::iter::once(encoder.finish()));

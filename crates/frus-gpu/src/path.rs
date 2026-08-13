@@ -11,6 +11,9 @@
 
 use bytemuck::{Pod, Zeroable};
 use frus_core::{Path, PathVerb, Primitive, Scene};
+use std::ops::Range;
+
+use crate::batch::{Batch, Kind};
 use lyon::math::point;
 use lyon::path::Path as LyonPath;
 use lyon::tessellation::{
@@ -223,18 +226,28 @@ impl PathPainter {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &Scene,
-    ) -> u32 {
+        batches: &[Batch],
+    ) -> Vec<Range<u32>> {
         self.geometry.vertices.clear();
         self.geometry.indices.clear();
 
-        for primitive in scene.primitives() {
+        // Tessellated **in batch order**, so a batch is one contiguous index range
+        // and one indexed draw. Scene order survives inside a batch.
+        let mut ranges = Vec::with_capacity(batches.len());
+        for batch in batches {
+            let start = self.geometry.indices.len() as u32;
+            if batch.kind != Kind::Path {
+                ranges.push(start..start);
+                continue;
+            }
+            for &member in &batch.members {
             if let Primitive::Path {
                 path,
                 fill,
                 stroke,
                 clip,
                 ..
-            } = primitive
+            } = &scene.primitives()[member]
             {
                 let lyon_path = to_lyon(path);
                 let clip = clip.to_array();
@@ -262,12 +275,14 @@ impl PathPainter {
                     );
                 }
             }
+            }
+            ranges.push(start..self.geometry.indices.len() as u32);
         }
 
         let vertex_count = self.geometry.vertices.len();
         let index_count = self.geometry.indices.len();
         if index_count == 0 {
-            return 0;
+            return ranges;
         }
 
         if vertex_count > self.vertex_capacity {
@@ -301,19 +316,19 @@ impl PathPainter {
             0,
             bytemuck::cast_slice(&self.geometry.indices),
         );
-        index_count as u32
+        ranges
     }
 
-    /// Draws the paths into an already-open render pass.
-    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, index_count: u32) {
-        if index_count == 0 {
+    /// Draws one batch's paths into an already-open render pass.
+    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, range: Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..index_count, 0, 0..1);
+        pass.draw_indexed(range, 0, 0..1);
     }
 }
 
