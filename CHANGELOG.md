@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 292 so far, each documenting the objective, the alternatives
+> record — one per step, 293 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **The demo is 22 files, not one** (J293). It was 4,360 lines in a single `lib.rs`, and
+  since it is the only large frus application anyone can read, it taught that an
+  application has to be written that way. It does not: `model.rs` (the state and the
+  questions worth asking it), `message.rs` (`Msg` alone), `update.rs` (`reduce`, the one
+  place state changes), one file per screen under `screens/`, and a `prelude.rs` so a
+  screen does not name thirty widgets before drawing one. No behaviour changed — same
+  widgets, same 37 tests, same scene. New guide: `docs/app-structure.md`.
 
 ### Added
 

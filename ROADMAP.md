@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-292 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+293 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -69,7 +69,6 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 - 🟡 **Widen golden coverage.** Many widgets have logic tests but no pixel test. Every widget should have at least one.
 - 🟡 **Benchmarks.** There is no performance harness at all. Frame time, layout cost, scene build, and text shaping all need one before any optimization claim can be honest.
 - 🟢 **Fix the broken intra-doc links.** `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features` reports ~11 errors — links to private items and one to a type that no longer exists. Then make the strict rustdoc pass blocking in CI.
-- 🟢 **Fix the `dead_code` warning** in `frus-demo` (`grid_first_error`) — either use it or drop it.
 
 ---
 
