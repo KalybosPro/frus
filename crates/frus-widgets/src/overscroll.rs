@@ -24,7 +24,7 @@
 //! feeds events in and calls [`OverscrollGlow::advance`] once a frame — so the whole
 //! state machine is testable with no window and no GPU.
 
-use frus_core::{Color, Curve, Path, Point, Rect, Scene};
+use frus_core::{Color, Curve, Path, Point, Rect, Scene, Size};
 
 /// Which edge of a viewport a glow sits on.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -347,23 +347,31 @@ impl OverscrollGlow {
         let band_rect = map(Rect::new(0.0, 0.0, along, band));
         let previous = scene.current_clip();
         scene.set_clip(previous.intersect(band_rect));
-        // Full strength **at the edge**, gone by the far side of the band. A flat fill
-        // gives the arc a hard curved boundary across the whole width, which reads as
-        // the page being bent rather than as light — found on a device (milestone
-        // 301). The fade is what makes it a glow.
-        // The arc's cap reaches `band * scale_y` into the content — the oval's bottom,
-        // the band being only the widest it could ever be. Fading over the band rather
-        // than over the cap would spend the whole gradient off screen and leave the
-        // visible sliver flat, which is the bug over again.
-        let depth = (band * scale_y).max(1.0);
-        let near = map(Rect::new(0.0, 0.0, 0.0, 0.0));
-        let far = map(Rect::new(0.0, depth, 0.0, 0.0));
-        scene.fill_path_gradient(
-            &Path::oval(map(oval)),
+        // Gone **by the arc's own boundary**, full strength where it meets the edge.
+        // A flat fill gives the arc a hard curved edge across the whole width, which
+        // reads as the page being bent rather than as light — found on a device
+        // (milestone 301). The fade is what makes it a glow.
+        //
+        // It has to be radial. The arc is the cap of an ellipse, so its boundary is at
+        // its deepest in the middle and rises towards the flanks; a straight fade aimed
+        // at that deepest point still has colour left where the boundary comes up to
+        // meet it, and that leftover is a visible edge at each end of the arc — the
+        // same defect one layer down, seen on the device again (milestone 302).
+        //
+        // The inner radius is where the ellipse crosses the edge of the band, so the
+        // fade begins there and not at the centre, which is far off screen. It falls
+        // out of the geometry alone: the ellipse's centre sits `radius - band` from the
+        // edge and its radius is `radius`, both scaled the same way, so `scale_y`
+        // cancels and only the ratio remains.
+        let inner = ((radius - band) / radius).clamp(0.0, 0.999);
+        let arc = map(oval);
+        scene.fill_path_radial(
+            &Path::oval(arc),
             color.fade(opacity),
             color.fade(0.0),
-            Point::new(near.x, near.y),
-            Point::new(far.x, far.y),
+            Point::new(arc.x + arc.width / 2.0, arc.y + arc.height / 2.0),
+            Size::new(arc.width / 2.0, arc.height / 2.0),
+            inner,
         );
         scene.set_clip(previous);
     }

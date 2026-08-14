@@ -8,8 +8,8 @@
 //! [`Scene::set_clip`] before primitives are added.
 
 use crate::{
-    Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, PathVerb, Point, Rect, Stroke,
-    TextDecoration, TextRun, TextStyle,
+    Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, PathVerb, Point, Rect, Size,
+    Stroke, TextDecoration, TextRun, TextStyle,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -61,46 +61,113 @@ impl LayerTransform {
     }
 }
 
-/// A **linear gradient along a path's fill**: the fill colour at `from`, `to_color`
-/// at `to`, interpolated in between and clamped outside.
+/// How a path's fill **fades**: along a line, or outwards from a centre.
 ///
-/// The two points are in the same space as the path, deliberately, so a fade can be
-/// aimed at something real — the edge a glow springs from, the depth of a band —
-/// rather than at whatever bounding box the geometry happens to have.
+/// The geometry is in the same space as the path, deliberately, so a fade can be
+/// aimed at something real — the edge a glow springs from, the ellipse whose cap is
+/// the glow — rather than at whatever bounding box the geometry happens to have.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PathGradient {
-    /// The colour at `to`. The colour at `from` is the primitive's `fill`.
-    pub to_color: Color,
-    /// Where the fill colour holds.
-    pub from: Point,
-    /// Where `to_color` holds.
-    pub to: Point,
+pub enum PathGradient {
+    /// The fill colour at `from`, `to_color` at `to`, clamped outside that span.
+    Linear {
+        /// The colour at `to`. The colour at `from` is the primitive's `fill`.
+        to_color: Color,
+        /// Where the fill colour holds.
+        from: Point,
+        /// Where `to_color` holds.
+        to: Point,
+    },
+    /// The fill colour on the ellipse of radii `inner × radii` about `center`,
+    /// `to_color` on the ellipse of radii `radii`, clamped outside.
+    ///
+    /// A curved edge needs this. A linear fade can only reach zero along a *line*,
+    /// so a shape whose boundary curves away from that line stops while the fade is
+    /// unfinished, and the leftover shows as an edge — which is the very thing a
+    /// glow must not have (milestone 302).
+    Radial {
+        /// The colour on the outer ellipse.
+        to_color: Color,
+        /// The centre of both ellipses.
+        center: Point,
+        /// The outer ellipse's radii, where `to_color` holds.
+        radii: Size,
+        /// Where the fade starts, as a fraction of `radii`. `0` fades from the
+        /// centre outwards; a value near `1` confines it to a thin rind.
+        inner: f32,
+    },
 }
 
 impl PathGradient {
-    /// Scales the two points per axis, as a DPI or paint scale does to geometry.
+    /// Scales the geometry per axis, as a DPI or paint scale does.
     pub fn scaled_xy(self, sx: f32, sy: f32) -> Self {
-        Self {
-            to_color: self.to_color,
-            from: Point::new(self.from.x * sx, self.from.y * sy),
-            to: Point::new(self.to.x * sx, self.to.y * sy),
+        match self {
+            Self::Linear { to_color, from, to } => Self::Linear {
+                to_color,
+                from: Point::new(from.x * sx, from.y * sy),
+                to: Point::new(to.x * sx, to.y * sy),
+            },
+            Self::Radial {
+                to_color,
+                center,
+                radii,
+                inner,
+            } => Self::Radial {
+                to_color,
+                center: Point::new(center.x * sx, center.y * sy),
+                radii: Size::new(radii.width * sx, radii.height * sy),
+                inner,
+            },
         }
     }
 
-    /// Moves the two points with the geometry they describe.
+    /// Moves the geometry with the shape it describes.
     pub fn translated(self, dx: f32, dy: f32) -> Self {
-        Self {
-            to_color: self.to_color,
-            from: Point::new(self.from.x + dx, self.from.y + dy),
-            to: Point::new(self.to.x + dx, self.to.y + dy),
+        match self {
+            Self::Linear { to_color, from, to } => Self::Linear {
+                to_color,
+                from: Point::new(from.x + dx, from.y + dy),
+                to: Point::new(to.x + dx, to.y + dy),
+            },
+            Self::Radial {
+                to_color,
+                center,
+                radii,
+                inner,
+            } => Self::Radial {
+                to_color,
+                center: Point::new(center.x + dx, center.y + dy),
+                radii,
+                inner,
+            },
+        }
+    }
+
+    /// The colour the fade ends on.
+    pub fn to_color(self) -> Color {
+        match self {
+            Self::Linear { to_color, .. } | Self::Radial { to_color, .. } => to_color,
         }
     }
 
     /// Fades the end colour with the fill it belongs to.
     pub fn faded(self, opacity: f32) -> Self {
-        Self {
-            to_color: self.to_color.fade(opacity),
-            ..self
+        match self {
+            Self::Linear { to_color, from, to } => Self::Linear {
+                to_color: to_color.fade(opacity),
+                from,
+                to,
+            },
+            Self::Radial {
+                to_color,
+                center,
+                radii,
+                inner,
+            } => Self::Radial {
+                to_color: to_color.fade(opacity),
+                center,
+                radii,
+                inner,
+            },
         }
     }
 }
@@ -214,7 +281,7 @@ pub enum Primitive {
         /// Interior fill colour (`None` = no fill), and the gradient's start colour
         /// when there is one.
         fill: Option<Color>,
-        /// A linear gradient across the fill; `None` leaves it flat.
+        /// A gradient across the fill, straight or radial; `None` leaves it flat.
         gradient: Option<PathGradient>,
         /// Outline (colour plus width); `None` = no outline.
         stroke: Option<Stroke>,
@@ -1033,7 +1100,37 @@ impl Scene {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
             fill: Some(from_color),
-            gradient: Some(PathGradient { to_color, from, to }),
+            gradient: Some(PathGradient::Linear { to_color, from, to }),
+            stroke: None,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Fills a path with a **radial gradient**: `from_color` on the ellipse of radii
+    /// `inner × radii` about `center`, `to_color` on the ellipse of radii `radii`.
+    ///
+    /// This is what a shape with a **curved** boundary needs in order to fade to
+    /// nothing all the way round: a straight fade reaches zero on a line, so it still
+    /// leaves an edge wherever the shape turns away from that line.
+    pub fn fill_path_radial(
+        &mut self,
+        path: &Path,
+        from_color: Color,
+        to_color: Color,
+        center: Point,
+        radii: Size,
+        inner: f32,
+    ) {
+        self.primitives.push(Primitive::Path {
+            path: path.clone(),
+            fill: Some(from_color),
+            gradient: Some(PathGradient::Radial {
+                to_color,
+                center,
+                radii,
+                inner,
+            }),
             stroke: None,
             clip: self.current_clip,
             owner: self.current_owner,
@@ -1254,6 +1351,37 @@ mod tests {
                 owner: 0,
             }
         );
+    }
+
+    /// A gradient describes geometry, so it has to move with the geometry it
+    /// describes — otherwise a fade aimed at the top of a list would stay behind when
+    /// the DPI scale or a layer offset moved the shape.
+    #[test]
+    fn a_radial_gradient_travels_with_its_shape() {
+        let mut scene = Scene::new();
+        scene.fill_path_radial(
+            &Path::oval(Rect::new(0.0, 0.0, 40.0, 20.0)),
+            Color::WHITE,
+            Color::TRANSPARENT,
+            Point::new(20.0, 10.0),
+            Size::new(20.0, 10.0),
+            0.8,
+        );
+        let moved = scene.primitives()[0].clone().scaled_xy(2.0, 3.0);
+        let Primitive::Path { gradient, .. } = moved.translated(5.0, 7.0) else {
+            panic!("a filled path");
+        };
+        assert_eq!(
+            gradient,
+            Some(PathGradient::Radial {
+                to_color: Color::TRANSPARENT,
+                center: Point::new(45.0, 37.0),
+                radii: Size::new(40.0, 30.0),
+                // The rind is a ratio, so it is the one thing scaling must not touch.
+                inner: 0.8,
+            })
+        );
+        assert_eq!(gradient.unwrap().faded(0.5).to_color().a, 0.0);
     }
 
     #[test]

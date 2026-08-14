@@ -8,13 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 299 so far, each documenting the objective, the alternatives
+> record — one per step, 302 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **The overscroll glow is light, not a dent** (J301, J302). Reported from a device:
+  *"I scrolled vertically, top to bottom. But it happens as if I pulled the sides too."*
+  The glow was a **flat** fill — `Primitive::Path` carried a colour and nothing else, so
+  a path could not fade — and a hard curved boundary drawn across the full width reads
+  as the page being bent, because that is what a curved edge across a page normally
+  means. Paths take a gradient now, aimed at points in the path's own space rather than
+  at a bounding box, since the glow's ellipse is mostly off screen. J302 checked it on
+  the phone and found the same defect one layer down: a **straight** fade reaches zero
+  on a *line*, so the arc's boundary, which rises towards each flank, still cut the fade
+  short and left an edge at each end. The gradient is **radial** there — distance
+  measured in radii, so the far end of the fade is the ellipse itself — and it is
+  resolved in the fragment shader rather than per vertex, a radial fade not being affine
+  and an ellipse tessellating into triangles whose every corner sits on the boundary.
+  New API: `Scene::fill_path_gradient`, `Scene::fill_path_radial`, `PathGradient`.
+  `CustomPaint`, the charts and `ClipPath` can all fade now.
 - **The renderer draws in the order the scene asked for** (J294). It drew one pass per
   kind of primitive — rect, image, path, text — so every path covered every rectangle in
   the frame, wherever the two sat in the scene. Found on a device in J291 (a filled button
@@ -49,6 +64,19 @@ any release may break.
 
 ### Changed
 
+- **Text is measured once, not once a frame** (J300). J299's baseline said three
+  quarters of the cost of building a frame was `frus_text::measure`, re-shaping through
+  cosmic-text on every call for strings that had not changed. There is a cache now,
+  keyed on `(text, size, weight, italic, max_width)` with the weight and style
+  **resolved** — a Medium asked for on a family that only ships Regular hits the
+  Regular's entry, which is the same shaping either way. Eviction is two generations
+  and a promotion on hit: a string still on screen never falls out, a string that has
+  gone leaves with its generation, and there are no timestamps. Registering a font
+  empties the cache outright, an answer from before that being wrong rather than stale.
+  `measure/line` 16.3 µs → **79 ns**. Measured against the same tree with every string
+  replaced by a box of the size it would have taken — the only control that survives a
+  machine having a slower day — building a twelve-row frame went from **4.1×** that
+  tree to **1.20×**: text is a sixth of a frame now, where it was three quarters.
 - **A performance harness, and what it found** (J299). `crates/frus-bench` measures
   `build_ui`, text measurement and wrapping, and batch planning, under the release
   profile. The baseline says something the roadmap had wrong: **three quarters of the

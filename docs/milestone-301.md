@@ -91,3 +91,9 @@ Flat, then a cliff — against full strength at the edge, gone by the arc's tip.
   that a flat fill goes through the new pipeline untouched.
 - 815 workspace tests, 24 in `frus-gpu`.
 - fmt clean, clippy silent.
+
+Not yet on the device: the APK would not build for want of a release keystore, and the
+phone was off the wire. **Milestone 302 is that check**, and it found the same defect
+one layer down — a straight fade cannot reach zero along a *curved* boundary, so the
+arc still ended on an edge at each of its flanks. The gradient is radial there, and
+resolved in the fragment shader rather than per vertex.
