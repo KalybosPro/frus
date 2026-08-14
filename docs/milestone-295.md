@@ -93,6 +93,11 @@ honest, which is the argument for doing it.
   `decorated_form.png` included once `TextInput` was corrected.
 
   These two are better evidence than a photograph would be: a pixel-exact before and
-  after of the exact defect. The demo's own overflow menu — the thing that started this
-  — was **not** re-checked on the device: it came off the wire between the build and the
-  install. The APK is built and the check is owed.
+  after of the exact defect.
+
+- **On the device** (2026-08-14, STK-L21, signed release APK): the demo's overflow menu
+  — the thing that started this — opens with every item opaque. Nothing from the page
+  beneath reads through a single one of them. What is still visible *between* the items
+  is the page in the gaps: the menu is a column of separate rounded cards with no solid
+  panel behind the list, so that is its shape, not the defect. Closed the check this
+  note recorded as owed.
