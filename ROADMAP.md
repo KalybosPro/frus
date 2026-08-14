@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-294 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+295 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -68,7 +68,6 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 - 🟢 **Format the tree.** One `cargo fmt --all` commit, then make the fmt check blocking. Do this on its own, never mixed with a feature.
 - 🟡 **Widen golden coverage.** Many widgets have logic tests but no pixel test. Every widget should have at least one.
 - 🟡 **Make the goldens a required check.** They run on CI under lavapipe, whose rasterisation differs from hardware, so the golden step stays advisory — and an advisory check went red for five milestones without anyone noticing (J294). Establish what tolerance absorbs the lavapipe difference, apply it through `assert_golden_with`, then drop `continue-on-error` from the golden step.
-- 🔴 **Text draws through every overlay.** A menu, dropdown, dialog or sheet over text has that text read straight through its panel: text is a single pass above the frame, and no widget uses `scene.layer`. Visible on a device in the demo's overflow menu, and blessed into the golden `table_column_menu.png`, where the Score column's values show through. The fix is to give `Primitive::Text` and `RichText` the box they were laid out in — they record only where text starts — so the renderer's batch planner (J294) can order text like everything else. It touches every emission site in `Scene`, which is why it is its own milestone.
 - 🟡 **Benchmarks.** There is no performance harness at all. Frame time, layout cost, scene build, and text shaping all need one before any optimization claim can be honest.
 - 🟢 **Fix the broken intra-doc links.** `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features` reports ~11 errors — links to private items and one to a type that no longer exists. Then make the strict rustdoc pass blocking in CI.
 

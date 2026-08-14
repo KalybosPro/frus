@@ -1376,6 +1376,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
+        // The box this widget was given. Text primitives record it: a line of text
+        // says only where it starts, and the renderer has to know what it covers to
+        // order it against anything else (milestone 295).
+        self.scene.set_bounds(draw_rect);
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
         // A widget may have tightened the clip (TextInput, for one): it is restored here.
         self.scene.set_clip(clip);
@@ -2150,6 +2154,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
         self.scene.set_clip(clip);
         self.scene.set_owner(id.as_u64());
+        // The box this widget was given. Text primitives record it: a line of text
+        // says only where it starts, and the renderer has to know what it covers to
+        // order it against anything else (milestone 295).
+        self.scene.set_bounds(draw_rect);
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
         self.scene.set_clip(clip);
         self.draw_focus_ring(draw_rect, &status, widget);

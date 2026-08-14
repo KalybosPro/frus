@@ -596,12 +596,13 @@ impl Painters {
 
         self.composite
             .prepare(device, queue, &layers, w as f32, h as f32);
-        let decorations = self.text.prepare_frame(device, queue, scene, w, h);
-        // What may share a draw call, and in what order — see `batch`. Rectangles,
-        // images and paths are interleaved by the scene's order wherever they cover
-        // one another; text keeps its own pass above them.
+        // What may share a draw call, and in what order — see `batch`. The plan comes
+        // first now: text is interleaved with the rest, so the text painter needs to
+        // know the batches before it can prepare a renderer for each.
         let batches = batch::plan(scene);
-        let (rect_ranges, decoration_range) =
+        let (decorations, decoration_ranges) =
+            self.text.prepare_frame(device, queue, scene, w, h, &batches);
+        let (rect_ranges, decoration_base) =
             self.rect
                 .prepare_frame(device, queue, scene, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, scene, &batches);
@@ -638,17 +639,24 @@ impl Painters {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            let mut slot = 0;
             for (i, batch) in batches.iter().enumerate() {
                 match batch.kind {
                     batch::Kind::Rect => self.rect.draw(&mut pass, rect_ranges[i].clone()),
                     batch::Kind::Image => self.image.draw(&mut pass, image_ranges[i].clone()),
                     batch::Kind::Path => self.path.draw(&mut pass, path_ranges[i].clone()),
+                    batch::Kind::Text => {
+                        // The underlines first — they are rectangles, and they belong
+                        // beneath the glyphs they decorate rather than in a batch of
+                        // their own.
+                        let base = decoration_base.start;
+                        let d = &decoration_ranges[i];
+                        self.rect.draw(&mut pass, base + d.start..base + d.end);
+                        self.text.draw(&mut pass, slot);
+                        slot += 1;
+                    }
                 }
             }
-            // The decoration quads go with the text they underline, not with the
-            // rectangles they happen to be made of.
-            self.rect.draw(&mut pass, decoration_range);
-            self.text.draw(&mut pass);
             self.composite.draw(&mut pass);
         }
         queue.submit(std::iter::once(encoder.finish()));
@@ -749,9 +757,10 @@ impl Painters {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let decorations = self.text.prepare_frame(device, queue, &sub, w, h);
         let batches = batch::plan(&sub);
-        let (rect_ranges, decoration_range) =
+        let (decorations, decoration_ranges) =
+            self.text.prepare_frame(device, queue, &sub, w, h, &batches);
+        let (rect_ranges, decoration_base) =
             self.rect
                 .prepare_frame(device, queue, &sub, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, &sub, &batches);
@@ -785,15 +794,21 @@ impl Painters {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            let mut slot = 0;
             for (i, batch) in batches.iter().enumerate() {
                 match batch.kind {
                     batch::Kind::Rect => self.rect.draw(&mut pass, rect_ranges[i].clone()),
                     batch::Kind::Image => self.image.draw(&mut pass, image_ranges[i].clone()),
                     batch::Kind::Path => self.path.draw(&mut pass, path_ranges[i].clone()),
+                    batch::Kind::Text => {
+                        let base = decoration_base.start;
+                        let d = &decoration_ranges[i];
+                        self.rect.draw(&mut pass, base + d.start..base + d.end);
+                        self.text.draw(&mut pass, slot);
+                        slot += 1;
+                    }
                 }
             }
-            self.rect.draw(&mut pass, decoration_range);
-            self.text.draw(&mut pass);
         }
         queue.submit(std::iter::once(encoder.finish()));
         texture

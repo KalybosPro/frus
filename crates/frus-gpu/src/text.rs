@@ -2,6 +2,9 @@
 //! a wgpu glyph atlas. Draws the [`Primitive::Text`] primitives in the render pass,
 //! on top of the rectangles.
 
+use std::ops::Range;
+
+use crate::batch::{Batch, Kind};
 use frus_core::{Color, Point, Primitive, Rect, Scene, TextDecoration};
 
 /// The line-height to font-size ratio, kept consistent with `frus-text`.
@@ -73,7 +76,14 @@ pub(crate) struct TextPainter {
     swash_cache: glyphon::SwashCache,
     atlas: glyphon::TextAtlas,
     viewport: glyphon::Viewport,
-    renderer: glyphon::TextRenderer,
+    /// One renderer per text batch of the frame. Text is interleaved with the other
+    /// primitives now (milestone 295), so a frame can need several — a glyphon
+    /// renderer draws everything it was prepared with, in one call. Kept between
+    /// frames and grown as needed; building one allocates a pipeline.
+    renderers: Vec<glyphon::TextRenderer>,
+    /// The multisample state the renderers must be built with: it has to match the
+    /// pass, or the pipeline mismatches under MSAA.
+    multisample: wgpu::MultisampleState,
 }
 
 impl TextPainter {
@@ -90,26 +100,32 @@ impl TextPainter {
         let swash_cache = glyphon::SwashCache::new();
         let cache = glyphon::Cache::new(device);
         let viewport = glyphon::Viewport::new(device, &cache);
-        let mut atlas = glyphon::TextAtlas::new(device, queue, &cache, format);
-        // glyphon's renderer must be compiled with the same `sample_count` as the
-        // pass, or the pipeline mismatches under MSAA.
-        let renderer = glyphon::TextRenderer::new(
-            &mut atlas,
-            device,
-            wgpu::MultisampleState {
-                count: sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            None,
-        );
+        let atlas = glyphon::TextAtlas::new(device, queue, &cache, format);
+        let multisample = wgpu::MultisampleState {
+            count: sample_count,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        };
 
         Self {
             font_system,
             swash_cache,
             atlas,
             viewport,
-            renderer,
+            renderers: Vec::new(),
+            multisample,
+        }
+    }
+
+    /// Makes sure there are at least `count` renderers to prepare into.
+    fn ensure_renderers(&mut self, device: &wgpu::Device, count: usize) {
+        while self.renderers.len() < count {
+            self.renderers.push(glyphon::TextRenderer::new(
+                &mut self.atlas,
+                device,
+                self.multisample,
+                None,
+            ));
         }
     }
 
@@ -123,10 +139,16 @@ impl TextPainter {
         scene: &Scene,
         width: u32,
         height: u32,
-    ) -> Vec<DecorationQuad> {
+        batches: &[Batch],
+    ) -> (Vec<DecorationQuad>, Vec<Range<u32>>) {
         self.viewport
             .update(queue, glyphon::Resolution { width, height });
+        let text_batches = batches.iter().filter(|b| b.kind == Kind::Text).count();
+        self.ensure_renderers(device, text_batches);
         let mut decorations = Vec::new();
+        // One entry per batch; the decorations of a text batch, drawn by the
+        // rectangle pipeline just under its glyphs.
+        let mut decoration_ranges = Vec::with_capacity(batches.len());
 
         // The target is sRGB, so we send linear values — as the quads do — to avoid
         // encoding twice, which washes the text out. Alpha passes through as is.
@@ -147,10 +169,18 @@ impl TextPainter {
             bottom: (clip.y + clip.height).min(height as f32) as i32,
         };
 
-        // One glyphon buffer per text primitive, plain or rich.
-        let mut buffers = Vec::new();
-        for primitive in scene.primitives() {
-            match primitive {
+        // One glyphon buffer per text primitive, plain or rich — batch by batch, so
+        // each batch's renderer is prepared with only its own.
+        let mut slot = 0;
+        for batch in batches {
+            let decoration_start = decorations.len() as u32;
+            if batch.kind != Kind::Text {
+                decoration_ranges.push(decoration_start..decoration_start);
+                continue;
+            }
+            let mut buffers = Vec::new();
+            for &member in &batch.members {
+            match &scene.primitives()[member] {
                 Primitive::Text {
                     position,
                     text,
@@ -315,9 +345,10 @@ impl TextPainter {
                 | Primitive::Image { .. }
                 | Primitive::Layer { .. } => {}
             }
-        }
+            }
+            decoration_ranges.push(decoration_start..decorations.len() as u32);
 
-        let areas = buffers
+            let areas = buffers
             .iter()
             .map(|(buffer, left, top, color, bounds)| glyphon::TextArea {
                 buffer,
@@ -329,23 +360,29 @@ impl TextPainter {
                 custom_glyphs: &[],
             });
 
-        if let Err(err) = self.renderer.prepare(
-            device,
-            queue,
-            &mut self.font_system,
-            &mut self.atlas,
-            &self.viewport,
-            areas,
-            &mut self.swash_cache,
-        ) {
-            log::warn!("glyphon prepare failed: {err:?}");
+            if let Err(err) = self.renderers[slot].prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                &self.viewport,
+                areas,
+                &mut self.swash_cache,
+            ) {
+                log::warn!("glyphon prepare failed: {err:?}");
+            }
+            slot += 1;
         }
-        decorations
+        (decorations, decoration_ranges)
     }
 
-    /// Draws the prepared text into an open render pass.
-    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
-        if let Err(err) = self.renderer.render(&self.atlas, &self.viewport, pass) {
+    /// Draws one prepared text batch into an open render pass. `slot` is the batch's
+    /// rank among the frame's text batches, which is the renderer it was prepared into.
+    pub(crate) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>, slot: usize) {
+        let Some(renderer) = self.renderers.get(slot) else {
+            return;
+        };
+        if let Err(err) = renderer.render(&self.atlas, &self.viewport, pass) {
             log::warn!("glyphon render failed: {err:?}");
         }
     }

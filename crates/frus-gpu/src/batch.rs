@@ -17,16 +17,16 @@
 //! background with a bar that the button sits on is not, and that is exactly the case
 //! that breaks the batch.
 //!
-//! ## What this does not order
+//! ## Text
 //!
-//! Text. It stays a single pass, drawn above everything else in the frame, because a
-//! `Primitive::Text` does not carry the box it was laid out in — only where it starts
-//! — so this planner cannot know what it covers. Over-estimating (down and right to
-//! the clip's edge) would be correct and would break nearly every batch in a frame,
-//! which is worse than the rule frus already had. So the rule is now written down
-//! rather than accidental: **text paints above the other primitives of its frame**,
-//! and covering text needs a layer. Giving text its laid-out bounds and folding it in
-//! here is a roadmap item.
+//! Text is ordered here too, since milestone 295: a `Primitive::Text` records the box
+//! it was laid out in — the emitting widget's — alongside where it starts. That box is
+//! an over-estimate of what the glyphs cover, which is the safe direction.
+//!
+//! A scene built by hand rather than by the widget walk leaves that box `UNBOUNDED`,
+//! which overlaps everything: such text is ordered strictly by where it sits in the
+//! scene, and batches with nothing. Conservative, and the only safe reading of "no
+//! idea what this covers".
 
 use frus_core::{Path, PathVerb, Primitive, Rect, Scene};
 
@@ -37,6 +37,7 @@ pub(crate) enum Kind {
     Rect,
     Image,
     Path,
+    Text,
 }
 
 /// A run of primitives drawn by one pipeline, in one call. `members` are indices into
@@ -98,19 +99,13 @@ fn path_bounds(path: &Path) -> Rect {
 /// planner does not order (text, and layers, which are composited separately).
 fn footprint(primitive: &Primitive) -> Option<(Kind, Rect)> {
     match primitive {
-        Primitive::Rect {
-            rect, blur, clip, ..
-        } => {
-            // A soft shadow spreads past the rectangle it belongs to, on every side.
-            let spread = blur.max(0.0);
-            let grown = Rect::new(
-                rect.x - spread,
-                rect.y - spread,
-                rect.width + spread * 2.0,
-                rect.height + spread * 2.0,
-            );
-            Some((Kind::Rect, grown.intersect(*clip)))
-        }
+        // Exactly its rectangle. A shadow's `blur` softens the edge *inside* the quad
+        // — the shader ramps the alpha across it and nothing is rasterised beyond —
+        // and a widget casting one passes an already-widened rect. Growing by `blur`
+        // here would double-count it, and the cost is not theoretical: it made every
+        // button's shadow reach into the row above and pushed a twelve-row list from
+        // 3 draw calls to 27.
+        Primitive::Rect { rect, clip, .. } => Some((Kind::Rect, rect.intersect(*clip))),
         Primitive::Image { rect, clip, .. } => Some((Kind::Image, rect.intersect(*clip))),
         Primitive::Path {
             path, stroke, clip, ..
@@ -126,7 +121,13 @@ fn footprint(primitive: &Primitive) -> Option<(Kind, Rect)> {
             );
             Some((Kind::Path, grown.intersect(*clip)))
         }
-        Primitive::Text { .. } | Primitive::RichText { .. } | Primitive::Layer { .. } => None,
+        // Text covers the box it was laid out in, bounded by its clip. That box is
+        // the widget's, so it is wider than the glyphs — a level too many at worst.
+        Primitive::Text { bounds, clip, .. } | Primitive::RichText { bounds, clip, .. } => {
+            Some((Kind::Text, bounds.intersect(*clip)))
+        }
+        // A layer is rendered into its own texture and composited afterwards.
+        Primitive::Layer { .. } => None,
     }
 }
 
@@ -322,17 +323,12 @@ mod tests {
         }
     }
 
-    /// A shadow reaches past the rectangle that casts it, and a stroke past the
-    /// outline it follows. Both count, or a batch would be broken a pixel too late.
+    /// A **stroke** puts half its width outside the outline it follows, and that
+    /// counts, or a batch would be broken a pixel too late. A shadow's blur does not:
+    /// it softens the edge inside the quad, and the widget casting one has already
+    /// widened the rectangle.
     #[test]
-    fn a_shadow_and_a_stroke_claim_the_room_they_spill_into() {
-        let scene = scene_of(|s| {
-            s.shadow(Rect::new(100.0, 100.0, 50.0, 50.0), RED, 0.0, 20.0);
-            // Clear of the rectangle itself, inside the blur it casts.
-            s.fill_path(&bar(85.0, 100.0, 10.0, 10.0), RED);
-        });
-        assert_eq!(plan(&scene).len(), 2, "the shadow's spread was ignored");
-
+    fn a_stroke_claims_the_room_it_spills_into() {
         let mut stroked = Scene::new();
         stroked.stroke_path(
             &Path::new()
@@ -345,17 +341,56 @@ mod tests {
         assert_eq!(plan(&stroked).len(), 2, "the stroke's width was ignored");
     }
 
-    /// Text is not planned here — it keeps its own pass above the frame — and neither
-    /// are layers, which are composited separately.
+    /// The defect this exists for, in miniature: a label, then a menu panel dropped
+    /// over it. The panel comes later in the scene, so it has to be drawn later — and
+    /// before this, text was a pass above the whole frame and the label read straight
+    /// through the panel. A committed golden had it that way.
     #[test]
-    fn text_and_layers_are_left_to_their_own_passes() {
-        let scene = scene_of(|s| {
-            s.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), RED);
-            s.text(Point::new(10.0, 10.0), "hello", 16.0, RED);
-            s.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), RED);
-        });
+    fn a_panel_dropped_over_a_label_covers_it() {
+        let mut scene = Scene::new();
+        scene.set_bounds(Rect::new(20.0, 20.0, 120.0, 20.0));
+        scene.text(Point::new(20.0, 20.0), "Score", 14.0, RED);
+        scene.set_bounds(Rect::new(10.0, 10.0, 200.0, 100.0));
+        scene.fill_rect(Rect::new(10.0, 10.0, 200.0, 100.0), RED);
         let batches = plan(&scene);
-        assert_eq!(batches.len(), 1, "text should not have broken the batch");
-        assert_eq!(batches[0].members, vec![0, 2]);
+        assert_eq!(batches.len(), 2, "{batches:#?}");
+        assert_eq!(batches[0].kind, Kind::Text, "the label goes down first");
+        assert_eq!(batches[1].kind, Kind::Rect, "the panel goes over it");
+    }
+
+    /// The other half: a label *on* the panel is drawn after it, and labels that are
+    /// nowhere near one another still share a single call.
+    #[test]
+    fn labels_batch_together_above_what_they_sit_on() {
+        let mut scene = Scene::new();
+        for i in 0..4 {
+            let y = i as f32 * 40.0;
+            scene.set_bounds(Rect::new(0.0, y, 200.0, 30.0));
+            scene.fill_rect(Rect::new(0.0, y, 200.0, 30.0), RED);
+            scene.text(Point::new(8.0, y + 6.0), "row", 14.0, RED);
+        }
+        let batches = plan(&scene);
+        assert_eq!(batches.len(), 2, "{batches:#?}");
+        assert_eq!(batches[0].kind, Kind::Rect);
+        assert_eq!(batches[0].members.len(), 4);
+        assert_eq!(batches[1].kind, Kind::Text);
+        assert_eq!(batches[1].members.len(), 4, "four labels, one call");
+    }
+
+    /// A scene built by hand rather than by the widget walk leaves text's box
+    /// `UNBOUNDED`, which overlaps everything: such text is ordered strictly by its
+    /// place in the scene, since nothing says what it really covers. Conservative, and
+    /// the only safe reading.
+    #[test]
+    fn text_with_no_box_is_ordered_by_its_place_in_the_scene() {
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        scene.text(Point::new(10.0, 10.0), "hello", 16.0, RED);
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        let batches = plan(&scene);
+        assert_eq!(batches.len(), 3, "{batches:#?}");
+        assert_eq!(batches[0].members, vec![0]);
+        assert_eq!(batches[1].kind, Kind::Text);
+        assert_eq!(batches[2].members, vec![2]);
     }
 }

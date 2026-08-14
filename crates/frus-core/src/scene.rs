@@ -144,6 +144,13 @@ pub enum Primitive {
         decoration_color: Option<Color>,
         /// Clip rectangle.
         clip: Rect,
+        /// The box the text was laid out in — the emitting widget's, so an
+        /// over-estimate of what the glyphs actually cover, never an under-estimate.
+        /// The renderer needs it to know what the text covers; without it text can
+        /// only be painted above everything else in the frame. `Rect::UNBOUNDED` when
+        /// a scene is built by hand rather than by the widget walk, which the renderer
+        /// reads as "unknown, keep it on top".
+        bounds: Rect,
         /// The emitting widget's identity.
         owner: u64,
     },
@@ -156,6 +163,8 @@ pub enum Primitive {
         max_width: Option<f32>,
         /// Clip rectangle.
         clip: Rect,
+        /// The box the text was laid out in. See [`Primitive::Text`].
+        bounds: Rect,
         /// The emitting widget's identity.
         owner: u64,
     },
@@ -273,6 +282,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 clip,
+                bounds,
                 owner,
             } => Primitive::Text {
                 position: position.scale_xy(sx, sy),
@@ -285,6 +295,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 clip: clip.scale_xy(sx, sy),
+                bounds: bounds.scale_xy(sx, sy),
                 owner,
             },
             Primitive::RichText {
@@ -292,6 +303,7 @@ impl Primitive {
                 mut runs,
                 max_width,
                 clip,
+                bounds,
                 owner,
             } => {
                 for run in &mut runs {
@@ -302,6 +314,7 @@ impl Primitive {
                     runs,
                     max_width: max_width.map(|w| w * sx),
                     clip: clip.scale_xy(sx, sy),
+                    bounds: bounds.scale_xy(sx, sy),
                     owner,
                 }
             }
@@ -392,6 +405,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 clip,
+                bounds,
                 owner,
             } => Primitive::Text {
                 position: Point::new(position.x + dx, position.y + dy),
@@ -404,6 +418,7 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 clip: clip.translate(dx, dy),
+                bounds: bounds.translate(dx, dy),
                 owner,
             },
             Primitive::RichText {
@@ -411,12 +426,14 @@ impl Primitive {
                 runs,
                 max_width,
                 clip,
+                bounds,
                 owner,
             } => Primitive::RichText {
                 position: Point::new(position.x + dx, position.y + dy),
                 runs,
                 max_width,
                 clip: clip.translate(dx, dy),
+                bounds: bounds.translate(dx, dy),
                 owner,
             },
             Primitive::Path {
@@ -557,6 +574,7 @@ impl Primitive {
                 max_width,
                 decoration,
                 decoration_color,
+                bounds,
                 owner,
                 ..
             } => Primitive::Text {
@@ -570,12 +588,14 @@ impl Primitive {
                 decoration,
                 decoration_color,
                 clip,
+                bounds,
                 owner,
             },
             Primitive::RichText {
                 position,
                 runs,
                 max_width,
+                bounds,
                 owner,
                 ..
             } => Primitive::RichText {
@@ -583,6 +603,7 @@ impl Primitive {
                 runs,
                 max_width,
                 clip,
+                bounds,
                 owner,
             },
             Primitive::Path {
@@ -652,6 +673,9 @@ pub struct Scene {
     primitives: Vec<Primitive>,
     current_clip: Rect,
     current_owner: u64,
+    /// The box of the widget currently painting — what text primitives record so the
+    /// renderer knows what they cover. `UNBOUNDED` until a walk sets it.
+    current_bounds: Rect,
 }
 
 impl Default for Scene {
@@ -660,6 +684,7 @@ impl Default for Scene {
             primitives: Vec::new(),
             current_clip: Rect::UNBOUNDED,
             current_owner: 0,
+            current_bounds: Rect::UNBOUNDED,
         }
     }
 }
@@ -675,6 +700,7 @@ impl Scene {
         self.primitives.clear();
         self.current_clip = Rect::UNBOUNDED;
         self.current_owner = 0;
+        self.current_bounds = Rect::UNBOUNDED;
     }
 
     /// Sets the clip rectangle applied to subsequent primitives.
@@ -690,6 +716,20 @@ impl Scene {
     /// Sets the emitting widget's identity for subsequent primitives.
     pub fn set_owner(&mut self, owner: u64) {
         self.current_owner = owner;
+    }
+
+    /// Declares the box the widget about to paint was laid out in. Text primitives
+    /// record it, which is how the renderer knows what a line of text covers — a
+    /// `Primitive::Text` otherwise says only where it begins. Set by the widget walk
+    /// before every `paint`; a scene built by hand leaves it `UNBOUNDED`, and the
+    /// renderer then keeps that text above everything, as it always did.
+    pub fn set_bounds(&mut self, bounds: Rect) {
+        self.current_bounds = bounds;
+    }
+
+    /// The box currently being painted into.
+    pub fn current_bounds(&self) -> Rect {
+        self.current_bounds
     }
 
     /// Appends an **already-formed** primitive, with its clip and owner already
@@ -744,6 +784,7 @@ impl Scene {
                 decoration,
                 decoration_color,
                 clip,
+                bounds,
                 owner,
             } => Primitive::Text {
                 position,
@@ -756,6 +797,7 @@ impl Scene {
                 decoration,
                 decoration_color: decoration_color.map(|c| c.fade(opacity)),
                 clip,
+                bounds,
                 owner,
             },
             Primitive::RichText {
@@ -763,6 +805,7 @@ impl Scene {
                 mut runs,
                 max_width,
                 clip,
+                bounds,
                 owner,
             } => {
                 for run in &mut runs {
@@ -774,6 +817,7 @@ impl Scene {
                     runs,
                     max_width,
                     clip,
+                    bounds,
                     owner,
                 }
             }
@@ -993,6 +1037,7 @@ impl Scene {
             decoration: TextDecoration::NONE,
             decoration_color: None,
             clip: self.current_clip,
+            bounds: self.current_bounds,
             owner: self.current_owner,
         });
     }
@@ -1005,6 +1050,7 @@ impl Scene {
             runs,
             max_width: None,
             clip: self.current_clip,
+            bounds: self.current_bounds,
             owner: self.current_owner,
         });
     }
@@ -1017,6 +1063,7 @@ impl Scene {
             runs,
             max_width: Some(max_width),
             clip: self.current_clip,
+            bounds: self.current_bounds,
             owner: self.current_owner,
         });
     }
@@ -1042,6 +1089,7 @@ impl Scene {
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             clip: self.current_clip,
+            bounds: self.current_bounds,
             owner: self.current_owner,
         });
     }
@@ -1067,6 +1115,7 @@ impl Scene {
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             clip: self.current_clip,
+            bounds: self.current_bounds,
             owner: self.current_owner,
         });
     }
@@ -1093,6 +1142,7 @@ impl Scene {
             primitives: self.primitives.iter().map(|p| p.scaled(factor)).collect(),
             current_clip: self.current_clip.scale(factor),
             current_owner: self.current_owner,
+            current_bounds: self.current_bounds.scale(factor),
         }
     }
 }

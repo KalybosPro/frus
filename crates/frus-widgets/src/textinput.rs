@@ -411,14 +411,6 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             };
             (label.clone(), x, y, size, color)
         });
-        // Band: the label is painted **before** the border (it lives above it).
-        // Outlined: it is painted **after** the border (it sits on it, in the notch).
-        if !self.outlined {
-            if let Some((label, x, y, size, color)) = &label_geom {
-                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
-            }
-        }
-
         // Helper/error line below the box (the error takes precedence over the helper).
         let sub = self.error.as_ref().or(self.helper.as_ref());
         if let Some(sub) = sub {
@@ -446,6 +438,17 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             border_width,
             border_color,
         );
+
+        // The label goes **after** the box, in both styles. Floated, it sits above the
+        // box and the order would not matter; at rest it sits *inside* it, in the
+        // hint's place, over an opaque surface. It used to be painted first and
+        // survived only because the renderer drew all text above everything — which it
+        // stopped doing in milestone 295, and the golden went blank.
+        if !self.outlined {
+            if let Some((label, x, y, size, color)) = &label_geom {
+                scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
+            }
+        }
 
         // Outlined: the label's **notch**. The border segment behind the floating label
         // is masked by a flat surface-coloured fill, then the label is painted on top.

@@ -289,6 +289,9 @@ mod tests {
                 decoration: frus_core::TextDecoration::NONE,
                 decoration_color: None,
                 clip: Rect::UNBOUNDED,
+                // Painted directly rather than through the widget walk, so no box was
+                // declared: unknown, which the renderer reads as "covers everything".
+                bounds: Rect::UNBOUNDED,
                 owner: 0,
             }
         );
