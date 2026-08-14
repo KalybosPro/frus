@@ -321,7 +321,7 @@ impl Application for Showcase {
             .child(
                 Slider::new(self.scale_knob)
                     .width(200.0)
-                    .on_change(|v| Msg::SetKnob(v)),
+                    .on_change(Msg::SetKnob),
             )
             .child(
                 Text::new(format!("scale: {manual_scale:.2}"))

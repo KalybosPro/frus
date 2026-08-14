@@ -33,7 +33,7 @@ pub(crate) fn tour_panel(index: usize, theme: Theme) -> Container<Msg> {
     let (glyph, title, body) = TOUR_PAGES[index];
     // Every other panel takes the surface colour, so a swipe is visible even at the
     // moment the two panels are half and half.
-    let background = if index % 2 == 0 {
+    let background = if index.is_multiple_of(2) {
         theme.surface
     } else {
         theme.background

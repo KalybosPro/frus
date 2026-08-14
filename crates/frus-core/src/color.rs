@@ -60,7 +60,7 @@ impl Color {
         // Expand the short forms (#RGB / #RGBA) by duplicating each nibble.
         let expand = |c: u8| (c << 4) | c;
         let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
-        let nib = |i: usize| u8::from_str_radix(&s[i..i + 1], 16).ok().map(|c| expand(c));
+        let nib = |i: usize| u8::from_str_radix(&s[i..i + 1], 16).ok().map(expand);
         match s.len() {
             3 => Some(Self::rgb8(nib(0)?, nib(1)?, nib(2)?)),
             4 => Some(Self::rgba8(nib(0)?, nib(1)?, nib(2)?, nib(3)?)),

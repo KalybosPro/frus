@@ -732,6 +732,20 @@ pub(crate) fn natural_size<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime:
         .unwrap_or(Size::new(0.0, 0.0))
 }
 
+/// A deferred overlay: `(content, id, the anchor's bounds, placement, dismissal,
+/// progress 0..=1, whether it takes the pointer)`. The progress animates the
+/// appearance — a drawer sliding in, a scrim fading — and is `1.0` for overlays that
+/// are not animated.
+type Overlay<'a, Msg> = (
+    &'a dyn Widget<Msg>,
+    WidgetId,
+    Rect,
+    Placement,
+    Option<Msg>,
+    f32,
+    bool,
+);
+
 struct Builder<'a, Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
@@ -750,15 +764,7 @@ struct Builder<'a, Msg> {
     /// Deferred overlays: (content, id, the anchor's bounds, placement, dismissal, progress
     /// `0..=1`). The progress animates the appearance (a drawer sliding in, a scrim fading);
     /// it is `1.0` for overlays that are not animated.
-    overlays: Vec<(
-        &'a dyn Widget<Msg>,
-        WidgetId,
-        Rect,
-        Placement,
-        Option<Msg>,
-        f32,
-        bool,
-    )>,
+    overlays: Vec<Overlay<'a, Msg>>,
     /// A widget is asking for a continuous, time-driven animation.
     wants_animation: bool,
     available: Size,
@@ -1327,6 +1333,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// hit-test counter-transforms the point (`M⁻¹`); when `matrix` stays axis-aligned
     /// (scale/translation), the focus / scroll / drag / accessibility bounds are transformed
     /// too. The shared factor of `InteractiveViewer`, `RotatedBox` and `FittedBox`.
+    // The child, its identity, and the four things that place it. Splitting them would
+    // only mean passing the same values in two hops.
+    #[allow(clippy::too_many_arguments)]
     fn emit_transformed_child(
         &mut self,
         child: &'a dyn Widget<Msg>,
@@ -2535,7 +2544,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
 
     // Replays the outgoing subtrees, fading out, over the current scene.
     builder.scene.set_clip(Rect::UNBOUNDED);
-    for (_, (primitives, opacity)) in &runtime.leaving {
+    for (primitives, opacity) in runtime.leaving.values() {
         for primitive in primitives {
             builder.scene.push_faded(primitive, *opacity);
         }

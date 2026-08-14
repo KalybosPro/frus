@@ -20,7 +20,7 @@ pub(crate) use frus_shell::{Application, Command, Lifecycle, Subscription};
 pub(crate) use frus_widgets::form::{Form, Rule};
 pub(crate) use frus_widgets::{
     bar_spacer, button, fab_button, keyed, spacer, text, Alert, Align, AnimationController, AppBar,
-    Autocomplete, Avatar, Axis, BarChart, BottomAppBar, BoxFit, Breadcrumb, Card, Carousel,
+    Autocomplete, Avatar, Axis, BarChart, BottomAppBar, BoxFit, Breadcrumb, Card, Carousel, CellFn,
     Checkbox, Chip, Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker,
     Dismissible, Divider, DragTarget, Draggable, Dropdown, ErrorSummary, FabLocation, Flex,
     FontWeight, Grid, Hero, Icon, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kanban,

@@ -9,6 +9,11 @@ use crate::runtime::Edit;
 use crate::scroll::Axis;
 use crate::theme::Theme;
 
+/// A slot built on demand: the closure a `Table` header, a `Table` row or a `Kanban`
+/// column takes for a cell that holds a **widget** rather than a string. It is called
+/// again on every rebuild, so it hands back a fresh widget each time.
+pub type CellFn<Msg> = Box<dyn Fn() -> Box<dyn Widget<Msg>>>;
+
 /// Axis along which a **reorderable** widget moves while dragging: `Table` columns slide
 /// **horizontally** (the default), `Kanban` cards **vertically**. The shell adapts the drag
 /// preview (ghost direction, insertion indicator) to this axis.

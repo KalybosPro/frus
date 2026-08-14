@@ -875,7 +875,7 @@ mod tests {
         let mut first_glyph_x = |width: Option<f32>| {
             let mut buffer = Buffer::new(&mut fs, Metrics::new(40.0, 48.0));
             buffer.set_size(&mut fs, width, Some(200.0));
-            buffer.set_text(&mut fs, text, attrs.clone(), Shaping::Advanced);
+            buffer.set_text(&mut fs, text, attrs, Shaping::Advanced);
             buffer.shape_until_scroll(&mut fs, false);
             buffer
                 .layout_runs()

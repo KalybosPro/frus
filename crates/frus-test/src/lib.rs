@@ -53,7 +53,7 @@ pub fn render_widget<Msg: Clone + 'static>(
     height: u32,
     theme: &Theme,
 ) -> Option<Snapshot> {
-    let mut stage = Stage::new(width, height).theme(theme.clone());
+    let mut stage = Stage::new(width, height).theme(*theme);
     stage.settle(root);
     stage.render(root)
 }

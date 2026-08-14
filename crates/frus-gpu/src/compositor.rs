@@ -522,6 +522,9 @@ impl Painters {
     /// Note: under MSAA, `clear == None` — painting over — is not supported, since
     /// the multisampled target does not hold `target`'s existing content. Every
     /// current caller passes `Some(_)`.
+    // The device, the queue, the target and its size: a render call's irreducible
+    // arguments.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render(
         &mut self,
         device: &wgpu::Device,
@@ -658,6 +661,8 @@ impl Painters {
     /// [`Painters::render_group`]. `index` is the layer's rank in the scene, a stable
     /// cache key; a key that slips — because layers were reordered — only misses the
     /// cache, which re-renders correctly and never wrongly.
+    // Same as `render`, one layer at a time.
+    #[allow(clippy::too_many_arguments)]
     fn layer_texture(
         &mut self,
         device: &wgpu::Device,

@@ -187,7 +187,7 @@ impl Path {
     /// A circle, approximated by **four cubic arcs** (the Bézier constant `0.5523`,
     /// which is exact at the nodes).
     pub fn circle(center: Point, radius: f32) -> Self {
-        const K: f32 = 0.552_284_75;
+        const K: f32 = 0.552_284_8;
         let (cx, cy, r) = (center.x, center.y, radius);
         let k = r * K;
         Self::new()
@@ -222,7 +222,7 @@ impl Path {
     /// to say so: it is how a wide, shallow arc (an overscroll glow, a soft
     /// highlight) is drawn as a plain filled path.
     pub fn oval(r: Rect) -> Self {
-        const K: f32 = 0.552_284_75;
+        const K: f32 = 0.552_284_8;
         let (rx, ry) = (r.width * 0.5, r.height * 0.5);
         let (cx, cy) = (r.x + rx, r.y + ry);
         let (kx, ky) = (rx * K, ry * K);

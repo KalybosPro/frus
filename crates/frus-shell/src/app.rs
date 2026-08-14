@@ -2579,16 +2579,13 @@ impl<A: Application> App<A> {
         let proxy = self.proxy.clone();
         match kind {
             crate::subscription::Kind::Every { interval, make } => {
-                std::thread::spawn(move || loop {
-                    match rx.recv_timeout(interval) {
-                        // The interval elapsed: emit the message.
-                        Err(RecvTimeoutError::Timeout) => {
-                            if proxy.send_event(make(Instant::now())).is_err() {
-                                break;
-                            }
+                // The interval elapsing is a timeout; anything else — the Sender
+                // dropped, the loop closed — ends the thread.
+                std::thread::spawn(move || {
+                    while let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(interval) {
+                        if proxy.send_event(make(Instant::now())).is_err() {
+                            break;
                         }
-                        // Cancelled (the Sender was dropped) or the loop closed: exit.
-                        _ => break,
                     }
                 });
             }

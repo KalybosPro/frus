@@ -84,7 +84,7 @@ pub struct TimePicker<Msg> {
 
 /// The 12-hour clock digit (1–12) for a 24-hour hour.
 fn digit12(hour24: u32) -> u32 {
-    if hour24 % 12 == 0 {
+    if hour24.is_multiple_of(12) {
         12
     } else {
         hour24 % 12

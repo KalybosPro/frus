@@ -24,12 +24,12 @@ pub(crate) fn grid_screen(
         table = table.sorted(col, asc);
     }
     for (r, row) in app.grid.iter().enumerate() {
-        let mut cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..3)
+        let mut cells: Vec<CellFn<Msg>> = (0..3)
             .map(|c| {
                 let value = row[c].clone();
                 let w = COL_W[c] - 14.0;
                 let err = grid_cell_error(c, &value);
-                let factory: Box<dyn Fn() -> Box<dyn Widget<Msg>>> = Box::new(move || {
+                let factory: CellFn<Msg> = Box::new(move || {
                     let mut input = TextInput::new(value.clone())
                         .width(w)
                         .size(15.0)

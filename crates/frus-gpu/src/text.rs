@@ -28,6 +28,9 @@ const OVERLINE_OFFSET: f32 = 0.90;
 
 /// Emits the quads of one decorated line: `[x0, x1]` as advances from `origin`,
 /// `baseline` relative to the top of the paragraph, thickness derived from `size`.
+// One decorated line, described exactly: origin, span, baseline, size, decoration,
+// colour, clip.
+#[allow(clippy::too_many_arguments)]
 fn push_line_quads(
     quads: &mut Vec<DecorationQuad>,
     origin: Point,

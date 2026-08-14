@@ -5,6 +5,15 @@ use crate::prelude::*;
 use crate::screens::*;
 use frus_widgets::{build_ui, Runtime, Size};
 
+/// An app whose editable grid is already filled — the shape half of these tests
+/// start from.
+fn app_with_grid(grid: Vec<Vec<String>>) -> TodoApp {
+    TodoApp {
+        grid,
+        ..Default::default()
+    }
+}
+
 /// Adds a task from a label.
 fn add(app: &mut TodoApp, text: &str) {
     reduce(app, Msg::DraftChanged(text.to_string()));
@@ -34,8 +43,10 @@ fn density_is_clamped() {
 
 #[test]
 fn on_resize_tracks_class_and_closes_detail_when_compact() {
-    let mut app = TodoApp::default();
-    app.stat_detail_open = true;
+    let mut app = TodoApp {
+        stat_detail_open: true,
+        ..Default::default()
+    };
     // Wide: the Expanded class, the detail stays open.
     app.on_resize(1000.0, 700.0);
     assert_eq!(app.size_class, Some(SizeClass::Expanded));
@@ -287,8 +298,7 @@ fn wizard_flow_validates_navigates_and_notifies() {
 
 #[test]
 fn grid_edit_navigate_and_resize() {
-    let mut app = TodoApp::default();
-    app.grid = vec![
+    let mut app = app_with_grid(vec![
         vec![
             "Ada".to_string(),
             "Engineer".to_string(),
@@ -299,7 +309,7 @@ fn grid_edit_navigate_and_resize() {
             "Crypto".to_string(),
             "b@x.com".to_string(),
         ],
-    ];
+    ]);
     reduce(&mut app, Msg::Push(Route::Grid));
     assert_eq!(current_route(&app), Route::Grid);
     assert!(primitive_count(&app) > 0, "the grid renders");
@@ -337,8 +347,7 @@ fn grid_edit_navigate_and_resize() {
 
 #[test]
 fn grid_sort_toggles_and_validates() {
-    let mut app = TodoApp::default();
-    app.grid = vec![
+    let mut app = app_with_grid(vec![
         vec![
             "Charlie".to_string(),
             "QA".to_string(),
@@ -350,7 +359,7 @@ fn grid_sort_toggles_and_validates() {
             "a@x.com".to_string(),
         ],
         vec!["Bob".to_string(), "PM".to_string(), "b@x.com".to_string()],
-    ];
+    ]);
     // Sort column 0 ascending, then toggle to descending.
     reduce(&mut app, Msg::GridSort(0));
     assert_eq!(app.grid_sort, Some((0, true)));
@@ -372,16 +381,15 @@ fn grid_sort_toggles_and_validates() {
 
 #[test]
 fn grid_save_is_gated_on_cell_errors() {
-    let mut app = TodoApp::default();
     // One valid row, one with an empty Name and a malformed email (2 errors).
-    app.grid = vec![
+    let mut app = app_with_grid(vec![
         vec![
             "Ada".to_string(),
             "Engineer".to_string(),
             "a@x.com".to_string(),
         ],
         vec!["".to_string(), "PM".to_string(), "nope".to_string()],
-    ];
+    ]);
     assert_eq!(grid_error_count(&app.grid), 2);
     reduce(&mut app, Msg::GridSave);
     assert_eq!(
@@ -406,16 +414,15 @@ fn grid_save_is_gated_on_cell_errors() {
 
 #[test]
 fn grid_focus_error_targets_the_first_faulty_cell() {
-    let mut app = TodoApp::default();
     // Row 0 is valid, row 1 has an empty Name (column 0) = the first fault expected.
-    app.grid = vec![
+    let mut app = app_with_grid(vec![
         vec![
             "Ada".to_string(),
             "Engineer".to_string(),
             "a@x.com".to_string(),
         ],
         vec!["".to_string(), "PM".to_string(), "nope".to_string()],
-    ];
+    ]);
     assert_eq!(grid_next_error(&app.grid, None), Some((1, 0)));
     assert!(
         !reduce(&mut app, Msg::GridFocusError).is_empty(),
@@ -796,12 +803,11 @@ fn companion_chart_renders_across_families_with_hidden() {
 
 #[test]
 fn grid_next_error_cycles_through_all_faults() {
-    let mut app = TodoApp::default();
     // Fautes attendues, en ordre : (0,0) Name vide, (0,2) email invalide, (1,2) email invalide.
-    app.grid = vec![
+    let mut app = app_with_grid(vec![
         vec!["".to_string(), "PM".to_string(), "nope".to_string()],
         vec!["Ada".to_string(), "Engineer".to_string(), "bad".to_string()],
-    ];
+    ]);
     assert_eq!(grid_faults(&app.grid), vec![(0, 0), (0, 2), (1, 2)]);
     // Each call moves on; the last one wraps back to the first.
     for expected in [(0, 0), (0, 2), (1, 2), (0, 0)] {

@@ -18,7 +18,11 @@ use crate::interaction::Status;
 use crate::scroll::{Axis, Scroll};
 use crate::text::Text;
 use crate::theme::Theme;
-use crate::widget::{ReorderAxis, Widget};
+use crate::widget::{CellFn, ReorderAxis, Widget};
+
+/// A card moving between columns: `(from_col, from_pos, to_col, to_pos)` into a
+/// message.
+type MoveFn<Msg> = Rc<dyn Fn(usize, usize, usize, usize) -> Msg>;
 
 /// The encoding stride of a `(column, position)` slot into a flat index: it bounds the number
 /// of cards per column (amply enough for a board). See [`kanban_slot`].
@@ -59,7 +63,7 @@ struct Card<Msg> {
     slot: usize,
     from_col: usize,
     from_pos: usize,
-    on_move: Option<Rc<dyn Fn(usize, usize, usize, usize) -> Msg>>,
+    on_move: Option<MoveFn<Msg>>,
 }
 
 impl<Msg: Clone> Widget<Msg> for Card<Msg> {
@@ -251,7 +255,7 @@ impl<Msg> ColCards<Msg> {
 }
 
 pub struct Kanban<Msg = ()> {
-    on_move: Option<Rc<dyn Fn(usize, usize, usize, usize) -> Msg>>,
+    on_move: Option<MoveFn<Msg>>,
     /// A "+ Add card" button at the bottom of every column (milestone 249): `on_add(col)` on adding.
     on_add: Option<Rc<dyn Fn(usize) -> Msg>>,
     /// An explicit height for each column's **scrollable card area** (milestone 264, Trello
@@ -300,7 +304,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     pub fn column_widgets(
         mut self,
         title: impl Into<String>,
-        cards: impl IntoIterator<Item = Box<dyn Fn() -> Box<dyn Widget<Msg>>>>,
+        cards: impl IntoIterator<Item = CellFn<Msg>>,
     ) -> Self {
         let cards = ColCards::Widgets(cards.into_iter().map(Rc::from).collect());
         self.columns.push((title.into(), cards));
@@ -541,11 +545,11 @@ mod tests {
     #[test]
     fn rich_cards_host_content_and_add_button_is_present() {
         // A **rich** column: each card hosts a × (delete) button; plus an add button.
-        let cards: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = (0..2)
+        let cards: Vec<CellFn<Msg>> = (0..2)
             .map(|i| {
                 Box::new(move || {
                     Box::new(Button::new("x").on_press(Msg::Del(i))) as Box<dyn Widget<Msg>>
-                }) as Box<dyn Fn() -> Box<dyn Widget<Msg>>>
+                }) as CellFn<Msg>
             })
             .collect();
         let board = Kanban::new(Msg::Move)

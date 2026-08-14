@@ -322,14 +322,13 @@ pub(crate) const CHART_SERIES: [(&str, [f32; 5]); 3] = [
     ("Costs", [2.0, 4.0, 3.0, 5.0, 2.0]),
     ("Profit", [1.0, 3.0, 2.0, 3.0, 2.0]),
 ];
-/// Colours of the **extra** series (1..; series 0 takes the theme's accent).
 
 /// **Pure** validation of a grid cell: `Name` (col 0) is required, `Email` (col 2) must look
 /// like an address. `None` = valid. It demonstrates `TextInput::error` per cell.
 pub(crate) fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
     match col {
         0 if value.trim().is_empty() => Some("Required"),
-        2 if !value.is_empty() && !(value.contains('@') && value.contains('.')) => {
+        2 if !(value.is_empty() || value.contains('@') && value.contains('.')) => {
             Some("Invalid email")
         }
         _ => None,

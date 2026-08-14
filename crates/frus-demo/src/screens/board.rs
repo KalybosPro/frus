@@ -38,12 +38,12 @@ pub(crate) fn board_screen(
         .scrollable_columns();
     for (c, title) in KANBAN_TITLES.iter().enumerate() {
         let cards = cols.get(c).cloned().unwrap_or_default();
-        let factories: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>> = cards
+        let factories: Vec<CellFn<Msg>> = cards
             .iter()
             .enumerate()
             .map(|(pos, label)| {
                 let label = label.clone();
-                Box::new(move || rich_card(&label, c, pos)) as Box<dyn Fn() -> Box<dyn Widget<Msg>>>
+                Box::new(move || rich_card(&label, c, pos)) as CellFn<Msg>
             })
             .collect();
         board = board.column_widgets(*title, factories);

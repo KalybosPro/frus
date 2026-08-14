@@ -64,6 +64,9 @@ pub(crate) fn wizard_step_valid(form: &Form, step: usize) -> bool {
 
 /// One wizard field: its error is shown **only after** submission, its value is **masked** for a
 /// password, and it carries a **focus key** (`keyed`) so the summary can jump to it.
+// Nine, and they are the field's whole description. A struct here would be a
+// parameter list wearing a hat.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn wizard_input(
     form: &Form,
     submitted: bool,

@@ -315,7 +315,7 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
             } else {
                 format!("Fix {errors} errors before saving")
             };
-            return show_toast(app, &msg);
+            show_toast(app, &msg)
         }
         Msg::GridFocusError => {
             // Cycles to the next faulty cell (wrapping) and focuses it.

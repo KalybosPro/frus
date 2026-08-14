@@ -19,6 +19,13 @@ use crate::interaction::Status;
 use crate::pagination::Pagination;
 use crate::segmented::SegmentedControl;
 use crate::table::Table;
+
+/// An application's own ordering for one column — dates, amounts, priorities — where
+/// comparing the rendered strings would sort them wrongly.
+type Comparator = Rc<dyn Fn(&str, &str) -> Ordering>;
+
+/// The buttons of the bulk-action bar, built on demand while a selection stands.
+type BulkActions<Msg> = Rc<dyn Fn() -> Vec<Box<dyn Widget<Msg>>>>;
 use crate::text::Text;
 use crate::textinput::TextInput;
 use crate::theme::Theme;
@@ -117,7 +124,7 @@ pub struct DataTable<Msg = ()> {
     /// A **custom** comparator per column (milestone 240): `None` = the default sort
     /// ([`compare_cells`]). It allows ordering cells the default sorts badly — formatted
     /// dates, amounts ("$1.2M"), priorities ("High"/"Medium"/"Low").
-    comparators: Vec<Option<Rc<dyn Fn(&str, &str) -> Ordering>>>,
+    comparators: Vec<Option<Comparator>>,
     /// **Multiple** selection (milestone 241): a column of checkboxes. `on_check(source_row)`
     /// toggles one row, and `on_check_all` toggles the header box. The checked state follows
     /// [`selected`](Self::selected), with the same source indices.
@@ -131,7 +138,7 @@ pub struct DataTable<Msg = ()> {
     /// The **bulk actions** bar (milestone 243): a factory of action widgets (buttons…), called
     /// again on every rebuild. Rendered **above** the table **only** when rows are selected,
     /// preceded by an "N selected". The app wires up its buttons (variants, messages).
-    bulk_actions: Option<Rc<dyn Fn() -> Vec<Box<dyn Widget<Msg>>>>>,
+    bulk_actions: Option<BulkActions<Msg>>,
     /// The **empty state**'s text (milestone 244): shown centred, under the header, when no row
     /// is visible (empty data, or a filter with no result). Overridable through
     /// [`empty_text`](DataTable::empty_text).

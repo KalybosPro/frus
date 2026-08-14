@@ -134,8 +134,10 @@ mod tests {
 
     fn dot_alphas(time: f32) -> Vec<f32> {
         let spinner = Spinner::new().size(40.0);
-        let mut status = Status::default();
-        status.time = time;
+        let status = Status {
+            time,
+            ..Default::default()
+        };
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &spinner,

@@ -518,9 +518,13 @@ mod tests {
     }
 
     /// The row's two draggable thumbs (low, high).
-    fn thumbs(rs: &RangeSlider<Msg>) -> Vec<&Box<dyn Widget<Msg>>> {
+    fn thumbs(rs: &RangeSlider<Msg>) -> Vec<&dyn Widget<Msg>> {
         let row = &Widget::<Msg>::children(rs)[0];
-        row.children().iter().filter(|c| c.draggable()).collect()
+        row.children()
+            .iter()
+            .map(|c| c.as_ref())
+            .filter(|c| c.draggable())
+            .collect()
     }
 
     fn range_of(msg: Option<Msg>) -> (f32, f32) {

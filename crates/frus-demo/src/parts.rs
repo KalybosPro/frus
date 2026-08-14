@@ -110,7 +110,7 @@ pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> T
 pub(crate) fn about_section(theme: &Theme, width: f32) -> Container<Msg> {
     // The content width = the viewport minus the paddings (the container's 24×2 + the card's
     // 20×2), bounded to a comfortable measure — otherwise it overflows horizontally in Compact.
-    let content_width = (width - 88.0).max(240.0).min(560.0);
+    let content_width = (width - 88.0).clamp(240.0, 560.0);
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
             column![

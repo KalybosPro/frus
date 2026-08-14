@@ -275,7 +275,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             },
             move |day| {
                 let date = (year, month, day);
-                min.map_or(true, |m| date >= m) && max.map_or(true, |m| date <= m)
+                min.is_none_or(|m| date >= m) && max.is_none_or(|m| date <= m)
             },
         )
     }
@@ -328,7 +328,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             move |day| range_mark((year, month, day), start, end),
             move |day| {
                 let date = (year, month, day);
-                min.map_or(true, |m| date >= m) && max.map_or(true, |m| date <= m)
+                min.is_none_or(|m| date >= m) && max.is_none_or(|m| date <= m)
             },
         )
     }

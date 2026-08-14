@@ -224,7 +224,7 @@ pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
     FocusDirection, Scrollable, Scrollbar, Ui,
 };
-pub use widget::{ReorderAxis, Widget};
+pub use widget::{CellFn, ReorderAxis, Widget};
 
 // Convenience re-exports for callers.
 pub use frus_core::{

@@ -343,7 +343,7 @@ fn draw_legend(
 /// Which **legend entry** contains the local point `(x, y)`? Rebuilds [`draw_legend`]'s layout to
 /// route a click to the series index. Shared (milestone 215).
 fn legend_hit(local_x: f32, local_y: f32, plot_left: f32, names: &[&str]) -> Option<usize> {
-    if local_y < 0.0 || local_y > LEGEND_H {
+    if !(0.0..=LEGEND_H).contains(&local_y) {
         return None;
     }
     let mut x = plot_left;
@@ -1135,8 +1135,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                 if n >= 2 {
                     // The band: lower edge (left→right) then upper edge (right→left).
                     let mut band = Path::new().move_to(spt(0, lower[0]));
-                    for i in 1..n {
-                        band = band.line_to(spt(i, lower[i]));
+                    for (i, low) in lower.iter().enumerate().take(n).skip(1) {
+                        band = band.line_to(spt(i, *low));
                     }
                     for i in (0..n).rev() {
                         band = band.line_to(spt(i, upper[i]));
@@ -1144,8 +1144,8 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
                     scene.fill_path(&band, color.fade(o * STACK_ALPHA));
                     // Stroke of the upper edge.
                     let mut line = Path::new().move_to(spt(0, upper[0]));
-                    for i in 1..n {
-                        line = line.line_to(spt(i, upper[i]));
+                    for (i, high) in upper.iter().enumerate().take(n).skip(1) {
+                        line = line.line_to(spt(i, *high));
                     }
                     scene.stroke_path(&line, color.fade(o), LINE_W);
                 }

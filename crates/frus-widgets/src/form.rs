@@ -37,9 +37,12 @@ use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// A check over one field's value: `None` when it passes, the message when it does not.
+type Check = Box<dyn Fn(&str) -> Option<String>>;
+
 /// One field's validation rule: returns `Some(message)` if the value is invalid,
 /// `None` if it passes.
-pub struct Rule(Box<dyn Fn(&str) -> Option<String>>);
+pub struct Rule(Check);
 
 impl Rule {
     /// An arbitrary rule from a closure.

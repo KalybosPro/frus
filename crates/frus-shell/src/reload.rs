@@ -44,7 +44,7 @@ impl ReloadWatcher {
     /// `Some` only in a debug build, under `FRUS_WATCH=1`, and only when the
     /// executable can be observed.
     pub(crate) fn new() -> Option<Self> {
-        if !cfg!(debug_assertions) || std::env::var_os(WATCH_ENV).map_or(true, |v| v != "1") {
+        if !cfg!(debug_assertions) || std::env::var_os(WATCH_ENV).is_none_or(|v| v != "1") {
             return None;
         }
         let exe = std::env::current_exe().ok()?;

@@ -405,7 +405,7 @@ fn the_stage_actually_advances_time() {
 
     let mut stage = Stage::new(200, 120);
     stage.settle(&root);
-    let region = stage.build(&root).scroll_regions()[0].clone();
+    let region = stage.build(&root).scroll_regions()[0];
     stage
         .runtime
         .glow_pull(region.id, GlowEdge::Top, 90.0, 120.0, 0.0, 200.0);

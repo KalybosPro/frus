@@ -65,9 +65,10 @@ impl LayerTransform {
 /// Compositing multiplies the layer's alpha by the shape's coverage, with
 /// antialiased edges. This is the building block of the `ClipRRect`, `ClipOval`
 /// and `ClipPath` widgets.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum ClipShape {
     /// A crisp rectangular clip — the layer's `clip`, unchanged.
+    #[default]
     Rect,
     /// A **rounded-corner** rectangle, with a **per-corner** radius
     /// ([`BorderRadius`], logical px) clamped to half the `clip`'s smaller side. A
@@ -79,12 +80,6 @@ pub enum ClipShape {
     /// into a coverage **mask** which it multiplies into the layer's alpha. The
     /// building block of `ClipPath` — stars, notches, free-form shapes.
     Path(Path),
-}
-
-impl Default for ClipShape {
-    fn default() -> Self {
-        ClipShape::Rect
-    }
 }
 
 impl ClipShape {
@@ -910,6 +905,9 @@ impl Scene {
     }
 
     /// Adds a linear-gradient rectangle (`color` → `color2` along `dir`).
+    // Eight, and every one of them a property of the same rectangle. Grouping them
+    // into a struct is an API change with call sites, not a lint fix.
+    #[allow(clippy::too_many_arguments)]
     pub fn gradient_rect(
         &mut self,
         rect: Rect,

@@ -96,8 +96,10 @@ mod tests {
 
     fn alpha_at(time: f32) -> f32 {
         let sk = Skeleton::new().width(120.0);
-        let mut status = Status::default();
-        status.time = time;
+        let status = Status {
+            time,
+            ..Default::default()
+        };
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &sk,

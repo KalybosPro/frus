@@ -327,10 +327,7 @@ mod tests {
             .iter()
             .find(|(id, _)| *id == LIVE_ID)
             .expect("the live region is present");
-        assert_eq!(
-            live.1.label().as_deref(),
-            Some("Column moved to position 2")
-        );
+        assert_eq!(live.1.label(), Some("Column moved to position 2"));
         assert_eq!(live.1.live(), Some(Live::Polite));
         let (_, root) = &loud.nodes[0];
         assert!(

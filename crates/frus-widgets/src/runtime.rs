@@ -1406,7 +1406,7 @@ mod tests {
         // First sighting: the view opens there, with no animation to watch.
         rt.sync_pages(&[paged_region(id, 2)]);
         assert_eq!(rt.scroll[&id], (600.0, 0.0));
-        assert!(rt.scroll_target.get(&id).is_none());
+        assert!(!rt.scroll_target.contains_key(&id));
 
         // Asked again for the same page while the finger has moved it: left alone,
         // or the view could not be swiped at all.

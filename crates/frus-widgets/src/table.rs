@@ -19,7 +19,14 @@ use crate::list::List;
 use crate::scroll::{Axis, Scroll};
 use crate::stack::Stack;
 use crate::theme::Theme;
-use crate::widget::Widget;
+use crate::widget::{CellFn, Widget};
+
+/// A column reordering: `(from, to, callback)`. The two indices bound keyboard
+/// reordering; the callback turns a move into a message.
+type ReorderSpec<Msg> = (usize, usize, Rc<dyn Fn(usize, usize) -> Msg>);
+
+/// A row of widget cells, built on demand from the row index.
+type RowWidgets<Msg> = Rc<dyn Fn(usize) -> Vec<Box<dyn Widget<Msg>>>>;
 
 const ROW_H: f32 = 34.0;
 const PAD_X: f32 = 10.0;
@@ -94,7 +101,7 @@ struct Cell<Msg> {
     message: Option<Msg>,
     /// **Reorderable** header: `(column index, column count, the on_reorder(from, to)
     /// callback)`. The column count bounds keyboard reordering.
-    reorder: Option<(usize, usize, Rc<dyn Fn(usize, usize) -> Msg>)>,
+    reorder: Option<ReorderSpec<Msg>>,
     /// The header's **action widget** (0 or 1): a button (a filter, a menu…) placed on the
     /// right, a **child** of the cell. It captures its own click (deepest-first hit-test)
     /// while the rest of the header goes on sorting — hence a `Vec`, to expose it through
@@ -346,7 +353,7 @@ enum RowKind<Msg> {
 #[derive(Clone)]
 enum VirtualBuild<Msg> {
     Text(std::rc::Rc<dyn Fn(usize) -> Vec<String>>),
-    Widgets(std::rc::Rc<dyn Fn(usize) -> Vec<Box<dyn Widget<Msg>>>>),
+    Widgets(RowWidgets<Msg>),
 }
 
 /// A **widget** cell: arbitrary content (centred, with the cell background and, when the row
@@ -640,7 +647,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// behaviour into the widgets it supplies (e.g. a button emitting its own sort message).
     /// Each factory is called again on every rebuild (a fresh widget). Excludes
     /// [`header`](Self::header) (the last one called wins).
-    pub fn widget_header(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
+    pub fn widget_header(mut self, cells: Vec<CellFn<Msg>>) -> Self {
         self.header_widgets = cells.into_iter().map(std::rc::Rc::from).collect();
         self.headers.clear();
         self.rebuild();
@@ -651,7 +658,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// without one. The header stays **sortable** and **reorderable** just like a text
     /// header (the icon is purely decorative).
     pub fn header_icons(mut self, icons: &[Option<IconName>]) -> Self {
-        self.header_icons = icons.iter().copied().collect();
+        self.header_icons = icons.to_vec();
         self.rebuild();
         self
     }
@@ -697,7 +704,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// column that was clicked (`on_sort`). The **application** supplies the key: on the sort
     /// message it orders its own data by the field matching that column (e.g. the name behind
     /// an avatar), then hands the already-sorted rows back.
-    pub fn widget_row(mut self, cells: Vec<Box<dyn Fn() -> Box<dyn Widget<Msg>>>>) -> Self {
+    pub fn widget_row(mut self, cells: Vec<CellFn<Msg>>) -> Self {
         self.rows.push(RowKind::Widgets(
             cells.into_iter().map(std::rc::Rc::from).collect(),
         ));
