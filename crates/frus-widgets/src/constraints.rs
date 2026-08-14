@@ -454,7 +454,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => Some(*rect),
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
+                    Some(*rect)
+                }
                 _ => None,
             })
             .expect("the red box")
@@ -590,10 +592,11 @@ mod tests {
         let root = Flex::<()>::column()
             .width(400.0)
             .child(
-                SizedBox::empty()
-                    .width(40.0)
-                    .height(40.0)
-                    .child(OverflowBox::new(Container::new().flex(1.0)).width(100.0).height(100.0)),
+                SizedBox::empty().width(40.0).height(40.0).child(
+                    OverflowBox::new(Container::new().flex(1.0))
+                        .width(100.0)
+                        .height(100.0),
+                ),
             )
             .child(Container::new().width(10.0).height(10.0).color(RED));
         let rect = red_box(root, Size::new(400.0, 300.0));

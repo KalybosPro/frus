@@ -420,8 +420,7 @@ mod tests {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let batches = crate::batch::plan(&scene);
-        let (ranges, _) =
-            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
+        let (ranges, _) = painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -535,8 +534,7 @@ mod tests {
         );
 
         let batches = crate::batch::plan(&scene);
-        let (ranges, _) =
-            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
+        let (ranges, _) = painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -655,8 +653,7 @@ mod tests {
         );
 
         let batches = crate::batch::plan(&scene);
-        let (ranges, _) =
-            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
+        let (ranges, _) = painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -776,8 +773,7 @@ mod tests {
         );
 
         let batches = crate::batch::plan(&scene);
-        let (ranges, _) =
-            painter.prepare_frame(&device, &queue, &scene, &[], &batches);
+        let (ranges, _) = painter.prepare_frame(&device, &queue, &scene, &[], &batches);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {

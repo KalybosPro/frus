@@ -19,7 +19,12 @@ pub(crate) fn level_rank(s: &str) -> u8 {
 /// 232) and **paginates** with a page-size selector (milestones 233/236). The app only keeps
 /// the `(sort, page, size)` state — the display sort is **not** duplicated in the reducer (a
 /// deliberate contrast with the editable grid next door). — milestone 237.
-pub(crate) fn data_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+pub(crate) fn data_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     let people = app.data_rows();
     let rows: Vec<Vec<String>> = people
         .iter()

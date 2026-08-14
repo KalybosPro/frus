@@ -281,28 +281,28 @@ impl ImagePainter {
                 continue;
             }
             for &member in &batch.members {
-            if let Primitive::Image {
-                image,
-                rect,
-                uv,
-                tint,
-                clip,
-                ..
-            } = &scene.primitives()[member]
-            {
-                let id = image.id();
-                self.ensure_texture(device, queue, image);
-                if let Some(cached) = self.cache.get_mut(&id) {
-                    cached.used = true;
+                if let Primitive::Image {
+                    image,
+                    rect,
+                    uv,
+                    tint,
+                    clip,
+                    ..
+                } = &scene.primitives()[member]
+                {
+                    let id = image.id();
+                    self.ensure_texture(device, queue, image);
+                    if let Some(cached) = self.cache.get_mut(&id) {
+                        cached.used = true;
+                    }
+                    self.instances.push(Instance {
+                        rect: rect.to_array(),
+                        uv: uv.to_array(),
+                        tint: tint.to_array(),
+                        clip: clip.to_array(),
+                    });
+                    self.frame_ids.push(id);
                 }
-                self.instances.push(Instance {
-                    rect: rect.to_array(),
-                    uv: uv.to_array(),
-                    tint: tint.to_array(),
-                    clip: clip.to_array(),
-                });
-                self.frame_ids.push(id);
-            }
             }
             ranges.push(start..self.instances.len() as u32);
         }

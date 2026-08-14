@@ -688,7 +688,10 @@ mod tests {
     #[test]
     fn a_title_that_fits_is_left_exactly_as_it_was() {
         let bar = AppBar::<Msg>::new("Short").width(900.0).build();
-        assert_eq!(texts_of(bar.as_ref(), 900.0).first().map(String::as_str), Some("Short"));
+        assert_eq!(
+            texts_of(bar.as_ref(), 900.0).first().map(String::as_str),
+            Some("Short")
+        );
     }
 
     #[test]
@@ -704,7 +707,12 @@ mod tests {
             .leading(button("M", Msg::Menu).size(16.0))
             .build();
         let x_of = |bar: &dyn Widget<Msg>| {
-            let ui = build_ui(bar, Size::new(W, 80.0), &Runtime::default(), &Theme::default());
+            let ui = build_ui(
+                bar,
+                Size::new(W, 80.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
             ui.scene()
                 .primitives()
                 .iter()
@@ -752,7 +760,10 @@ mod tests {
                 })
                 .expect("the text")
         };
-        assert!(y("Tabs") > y("Title"), "the bottom slot sits under the toolbar");
+        assert!(
+            y("Tabs") > y("Title"),
+            "the bottom slot sits under the toolbar"
+        );
     }
 
     #[test]

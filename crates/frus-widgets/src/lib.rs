@@ -38,8 +38,8 @@ mod datetimepicker;
 mod datetimerange;
 /// Swipe-to-dismiss: the [`dismiss::Dismissible`] widget and its retained state.
 pub mod dismiss;
-mod dragdrop;
 mod divider;
+mod dragdrop;
 mod drawer;
 mod dropdown;
 mod dsl;
@@ -69,8 +69,8 @@ mod navigator;
 mod navrail;
 mod navscaffold;
 mod overscroll;
-mod pagination;
 mod pageview;
+mod pagination;
 mod paintcache;
 mod physics;
 mod popover;
@@ -120,6 +120,7 @@ pub use autocomplete::Autocomplete;
 pub use avatar::Avatar;
 pub use badge::Badge;
 pub use barrier::{AbsorbPointer, Barrier, ExcludeSemantics, IgnorePointer, Offstage, Visibility};
+pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use bottomsheet::BottomSheet;
 pub use breadcrumb::Breadcrumb;
 pub use button::{Button, Variant};
@@ -143,12 +144,12 @@ pub use datatable::{
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
-pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use dismiss::{
-    Dismissable, DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState,
+    DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState, Dismissable,
     Dismissible,
 };
 pub use divider::Divider;
+pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;
 pub use dsl::{button, keyed, spacer, text};
@@ -177,8 +178,8 @@ pub use navscaffold::NavScaffold;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
 };
+pub use pageview::{PageSnap, PageView, PagedView};
 pub use pagination::Pagination;
-pub use pageview::{PageSnap, PagedView, PageView};
 pub use paintcache::PaintCache;
 pub use physics::{
     page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, MAX_FLING_VELOCITY,
@@ -195,11 +196,8 @@ pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
-pub use runtime::{
-    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState,
-};
+pub use runtime::{spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState};
 pub use safearea::SafeArea;
-pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use scaffold::{fab_button, FabLocation, Scaffold};
 pub use scroll::{Axis, Scroll};
 pub use segmented::SegmentedControl;

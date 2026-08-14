@@ -2166,7 +2166,11 @@ impl<A: Application> App<A> {
         // arbitrate against, so the swipe is prepared directly. It still waits for the
         // threshold, or a tap on the row would start sliding it.
         if self.drag.is_none() {
-            if let Some(item) = self.ui.as_ref().and_then(|ui| ui.dismissable_at(self.cursor)) {
+            if let Some(item) = self
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.dismissable_at(self.cursor))
+            {
                 self.drag = Some(Drag::Dismiss {
                     item,
                     last: self.cursor,
@@ -2811,9 +2815,10 @@ impl<A: Application> App<A> {
                             self.feed_refresh(host, physics, area.viewport.height, cur.1, ny, ry);
                         }
                         let cursor = self.cursor;
-                        for (refused, vertical, extent) in
-                            [(rx, false, area.viewport.width), (ry, true, area.viewport.height)]
-                        {
+                        for (refused, vertical, extent) in [
+                            (rx, false, area.viewport.width),
+                            (ry, true, area.viewport.height),
+                        ] {
                             if refused.abs() < 1e-3 {
                                 continue;
                             }
@@ -2841,7 +2846,11 @@ impl<A: Application> App<A> {
                     *moved = true;
                 }
                 if *moved {
-                    let delta = if item.spec.axis.is_horizontal() { dx } else { dy };
+                    let delta = if item.spec.axis.is_horizontal() {
+                        dx
+                    } else {
+                        dy
+                    };
                     self.runtime
                         .dismiss_drag(item.id, delta, item.extent(), item.spec.axis);
                     *last = self.cursor;
@@ -3149,7 +3158,12 @@ impl<A: Application> App<A> {
         // under other owners, so the whole subtree is captured — the same reason the
         // reorder ghost does.
         let owners: std::collections::HashSet<u64> = widget
-            .map(|w| subtree_ids(w, source.id).iter().map(|i| i.as_u64()).collect())
+            .map(|w| {
+                subtree_ids(w, source.id)
+                    .iter()
+                    .map(|i| i.as_u64())
+                    .collect()
+            })
             .unwrap_or_else(|| std::iter::once(source.id.as_u64()).collect());
         let opacity = widget.map(|w| w.drag_ghost_opacity()).unwrap_or(1.0);
         let dx = self.cursor.x - start.x;

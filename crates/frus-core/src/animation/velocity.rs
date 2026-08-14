@@ -380,7 +380,10 @@ impl PolynomialFit {
                     q[j * m + h] -= dot * q[i * m + h];
                 }
             }
-            let norm = (0..m).map(|h| q[j * m + h] * q[j * m + h]).sum::<f64>().sqrt();
+            let norm = (0..m)
+                .map(|h| q[j * m + h] * q[j * m + h])
+                .sum::<f64>()
+                .sqrt();
             if norm < PRECISION_TOLERANCE {
                 return None; // linearly dependent or zero: no solution
             }
@@ -531,7 +534,10 @@ mod tests {
         }
         let base = 1.0;
         for i in 0..6 {
-            tracker.add_position(base + i as f32 * 0.008, Point::new(1000.0 + i as f32 * 1.6, 0.0));
+            tracker.add_position(
+                base + i as f32 * 0.008,
+                Point::new(1000.0 + i as f32 * 1.6, 0.0),
+            );
         }
         let now = base + 5.0 * 0.008;
         let estimate = tracker.estimate(now).expect("samples");
@@ -549,7 +555,11 @@ mod tests {
         tracker.add_position(0.0, Point::new(0.0, 0.0));
         tracker.add_position(0.008, Point::new(10.0, 0.0));
         let estimate = tracker.estimate(0.008).expect("samples");
-        assert_eq!(estimate.velocity, Velocity::ZERO, "2 samples cannot regress");
+        assert_eq!(
+            estimate.velocity,
+            Velocity::ZERO,
+            "2 samples cannot regress"
+        );
         assert_eq!(estimate.offset.0, 10.0, "but the travel is still known");
     }
 
@@ -587,14 +597,17 @@ mod tests {
 
     #[test]
     fn the_recent_average_needs_no_history_to_answer() {
-        let mut tracker = VelocityTracker::new(VelocityStrategy::RecentAverage(
-            DESKTOP_FLING_WEIGHTS,
-        ));
+        let mut tracker =
+            VelocityTracker::new(VelocityStrategy::RecentAverage(DESKTOP_FLING_WEIGHTS));
         tracker.add_position(0.0, Point::new(0.0, 0.0));
         tracker.add_position(0.008, Point::new(8.0, 0.0));
         let estimate = tracker.estimate(0.008).expect("samples");
         // Only the newest pair exists; it carries the 0.2 weight. 1000·0.2 = 200.
-        assert!((estimate.velocity.x - 200.0).abs() < 1.0, "got {}", estimate.velocity.x);
+        assert!(
+            (estimate.velocity.x - 200.0).abs() < 1.0,
+            "got {}",
+            estimate.velocity.x
+        );
     }
 
     #[test]
@@ -641,7 +654,12 @@ mod tests {
             .collect();
         let a = PolynomialFit::solve(&x, &clean, 2).unwrap();
         let b = PolynomialFit::solve(&x, &noisy, 2).unwrap();
-        assert!(a.confidence > b.confidence, "{} vs {}", a.confidence, b.confidence);
+        assert!(
+            a.confidence > b.confidence,
+            "{} vs {}",
+            a.confidence,
+            b.confidence
+        );
         assert!(b.confidence < 0.9);
     }
 

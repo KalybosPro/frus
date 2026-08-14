@@ -23,7 +23,12 @@ pub(crate) const CHART_COLORS: [Color; 2] = [
 /// stacked areas (1), grouped bars (2), stacked bars (3). Every variant shares the same data,
 /// the same axis and the same `chart_hidden` visibility state. `legend` wires up (or leaves out)
 /// the clickable legend — useful for a **companion** chart that does not repeat its own.
-pub(crate) fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: bool) -> Box<dyn Widget<Msg>> {
+pub(crate) fn dashboard_chart(
+    app: &TodoApp,
+    kind: usize,
+    height: f32,
+    legend: bool,
+) -> Box<dyn Widget<Msg>> {
     let hidden = app.chart_hidden.clone();
     let cats = (0..5).map(|i| (CHART_CATS[i], CHART_SERIES[0].1[i]));
     if kind < 2 {
@@ -75,7 +80,12 @@ pub(crate) fn dashboard_chart(app: &TodoApp, kind: usize, height: f32, legend: b
 /// The **chart dashboard** screen: a `SegmentedControl` picks the kind (lines / stacked areas /
 /// grouped bars / stacked bars, milestone 219), and the **clickable** legend hides or shows a
 /// series (milestone 215/218). It demonstrates routing sub-region clicks into the state.
-pub(crate) fn charts_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+pub(crate) fn charts_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     let selector = SegmentedControl::new(app.chart_kind, Msg::SetChartKind)
         .segment("Lines")
         .segment("Stacked area")

@@ -690,9 +690,7 @@ fn data_table_screen_sorts_and_paginates_without_touching_data() {
     assert!(primitive_count(&app) > 0, "it renders with the row detail");
     // The Level column's custom sort (index 3): a semantic order, not an alphabetical one.
     assert_eq!(level_rank("Low"), 0);
-    assert!(
-        level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High")
-    );
+    assert!(level_rank("Low") < level_rank("Medium") && level_rank("Medium") < level_rank("High"));
     reduce(&mut app, Msg::DataSort(3));
     assert_eq!(app.data_sort, Some((3, true)), "the Level column is sorted");
     assert!(primitive_count(&app) > 0, "it renders sorted by priority");

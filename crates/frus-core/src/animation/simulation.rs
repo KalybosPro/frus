@@ -335,7 +335,12 @@ impl ClampingScrollSimulation {
 
     /// The same fling, with the friction coefficient made explicit: higher means
     /// it stops sooner and travels less far.
-    pub fn with_friction(position: f32, velocity: f32, friction: f32, tolerance: Tolerance) -> Self {
+    pub fn with_friction(
+        position: f32,
+        velocity: f32,
+        friction: f32,
+        tolerance: Tolerance,
+    ) -> Self {
         // Below the tolerance there is no fling at all; short-circuiting also keeps
         // the `ln`/`powf` below away from zero.
         let duration = if velocity.abs() < tolerance.velocity.max(f32::EPSILON) {
@@ -441,9 +446,8 @@ impl BouncingScrollSimulation {
     ) -> Self {
         debug_assert!(leading <= trailing);
         let friction = FrictionSimulation::new(BOUNCING_DRAG, position, velocity, tolerance);
-        let to = |edge: f32, from: f32, v: f32| {
-            SpringSimulation::new(spring, from, edge, v, tolerance)
-        };
+        let to =
+            |edge: f32, from: f32, v: f32| SpringSimulation::new(spring, from, edge, v, tolerance);
 
         // Already outside: the spring holds from the first instant, and the whole
         // motion is the return.
@@ -672,7 +676,11 @@ mod tests {
         let sim = FrictionSimulation::new(0.135, 0.0, 1000.0, Tolerance::PIXELS);
         let t = sim.time_at_x(200.0);
         assert!(t.is_finite(), "200 px is within reach of a 1000 px/s fling");
-        assert!((sim.x(t) - 200.0).abs() < 1e-2, "x(time_at_x(200)) = {}", sim.x(t));
+        assert!(
+            (sim.x(t) - 200.0).abs() < 1e-2,
+            "x(time_at_x(200)) = {}",
+            sim.x(t)
+        );
         // Behind the start, and past the limit: never reached.
         assert!(sim.time_at_x(-10.0).is_infinite());
         assert!(sim.time_at_x(sim.final_x() + 10.0).is_infinite());
@@ -703,7 +711,10 @@ mod tests {
             prev = v;
             t += 0.01;
         }
-        assert!((sim.dx(0.0) - 1000.0).abs() < 1e-1, "starts at the release velocity");
+        assert!(
+            (sim.dx(0.0) - 1000.0).abs() < 1e-1,
+            "starts at the release velocity"
+        );
         assert!(sim.dx(sim.duration()).abs() < 1e-3, "ends at rest");
         assert!(!sim.is_done(sim.duration() * 0.5));
         assert!(sim.is_done(sim.duration()));
@@ -751,7 +762,10 @@ mod tests {
             scroll_spring(),
             Tolerance::PIXELS,
         );
-        assert!((sim.x(0.0) - 130.0).abs() < 1e-3, "starts where it was let go");
+        assert!(
+            (sim.x(0.0) - 130.0).abs() < 1e-3,
+            "starts where it was let go"
+        );
         assert!(sim.x(0.3) < 130.0, "comes back towards the edge");
         assert!(
             (sim.x(2.0) - 100.0).abs() < 0.5,

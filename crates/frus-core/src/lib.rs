@@ -19,11 +19,10 @@ mod text_style;
 
 pub use animation::{
     Animatable, Animation, AnimationController, BouncingScrollSimulation, ClampedSimulation,
-    ClampingScrollSimulation, Curve, Curved, FrictionSimulation, Lerp, Simulation,
-    PolynomialFit, SpringDescription, SpringSimulation, Status, Tolerance, Tween, TweenSequence,
-    Velocity, VelocityEstimate, VelocityStrategy, VelocityTracker, BOUNCING_DRAG,
-    BOUNCING_FLING_WEIGHTS, CLAMPING_FRICTION, DESKTOP_FLING_WEIGHTS,
-    MAX_SPRING_TRANSFER_VELOCITY,
+    ClampingScrollSimulation, Curve, Curved, FrictionSimulation, Lerp, PolynomialFit, Simulation,
+    SpringDescription, SpringSimulation, Status, Tolerance, Tween, TweenSequence, Velocity,
+    VelocityEstimate, VelocityStrategy, VelocityTracker, BOUNCING_DRAG, BOUNCING_FLING_WEIGHTS,
+    CLAMPING_FRICTION, DESKTOP_FLING_WEIGHTS, MAX_SPRING_TRANSFER_VELOCITY,
 };
 pub use color::Color;
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};

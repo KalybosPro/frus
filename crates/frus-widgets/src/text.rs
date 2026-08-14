@@ -205,7 +205,10 @@ mod tests {
         };
         // Two labels: one that fits on a line at its natural width, one that cannot
         // fit the box at all and must reserve every line it wraps onto.
-        for (label, lines) in [("Write code", 1.0_f32), ("A rather long task name that certainly wraps", 2.0)] {
+        for (label, lines) in [
+            ("Write code", 1.0_f32),
+            ("A rather long task name that certainly wraps", 2.0),
+        ] {
             let tree = Container::<()>::new().width(400.0).height(600.0).child(
                 Flex::column()
                     .width(376.0)
@@ -226,7 +229,9 @@ mod tests {
                 .iter()
                 .find_map(|p| match p {
                     Primitive::Text {
-                        position, max_width, ..
+                        position,
+                        max_width,
+                        ..
                     } => Some((*position, max_width.unwrap_or(f32::MAX))),
                     _ => None,
                 })
@@ -241,13 +246,8 @@ mod tests {
                 })
                 .expect("the label under it is painted");
             // What the box it was given really costs, shaped at that width.
-            let painted = frus_text::measure_wrapped(
-                label,
-                24.0,
-                FontWeight::Bold,
-                false,
-                Some(paragraph.1),
-            );
+            let painted =
+                frus_text::measure_wrapped(label, 24.0, FontWeight::Bold, false, Some(paragraph.1));
             assert!(
                 (painted.height / frus_text::line_height(24.0) - lines).abs() < 0.01,
                 "{label:?} wrapped onto {} lines in a box of {}",

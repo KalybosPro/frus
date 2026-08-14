@@ -53,10 +53,7 @@ pub(crate) struct Batch {
 /// `true` when two rectangles share any area. Touching edges do not count: a box that
 /// ends where the next begins covers nothing of it.
 fn overlaps(a: Rect, b: Rect) -> bool {
-    a.x < b.x + b.width
-        && b.x < a.x + a.width
-        && a.y < b.y + b.height
-        && b.y < a.y + a.height
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
 /// The smallest rectangle containing every node of `path`. Control points are included
@@ -308,7 +305,10 @@ mod tests {
         });
         let batches = plan(&scene);
         // The order the GPU will see.
-        let order: Vec<usize> = batches.iter().flat_map(|b| b.members.iter().copied()).collect();
+        let order: Vec<usize> = batches
+            .iter()
+            .flat_map(|b| b.members.iter().copied())
+            .collect();
         let boxes: Vec<Rect> = scene
             .primitives()
             .iter()

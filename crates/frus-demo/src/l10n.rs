@@ -20,7 +20,8 @@ pub(crate) fn l10n() -> &'static Localizer {
 
 /// The languages the demo offers (menu label, locale code). The last one, Arabic, is
 /// **right-to-left**: selecting it also mirrors the layout (bidi + mirroring).
-pub(crate) const LANGS: [(&str, &str); 3] = [("English", "en"), ("Français", "fr"), ("العربية", "ar")];
+pub(crate) const LANGS: [(&str, &str); 3] =
+    [("English", "en"), ("Français", "fr"), ("العربية", "ar")];
 
 /// Is the language at index `lang` written right to left?
 pub(crate) fn lang_is_rtl(lang: usize) -> bool {

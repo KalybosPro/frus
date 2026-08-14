@@ -138,7 +138,6 @@ impl<Msg: Clone> Widget<Msg> for Draggable<Msg> {
         None
     }
 
-
     // The **structural** questions, forwarded from the child. A wrapper that answered
     // them for itself would change how its content is laid out: a `Dismissible` is a
     // layout leaf, so wrapping it in an ordinary container leaves it with no content
@@ -151,7 +150,9 @@ impl<Msg: Clone> Widget<Msg> for Draggable<Msg> {
     }
 
     fn continuous(&self) -> bool {
-        self.children.first().is_some_and(|child| child.continuous())
+        self.children
+            .first()
+            .is_some_and(|child| child.continuous())
     }
 
     fn drag_payload(&self) -> Option<u64> {
@@ -253,7 +254,6 @@ impl<Msg: Clone> Widget<Msg> for DragTarget<Msg> {
         None
     }
 
-
     // The **structural** questions, forwarded from the child. A wrapper that answered
     // them for itself would change how its content is laid out: a `Dismissible` is a
     // layout leaf, so wrapping it in an ordinary container leaves it with no content
@@ -266,7 +266,9 @@ impl<Msg: Clone> Widget<Msg> for DragTarget<Msg> {
     }
 
     fn continuous(&self) -> bool {
-        self.children.first().is_some_and(|child| child.continuous())
+        self.children
+            .first()
+            .is_some_and(|child| child.continuous())
     }
 
     fn drop_zone(&self) -> bool {
@@ -354,7 +356,9 @@ mod tests {
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => Some(*rect),
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
+                    Some(*rect)
+                }
                 _ => None,
             })
             .collect();
@@ -373,9 +377,10 @@ mod tests {
         use crate::Flex;
         let red = Color::rgb(1.0, 0.0, 0.0);
         let root = Flex::<Msg>::column().width(300.0).child(DragTarget::new(
-            Container::new().padding(12.0).color(red).child(
-                Container::new().height(20.0),
-            ),
+            Container::new()
+                .padding(12.0)
+                .color(red)
+                .child(Container::new().height(20.0)),
         ));
         let runtime = Runtime::default();
         let ui = build_ui(&root, Size::new(300.0, 400.0), &runtime, &Theme::dark());
@@ -384,7 +389,9 @@ mod tests {
             .primitives()
             .iter()
             .find_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => Some(*rect),
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
+                    Some(*rect)
+                }
                 _ => None,
             })
             .expect("the target's content");
@@ -425,7 +432,10 @@ mod tests {
     #[test]
     fn a_refused_drop_is_reported_as_such() {
         let source = Draggable::new(Container::new()).on_dropped(Msg::Ended);
-        assert_eq!(Widget::<Msg>::on_dropped(&source, true), Some(Msg::Ended(true)));
+        assert_eq!(
+            Widget::<Msg>::on_dropped(&source, true),
+            Some(Msg::Ended(true))
+        );
         assert_eq!(
             Widget::<Msg>::on_dropped(&source, false),
             Some(Msg::Ended(false))

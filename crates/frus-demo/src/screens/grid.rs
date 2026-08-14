@@ -7,7 +7,12 @@ use frus_widgets::{column, row};
 /// Tab / Shift+Tab moves from cell to cell (the shell's focusables), Enter moves down one row
 /// (milestone 201). The headers sort (milestone 204, `on_sort`), invalid cells show an error,
 /// and Enter on the last row creates a new one.
-pub(crate) fn grid_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+pub(crate) fn grid_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     const COL_W: [f32; 3] = [190.0, 170.0, 240.0];
     let muted = theme.muted;
     let mut table = Table::new(4)

@@ -8,14 +8,14 @@ use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect
 use frus_layout::{Layout, NodeId};
 
 use crate::barrier::Barrier;
-use crate::dismiss::{Dismissable, DismissPhase};
+use crate::dismiss::{DismissPhase, Dismissable};
 use crate::dragdrop::{DragSource, DropZone};
 use crate::hero::{lerp_rect, HeroSpot};
-use crate::refresh::Refreshable;
 use crate::interaction::{Status, WidgetId};
 use crate::pageview::PageSnap;
 use crate::physics::{ScrollMetrics, ScrollPhysics};
 use crate::portal::Placement;
+use crate::refresh::Refreshable;
 use crate::relayout::Constraints;
 use crate::runtime::Runtime;
 use crate::theme::Theme;
@@ -963,7 +963,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // left alone rather than guessed at.
         let mut flights: Vec<(Rect, Rect, &'a dyn Widget<Msg>, WidgetId, WidgetId)> = Vec::new();
         for (from, _) in spots.iter().filter(|(s, _)| s.screen == 0) {
-            let mut matching = spots.iter().filter(|(s, _)| s.screen == 1 && s.tag == from.tag);
+            let mut matching = spots
+                .iter()
+                .filter(|(s, _)| s.screen == 1 && s.tag == from.tag);
             let Some((to, widget)) = matching.next() else {
                 continue;
             };
@@ -1145,11 +1147,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.walk_node(widget, id, translation, clip, rects, index);
             self.refresh_host = outer;
 
-            let area = Refreshable {
-                id,
-                viewport,
-                spec,
-            };
+            let area = Refreshable { id, viewport, spec };
             if let Some(pull) = self.runtime.refresh.get(&id) {
                 crate::refresh::paint_refresh(&mut self.scene, &area, pull, self.theme, clip);
                 // A pull that is settling, spinning or fading away drives itself, so the
@@ -1805,8 +1803,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
                     // A page is **given** its box, not asked for one: it fills the
                     // panel even when its content is a single centred line.
-                    let page_rects =
-                        self.cached_rects(id.child(index), page.as_ref(), Constraints::filled(size));
+                    let page_rects = self.cached_rects(
+                        id.child(index),
+                        page.as_ref(),
+                        Constraints::filled(size),
+                    );
 
                     let mut page_index = 0;
                     self.render_item(
@@ -3427,7 +3428,10 @@ mod tests {
             })
             .expect("the glow is a filled path");
         // Drawn against the bottom of the viewport, and inside it.
-        assert!((clip.y + clip.height - 100.0).abs() < 1.0, "clip = {clip:?}");
+        assert!(
+            (clip.y + clip.height - 100.0).abs() < 1.0,
+            "clip = {clip:?}"
+        );
         assert!(clip.width <= 200.0 + 1e-3);
     }
 

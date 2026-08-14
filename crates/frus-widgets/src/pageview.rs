@@ -47,7 +47,10 @@ impl PageSnap {
     /// The page an `offset` reads as — the one a reader would say they are on.
     pub fn page_at(&self, offset: f32) -> usize {
         let last = self.count.saturating_sub(1);
-        (crate::physics::page_of(offset, self.extent).round().max(0.0) as usize).min(last)
+        (crate::physics::page_of(offset, self.extent)
+            .round()
+            .max(0.0) as usize)
+            .min(last)
     }
 }
 
@@ -108,7 +111,10 @@ impl<Msg> PageView<Msg> {
     /// Pages run **horizontally** and fill the viewport, which is what a page view
     /// is nine times out of ten; [`PageView::axis`] and
     /// [`PageView::viewport_fraction`] change both.
-    pub fn new<W: Widget<Msg> + 'static>(count: usize, build: impl Fn(usize) -> W + 'static) -> Self {
+    pub fn new<W: Widget<Msg> + 'static>(
+        count: usize,
+        build: impl Fn(usize) -> W + 'static,
+    ) -> Self {
         Self {
             count,
             axis: Axis::Horizontal,
@@ -269,12 +275,7 @@ mod tests {
     }
 
     fn ui_of(widget: PageView<()>, runtime: &Runtime) -> crate::Ui<()> {
-        build_ui(
-            &widget,
-            Size::new(300.0, 400.0),
-            runtime,
-            &Theme::default(),
-        )
+        build_ui(&widget, Size::new(300.0, 400.0), runtime, &Theme::default())
     }
 
     #[test]
@@ -302,7 +303,11 @@ mod tests {
     fn the_content_is_as_long_as_the_pages_put_together() {
         let runtime = Runtime::default();
         let ui = ui_of(view(Rc::new(Cell::new(0))), &runtime);
-        let area = ui.scroll_regions().first().copied().expect("a scroll region");
+        let area = ui
+            .scroll_regions()
+            .first()
+            .copied()
+            .expect("a scroll region");
         // 50 pages of 300 px in a 300 px viewport: 49 pages' worth of travel.
         assert_eq!(area.max_x, 49.0 * 300.0);
         assert_eq!(area.max_y, 0.0);
@@ -315,11 +320,12 @@ mod tests {
     #[test]
     fn narrower_pages_let_the_next_one_show() {
         let runtime = Runtime::default();
-        let ui = ui_of(
-            view(Rc::new(Cell::new(0))).viewport_fraction(0.8),
-            &runtime,
-        );
-        let area = ui.scroll_regions().first().copied().expect("a scroll region");
+        let ui = ui_of(view(Rc::new(Cell::new(0))).viewport_fraction(0.8), &runtime);
+        let area = ui
+            .scroll_regions()
+            .first()
+            .copied()
+            .expect("a scroll region");
         let snap = area.page.expect("a paged region");
         assert_eq!(snap.extent, 240.0);
         // The travel stops with the last page's right edge on the viewport's.
@@ -330,7 +336,11 @@ mod tests {
     fn a_vertical_view_pages_downwards() {
         let runtime = Runtime::default();
         let ui = ui_of(view(Rc::new(Cell::new(0))).axis(Axis::Vertical), &runtime);
-        let area = ui.scroll_regions().first().copied().expect("a scroll region");
+        let area = ui
+            .scroll_regions()
+            .first()
+            .copied()
+            .expect("a scroll region");
         let snap = area.page.expect("a paged region");
         assert!(!snap.horizontal);
         assert_eq!(snap.extent, 400.0);

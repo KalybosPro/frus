@@ -777,7 +777,11 @@ mod tests {
     /// cosmic-text demands an *exact* style and weight match on the primary family:
     /// without a bundled oblique face, `.italic()` panicked on the device.
     #[test]
-    #[cfg(all(feature = "bundled-sans", feature = "bundled-italic", feature = "bundled-mono"))]
+    #[cfg(all(
+        feature = "bundled-sans",
+        feature = "bundled-italic",
+        feature = "bundled-mono"
+    ))]
     fn embedded_only_font_system_shapes_every_style() {
         let mut db = cosmic_text::fontdb::Database::new();
         db.load_font_data(DEJAVU_SANS.to_vec());
@@ -986,7 +990,11 @@ mod tests {
     fn italic_is_only_asked_for_when_a_face_can_answer() {
         // Measuring is what builds the font system, which is what reads the database.
         let _ = measure("x", 12.0);
-        assert_eq!(available_style(false), Style::Normal, "upright asked for italic");
+        assert_eq!(
+            available_style(false),
+            Style::Normal,
+            "upright asked for italic"
+        );
         assert_eq!(
             available_style(true) == Style::Italic,
             ITALIC.load(Ordering::Relaxed),

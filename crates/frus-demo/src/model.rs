@@ -363,7 +363,10 @@ pub(crate) fn grid_faults(grid: &[Vec<String>]) -> Vec<(usize, usize)> {
 
 /// The faulty cell **after** `after` (row-by-row order, wrapping at the end) — so every fault
 /// can be cycled through (milestone 214). `after = None` returns the first one.
-pub(crate) fn grid_next_error(grid: &[Vec<String>], after: Option<(usize, usize)>) -> Option<(usize, usize)> {
+pub(crate) fn grid_next_error(
+    grid: &[Vec<String>],
+    after: Option<(usize, usize)>,
+) -> Option<(usize, usize)> {
     let faults = grid_faults(grid);
     match after {
         None => faults.first().copied(),

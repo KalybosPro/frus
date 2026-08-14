@@ -184,12 +184,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
         Style {
             width: Dimension::Percent(1.0),
             height: Dimension::Length(self.height),
-            padding: frus_core::Insets::new(
-                self.padding,
-                self.padding,
-                self.padding,
-                self.padding,
-            ),
+            padding: frus_core::Insets::new(self.padding, self.padding, self.padding, self.padding),
             ..Default::default()
         }
     }
@@ -202,12 +197,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
         let color = self.color.unwrap_or(theme.surface);
         match self.notch {
             Some((centre_x, radius)) => {
-                let path = notched_outline(
-                    bounds,
-                    bounds.x + centre_x,
-                    radius + self.notch_margin,
-                    0.0,
-                );
+                let path =
+                    notched_outline(bounds, bounds.x + centre_x, radius + self.notch_margin, 0.0);
                 scene.fill_path(&path, color);
             }
             None => scene.fill_rect(bounds, color),
@@ -256,7 +247,10 @@ mod tests {
                 "node outside the bar: {p:?}"
             );
             let d = ((p.x - centre.x).powi(2) + (p.y - centre.y).powi(2)).sqrt();
-            assert!(d >= r - 0.01, "node inside the button's circle: {p:?} ({d})");
+            assert!(
+                d >= r - 0.01,
+                "node inside the button's circle: {p:?} ({d})"
+            );
         }
         assert!(nodes > 6, "the notch adds curves, got {nodes} nodes");
     }
@@ -270,7 +264,9 @@ mod tests {
             .verbs()
             .iter()
             .filter_map(|v| match v {
-                PathVerb::LineTo(p) | PathVerb::QuadTo { to: p, .. } if (p.y - HOST.y).abs() < 0.01 => {
+                PathVerb::LineTo(p) | PathVerb::QuadTo { to: p, .. }
+                    if (p.y - HOST.y).abs() < 0.01 =>
+                {
                     Some(p.x)
                 }
                 _ => None,
@@ -304,7 +300,12 @@ mod tests {
         let bar = BottomAppBar::<()>::new()
             .child(Container::new().width(80.0).height(30.0).color(MARK))
             .notched_at(300.0, 28.0);
-        let ui = build_ui(&bar, Size::new(400.0, 64.0), &Runtime::default(), &Theme::default());
+        let ui = build_ui(
+            &bar,
+            Size::new(400.0, 64.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
         let order: Vec<&str> = ui
             .scene()
             .primitives()

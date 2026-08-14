@@ -241,40 +241,40 @@ impl PathPainter {
                 continue;
             }
             for &member in &batch.members {
-            if let Primitive::Path {
-                path,
-                fill,
-                stroke,
-                clip,
-                ..
-            } = &scene.primitives()[member]
-            {
-                let lyon_path = to_lyon(path);
-                let clip = clip.to_array();
-                if let Some(color) = fill {
-                    let ctor = Ctor {
-                        color: color.to_array(),
-                        clip,
-                    };
-                    let _ = self.fill_tess.tessellate_path(
-                        &lyon_path,
-                        &FillOptions::default(),
-                        &mut BuffersBuilder::new(&mut self.geometry, ctor),
-                    );
+                if let Primitive::Path {
+                    path,
+                    fill,
+                    stroke,
+                    clip,
+                    ..
+                } = &scene.primitives()[member]
+                {
+                    let lyon_path = to_lyon(path);
+                    let clip = clip.to_array();
+                    if let Some(color) = fill {
+                        let ctor = Ctor {
+                            color: color.to_array(),
+                            clip,
+                        };
+                        let _ = self.fill_tess.tessellate_path(
+                            &lyon_path,
+                            &FillOptions::default(),
+                            &mut BuffersBuilder::new(&mut self.geometry, ctor),
+                        );
+                    }
+                    if let Some(s) = stroke {
+                        let ctor = Ctor {
+                            color: s.color.to_array(),
+                            clip,
+                        };
+                        let options = StrokeOptions::default().with_line_width(s.width);
+                        let _ = self.stroke_tess.tessellate_path(
+                            &lyon_path,
+                            &options,
+                            &mut BuffersBuilder::new(&mut self.geometry, ctor),
+                        );
+                    }
                 }
-                if let Some(s) = stroke {
-                    let ctor = Ctor {
-                        color: s.color.to_array(),
-                        clip,
-                    };
-                    let options = StrokeOptions::default().with_line_width(s.width);
-                    let _ = self.stroke_tess.tessellate_path(
-                        &lyon_path,
-                        &options,
-                        &mut BuffersBuilder::new(&mut self.geometry, ctor),
-                    );
-                }
-            }
             }
             ranges.push(start..self.geometry.indices.len() as u32);
         }

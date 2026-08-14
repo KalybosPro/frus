@@ -300,15 +300,15 @@ mod tests {
         let centre = Point::new(50.0, 40.0);
         let radius = 12.0;
         for (start, end) in [
-            (0.0, PI),           // half a turn
-            (PI, 0.0),           // and back the other way
-            (0.3, 0.5),          // a sliver
-            (-PI, PI * 0.75),    // more than a half turn: several pieces
+            (0.0, PI),        // half a turn
+            (PI, 0.0),        // and back the other way
+            (0.3, 0.5),       // a sliver
+            (-PI, PI * 0.75), // more than a half turn: several pieces
         ] {
-            let on = |a: f32| {
-                Point::new(centre.x + radius * a.cos(), centre.y + radius * a.sin())
-            };
-            let path = Path::new().move_to(on(start)).arc_to(centre, radius, start, end);
+            let on = |a: f32| Point::new(centre.x + radius * a.cos(), centre.y + radius * a.sin());
+            let path = Path::new()
+                .move_to(on(start))
+                .arc_to(centre, radius, start, end);
             let last = match path.verbs().last() {
                 Some(PathVerb::CubicTo { to, .. }) => *to,
                 other => panic!("an arc ends on a cubic, got {other:?}"),

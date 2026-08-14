@@ -220,7 +220,9 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     }
 
     fn drag_needs_long_press(&self) -> bool {
-        self.inner.as_ref().is_some_and(|w| w.drag_needs_long_press())
+        self.inner
+            .as_ref()
+            .is_some_and(|w| w.drag_needs_long_press())
     }
 
     fn drag_ghost_opacity(&self) -> f32 {

@@ -114,7 +114,12 @@ pub(crate) fn confirm_content(done: usize) -> Card<Msg> {
 }
 
 /// The main screen: the task list (the sample app itself).
-pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+pub(crate) fn todo_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     let active = active_count(app);
     let done = done_count(app);
 

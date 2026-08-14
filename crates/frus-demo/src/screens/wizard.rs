@@ -101,7 +101,12 @@ pub(crate) fn wizard_input(
 /// The **sign-up wizard** screen: proof that the recent building blocks fit together — a
 /// clickable [`Steps`] indicator (milestone 183), a validated [`Form`] (180) with a **clickable**
 /// error summary (181), and a success notification (185/188).
-pub(crate) fn wizard_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+pub(crate) fn wizard_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     let form = wizard_form(app);
     let submitted = app.wizard_submitted;
     // A **responsive** field width: it fits the width (minus the 24×2 padding), capped at 360 px

@@ -55,7 +55,9 @@ impl ScrollMetrics {
 
     /// How far past an edge the offset has been dragged; 0 while inside.
     pub fn overscroll_past(&self) -> f32 {
-        (self.min - self.pixels).max(self.pixels - self.max).max(0.0)
+        (self.min - self.pixels)
+            .max(self.pixels - self.max)
+            .max(0.0)
     }
 }
 
@@ -477,7 +479,9 @@ mod tests {
         let at_end = ScrollMetrics::new(400.0, 400.0, 600.0);
         assert!(ScrollPhysics::Clamping.ballistic(at_end, 900.0).is_none());
         let at_start = ScrollMetrics::new(0.0, 400.0, 600.0);
-        assert!(ScrollPhysics::Clamping.ballistic(at_start, -900.0).is_none());
+        assert!(ScrollPhysics::Clamping
+            .ballistic(at_start, -900.0)
+            .is_none());
     }
 
     #[test]
@@ -487,7 +491,11 @@ mod tests {
         let past = ScrollMetrics::new(460.0, 400.0, 600.0);
         let sim = ScrollPhysics::Clamping.ballistic(past, 0.0).unwrap();
         assert!(matches!(sim, Ballistic::Spring(_)));
-        assert!((sim.x(2.0) - 400.0).abs() < 0.5, "settles at {}", sim.x(2.0));
+        assert!(
+            (sim.x(2.0) - 400.0).abs() < 0.5,
+            "settles at {}",
+            sim.x(2.0)
+        );
     }
 
     #[test]
@@ -564,7 +572,10 @@ mod tests {
         // Pages narrower than the viewport: the last one is not on a boundary.
         let metrics = ScrollMetrics::new(430.0, 450.0, 300.0);
         assert_eq!(page_target(metrics, 240.0, 900.0, 2.0), 450.0);
-        assert_eq!(page_target(ScrollMetrics::new(5.0, 600.0, 300.0), 300.0, -900.0, 2.0), 0.0);
+        assert_eq!(
+            page_target(ScrollMetrics::new(5.0, 600.0, 300.0), 300.0, -900.0, 2.0),
+            0.0
+        );
     }
 
     #[test]
@@ -572,10 +583,18 @@ mod tests {
         for physics in [ScrollPhysics::Bouncing, ScrollPhysics::Clamping] {
             // Released mid-page with no speed at all: it still has to go somewhere.
             let sim = physics.page_ballistic(paged(190.0), 0.0, 300.0).unwrap();
-            assert!((sim.x(3.0) - 300.0).abs() < 1.0, "settled at {}", sim.x(3.0));
+            assert!(
+                (sim.x(3.0) - 300.0).abs() < 1.0,
+                "settled at {}",
+                sim.x(3.0)
+            );
             // A hard fling crosses exactly one page, not three.
             let sim = physics.page_ballistic(paged(10.0), 6000.0, 300.0).unwrap();
-            assert!((sim.x(3.0) - 300.0).abs() < 1.0, "settled at {}", sim.x(3.0));
+            assert!(
+                (sim.x(3.0) - 300.0).abs() < 1.0,
+                "settled at {}",
+                sim.x(3.0)
+            );
         }
     }
 

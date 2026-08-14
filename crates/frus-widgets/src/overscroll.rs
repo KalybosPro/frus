@@ -203,7 +203,8 @@ impl OverscrollGlow {
         // The divisor is empirical: it is what makes the growth match the platform's.
         self.pull_distance += overscroll.abs() / 200.0;
         self.opacity_from = self.opacity();
-        self.opacity_to = (self.opacity_from + overscroll.abs() / extent * PULL_OPACITY_GLOW_FACTOR)
+        self.opacity_to = (self.opacity_from
+            + overscroll.abs() / extent * PULL_OPACITY_GLOW_FACTOR)
             .min(MAX_OPACITY);
         let height = extent.min(cross_extent * WIDTH_TO_HEIGHT_FACTOR);
         self.size_from = self.size();
@@ -414,9 +415,15 @@ pub fn edge_for(vertical: bool, delta: f32) -> GlowEdge {
 /// inside `viewport` — and how long that edge is.
 pub fn cross_axis(viewport: Rect, edge: GlowEdge, point: Point) -> (f32, f32) {
     if edge.vertical() {
-        ((point.x - viewport.x).clamp(0.0, viewport.width), viewport.width)
+        (
+            (point.x - viewport.x).clamp(0.0, viewport.width),
+            viewport.width,
+        )
     } else {
-        ((point.y - viewport.y).clamp(0.0, viewport.height), viewport.height)
+        (
+            (point.y - viewport.y).clamp(0.0, viewport.height),
+            viewport.height,
+        )
     }
 }
 

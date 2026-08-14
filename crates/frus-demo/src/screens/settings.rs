@@ -8,7 +8,12 @@ use frus_widgets::{column, row};
 pub(crate) const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
 
 /// The "Settings" screen: the card of controls (it demonstrates navigation + gesture + widgets).
-pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+pub(crate) fn settings_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Container<Msg> {
     let volume_pct = (app.volume * 100.0).round() as u32;
     let controls = Card::new().child(
         column![

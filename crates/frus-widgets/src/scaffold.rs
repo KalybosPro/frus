@@ -36,10 +36,10 @@
 use frus_core::{Color, Insets, SizeClass, WindowInsets};
 use frus_layout::Justify;
 
+use crate::bottomappbar::BottomAppBar;
 use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
-use crate::bottomappbar::BottomAppBar;
 use crate::navrail::{BottomBar, NavRail, BAR_HEIGHT, RAIL_WIDTH};
 use crate::scroll::Scroll;
 use crate::stack::Stack;
@@ -435,8 +435,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             // content would leave the alignment nothing to distribute, and every
             // footer would sit at the leading edge whatever it was asked for.
             let rail = if compact { 0.0 } else { RAIL_WIDTH };
-            let row_width =
-                (width - insets.left - insets.right - rail - FOOTER_PAD * 2.0).max(0.0);
+            let row_width = (width - insets.left - insets.right - rail - FOOTER_PAD * 2.0).max(0.0);
             let row = Flex::row()
                 .width(row_width)
                 .justify(persistent_footer_alignment)
@@ -489,9 +488,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         let app_bar_pad = |bar: Box<dyn Widget<Msg>>, left: f32| {
             inset_pad(bar, insets.top, insets.right, 0.0, left)
         };
-        let nav_pad = |n: Box<dyn Widget<Msg>>| {
-            inset_pad(n, 0.0, insets.right, bottom_clear, insets.left)
-        };
+        let nav_pad =
+            |n: Box<dyn Widget<Msg>>| inset_pad(n, 0.0, insets.right, bottom_clear, insets.left);
 
         // The pinned shell: app bar · body · footer · (bottom bar | rail).
         let mut app_bar = app_bar;
@@ -765,9 +763,9 @@ mod tests {
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                frus_core::Primitive::Rect { rect, color, clip, .. } if *color == MARK => {
-                    Some(rect.intersect(*clip))
-                }
+                frus_core::Primitive::Rect {
+                    rect, color, clip, ..
+                } if *color == MARK => Some(rect.intersect(*clip)),
                 _ => None,
             })
             .collect();
@@ -934,10 +932,7 @@ mod tests {
         assert!(at(Justify::Start) < 20.0, "start: {}", at(Justify::Start));
         assert!(at(Justify::End) > W - 120.0, "end: {}", at(Justify::End));
         let centre = at(Justify::Center);
-        assert!(
-            (centre - (W - 100.0) / 2.0).abs() < 2.0,
-            "centre: {centre}"
-        );
+        assert!((centre - (W - 100.0) / 2.0).abs() < 2.0, "centre: {centre}");
     }
 
     /// The FAB goes to the end it was given, and a docked one straddles the bar's
@@ -960,8 +955,14 @@ mod tests {
         let start = at(FabLocation::StartFloat);
         let centre = at(FabLocation::CenterFloat);
         let end = at(FabLocation::EndFloat);
-        assert!(start.x < centre.x && centre.x < end.x, "{start:?} {centre:?} {end:?}");
-        assert!((start.x - FAB_MARGIN).abs() < 1.0, "leading margin: {start:?}");
+        assert!(
+            start.x < centre.x && centre.x < end.x,
+            "{start:?} {centre:?} {end:?}"
+        );
+        assert!(
+            (start.x - FAB_MARGIN).abs() < 1.0,
+            "leading margin: {start:?}"
+        );
         assert!(
             (end.x + end.width - (W - FAB_MARGIN)).abs() < 1.0,
             "trailing margin: {end:?}"

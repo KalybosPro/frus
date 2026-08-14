@@ -5,7 +5,12 @@ use frus_widgets::{column, row};
 
 /// The "Journal" screen: a **virtualised list** of 5000 rows, and the place where
 /// the two scroll behaviours can be compared by hand (milestone 277).
-pub(crate) fn journal_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Container<Msg> {
+pub(crate) fn journal_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Container<Msg> {
     let t = *theme; // Theme is Copy — captured by the item factory.
     let mut list = List::new(5000, 44.0, move |i| {
         Container::<Msg>::new()

@@ -71,6 +71,9 @@ pub(crate) fn task_screen(
             ),
         )
         .fab_location(FabLocation::EndDocked)
-        .fab(fab_button(if done { "↺" } else { "✓" }, Msg::ToggleTodo(id)))
+        .fab(fab_button(
+            if done { "↺" } else { "✓" },
+            Msg::ToggleTodo(id),
+        ))
         .build()
 }

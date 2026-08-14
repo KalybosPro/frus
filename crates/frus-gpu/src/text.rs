@@ -180,185 +180,189 @@ impl TextPainter {
             }
             let mut buffers = Vec::new();
             for &member in &batch.members {
-            match &scene.primitives()[member] {
-                Primitive::Text {
-                    position,
-                    text,
-                    size,
-                    color,
-                    weight,
-                    italic,
-                    max_width,
-                    decoration,
-                    decoration_color,
-                    clip,
-                    ..
-                } => {
-                    let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
-                    let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    // A paragraph wraps at its layout width. Free text stays
-                    // **unconstrained** (`None`) — and above all is not bounded to
-                    // the surface: in RTL, cosmic-text right-aligns to the buffer's
-                    // width, which would push the glyphs off screen past the right
-                    // edge once `position.x` shifts them.
-                    buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
-                    // Weight and italic: cosmic-text picks the matching face of the
-                    // family, falling back to the closest one when it is missing.
-                    let attrs = glyphon::Attrs::new()
-                        // Family by script (Arabic → Noto): Android has no
-                        // cross-family fallback, so we choose at the source.
-                        .family(frus_text::family_for(text))
-                        .weight(glyphon::Weight(frus_text::available_weight(*weight)))
-                        // Upright when no oblique face is loaded: an application
-                        // that dropped `bundled-italic` gets straight text, not none.
-                        .style(frus_text::available_style(*italic));
-                    buffer.set_text(
-                        &mut self.font_system,
+                match &scene.primitives()[member] {
+                    Primitive::Text {
+                        position,
                         text,
-                        attrs,
-                        glyphon::Shaping::Advanced,
-                    );
-                    buffer.shape_until_scroll(&mut self.font_system, false);
+                        size,
+                        color,
+                        weight,
+                        italic,
+                        max_width,
+                        decoration,
+                        decoration_color,
+                        clip,
+                        ..
+                    } => {
+                        let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
+                        let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+                        // A paragraph wraps at its layout width. Free text stays
+                        // **unconstrained** (`None`) — and above all is not bounded to
+                        // the surface: in RTL, cosmic-text right-aligns to the buffer's
+                        // width, which would push the glyphs off screen past the right
+                        // edge once `position.x` shifts them.
+                        buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
+                        // Weight and italic: cosmic-text picks the matching face of the
+                        // family, falling back to the closest one when it is missing.
+                        let attrs = glyphon::Attrs::new()
+                            // Family by script (Arabic → Noto): Android has no
+                            // cross-family fallback, so we choose at the source.
+                            .family(frus_text::family_for(text))
+                            .weight(glyphon::Weight(frus_text::available_weight(*weight)))
+                            // Upright when no oblique face is loaded: an application
+                            // that dropped `bundled-italic` gets straight text, not none.
+                            .style(frus_text::available_style(*italic));
+                        buffer.set_text(
+                            &mut self.font_system,
+                            text,
+                            attrs,
+                            glyphon::Shaping::Advanced,
+                        );
+                        buffer.shape_until_scroll(&mut self.font_system, false);
 
-                    // Decorations: one line per layout run, from the first glyph
-                    // advance to the last.
-                    if !decoration.is_none() {
-                        let deco_color = decoration_color.unwrap_or(*color);
-                        for run in buffer.layout_runs() {
-                            let (Some(first), Some(last)) = (run.glyphs.first(), run.glyphs.last())
-                            else {
-                                continue;
-                            };
-                            push_line_quads(
-                                &mut decorations,
-                                *position,
-                                first.x,
-                                last.x + last.w,
-                                run.line_y,
-                                *size,
-                                *decoration,
-                                deco_color,
-                                *clip,
-                            );
-                        }
-                    }
-
-                    buffers.push((
-                        buffer,
-                        position.x,
-                        position.y,
-                        to_glyphon(color),
-                        to_bounds(clip),
-                    ));
-                }
-                Primitive::RichText {
-                    position,
-                    runs,
-                    max_width,
-                    clip,
-                    ..
-                } => {
-                    if runs.is_empty() {
-                        continue;
-                    }
-                    // Base metrics come from the largest run; smaller runs carry
-                    // their own per-span metrics.
-                    let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
-                    let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
-                    let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
-                    // As for plain text: a rich paragraph wraps at its layout
-                    // width, otherwise it is unconstrained (`None`) and never bounded
-                    // to the surface, which would push RTL alignment off screen.
-                    buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
-                    let spans = runs.iter().enumerate().map(|(index, run)| {
-                        (
-                            run.text.as_str(),
-                            glyphon::Attrs::new()
-                                .family(frus_text::family_for(&run.text))
-                                .weight(glyphon::Weight(frus_text::available_weight(run.weight)))
-                                .style(frus_text::available_style(run.italic))
-                                .metrics(glyphon::Metrics::new(
-                                    run.size,
-                                    run.size * LINE_HEIGHT_FACTOR,
-                                ))
-                                .color(to_glyphon(&run.color))
-                                // Ties each glyph to its source run, for the
-                                // per-span decorations.
-                                .metadata(index),
-                        )
-                    });
-                    buffer.set_rich_text(
-                        &mut self.font_system,
-                        spans,
-                        glyphon::Attrs::new(),
-                        glyphon::Shaping::Advanced,
-                    );
-                    buffer.shape_until_scroll(&mut self.font_system, false);
-
-                    // Per-run decorations: consecutive glyphs sharing a run —
-                    // through the metadata — form one decorated segment.
-                    if runs.iter().any(|r| !r.decoration.is_none()) {
-                        for lrun in buffer.layout_runs() {
-                            let glyphs = lrun.glyphs;
-                            let mut start = 0;
-                            while start < glyphs.len() {
-                                let meta = glyphs[start].metadata;
-                                let mut end = start + 1;
-                                while end < glyphs.len() && glyphs[end].metadata == meta {
-                                    end += 1;
-                                }
-                                if let Some(run) = runs.get(meta) {
-                                    if !run.decoration.is_none() {
-                                        let last = &glyphs[end - 1];
-                                        push_line_quads(
-                                            &mut decorations,
-                                            *position,
-                                            glyphs[start].x,
-                                            last.x + last.w,
-                                            lrun.line_y,
-                                            run.size,
-                                            run.decoration,
-                                            run.decoration_color.unwrap_or(run.color),
-                                            *clip,
-                                        );
-                                    }
-                                }
-                                start = end;
+                        // Decorations: one line per layout run, from the first glyph
+                        // advance to the last.
+                        if !decoration.is_none() {
+                            let deco_color = decoration_color.unwrap_or(*color);
+                            for run in buffer.layout_runs() {
+                                let (Some(first), Some(last)) =
+                                    (run.glyphs.first(), run.glyphs.last())
+                                else {
+                                    continue;
+                                };
+                                push_line_quads(
+                                    &mut decorations,
+                                    *position,
+                                    first.x,
+                                    last.x + last.w,
+                                    run.line_y,
+                                    *size,
+                                    *decoration,
+                                    deco_color,
+                                    *clip,
+                                );
                             }
                         }
-                    }
 
-                    // Every run carries its colour through attrs; the default only
-                    // serves colourless glyphs, of which there are none.
-                    let default_color = to_glyphon(&runs[0].color);
-                    buffers.push((
-                        buffer,
-                        position.x,
-                        position.y,
-                        default_color,
-                        to_bounds(clip),
-                    ));
+                        buffers.push((
+                            buffer,
+                            position.x,
+                            position.y,
+                            to_glyphon(color),
+                            to_bounds(clip),
+                        ));
+                    }
+                    Primitive::RichText {
+                        position,
+                        runs,
+                        max_width,
+                        clip,
+                        ..
+                    } => {
+                        if runs.is_empty() {
+                            continue;
+                        }
+                        // Base metrics come from the largest run; smaller runs carry
+                        // their own per-span metrics.
+                        let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
+                        let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
+                        let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+                        // As for plain text: a rich paragraph wraps at its layout
+                        // width, otherwise it is unconstrained (`None`) and never bounded
+                        // to the surface, which would push RTL alignment off screen.
+                        buffer.set_size(&mut self.font_system, *max_width, Some(height as f32));
+                        let spans = runs.iter().enumerate().map(|(index, run)| {
+                            (
+                                run.text.as_str(),
+                                glyphon::Attrs::new()
+                                    .family(frus_text::family_for(&run.text))
+                                    .weight(glyphon::Weight(frus_text::available_weight(
+                                        run.weight,
+                                    )))
+                                    .style(frus_text::available_style(run.italic))
+                                    .metrics(glyphon::Metrics::new(
+                                        run.size,
+                                        run.size * LINE_HEIGHT_FACTOR,
+                                    ))
+                                    .color(to_glyphon(&run.color))
+                                    // Ties each glyph to its source run, for the
+                                    // per-span decorations.
+                                    .metadata(index),
+                            )
+                        });
+                        buffer.set_rich_text(
+                            &mut self.font_system,
+                            spans,
+                            glyphon::Attrs::new(),
+                            glyphon::Shaping::Advanced,
+                        );
+                        buffer.shape_until_scroll(&mut self.font_system, false);
+
+                        // Per-run decorations: consecutive glyphs sharing a run —
+                        // through the metadata — form one decorated segment.
+                        if runs.iter().any(|r| !r.decoration.is_none()) {
+                            for lrun in buffer.layout_runs() {
+                                let glyphs = lrun.glyphs;
+                                let mut start = 0;
+                                while start < glyphs.len() {
+                                    let meta = glyphs[start].metadata;
+                                    let mut end = start + 1;
+                                    while end < glyphs.len() && glyphs[end].metadata == meta {
+                                        end += 1;
+                                    }
+                                    if let Some(run) = runs.get(meta) {
+                                        if !run.decoration.is_none() {
+                                            let last = &glyphs[end - 1];
+                                            push_line_quads(
+                                                &mut decorations,
+                                                *position,
+                                                glyphs[start].x,
+                                                last.x + last.w,
+                                                lrun.line_y,
+                                                run.size,
+                                                run.decoration,
+                                                run.decoration_color.unwrap_or(run.color),
+                                                *clip,
+                                            );
+                                        }
+                                    }
+                                    start = end;
+                                }
+                            }
+                        }
+
+                        // Every run carries its colour through attrs; the default only
+                        // serves colourless glyphs, of which there are none.
+                        let default_color = to_glyphon(&runs[0].color);
+                        buffers.push((
+                            buffer,
+                            position.x,
+                            position.y,
+                            default_color,
+                            to_bounds(clip),
+                        ));
+                    }
+                    // Rectangles, paths, images and layers are none of text's business.
+                    Primitive::Rect { .. }
+                    | Primitive::Path { .. }
+                    | Primitive::Image { .. }
+                    | Primitive::Layer { .. } => {}
                 }
-                // Rectangles, paths, images and layers are none of text's business.
-                Primitive::Rect { .. }
-                | Primitive::Path { .. }
-                | Primitive::Image { .. }
-                | Primitive::Layer { .. } => {}
-            }
             }
             decoration_ranges.push(decoration_start..decorations.len() as u32);
 
-            let areas = buffers
-            .iter()
-            .map(|(buffer, left, top, color, bounds)| glyphon::TextArea {
-                buffer,
-                left: *left,
-                top: *top,
-                scale: 1.0,
-                bounds: *bounds,
-                default_color: *color,
-                custom_glyphs: &[],
-            });
+            let areas =
+                buffers
+                    .iter()
+                    .map(|(buffer, left, top, color, bounds)| glyphon::TextArea {
+                        buffer,
+                        left: *left,
+                        top: *top,
+                        scale: 1.0,
+                        bounds: *bounds,
+                        default_color: *color,
+                        custom_glyphs: &[],
+                    });
 
             if let Err(err) = self.renderers[slot].prepare(
                 device,

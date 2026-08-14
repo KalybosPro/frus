@@ -50,7 +50,12 @@ pub(crate) fn tour_panel(index: usize, theme: Theme) -> Container<Msg> {
     )
 }
 
-pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+pub(crate) fn tour_screen(
+    app: &TodoApp,
+    theme: &Theme,
+    width: f32,
+    height: f32,
+) -> Box<dyn Widget<Msg>> {
     let last = TOUR_PAGES.len() - 1;
     let page = app.tour_page.min(last);
     let palette = *theme;
@@ -69,13 +74,9 @@ pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme, width: f32, height: f32)
         .padding(20.0)
         .child(column![picker, position].gap(10.0).align(Align::Center));
 
-    let screen = column![
-        NavBar::new("Guided tour").on_back(Msg::Pop),
-        pages,
-        footer
-    ]
-    .width(width)
-    .height(height);
+    let screen = column![NavBar::new("Guided tour").on_back(Msg::Pop), pages, footer]
+        .width(width)
+        .height(height);
     Box::new(
         Container::new()
             .width(width)

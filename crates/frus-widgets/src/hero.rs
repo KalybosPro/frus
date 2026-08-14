@@ -108,7 +108,9 @@ impl<Msg: Clone> Widget<Msg> for Hero<Msg> {
     }
 
     fn continuous(&self) -> bool {
-        self.children.first().is_some_and(|child| child.continuous())
+        self.children
+            .first()
+            .is_some_and(|child| child.continuous())
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {
@@ -140,20 +142,35 @@ mod tests {
     /// A transition at `progress`, with a small hero on the outgoing screen and a big
     /// one on the incoming screen.
     fn flight(progress: f32, tags: (u64, u64)) -> Vec<Rect> {
-        let leaving = Container::<()>::new().width(400.0).height(300.0).child(
-            Hero::new(tags.0, Container::new().width(40.0).height(40.0).color(RED)),
-        );
-        let entering = Container::<()>::new().width(400.0).height(300.0).child(
-            Hero::new(tags.1, Container::new().width(200.0).height(200.0).color(RED)),
-        );
+        let leaving = Container::<()>::new()
+            .width(400.0)
+            .height(300.0)
+            .child(Hero::new(
+                tags.0,
+                Container::new().width(40.0).height(40.0).color(RED),
+            ));
+        let entering = Container::<()>::new()
+            .width(400.0)
+            .height(300.0)
+            .child(Hero::new(
+                tags.1,
+                Container::new().width(200.0).height(200.0).color(RED),
+            ));
         let navigator = Navigator::new(entering, 400.0, 300.0).from(leaving, progress, true);
         let runtime = Runtime::default();
-        let ui = build_ui(&navigator, Size::new(400.0, 300.0), &runtime, &Theme::dark());
+        let ui = build_ui(
+            &navigator,
+            Size::new(400.0, 300.0),
+            &runtime,
+            &Theme::dark(),
+        );
         ui.scene()
             .primitives()
             .iter()
             .filter_map(|p| match p {
-                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => Some(*rect),
+                Primitive::Rect { rect, color, .. } if color.r > 0.5 && color.g < 0.5 => {
+                    Some(*rect)
+                }
                 _ => None,
             })
             .collect()
@@ -207,6 +224,9 @@ mod tests {
         assert_ne!(by_number.tag(), other.tag());
         // Strings work as well, and are their own kind of identity.
         let by_name = Hero::<()>::new("avatar", Container::new());
-        assert_eq!(by_name.tag(), Hero::<()>::new("avatar", Container::new()).tag());
+        assert_eq!(
+            by_name.tag(),
+            Hero::<()>::new("avatar", Container::new()).tag()
+        );
     }
 }

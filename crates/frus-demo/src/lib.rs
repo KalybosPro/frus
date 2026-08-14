@@ -13,10 +13,10 @@ mod parts;
 mod prelude;
 mod screens;
 mod storage;
-mod theme;
-mod update;
 #[cfg(test)]
 mod tests;
+mod theme;
+mod update;
 
 use crate::prelude::*;
 use crate::screens::build_view;

@@ -64,11 +64,7 @@ pub struct ScrollBallistic {
 impl ScrollBallistic {
     /// A fling on both axes at once (either may be `None`), starting now.
     pub fn new(x: Option<Ballistic>, y: Option<Ballistic>) -> Self {
-        Self {
-            x,
-            y,
-            elapsed: 0.0,
-        }
+        Self { x, y, elapsed: 0.0 }
     }
 
     /// Is there anything left to run?
@@ -845,7 +841,12 @@ impl Runtime {
     ///
     /// `regions` describes the scrollables of the last frame; `default` is the
     /// application's physics, used by every region that did not ask for its own.
-    pub fn advance_scroll(&mut self, regions: &[Scrollable], default: ScrollPhysics, dt: f32) -> bool {
+    pub fn advance_scroll(
+        &mut self,
+        regions: &[Scrollable],
+        default: ScrollPhysics,
+        dt: f32,
+    ) -> bool {
         let mut animating = false;
         let ballistic_ids: Vec<WidgetId> = self.scroll_ballistic.keys().copied().collect();
         for id in ballistic_ids {
@@ -1034,7 +1035,11 @@ impl Runtime {
             if previous == Some(snap.requested) {
                 continue;
             }
-            let max = if snap.horizontal { area.max_x } else { area.max_y };
+            let max = if snap.horizontal {
+                area.max_x
+            } else {
+                area.max_y
+            };
             let offset = snap
                 .offset_of(snap.requested.min(snap.count.saturating_sub(1)))
                 .clamp(0.0, max);
@@ -1200,11 +1205,12 @@ impl Runtime {
         if overscroll.abs() < 1e-3 {
             return;
         }
-        self.scroll_glow
-            .entry(id)
-            .or_default()
-            .edge_mut(edge)
-            .pull(overscroll, extent, cross_offset, cross_extent);
+        self.scroll_glow.entry(id).or_default().edge_mut(edge).pull(
+            overscroll,
+            extent,
+            cross_offset,
+            cross_extent,
+        );
     }
 
     /// Tells the glow on one edge of `id` that a fling just landed on it.
@@ -1886,9 +1892,15 @@ mod tests {
                 break;
             }
         }
-        assert!(peak > 400.0, "it should have gone past the end, peak {peak}");
+        assert!(
+            peak > 400.0,
+            "it should have gone past the end, peak {peak}"
+        );
         let rest = rt.scroll.get(&id).copied().unwrap().1;
-        assert!((rest - 400.0).abs() < 1.0, "came back to the end, at {rest}");
+        assert!(
+            (rest - 400.0).abs() < 1.0,
+            "came back to the end, at {rest}"
+        );
     }
 
     #[test]
@@ -1969,7 +1981,10 @@ mod tests {
         // Far more momentum than there is content: it will reach the end.
         rt.fling_scroll(area, physics, (0.0, 6000.0));
         while rt.advance_scroll(&[area], physics, 1.0 / 60.0) {}
-        let glows = rt.scroll_glow.get(&id).expect("the edge should have lit up");
+        let glows = rt
+            .scroll_glow
+            .get(&id)
+            .expect("the edge should have lit up");
         assert!(!glows.edge(GlowEdge::Bottom).is_idle(), "the end glows");
         assert!(
             glows.edge(GlowEdge::Top).is_idle(),
@@ -2012,7 +2027,10 @@ mod tests {
     fn a_refusal_of_nothing_lights_nothing() {
         let mut rt = Runtime::default();
         rt.glow_pull(WidgetId::ROOT, GlowEdge::Top, 0.0, 600.0, 150.0, 300.0);
-        assert!(rt.scroll_glow.is_empty(), "a zero pull is not an overscroll");
+        assert!(
+            rt.scroll_glow.is_empty(),
+            "a zero pull is not an overscroll"
+        );
         assert!(!rt.advance_glow(1.0 / 60.0));
     }
 
