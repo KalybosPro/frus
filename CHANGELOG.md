@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 295 so far, each documenting the objective, the alternatives
+> record — one per step, 297 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -40,7 +40,6 @@ any release may break.
   and nobody saw it: the routine test command excludes `frus-test`, and the CI job that
   does run the goldens was wholly advisory. The goldens are re-blessed, and the GPU job is
   split so that everything asserting on numbers rather than pixels is required.
-
 - **A golden of an implicitly animated widget pinned down the wrong picture** (J296).
   `render_widget` built its `Runtime` and painted at once, where the shell settles the
   implicit animations first — so `Switch::new(true)` was drawn exactly like
@@ -50,6 +49,13 @@ any release may break.
 
 ### Changed
 
+- **A test harness that can run the clock** (J297). `frus_test::Stage` holds the
+  retained state and steps the frame loop the way the shell does — every animation
+  family, in the shell's order, with gestures going in through the shell's own entry
+  points (`refresh_pull`, `dismiss_drag`, `glow_pull`). It is what a widget whose
+  picture is a *gesture in flight* needs before it can be photographed at all, and with
+  it **every widget module that draws now has a pixel test**: 86 of 86. `render_widget`
+  is three lines on top of it.
 - **The goldens cover the widgets, not just the tables** (J296). 58 of the 86 widget
   modules had no pixel test at all — `Card`, `Checkbox`, `Switch`, `Icon` and
   `Divider` among them — which is why two rendering defects in five milestones had to

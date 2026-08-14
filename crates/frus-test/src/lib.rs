@@ -11,6 +11,10 @@
 //! 3. **Goldens**: [`Snapshot::assert_golden`] compares against a reference PNG on
 //!    disk. When it is missing, it is created — read it over, then commit it;
 //!    `FRUS_UPDATE_GOLDENS=1` regenerates it.
+//! 4. **A frame loop**: [`Stage`] holds the retained state and steps it the way the
+//!    shell does, for the widgets whose picture is a gesture in flight — a swipe
+//!    half-done, a pull past the top, a page between two pages — rather than a
+//!    function of their arguments.
 //!
 //! Goldens depend on the rasteriser, text antialiasing varying from one GPU to
 //! another, so generate and compare them **in the same environment** — here,
@@ -20,7 +24,7 @@
 use std::path::Path;
 
 use frus_core::{Color, Scene, Size};
-use frus_widgets::{build_ui, Runtime, Theme, Widget};
+use frus_widgets::{build_ui, Runtime, ScrollPhysics, Theme, Ui, Widget};
 
 /// A rendered frame: sRGB RGBA bytes, origin at the top left.
 pub struct Snapshot {
@@ -49,25 +53,135 @@ pub fn render_widget<Msg: Clone + 'static>(
     height: u32,
     theme: &Theme,
 ) -> Option<Snapshot> {
-    let mut runtime = Runtime::default();
-    // The shell's first frame settles the implicit animations before it paints: a
-    // widget seen for the first time adopts its target rather than sliding in from
-    // zero. Without this the harness renders a frame no shell ever produces — a
-    // `Switch::new(true)` drawn exactly like `Switch::new(false)`, a drawer declared
-    // open drawn shut — and a golden blessed from it pins down the wrong picture.
-    // `dt` is zero: the point is the adoption on mount, not the passage of time.
-    runtime.advance_values(root, 0.0);
-    runtime.advance_colors(root, 0.0);
-    runtime.advance_sizes(root, 0.0);
-    runtime.advance_radii(root, 0.0);
-    runtime.advance_paddings(root, 0.0);
-    let ui = build_ui(
-        root,
-        Size::new(width as f32, height as f32),
-        &runtime,
-        theme,
-    );
-    render_scene(ui.scene(), width, height, theme.background)
+    let mut stage = Stage::new(width, height).theme(theme.clone());
+    stage.settle(root);
+    stage.render(root)
+}
+
+/// A frame-by-frame harness: the retained state the shell holds, plus a way to step
+/// it forward the way the shell's loop does.
+///
+/// [`render_widget`] renders one settled frame, which is the right picture for a
+/// widget whose appearance follows from its arguments. It is the wrong picture — or
+/// no picture at all — for the ones whose appearance follows from **a gesture in
+/// flight**: a swipe half-done, a pull past the top edge, a glow where a list hit its
+/// end. None of that is in the widget; it is in the [`Runtime`], and the shell is
+/// what puts it there.
+///
+/// A `Stage` puts it there instead, through the same entry points the shell uses
+/// (`refresh_pull`, `dismiss_drag`, `glow_pull`, …), so a widget can be caught
+/// mid-motion and photographed:
+///
+/// ```ignore
+/// let mut stage = Stage::new(300, 200);
+/// let id = stage.build(&root).scroll_regions()[0].id;
+/// stage.runtime.glow_pull(id, GlowEdge::Top, 60.0, 200.0);
+/// stage.advance(&root, 1.0 / 60.0);
+/// stage.render(&root).unwrap().assert_golden(path);
+/// ```
+pub struct Stage {
+    /// The retained state. Every field on it is public, so a test that needs a state
+    /// no method here reaches can set it by hand — that is the escape hatch, not the
+    /// first resort.
+    pub runtime: Runtime,
+    /// The theme every frame is built and painted with.
+    pub theme: Theme,
+    width: u32,
+    height: u32,
+}
+
+impl Stage {
+    /// A stage for a `width`×`height` window, on the dark theme.
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            runtime: Runtime::default(),
+            theme: Theme::dark(),
+            width,
+            height,
+        }
+    }
+
+    /// Paints on `theme` instead.
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    /// The window size, in logical pixels.
+    pub fn size(&self) -> Size {
+        Size::new(self.width as f32, self.height as f32)
+    }
+
+    /// Builds the tree against the current retained state — the way to reach a
+    /// widget's identity (`scroll_regions`, `dismissables`, `refresh_areas`) before
+    /// putting a gesture on it.
+    pub fn build<'a, Msg: Clone + 'static>(&'a self, root: &'a dyn Widget<Msg>) -> Ui<Msg> {
+        build_ui(root, self.size(), &self.runtime, &self.theme)
+    }
+
+    /// One turn of the shell's loop: builds the tree, then advances every family of
+    /// retained motion by `dt`. Returns whether anything is still moving, which is
+    /// what the shell asks to decide if it needs another frame.
+    ///
+    /// `dt` of zero is not a no-op — it is the **first frame**, where a widget seen
+    /// for the first time adopts its target rather than sliding in from zero. See
+    /// [`Stage::settle`].
+    pub fn advance<Msg: Clone + 'static>(&mut self, root: &dyn Widget<Msg>, dt: f32) -> bool {
+        let (regions, refresh_areas, dismissables, interactive) = {
+            let ui = self.build(root);
+            (
+                ui.scroll_regions().to_vec(),
+                ui.refresh_areas().to_vec(),
+                ui.dismissables().to_vec(),
+                ui.interactive_bounds(),
+            )
+        };
+        self.runtime.time += dt;
+        self.runtime.sync_pages(&regions);
+        let (dismiss_moving, _dismissed) = self.runtime.advance_dismiss(&dismissables, dt);
+        // `|` and not `||`: every family must be stepped, whatever an earlier one
+        // answered. This is the shell's own list, in the shell's own order.
+        self.runtime.advance(dt)
+            | self.runtime.advance_leaving(dt)
+            | self.runtime.advance_values(root, dt)
+            | self.runtime.advance_colors(root, dt)
+            | self.runtime.advance_sizes(root, dt)
+            | self.runtime.advance_radii(root, dt)
+            | self.runtime.advance_paddings(root, dt)
+            | self
+                .runtime
+                .advance_scroll(&regions, ScrollPhysics::default(), dt)
+            | self.runtime.advance_glow(dt)
+            | self.runtime.advance_refresh(&refresh_areas, dt)
+            | self.runtime.advance_interactive(&interactive, dt)
+            | dismiss_moving
+    }
+
+    /// The shell's **first** frame: every implicit animation adopts its target with
+    /// no transition. A switch that is on is drawn on, a drawer declared open is
+    /// drawn open.
+    pub fn settle<Msg: Clone + 'static>(&mut self, root: &dyn Widget<Msg>) {
+        self.advance(root, 0.0);
+    }
+
+    /// Advances by `dt` `steps` times — a gesture playing out rather than a jump to
+    /// its end, which is the point of having a frame loop at all.
+    pub fn advance_by<Msg: Clone + 'static>(
+        &mut self,
+        root: &dyn Widget<Msg>,
+        dt: f32,
+        steps: usize,
+    ) {
+        for _ in 0..steps {
+            self.advance(root, dt);
+        }
+    }
+
+    /// Renders the current frame. `None` with no GPU adapter, so a test can skip.
+    pub fn render<Msg: Clone + 'static>(&self, root: &dyn Widget<Msg>) -> Option<Snapshot> {
+        let ui = self.build(root);
+        render_scene(ui.scene(), self.width, self.height, self.theme.background)
+    }
 }
 
 impl Snapshot {
