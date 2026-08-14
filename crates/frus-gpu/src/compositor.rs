@@ -432,9 +432,6 @@ pub(crate) struct Painters {
     msaa: Option<MsaaScratch>,
     /// Layer textures kept across frames, indexed by the layer's rank.
     layer_cache: Vec<CachedLayer>,
-    /// How many batches the planner produced since creation — the batching's proof:
-    /// a frame of a real screen should be a handful, not one per widget.
-    batch_count: u64,
     /// How many layer pre-passes were actually rendered — the cache's proof.
     #[allow(dead_code)]
     layer_renders: u64,
@@ -448,7 +445,6 @@ impl Painters {
         sample_count: u32,
     ) -> Self {
         Self {
-            batch_count: 0,
             rect: Painter::new(device, format, sample_count),
             image: ImagePainter::new(device, format, sample_count),
             path: PathPainter::new(device, format, sample_count),
@@ -459,11 +455,6 @@ impl Painters {
             layer_cache: Vec::new(),
             layer_renders: 0,
         }
-    }
-
-    /// Batches planned since creation, for the batching test.
-    pub(crate) fn batch_count(&self) -> u64 {
-        self.batch_count
     }
 
     /// Layer pre-passes rendered since creation, for the cache test.
@@ -600,14 +591,14 @@ impl Painters {
         // first now: text is interleaved with the rest, so the text painter needs to
         // know the batches before it can prepare a renderer for each.
         let batches = batch::plan(scene);
-        let (decorations, decoration_ranges) =
-            self.text.prepare_frame(device, queue, scene, w, h, &batches);
+        let (decorations, decoration_ranges) = self
+            .text
+            .prepare_frame(device, queue, scene, w, h, &batches);
         let (rect_ranges, decoration_base) =
             self.rect
                 .prepare_frame(device, queue, scene, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, scene, &batches);
         let path_ranges = self.path.prepare_frame(device, queue, scene, &batches);
-        self.batch_count += batches.len() as u64;
 
         // With MSAA we paint into the multisampled texture then resolve to `target`;
         // without it we paint straight into `target`.
@@ -765,7 +756,6 @@ impl Painters {
                 .prepare_frame(device, queue, &sub, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, &sub, &batches);
         let path_ranges = self.path.prepare_frame(device, queue, &sub, &batches);
-        self.batch_count += batches.len() as u64;
 
         // With MSAA the layer is painted multisampled then resolved to its
         // single-sample texture, the one the compositor samples afterwards.

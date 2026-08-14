@@ -96,7 +96,7 @@ jobs:
         env:
           WGPU_BACKEND: vulkan
           LIBGL_ALWAYS_SOFTWARE: "1"
-        run: cargo test -p frus-test --test goldens
+        run: cargo test -p frus-test --test goldens --test widgets
 
       - name: Upload failed golden diffs
         if: failure()

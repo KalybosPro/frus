@@ -49,7 +49,18 @@ pub fn render_widget<Msg: Clone + 'static>(
     height: u32,
     theme: &Theme,
 ) -> Option<Snapshot> {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    // The shell's first frame settles the implicit animations before it paints: a
+    // widget seen for the first time adopts its target rather than sliding in from
+    // zero. Without this the harness renders a frame no shell ever produces — a
+    // `Switch::new(true)` drawn exactly like `Switch::new(false)`, a drawer declared
+    // open drawn shut — and a golden blessed from it pins down the wrong picture.
+    // `dt` is zero: the point is the adoption on mount, not the passage of time.
+    runtime.advance_values(root, 0.0);
+    runtime.advance_colors(root, 0.0);
+    runtime.advance_sizes(root, 0.0);
+    runtime.advance_radii(root, 0.0);
+    runtime.advance_paddings(root, 0.0);
     let ui = build_ui(
         root,
         Size::new(width as f32, height as f32),

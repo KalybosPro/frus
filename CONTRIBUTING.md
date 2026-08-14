@@ -164,11 +164,15 @@ snapshot.assert_golden(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/goldens/card.
 - A failing golden writes `<name>.actual.png` next to the reference so you can diff them. Those files are gitignored.
 - Goldens depend on the rasterizer; text antialiasing varies across drivers. `assert_golden_with` takes a channel tolerance and a pixel budget for that reason. If a golden fails only on your machine, say so in the PR rather than loosening it silently.
 
-**Run the goldens yourself when you change what pixels come out.** `cargo test --workspace` includes them, but the headless CI job does not, and the CI job that does is advisory for the goldens because it renders on software Vulkan. That gap once let a deliberate change to text metrics leave 47 goldens red for five milestones with nobody looking (milestone 294). If your change touches text measurement, layout, painting or the renderer:
+**Run the goldens yourself when you change what pixels come out.** `cargo test --workspace` includes them, but the headless CI job does not, and the CI job that does is advisory for the goldens, for want of a pinned rasteriser version on the runner. That gap once let a deliberate change to text metrics leave 47 goldens red for five milestones with nobody looking (milestone 294). If your change touches text measurement, layout, painting or the renderer:
 
 ```sh
-cargo test -p frus-test --test goldens
+cargo test -p frus-test --test goldens --test widgets
 ```
+
+Both files are pixel tests: `goldens.rs` holds the screens — tables, charts, forms,
+pickers — and `widgets.rs` holds one image per group of widgets, which is what says
+whether a change to painting moved a checkbox, an icon or a drawer (milestone 296).
 
 If they change, **look at the `.actual.png` files** before deciding. A shift of a pixel or two on every glyph is a text-metric change and probably intended; a shape that has moved, vanished or changed colour is not. Accept them with `FRUS_UPDATE_GOLDENS=1` only once you have looked, and say in the commit message what moved and why.
 

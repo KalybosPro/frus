@@ -21,17 +21,41 @@ any release may break.
   on a notched bar), and it applied to `CustomPaint`, the charts, `ClipPath` and the
   overscroll glow just as much. Primitives are now given a **level** from what they
   cover, and a level costs one draw call per kind it holds: a twelve-row list is 3 draw
-  calls, where ordering primitive-against-primitive would have cost 25. Text keeps a pass
-  of its own above the frame, which is now a written rule rather than an accident.
-  `frus_gpu::draw_calls(scene)` reports the cost.
+  calls, where ordering primitive-against-primitive would have cost 25. Text was left out
+  of the plan here and folded in by J295, below. `frus_gpu::draw_calls(scene)` reports the
+  cost.
+- **Text stops drawing through every overlay** (J295). J294 left text in a pass of its own
+  above the frame — a `Primitive::Text` records where the text *starts*, not the box it
+  fills — and wrote that down as a rule: covering text needs a layer. No widget in frus
+  uses `scene.layer`, so in practice every menu, dropdown, dialog and sheet had the labels
+  beneath it reading straight through. `Primitive::Text` and `Primitive::RichText` carry a
+  `bounds` now, set by the widget walk from the box it is about to hand the widget, so the
+  planner orders text like anything else. It cost nothing: that same twelve-row list is
+  still 3 draw calls. Two things fell out of it — a rectangle's footprint no longer grows
+  by its `blur` (the shader softens the edge *inside* the quad, so it was double-counted),
+  and `TextInput` no longer paints its floating label before its own box, which only ever
+  worked because text was painted last.
 - **47 stale goldens, and the process that hid them** (J294). The golden suite had been
   red since J289 — a deliberate change to text measurement that moved glyphs by a pixel —
   and nobody saw it: the routine test command excludes `frus-test`, and the CI job that
   does run the goldens was wholly advisory. The goldens are re-blessed, and the GPU job is
   split so that everything asserting on numbers rather than pixels is required.
 
+- **A golden of an implicitly animated widget pinned down the wrong picture** (J296).
+  `render_widget` built its `Runtime` and painted at once, where the shell settles the
+  implicit animations first — so `Switch::new(true)` was drawn exactly like
+  `Switch::new(false)`. The harness now does what the shell's first frame does. No
+  existing golden moved, because no such widget was in the suite; that was the actual
+  problem, and it is what J296 is about.
+
 ### Changed
 
+- **The goldens cover the widgets, not just the tables** (J296). 58 of the 86 widget
+  modules had no pixel test at all — `Card`, `Checkbox`, `Switch`, `Icon` and
+  `Divider` among them — which is why two rendering defects in five milestones had to
+  be found on a phone. 27 new goldens in `crates/frus-test/tests/widgets.rs` take that
+  to 11, and the eleven left all need a state a static render cannot supply: a swipe
+  in flight, a route transition, a pull, a glow.
 - **The demo is 22 files, not one** (J293). It was 4,360 lines in a single `lib.rs`, and
   since it is the only large frus application anyone can read, it taught that an
   application has to be written that way. It does not: `model.rs` (the state and the
