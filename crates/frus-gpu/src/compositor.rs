@@ -711,6 +711,8 @@ impl Painters {
         let prim = Primitive::Path {
             path: path.clone(),
             fill: Some(frus_core::Color::WHITE),
+            // A coverage mask is flat by definition.
+            gradient: None,
             stroke: None,
             clip: frus_core::Rect::UNBOUNDED,
             owner: 0,

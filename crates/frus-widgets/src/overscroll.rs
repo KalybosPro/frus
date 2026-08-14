@@ -347,7 +347,24 @@ impl OverscrollGlow {
         let band_rect = map(Rect::new(0.0, 0.0, along, band));
         let previous = scene.current_clip();
         scene.set_clip(previous.intersect(band_rect));
-        scene.fill_path(&Path::oval(map(oval)), color.fade(opacity));
+        // Full strength **at the edge**, gone by the far side of the band. A flat fill
+        // gives the arc a hard curved boundary across the whole width, which reads as
+        // the page being bent rather than as light — found on a device (milestone
+        // 301). The fade is what makes it a glow.
+        // The arc's cap reaches `band * scale_y` into the content — the oval's bottom,
+        // the band being only the widest it could ever be. Fading over the band rather
+        // than over the cap would spend the whole gradient off screen and leave the
+        // visible sliver flat, which is the bug over again.
+        let depth = (band * scale_y).max(1.0);
+        let near = map(Rect::new(0.0, 0.0, 0.0, 0.0));
+        let far = map(Rect::new(0.0, depth, 0.0, 0.0));
+        scene.fill_path_gradient(
+            &Path::oval(map(oval)),
+            color.fade(opacity),
+            color.fade(0.0),
+            Point::new(near.x, near.y),
+            Point::new(far.x, far.y),
+        );
         scene.set_clip(previous);
     }
 }

@@ -61,6 +61,50 @@ impl LayerTransform {
     }
 }
 
+/// A **linear gradient along a path's fill**: the fill colour at `from`, `to_color`
+/// at `to`, interpolated in between and clamped outside.
+///
+/// The two points are in the same space as the path, deliberately, so a fade can be
+/// aimed at something real — the edge a glow springs from, the depth of a band —
+/// rather than at whatever bounding box the geometry happens to have.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PathGradient {
+    /// The colour at `to`. The colour at `from` is the primitive's `fill`.
+    pub to_color: Color,
+    /// Where the fill colour holds.
+    pub from: Point,
+    /// Where `to_color` holds.
+    pub to: Point,
+}
+
+impl PathGradient {
+    /// Scales the two points per axis, as a DPI or paint scale does to geometry.
+    pub fn scaled_xy(self, sx: f32, sy: f32) -> Self {
+        Self {
+            to_color: self.to_color,
+            from: Point::new(self.from.x * sx, self.from.y * sy),
+            to: Point::new(self.to.x * sx, self.to.y * sy),
+        }
+    }
+
+    /// Moves the two points with the geometry they describe.
+    pub fn translated(self, dx: f32, dy: f32) -> Self {
+        Self {
+            to_color: self.to_color,
+            from: Point::new(self.from.x + dx, self.from.y + dy),
+            to: Point::new(self.to.x + dx, self.to.y + dy),
+        }
+    }
+
+    /// Fades the end colour with the fill it belongs to.
+    pub fn faded(self, opacity: f32) -> Self {
+        Self {
+            to_color: self.to_color.fade(opacity),
+            ..self
+        }
+    }
+}
+
 /// The clip shape of a [`Primitive::Layer`], **inscribed** in its `clip` rectangle.
 /// Compositing multiplies the layer's alpha by the shape's coverage, with
 /// antialiased edges. This is the building block of the `ClipRRect`, `ClipOval`
@@ -167,8 +211,11 @@ pub enum Primitive {
     /// (`stroke`). The building block of icons and custom drawing.
     Path {
         path: Path,
-        /// Interior fill colour (`None` = no fill).
+        /// Interior fill colour (`None` = no fill), and the gradient's start colour
+        /// when there is one.
         fill: Option<Color>,
+        /// A linear gradient across the fill; `None` leaves it flat.
+        gradient: Option<PathGradient>,
         /// Outline (colour plus width); `None` = no outline.
         stroke: Option<Stroke>,
         /// Clip rectangle.
@@ -316,12 +363,14 @@ impl Primitive {
             Primitive::Path {
                 path,
                 fill,
+                gradient,
                 stroke,
                 clip,
                 owner,
             } => Primitive::Path {
                 path: path.scaled(avg),
                 fill,
+                gradient: gradient.map(|g| g.scaled_xy(sx, sy)),
                 stroke: stroke.map(|s| Stroke::new(s.color, s.width * avg)),
                 clip: clip.scale_xy(sx, sy),
                 owner,
@@ -434,12 +483,14 @@ impl Primitive {
             Primitive::Path {
                 path,
                 fill,
+                gradient,
                 stroke,
                 clip,
                 owner,
             } => Primitive::Path {
                 path: path.translated(dx, dy),
                 fill,
+                gradient: gradient.map(|g| g.translated(dx, dy)),
                 stroke,
                 clip: clip.translate(dx, dy),
                 owner,
@@ -604,12 +655,14 @@ impl Primitive {
             Primitive::Path {
                 path,
                 fill,
+                gradient,
                 stroke,
                 owner,
                 ..
             } => Primitive::Path {
                 path,
                 fill,
+                gradient,
                 stroke,
                 clip,
                 owner,
@@ -819,12 +872,14 @@ impl Scene {
             Primitive::Path {
                 path,
                 fill,
+                gradient,
                 stroke,
                 clip,
                 owner,
             } => Primitive::Path {
                 path,
                 fill: fill.map(|c| c.fade(opacity)),
+                gradient: gradient.map(|g| g.faded(opacity)),
                 stroke: stroke.map(|s| Stroke::new(s.color.fade(opacity), s.width)),
                 clip,
                 owner,
@@ -953,6 +1008,32 @@ impl Scene {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
             fill: Some(color),
+            gradient: None,
+            stroke: None,
+            clip: self.current_clip,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Fills a path with a **linear gradient**: `from_color` at `from`, `to_color` at
+    /// `to`, clamped outside that span.
+    ///
+    /// The two points are in the path's own space rather than relative to its box, so
+    /// the fade can be aimed at the thing it is about — the edge a glow springs from,
+    /// the depth of a band — which is what an ellipse cap needs, its bounding box
+    /// being mostly off screen.
+    pub fn fill_path_gradient(
+        &mut self,
+        path: &Path,
+        from_color: Color,
+        to_color: Color,
+        from: Point,
+        to: Point,
+    ) {
+        self.primitives.push(Primitive::Path {
+            path: path.clone(),
+            fill: Some(from_color),
+            gradient: Some(PathGradient { to_color, from, to }),
             stroke: None,
             clip: self.current_clip,
             owner: self.current_owner,
@@ -964,6 +1045,7 @@ impl Scene {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
             fill: None,
+            gradient: None,
             stroke: Some(Stroke::new(color, width)),
             clip: self.current_clip,
             owner: self.current_owner,
@@ -975,6 +1057,7 @@ impl Scene {
         self.primitives.push(Primitive::Path {
             path: path.clone(),
             fill,
+            gradient: None,
             stroke,
             clip: self.current_clip,
             owner: self.current_owner,

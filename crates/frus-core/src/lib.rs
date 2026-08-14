@@ -34,6 +34,6 @@ pub use hct::{Hct, TonalPalette};
 pub use image::{BoxFit, ImageData, ImageHandle};
 pub use path::{Path, PathVerb, Stroke};
 pub use responsive::{Orientation, SizeClass};
-pub use scene::{ClipShape, LayerTransform, Primitive, Scene};
+pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene};
 pub use semantics::{Role, Semantics, Toggled};
 pub use text_style::{FontWeight, TextDecoration, TextRun, TextSpan, TextStyle};

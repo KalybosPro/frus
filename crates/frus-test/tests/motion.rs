@@ -150,6 +150,35 @@ fn a_list_glowing_at_its_edge() {
     accept("overscroll_glow", stage.render(&root));
 }
 
+/// The same glow on a **full-width** viewport, at the proportions of a phone, pulled
+/// hard. The narrow one above hides what this shows: the arc spans the whole width
+/// and is a flat wash with a hard curved edge, which reads as the page being bent
+/// rather than as a glow. Found on a device (2026-08-14).
+#[test]
+fn a_wide_list_glowing_at_its_top() {
+    let mut rows = Flex::column().gap(8.0);
+    for i in 0..14 {
+        rows = rows.child(band(SLATE, &format!("Row {i}")));
+    }
+    let root: Container<()> = Container::new()
+        .width(424.0)
+        .child(Scroll::new().width(424.0).height(600.0).child(rows));
+
+    let mut stage = Stage::new(424, 600);
+    stage.settle(&root);
+    let region = stage.build(&root).scroll_regions().to_vec();
+    let Some(region) = region.first().cloned() else {
+        panic!("the frame declared no scrollable region");
+    };
+    // 220 px past the top of a 600 px viewport, the finger near the middle: the pull
+    // a thumb gives a list that is already at its top.
+    stage
+        .runtime
+        .glow_pull(region.id, GlowEdge::Top, 220.0, 600.0, 212.0, 424.0);
+    stage.advance(&root, 1.0 / 60.0);
+    accept("overscroll_glow_wide", stage.render(&root));
+}
+
 /// A paged view caught **between** two pages: half of one and half of the next,
 /// which is the state a snap animation passes through and the only one worth a
 /// picture.

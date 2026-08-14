@@ -26,16 +26,29 @@ use lyon::tessellation::{
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PathVertex {
     pos: [f32; 2],
+    /// The fill colour, or the gradient's start colour.
     color: [f32; 4],
+    /// The gradient's end colour; equal to `color` when the fill is flat.
+    color2: [f32; 4],
+    /// Where this vertex falls along the gradient axis, **unclamped**. It is affine
+    /// in position, so it interpolates exactly; the fragment does the clamping.
+    ///
+    /// Clamping per vertex would be wrong, and visibly so: the overscroll glow is an
+    /// ellipse whose top sits 180 px above the band it shows through, and a triangle
+    /// reaching from there to the arc's tip would ramp its whole colour across that
+    /// span rather than across the sliver on screen (milestone 301).
+    t: f32,
     clip: [f32; 4],
 }
 
 impl PathVertex {
     fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
             0 => Float32x2,
             1 => Float32x4,
             2 => Float32x4,
+            3 => Float32,
+            4 => Float32x4,
         ];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<PathVertex>() as wgpu::BufferAddress,
@@ -45,19 +58,45 @@ impl PathVertex {
     }
 }
 
-/// The vertex constructor handed to lyon: it injects the colour and clip — both
-/// constant over a whole path — into every vertex the tessellation produces.
+/// The vertex constructor handed to lyon: it injects the clip, which is constant over
+/// a whole path, and the colour — constant too unless the fill carries a gradient, in
+/// which case each vertex gets the colour at its own position.
+///
+/// A gradient costs nothing at draw time: the shader already carried a colour per
+/// vertex, and only interpolated it flat because every vertex had the same one.
 struct Ctor {
     color: [f32; 4],
+    /// `(end colour, from, to)` in the same pixel space as the vertices.
+    gradient: Option<([f32; 4], [f32; 2], [f32; 2])>,
     clip: [f32; 4],
+}
+
+impl Ctor {
+    /// The end colour, and where `p` falls along the gradient axis. With no gradient
+    /// the end colour is the fill and `t` is zero, so the fragment mixes nothing.
+    fn gradient_at(&self, p: [f32; 2]) -> ([f32; 4], f32) {
+        let Some((end, from, to)) = self.gradient else {
+            return (self.color, 0.0);
+        };
+        let axis = [to[0] - from[0], to[1] - from[1]];
+        let len2 = axis[0] * axis[0] + axis[1] * axis[1];
+        if len2 <= f32::EPSILON {
+            return (self.color, 0.0);
+        }
+        let t = ((p[0] - from[0]) * axis[0] + (p[1] - from[1]) * axis[1]) / len2;
+        (end, t)
+    }
 }
 
 impl FillVertexConstructor<PathVertex> for Ctor {
     fn new_vertex(&mut self, vertex: FillVertex) -> PathVertex {
         let p = vertex.position();
+        let (color2, t) = self.gradient_at([p.x, p.y]);
         PathVertex {
             pos: [p.x, p.y],
             color: self.color,
+            color2,
+            t,
             clip: self.clip,
         }
     }
@@ -66,9 +105,13 @@ impl FillVertexConstructor<PathVertex> for Ctor {
 impl StrokeVertexConstructor<PathVertex> for Ctor {
     fn new_vertex(&mut self, vertex: StrokeVertex) -> PathVertex {
         let p = vertex.position();
+        // A stroke is never given a gradient today; with none, this is the flat colour.
+        let (color2, t) = self.gradient_at([p.x, p.y]);
         PathVertex {
             pos: [p.x, p.y],
             color: self.color,
+            color2,
+            t,
             clip: self.clip,
         }
     }
@@ -244,6 +287,7 @@ impl PathPainter {
                 if let Primitive::Path {
                     path,
                     fill,
+                    gradient,
                     stroke,
                     clip,
                     ..
@@ -254,6 +298,13 @@ impl PathPainter {
                     if let Some(color) = fill {
                         let ctor = Ctor {
                             color: color.to_array(),
+                            gradient: gradient.map(|g| {
+                                (
+                                    g.to_color.to_array(),
+                                    [g.from.x, g.from.y],
+                                    [g.to.x, g.to.y],
+                                )
+                            }),
                             clip,
                         };
                         let _ = self.fill_tess.tessellate_path(
@@ -265,6 +316,7 @@ impl PathPainter {
                     if let Some(s) = stroke {
                         let ctor = Ctor {
                             color: s.color.to_array(),
+                            gradient: None,
                             clip,
                         };
                         let options = StrokeOptions::default().with_line_width(s.width);

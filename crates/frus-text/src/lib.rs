@@ -116,6 +116,7 @@ pub fn add_font(data: Vec<u8>) {
         }
     }
     EXTRA_FONTS.lock().expect("font registry").push(data);
+    forget_measurements();
 }
 
 /// Names the family text uses by default — the one an application ships instead of,
@@ -123,11 +124,13 @@ pub fn add_font(data: Vec<u8>) {
 /// [`add_font`], or be present on the system.
 pub fn set_default_family(name: &'static str) {
     *SANS.write().expect("family registry") = Some(name);
+    forget_measurements();
 }
 
 /// Names the family monospaced text uses. See [`set_default_family`].
 pub fn set_monospace_family(name: &'static str) {
     *MONO.write().expect("family registry") = Some(name);
+    forget_measurements();
 }
 
 /// The family a generic role resolves to, or the generic family when nothing is
@@ -254,6 +257,48 @@ fn font_system() -> &'static Mutex<FontSystem> {
     FONT_SYSTEM.get_or_init(|| Mutex::new(new_font_system()))
 }
 
+/// Everything about a measurement that can change its answer. The weight and the
+/// style are the **resolved** ones — what the database can actually serve — so a
+/// Medium asked for on a family that only has Regular hits the same entry as the
+/// Regular, which is the same shaping either way. Floats are keyed by their bits:
+/// two sizes that are bit-identical measure identically, and no other pair needs to
+/// share an entry.
+#[derive(PartialEq, Eq, Hash)]
+struct MeasureKey {
+    text: String,
+    size: u32,
+    weight: u16,
+    italic: bool,
+    max_width: Option<u32>,
+}
+
+/// How many entries a generation holds before it is retired. Two generations live at
+/// once, so this bounds the cache at roughly `2 × CAP` measurements — a few hundred
+/// kilobytes, against the ~290 µs a twelve-row screen was spending per frame
+/// re-measuring strings that had not changed (milestone 299).
+const CACHE_CAP: usize = 2048;
+
+/// A two-generation cache. A string still being drawn is found in `current` or
+/// promoted out of `previous`, so it survives a rotation; a string that has gone —
+/// last second's clock, yesterday's search box — falls out with the generation it
+/// was in. That is the whole eviction policy, and it needs no timestamps.
+#[derive(Default)]
+struct MeasureCache {
+    current: std::collections::HashMap<MeasureKey, Size>,
+    previous: std::collections::HashMap<MeasureKey, Size>,
+}
+
+static MEASURE_CACHE: Mutex<Option<MeasureCache>> = Mutex::new(None);
+
+/// Forgets every measurement. Called whenever what a face measures to can have
+/// changed — a font registered, a family renamed — because an answer from before
+/// that is simply wrong, not merely stale.
+fn forget_measurements() {
+    if let Ok(mut cache) = MEASURE_CACHE.lock() {
+        *cache = None;
+    }
+}
+
 /// The weight **actually available** among the bundled faces (400 or 700) closest to
 /// the one requested. This is essential: cosmic-text demands an **exact** weight
 /// match on the primary family, and a missing weight (Medium 500 on DejaVu) sends it
@@ -300,6 +345,26 @@ pub fn measure_wrapped(
         return Size::new(0.0, line_h);
     }
 
+    // The key records the **resolved** weight and style, and resolving reads state
+    // that building the font system sets (`ITALIC`, from the faces actually loaded).
+    // So the system is built first: otherwise the very first measurement would be
+    // filed under what was true before it existed.
+    let _ = font_system();
+
+    // Shaping the same string again every frame was three quarters of what building a
+    // frame cost (milestone 299). A hit here also skips the `FontSystem` lock, which
+    // the renderer wants at the same time.
+    let key = MeasureKey {
+        text: text.to_string(),
+        size: size_px.to_bits(),
+        weight: available_weight(weight),
+        italic: available_style(italic) == Style::Italic,
+        max_width: max_width.map(f32::to_bits),
+    };
+    if let Some(size) = cached_measurement(&key) {
+        return size;
+    }
+
     let mut font_system = font_system().lock().expect("FontSystem lock");
     let metrics = Metrics::new(size_px, line_h);
     let mut buffer = Buffer::new(&mut font_system, metrics);
@@ -332,7 +397,40 @@ pub fn measure_wrapped(
         Some(max) => width.ceil().min(max),
         None => width.ceil(),
     };
-    Size::new(width, lines.max(1.0) * line_h)
+    let measured = Size::new(width, lines.max(1.0) * line_h);
+    remember_measurement(key, measured);
+    measured
+}
+
+/// The cached answer for `key`, promoting it out of the retiring generation if that
+/// is where it was found.
+fn cached_measurement(key: &MeasureKey) -> Option<Size> {
+    let mut guard = MEASURE_CACHE.lock().ok()?;
+    let cache = guard.as_mut()?;
+    if let Some(size) = cache.current.get(key) {
+        return Some(*size);
+    }
+    let size = *cache.previous.get(key)?;
+    // Still in use, so it moves forward rather than falling out with its generation.
+    cache.current.insert(
+        MeasureKey {
+            text: key.text.clone(),
+            ..*key
+        },
+        size,
+    );
+    Some(size)
+}
+
+fn remember_measurement(key: MeasureKey, size: Size) {
+    let Ok(mut guard) = MEASURE_CACHE.lock() else {
+        return;
+    };
+    let cache = guard.get_or_insert_with(MeasureCache::default);
+    if cache.current.len() >= CACHE_CAP {
+        cache.previous = std::mem::take(&mut cache.current);
+    }
+    cache.current.insert(key, size);
 }
 
 /// Measures a **rich text**'s natural size — resolved runs with mixed styles and
@@ -1014,5 +1112,64 @@ mod tests {
             bold.width,
             regular.width
         );
+    }
+
+    /// The cache must be invisible: measuring twice gives the same answer as measuring
+    /// once, whichever entry point asked, and under a constraint as well as free.
+    #[test]
+    fn a_cached_measurement_is_the_measurement() {
+        for (text, size) in [("Open", 15.0_f32), ("Task number 42 — due Friday", 13.0)] {
+            let first = measure(text, size);
+            let second = measure(text, size);
+            assert_eq!(
+                first, second,
+                "{text:?} measured differently the second time"
+            );
+
+            let styled = measure_styled(text, size, FontWeight::Bold, false);
+            assert_eq!(
+                styled,
+                measure_styled(text, size, FontWeight::Bold, false),
+                "{text:?} bold measured differently the second time"
+            );
+
+            let wrapped = measure_wrapped(text, size, FontWeight::Regular, false, Some(60.0));
+            assert_eq!(
+                wrapped,
+                measure_wrapped(text, size, FontWeight::Regular, false, Some(60.0)),
+                "{text:?} wrapped measured differently the second time"
+            );
+            // The constraint is part of the key: a different width is a different
+            // answer, not a hit on the free one.
+            assert!(
+                wrapped.height >= first.height,
+                "wrapping to 60 px should not make {text:?} shorter"
+            );
+        }
+    }
+
+    /// A retired generation must not lose an entry that is still being asked for:
+    /// enough distinct strings to rotate the cache several times over, with one string
+    /// re-measured throughout, which has to keep the same answer.
+    #[test]
+    fn a_string_still_in_use_survives_the_rotation() {
+        let kept = measure("still here", 14.0);
+        for i in 0..(CACHE_CAP * 2 + 64) {
+            measure(&format!("filler {i}"), 14.0);
+            if i % 512 == 0 {
+                assert_eq!(kept, measure("still here", 14.0), "lost at {i}");
+            }
+        }
+        assert_eq!(kept, measure("still here", 14.0));
+    }
+
+    /// Registering a face changes what text can measure to, so every remembered
+    /// answer has to go. The measurement itself must still work afterwards.
+    #[test]
+    fn registering_a_font_forgets_what_was_measured() {
+        let before = measure("forget me", 15.0);
+        forget_measurements();
+        let after = measure("forget me", 15.0);
+        assert_eq!(before, after, "the same faces must measure the same");
     }
 }
