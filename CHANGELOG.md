@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 297 so far, each documenting the objective, the alternatives
+> record — one per step, 298 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -49,6 +49,12 @@ any release may break.
 
 ### Changed
 
+- **rustfmt, clippy and rustdoc are blocking checks** (J298). All three were advisory,
+  each with a `TODO` naming the backlog to clear first: 40 unformatted files, 71 clippy
+  warnings, twelve broken intra-doc links. Cleared, and `continue-on-error` dropped —
+  J294 having shown what an advisory check that goes red is worth. New public API from
+  the cleanup: `CellFn<Msg>`, the closure a table or board cell is built from, and
+  `ValueAnim`, which was already the type of a public field.
 - **A test harness that can run the clock** (J297). `frus_test::Stage` holds the
   retained state and steps the frame loop the way the shell does — every animation
   family, in the shell's order, with gestures going in through the shell's own entry

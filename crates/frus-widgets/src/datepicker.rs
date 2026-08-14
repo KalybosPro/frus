@@ -337,7 +337,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
     /// the same `[start, end]` range — to enter long ranges without changing month.
     /// `on_select((year, month, day))` reports the **complete** date of the day clicked (the
     /// month is disambiguated), and `on_nav(±1)` shifts the **pair**. The range band carries
-    /// on from one month to the other (dates compare as whole values — see [`range_mark`]).
+    /// on from one month to the other (dates compare as whole values — see `range_mark`).
     pub fn range_dual(
         year: i32,
         month: u32,

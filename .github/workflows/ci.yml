@@ -188,18 +188,13 @@ jobs:
         run: cargo build -p frus-hello --target ${{ matrix.target }}
 
   # ---------------------------------------------------------------------------
-  # Style. Both are advisory today because the tree carries a pre-existing
-  # backlog (see ROADMAP.md → Quality). Clearing it and flipping these to
-  # blocking is a welcome first contribution.
-  #
-  # TODO: after a `cargo fmt --all` pass, drop `continue-on-error` from fmt.
-  # TODO: after the clippy backlog is cleared, drop it from clippy and add
-  #       `-- -D warnings`.
+  # Style. Both are blocking as of milestone 298: the tree is rustfmt-clean and
+  # carries no clippy warnings, so a new one is a regression rather than a
+  # pre-existing debt.
   # ---------------------------------------------------------------------------
   fmt:
-    name: rustfmt (advisory)
+    name: rustfmt
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -208,9 +203,8 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    name: clippy (advisory)
+    name: clippy
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -222,13 +216,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev
-      - run: cargo clippy --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ---------------------------------------------------------------------------
-  # Docs must build. The strict pass (broken intra-doc links as errors) is
-  # advisory until the existing ~11 link warnings are cleared — see ROADMAP.md.
-  #
-  # TODO: once clean, fold the strict step into the blocking one.
+  # Docs must build, and the strict pass — broken intra-doc links, code blocks that
+  # are not parseable Rust — is blocking as of milestone 298. It is the only step
+  # here, since `-D warnings` covers what the plain build would have caught.
   # ---------------------------------------------------------------------------
   docs:
     name: rustdoc
@@ -243,11 +236,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev
 
-      - name: Build documentation
-        run: cargo doc --workspace --no-deps --all-features
-
-      - name: Strict pass — broken intra-doc links (advisory)
-        continue-on-error: true
+      - name: Build documentation, warnings as errors
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --all-features

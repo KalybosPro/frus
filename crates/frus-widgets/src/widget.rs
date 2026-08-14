@@ -322,7 +322,7 @@ pub trait Widget<Msg> {
     /// (primitives + interaction maps) and **reused as is** as long as its geometry
     /// and the interaction state of its descendants do not change — a widget
     /// animating elsewhere no longer forces it to repaint.
-    /// See [`crate::RepaintBoundary`] and `paintcache.rs`.
+    /// See [`crate::Container::repaint_boundary`] and `paintcache.rs`.
     fn repaint_boundary(&self) -> bool {
         false
     }

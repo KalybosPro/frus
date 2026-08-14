@@ -2,16 +2,16 @@
 //!
 //! Two bricks that combine:
 //!
-//! - [`Rule`]: one field's validation rule (`&str -> Option<String>`,
+//! - [`crate::form::Rule`]: one field's validation rule (`&str -> Option<String>`,
 //!   `Some(message)` when invalid), with ready-made constructors (`required`,
-//!   `min_len`, `email`…) and a [`Rule::all`] combinator (the first failing rule
+//!   `min_len`, `email`…) and a [`crate::form::Rule::all`] combinator (the first failing rule
 //!   wins).
-//! - [`Form`]: validates a **set** of fields declared in order, then answers three
+//! - [`crate::form::Form`]: validates a **set** of fields declared in order, then answers three
 //!   questions — is everything valid? what is field `key`'s error? which is the
 //!   **first** failing field, the one to focus?
 //!
-//! Nothing here draws: the application calls [`Form::error`] to feed a
-//! [`crate::TextInput`]'s `error(...)`, and [`Form::first_invalid`] to target the
+//! Nothing here draws: the application calls [`crate::form::Form::error`] to feed a
+//! [`crate::TextInput`]'s `error(...)`, and [`crate::form::Form::first_invalid`] to target the
 //! field to bring out. Validity stays a **pure function of the state**.
 //!
 //! ```

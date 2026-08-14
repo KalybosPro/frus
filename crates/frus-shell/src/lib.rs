@@ -1,7 +1,7 @@
 //! `frus-shell` — frus's **framework layer**.
 //!
 //! Creates a native window (through `winit`), initialises the `frus-gpu`
-//! [`Renderer`] and drives the `event → frame` loop for any [`Application`]. This
+//! [`frus_gpu::Renderer`] and drives the `event → frame` loop for any [`Application`]. This
 //! is the only platform-dependent layer.
 
 // The `desktop` / `android` / `ios` / `web` aliases come from `build.rs`. They hold

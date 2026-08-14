@@ -178,8 +178,8 @@ If they change, **look at the `.actual.png` files** before deciding. A shift of 
 
 ## Code style
 
-- `cargo fmt --all` before committing. **Note:** the tree is not fully rustfmt-clean yet, so run `cargo fmt` on *your files only* rather than reformatting everything in a feature PR — a whole-tree format is its own separate PR.
-- `cargo clippy --workspace --all-targets` should not add new warnings. There is an existing backlog (~50); don't grow it, and feel free to clear some in a dedicated PR.
+- `cargo fmt --all` before committing. The tree is rustfmt-clean and CI enforces it (milestone 298).
+- `cargo clippy --workspace --all-targets` must be silent — CI runs it with `-D warnings` (milestone 298). Where a lint is wrong for the code, write the `#[allow]` at the site with the reason beside it; don't widen it to a module or a crate.
 - **`unsafe` requires a justification comment.** The framework core is safe Rust; the only legitimate uses are FFI at the platform edge.
 - Comments explain *why*. The code already says what.
 - Public items get a `///` doc comment. Widgets should show a usage snippet.

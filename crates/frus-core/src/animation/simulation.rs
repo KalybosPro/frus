@@ -258,7 +258,7 @@ impl FrictionSimulation {
 
     /// The instant at which the motion passes through `x`, or `∞` when it never
     /// does — because it starts the wrong way round, or because `x` lies beyond
-    /// [`final_x`]. Inverting `x(t)` is what lets a fling hand over to a spring
+    /// [`Self::final_x`]. Inverting `x(t)` is what lets a fling hand over to a spring
     /// exactly at the edge of the content.
     pub fn time_at_x(&self, x: f32) -> f32 {
         if x == self.x0 {

@@ -105,7 +105,7 @@ impl Renderer {
     }
 
     /// Reconfigures the surface after the window is resized. The painters' viewports
-    /// are set every frame by [`Painters::render`].
+    /// are set every frame by `Painters::render`.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;

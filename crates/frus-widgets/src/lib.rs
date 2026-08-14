@@ -196,7 +196,9 @@ pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
-pub use runtime::{spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState};
+pub use runtime::{
+    spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ValueAnim,
+};
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, Scaffold};
 pub use scroll::{Axis, Scroll};

@@ -14,7 +14,9 @@
 //!
 //! ```ignore
 //! let mq = MediaQuery::of();
-//! if mq.orientation() == Orientation::Landscape { … }
+//! if mq.orientation() == Orientation::Landscape {
+//!     // the landscape arrangement
+//! }
 //! ```
 //!
 //! A subtree can be built against a **different** description with

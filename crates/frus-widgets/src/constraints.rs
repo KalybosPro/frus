@@ -331,7 +331,7 @@ pub struct Overflow {
 ///
 /// This is the escape hatch for a background that should bleed past its slot, or a
 /// decoration wider than the row it belongs to. It does **not** clip: put a
-/// [`crate::ClipRect`] above it if the spill should stop somewhere.
+/// [`crate::ClipRRect`] above it if the spill should stop somewhere.
 pub struct OverflowBox<Msg> {
     overflow: Overflow,
     children: Vec<Box<dyn Widget<Msg>>>,

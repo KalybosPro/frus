@@ -2,7 +2,7 @@
 //! framework (it implements [`frus_shell::Application`]).
 //!
 //! Two entry points for the same code:
-//! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → [`run_desktop`];
+//! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
 //! - Android: the `cdylib` library exposes `android_main`, called by the native activity.
 
 mod assets;

@@ -15,7 +15,7 @@ If something here interests you, **comment on the matching issue** (or open one)
 
 ## Where we are
 
-297 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
+298 milestones in. The framework runs real, non-trivial applications on desktop and Android, and functional ones on the web. What exists is genuinely built, not stubbed: layout, text with IME, drag-and-drop with live reflow, data tables, charts, pickers, navigation with spring transitions, theming, i18n/RTL, accessibility, animation, async effects with typed JSON, and golden-image testing.
 
 What does not exist is everything around it: distribution, tooling, more platforms, and the ecosystem.
 
@@ -64,12 +64,12 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 
 ### Quality
 
-- 🟢 **Clear the clippy backlog.** ~50 warnings, mostly `type_complexity`, `field_reassign_with_default`, and `map_or` simplifications. Then make `-D warnings` blocking in CI.
-- 🟢 **Format the tree.** One `cargo fmt --all` commit, then make the fmt check blocking. Do this on its own, never mixed with a feature.
+- 🟢 **Clear the clippy backlog — done, milestone 298.** 71 warnings, now zero, and CI runs `cargo clippy --workspace --all-targets -- -D warnings` as a **blocking** check. Six `too_many_arguments` carry a targeted `#[allow]` with the reason at the site; everything else was rewritten.
+- 🟢 **Format the tree — done, milestone 298.** One `cargo fmt --all` commit over 40 files, on its own, and the fmt check is **blocking** now.
 - 🟢 **Widen golden coverage — done, milestones 296 and 297.** 58 of the 86 widget modules had no pixel test at all; **all 86 have one now**. 296 added 27 goldens for the widgets whose picture follows from their arguments; 297 added `frus_test::Stage`, a harness that holds the retained state and steps the frame loop the way the shell does, and 12 more for the ones whose picture is a gesture in flight — a swipe half done, a pull past the top, a glow, a page between two pages.
 - 🟡 **Make the goldens a required check.** The step stays advisory, and an advisory check went red for five milestones without anyone noticing (J294). The reason recorded here — "lavapipe rasterises differently from hardware" — is not the real one: the goldens are *blessed* under lavapipe too (llvmpipe in WSL is the only adapter there), so both sides run the same rasteriser. What actually differs is its **version** — mesa 25.2 locally against whatever `apt` gives ubuntu-latest. So the job is either to pin the rasteriser in CI (a container image, or a mesa PPA) and drop `continue-on-error` outright, or to measure the version-to-version drift and absorb it through `assert_golden_with`. Pinning is the honest one; a tolerance guessed without measuring is a number nobody can defend.
 - 🟡 **Benchmarks.** There is no performance harness at all. Frame time, layout cost, scene build, and text shaping all need one before any optimization claim can be honest.
-- 🟢 **Fix the broken intra-doc links.** `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features` reports ~11 errors — links to private items and one to a type that no longer exists. Then make the strict rustdoc pass blocking in CI.
+- 🟢 **Fix the broken intra-doc links — done, milestone 298.** Twelve of them: links to private items, two to types that never existed (`ClipRect`, `RepaintBoundary`), one to an entry point renamed away, and five in `form`'s module docs that resolve only when written in full. `ValueAnim` became public, since it is the type of a public field. The strict rustdoc pass is **blocking** now, and it turned up an unparseable `ignore` code block behind them.
 
 ---
 
