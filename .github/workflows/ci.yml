@@ -50,6 +50,12 @@ jobs:
       - name: Test with optional features (net + json)
         run: cargo test -p frus --features json
 
+      # One iteration of every benchmark, for compile rot rather than for numbers:
+      # a bench suite nobody builds decays exactly like an advisory check nobody
+      # reads (milestones 294, 298).
+      - name: Benchmarks compile and run once
+        run: cargo bench -p frus-bench -- --test
+
   # ---------------------------------------------------------------------------
   # Golden / GPU tests — need a working Vulkan device. On CI that is lavapipe.
   #

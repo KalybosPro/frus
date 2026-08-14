@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 298 so far, each documenting the objective, the alternatives
+> record — one per step, 299 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -49,6 +49,13 @@ any release may break.
 
 ### Changed
 
+- **A performance harness, and what it found** (J299). `crates/frus-bench` measures
+  `build_ui`, text measurement and wrapping, and batch planning, under the release
+  profile. The baseline says something the roadmap had wrong: **three quarters of the
+  cost of building a frame is measuring text**, which is re-shaped through cosmic-text
+  on every call with no cache — a twelve-row screen spends ~290 µs of its 382 µs
+  re-answering questions it answered 16 ms ago. Rebuilding the tree, the bottleneck the
+  roadmap named, is the small half. The batch planner also turns out to be O(n²).
 - **rustfmt, clippy and rustdoc are blocking checks** (J298). All three were advisory,
   each with a `TODO` naming the backlog to clear first: 40 unformatted files, 71 clippy
   warnings, twelve broken intra-doc links. Cleared, and `continue-on-error` dropped —

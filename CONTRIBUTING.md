@@ -176,6 +176,22 @@ whether a change to painting moved a checkbox, an icon or a drawer (milestone 29
 
 If they change, **look at the `.actual.png` files** before deciding. A shift of a pixel or two on every glyph is a text-metric change and probably intended; a shape that has moved, vanished or changed colour is not. Accept them with `FRUS_UPDATE_GOLDENS=1` only once you have looked, and say in the commit message what moved and why.
 
+## Benchmarks
+
+`crates/frus-bench` measures what a frame costs on the CPU: `build_ui`, text
+measurement and wrapping, batch planning. Shared fixtures live in its `src/lib.rs`, so
+add screens there rather than inventing one per bench.
+
+```sh
+cargo bench -p frus-bench
+cargo bench -p frus-bench --bench scene
+```
+
+Absolute numbers are your machine's; the ratios are the framework's. If you claim a
+change made something faster, say which bench and by how much — that is what the crate
+is for (milestone 299). CI runs `cargo bench -p frus-bench -- --test`, one iteration
+each, so they cannot quietly stop compiling.
+
 ## Code style
 
 - `cargo fmt --all` before committing. The tree is rustfmt-clean and CI enforces it (milestone 298).
