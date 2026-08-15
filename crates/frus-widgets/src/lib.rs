@@ -149,7 +149,7 @@ pub use dismiss::{
     DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState, Dismissable,
     Dismissible,
 };
-pub use divider::Divider;
+pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;

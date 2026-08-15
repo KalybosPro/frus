@@ -27,8 +27,11 @@ use crate::portal::Placement;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// The width of a side drawer, in logical pixels.
-pub const DRAWER_WIDTH: f32 = 280.0;
+/// The width of a side drawer, in logical pixels, when the caller has not set one —
+/// the reference's own figure, and wide enough for a navigation label not to wrap.
+///
+/// It is a default, not a constraint: see [`Drawer::width`].
+pub const DRAWER_WIDTH: f32 = 304.0;
 
 /// The drawer's inner panel: full height, a themed background, a hairline on the
 /// **inner** edge (right for a left drawer, left for a right drawer).
@@ -36,12 +39,19 @@ struct DrawerPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
     /// Draws the hairline on the left edge (a drawer docked to the right).
     border_left: bool,
+    /// The panel's width in logical pixels.
+    width: f32,
 }
 
 impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
     fn style(&self) -> Style {
         Style {
-            width: Dimension::Length(DRAWER_WIDTH),
+            // A panel wider than the window **overflows** rather than shrinking, unlike
+            // the reference's, whose width is enforced against the parent's constraints.
+            // `max_width: Percent(1.0)` does not fix it: the overlay layer the panel is
+            // laid out in has no definite width to take a percentage of. Recorded in
+            // milestone 307 rather than patched with something that does nothing.
+            width: Dimension::Length(self.width),
             // The height expands to the whole window (side placement) or to the
             // row's height (permanent mode).
             height: Dimension::Percent(1.0),
@@ -84,6 +94,8 @@ pub struct Drawer<Msg> {
     panel_content: Option<Box<dyn Widget<Msg>>>,
     /// The modal panel (non-permanent mode), wrapped, ready for the overlay.
     modal_panel: Option<Box<dyn Widget<Msg>>>,
+    /// The panel's width; `None` = [`DRAWER_WIDTH`].
+    width: Option<f32>,
     /// Children in the flow: `[body]` (modal) or `[panel, body]` (permanent).
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -98,8 +110,19 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
             on_dismiss: None,
             panel_content: None,
             modal_panel: None,
+            width: None,
             children: Vec::new(),
         }
+    }
+
+    /// Overrides the panel's width, in logical pixels. Defaults to [`DRAWER_WIDTH`].
+    ///
+    /// A narrow drawer beside a wide one is a layout decision, not a constant: an
+    /// icon-only rail, a settings panel that wants half the window. The default is what
+    /// a drawer takes when nobody says otherwise, and nothing more than that.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
     }
 
     /// Message emitted on a click on the scrim (outside the panel) — to close it.
@@ -133,6 +156,7 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
             Box::new(DrawerPanel {
                 children: vec![content],
                 border_left: self.right,
+                width: self.width.unwrap_or(DRAWER_WIDTH),
             }) as Box<dyn Widget<Msg>>
         });
 
@@ -261,6 +285,43 @@ mod tests {
                 |p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width >= 500.0),
             );
         assert!(!scrim, "a closed drawer paints no scrim");
+    }
+
+    #[test]
+    fn the_panel_is_as_wide_as_it_was_told_to_be() {
+        // The default is the reference's 304, and it is a default: an application that
+        // wants a narrow panel says so, and gets exactly that.
+        let panel_width = |drawer: &dyn Widget<Msg>| {
+            let ui = build_ui(
+                drawer,
+                Size::new(900.0, 400.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect { rect, .. } if rect.height >= 399.0 => {
+                        Some(rect.width)
+                    }
+                    _ => None,
+                })
+                .expect("the panel is a full-height rectangle")
+        };
+        let default = Drawer::new(true)
+            .permanent(true)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(panel_width(&default), DRAWER_WIDTH);
+        assert_eq!(DRAWER_WIDTH, 304.0, "the reference's figure");
+
+        let narrow = Drawer::new(true)
+            .permanent(true)
+            .width(96.0)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(panel_width(&narrow), 96.0);
     }
 
     #[test]

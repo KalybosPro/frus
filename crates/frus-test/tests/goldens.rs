@@ -2356,17 +2356,27 @@ fn rtl_mirrors_the_row() {
 fn rtl_flips_the_drawer_side() {
     use frus_widgets::Scaffold;
     let drawer_color = Color::rgb(0.9, 0.3, 0.3);
+    // The window is **wider than a drawer panel**, deliberately. It used to be 200 px
+    // against a panel of 280, and the assertions below used to read the other way round
+    // — LTR on the left — and passed, because a panel anchored to the right edge of a
+    // window narrower than itself starts at a negative x, and the strip of its content
+    // that survived on screen was the *left* edge. The test was inverted and the
+    // overflow was hiding it. Widening the window removes the artefact; the panel now
+    // sits where it says it does (milestone 307).
+    const W: u32 = 400;
     let make = || {
-        Scaffold::<()>::new(200.0, 120.0)
+        Scaffold::<()>::new(W as f32, 120.0)
             .body(
                 Container::new()
-                    .width(200.0)
+                    .width(W as f32)
                     .height(120.0)
                     .color(Color::rgb(0.1, 0.1, 0.12)),
             )
             .end_drawer(
+                // As wide as the panel it fills: a narrower block would only say where
+                // the panel's *leading* edge is, which is not what is being asked.
                 Container::new()
-                    .width(90.0)
+                    .width(frus_widgets::DRAWER_WIDTH)
                     .height(120.0)
                     .color(drawer_color),
                 true,
@@ -2376,19 +2386,30 @@ fn rtl_flips_the_drawer_side() {
     };
     let is_drawer = |px: [u8; 4]| px[0] > 180 && px[1] < 120 && px[2] < 120;
     let (Some(ltr), Some(rtl)) = (
-        render_widget(make().as_ref(), 200, 120, &Theme::dark()),
-        render_widget(make().as_ref(), 200, 120, &Theme::dark().rtl()),
+        render_widget(make().as_ref(), W, 120, &Theme::dark()),
+        render_widget(make().as_ref(), W, 120, &Theme::dark().rtl()),
     ) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };
-    let edge = |s: &frus_test::Snapshot, x: u32| is_drawer(s.pixel(x, 60));
-    // LTR: the drawer is anchored to the **left**, the start side.
-    assert!(edge(&ltr, 2) && !edge(&ltr, 197), "LTR: drawer on the left");
-    // RTL mirrors it: the drawer moves to the **right** edge.
+    // Where the drawer's own colour actually is, rather than two hopeful pixel probes:
+    // the middle of the run of drawer-coloured pixels across the window's waist.
+    let centre = |s: &frus_test::Snapshot| {
+        let xs: Vec<u32> = (0..W).filter(|x| is_drawer(s.pixel(*x, 60))).collect();
+        assert!(!xs.is_empty(), "the drawer is on screen at all");
+        xs.iter().sum::<u32>() / xs.len() as u32
+    };
+    // The *end* side is the right one under LTR…
     assert!(
-        edge(&rtl, 197) && !edge(&rtl, 2),
-        "RTL: drawer on the right"
+        centre(&ltr) > W / 2,
+        "LTR: the end drawer is on the right, found at {}",
+        centre(&ltr)
+    );
+    // …and RTL mirrors it to the left.
+    assert!(
+        centre(&rtl) < W / 2,
+        "RTL: the end drawer is on the left, found at {}",
+        centre(&rtl)
     );
     rtl.assert_golden(golden("rtl_drawer"));
 }

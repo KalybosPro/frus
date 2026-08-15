@@ -8,12 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 306 so far, each documenting the objective, the alternatives
+> record — one per step, 307 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A `Divider` that can be told anything** (J307). It was a unit struct with no fields
+  and no builders, drawing its line by filling its whole one-pixel box. It now carries
+  the reference's two separate measurements — `height`, the room the separator takes in
+  the layout, and `thickness`, the line drawn inside that room, defaulting to 16 and 1 —
+  plus `indent` and `end_indent`, which inset the **line** and not the box, and `color`.
+  New `DIVIDER_SPACE` and `DIVIDER_THICKNESS`. **Breaking, and visibly:** a default
+  divider takes 16 px of layout instead of 1. The old flush hairline is
+  `Divider::new().height(1.0)`.
+- **`Drawer::width`** (J307): the panel's width is a default now, not a constant nobody
+  could change.
 
 - **The ink ripple** (J306). A tap on a material surface now leaves a circle of ink that
   grows from under the finger, drifts towards the middle of the surface and fades —
@@ -30,6 +41,18 @@ any release may break.
 
 ### Fixed
 
+- **A drawer is the reference's width, and an RTL test that was inverted** (J307).
+  `DRAWER_WIDTH` was 280 where the reference is 304. Correcting it broke
+  `rtl_flips_the_drawer_side`, which turned out to have been asserting the **opposite**
+  of what an end drawer does — LTR on the left — and passing because a 280 px panel
+  anchored to the right edge of a 200 px window starts at a negative `x`, leaving the
+  strip its two pixel probes found on the *left*. The test now uses a window wider than
+  a panel and measures where the drawer's colour actually is. Known and not fixed: a
+  drawer wider than its window overflows instead of shrinking, where the reference
+  enforces the width against the parent's constraints.
+- **The divider is drawn in the theme's discreet outline** (J307), `outline_variant`
+  rather than the full-strength `outline`, as the reference does — a separator as strong
+  as a control's border competes with it.
 - **An application bar's title follows the platform** (J306). `AppBar` started its title
   flush after the leading on every platform unless asked to centre it, and its own
   documentation argued that the choice was not one a bar could make. The reference makes
