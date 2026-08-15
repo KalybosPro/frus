@@ -8,13 +8,25 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 304 so far, each documenting the objective, the alternatives
+> record — one per step, 305 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
 
+- **A `Scaffold` no longer moves the navigation when the window changes size** (J305).
+  Reported from a device: turning the phone to landscape moved the navigation from the
+  bottom of the screen to a rail on the left edge. `Scaffold::build` measured its own
+  width, swapped a `BottomBar` for a `NavRail` past the `Compact` threshold, and took no
+  parameter — so an application could neither ask for it nor decline it. The reference
+  does not do this: its screen shell has one navigation slot, at the bottom, with no
+  breakpoint anywhere in it, and a rail is a separate widget placed by whoever wants
+  one. **Breaking:** the navigation is now a bottom bar at every width. New
+  `NavPlacement::{Bottom, Rail}` and `Scaffold::nav_placement` pin a rail instead —
+  fixed, at any width. There is deliberately no `Adaptive` variant: navigation that
+  follows the size class is `NavScaffold`, a separate shell named for what it does and
+  taking the `SizeClass` as an argument, so choosing it is a decision written down.
 - **The overscroll glow is light, not a dent** (J301, J302). Reported from a device:
   *"I scrolled vertically, top to bottom. But it happens as if I pulled the sides too."*
   The glow was a **flat** fill — `Primitive::Path` carried a colour and nothing else, so

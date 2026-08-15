@@ -3,8 +3,8 @@
 //!
 //! The developer declares **slots** (app bar, body, navigation, drawer, FAB, modal
 //! sheet); the Scaffold assembles them correctly — the **app bar pinned** at the
-//! top, a **scrolling body** in the middle, **adaptive navigation** (a bottom bar
-//! when narrow, a side rail when wide), all of it **respecting the safe area**
+//! top, a **scrolling body** in the middle, **navigation** in a bottom bar (or a
+//! rail, if one is asked for), all of it **respecting the safe area**
 //! (system insets). One piece of code, with no branching on mobile vs desktop.
 //!
 //! ```ignore
@@ -13,7 +13,7 @@
 //!     .background(theme.background)
 //!     .app_bar(appbar)                       // pinned at the top
 //!     .body(content)                         // scrolls
-//!     .nav(app.section, Msg::SetSection)     // adaptive navigation
+//!     .nav(app.section, Msg::SetSection)     // destinations, in a bottom bar
 //!     .destination("✔", "Tasks").badge(3)
 //!     .destination("▦", "Stats")
 //!     .drawer(menu, app.menu_open, Msg::ToggleMenu)          // leading edge
@@ -33,7 +33,7 @@
 //! [`Scaffold::resize_to_avoid_bottom_inset`] — and none of them lets content sit
 //! under the system's own bars, which are not the application's to spend.
 
-use frus_core::{Color, Insets, SizeClass, WindowInsets};
+use frus_core::{Color, Insets, WindowInsets};
 use frus_layout::Justify;
 
 use crate::bottomappbar::BottomAppBar;
@@ -52,6 +52,34 @@ const FOOTER_PAD: f32 = 12.0;
 /// The height a floating action button is assumed to have, absent
 /// [`Scaffold::fab_size`]. The conventional Material diameter.
 const FAB_SIZE: f32 = 56.0;
+
+/// Where a [`Scaffold`]'s navigation destinations are drawn.
+///
+/// A **fixed** choice: whichever is asked for is what gets drawn, at every width. A
+/// `Scaffold` never changes its own layout, which is the point of this type existing
+/// (milestone 305).
+///
+/// Until then the scaffold measured its own width and swapped a bottom bar for a side
+/// rail above a threshold, with no way to ask it not to. Rotating a phone to landscape
+/// crosses that threshold — so the navigation moved from the bottom of the screen to
+/// the left edge because the user turned their hand, and nothing in the application
+/// had asked for that or could prevent it.
+///
+/// The reference does not do this either: its screen shell has one navigation slot, at
+/// the bottom, and a rail is a separate widget placed by whoever wants one. Adapting
+/// is a design decision, and it belongs to the application.
+///
+/// For navigation that **does** follow the size class, reach for
+/// [`NavScaffold`](crate::NavScaffold) — a separate shell whose whole purpose is that,
+/// and which says so in its name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NavPlacement {
+    /// A bottom bar, at every width. The default.
+    #[default]
+    Bottom,
+    /// A vertical rail on the leading edge, at every width.
+    Rail,
+}
 
 /// Where the floating action button sits.
 ///
@@ -94,7 +122,7 @@ impl FabLocation {
     }
 }
 
-/// An adaptive screen shell. A fluent builder finished by [`Scaffold::build`].
+/// The screen shell. A fluent builder finished by [`Scaffold::build`].
 pub struct Scaffold<Msg> {
     width: f32,
     height: f32,
@@ -109,6 +137,7 @@ pub struct Scaffold<Msg> {
     selected: usize,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     destinations: Vec<(String, String, Option<u32>)>,
+    nav_placement: NavPlacement,
     drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     end_drawer: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
     bottom_app_bar: Option<BottomAppBar<Msg>>,
@@ -121,8 +150,10 @@ pub struct Scaffold<Msg> {
 }
 
 impl<Msg: Clone + 'static> Scaffold<Msg> {
-    /// Creates a shell for a `width × height` surface, in logical pixels. The size
-    /// class (rail vs bottom bar) is derived from the width.
+    /// Creates a shell for a `width × height` surface, in logical pixels.
+    ///
+    /// The navigation is a **bottom bar** whatever the width; ask for
+    /// [`Scaffold::nav_placement`] to have it anywhere else.
     pub fn new(width: f32, height: f32) -> Self {
         Self {
             width,
@@ -138,6 +169,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             selected: 0,
             on_select: None,
             destinations: Vec::new(),
+            nav_placement: NavPlacement::default(),
             drawer: None,
             end_drawer: None,
             bottom_app_bar: None,
@@ -223,11 +255,23 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Enables adaptive navigation: `selected` = the active destination,
-    /// `on_select(i)` emitted on choice. Then add [`Scaffold::destination`]s.
+    /// Enables navigation: `selected` = the active destination, `on_select(i)`
+    /// emitted on choice. Then add [`Scaffold::destination`]s.
+    ///
+    /// The destinations go in a **bottom bar** unless
+    /// [`Scaffold::nav_placement`] says otherwise.
     pub fn nav(mut self, selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         self.selected = selected;
         self.on_select = Some(Box::new(on_select));
+        self
+    }
+
+    /// Where the destinations are drawn: a bottom bar (the default) or a rail.
+    ///
+    /// Fixed either way — the scaffold will not move the navigation because the
+    /// window changed size. For that, use [`NavScaffold`](crate::NavScaffold).
+    pub fn nav_placement(mut self, placement: NavPlacement) -> Self {
+        self.nav_placement = placement;
         self
     }
 
@@ -354,6 +398,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             selected,
             on_select,
             destinations,
+            nav_placement,
             drawer,
             end_drawer,
             bottom_app_bar,
@@ -369,16 +414,19 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             extend_body_behind_app_bar,
         } = self;
 
-        let compact = SizeClass::from_width(width) == SizeClass::Compact;
+        // Where the navigation goes is what the caller asked for, and nothing else.
+        // This used to be `SizeClass::from_width(width)`, which is how a phone
+        // turned to landscape moved its own navigation (milestone 305).
+        let rail_nav = nav_placement == NavPlacement::Rail;
         let bg = background.unwrap_or(Color::TRANSPARENT);
         let has_nav = !destinations.is_empty();
         let body_widget = body.unwrap_or_else(|| Box::new(Container::new()));
 
-        // Navigation: a bottom bar (narrow) or a side rail (wide).
+        // Navigation: a bottom bar, or a side rail if one was asked for.
         let nav: Option<Box<dyn Widget<Msg>>> = if has_nav {
             let on_select =
                 on_select.expect("nav(selected, on_select) is required with destinations");
-            if compact {
+            if !rail_nav {
                 let mut bar = BottomBar::new(selected, on_select);
                 for (icon, label, badge) in &destinations {
                     bar = bar.item(icon.clone(), label.clone());
@@ -434,7 +482,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             // The row is **given** the width it has to fill. A row that hugged its
             // content would leave the alignment nothing to distribute, and every
             // footer would sit at the leading edge whatever it was asked for.
-            let rail = if compact { 0.0 } else { RAIL_WIDTH };
+            let rail = if rail_nav { RAIL_WIDTH } else { 0.0 };
             let row_width = (width - insets.left - insets.right - rail - FOOTER_PAD * 2.0).max(0.0);
             let row = Flex::row()
                 .width(row_width)
@@ -472,7 +520,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // it is on the body, and it is the **viewport** that must shrink, not the
         // content that must be padded: a field at the bottom of a form has to be
         // scrolled to, not merely followed by empty space under the keyboard.
-        let body_owns_bottom = !extend_body && footer.is_none() && !(compact && has_nav);
+        // A rail is beside the body, not beneath it, so it holds nothing off the edge.
+        let bar_below_body = has_nav && !rail_nav;
+        let body_owns_bottom = !extend_body && footer.is_none() && !bar_below_body;
         let body_spacer = body_owns_bottom && bottom_clear > 0.0;
 
         // Which slots the body must make room for, and which it runs under. A slot that
@@ -484,7 +534,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // overlay would span the rail as well as the content; a footer there stays in
         // the column, which is what it should do anyway when nothing is under it.
         let bar_over_body = extend_body_behind_app_bar && app_bar.is_some();
-        let bottom_over_body = extend_body && compact && (footer.is_some() || nav.is_some());
+        let bottom_over_body = extend_body && !rail_nav && (footer.is_some() || nav.is_some());
         let app_bar_pad = |bar: Box<dyn Widget<Msg>>, left: f32| {
             inset_pad(bar, insets.top, insets.right, 0.0, left)
         };
@@ -495,7 +545,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         let mut app_bar = app_bar;
         let mut footer = footer;
         let mut nav = nav;
-        let main: Box<dyn Widget<Msg>> = if compact {
+        let main: Box<dyn Widget<Msg>> = if !rail_nav {
             let mut col = Flex::column().width(width).height(height);
             if !bar_over_body {
                 if let Some(bar) = app_bar.take() {
@@ -574,7 +624,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             // vertical placements are measured from.
             let nav_h = if bottom_bar_height > 0.0 {
                 bottom_bar_height
-            } else if compact && has_nav {
+            } else if !rail_nav && has_nav {
                 BAR_HEIGHT
             } else {
                 0.0
@@ -1067,6 +1117,83 @@ mod tests {
             .hit(frus_core::Point::new(40.0, 20.0))
             .expect("the body's button must be reachable under two overlay layers");
         assert_eq!(ui.msg_for(target), Some(Msg::Add));
+    }
+
+    /// Where the navigation is drawn: `(min x, max y)` of the destinations' labels.
+    /// A bottom bar sits low and spans the width; a rail is a narrow column against
+    /// the leading edge.
+    fn nav_extent(root: &dyn Widget<Msg>, width: f32, height: f32) -> (f32, f32) {
+        let ui = build_ui(
+            root,
+            Size::new(width, height),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let mut leftmost = f32::MAX;
+        let mut lowest: f32 = 0.0;
+        for primitive in ui.scene().primitives() {
+            // The labels are what identify the navigation: "Home" and "Stats" are in
+            // the destinations and nowhere else in the test's scaffold.
+            if let frus_core::Primitive::Text { text, position, .. } = primitive {
+                if text == "Home" || text == "Stats" {
+                    leftmost = leftmost.min(position.x);
+                    lowest = lowest.max(position.y);
+                }
+            }
+        }
+        assert!(leftmost < f32::MAX, "the destinations were never painted");
+        (leftmost, lowest)
+    }
+
+    /// The default, and the whole point of milestone 305: a wide window does **not**
+    /// move the navigation. A phone turned to landscape crosses the size-class
+    /// threshold, and its bottom bar has to stay at the bottom.
+    #[test]
+    fn a_wide_window_keeps_the_navigation_at_the_bottom() {
+        // 900 × 420: landscape, comfortably past the Compact threshold.
+        let (_, lowest) = nav_extent(scaffold(900.0, 420.0).as_ref(), 900.0, 420.0);
+        assert!(
+            lowest > 420.0 * 0.6,
+            "the destinations were painted at y = {lowest}, which is not a bottom bar"
+        );
+    }
+
+    /// And the same tree at the same width, having asked for a rail, puts them against
+    /// the leading edge instead. The behaviour is not gone — it is opted into.
+    #[test]
+    fn a_rail_is_drawn_when_it_is_asked_for() {
+        let railed = Scaffold::new(900.0, 420.0)
+            .app_bar(text("Title").size(20.0))
+            .body(text("Body").size(16.0))
+            .nav(0, Msg::Go)
+            .nav_placement(NavPlacement::Rail)
+            .destination("H", "Home")
+            .destination("S", "Stats")
+            .build();
+        let (leftmost, lowest) = nav_extent(railed.as_ref(), 900.0, 420.0);
+        assert!(
+            leftmost < RAIL_WIDTH,
+            "a rail sits against the leading edge, not at x = {leftmost}"
+        );
+        assert!(
+            lowest < 420.0 * 0.6,
+            "a rail stacks from the top, not at y = {lowest}"
+        );
+    }
+
+    /// A narrow window with a rail asked for still gets a rail: the placement is a
+    /// decision, not a hint the scaffold may overrule.
+    #[test]
+    fn a_rail_survives_a_narrow_window() {
+        let railed = Scaffold::new(360.0, 800.0)
+            .body(text("Body").size(16.0))
+            .nav(0, Msg::Go)
+            .nav_placement(NavPlacement::Rail)
+            .destination("H", "Home")
+            .destination("S", "Stats")
+            .build();
+        let (leftmost, _) = nav_extent(railed.as_ref(), 360.0, 800.0);
+        assert!(leftmost < RAIL_WIDTH, "leftmost = {leftmost}");
     }
 
     #[test]

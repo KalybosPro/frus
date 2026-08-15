@@ -371,6 +371,12 @@ pub(crate) fn todo_screen(
         .background(theme.background)
         .app_bar(header)
         .body(section)
+        // A bottom bar, at every width — the default, and left unsaid on purpose so
+        // that this reads the way an application would write it. Before milestone 305
+        // the scaffold measured its own width and moved the navigation to a side rail
+        // past a threshold, which meant turning the phone to landscape relocated it.
+        // `.nav_placement(NavPlacement::Rail)` pins a rail instead; navigation that
+        // follows the size class is `NavScaffold`, which is a different widget.
         .nav(app.section, Msg::SetSection)
         .destination("✔", "Tasks")
         .badge(active as u32)

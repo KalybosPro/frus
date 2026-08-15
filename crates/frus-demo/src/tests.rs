@@ -941,3 +941,58 @@ fn live_reload_state_round_trips() {
     Application::restore_state(&mut other, b"frus-demo-state v999\nlight 1\n");
     assert!(other.todos.is_empty() && !other.restored);
 }
+
+/// Turning the phone must not move the navigation (milestone 305).
+///
+/// Reported from a device: rotating to landscape made the navigation leave the bottom
+/// of the screen and reappear as a rail down the left edge. The cause was in
+/// `Scaffold`, which measured its own width; the fix is there too. This test is here
+/// because it is the demo's own screen, at the reporter's own logical size, that has to
+/// come out right — a widget test can pass while the application still looks wrong.
+#[test]
+fn rotating_the_phone_leaves_the_navigation_at_the_bottom() {
+    // The reporter's device: 1080 × 2340 at a density that gives 424 × 918 logical.
+    let portrait = (424.0, 918.0);
+    let landscape = (918.0, 424.0);
+
+    /// The lowest `y` at which any of the navigation's labels is painted.
+    fn nav_bottom(app: &TodoApp, width: f32, height: f32) -> f32 {
+        let theme = Application::theme(app);
+        let root = Application::view(app, &theme, width, height);
+        let ui = build_ui(
+            root.as_ref(),
+            Size::new(width, height),
+            &Runtime::default(),
+            &theme,
+        );
+        let mut lowest = f32::MIN;
+        for primitive in ui.scene().primitives() {
+            if let frus_widgets::Primitive::Text { text, position, .. } = primitive {
+                if text == "Tasks" || text == "Stats" || text == "About" {
+                    lowest = lowest.max(position.y);
+                }
+            }
+        }
+        assert!(lowest > f32::MIN, "the destinations were never painted");
+        lowest
+    }
+
+    let mut app = TodoApp::default();
+    let _ = app.init();
+
+    let low_portrait = nav_bottom(&app, portrait.0, portrait.1);
+    assert!(
+        low_portrait > portrait.1 * 0.7,
+        "portrait: destinations at y = {low_portrait} of {}",
+        portrait.1
+    );
+
+    // The rotation itself, through the shell's own entry point.
+    Application::on_resize(&mut app, landscape.0, landscape.1);
+    let low_landscape = nav_bottom(&app, landscape.0, landscape.1);
+    assert!(
+        low_landscape > landscape.1 * 0.7,
+        "landscape: destinations at y = {low_landscape} of {} — the navigation moved",
+        landscape.1
+    );
+}

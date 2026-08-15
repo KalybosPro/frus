@@ -272,7 +272,7 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 - [Structuring an application](docs/app-structure.md) — splitting a growing app across modules
 - [Architecture](ARCHITECTURE.md) — how the crates fit together
 - [Roadmap](ROADMAP.md) — what's next and where help is wanted
-- [Design notes index](docs/README.md) — 304 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
+- [Design notes index](docs/README.md) — 305 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
 
 ## License
 

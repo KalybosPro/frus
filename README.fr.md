@@ -273,7 +273,7 @@ En participant, vous acceptez le [Code de conduite](CODE_OF_CONDUCT.md).
 - [Structurer une application](docs/app-structure.md) — découper une application qui grandit en modules
 - [Architecture](ARCHITECTURE.md) — comment les crates s'assemblent
 - [Feuille de route](ROADMAP.md) — la suite, et où l'aide est souhaitée
-- [Index des notes de conception](docs/README.md) — 304 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
+- [Index des notes de conception](docs/README.md) — 305 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
 
 ## Licence
 
