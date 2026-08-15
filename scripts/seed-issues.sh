@@ -6,13 +6,20 @@
 #   ./scripts/seed-issues.sh --dry-run   # print what would be created
 #   ./scripts/seed-issues.sh             # create it
 #
+# This is a **bash** script. On Windows run it from Git Bash, or use the PowerShell
+# wrapper beside it: PowerShell does not execute a `.sh`, and it does not say so —
+# `./scripts/seed-issues.sh` there returns silently, having done nothing.
+#
+#   bash ./scripts/seed-issues.sh        # from PowerShell or cmd
+#   ./scripts/seed-issues.ps1            # the wrapper, same arguments
+#
 # Needs the GitHub CLI, authenticated against this repository:
 #
 #   gh auth login
 #
-# Running it twice would create every issue twice — it deliberately does no
-# deduplication, because guessing which of two similarly titled issues is "the same
-# one" is a worse failure than an obvious duplicate. Check `gh issue list` first.
+# Safe to re-run: an issue whose **exact title** is already open is skipped. That is a
+# title match and not a judgement about what two issues have in common — a near
+# duplicate is still yours to spot.
 
 set -euo pipefail
 
@@ -69,6 +76,14 @@ done
 
 echo
 echo "== Issues"
+
+# The titles already open, so that re-running this adds what is new instead of a
+# second copy of everything. One call, not one per issue.
+existing=""
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    existing=$(gh issue list --state open --limit 200 --json title --jq '.[].title' 2>/dev/null || true)
+fi
+
 for file in .github/issues/*.md; do
     title=$(sed -n '1s/^title: //p' "$file")
     labels=$(sed -n '2s/^labels: //p' "$file")
@@ -76,6 +91,13 @@ for file in .github/issues/*.md; do
 
     if [[ -z "$title" ]]; then
         echo "  $file: no 'title:' on the first line — skipped" >&2
+        continue
+    fi
+
+    # `grep -Fx`: fixed strings, whole line. A title full of backticks and
+    # parentheses is not a regular expression.
+    if [[ -n "$existing" ]] && printf '%s\n' "$existing" | grep -qFx "$title"; then
+        echo "  already open: $title"
         continue
     fi
 

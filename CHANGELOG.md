@@ -138,7 +138,7 @@ any release may break.
   `cargo run -p frus-demo --features shots --bin shots -- docs/media`. Regenerating a
   picture after a change is now a command rather than an afternoon, which is the only
   way a README's screenshots stay true. New: `Snapshot::write_png`.
-- **Fourteen issues, written to be startable** (J304). `.github/issues/` and
+- **Fourteen issues, written to be startable** (J304), now [open on the tracker](https://github.com/KalybosPro/frus/issues). `.github/issues/` and
   `scripts/seed-issues.sh` — each one says why it matters, where in the code to look,
   how to know it is done, and where the obvious wrong turn is. They live in the
   repository so they can be reviewed like anything else, and so a fork does not start

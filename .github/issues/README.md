@@ -4,10 +4,21 @@ One file per issue. `../../scripts/seed-issues.sh` reads them, creates the label
 use, and opens them with the GitHub CLI:
 
 ```sh
-gh auth login                      # once
-./scripts/seed-issues.sh --dry-run # see what it would do
-./scripts/seed-issues.sh           # do it
+gh auth login                        # once
+./scripts/seed-issues.sh --dry-run   # see what it would do
+./scripts/seed-issues.sh             # do it
 ```
+
+On **Windows**, from PowerShell, use the wrapper — PowerShell will not run a `.sh`,
+and it does not say so: `./scripts/seed-issues.sh` there returns silently having done
+nothing.
+
+```powershell
+.\scripts\seed-issues.ps1 --dry-run
+.\scripts\seed-issues.ps1
+```
+
+Re-running is safe: an issue whose exact title is already open is skipped.
 
 They live in the repository rather than only on GitHub for two reasons: they can be
 reviewed in a pull request like anything else, and a fresh fork or a mirror starts with
