@@ -6,9 +6,25 @@ version.workspace = true
 license.workspace = true
 
 # Library: `rlib` for the desktop binary, `cdylib` (the `.so`) for Android.
-# The desktop binary is discovered automatically in `src/bin/`.
 [lib]
 crate-type = ["rlib", "cdylib"]
+
+# Both binaries are named because naming one turns auto-discovery off for the other.
+[[bin]]
+name = "frus-demo"
+path = "src/bin/frus-demo.rs"
+
+# `required-features`, or `--all-targets` builds it without the feature its module is
+# gated behind and fails.
+[[bin]]
+name = "shots"
+path = "src/bin/shots.rs"
+required-features = ["shots"]
+
+[features]
+# The tool that renders the README's pictures. Off by default: it pulls the test
+# harness and a GIF encoder into a crate that otherwise needs neither.
+shots = ["dep:frus-test", "dep:gif"]
 
 [dependencies]
 frus-shell = { path = "../frus-shell" }
@@ -17,6 +33,9 @@ frus-l10n = { path = "../frus-l10n" }
 frus-image = { path = "../frus-image" }
 anyhow.workspace = true
 log.workspace = true
+# `--features shots` only: rendering frames offscreen, and packing them into a GIF.
+frus-test = { path = "../frus-test", optional = true }
+gif = { version = "0.13", optional = true }
 
 # --- Empaquetage Android (cargo-apk) ---
 [package.metadata.android]

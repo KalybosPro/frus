@@ -14,6 +14,7 @@ Thumbs.db
 # claude
 .claude/
 CLAUDE.md
+docs/brief.md
 
 # Build outputs
 *.apk

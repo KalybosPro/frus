@@ -1,6 +1,6 @@
 # Design notes
 
-This directory is the project's memory: **277 milestone notes**, one per step of
+This directory is the project's memory: **304 milestone notes**, one per step of
 frus's construction. Each records the objective, the alternatives that were weighed, the
 decision and its reasoning, the implementation, how it was verified, and what was
 deliberately left for later.

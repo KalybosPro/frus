@@ -47,6 +47,18 @@ web-time = "1"
 # instead — see `run_web`.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster.workspace = true
+# The async runtime (see `src/runtime.rs`). `async-executor` is the scheduler and
+# `async-io` the reactor — the part that was missing, and without which a future that
+# waits on a timer or a socket simply never wakes up. Both are small, pure Rust and
+# free of proc macros; between them they are what lets a `Command` be a real future
+# rather than a blocking call wearing a future's clothes.
+async-executor = "1"
+async-io = "2"
+futures-lite = "2"
+# Moving a **blocking** call off the executor and onto a pool sized for waiting. The
+# `net` feature's client is blocking, and a blocking call on a four-worker executor
+# is how you starve every other effect in the application.
+blocking = "1"
 # The `fetch` helper's native HTTP client (the `net` feature): blocking, driven to
 # completion inside the async future's body, on its own thread. TLS through rustls,
 # ureq's default.

@@ -13,7 +13,13 @@ One codebase → desktop, Android, and the web. GPU-rendered. Elm-shaped. No DSL
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
-[Quick start](#quick-start) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+[Quick start](#quick-start) · [Gallery](#what-it-looks-like) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+
+<br>
+
+<img src="docs/media/tour.gif" alt="Four screens of the demo application, entered and left through frus's spring route transitions" width="620">
+
+<sub>The sample application moving between four of its screens. Every pixel — the layout, the type, the charts, the springs — is drawn by frus on the GPU.</sub>
 
 </div>
 
@@ -68,10 +74,48 @@ That is a complete, runnable application. `cargo run` on desktop, `cargo apk run
 | | |
 |---|---|
 | **One language, top to bottom** | App logic, widgets, layout, and the renderer are all Rust. No FFI boundary in the hot path, no serialization across a bridge. |
-| **Pure `update`, testable core** | The Elm architecture means your state machine is a pure function. ~700 of this repo's tests run with no GPU and no window. |
+| **Pure `update`, testable core** | The Elm architecture means your state machine is a pure function. ~970 of this repo's tests run with no GPU and no window. |
 | **GPU-native rendering** | `wgpu` targets Vulkan, Metal, DX12, and WebGPU from one backend. Vector paths are tessellated with `lyon`; text is shaped by `cosmic-text`. |
 | **Everything is overridable** | Widgets ship themed defaults, never hardcoded ones. If a widget paints it, you can restyle it or swap the slot. |
 | **cargo-native** | No `frus doctor`, no custom package manager, no generated build directory. `cargo build`, `cargo test`, `cargo apk run`. |
+
+## What it looks like
+
+All of this is one application — `crates/frus-demo` — and one source tree.
+
+| | |
+|:--:|:--:|
+| <img src="docs/media/tasks.png" alt="The task list: app bar, alerts, a segmented control, a text field, checkboxes, drag-and-drop targets and a floating action button" width="440"> | <img src="docs/media/charts.png" alt="A chart dashboard: a line chart with a clickable legend above a grouped bar chart" width="440"> |
+| **Widgets, gestures, theming** — the list, with drag-and-drop reordering and swipe-to-dismiss. | **Charts** — line, area, grouped and stacked bars, with a legend that filters the series. |
+| <img src="docs/media/board.png" alt="A Kanban board of three columns of cards" width="440"> | <img src="docs/media/data.png" alt="A data table with a search field, sortable headers, row checkboxes and pagination" width="440"> |
+| **Drag-and-drop** — cards move between columns, and the rest reflows live under the finger. | **Data tables** — sorting, selection, pagination, and an inline-editable variant. |
+
+<table>
+<tr>
+<td width="34%" align="center">
+<img src="docs/media/android.png" alt="The same application running on an Android phone" width="240">
+</td>
+<td>
+
+**The same code on a phone.** Android is a first-class target, not a port: a native
+activity, Vulkan, a real IME with composition and swipe typing, system insets, and
+the lifecycle. This is a photograph of a device, not a rendering — it is the one
+picture here that would be worth nothing otherwise.
+
+<img src="docs/media/light.png" alt="The settings screen in the light theme" width="380">
+
+**The theme is not a coat of paint.** Light and dark are generated from a seed
+colour, and every widget takes its colours from the theme rather than from a
+constant — so an application can restyle the whole library, or one widget, without
+forking it.
+
+</td>
+</tr>
+</table>
+
+<sub>Every picture above except the phone is <b>rendered</b>, through the same pipeline a
+window uses: <code>cargo run -p frus-demo --features shots --bin shots -- docs/media</code>.
+They are regenerated after a change rather than slowly going stale.</sub>
 
 ## Quick start
 
@@ -84,7 +128,7 @@ cd frus
 cargo run -p frus-hello        # the counter above
 cargo run -p frus-demo         # a larger todo/kanban app
 cargo run -p frus-transforms   # animation and transform showcase
-cargo test --workspace         # ~700 tests
+cargo test --workspace         # ~970 tests
 ```
 
 ### Start your own app
@@ -186,11 +230,29 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 - Text rendering edge cases, and broader golden coverage.
 - A searchable documentation site built from the design notes.
 
-See [ROADMAP.md](ROADMAP.md) for the full picture and [good first issues](https://github.com/KalybosPro/frus/labels/good%20first%20issue) to get started.
+See [ROADMAP.md](ROADMAP.md) for the full picture.
+
+## Where to start
+
+The project is early enough that a single pull request can shape a subsystem. These are
+real, open, and written up with where to look and how to know you are done:
+
+| | |
+|---|---|
+| 🟢 [Give every crate a README](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Fifteen crates, no front page. **One crate is a perfectly good PR.** |
+| 🟢 Pin a minimum supported Rust version | Nobody knows what the floor is. Find it, pin it, add it to CI. |
+| 🟢 `NavBar` collapses around its back button | A small, real, already-diagnosed bug, with a way to see it. |
+| 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
+| 🟡 The batch planner is O(n²) | 16× the primitives costs 127× the time. Benchmark included. |
+| 🟡 Clipboard and accessibility on the web | Both exist on desktop; the web drops them on the floor. |
+| 🔴 [An iOS shell](https://github.com/KalybosPro/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
+
+🟢 good first issue · 🟡 help wanted · 🔴 design first — [all open issues](https://github.com/KalybosPro/frus/issues)
+
+Not sure where you fit? Open an issue and say what you enjoy working on. English or
+French, both fine.
 
 ## Contributing
-
-Contributions are very welcome — this project is early enough that a single PR can shape a subsystem.
 
 Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**. The short version:
 
@@ -210,7 +272,7 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 - [Structuring an application](docs/app-structure.md) — splitting a growing app across modules
 - [Architecture](ARCHITECTURE.md) — how the crates fit together
 - [Roadmap](ROADMAP.md) — what's next and where help is wanted
-- [Design notes index](docs/README.md) — 277 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
+- [Design notes index](docs/README.md) — 304 notes, one per milestone: the analysis, the alternatives considered, the decision, and why. This is the project's real memory.
 
 ## License
 

@@ -733,6 +733,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "color_quant"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1371,7 +1377,9 @@ dependencies = [
  "frus-image",
  "frus-l10n",
  "frus-shell",
+ "frus-test",
  "frus-widgets",
+ "gif",
  "log",
 ]
 
@@ -1439,12 +1447,16 @@ dependencies = [
  "android_logger",
  "anyhow",
  "arboard",
+ "async-executor",
+ "async-io",
+ "blocking",
  "cfg_aliases 0.2.2",
  "console_error_panic_hook",
  "console_log",
  "env_logger",
  "frus-gpu",
  "frus-widgets",
+ "futures-lite",
  "jni 0.21.1",
  "log",
  "pollster",
@@ -1593,6 +1605,16 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi 6.0.0",
+]
+
+[[package]]
+name = "gif"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae047235e33e2829703574b54fdec96bfbad892062d97fed2f76022287de61b"
+dependencies = [
+ "color_quant",
+ "weezl",
 ]
 
 [[package]]

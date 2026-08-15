@@ -7,8 +7,6 @@
 //! animation clock. The application supplies only `update`, `view` and friends.
 
 use std::collections::HashMap;
-#[cfg(not(web))]
-use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::Arc;
 
 use web_time::Instant;
@@ -113,14 +111,33 @@ mod web_timer {
             }
         }
     }
+
+    /// Calls `f` once, after `ms` milliseconds — the Web half of
+    /// [`Command::after`](crate::Command::after).
+    ///
+    /// There is no handle to keep, and that is the point. `Closure::once_into_js`
+    /// hands ownership of the closure to the JS side, which frees it after the call.
+    /// A `Closure` we owned instead would have to be either leaked — one leak per
+    /// timer — or dropped here, which would free the callback out from under a
+    /// `setTimeout` that has not fired yet.
+    pub(crate) fn after(ms: i32, f: impl FnOnce() + 'static) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let callback = wasm_bindgen::closure::Closure::once_into_js(f);
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback.unchecked_ref(),
+            ms.max(0),
+        );
+    }
 }
 
 /// An active subscription's cancellation handle: **dropping** it stops the
 /// subscription.
-/// - Native: a `Sender<()>` — the subscription's thread exits at its next wake-up.
+/// - Native: the executor task's handle — dropping it cancels the task.
 /// - Web: a retained `setInterval` (`None` when installing it failed).
 #[cfg(not(web))]
-type SubHandle = Sender<()>;
+type SubHandle = async_executor::Task<()>;
 #[cfg(web)]
 type SubHandle = Option<web_timer::Interval>;
 
@@ -2504,18 +2521,26 @@ impl<A: Application> App<A> {
         self.sync_subscriptions();
     }
 
-    /// Runs a command: each task goes off in the background — a native thread, or a
-    /// `spawn_local` microtask on the Web — and whatever message it produces comes back
-    /// into the loop through the proxy. Focus requests are **queued**, then resolved
-    /// against the freshly built tree on the next frame.
+    /// Runs a command, and whatever message it produces comes back into the loop
+    /// through the proxy. Focus requests are **queued**, then resolved against the
+    /// freshly built tree on the next frame.
     ///
-    /// The **asynchronous** tasks ([`Command::perform_async`]) are driven **by the
-    /// browser** on the Web (`spawn_local`, so a real `fetch` can `await`) and **driven
-    /// to completion** on a thread natively (`block_on`).
+    /// Where each kind of effect goes:
+    ///
+    /// | | native | Web |
+    /// |---|---|---|
+    /// | synchronous task | its own thread | a `spawn_local` microtask |
+    /// | asynchronous task | the shell's executor | the browser |
+    /// | timer | a task on the executor's reactor | `setTimeout` |
+    ///
+    /// A **synchronous** task keeps its thread: it blocks by definition, and that is
+    /// what a thread is for. An **asynchronous** one no longer gets one — it is a
+    /// task among others on a pool of four, which is the whole point of milestone
+    /// 303. See [`crate::runtime`].
     fn run_command(&mut self, command: crate::command::Command<A::Message>) {
-        let (tasks, async_tasks, focus) = command.into_parts();
-        self.pending_focus.extend(focus);
-        for task in tasks {
+        let parts = command.into_parts();
+        self.pending_focus.extend(parts.focus);
+        for task in parts.tasks {
             let proxy = self.proxy.clone();
             #[cfg(not(web))]
             std::thread::spawn(move || {
@@ -2530,17 +2555,18 @@ impl<A: Application> App<A> {
                 }
             });
         }
-        for future in async_tasks {
+        for future in parts.async_tasks {
             let proxy = self.proxy.clone();
-            // Native: the future is driven to completion on its own thread
-            // (`block_on`). Self-contained futures need no reactor; real network I/O
-            // leans on the application's own async runtime.
+            // Native: a task on the shared executor. `detach` because an effect must
+            // outlive the handle — nothing here wants to cancel it, unlike a
+            // subscription.
             #[cfg(not(web))]
-            std::thread::spawn(move || {
-                if let Some(message) = pollster::block_on(future) {
+            crate::runtime::spawn(async move {
+                if let Some(message) = future.await {
                     let _ = proxy.send_event(message);
                 }
-            });
+            })
+            .detach();
             // Web: the browser drives the future, single-threaded — `fetch` and friends
             // genuinely `await`, without blocking the loop.
             #[cfg(web)]
@@ -2548,6 +2574,19 @@ impl<A: Application> App<A> {
                 if let Some(message) = future.await {
                     let _ = proxy.send_event(message);
                 }
+            });
+        }
+        for (delay, message) in parts.timers {
+            let proxy = self.proxy.clone();
+            #[cfg(not(web))]
+            crate::runtime::spawn(async move {
+                crate::runtime::sleep(delay).await;
+                let _ = proxy.send_event(message);
+            })
+            .detach();
+            #[cfg(web)]
+            web_timer::after(delay.as_millis() as i32, move || {
+                let _ = proxy.send_event(message);
             });
         }
     }
@@ -2571,26 +2610,31 @@ impl<A: Application> App<A> {
         }
     }
 
-    /// Starts a subscription on a background thread and returns its cancellation
-    /// handle; dropping the `Sender` makes the thread exit at its next wake-up.
+    /// Starts a subscription as a task on the shell's executor, and returns its
+    /// cancellation handle — **dropping the handle cancels the task**, which is what
+    /// `sync_subscriptions` above relies on when the application stops declaring it.
+    ///
+    /// This used to be a thread per subscription, parked in `recv_timeout` and woken
+    /// by the timeout or by its `Sender` being dropped. A timer is the clearest case
+    /// there is of work that only ever waits, so it is the clearest case for not
+    /// spending a thread on it.
     #[cfg(not(web))]
     fn start_subscription(&self, kind: crate::subscription::Kind<A::Message>) -> SubHandle {
-        let (tx, rx) = std::sync::mpsc::channel::<()>();
         let proxy = self.proxy.clone();
         match kind {
             crate::subscription::Kind::Every { interval, make } => {
-                // The interval elapsing is a timeout; anything else — the Sender
-                // dropped, the loop closed — ends the thread.
-                std::thread::spawn(move || {
-                    while let Err(RecvTimeoutError::Timeout) = rx.recv_timeout(interval) {
+                crate::runtime::spawn(async move {
+                    loop {
+                        crate::runtime::sleep(interval).await;
+                        // The loop having closed is the other way this ends, and the
+                        // application is gone by then, so there is nobody to tell.
                         if proxy.send_event(make(Instant::now())).is_err() {
                             break;
                         }
                     }
-                });
+                })
             }
         }
-        tx
     }
 
     /// Starts a subscription on the **Web**: a browser `setInterval`, with no thread.

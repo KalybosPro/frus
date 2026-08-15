@@ -22,6 +22,10 @@ mod gesture;
 pub mod net;
 mod reload;
 mod remote;
+/// The async runtime: one executor and a reactor, shared by every asynchronous
+/// effect. Native only — on the Web the browser is the runtime.
+#[cfg(not(web))]
+pub(crate) mod runtime;
 mod subscription;
 
 pub use app::App;

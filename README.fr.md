@@ -13,7 +13,13 @@ Un seul code → bureau, Android et le Web. Rendu GPU. Architecture Elm. Pas de 
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 [![Statut](https://img.shields.io/badge/statut-pré--alpha-yellow.svg)](#état-du-projet)
 
-[Démarrer](#démarrer) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
+[Démarrer](#démarrer) · [Galerie](#à-quoi-ça-ressemble) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
+
+<br>
+
+<img src="docs/media/tour.gif" alt="Quatre écrans de l'application de démonstration, ouverts et refermés par les transitions à ressort de frus" width="620">
+
+<sub>L'application d'exemple passant d'un écran à l'autre. Chaque pixel — la mise en page, la typographie, les graphiques, les ressorts — est dessiné par frus sur le GPU.</sub>
 
 </div>
 
@@ -68,10 +74,48 @@ C'est une application complète et exécutable. `cargo run` sur bureau, `cargo a
 | | |
 |---|---|
 | **Un seul langage, de bout en bout** | Logique applicative, widgets, layout et moteur de rendu sont tous en Rust. Pas de frontière FFI dans le chemin chaud, pas de sérialisation à travers un pont. |
-| **`update` pur, cœur testable** | L'architecture Elm fait de votre machine à états une fonction pure. ~700 tests de ce dépôt tournent sans GPU ni fenêtre. |
+| **`update` pur, cœur testable** | L'architecture Elm fait de votre machine à états une fonction pure. ~970 tests de ce dépôt tournent sans GPU ni fenêtre. |
 | **Rendu GPU natif** | `wgpu` vise Vulkan, Metal, DX12 et WebGPU depuis un seul backend. Les chemins vectoriels sont tessellés par `lyon`, le texte façonné par `cosmic-text`. |
 | **Tout est surchargeable** | Les widgets fournissent des valeurs par défaut *thémées*, jamais codées en dur. Si un widget le dessine, vous pouvez le restyler ou remplacer l'emplacement. |
 | **cargo-natif** | Pas de `frus doctor`, pas de gestionnaire de paquets maison, pas de dossier de build généré. `cargo build`, `cargo test`, `cargo apk run`. |
+
+## À quoi ça ressemble
+
+Tout ceci est **une seule** application — `crates/frus-demo` — et un seul arbre de sources.
+
+| | |
+|:--:|:--:|
+| <img src="docs/media/tasks.png" alt="La liste de tâches : barre d'application, alertes, contrôle segmenté, champ de saisie, cases à cocher, cibles de glisser-déposer et bouton d'action flottant" width="440"> | <img src="docs/media/charts.png" alt="Un tableau de bord : une courbe avec légende cliquable au-dessus d'un histogramme groupé" width="440"> |
+| **Widgets, gestes, thème** — la liste, avec réorganisation par glisser-déposer et balayage pour supprimer. | **Graphiques** — courbes, aires, barres groupées et empilées, avec une légende qui filtre les séries. |
+| <img src="docs/media/board.png" alt="Un tableau Kanban de trois colonnes de cartes" width="440"> | <img src="docs/media/data.png" alt="Un tableau de données avec recherche, en-têtes triables, cases de sélection et pagination" width="440"> |
+| **Glisser-déposer** — les cartes changent de colonne et le reste se réagence en direct sous le doigt. | **Tableaux de données** — tri, sélection, pagination, et une variante éditable en ligne. |
+
+<table>
+<tr>
+<td width="34%" align="center">
+<img src="docs/media/android.png" alt="La même application sur un téléphone Android" width="240">
+</td>
+<td>
+
+**Le même code sur un téléphone.** Android est une cible de premier rang, pas un
+portage : activité native, Vulkan, une vraie saisie IME avec composition et frappe
+glissée, marges système, cycle de vie. C'est une photographie d'un appareil, pas un
+rendu — c'est la seule image ici qui ne vaudrait rien autrement.
+
+<img src="docs/media/light.png" alt="L'écran des réglages en thème clair" width="380">
+
+**Le thème n'est pas une couche de peinture.** Clair et sombre sont engendrés à
+partir d'une couleur graine, et chaque widget prend ses couleurs du thème plutôt que
+d'une constante — une application peut donc restyler toute la bibliothèque, ou un
+seul widget, sans la forker.
+
+</td>
+</tr>
+</table>
+
+<sub>Toutes les images ci-dessus sauf le téléphone sont <b>rendues</b>, par le même pipeline
+qu'une fenêtre : <code>cargo run -p frus-demo --features shots --bin shots -- docs/media</code>.
+On les régénère après un changement au lieu de les laisser se périmer.</sub>
 
 ## Démarrer
 
@@ -84,7 +128,7 @@ cd frus
 cargo run -p frus-hello        # le compteur ci-dessus
 cargo run -p frus-demo         # une app plus large (todo / kanban)
 cargo run -p frus-transforms   # vitrine d'animations et de transforms
-cargo test --workspace         # ~700 tests
+cargo test --workspace         # ~970 tests
 ```
 
 ### Créer votre propre application
@@ -186,11 +230,30 @@ Lisez [ARCHITECTURE.md](ARCHITECTURE.md) avant votre première modification non 
 - Cas limites du rendu de texte, et couverture golden plus large.
 - Un site de documentation navigable, construit à partir des notes de conception.
 
-Voir [ROADMAP.md](ROADMAP.md) et les [*good first issues*](https://github.com/KalybosPro/frus/labels/good%20first%20issue).
+Voir [ROADMAP.md](ROADMAP.md) pour le tableau complet.
+
+## Par où commencer
+
+Le projet est assez jeune pour qu'une seule *pull request* façonne un sous-système.
+Celles-ci sont réelles, ouvertes, et rédigées avec où regarder et comment savoir que
+c'est fini :
+
+| | |
+|---|---|
+| 🟢 [Un README par crate](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Quinze crates, aucune page d'accueil. **Une seule crate fait une très bonne PR.** |
+| 🟢 Fixer une version minimale de Rust | Personne ne sait où est le plancher. Le trouver, le fixer, l'ajouter à la CI. |
+| 🟢 `NavBar` se recroqueville sur son bouton retour | Un petit bug réel, déjà diagnostiqué, avec de quoi le voir. |
+| 🟡 [Publier sur crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | Le principal obstacle entre le projet et quiconque voudrait l'essayer. |
+| 🟡 Le planificateur de lots est en O(n²) | 16× les primitives coûtent 127× le temps. Le benchmark est fourni. |
+| 🟡 Presse-papiers et accessibilité sur le Web | Les deux existent sur bureau ; le Web les laisse tomber. |
+| 🔴 [Une couche iOS](https://github.com/KalybosPro/frus/labels/design%20first) | L'architecture parie que c'est un travail circonscrit. Personne n'a testé le pari. |
+
+🟢 *good first issue* · 🟡 *help wanted* · 🔴 *design first* — [toutes les issues ouvertes](https://github.com/KalybosPro/frus/issues)
+
+Vous ne savez pas où vous situer ? Ouvrez une issue en disant ce que vous aimez faire.
+En français ou en anglais, les deux conviennent.
 
 ## Contribuer
-
-Les contributions sont les bienvenues — le projet est assez jeune pour qu'une seule PR façonne un sous-système.
 
 Commencez par **[CONTRIBUTING.md](CONTRIBUTING.md)**. En résumé :
 
@@ -210,7 +273,7 @@ En participant, vous acceptez le [Code de conduite](CODE_OF_CONDUCT.md).
 - [Structurer une application](docs/app-structure.md) — découper une application qui grandit en modules
 - [Architecture](ARCHITECTURE.md) — comment les crates s'assemblent
 - [Feuille de route](ROADMAP.md) — la suite, et où l'aide est souhaitée
-- [Index des notes de conception](docs/README.md) — 277 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
+- [Index des notes de conception](docs/README.md) — 304 notes, une par jalon : l'analyse, les alternatives, la décision et ses raisons. C'est la mémoire réelle du projet.
 
 ## Licence
 

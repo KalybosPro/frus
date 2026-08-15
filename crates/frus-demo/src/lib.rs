@@ -12,6 +12,9 @@ mod model;
 mod parts;
 mod prelude;
 mod screens;
+/// The tool that renders the README's pictures; see the module's own documentation.
+#[cfg(feature = "shots")]
+pub mod shots;
 mod storage;
 #[cfg(test)]
 mod tests;

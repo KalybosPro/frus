@@ -223,6 +223,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libxkbcommon-dev libwayland-dev libx11-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Optional features are invisible to the line above, and code nothing compiles
+      # rots. `shots` is the tool that renders the README's pictures.
+      - run: cargo clippy -p frus-demo --features shots --all-targets -- -D warnings
 
   # ---------------------------------------------------------------------------
   # Docs must build, and the strict pass — broken intra-doc links, code blocks that

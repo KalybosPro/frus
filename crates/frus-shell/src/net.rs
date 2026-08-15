@@ -31,9 +31,11 @@
 //!
 //! - **Web**: the browser's `fetch` (`window.fetch`) through `web-sys`, natively
 //!   asynchronous; the timeout is armed by an `AbortController` plus `setTimeout`.
-//! - **Native**: the blocking `ureq` client, driven to completion inside the future's
-//!   body, on `perform_async`'s own thread — blocking that thread is harmless. TLS
-//!   included.
+//! - **Native**: the blocking `ureq` client, moved onto the blocking pool
+//!   (`blocking::unblock`) and awaited from there, so the request occupies a thread
+//!   sized for waiting rather than one of the executor's few workers. TLS included.
+//!   Before milestone 303 every effect had a thread to itself and blocking it was
+//!   harmless; that is no longer true, and this is where it stopped being true.
 //!
 //! **JSON** (the `json` feature): [`Request::json_body`] posts a `Serialize` value and
 //! [`Request::send_json`] deserialises the response into a `T: DeserializeOwned` —
@@ -207,24 +209,35 @@ impl Request {
         if let Some(err) = self.error {
             return Err(err);
         }
-        let mut req = ureq::request(self.method.as_str(), &self.url);
-        for (name, value) in &self.headers {
-            req = req.set(name, value);
-        }
-        if let Some(dur) = self.timeout {
-            req = req.timeout(dur);
-        }
-        let result = match &self.body {
-            Some(b) => req.send_string(b),
-            None => req.call(),
-        };
-        match result {
-            Ok(resp) => resp
-                .into_string()
-                .map_err(|e| FetchError::Decode(e.to_string())),
-            Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
-            Err(e) => Err(FetchError::Network(e.to_string())),
-        }
+        // `ureq` is a **blocking** client, and this is an `async fn`: run it on the
+        // blocking pool and await that, rather than calling it here.
+        //
+        // Calling it here would compile and work, and would quietly hold one of the
+        // executor's four workers for the whole round trip — so five slow requests
+        // would stop every other effect in the application, timers included. The
+        // shape of the bug is the reason this crate exists: a call that blocks needs a
+        // thread, and the point of milestone 303 is that *waiting* no longer does.
+        blocking::unblock(move || {
+            let mut req = ureq::request(self.method.as_str(), &self.url);
+            for (name, value) in &self.headers {
+                req = req.set(name, value);
+            }
+            if let Some(dur) = self.timeout {
+                req = req.timeout(dur);
+            }
+            let result = match &self.body {
+                Some(b) => req.send_string(b),
+                None => req.call(),
+            };
+            match result {
+                Ok(resp) => resp
+                    .into_string()
+                    .map_err(|e| FetchError::Decode(e.to_string())),
+                Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
+                Err(e) => Err(FetchError::Network(e.to_string())),
+            }
+        })
+        .await
     }
 
     /// Runs the request and returns the response's body as text.

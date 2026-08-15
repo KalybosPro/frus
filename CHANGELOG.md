@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 302 so far, each documenting the objective, the alternatives
+> record — one per step, 304 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -64,6 +64,20 @@ any release may break.
 
 ### Changed
 
+- **Asynchronous effects are actually asynchronous** (J303). `Command::perform_async`
+  existed, and natively it was `std::thread::spawn` plus `pollster::block_on` — a
+  thread per effect, and **no reactor**, so a future that waited on a timer or a socket
+  parked its thread and nothing ever woke it. Only futures that were already ready or
+  that blocked internally worked; asynchrony was in the type system and absent
+  underneath it. There is now one executor on four worker threads, each running it
+  inside `async_io::block_on`, which is the line that installs the reactor. Every
+  asynchronous effect and every subscription is a task on it instead of a thread.
+  Deliberately not tokio — `async-executor` + `async-io` is a scheduler and a reactor,
+  small, pure Rust, and they run on Android; a future needing *tokio's* reactor still
+  wants the application's own runtime, and letting frus be handed one is the next step.
+  One consequence worth knowing: a **blocking** call inside `perform_async` now starves
+  a small pool rather than wasting a thread of its own, so the `net` client moved to
+  `blocking::unblock`. The rule is in `Command`'s own docs.
 - **Text is measured once, not once a frame** (J300). J299's baseline said three
   quarters of the cost of building a frame was `frus_text::measure`, re-shaping through
   cosmic-text on every call for strings that had not changed. There is a cache now,
@@ -113,6 +127,22 @@ any release may break.
 
 ### Added
 
+- **`Command::after(delay, message)`** (J303). A message on a real one-shot timer — a
+  task on the reactor natively, a `setTimeout` on the Web. A hundred pending timers are
+  a hundred queue entries rather than a hundred threads. It could not have existed
+  before J303, because before J303 nothing in the framework could wait.
+- **Pictures in the README, and a tool that makes them** (J304). A GIF of the demo
+  moving between four screens, stills of the charts, the board, the data table and the
+  light theme, and one real photograph of a phone. Everything but the phone is
+  *rendered*, through the same pipeline a window uses:
+  `cargo run -p frus-demo --features shots --bin shots -- docs/media`. Regenerating a
+  picture after a change is now a command rather than an afternoon, which is the only
+  way a README's screenshots stay true. New: `Snapshot::write_png`.
+- **Fourteen issues, written to be startable** (J304). `.github/issues/` and
+  `scripts/seed-issues.sh` — each one says why it matters, where in the code to look,
+  how to know it is done, and where the obvious wrong turn is. They live in the
+  repository so they can be reviewed like anything else, and so a fork does not start
+  with an empty tracker.
 - **An application weighs 4.9 MB, not 286** (J292). The demo installed at 286 MB because
   `cargo apk run` builds in **debug** and nothing stripped the `.so` on the way in. There
   is now a `[profile.release]` — fat LTO, one codegen unit, `panic = "abort"`, `strip` — in

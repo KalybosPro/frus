@@ -104,7 +104,7 @@ pub(crate) struct TodoApp {
     pub(crate) radio: usize,
     pub(crate) menu_open: bool,
     pub(crate) menu_choice: usize,
-    // --- Chrono (souscription timer) ---
+    // --- Stopwatch (the timer subscription) ---
     /// Is the stopwatch running? (it drives the `every` subscription).
     pub(crate) running: bool,
     /// Is the app in the **background**? (the lifecycle, milestone 259) — set to `true` on

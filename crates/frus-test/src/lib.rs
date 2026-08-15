@@ -225,6 +225,15 @@ impl Snapshot {
             .count()
     }
 
+    /// Writes the frame to `path` as a PNG, creating the folder if it is missing.
+    ///
+    /// The goldens use this internally; it is public because a rendered frame is
+    /// useful outside a test too — the pictures in the README are made this way, so
+    /// that they can be regenerated rather than re-photographed.
+    pub fn write_png(&self, path: impl AsRef<Path>) {
+        write_png(path.as_ref(), self);
+    }
+
     /// Compares against the golden at `path`, a PNG whose path is typically built
     /// with `concat!(env!("CARGO_MANIFEST_DIR"), "/tests/goldens/…")`.
     ///
