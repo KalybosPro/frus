@@ -8,12 +8,37 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 305 so far, each documenting the objective, the alternatives
+> record — one per step, 306 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+### Added
+
+- **The ink ripple** (J306). A tap on a material surface now leaves a circle of ink that
+  grows from under the finger, drifts towards the middle of the surface and fades —
+  there was none at all before. The motion is the reference's, transcribed: fade-in
+  75 ms, a radius that swells over a whole second while the finger is down and finishes
+  in 225 ms once it lifts, a 375 ms fade-out that does nothing for its first 225, a
+  starting radius of 30 % of the target and a final one 5 px past it, half the box's
+  diagonal for the target, and `ease` on both the radius and the drift. New `InkWell`
+  (a transparent box that splashes and clicks), `InkStyle`, `Widget::ink`, and
+  `Runtime::ink`. `Button` takes ink; the colour and the rounding are the caller's, with
+  the theme as the default. Ripples are painted over a surface's own paint and under its
+  children, wired into the repaint-boundary cache so a splash inside a cached subtree
+  animates instead of freezing.
+
 ### Fixed
+
+- **An application bar's title follows the platform** (J306). `AppBar` started its title
+  flush after the leading on every platform unless asked to centre it, and its own
+  documentation argued that the choice was not one a bar could make. The reference makes
+  it: `centerTitle ?? theme ?? platformCenter()`, where the platform centres on Apple's
+  systems and only while there are fewer than two actions. `AppBar::center_title` now
+  overrides a default that follows the target, resolved at compile time like
+  `ScrollPhysics::platform_default`. **Breaking** on iOS/macOS builds, where a bar with
+  at most one action now centres its title unless told otherwise. New
+  `platform_centers_title`.
 
 - **A `Scaffold` no longer moves the navigation when the window changes size** (J305).
   Reported from a device: turning the phone to landscape moved the navigation from the

@@ -77,7 +77,7 @@ cargo run -p frus-fetch-example   # async HTTP + RemoteData states
 Android:
 
 ```sh
-cargo apk run -p frus-demo
+cargo apk run -p frus-demo --lib
 ```
 
 Web: see [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).

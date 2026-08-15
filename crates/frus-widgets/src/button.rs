@@ -160,6 +160,22 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         }
     }
 
+    fn ink(&self, theme: &Theme) -> Option<crate::InkStyle> {
+        // A disabled control does not answer a tap, so it does not splash either.
+        if !self.enabled {
+            return None;
+        }
+        // The splash takes the button's **own** `on` colour: white-ish ink on a filled
+        // primary button, dark ink on a pale secondary one. The theme's default
+        // (`on_surface`) would vanish on the first and shout on the third.
+        let (_, on_color, _) = self.palette(theme);
+        Some(
+            crate::InkStyle::of(theme)
+                .color(on_color.fade(0.16))
+                .radius(self.radius.unwrap_or_else(|| theme.radius.into())),
+        )
+    }
+
     fn focusable(&self) -> bool {
         self.enabled
     }

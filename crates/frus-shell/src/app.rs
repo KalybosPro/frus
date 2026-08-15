@@ -1696,6 +1696,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         moving
                     }
                     | self.runtime.advance_interactive(&interactive_bounds, dt)
+                    | self.runtime.advance_ink(dt)
                     | reorder_animating
                     | app_animating;
                 // With the inspector on, the same build collects the observed nodes,
@@ -2083,6 +2084,19 @@ impl<A: Application> App<A> {
         }
 
         self.runtime.input.pressed = self.ui.as_ref().and_then(|ui| ui.hit(self.cursor));
+        // The ink: a surface that takes it splashes from where the finger landed. The
+        // box comes from the frame that was on screen when the finger came down, which
+        // is the one the user aimed at.
+        if let Some(pressed) = self.runtime.input.pressed {
+            if let Some(rect) = self.ui.as_ref().and_then(|ui| ui.ink_box(pressed)) {
+                self.runtime.ink_press(
+                    pressed,
+                    Point::new(self.cursor.x - rect.x, self.cursor.y - rect.y),
+                    Size::new(rect.width, rect.height),
+                );
+                self.request_redraw();
+            }
+        }
         // 2) Focus and caret placement, and the start of a text selection.
         let previously_focused = self.runtime.input.focused;
         let focus = self.ui.as_ref().and_then(|ui| ui.focus_hit(self.cursor));
@@ -2467,6 +2481,14 @@ impl<A: Application> App<A> {
             }
             _ => (None, None),
         };
+        // The tap completed on the widget it started on: its ink finishes growing and
+        // fades. Anything else leaves the splash unconfirmed, and `advance_ink` sweeps
+        // it away quickly — the finger slid off, and the ink says so.
+        if let (Some(pressed), Some(released)) = (self.runtime.input.pressed, released) {
+            if pressed == released {
+                self.runtime.ink_confirm(pressed);
+            }
+        }
         self.runtime.input.pressed = None;
         if let Some(message) = message {
             self.dispatch(message);

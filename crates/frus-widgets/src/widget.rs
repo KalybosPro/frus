@@ -500,6 +500,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If the widget takes **ink** — the splash a tap leaves on a material surface —
+    /// the shape and colour to splash in. `None` = no ink, which is the default: a
+    /// widget has to ask.
+    ///
+    /// The walk paints the ripples the runtime holds for this widget directly over
+    /// this widget's own `paint` and **under its children**, which is where a material
+    /// surface puts them. A widget that draws its own content (a [`crate::Button`]
+    /// paints its label itself) therefore gets the ink *over* that content — at the
+    /// splash's alpha, a tint rather than a veil. See [`crate::InkWell`].
+    fn ink(&self, _theme: &Theme) -> Option<crate::ink::InkStyle> {
+        None
+    }
+
     /// If the widget clips its child to an **arbitrary path** (`ClipPath`), returns the
     /// path in **local coordinates** (origin at the box's top-left corner). The walk
     /// offsets it to the screen and wraps it in a layer whose mask (the path) erases
@@ -824,6 +837,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn clip_path(&self) -> Option<&frus_core::Path> {
         (**self).clip_path()
+    }
+    fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
+        (**self).ink(theme)
     }
     fn barrier(&self) -> Option<crate::barrier::Barrier> {
         (**self).barrier()

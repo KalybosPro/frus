@@ -147,7 +147,7 @@ Le template demande le chemin de votre checkout frus — frus n'est pas encore s
 
 ```sh
 cargo install cargo-apk        # une fois
-cargo apk run -p frus-demo     # build, installe, lance
+cargo apk run -p frus-demo --lib   # build, installe, lance
 ```
 
 Nécessite le SDK + NDK Android avec `ANDROID_HOME` / `ANDROID_NDK_ROOT` définis et un appareil visible par `adb devices`.

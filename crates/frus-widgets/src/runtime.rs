@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use frus_core::{BorderRadius, Color, Curve, Insets, Primitive, Rect, Simulation, Size};
+use frus_core::{BorderRadius, Color, Curve, Insets, Point, Primitive, Rect, Simulation, Size};
 
 use crate::interaction::{InputState, WidgetId};
 use crate::overscroll::{edge_for, GlowEdge, ScrollGlows};
@@ -325,6 +325,11 @@ pub struct Runtime {
     /// The overscroll glows of each region — the edge feedback a platform that
     /// clamps needs, since it has no bounce to speak with. Absent = all quiet.
     pub scroll_glow: HashMap<WidgetId, ScrollGlows>,
+    /// The **ink** splashed on each surface that takes it, keyed by the surface. A
+    /// ripple outlives the frame that started it — a tap is 450 ms of motion — so it
+    /// is retained here rather than in the widget, which is rebuilt every frame.
+    /// Absent = dry.
+    pub ink: HashMap<WidgetId, crate::ink::Ripples>,
     /// The retained pull of each [`crate::Refresh`] area, keyed by the area. Absent =
     /// nothing pulled and nothing spinning.
     pub refresh: HashMap<WidgetId, crate::refresh::RefreshPull>,
@@ -1239,6 +1244,44 @@ impl Runtime {
         self.scroll_glow.retain(|_, glows| {
             animating |= glows.advance(dt);
             !glows.is_idle()
+        });
+        animating
+    }
+
+    /// A finger landed on the inked surface `id`, at `origin` in the surface's own
+    /// coordinates, on a box of `size`. Starts a splash.
+    pub fn ink_press(&mut self, id: WidgetId, origin: Point, size: Size) {
+        self.ink.entry(id).or_default().press(origin, size);
+    }
+
+    /// The tap on `id` completed: its splash finishes growing and begins to fade.
+    pub fn ink_confirm(&mut self, id: WidgetId) {
+        if let Some(ripples) = self.ink.get_mut(&id) {
+            ripples.confirm();
+        }
+    }
+
+    /// Advances every splash by `dt`, dropping those that have gone. Returns `true`
+    /// while any is still moving.
+    ///
+    /// A splash still waiting for a finger that is no longer down is cancelled here
+    /// rather than left hanging. A release that lands on the widget confirms it first
+    /// (the shell calls [`Runtime::ink_confirm`] before the next frame); anything else
+    /// — the finger slid off, the widget was unmounted mid-press, a gesture was taken
+    /// over by a scroll — leaves nothing to confirm it, and without this sweep the ink
+    /// would sit there for the life of the application.
+    pub fn advance_ink(&mut self, dt: f32) -> bool {
+        if self.ink.is_empty() {
+            return false;
+        }
+        let pressed = self.input.pressed;
+        let mut animating = false;
+        self.ink.retain(|id, ripples| {
+            if Some(*id) != pressed {
+                ripples.cancel();
+            }
+            animating |= ripples.advance(dt);
+            !ripples.is_idle()
         });
         animating
     }

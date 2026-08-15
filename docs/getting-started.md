@@ -76,9 +76,15 @@ symbol it ever generated. On Android that is a ~300 MB `.so`. It is not what you
 install on anyone's phone:
 
 ```sh
-cargo apk build --release      # the APK to install or upload
-cargo build --release          # the desktop binary
+cargo apk build --lib --release   # the APK to install or upload
+cargo build --release             # the desktop binary
 ```
+
+`--lib` is not decoration. A frus crate carries **both** a library (the `cdylib`
+Android loads, holding your `android_main`) and a binary (the desktop entry point).
+Asked for both, the packager panics with `Bin is not compatible with Cdylib` — *after*
+it has already written and signed the APK, so the file is sitting there looking
+finished while the command exits non-zero.
 
 | what you built                       | `.so`   | in the APK |
 | ------------------------------------ | ------- | ---------- |

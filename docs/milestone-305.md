@@ -100,9 +100,13 @@ change if the demo should stop.
 - The README's pictures are re-rendered: the 900 px stills used to show a rail on the
   left and now show the bottom bar.
 
-**Owed: the check on the device.** The phone came off the wire between the build and
-the run. The test above is the reporter's exact geometry through the application's own
-`view`, which is the next best thing, but it is not the phone.
+**Done, on the device** (settled in milestone 306). The release APK, on the phone that
+reported it, rotated to landscape by hand: the three destinations are painted along the
+bottom edge, where they were in portrait. The rail is gone.
+
+The check was owed for a while — the phone came off the wire between the build and the
+run — and the test above, the reporter's exact geometry through the application's own
+`view`, stood in for it. It was a good stand-in. It was not the phone.
 
 ## Left
 

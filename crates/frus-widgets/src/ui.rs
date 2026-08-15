@@ -134,6 +134,7 @@ struct BoundaryData<Msg> {
     draggables: Vec<(WidgetId, Rect)>,
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
+    inks: Vec<(WidgetId, Rect)>,
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
 
@@ -149,6 +150,7 @@ struct Snapshot {
     draggables: usize,
     drag_sources: usize,
     drop_zones: usize,
+    inks: usize,
     semantics: usize,
     overlays: usize,
     focus_scope_start: Option<usize>,
@@ -172,6 +174,7 @@ struct BarrierBase {
     draggables: usize,
     drag_sources: usize,
     drop_zones: usize,
+    inks: usize,
     reorderables: usize,
     interactives: usize,
     semantics: usize,
@@ -185,6 +188,7 @@ struct XformBase {
     draggables: usize,
     drag_sources: usize,
     drop_zones: usize,
+    inks: usize,
     reorderables: usize,
     semantics: usize,
 }
@@ -262,6 +266,11 @@ pub struct Ui<Msg> {
     draggables: Vec<(WidgetId, Rect)>,
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
+    /// **Inked surfaces**: (id, the box the ink is clipped to). Tracked separately from
+    /// clicking because the splash needs the surface's **whole** box — where the finger
+    /// landed inside it, and how far the circle has to travel to cover it — which a
+    /// click target, recorded as its *visible* part, does not give.
+    inks: Vec<(WidgetId, Rect)>,
     /// **Reorderables** (column headers, Kanban cards): (id, visible bounds). Tracked
     /// independently of clicking — a card is not clickable but can still be picked up and
     /// dropped onto.
@@ -463,6 +472,19 @@ impl<Msg: Clone> Ui<Msg> {
                     .find(|(rid, _)| *rid == id)
                     .map(|(_, rect)| *rect)
             })
+    }
+
+    /// The box of the inked surface `id`, when the frame has one — what the shell needs
+    /// to start a splash: where inside it the finger landed, and how big it is.
+    ///
+    /// The **topmost** match wins, as the hit-test does: two inked surfaces can overlap,
+    /// and the one that took the tap is the one drawn last.
+    pub fn ink_box(&self, id: WidgetId) -> Option<Rect> {
+        self.inks
+            .iter()
+            .rev()
+            .find(|(iid, _)| *iid == id)
+            .map(|(_, rect)| *rect)
     }
 
     /// The identities of **every** focusable widget of the frame (the scope included) — so
@@ -759,6 +781,7 @@ struct Builder<'a, Msg> {
     draggables: Vec<(WidgetId, Rect)>,
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
+    inks: Vec<(WidgetId, Rect)>,
     reorderables: Vec<(WidgetId, Rect)>,
     interactives: Vec<(WidgetId, Rect)>,
     /// Deferred overlays: (content, id, the anchor's bounds, placement, dismissal, progress
@@ -863,6 +886,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// `walk_node` paints them.
     fn hash_statuses<H: Hasher>(&self, widget: &dyn Widget<Msg>, id: WidgetId, h: &mut H) {
         hash_status(&self.full_status(id), h);
+        // Live ink is part of what the boundary paints, and it moves every frame while a
+        // splash is alive. Without it here the cached primitives would be replayed and
+        // the ripple would stand still — and once the ink dries the hash goes back to
+        // what it was, so the boundary starts hitting again.
+        if let Some(ripples) = self.runtime.ink.get(&id) {
+            ripples.hash_state(h);
+        }
         for (i, child) in widget.children().iter().enumerate() {
             self.hash_statuses(child.as_ref(), child_id(id, i, child.as_ref()), h);
         }
@@ -881,6 +911,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             draggables: self.draggables.len(),
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
+            inks: self.inks.len(),
             semantics: self.semantics.len(),
             overlays: self.overlays.len(),
             focus_scope_start: self.focus_scope_start,
@@ -905,6 +936,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             draggables: self.draggables[snap.draggables..].to_vec(),
             drag_sources: self.drag_sources[snap.drag_sources..].to_vec(),
             drop_zones: self.drop_zones[snap.drop_zones..].to_vec(),
+            inks: self.inks[snap.inks..].to_vec(),
             semantics: self.semantics[snap.semantics..].to_vec(),
         })
     }
@@ -923,6 +955,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.draggables.extend(data.draggables);
         self.drag_sources.extend(data.drag_sources);
         self.drop_zones.extend(data.drop_zones);
+        self.inks.extend(data.inks);
         self.semantics.extend(data.semantics);
     }
 
@@ -939,6 +972,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             draggables: self.draggables.len(),
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
+            inks: self.inks.len(),
             reorderables: self.reorderables.len(),
             interactives: self.interactives.len(),
             semantics: self.semantics.len(),
@@ -1043,6 +1077,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.draggables.truncate(base.draggables);
             self.drag_sources.truncate(base.drag_sources);
             self.drop_zones.truncate(base.drop_zones);
+            self.inks.truncate(base.inks);
             self.reorderables.truncate(base.reorderables);
             self.interactives.truncate(base.interactives);
             // The modal focus scope is an index **into** `focusables`. A barrier that cut
@@ -1081,6 +1116,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             draggables: self.draggables.len(),
             drag_sources: self.drag_sources.len(),
             drop_zones: self.drop_zones.len(),
+            inks: self.inks.len(),
             reorderables: self.reorderables.len(),
             semantics: self.semantics.len(),
         }
@@ -1115,6 +1151,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             }
             for zone in &mut self.drop_zones[base.drop_zones..] {
                 zone.rect = matrix.apply_rect(zone.rect);
+            }
+            for (_, r) in &mut self.inks[base.inks..] {
+                *r = matrix.apply_rect(*r);
             }
             for (_, r) in &mut self.draggables[base.draggables..] {
                 *r = matrix.apply_rect(*r);
@@ -1390,6 +1429,22 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         widget.paint(draw_rect, status, self.theme, &mut self.scene);
         // A widget may have tightened the clip (TextInput, for one): it is restored here.
         self.scene.set_clip(clip);
+        // The ink a tap left on this surface: over the surface's own paint, under its
+        // children — where a material surface puts it. The box is recorded too, so the
+        // shell can start the next splash at the right place, in the right size.
+        if let Some(style) = widget.ink(self.theme) {
+            self.inks.push((id, draw_rect));
+            if let Some(ripples) = self.runtime.ink.get(&id) {
+                ripples.paint(
+                    id.as_u64(),
+                    draw_rect,
+                    style.radius,
+                    style.color,
+                    &mut self.scene,
+                );
+                self.scene.set_clip(clip);
+            }
+        }
         self.draw_focus_ring(draw_rect, &status, widget);
 
         // A shared element is recorded **whether or not it is on screen**: half way
@@ -2504,6 +2559,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         draggables: Vec::new(),
         drag_sources: Vec::new(),
         drop_zones: Vec::new(),
+        inks: Vec::new(),
         reorderables: Vec::new(),
         interactives: Vec::new(),
         overlays: Vec::new(),
@@ -2562,6 +2618,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         draggables: builder.draggables,
         drag_sources: builder.drag_sources,
         drop_zones: builder.drop_zones,
+        inks: builder.inks,
         reorderables: builder.reorderables,
         interactives: builder.interactives,
         refreshes: builder.refreshes,
@@ -3400,6 +3457,90 @@ mod tests {
             .focus_hit(Point::new(10.0, 10.0))
             .expect("the email field under the cursor");
         assert_eq!(email, hit_id, "find_by_key == the field's focus identity");
+    }
+
+    #[test]
+    fn ink_is_painted_over_the_surface_and_under_its_child() {
+        use crate::ink::InkWell;
+        let tree = Container::<Msg>::new().width(120.0).height(60.0).child(
+            InkWell::<Msg>::new().radius(8.0).on_click(Msg::A).child(
+                Container::<Msg>::new()
+                    .width(120.0)
+                    .height(60.0)
+                    .color(frus_core::Color::WHITE),
+            ),
+        );
+        let size = Size::new(120.0, 60.0);
+
+        // Dry: the well paints nothing of its own.
+        let rt = Runtime::default();
+        let dry = build_ui(&tree, size, &rt, &Theme::default());
+        let plain = dry.scene.len();
+        let id = dry.inks.first().expect("the well registered its box").0;
+        assert_eq!(
+            dry.ink_box(id).map(|r| (r.width, r.height)),
+            Some((120.0, 60.0)),
+            "the registry carries the **whole** box, which is what sizes the splash"
+        );
+
+        // A finger lands in the top-left corner, and is still down.
+        let mut rt = Runtime::default();
+        rt.input.pressed = Some(id);
+        rt.ink_press(id, Point::new(10.0, 10.0), Size::new(120.0, 60.0));
+        rt.advance_ink(1.0 / 60.0);
+        let ui = build_ui(&tree, size, &rt, &Theme::default());
+        assert_eq!(ui.scene.len(), plain + 1, "the splash adds one layer");
+
+        // It is a shape-clipped layer, so the ink cannot escape the rounded corners…
+        let (index, clip_shape) = ui
+            .scene
+            .primitives()
+            .iter()
+            .enumerate()
+            .find_map(|(i, p)| match p {
+                frus_core::Primitive::Layer { clip_shape, .. } => Some((i, clip_shape.clone())),
+                _ => None,
+            })
+            .expect("the ink is a composited layer");
+        assert_eq!(clip_shape, frus_core::ClipShape::RRect(8.0.into()));
+
+        // …and it is painted **before** the child that sits on top of it: the ink is
+        // under the content, the way a material surface holds it.
+        let child_index = ui
+            .scene
+            .primitives()
+            .iter()
+            .rposition(|p| matches!(p, frus_core::Primitive::Rect { .. }))
+            .expect("the child painted a rectangle");
+        assert!(
+            index < child_index,
+            "ink at {index} must come before the content at {child_index}"
+        );
+    }
+
+    #[test]
+    fn a_splash_left_unconfirmed_does_not_wait_for_ever() {
+        // The finger came down and never came back up on this widget — it slid off, or
+        // the widget went away mid-press. Nothing will ever confirm the splash, and
+        // without the sweep in `advance_ink` the ink would sit there for good.
+        let mut rt = Runtime::default();
+        let id = WidgetId::from_u64(42);
+        rt.input.pressed = Some(id);
+        rt.ink_press(id, Point::new(5.0, 5.0), Size::new(100.0, 40.0));
+        // Held for a fifth of a second: the ink is up, and it stays up.
+        for _ in 0..12 {
+            rt.advance_ink(1.0 / 60.0);
+        }
+        assert!(rt.ink.contains_key(&id), "the splash waits for the finger");
+
+        // The finger is gone and nothing confirmed the tap.
+        rt.input.pressed = None;
+        let mut frames = 0;
+        while rt.advance_ink(1.0 / 60.0) && frames < 200 {
+            frames += 1;
+        }
+        assert!(rt.ink.is_empty(), "the ink is gone after {frames} frames");
+        assert!(frames <= 6, "and quickly: a cancel is 75 ms, took {frames}");
     }
 
     #[test]

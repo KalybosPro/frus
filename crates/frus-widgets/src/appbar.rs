@@ -14,7 +14,7 @@
 //! ```ignore
 //! AppBar::new("My Tasks")
 //!     .width(available_width)                 // a size, not a platform
-//!     .title_style(TextStyle::new(22.0))      // ou .title_widget(logo_row)
+//!     .title_style(TextStyle::new(22.0))      // or .title_widget(logo_row)
 //!     .leading(button("☰", Msg::ToggleMenu))
 //!     .overflow(app.menu_open, Msg::ToggleMenu)
 //!     .action("Pause", Msg::ToggleTimer)
@@ -33,6 +33,30 @@ use crate::flex::Flex;
 use crate::menu::Menu;
 use crate::text::Text;
 use crate::widget::Widget;
+
+/// Does this platform centre an application bar's title by default?
+///
+/// Where the system centres its own — Apple's platforms — so does a bar that has not
+/// been told otherwise, and **only while there is room to read it that way**: past one
+/// action the title goes back to being flush after the leading, because a centred title
+/// squeezed between a leading and three buttons is neither centred nor readable. Every
+/// other platform starts the title after the leading and leaves it there.
+///
+/// Resolved at **compile time** from the target, like
+/// [`ScrollPhysics::platform_default`](crate::ScrollPhysics::platform_default): a build
+/// is for one platform. [`AppBar::center_title`] overrides it either way.
+pub const fn platform_centers_title(actions: usize) -> bool {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    {
+        actions < 2
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    {
+        // Referenced so the parameter is not dead on the platforms that ignore it.
+        let _ = actions;
+        false
+    }
+}
 
 /// The title's font size (the default, overridden by [`AppBar::title_style`]).
 const TITLE_SIZE: f32 = 20.0;
@@ -88,7 +112,8 @@ pub struct AppBar<Msg> {
     gap: f32,
     background: Option<Color>,
     height: Option<f32>,
-    center_title: bool,
+    /// `None` = the platform's convention (see [`platform_centers_title`]).
+    center_title: Option<bool>,
     bottom: Option<Box<dyn Widget<Msg>>>,
     leading_width: Option<f32>,
     title_spacing: f32,
@@ -110,7 +135,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             gap: GAP,
             background: None,
             height: None,
-            center_title: false,
+            center_title: None,
             bottom: None,
             leading_width: None,
             title_spacing: GAP * 2.0,
@@ -197,12 +222,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// Centres the title in the space left between the leading and the actions,
     /// rather than starting it flush after the leading.
     ///
-    /// Which of the two reads better is a platform convention and a house style, not
-    /// something a bar can work out for itself, so it is asked for rather than
-    /// guessed. Centred, the title still yields to the actions first: it is centred in
-    /// what is left, not in the window.
+    /// **Overrides the platform's convention**, which is what a bar that has not been
+    /// told anything follows: centred where the system centres its own titles, flush
+    /// after the leading everywhere else. See [`platform_centers_title`].
+    ///
+    /// Centred, the title still yields to the actions first: it is centred in what is
+    /// left, not in the window.
     pub fn center_title(mut self, centered: bool) -> Self {
-        self.center_title = centered;
+        self.center_title = Some(centered);
         self
     }
 
@@ -305,6 +332,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             foreground,
             elevation,
         } = self;
+
+        // What the caller asked for, or the platform's convention when it was not asked.
+        let center_title = center_title.unwrap_or_else(|| platform_centers_title(actions.len()));
 
         if let Some(color) = foreground {
             title_style.color = Some(color);
@@ -695,6 +725,28 @@ mod tests {
     }
 
     #[test]
+    fn the_title_follows_the_platform_until_it_is_told_otherwise() {
+        // The reference centres a bar's title where the system does, and only while
+        // there is at most one action; everywhere else it is flush after the leading.
+        // Whichever this build is, the caller's word wins over it.
+        let bare = platform_centers_title(0);
+        let crowded = platform_centers_title(2);
+        assert!(
+            !crowded || bare,
+            "a platform that centres a crowded bar must centre a bare one"
+        );
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            assert!(bare, "Apple's platforms centre a bare title");
+            assert!(!crowded, "and stop once the actions crowd it");
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            assert!(!bare && !crowded, "everywhere else the title stays flush");
+        }
+    }
+
+    #[test]
     fn a_centred_title_sits_between_the_two_ends() {
         const W: f32 = 800.0;
         let centred = AppBar::new("Task")
@@ -702,8 +754,11 @@ mod tests {
             .center_title(true)
             .leading(button("M", Msg::Menu).size(16.0))
             .build();
+        // Explicitly flush: the default now follows the platform, and this test is
+        // about the two arrangements, not about which one this build prefers.
         let flush = AppBar::new("Task")
             .width(W)
+            .center_title(false)
             .leading(button("M", Msg::Menu).size(16.0))
             .build();
         let x_of = |bar: &dyn Widget<Msg>| {

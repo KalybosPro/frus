@@ -37,7 +37,7 @@ log.workspace = true
 frus-test = { path = "../frus-test", optional = true }
 gif = { version = "0.13", optional = true }
 
-# --- Empaquetage Android (cargo-apk) ---
+# --- Android packaging (cargo-apk) ---
 [package.metadata.android]
 package = "com.frus.demo"
 build_targets = ["aarch64-linux-android"]
