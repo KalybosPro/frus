@@ -8,12 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 314 so far, each documenting the objective, the alternatives
+> record — one per step, 315 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`IconButton`** (J315). The widget milestones 313 and 314 kept working around: seven call
+  sites had a button holding **one glyph** in a box sized for a word. It is the reference's
+  — 40 × 40, circular, no fill, the glyph in `on_surface_variant` — with four variants
+  (standard, filled, tonal, outlined), a `selected` state, and seven settings per call or
+  through the new `IconButtonTheme`. It takes an icon from the bundled set **or a glyph**,
+  since the set has thirteen shapes and applications draw more. `label` is what a screen
+  reader announces, an icon having no text of its own. The date picker's month arrows, the
+  navigation bar's back arrow, the stepper's plus and minus and the demo's delete crosses use
+  it now.
 
 - **One control, not three buttons touching** (J314). `SegmentedControl` built itself out of
   `Button`s — a filled one for the chosen segment, outlined ones beside it, two pixels apart

@@ -58,9 +58,11 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
         label,
         spacer(),
-        button("×", Msg::DeleteTodo(id))
-            .variant(Variant::Danger)
-            .size(15.0),
+        IconButton::new(IconName::Close)
+            .label("Delete task")
+            .icon_color(theme.error)
+            .icon_size(18.0)
+            .on_press(Msg::DeleteTodo(id)),
     ]
     .align(Align::Center)
     .gap(12.0);
@@ -150,9 +152,10 @@ pub(crate) fn todo_screen(
     let header = AppBar::new(section_title)
         .width(width)
         .leading(
-            button("☰", Msg::ToggleDrawer)
-                .variant(Variant::Outlined)
-                .size(16.0),
+            IconButton::glyph("☰")
+                .label("Menu")
+                .icon_size(20.0)
+                .on_press(Msg::ToggleDrawer),
         )
         .overflow(app.actions_open, Msg::ToggleActions)
         .action(timer_label, Msg::ToggleTimer)

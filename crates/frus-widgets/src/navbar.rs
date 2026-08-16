@@ -5,7 +5,6 @@
 use frus_core::{FontWeight, Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
-use crate::button::{Button, Variant};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -55,11 +54,9 @@ impl<Msg: Clone + 'static> NavBar<Msg> {
     /// Adds a back button that emits `message`.
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
-            Button::new("←")
-                .variant(Variant::Outlined)
-                .size(16.0)
-                .min_width(crate::button::BUTTON_HEIGHT)
-                .padding(8.0)
+            crate::IconButton::glyph("←")
+                .label("Back")
+                .icon_size(20.0)
                 .on_press(message),
         )];
         self

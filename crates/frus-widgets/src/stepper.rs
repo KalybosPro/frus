@@ -3,7 +3,6 @@
 use frus_core::{Rect, Scene};
 use frus_layout::{Align, FlexDirection, Style};
 
-use crate::button::{Button, Variant};
 use crate::interaction::Status;
 use crate::text::Text;
 use crate::theme::Theme;
@@ -56,20 +55,18 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
         let inc = (self.value + self.step).clamp(self.min, self.max);
         self.children = vec![
             Box::new(
-                Button::new("−")
-                    .variant(Variant::Outlined)
-                    .size(16.0)
-                    .min_width(crate::button::BUTTON_HEIGHT)
-                    .padding(8.0)
+                crate::IconButton::glyph("−")
+                    .label("Less")
+                    .variant(crate::IconButtonVariant::Outlined)
+                    .icon_size(20.0)
                     .on_press((self.on_change)(dec)),
             ),
             Box::new(Text::new(self.value.to_string()).size(18.0)),
             Box::new(
-                Button::new("+")
-                    .variant(Variant::Outlined)
-                    .size(16.0)
-                    .min_width(crate::button::BUTTON_HEIGHT)
-                    .padding(8.0)
+                crate::IconButton::glyph("+")
+                    .label("More")
+                    .variant(crate::IconButtonVariant::Outlined)
+                    .icon_size(20.0)
                     .on_press((self.on_change)(inc)),
             ),
         ];

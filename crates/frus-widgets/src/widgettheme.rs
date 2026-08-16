@@ -38,6 +38,7 @@ pub struct WidgetThemes {
     pub chip: ChipTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
+    pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
     pub segmented: SegmentedTheme,
     pub tabs: TabsTheme,
@@ -188,6 +189,25 @@ pub struct TabsTheme {
     pub label_padding: Option<f32>,
     /// The tabs' height, the indicator excluded.
     pub tab_height: Option<f32>,
+}
+
+/// Defaults for [`IconButton`](crate::IconButton).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct IconButtonTheme {
+    /// The box's side.
+    pub size: Option<f32>,
+    /// The glyph's size inside it.
+    pub icon_size: Option<f32>,
+    /// The surface under the glyph.
+    pub color: Option<Color>,
+    /// The glyph's colour.
+    pub icon_color: Option<Color>,
+    /// The outline's colour.
+    pub border_color: Option<Color>,
+    /// Its thickness; `0.0` removes it.
+    pub border_width: Option<f32>,
+    /// The corner radii. Unset, an icon button is a circle.
+    pub radius: Option<BorderRadius>,
 }
 
 /// Defaults for the **ink ripple** — every surface that splashes, including
@@ -367,5 +387,6 @@ mod tests {
         assert_eq!(WidgetThemes::default().chip.height, None);
         assert_eq!(WidgetThemes::default().button.height, None);
         assert_eq!(WidgetThemes::default().segmented.height, None);
+        assert_eq!(WidgetThemes::default().icon_button.size, None);
     }
 }

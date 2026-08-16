@@ -52,6 +52,7 @@ mod fractional;
 mod grid;
 mod hero;
 mod icon;
+mod iconbutton;
 mod icons;
 mod image;
 mod ink;
@@ -169,6 +170,10 @@ pub use fractional::FractionallySizedBox;
 pub use grid::Grid;
 pub use hero::{lerp_rect, Hero, HeroSpot};
 pub use icon::Icon;
+pub use iconbutton::{
+    IconButton, IconButtonVariant, ICON_BUTTON_BORDER_WIDTH, ICON_BUTTON_ICON_SIZE,
+    ICON_BUTTON_SIZE,
+};
 pub use icons::IconName;
 pub use image::Image;
 pub use ink::{InkStyle, InkWell, Ripples};
