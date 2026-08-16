@@ -272,6 +272,16 @@ enum Drag {
         /// past the threshold decides by **direction**, and the loser never sees the
         /// gesture. Cleared once the scroll has won.
         dismiss: Option<frus_widgets::Dismissable>,
+        /// The axis this gesture was **claimed by**, decided once at the threshold and
+        /// held for the rest of the drag: `true` for vertical.
+        ///
+        /// A page that scrolls down must not drift sideways at the same time, and a
+        /// finger never travels in a straight line. The reference settles this in its
+        /// gesture arena — a vertical and a horizontal recogniser compete, the first
+        /// past its own slop wins, the loser is out of the gesture entirely — and this
+        /// is the same rule for an area that can go both ways. `None` until the
+        /// threshold is crossed.
+        axis: Option<bool>,
     },
     /// Swiping a [`frus_widgets::Dismissible`] item aside. `last` is the previous
     /// position, for the delta; the item is already past the threshold by the time this
@@ -1397,7 +1407,20 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     self.request_redraw();
                     return;
                 }
-                if let Some(area) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
+                // A wheel asks the same question a finger does, and the reference gates it
+                // the same way: an area with everything already in sight takes no offset,
+                // and the notch belongs to whatever is behind it.
+                let hit = {
+                    let scroll = &self.runtime.scroll;
+                    self.ui.as_ref().and_then(|ui| {
+                        ui.scroll_chain(self.cursor).find(|area| {
+                            area.accepts_user_offset(
+                                scroll.get(&area.id).copied().unwrap_or((0.0, 0.0)),
+                            )
+                        })
+                    })
+                };
+                if let Some(area) = hit {
                     // Scrolling with inertia: the wheel pushes the TARGET and the
                     // spring eases across to it. How far past the ends that target
                     // may go is the physics' call — a little elastic overshoot where
@@ -2171,7 +2194,21 @@ impl<A: Application> App<A> {
         // text selection — prepare a finger scroll on the area under the finger. A
         // release without movement, under TOUCH_SLOP, stays a tap.
         if touch && self.drag.is_none() {
-            if let Some(area) = self.ui.as_ref().and_then(|ui| ui.scroll_hit(self.cursor)) {
+            // The innermost area that would actually take a finger. An area whose content
+            // fits refuses the offset outright — the reference takes its drag recognisers
+            // away for exactly this — so it neither swallows the press nor lights an edge,
+            // and the page behind it, or a dismissible row under it, gets its turn.
+            let landed = {
+                let scroll = &self.runtime.scroll;
+                self.ui.as_ref().and_then(|ui| {
+                    ui.scroll_chain(self.cursor).find(|area| {
+                        area.accepts_user_offset(
+                            scroll.get(&area.id).copied().unwrap_or((0.0, 0.0)),
+                        )
+                    })
+                })
+            };
+            if let Some(area) = landed {
                 // A finger back on the content catches it: the fling stops where it
                 // is rather than sliding under the finger, and hands the next
                 // release whatever momentum the platform lets a swipe build on.
@@ -2188,6 +2225,7 @@ impl<A: Application> App<A> {
                         .ui
                         .as_ref()
                         .and_then(|ui| ui.dismissable_at(self.cursor)),
+                    axis: None,
                 });
                 self.begin_gesture();
             }
@@ -2420,13 +2458,27 @@ impl<A: Application> App<A> {
             id,
             moved: true,
             carried,
+            axis,
             ..
         }) = &ended
         {
-            // In **scroll space**: the content moves opposite the finger.
+            // In **scroll space**: the content moves opposite the finger — and along the
+            // axis the gesture was claimed by, or the release would fling the way the drag
+            // was not allowed to go.
             let estimate = self.gesture_estimate();
             let velocity = self.fling_velocity(estimate);
-            self.fling(*id, (-velocity.0 + carried.0, -velocity.1 + carried.1));
+            // The momentum carried in from an interrupted fling is masked with the rest:
+            // a gesture held to one axis must not launch along the other on the strength
+            // of what the *previous* one was doing.
+            let launch = (-velocity.0 + carried.0, -velocity.1 + carried.1);
+            self.fling(
+                *id,
+                match axis {
+                    Some(true) => (0.0, launch.1),
+                    Some(false) => (launch.0, 0.0),
+                    None => launch,
+                },
+            );
         }
         // A pan fling: the momentum launches the content, which `advance_interactive`
         // decelerates and bounds frame by frame.
@@ -2809,8 +2861,9 @@ impl<A: Application> App<A> {
                 id,
                 last,
                 moved,
-                carried: _,
+                carried,
                 dismiss,
+                axis,
             } => {
                 let dx = self.cursor.x - last.x;
                 let dy = self.cursor.y - last.y;
@@ -2841,7 +2894,44 @@ impl<A: Application> App<A> {
                             return;
                         }
                     }
+                    // And the same arbitration between the two **axes** — which settles,
+                    // with it, *which* of the scrollables under the finger the gesture
+                    // belongs to. The reference does both at once in its arena: every
+                    // scrollable in the stack enters a recogniser for its own axis, the
+                    // one the finger matches wins, and the losers are out of the gesture
+                    // entirely. Without the first half a page scrolling down drifts
+                    // sideways the whole way, since no finger travels in a straight line;
+                    // without the second, a strip of chips that only slides across stops
+                    // the page behind it from scrolling at all.
+                    let chain: Vec<_> = self
+                        .ui
+                        .as_ref()
+                        .map(|ui| ui.scroll_chain(*last).collect())
+                        .unwrap_or_default();
+                    let down = dy.abs() >= dx.abs();
+                    if let Some(area) = claim_area(&chain, *id, down) {
+                        if area.id != *id {
+                            // The area under the finger lost: it gives its offset back
+                            // untouched, since it never moved. The winner is caught and
+                            // held exactly as the press would have done to it.
+                            self.runtime.release_scroll(*id);
+                            let physics = area.physics_or(self.app.scroll_physics());
+                            *carried = self.runtime.catch_scroll_fling(area.id, physics);
+                            self.runtime.hold_scroll(area.id);
+                            *id = area.id;
+                        }
+                        *axis = Some(claim_axis(dx, dy, area.max_x > 0.0, area.max_y > 0.0));
+                    } else {
+                        *axis = Some(down);
+                    }
                 }
+                // Only the claimed axis moves. The other delta is not held back for later:
+                // it is not part of this gesture at all.
+                let (dx, dy) = match *axis {
+                    Some(true) => (0.0, dy),
+                    Some(false) => (dx, 0.0),
+                    None => (dx, dy),
+                };
                 if *moved {
                     let area = self.ui.as_ref().and_then(|u| u.scroll_region(*id));
                     let physics = area
@@ -3570,12 +3660,142 @@ fn drop_insertion_line(target: Rect, thickness: f32, after: bool) -> Rect {
     Rect::new(target.x, edge - thickness * 0.5, target.width, thickness)
 }
 
+/// Which axis a scroll gesture is **claimed by**, decided once when the finger passes the
+/// threshold: `true` for vertical.
+///
+/// An area that can only go one way claims that one, whatever the finger did — a diagonal
+/// flick down a list is a scroll down, not a refusal. An area that can go both ways takes
+/// the direction the finger actually went in, ties going to vertical, which is the way a
+/// page reads. The loser gets nothing for the rest of the gesture: this is the reference's
+/// arena, where a vertical and a horizontal recogniser compete and only one wins.
+fn claim_axis(dx: f32, dy: f32, can_x: bool, can_y: bool) -> bool {
+    match (can_x, can_y) {
+        (true, false) => false,
+        (false, true) => true,
+        _ => dy.abs() >= dx.abs(),
+    }
+}
+
+/// Which of the scrollables under the finger a gesture is **for**: the innermost one that
+/// can go the way the finger went (`down` = along the vertical), given `chain` innermost
+/// first and `under` the area the press landed on.
+///
+/// A strip that only slides across, sitting in a page that only scrolls down, is not what a
+/// drag downwards is about — the page behind it is, and the reference's arena gives it to
+/// the page for exactly that reason. Where nothing in the stack can go that way, the area
+/// under the finger keeps the gesture and goes its own way: a lone recogniser in an arena
+/// still wins.
+fn claim_area(
+    chain: &[frus_widgets::Scrollable],
+    under: WidgetId,
+    down: bool,
+) -> Option<frus_widgets::Scrollable> {
+    chain
+        .iter()
+        .find(|a| {
+            if down {
+                // A refresh area listening above takes a pull downwards even with nothing
+                // to scroll, which is the reference's one exception to the same rule.
+                a.max_y > 0.0 || a.refresh.is_some()
+            } else {
+                a.max_x > 0.0
+            }
+        })
+        .or_else(|| chain.iter().find(|a| a.id == under))
+        .copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        draw_ghost_card, drop_insertion_line, fling_velocity, resolve_focus, spring_toward, Rect,
-        Scene, Theme, VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
+        claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
+        resolve_focus, spring_toward, Rect, Scene, Theme, VelocityEstimate, PRECISE_SLOP,
+        TOUCH_SLOP,
     };
+
+    /// A page that scrolls down must not drift sideways while it does it (reported on a
+    /// device, 2026-08-16). No finger travels in a straight line, so an area that can go
+    /// both ways has to pick one and keep it.
+    #[test]
+    fn a_scroll_gesture_is_claimed_by_one_axis() {
+        // Both axes available: the direction the finger went in wins, and a little wobble
+        // across it changes nothing.
+        assert!(claim_axis(6.0, 40.0, true, true), "down the page");
+        assert!(!claim_axis(40.0, 6.0, true, true), "across it");
+        // A tie reads as vertical, which is the way a page reads.
+        assert!(claim_axis(10.0, 10.0, true, true));
+        // One axis only: it takes the gesture whatever the finger did, or a diagonal flick
+        // down a list would move nothing at all.
+        assert!(claim_axis(40.0, 6.0, false, true), "a list only goes down");
+        assert!(
+            !claim_axis(6.0, 40.0, true, false),
+            "a strip only goes across"
+        );
+    }
+
+    /// An area under the finger, `max_x` by `max_y` of content out of sight.
+    fn area(id: u64, max_x: f32, max_y: f32) -> frus_widgets::Scrollable {
+        frus_widgets::Scrollable {
+            id: WidgetId::from_u64(id),
+            viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
+            max_x,
+            max_y,
+            physics: None,
+            refresh: None,
+            page: None,
+        }
+    }
+
+    /// A strip that only slides sideways, sitting in a page that only scrolls down, must
+    /// not swallow a drag downwards: the page behind it is what that drag is about
+    /// (reported on a device, 2026-08-16).
+    #[test]
+    fn the_gesture_goes_to_the_area_that_can_take_it() {
+        let strip = area(1, 400.0, 0.0);
+        let page = area(2, 0.0, 900.0);
+        let chain = [strip, page]; // innermost first, as the finger meets them
+        assert_eq!(
+            claim_area(&chain, strip.id, true).map(|a| a.id),
+            Some(page.id),
+            "down the page, over the strip"
+        );
+        assert_eq!(
+            claim_area(&chain, strip.id, false).map(|a| a.id),
+            Some(strip.id),
+            "across the strip"
+        );
+        // Nothing behind it: the strip keeps the gesture and goes its own way, which is
+        // what a lone recogniser in an arena does.
+        assert_eq!(
+            claim_area(&[strip], strip.id, true).map(|a| a.id),
+            Some(strip.id)
+        );
+        // The innermost that can take it wins, not the outermost.
+        let inner = area(3, 0.0, 200.0);
+        assert_eq!(
+            claim_area(&[inner, strip, page], inner.id, true).map(|a| a.id),
+            Some(inner.id)
+        );
+    }
+
+    /// An end-of-content glow on a page with nothing to scroll says something about the
+    /// content that is not true (reported on a device, 2026-08-16). The reference takes the
+    /// drag recognisers away outright when everything fits.
+    #[test]
+    fn an_area_whose_content_fits_takes_no_finger() {
+        let fits = area(1, 0.0, 0.0);
+        assert!(!fits.accepts_user_offset((0.0, 0.0)));
+        // Unless it is already displaced — content that shrank under a scrolled offset has
+        // to be draggable back into place.
+        assert!(fits.accepts_user_offset((0.0, 12.0)));
+        // Or a refresh area is listening above it: a list of two items still pulls down.
+        let mut pullable = fits;
+        pullable.refresh = Some(WidgetId::from_u64(9));
+        assert!(pullable.accepts_user_offset((0.0, 0.0)));
+        // A single pixel out of sight is content to reveal, and enough.
+        assert!(area(1, 0.0, 1.0).accepts_user_offset((0.0, 0.0)));
+        assert!(area(1, 1.0, 0.0).accepts_user_offset((0.0, 0.0)));
+    }
     use frus_widgets::WidgetId;
     use std::collections::HashSet;
 

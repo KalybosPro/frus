@@ -26,10 +26,10 @@ pub(crate) use frus_widgets::{
     FontWeight, Grid, Hero, Icon, IconButton, IconName, Image, ImageData, ImageHandle, Insets,
     Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation, PageView,
     Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, Refresh,
-    RichText, Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass, SizedBox,
-    Skeleton, Slider, SnackbarQueue, SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs,
-    TextInput, TextSpan, Theme, Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant,
-    Widget, WindowInsets,
+    RichText, SafeArea, Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass,
+    SizedBox, Skeleton, Slider, SnackbarQueue, SpringDescription, Stack, Stepper, Steps, Switch,
+    Table, Tabs, TextInput, TextSpan, Theme, Timeline, Toast, ToastHost, ToastPosition, Tree,
+    TwoPane, Variant, Widget, WindowInsets,
 };
 
 // The application's own vocabulary: its state, its messages, and the small modules

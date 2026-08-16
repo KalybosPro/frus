@@ -17,6 +17,12 @@ use crate::widget::Widget;
 pub enum Axis {
     Vertical,
     Horizontal,
+    /// Both, which is a **convenience** rather than a third kind of area: a scrollable
+    /// elsewhere has one axis and one only, and two of them means one nested inside the
+    /// other. This is that pair collapsed into a single node, and a gesture reads it as
+    /// the pair: one drag moves one axis, decided by the direction the finger went in and
+    /// held to the end of the gesture. A page that scrolls down does not drift sideways
+    /// while it does it.
     Both,
 }
 

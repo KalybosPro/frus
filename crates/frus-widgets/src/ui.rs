@@ -76,6 +76,25 @@ impl Scrollable {
         self.physics.unwrap_or(default)
     }
 
+    /// Whether a finger may move this area at all, resting at `offset`.
+    ///
+    /// The rule the reference states plainly: the user can change the offset **if, and
+    /// only if, there is content outside the viewport to reveal** — or the content is
+    /// already displaced, having shrunk under an offset it no longer reaches. An area that
+    /// fails this takes no drag at all: not a short one, not a refused one, and so no
+    /// end-of-content glow either. An edge effect where there is no edge to meet is a
+    /// statement about the content that is not true.
+    ///
+    /// A [`crate::Refresh`] listening above is the exception, and the same one the
+    /// reference makes: a list of two items must still pull down to reload.
+    pub fn accepts_user_offset(&self, offset: (f32, f32)) -> bool {
+        self.max_x > 0.0
+            || self.max_y > 0.0
+            || offset.0 != 0.0
+            || offset.1 != 0.0
+            || self.refresh.is_some()
+    }
+
     /// The horizontal axis as the physics sees it, at `offset`.
     pub fn metrics_x(&self, offset: f32) -> ScrollMetrics {
         ScrollMetrics::new(offset, self.max_x, self.viewport.width)
@@ -452,6 +471,21 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .rev()
             .find(|area| area.viewport.contains(point))
+            .copied()
+    }
+
+    /// **Every** scrollable area containing `point`, innermost first — the whole stack a
+    /// finger has under it.
+    ///
+    /// [`Self::scroll_hit`] answers *which one is on top*, which is the right question for
+    /// a wheel or a scrollbar. A finger asks a different one: a strip that only slides
+    /// across, sitting in a page that only scrolls down, cannot take a drag downwards, and
+    /// the page behind it can. Deciding that needs the ones behind as well.
+    pub fn scroll_chain(&self, point: Point) -> impl Iterator<Item = Scrollable> + '_ {
+        self.scrollables
+            .iter()
+            .rev()
+            .filter(move |area| area.viewport.contains(point))
             .copied()
     }
 

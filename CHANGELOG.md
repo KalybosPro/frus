@@ -8,10 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 315 so far, each documenting the objective, the alternatives
+> record — one per step, 316 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **One gesture, one axis, one area** (J316). Three things reported from a phone, all the
+  same question. A finger scroll applied **both** deltas to the area under it every frame,
+  so a page scrolling down drifted sideways the whole way — no finger travels in a straight
+  line. A scrollable elsewhere has **one** axis and a gesture arena decides between them, so
+  the axis is claimed once at the threshold and held to the end of the drag, the release
+  included. The area is claimed there too: a strip that only slides sideways no longer
+  swallows a drag straight down the page behind it, since the press now walks the whole
+  stack of scrollables under the finger rather than taking the topmost. And an area whose
+  content **fits** takes no drag at all — the rule the reference states outright, *only if
+  there is content outside the viewport to reveal* — so the home page stopped lighting an
+  end-of-content glow at edges it does not have, and a dead scrollable stopped swallowing
+  presses meant for what is behind it. Pull-to-refresh and already-displaced content are
+  the two exceptions, as they are there.
+
+- **The demo's drawer clears the status bar** (J316). Its content is in a `SafeArea`: a
+  drawer is drawn edge to edge, and the "frus" title sat under the notch on the device.
 
 ### Added
 

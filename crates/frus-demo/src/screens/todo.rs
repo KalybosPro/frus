@@ -448,7 +448,13 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
 }
 
 /// The navigation drawer's content: a header + the destinations + settings.
-pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
+///
+/// Wrapped in a `SafeArea`: a drawer is an **overlay**, so it is placed against the window
+/// and not inside the padded box `view` builds the rest of the interface in — its title
+/// came out under the status bar (found on the device, 2026-08-16). The reference has the
+/// same shape of answer: its drawer runs the full height and the header adds the status
+/// bar's own height to its padding.
+pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeArea<Msg> {
     let entry = |icon: &str, label: &str, index: usize| {
         let variant = if app.section == index {
             Variant::Filled
@@ -459,40 +465,42 @@ pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Contai
             .variant(variant)
             .size(16.0)
     };
-    Container::new().padding(16.0).child(
-        column![
-            text("frus").size(22.0),
-            text("Navigation").size(13.0).color(theme.muted),
-            Divider::new(),
-            entry("✔", "Tasks", 0),
-            entry("▦", "Stats", 1),
-            entry("★", "About", 2),
-            Divider::new(),
-            text(format!("{active} task(s) pending"))
-                .size(14.0)
-                .color(theme.muted),
-            button("Settings →", Msg::Push(Route::Settings))
-                .variant(Variant::Outlined)
-                .size(15.0),
-            button("Sign-up wizard →", Msg::Push(Route::Wizard))
-                .variant(Variant::Outlined)
-                .size(15.0),
-            button("Editable grid →", Msg::Push(Route::Grid))
-                .variant(Variant::Outlined)
-                .size(15.0),
-            button("Charts →", Msg::Push(Route::Charts))
-                .variant(Variant::Outlined)
-                .size(15.0),
-            button("Data table →", Msg::Push(Route::Data))
-                .variant(Variant::Outlined)
-                .size(15.0),
-            button("Guided tour →", Msg::Push(Route::Tour))
-                .variant(Variant::Outlined)
-                .size(15.0),
-            button("Kanban board →", Msg::Push(Route::Board))
-                .variant(Variant::Outlined)
-                .size(15.0),
-        ]
-        .gap(12.0),
+    SafeArea::new(
+        Container::new().padding(16.0).child(
+            column![
+                text("frus").size(22.0),
+                text("Navigation").size(13.0).color(theme.muted),
+                Divider::new(),
+                entry("✔", "Tasks", 0),
+                entry("▦", "Stats", 1),
+                entry("★", "About", 2),
+                Divider::new(),
+                text(format!("{active} task(s) pending"))
+                    .size(14.0)
+                    .color(theme.muted),
+                button("Settings →", Msg::Push(Route::Settings))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Sign-up wizard →", Msg::Push(Route::Wizard))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Editable grid →", Msg::Push(Route::Grid))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Charts →", Msg::Push(Route::Charts))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Data table →", Msg::Push(Route::Data))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Guided tour →", Msg::Push(Route::Tour))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+                button("Kanban board →", Msg::Push(Route::Board))
+                    .variant(Variant::Outlined)
+                    .size(15.0),
+            ]
+            .gap(12.0),
+        ),
     )
 }
