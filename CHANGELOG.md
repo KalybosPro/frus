@@ -8,12 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 311 so far, each documenting the objective, the alternatives
+> record — one per step, 312 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **The chip was a pill with nothing to say** (J312). `Chip` had two builders and painted a
+  stadium filled with `muted` at 20 %: it could not be pressed, selected, given an icon or
+  changed in any way. It is the reference's chip now — a 32 px rounded rectangle with an
+  8 px radius, a `label_large` label, an `outline_variant` outline over no fill, filling
+  with `secondary_container` and showing a checkmark once selected. The reference's four
+  chip classes differ by **affordance** rather than shape, so they are builders here:
+  `selected`, `leading`, `on_press`, `on_remove`, `show_checkmark`. Thirteen more settings
+  per call and through the new `ChipTheme`. A pressable chip takes ink and focus, an inert
+  one takes neither, and a selectable one announces whether it is on. **Breaking:** the
+  shape, the colours and the size all change, and a chip that used to be a grey pill is now
+  an outline.
+
+  Fixed along the way: the delete cross was painted in a transparent colour and only
+  appeared under the pointer — invisible at rest, and invisible full stop on a touch screen.
 
 - **A tab bar, not a row of buttons** (J311). `Tabs` painted its header as `Button`s — the
   selected one filled, the others outlined — and had two builders, so nothing about it could

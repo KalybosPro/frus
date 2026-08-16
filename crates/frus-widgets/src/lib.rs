@@ -132,7 +132,10 @@ pub use card::{Card, CardVariant, CARD_ELEVATION, CARD_MARGIN};
 pub use carousel::Carousel;
 pub use chart::{BarChart, LineChart};
 pub use checkbox::Checkbox;
-pub use chip::Chip;
+pub use chip::{
+    Chip, CHIP_BORDER_WIDTH, CHIP_HEIGHT, CHIP_ICON_SIZE, CHIP_LABEL_PADDING, CHIP_PADDING,
+    CHIP_RADIUS,
+};
 pub use clip::{ClipOval, ClipPath, ClipRRect};
 pub use collapsible::Collapsible;
 pub use colorpicker::ColorPicker;

@@ -13,11 +13,11 @@ use frus_core::{Path, Point, Rect};
 /// One icon from the bundled set. Each variant returns a `24×24` normalised [`Path`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconName {
-    /// Coche de validation.
+    /// A check mark.
     Check,
-    /// Croix de fermeture.
+    /// A close cross.
     Close,
-    /// Signe plus (ajouter).
+    /// A plus sign (add).
     Add,
     /// Three bars (a "hamburger" menu).
     Menu,
@@ -25,7 +25,7 @@ pub enum IconName {
     Star,
     /// A heart.
     Heart,
-    /// Disque plein.
+    /// A filled disc.
     Circle,
     /// A solid square.
     Square,

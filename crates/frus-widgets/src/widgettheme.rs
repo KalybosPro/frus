@@ -34,6 +34,7 @@ use crate::card::CardVariant;
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
     pub card: CardTheme,
+    pub chip: ChipTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
     pub ink: InkTheme,
@@ -55,6 +56,37 @@ pub struct CardTheme {
     pub margin: Option<f32>,
     /// The room it leaves inside itself.
     pub padding: Option<f32>,
+}
+
+/// Defaults for [`Chip`](crate::Chip).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ChipTheme {
+    /// The surface under an unselected chip.
+    pub color: Option<Color>,
+    /// The surface under a selected one.
+    pub selected_color: Option<Color>,
+    /// The label's colour when unselected.
+    pub label_color: Option<Color>,
+    /// The label's colour when selected.
+    pub selected_label_color: Option<Color>,
+    /// The label's type.
+    pub label_style: Option<TextStyle>,
+    /// The outline's colour.
+    pub border_color: Option<Color>,
+    /// Its thickness; `0.0` removes it.
+    pub border_width: Option<f32>,
+    /// The corner radii.
+    pub radius: Option<BorderRadius>,
+    /// The room inside the outline.
+    pub padding: Option<f32>,
+    /// The room on either side of the label.
+    pub label_padding: Option<f32>,
+    /// The chip's height.
+    pub height: Option<f32>,
+    /// The size of a leading icon, a checkmark or a delete cross.
+    pub icon_size: Option<f32>,
+    /// Whether a selected chip shows a checkmark.
+    pub show_checkmark: Option<bool>,
 }
 
 /// Defaults for [`Divider`](crate::Divider).
@@ -278,5 +310,6 @@ mod tests {
         assert_eq!(WidgetThemes::default().drawer.width, None);
         assert_eq!(WidgetThemes::default().ink.color, None);
         assert_eq!(WidgetThemes::default().tabs.indicator_color, None);
+        assert_eq!(WidgetThemes::default().chip.height, None);
     }
 }
