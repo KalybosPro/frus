@@ -125,7 +125,7 @@ pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use bottomsheet::BottomSheet;
 pub use breadcrumb::Breadcrumb;
 pub use button::{Button, Variant};
-pub use card::Card;
+pub use card::{Card, CardVariant, CARD_ELEVATION, CARD_MARGIN};
 pub use carousel::Carousel;
 pub use chart::{BarChart, LineChart};
 pub use checkbox::Checkbox;

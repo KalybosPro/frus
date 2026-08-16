@@ -8,12 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 307 so far, each documenting the objective, the alternatives
+> record — one per step, 308 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **The card is three cards** (J308). `Card` had two fields — a padding and its child —
+  and wrote everything else into `paint` as a literal, drawing a shadow **and** an
+  outline, which is none of the reference's three. New `CardVariant::{Elevated, Filled,
+  Outlined}`, with `Card::filled()` and `Card::outlined()`; the outline now belongs to
+  exactly one of them. New `Card::{elevation, color, radius, margin}`, `CARD_MARGIN` and
+  `CARD_ELEVATION`. Elevation is a **height**, not a blur radius: the blur and the drop
+  are both derived from it, so the number means the same thing between widgets.
+  **Breaking:** an elevated card has no hairline, sits on `surface_container`, and
+  carries the reference's 4 px margin (`margin(0.0)` to refuse it).
 
 - **A `Divider` that can be told anything** (J307). It was a unit struct with no fields
   and no builders, drawing its line by filling its whole one-pixel box. It now carries
