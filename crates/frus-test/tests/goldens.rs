@@ -432,9 +432,13 @@ fn table_column_menu_matches_golden() {
         .header_action(0, || {
             Box::new(
                 Menu::new(
+                    // Three dots in a header cell: a button sized for a word would take
+                    // the column's width. See milestone 313 on the missing icon button.
                     Button::new("...")
                         .size(12.0)
                         .variant(Variant::Outlined)
+                        .min_width(28.0)
+                        .padding(6.0)
                         .on_press(()),
                     true,
                     (),

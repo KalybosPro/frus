@@ -22,7 +22,14 @@ fn page_button<Msg: Clone + 'static>(
     } else {
         Variant::Outlined
     };
-    let mut button = Button::new(label).variant(variant).size(15.0);
+    // A page number, or an arrow: one or two characters. A button sized for a word would
+    // make the strip several times as wide as the numbers in it — the reference would use
+    // an icon button here, and there is none yet (milestone 313).
+    let mut button = Button::new(label)
+        .variant(variant)
+        .size(15.0)
+        .min_width(crate::button::BUTTON_HEIGHT)
+        .padding(8.0);
     if let Some(message) = message {
         button = button.on_press(message);
     }

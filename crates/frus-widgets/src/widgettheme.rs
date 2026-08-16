@@ -39,6 +39,7 @@ pub struct WidgetThemes {
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
     pub ink: InkTheme,
+    pub segmented: SegmentedTheme,
     pub tabs: TabsTheme,
 }
 
@@ -135,6 +136,33 @@ pub struct DividerTheme {
 pub struct DrawerTheme {
     /// The panel's width.
     pub width: Option<f32>,
+}
+
+/// Defaults for [`SegmentedControl`](crate::SegmentedControl).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SegmentedTheme {
+    /// The fill under the chosen segment.
+    pub selected_color: Option<Color>,
+    /// The labels' colour.
+    pub label_color: Option<Color>,
+    /// The chosen segment's label colour, and its checkmark's.
+    pub selected_label_color: Option<Color>,
+    /// The outline's colour, and the hairlines' between segments.
+    pub border_color: Option<Color>,
+    /// Their thickness; `0.0` removes both.
+    pub border_width: Option<f32>,
+    /// The group's outer radius. Unset, the ends are stadium-rounded.
+    pub radius: Option<f32>,
+    /// The control's height.
+    pub height: Option<f32>,
+    /// The room either side of a label.
+    pub padding: Option<f32>,
+    /// The labels' type.
+    pub label_style: Option<TextStyle>,
+    /// The checkmark's size.
+    pub icon_size: Option<f32>,
+    /// Whether the chosen segment carries a checkmark.
+    pub show_selected_icon: Option<bool>,
 }
 
 /// Defaults for [`Tabs`](crate::Tabs) — the bar, its labels and its indicator.
@@ -338,5 +366,6 @@ mod tests {
         assert_eq!(WidgetThemes::default().tabs.indicator_color, None);
         assert_eq!(WidgetThemes::default().chip.height, None);
         assert_eq!(WidgetThemes::default().button.height, None);
+        assert_eq!(WidgetThemes::default().segmented.height, None);
     }
 }

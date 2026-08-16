@@ -213,7 +213,10 @@ pub use runtime::{
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
 pub use scroll::{Axis, Scroll};
-pub use segmented::SegmentedControl;
+pub use segmented::{
+    SegmentedControl, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
+    SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
+};
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
 pub use spinner::Spinner;

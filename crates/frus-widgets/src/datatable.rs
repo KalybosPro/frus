@@ -446,7 +446,12 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
                         let sizes = self.page_sizes.clone();
                         let sel = sizes.iter().position(|&s| s == per).unwrap_or(0);
                         let on_size = on_size.clone();
-                        let mut seg = SegmentedControl::new(sel, move |i| on_size(sizes[i]));
+                        // A row of numbers in a table's footer: the checkmark would take
+                        // more room than the digits it sits beside, and which one is chosen
+                        // is already plain from the fill.
+                        let mut seg = SegmentedControl::new(sel, move |i| on_size(sizes[i]))
+                            .show_selected_icon(false)
+                            .padding(10.0);
                         for s in &self.page_sizes {
                             seg = seg.segment(s.to_string());
                         }

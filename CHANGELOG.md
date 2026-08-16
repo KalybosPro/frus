@@ -8,12 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 313 so far, each documenting the objective, the alternatives
+> record — one per step, 314 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **One control, not three buttons touching** (J314). `SegmentedControl` built itself out of
+  `Button`s — a filled one for the chosen segment, outlined ones beside it, two pixels apart
+  — and had a single setting. It is one control now: **one** outline around the group with
+  the reference's stadium ends, a hairline at each division, and the chosen segment filled
+  with `secondary_container` and carrying a checkmark. Every segment takes the width of the
+  widest, so renaming one does not move the divisions between the others, and the
+  checkmark's room is reserved in all of them so the control does not change width as the
+  selection moves. Eleven settings per call and through the new `SegmentedTheme`.
+  **Breaking:** the colours, the shape, the height and the gap all change.
 
 - **Five buttons, one of which has a shadow** (J313). `Button` had three variants and drew
   a shadow under **every** enabled one, which is the reference's *elevated* button drawn
