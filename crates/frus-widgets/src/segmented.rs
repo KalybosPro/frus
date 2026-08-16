@@ -77,9 +77,9 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
             .enumerate()
             .map(|(i, label)| {
                 let variant = if i == self.selected {
-                    Variant::Primary
+                    Variant::Filled
                 } else {
-                    Variant::Secondary
+                    Variant::Outlined
                 };
                 Box::new(
                     Button::new(label.clone())
@@ -125,9 +125,9 @@ mod tests {
     #[test]
     fn segments_emit_index_and_highlight_selected() {
         let seg = SegmentedControl::new(1, Msg::Select)
-            .segment("Jour")
-            .segment("Semaine")
-            .segment("Mois");
+            .segment("Day")
+            .segment("Week")
+            .segment("Month");
         let children = Widget::<Msg>::children(&seg);
         assert_eq!(children.len(), 3);
         // Clicking the 3rd segment → Select(2).
@@ -138,17 +138,18 @@ mod tests {
     fn segments_round_only_the_outer_corners() {
         use crate::{build_ui, Runtime, Size, Theme};
         let seg = SegmentedControl::new(0, Msg::Select)
-            .segment("Un")
-            .segment("Deux")
-            .segment("Trois");
+            .segment("One")
+            .segment("Two")
+            .segment("Three");
         let ui = build_ui(
             &seg,
             Size::new(400.0, 60.0),
             &Runtime::default(),
             &Theme::default(),
         );
-        // The buttons' fills — hard, unblurred, opaque rectangles — in order: first,
-        // middle, last.
+        // The buttons' boxes — unblurred rectangles — in order: first, middle, last.
+        // Not filtered by opacity: an unselected segment is an outline over nothing,
+        // which is what an outlined button became in milestone 313.
         let fills: Vec<BorderRadius> = ui
             .scene()
             .primitives()
@@ -159,11 +160,14 @@ mod tests {
                     blur,
                     color,
                     ..
-                } if *blur == 0.0 && color.a > 0.9 => Some(*radius),
+                } if *blur == 0.0 => {
+                    let _ = color;
+                    Some(*radius)
+                }
                 _ => None,
             })
             .collect();
-        assert_eq!(fills.len(), 3, "trois remplissages de segments");
+        assert_eq!(fills.len(), 3, "three segment boxes");
         assert!(
             fills[0].top_left > 0.0 && fills[0].top_right == 0.0,
             "1st: left rounded"

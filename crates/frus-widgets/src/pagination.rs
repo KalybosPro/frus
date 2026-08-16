@@ -18,9 +18,9 @@ fn page_button<Msg: Clone + 'static>(
     active: bool,
 ) -> Box<dyn Widget<Msg>> {
     let variant = if active {
-        Variant::Primary
+        Variant::Filled
     } else {
-        Variant::Secondary
+        Variant::Outlined
     };
     let mut button = Button::new(label).variant(variant).size(15.0);
     if let Some(message) = message {

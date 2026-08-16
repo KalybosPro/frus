@@ -425,7 +425,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
             let on_add = on_add.clone();
             children.push(Box::new(
                 Button::new("+ Add card")
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(13.0)
                     .on_press(on_add(col)),
             ));

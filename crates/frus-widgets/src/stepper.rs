@@ -57,15 +57,19 @@ impl<Msg: Clone + 'static> Stepper<Msg> {
         self.children = vec![
             Box::new(
                 Button::new("−")
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(16.0)
+                    .min_width(crate::button::BUTTON_HEIGHT)
+                    .padding(8.0)
                     .on_press((self.on_change)(dec)),
             ),
             Box::new(Text::new(self.value.to_string()).size(18.0)),
             Box::new(
                 Button::new("+")
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(16.0)
+                    .min_width(crate::button::BUTTON_HEIGHT)
+                    .padding(8.0)
                     .on_press((self.on_change)(inc)),
             ),
         ];

@@ -67,9 +67,9 @@ pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> T
     let mut cats = Flex::column().gap(6.0);
     for (i, (label, _)) in metrics.iter().enumerate() {
         let variant = if app.stat_sel == i {
-            Variant::Primary
+            Variant::Filled
         } else {
-            Variant::Secondary
+            Variant::Outlined
         };
         cats = cats.child(
             button(*label, Msg::SelectStat(i))
@@ -93,7 +93,7 @@ pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> T
     if class != SizeClass::Expanded {
         detail_col = detail_col.child(
             button("← Back", Msg::CloseDetail)
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
         );
     }

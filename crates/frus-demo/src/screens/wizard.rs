@@ -225,7 +225,7 @@ pub(crate) fn wizard_screen(
     if app.wizard_step > 0 {
         nav = nav.child(
             button("Back", Msg::WizardBack)
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(16.0),
         );
     }
@@ -233,14 +233,14 @@ pub(crate) fn wizard_screen(
         // "Next" only becomes active once the current step is valid (milestone 191: a disabled Button).
         nav = nav.child(
             button("Next", Msg::WizardNext)
-                .variant(Variant::Primary)
+                .variant(Variant::Filled)
                 .size(16.0)
                 .enabled(wizard_step_valid(&form, app.wizard_step)),
         );
     } else {
         nav = nav.child(
             button("Create account", Msg::WizardSubmit)
-                .variant(Variant::Primary)
+                .variant(Variant::Filled)
                 .size(16.0),
         );
     }

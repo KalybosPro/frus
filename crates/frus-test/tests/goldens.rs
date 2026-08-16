@@ -366,7 +366,7 @@ fn table_header_action_matches_golden() {
             Box::new(
                 Button::new("Filter")
                     .size(12.0)
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .on_press(()),
             )
         })
@@ -399,7 +399,7 @@ fn table_widget_header_matches_golden() {
                 Box::new(
                     Button::new("Sort")
                         .size(12.0)
-                        .variant(Variant::Secondary)
+                        .variant(Variant::Outlined)
                         .on_press(()),
                 )
             }),
@@ -434,7 +434,7 @@ fn table_column_menu_matches_golden() {
                 Menu::new(
                     Button::new("...")
                         .size(12.0)
-                        .variant(Variant::Secondary)
+                        .variant(Variant::Outlined)
                         .on_press(()),
                     true,
                     (),
@@ -644,7 +644,7 @@ fn form_wizard_matches_golden() {
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Back").variant(Variant::Outlined))
                     .child(Button::new("Next")),
             ),
     );
@@ -889,7 +889,7 @@ fn wizard_review_errors_matches_golden() {
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Back").variant(Variant::Outlined))
                     .child(Button::new("Create account")),
             ),
     );
@@ -953,7 +953,7 @@ fn wizard_password_step_matches_golden() {
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Back").variant(Variant::Outlined))
                     .child(Button::new("Next").enabled(false)),
             ),
     );
@@ -994,12 +994,12 @@ fn wizard_password_revealed_matches_golden() {
                             .width(340.0)
                             .label("Confirm password"),
                     )
-                    .child(Button::new("Hide password").variant(Variant::Secondary)),
+                    .child(Button::new("Hide password").variant(Variant::Outlined)),
             )
             .child(
                 Flex::row()
                     .gap(12.0)
-                    .child(Button::new("Back").variant(Variant::Secondary))
+                    .child(Button::new("Back").variant(Variant::Outlined))
                     .child(Button::new("Next")),
             ),
     );
@@ -1287,7 +1287,7 @@ fn data_table_bulk_actions_matches_golden() {
         .selected(&[0, 3])
         .bulk_actions(|| {
             vec![
-                Box::new(Button::new("Clear").variant(Variant::Secondary).size(14.0)),
+                Box::new(Button::new("Clear").variant(Variant::Outlined).size(14.0)),
                 Box::new(Button::new("Delete").variant(Variant::Danger).size(14.0)),
             ]
         });
@@ -1393,7 +1393,7 @@ fn kanban_rich_matches_golden() {
                     .gap(8.0)
                     .child(Text::new(label).size(14.0))
                     .child(Flex::row().flex(1.0))
-                    .child(Button::new("×").variant(Variant::Secondary).size(13.0)),
+                    .child(Button::new("×").variant(Variant::Outlined).size(13.0)),
             ) as Box<dyn frus_widgets::Widget<()>>
         })
     }

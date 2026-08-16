@@ -341,7 +341,7 @@ impl Application for Showcase {
             )
             .child(
                 Button::new(if self.running { "pause" } else { "play" })
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .on_press(Msg::ToggleRunning),
             );
 

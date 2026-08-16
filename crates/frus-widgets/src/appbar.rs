@@ -446,7 +446,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                     if labeled_seen < kept_labeled {
                         row = row.child(
                             button(label, message)
-                                .variant(Variant::Secondary)
+                                .variant(Variant::Outlined)
                                 .size(action_size),
                         );
                     } else {
@@ -464,7 +464,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 Some((open, toggle)) => {
                     let mut menu = Menu::new(
                         button(OVERFLOW_GLYPH, toggle.clone())
-                            .variant(Variant::Secondary)
+                            .variant(Variant::Outlined)
                             .size(action_size),
                         open,
                         toggle,
@@ -479,7 +479,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                     for (label, message) in folded {
                         row = row.child(
                             button(label, message)
-                                .variant(Variant::Secondary)
+                                .variant(Variant::Outlined)
                                 .size(action_size),
                         );
                     }
@@ -555,11 +555,12 @@ mod tests {
             &Runtime::default(),
             &Theme::default(),
         );
-        // Every button draws a shadow (a blurred `Rect`, `blur > 0`), so count those.
-        ui.scene()
-            .primitives()
+        // Count the buttons by what they *are* rather than by what they paint: they used
+        // to be counted by their shadows, and milestone 313 took the shadow off every
+        // button but the elevated one — a proxy that stopped standing for anything.
+        ui.semantics()
             .iter()
-            .filter(|p| matches!(p, frus_core::Primitive::Rect { blur, .. } if *blur > 0.0))
+            .filter(|(_, _, s)| s.role == frus_core::Role::Button)
             .count()
     }
 

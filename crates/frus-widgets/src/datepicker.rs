@@ -12,6 +12,11 @@ use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// A button holding **one glyph**: as wide as it is tall, rather than as wide as a button
+/// with a word in it. The reference would reach for an icon button here; there is none
+/// yet, so the two arrows say what shape they want.
+const ICON_BUTTON: f32 = crate::button::BUTTON_HEIGHT;
+
 const CELL: f32 = 34.0;
 const SIZE: f32 = 15.0;
 /// The gap between the two months of a dual calendar.
@@ -398,8 +403,10 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             .gap(8.0)
             .child(
                 Button::new("‹")
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(15.0)
+                    .min_width(ICON_BUTTON)
+                    .padding(8.0)
                     .on_press(on_nav(-1)),
             )
             .child(Flex::row().flex(1.0))
@@ -407,8 +414,10 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             .child(Flex::row().flex(1.0))
             .child(
                 Button::new("›")
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(15.0)
+                    .min_width(ICON_BUTTON)
+                    .padding(8.0)
                     .on_press(on_nav(1)),
             );
 

@@ -33,12 +33,38 @@ use crate::card::CardVariant;
 /// widget already has, resolved in the same order everywhere.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
+    pub button: ButtonTheme,
     pub card: CardTheme,
     pub chip: ChipTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
     pub ink: InkTheme,
     pub tabs: TabsTheme,
+}
+
+/// Defaults for [`Button`](crate::Button).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ButtonTheme {
+    /// The surface under the label, whatever the variant would have used.
+    pub color: Option<Color>,
+    /// The label's colour.
+    pub label_color: Option<Color>,
+    /// The label's type.
+    pub label_style: Option<TextStyle>,
+    /// The outline's colour.
+    pub border_color: Option<Color>,
+    /// Its thickness; `0.0` removes it.
+    pub border_width: Option<f32>,
+    /// The corner radii. Unset, a button is a stadium.
+    pub radius: Option<BorderRadius>,
+    /// The room either side of the label.
+    pub padding: Option<f32>,
+    /// The button's height.
+    pub height: Option<f32>,
+    /// The narrowest it will be, however short its label.
+    pub min_width: Option<f32>,
+    /// How far it sits off the surface.
+    pub elevation: Option<f32>,
 }
 
 /// Defaults for [`Card`](crate::Card).
@@ -311,5 +337,6 @@ mod tests {
         assert_eq!(WidgetThemes::default().ink.color, None);
         assert_eq!(WidgetThemes::default().tabs.indicator_color, None);
         assert_eq!(WidgetThemes::default().chip.height, None);
+        assert_eq!(WidgetThemes::default().button.height, None);
     }
 }

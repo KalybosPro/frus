@@ -133,7 +133,7 @@ pub(crate) fn settings_screen(
     // An info popover (arbitrary content, dismissed by an outside click).
     let info = Popover::new(
         button("Info", Msg::ToggleInfo)
-            .variant(Variant::Secondary)
+            .variant(Variant::Outlined)
             .size(15.0),
         app.info_open,
         Msg::ToggleInfo,

@@ -72,15 +72,15 @@ impl Application for Counter {
             text(format!("{}", self.count)).size(48.0),
             column![
                 row![
-                    button("+", Msg::Increment).variant(Variant::Primary),
-                    button("−", Msg::Decrement).variant(Variant::Secondary)
+                    button("+", Msg::Increment).variant(Variant::Filled),
+                    button("−", Msg::Decrement).variant(Variant::Outlined)
                 ]
                 .gap(20.0),
                 button(
                     if self.auto { "Stop auto" } else { "Start auto" },
                     Msg::ToggleAuto,
                 )
-                .variant(Variant::Secondary),
+                .variant(Variant::Outlined),
             ]
             .gap(8.0)
             .align(Align::Center),

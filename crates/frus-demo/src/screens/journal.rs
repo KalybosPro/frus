@@ -48,7 +48,7 @@ pub(crate) fn journal_screen(
             text(label).size(14.0).color(theme.muted),
             spacer(),
             text(reloads).size(14.0).color(theme.muted),
-            button("Switch", Msg::ToggleScrollPhysics).variant(Variant::Secondary),
+            button("Switch", Msg::ToggleScrollPhysics).variant(Variant::Outlined),
         ]
         .gap(12.0),
         pullable,

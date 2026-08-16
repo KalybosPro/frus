@@ -57,7 +57,7 @@ pub(crate) fn data_screen(
             vec![
                 Box::new(
                     button("Clear", Msg::DataClearChecked)
-                        .variant(Variant::Secondary)
+                        .variant(Variant::Outlined)
                         .size(14.0),
                 ) as Box<dyn Widget<Msg>>,
                 Box::new(

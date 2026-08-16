@@ -12,7 +12,7 @@ use crate::widget::Widget;
 
 /// A navigation arrow, disabled when `message` is `None`.
 fn arrow<Msg: Clone + 'static>(label: &str, message: Option<Msg>) -> Box<dyn Widget<Msg>> {
-    let mut button = Button::new(label).variant(Variant::Secondary).size(16.0);
+    let mut button = Button::new(label).variant(Variant::Outlined).size(16.0);
     if let Some(message) = message {
         button = button.on_press(message);
     }

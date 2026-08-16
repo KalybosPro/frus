@@ -100,7 +100,7 @@ impl Application for FetchDemo {
 
         let content = column![
             text("frus · fetch").size(14.0).color(theme.muted),
-            button(label, Msg::Fetch).variant(Variant::Primary),
+            button(label, Msg::Fetch).variant(Variant::Filled),
             Container::new().width(width.min(420.0)).child(result),
         ]
         .gap(20.0)

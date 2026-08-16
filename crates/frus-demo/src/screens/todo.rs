@@ -84,7 +84,7 @@ pub(crate) fn data_confirm_content(count: usize) -> Card<Msg> {
                 .weight(FontWeight::Medium),
             text(format!("{count} row(s) will be removed.")).size(16.0),
             row![
-                button("Cancel", Msg::DataCancelDelete).variant(Variant::Secondary),
+                button("Cancel", Msg::DataCancelDelete).variant(Variant::Outlined),
                 button("Delete", Msg::DataDeleteChecked).variant(Variant::Danger),
             ]
             .justify(Justify::Center)
@@ -103,7 +103,7 @@ pub(crate) fn confirm_content(done: usize) -> Card<Msg> {
                 .weight(FontWeight::Medium),
             text(format!("{done} task(s) will be removed.")).size(16.0),
             row![
-                button("Cancel", Msg::CancelClear).variant(Variant::Secondary),
+                button("Cancel", Msg::CancelClear).variant(Variant::Outlined),
                 button("Delete", Msg::ConfirmClearDone).variant(Variant::Danger),
             ]
             .justify(Justify::Center)
@@ -151,7 +151,7 @@ pub(crate) fn todo_screen(
         .width(width)
         .leading(
             button("☰", Msg::ToggleDrawer)
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(16.0),
         )
         .overflow(app.actions_open, Msg::ToggleActions)
@@ -285,10 +285,10 @@ pub(crate) fn todo_screen(
     let footer = row![
         summary,
         button("Load", Msg::Load)
-            .variant(Variant::Secondary)
+            .variant(Variant::Outlined)
             .size(15.0),
         button("Save", Msg::Save)
-            .variant(Variant::Secondary)
+            .variant(Variant::Outlined)
             .size(15.0),
         clear,
     ]
@@ -428,17 +428,17 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
             .child(text("Quick actions").size(20.0).color(theme.on_surface))
             .child(
                 button("💾  Save", Msg::Save)
-                    .variant(Variant::Primary)
+                    .variant(Variant::Filled)
                     .size(16.0),
             )
             .child(
                 button("🗑  Clear completed", Msg::AskClearDone)
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(16.0),
             )
             .child(
                 button("Close", Msg::ToggleSheet)
-                    .variant(Variant::Secondary)
+                    .variant(Variant::Outlined)
                     .size(16.0),
             ),
     )
@@ -448,9 +448,9 @@ pub(crate) fn quick_actions_sheet(theme: &Theme) -> Container<Msg> {
 pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Container<Msg> {
     let entry = |icon: &str, label: &str, index: usize| {
         let variant = if app.section == index {
-            Variant::Primary
+            Variant::Filled
         } else {
-            Variant::Secondary
+            Variant::Outlined
         };
         button(format!("{icon}  {label}"), Msg::SetSection(index))
             .variant(variant)
@@ -469,25 +469,25 @@ pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> Contai
                 .size(14.0)
                 .color(theme.muted),
             button("Settings →", Msg::Push(Route::Settings))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
             button("Sign-up wizard →", Msg::Push(Route::Wizard))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
             button("Editable grid →", Msg::Push(Route::Grid))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
             button("Charts →", Msg::Push(Route::Charts))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
             button("Data table →", Msg::Push(Route::Data))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
             button("Guided tour →", Msg::Push(Route::Tour))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
             button("Kanban board →", Msg::Push(Route::Board))
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(15.0),
         ]
         .gap(12.0),

@@ -127,7 +127,10 @@ pub use barrier::{AbsorbPointer, Barrier, ExcludeSemantics, IgnorePointer, Offst
 pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use bottomsheet::BottomSheet;
 pub use breadcrumb::Breadcrumb;
-pub use button::{Button, Variant};
+pub use button::{
+    Button, Variant, BUTTON_BORDER_WIDTH, BUTTON_ELEVATION, BUTTON_HEIGHT, BUTTON_MIN_WIDTH,
+    BUTTON_PADDING, BUTTON_TEXT_PADDING,
+};
 pub use card::{Card, CardVariant, CARD_ELEVATION, CARD_MARGIN};
 pub use carousel::Carousel;
 pub use chart::{BarChart, LineChart};

@@ -731,7 +731,7 @@ pub fn fab_button<Msg: Clone + 'static>(
     message: Msg,
 ) -> crate::Button<Msg> {
     crate::Button::new(label)
-        .variant(Variant::Primary)
+        .variant(Variant::Filled)
         .size(24.0)
         // **Round**, and not only because the convention is round: a docked button
         // sits in a circular notch, and a square one would leave the bar curving

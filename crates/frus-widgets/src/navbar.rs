@@ -56,8 +56,10 @@ impl<Msg: Clone + 'static> NavBar<Msg> {
     pub fn on_back(mut self, message: Msg) -> Self {
         self.children = vec![Box::new(
             Button::new("←")
-                .variant(Variant::Secondary)
+                .variant(Variant::Outlined)
                 .size(16.0)
+                .min_width(crate::button::BUTTON_HEIGHT)
+                .padding(8.0)
                 .on_press(message),
         )];
         self

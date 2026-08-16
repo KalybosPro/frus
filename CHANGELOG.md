@@ -8,12 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 312 so far, each documenting the objective, the alternatives
+> record — one per step, 313 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Five buttons, one of which has a shadow** (J313). `Button` had three variants and drew
+  a shadow under **every** enabled one, which is the reference's *elevated* button drawn
+  five times over. It has the reference's five now — `Filled` (the default), `Tonal`,
+  `Elevated`, `Outlined`, `Text` — plus `Danger`, filled in the error role, which is the
+  one variant that is frus's own. With them come its measurements: 64 × 40 minimum, a
+  **stadium** shape whose radius follows the height, a `label_large` label, 24 px of room
+  either side (12 for a text button), and elevation on the elevated variant alone.
+  **Breaking:** `Variant::Primary` and `Variant::Secondary` are now `Variant::Filled` and
+  `Variant::Outlined` — the old names described a surface rather than naming a button —
+  and every button changes shape, size and shadow. Ten settings per call and through the
+  new `ButtonTheme`.
+
+  The framework's own one-glyph buttons (the date picker's arrows, the back arrow, the
+  stepper's plus and minus) now ask for a 40 px circle, since `Button` is not an icon
+  button and this framework has not got one yet.
 
 - **The chip was a pill with nothing to say** (J312). `Chip` had two builders and painted a
   stadium filled with `muted` at 20 %: it could not be pressed, selected, given an icon or
