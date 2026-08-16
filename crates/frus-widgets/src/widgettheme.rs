@@ -1,0 +1,255 @@
+//! **Per-widget defaults**: the middle term of `what the caller said ?? what the theme
+//! says ?? what the framework ships`.
+//!
+//! Three milestones in a row ended on the same missing piece. An application could
+//! override one card's elevation, one divider's height, one splash's colour — and had
+//! no way to say *every card in this application*, short of writing its own wrapper
+//! around each widget. The reference resolves nearly every property through exactly
+//! this chain, and only the middle term was absent here.
+//!
+//! Every field is an `Option`, and `None` means "the framework's own default" — so a
+//! theme that sets nothing behaves exactly as no theme at all, and a theme that sets one
+//! field changes one thing.
+//!
+//! ```ignore
+//! let mut theme = Theme::dark();
+//! theme.widgets.card.elevation = Some(0.0);       // a flat application
+//! theme.widgets.divider.height = Some(1.0);       // hairlines, flush
+//! theme.widgets.ink.color = Some(accent.fade(0.2));
+//! ```
+//!
+//! **Layout properties are included** — a divider's height, a card's margin, a drawer's
+//! width — which is why [`Widget::style_themed`](crate::Widget::style_themed) exists
+//! beside `style`. A theme that could only reach paint would be able to recolour a
+//! divider but not make one thin, which is the setting an application actually wants.
+
+use frus_core::{BorderRadius, Color};
+
+use crate::card::CardVariant;
+
+/// The per-widget defaults carried by a [`Theme`](crate::Theme).
+///
+/// Adding a widget here is adding a field: the pattern is one `Option` per builder the
+/// widget already has, resolved in the same order everywhere.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WidgetThemes {
+    pub card: CardTheme,
+    pub divider: DividerTheme,
+    pub drawer: DrawerTheme,
+    pub ink: InkTheme,
+}
+
+/// Defaults for [`Card`](crate::Card).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CardTheme {
+    /// Which of the three cards an untold `Card::new()` is.
+    pub variant: Option<CardVariant>,
+    /// How far off the surface it sits.
+    pub elevation: Option<f32>,
+    /// Its background, overriding the variant's tone.
+    pub color: Option<Color>,
+    /// Its corner radii.
+    pub radius: Option<BorderRadius>,
+    /// The room it leaves around itself.
+    pub margin: Option<f32>,
+    /// The room it leaves inside itself.
+    pub padding: Option<f32>,
+}
+
+/// Defaults for [`Divider`](crate::Divider).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DividerTheme {
+    /// The room the separator takes in the layout.
+    pub height: Option<f32>,
+    /// The thickness of the line drawn inside that room.
+    pub thickness: Option<f32>,
+    /// Its colour.
+    pub color: Option<Color>,
+    /// Its inset from the leading edge.
+    pub indent: Option<f32>,
+    /// Its inset from the trailing edge.
+    pub end_indent: Option<f32>,
+}
+
+/// Defaults for [`Drawer`](crate::Drawer).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DrawerTheme {
+    /// The panel's width.
+    pub width: Option<f32>,
+}
+
+/// Defaults for the **ink ripple** — every surface that splashes, including
+/// [`InkWell`](crate::InkWell) and [`Button`](crate::Button).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct InkTheme {
+    /// The splash colour, **alpha included**. A widget that computes its own from its
+    /// surface (a button splashing in its `on` colour) still yields to this when it is
+    /// set: an application that has chosen an ink colour has chosen it everywhere.
+    pub color: Option<Color>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::card::{Card, CardVariant, CARD_MARGIN};
+    use crate::divider::{Divider, DIVIDER_SPACE};
+    use crate::flex::Flex;
+    use crate::runtime::Runtime;
+    use crate::theme::Theme;
+    use crate::ui::build_ui;
+    use crate::widget::Widget;
+    use frus_core::{Color, Primitive, Rect, Size};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {}
+
+    /// Builds the widget **inside a sized parent**, which is where a margin and an
+    /// `Auto` width mean anything, and returns the frame's primitives.
+    fn framed(widget: impl Widget<Msg> + 'static, theme: &Theme) -> Vec<Primitive> {
+        let tree = Flex::column().width(200.0).height(100.0).child(widget);
+        build_ui(&tree, Size::new(200.0, 100.0), &Runtime::default(), theme)
+            .scene()
+            .primitives()
+            .to_vec()
+    }
+
+    /// The first crisp box the tree paints — the widget's own surface, past any shadow.
+    fn painted_rect(widget: impl Widget<Msg> + 'static, theme: &Theme) -> Rect {
+        framed(widget, theme)
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, blur, .. } if *blur == 0.0 => Some(*rect),
+                _ => None,
+            })
+            .expect("the widget paints a box")
+    }
+
+    #[test]
+    fn the_theme_reaches_layout_and_not_only_paint() {
+        // The point of `style_themed`. A divider's *height* is a layout property, and a
+        // theme that could not set it would be able to recolour a separator but not make
+        // one thin — which is the setting an application actually asks for.
+        let plain = Theme::default();
+        let mut thin = Theme::default();
+        thin.widgets.divider.height = Some(1.0);
+
+        // The line is centred in its box, so a taller box puts it further down; the box
+        // itself is what the theme moved.
+        // The line is centred in its box: a 16 px box puts it at 7.5, a 1 px box at 0.
+        let tall = painted_rect(Divider::new(), &plain);
+        let thin_line = painted_rect(Divider::new(), &thin);
+        assert!(
+            tall.y > thin_line.y,
+            "the themed divider's box is shorter: {tall:?} against {thin_line:?}"
+        );
+        assert_eq!(tall.height, 1.0, "the line itself is unchanged");
+        assert_eq!(thin_line.height, 1.0);
+    }
+
+    #[test]
+    fn the_caller_outranks_the_theme_and_the_theme_outranks_the_framework() {
+        // The whole chain in one assertion per link, on a layout property so that both
+        // halves of the resolution are exercised.
+        let plain = Theme::default();
+        let mut themed = Theme::default();
+        themed.widgets.card.margin = Some(20.0);
+
+        let x = |card: Card<Msg>, theme: &Theme| painted_rect(card, theme).x;
+
+        assert_eq!(x(Card::new(), &plain), CARD_MARGIN, "the framework's");
+        assert_eq!(x(Card::new(), &themed), 20.0, "the theme's");
+        assert_eq!(
+            x(Card::new().margin(2.0), &themed),
+            2.0,
+            "the caller's, over the theme's"
+        );
+    }
+
+    #[test]
+    fn a_theme_can_change_what_an_untold_widget_is() {
+        // Not just a number: the *variant* is themeable, so an application can be flat
+        // throughout without writing `.filled()` at every call site.
+        let mut flat = Theme::default();
+        flat.widgets.card.variant = Some(CardVariant::Filled);
+        let shadows = |theme: &Theme| {
+            framed(Card::<Msg>::new(), theme)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Rect { blur, .. } if *blur > 0.0))
+                .count()
+        };
+        assert_eq!(shadows(&Theme::default()), 1, "elevated by default");
+        assert_eq!(shadows(&flat), 0, "flat because the theme says so");
+    }
+
+    #[test]
+    fn the_ink_colour_is_themeable_even_where_a_widget_computes_its_own() {
+        // A `Button` derives its splash from its own `on` colour, which is the right
+        // default and the wrong thing to insist on: an application that has chosen an
+        // ink colour has chosen it for every surface.
+        let mine = Color::rgb8(255, 0, 128);
+        let mut theme = Theme::default();
+        theme.widgets.ink.color = Some(mine);
+        let button = crate::button::Button::<Msg>::new("Go");
+        assert_eq!(
+            Widget::<Msg>::ink(&button, &theme).map(|i| i.color),
+            Some(mine)
+        );
+        // And a plain surface takes it too.
+        assert_eq!(crate::ink::default_splash(&theme), mine);
+    }
+
+    #[test]
+    fn changing_a_theme_invalidates_the_layout_cache() {
+        // The cache keys on a fingerprint of the *effective* style, which now includes
+        // the theme's say. If it did not, a theme swap would keep the old geometry and
+        // the change would appear only after something else moved.
+        let runtime = Runtime::default();
+        let tree = Flex::<Msg>::column()
+            .width(200.0)
+            .height(100.0)
+            .child(Divider::new());
+        let plain = Theme::default();
+        let mut thin = Theme::default();
+        thin.widgets.divider.height = Some(1.0);
+
+        let height = |theme: &Theme| {
+            build_ui(&tree, Size::new(200.0, 100.0), &runtime, theme)
+                .scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { rect, .. } => Some(rect.y),
+                    _ => None,
+                })
+                .expect("a line")
+        };
+        // The same runtime, and therefore the same cache, across both builds.
+        let first = height(&plain);
+        let second = height(&thin);
+        assert_ne!(
+            first, second,
+            "a themed size must not be served from the cache of an unthemed one"
+        );
+        assert_eq!(height(&plain), first, "and back again");
+    }
+
+    #[test]
+    fn the_defaults_are_still_reachable_through_an_empty_theme() {
+        let plain = Theme::default();
+        assert_eq!(
+            Widget::<Msg>::style_themed(&Divider::new(), &plain).height,
+            frus_layout::Dimension::Length(DIVIDER_SPACE)
+        );
+    }
+
+    #[test]
+    fn a_theme_that_says_nothing_is_the_absence_of_a_theme() {
+        // The whole contract of `None`: a fresh theme must carry no opinions at all, or
+        // every widget's built-in default silently becomes unreachable.
+        assert_eq!(Theme::default().widgets, WidgetThemes::default());
+        assert_eq!(WidgetThemes::default().card.elevation, None);
+        assert_eq!(WidgetThemes::default().divider.height, None);
+        assert_eq!(WidgetThemes::default().drawer.width, None);
+        assert_eq!(WidgetThemes::default().ink.color, None);
+    }
+}

@@ -603,8 +603,11 @@ pub(crate) fn effective_style<Msg>(
     widget: &dyn Widget<Msg>,
     id: WidgetId,
     runtime: &Runtime,
+    theme: &Theme,
 ) -> frus_layout::Style {
-    let mut style = widget.style();
+    // The theme's say on size and spacing (milestone 309), before the runtime's
+    // animated overrides below — an animation in flight wins over a resting default.
+    let mut style = widget.style_themed(theme);
     if widget.anim_size().is_some() {
         if let Some(size) = runtime.anim_size(id) {
             style.width = frus_layout::Dimension::Length(size.width);
@@ -643,15 +646,21 @@ pub(crate) fn build_layout<Msg>(
     widget: &dyn Widget<Msg>,
     id: WidgetId,
     runtime: &Runtime,
+    theme: &Theme,
     layout: &mut Layout<()>,
 ) -> NodeId {
     // `RotatedBox`: a leaf whose box is the child's **natural** size, with its dimensions
     // **swapped** for an odd quarter turn (the rotation does affect layout). The child itself
     // is laid out separately (at render time).
     if let Some(q) = widget.rotated_quarter_turns() {
-        let mut style = effective_style(widget, id, runtime);
+        let mut style = effective_style(widget, id, runtime, theme);
         if let Some(child) = widget.children().first() {
-            let nat = natural_size(child.as_ref(), child_id(id, 0, child.as_ref()), runtime);
+            let nat = natural_size(
+                child.as_ref(),
+                child_id(id, 0, child.as_ref()),
+                runtime,
+                theme,
+            );
             let (w, h) = if q.rem_euclid(4) % 2 != 0 {
                 (nat.height, nat.width)
             } else {
@@ -667,11 +676,11 @@ pub(crate) fn build_layout<Msg>(
     // written into this node's style as a length — the same trick `RotatedBox` uses, except
     // that here the child stays inside, laid out normally within the size it asked for.
     if let Some((axis, step)) = widget.intrinsic() {
-        let mut style = effective_style(widget, id, runtime);
+        let mut style = effective_style(widget, id, runtime, theme);
         if let Some(child) = widget.children().first() {
             let child = child.as_ref();
             let cid = child_id(id, 0, child);
-            let nat = natural_size(child, cid, runtime);
+            let nat = natural_size(child, cid, runtime, theme);
             let quantise = |extent: f32| match step {
                 Some(step) if step > 0.0 => (extent / step).ceil() * step,
                 _ => extent,
@@ -684,7 +693,7 @@ pub(crate) fn build_layout<Msg>(
                     style.height = frus_layout::Dimension::Length(quantise(nat.height));
                 }
             }
-            let node = build_layout(child, cid, runtime, layout);
+            let node = build_layout(child, cid, runtime, theme, layout);
             return layout.container(style, &[node]);
         }
         return layout.leaf(style, ());
@@ -693,7 +702,7 @@ pub(crate) fn build_layout<Msg>(
     // its own. That separation is the whole feature — a child sharing this node's layout
     // could never be bigger than it.
     if widget.overflow_box().is_some() {
-        return layout.leaf(effective_style(widget, id, runtime), ());
+        return layout.leaf(effective_style(widget, id, runtime, theme), ());
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
@@ -707,22 +716,22 @@ pub(crate) fn build_layout<Msg>(
         || widget.layout_builder().is_some()
         || widget.stack()
     {
-        return layout.leaf(effective_style(widget, id, runtime), ());
+        return layout.leaf(effective_style(widget, id, runtime, theme), ());
     }
     // A portal only lays out its anchor (child 0); the overlay is deferred.
     if widget.overlay().is_some() {
         let anchor_w = widget.children()[0].as_ref();
-        let anchor = build_layout(anchor_w, child_id(id, 0, anchor_w), runtime, layout);
-        return layout.container(effective_style(widget, id, runtime), &[anchor]);
+        let anchor = build_layout(anchor_w, child_id(id, 0, anchor_w), runtime, theme, layout);
+        return layout.container(effective_style(widget, id, runtime, theme), &[anchor]);
     }
     let children = widget.children();
     if children.is_empty() {
         // A leaf measured under constraints (a paragraph that wraps…): taffy calls the
         // closure during the computation.
         if let Some(measure) = widget.measure() {
-            return layout.measured_leaf(effective_style(widget, id, runtime), (), measure);
+            return layout.measured_leaf(effective_style(widget, id, runtime, theme), (), measure);
         }
-        layout.leaf(effective_style(widget, id, runtime), ())
+        layout.leaf(effective_style(widget, id, runtime, theme), ())
     } else {
         let child_ids: Vec<NodeId> = children
             .iter()
@@ -732,20 +741,26 @@ pub(crate) fn build_layout<Msg>(
                     child.as_ref(),
                     child_id(id, i, child.as_ref()),
                     runtime,
+                    theme,
                     layout,
                 )
             })
             .collect();
-        layout.container(effective_style(widget, id, runtime), &child_ids)
+        layout.container(effective_style(widget, id, runtime, theme), &child_ids)
     }
 }
 
 /// **Natural** (intrinsic) size of a subtree: laid out under free axes (`MaxContent`), with
 /// no imposed constraint. Used by `RotatedBox` (the dimensions to swap) and — at render time
 /// — by `FittedBox` (the fit factor).
-pub(crate) fn natural_size<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime) -> Size {
+pub(crate) fn natural_size<Msg>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+    theme: &Theme,
+) -> Size {
     let mut layout = Layout::new();
-    let node = build_layout(widget, id, runtime, &mut layout);
+    let node = build_layout(widget, id, runtime, theme, &mut layout);
     layout.compute_scroll(node, 0.0, 0.0, true, true);
     layout
         .absolute_rects(node)
@@ -832,11 +847,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// and the margins flip — without touching the widgets. The text itself is drawn
     /// normally inside its moved box (the *internal* bidi is handled by cosmic-text).
     fn cached_rects(&self, key: WidgetId, root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
-        let mut rects = self
-            .runtime
-            .layout_cache
-            .borrow_mut()
-            .rects(key, root, self.runtime, c);
+        let mut rects =
+            self.runtime
+                .layout_cache
+                .borrow_mut()
+                .rects(key, root, self.runtime, self.theme, c);
         self.mirror(&mut rects);
         rects
     }
@@ -2106,7 +2121,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             };
             let align = geo.resolve(direction);
             let child = rects[child_index];
-            let pad = effective_style(widget, id, self.runtime).padding;
+            let pad = effective_style(widget, id, self.runtime, self.theme).padding;
             let free_w = (container.width - pad.left - pad.right - child.width).max(0.0);
             let free_h = (container.height - pad.top - pad.bottom - child.height).max(0.0);
             // In RTL, taffy lays the child out on the left and `mirror` has sent it back to
@@ -2544,6 +2559,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         WidgetId::ROOT,
         root,
         runtime,
+        theme,
         Constraints::definite(available),
     );
 

@@ -15,6 +15,9 @@ pub const CARD_MARGIN: f32 = 4.0;
 /// not a blur radius: [`Card::elevation`] says how far off the surface the card sits,
 /// and the shadow is derived from it.
 pub const CARD_ELEVATION: f32 = 1.0;
+/// The room a card leaves **inside** itself by default. An addition of this framework:
+/// the reference's card has no padding and leaves it to the content.
+pub const CARD_PADDING: f32 = 16.0;
 
 /// Which of the three cards this is.
 ///
@@ -48,8 +51,10 @@ pub enum CardVariant {
 /// Everything here is a **default**, not a rule: the colour, the rounding, the depth,
 /// the margin and the padding are all the caller's to set.
 pub struct Card<Msg> {
-    variant: CardVariant,
-    padding: f32,
+    /// `None` = the theme's, then [`CardVariant::Elevated`].
+    variant: Option<CardVariant>,
+    /// `None` = the theme's, then 16.
+    padding: Option<f32>,
     /// `None` = [`CARD_MARGIN`].
     margin: Option<f32>,
     /// `None` = [`CARD_ELEVATION`] for an elevated card, and no shadow for the others.
@@ -65,8 +70,8 @@ impl<Msg> Card<Msg> {
     /// Creates an elevated card, with a default padding of 16.
     pub fn new() -> Self {
         Self {
-            variant: CardVariant::Elevated,
-            padding: 16.0,
+            variant: None,
+            padding: None,
             margin: None,
             elevation: None,
             color: None,
@@ -77,7 +82,7 @@ impl<Msg> Card<Msg> {
 
     /// Chooses the variant.
     pub fn variant(mut self, variant: CardVariant) -> Self {
-        self.variant = variant;
+        self.variant = Some(variant);
         self
     }
 
@@ -95,7 +100,7 @@ impl<Msg> Card<Msg> {
     /// reference's card has none and leaves it to the content — kept because a card
     /// whose text touches its own edge is the more common mistake.
     pub fn padding(mut self, padding: f32) -> Self {
-        self.padding = padding;
+        self.padding = Some(padding);
         self
     }
 
@@ -132,24 +137,36 @@ impl<Msg> Card<Msg> {
         self
     }
 
-    /// The depth actually used: what was asked for, or the variant's own.
-    fn depth(&self) -> f32 {
-        self.elevation.unwrap_or(match self.variant {
-            CardVariant::Elevated => CARD_ELEVATION,
-            CardVariant::Filled | CardVariant::Outlined => 0.0,
-        })
+    /// Which of the three this is: what was asked for, then the theme's, then elevated.
+    fn kind(&self, theme: Option<&Theme>) -> CardVariant {
+        self.variant
+            .or_else(|| theme.and_then(|t| t.widgets.card.variant))
+            .unwrap_or_default()
+    }
+
+    /// The depth actually used: what was asked for, then the theme's, then the
+    /// variant's own.
+    fn depth(&self, theme: &Theme) -> f32 {
+        self.elevation
+            .or(theme.widgets.card.elevation)
+            .unwrap_or(match self.kind(Some(theme)) {
+                CardVariant::Elevated => CARD_ELEVATION,
+                CardVariant::Filled | CardVariant::Outlined => 0.0,
+            })
     }
 
     /// The background actually used.
     fn background(&self, theme: &Theme) -> Color {
-        self.color.unwrap_or(match self.variant {
-            // The reference reaches for a *lower* container tone than this scheme
-            // carries; `surface_container` is the nearest it has, and the one an
-            // elevated card wants to sit slightly above the page in.
-            CardVariant::Elevated => theme.scheme.surface_container,
-            CardVariant::Filled => theme.scheme.surface_container_high,
-            CardVariant::Outlined => theme.scheme.surface,
-        })
+        self.color
+            .or(theme.widgets.card.color)
+            .unwrap_or(match self.kind(Some(theme)) {
+                // The reference reaches for a *lower* container tone than this scheme
+                // carries; `surface_container` is the nearest it has, and the one an
+                // elevated card wants to sit slightly above the page in.
+                CardVariant::Elevated => theme.scheme.surface_container,
+                CardVariant::Filled => theme.scheme.surface_container_high,
+                CardVariant::Outlined => theme.scheme.surface,
+            })
     }
 }
 
@@ -159,11 +176,36 @@ impl<Msg> Default for Card<Msg> {
     }
 }
 
+impl<Msg> Card<Msg> {
+    /// The two spacings, resolved together: caller, then theme, then ours.
+    fn spacing(&self, theme: Option<&Theme>) -> (f32, f32) {
+        let padding = self
+            .padding
+            .or_else(|| theme.and_then(|t| t.widgets.card.padding))
+            .unwrap_or(CARD_PADDING);
+        let margin = self
+            .margin
+            .or_else(|| theme.and_then(|t| t.widgets.card.margin))
+            .unwrap_or(CARD_MARGIN);
+        (padding, margin)
+    }
+}
+
 impl<Msg> Widget<Msg> for Card<Msg> {
     fn style(&self) -> Style {
+        let (padding, margin) = self.spacing(None);
         Style {
-            padding: Insets::uniform(self.padding),
-            margin: Insets::uniform(self.margin.unwrap_or(CARD_MARGIN)),
+            padding: Insets::uniform(padding),
+            margin: Insets::uniform(margin),
+            ..Default::default()
+        }
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        let (padding, margin) = self.spacing(Some(theme));
+        Style {
+            padding: Insets::uniform(padding),
+            margin: Insets::uniform(margin),
             ..Default::default()
         }
     }
@@ -174,8 +216,11 @@ impl<Msg> Widget<Msg> for Card<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let radius = self.radius.unwrap_or_else(|| theme.radius.into());
-        let depth = self.depth();
+        let radius = self
+            .radius
+            .or(theme.widgets.card.radius)
+            .unwrap_or_else(|| theme.radius.into());
+        let depth = self.depth(theme);
 
         // The shadow, when the card is off the surface at all. The blur grows with the
         // depth and the drop is half of it: a card 1 px up casts a tight shadow under
@@ -197,7 +242,7 @@ impl<Msg> Widget<Msg> for Card<Msg> {
 
         // The outline belongs to exactly one of the three. A shadow *and* a hairline is
         // the mash-up this widget used to be.
-        let border = if self.variant == CardVariant::Outlined {
+        let border = if self.kind(Some(theme)) == CardVariant::Outlined {
             (1.0, theme.scheme.outline_variant.fade(o))
         } else {
             (0.0, Color::TRANSPARENT)

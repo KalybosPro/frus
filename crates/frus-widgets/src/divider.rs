@@ -32,8 +32,10 @@ pub struct Divider {
     height: Option<f32>,
     /// `None` = [`DIVIDER_THICKNESS`].
     thickness: Option<f32>,
-    indent: f32,
-    end_indent: f32,
+    /// `None` = the theme's, then none.
+    indent: Option<f32>,
+    /// `None` = the theme's, then none.
+    end_indent: Option<f32>,
     /// `None` = the theme's discreet outline.
     color: Option<Color>,
 }
@@ -44,8 +46,8 @@ impl Divider {
         Self {
             height: None,
             thickness: None,
-            indent: 0.0,
-            end_indent: 0.0,
+            indent: None,
+            end_indent: None,
             color: None,
         }
     }
@@ -66,13 +68,13 @@ impl Divider {
     /// Insets the line from the **leading** edge, leaving the box where it is — how a
     /// list separates rows without cutting through their leading icons.
     pub fn indent(mut self, indent: f32) -> Self {
-        self.indent = indent;
+        self.indent = Some(indent);
         self
     }
 
     /// Insets the line from the **trailing** edge.
     pub fn end_indent(mut self, end_indent: f32) -> Self {
-        self.end_indent = end_indent;
+        self.end_indent = Some(end_indent);
         self
     }
 
@@ -89,13 +91,29 @@ impl Default for Divider {
     }
 }
 
+impl Divider {
+    /// The room it takes, resolved: what the caller said, then the theme, then ours.
+    fn space(&self, theme: Option<&Theme>) -> f32 {
+        self.height
+            .or_else(|| theme.and_then(|t| t.widgets.divider.height))
+            .unwrap_or(DIVIDER_SPACE)
+    }
+}
+
 impl<Msg> Widget<Msg> for Divider {
     fn style(&self) -> Style {
         Style {
             // Automatic width: the parent stretches it (align: stretch).
             width: Dimension::Auto,
-            height: Dimension::Length(self.height.unwrap_or(DIVIDER_SPACE)),
+            height: Dimension::Length(self.space(None)),
             ..Default::default()
+        }
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        Style {
+            height: Dimension::Length(self.space(Some(theme))),
+            ..Widget::<Msg>::style(self)
         }
     }
 
@@ -104,19 +122,28 @@ impl<Msg> Widget<Msg> for Divider {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let color = self.color.unwrap_or(theme.scheme.outline_variant);
+        let color = self
+            .color
+            .or(theme.widgets.divider.color)
+            .unwrap_or(theme.scheme.outline_variant);
         // The line is centred in the box: the space above and below it is the point of
         // the box being taller than the line. It never draws thicker than its box.
         let thickness = self
             .thickness
+            .or(theme.widgets.divider.thickness)
             .unwrap_or(DIVIDER_THICKNESS)
             .min(bounds.height);
-        let width = (bounds.width - self.indent - self.end_indent).max(0.0);
+        let indent = self.indent.or(theme.widgets.divider.indent).unwrap_or(0.0);
+        let end_indent = self
+            .end_indent
+            .or(theme.widgets.divider.end_indent)
+            .unwrap_or(0.0);
+        let width = (bounds.width - indent - end_indent).max(0.0);
         if width <= 0.0 || thickness <= 0.0 {
             return;
         }
         let line = Rect::new(
-            bounds.x + self.indent,
+            bounds.x + indent,
             bounds.y + (bounds.height - thickness) / 2.0,
             width,
             thickness,

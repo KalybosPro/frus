@@ -102,10 +102,11 @@ impl LayoutCache {
         key: WidgetId,
         root: &dyn Widget<Msg>,
         runtime: &Runtime,
+        theme: &crate::theme::Theme,
         c: Constraints,
     ) -> Vec<Rect> {
         self.touched.insert(key);
-        let signature = layout_signature(root, key, runtime);
+        let signature = layout_signature(root, key, runtime, theme);
         if let Some(entry) = self.entries.get(&key) {
             if entry.signature == signature && entry.constraints == c {
                 self.hits += 1;
@@ -113,7 +114,7 @@ impl LayoutCache {
             }
         }
         self.misses += 1;
-        let rects = compute_rects(root, key, runtime, c);
+        let rects = compute_rects(root, key, runtime, theme, c);
         self.entries.insert(
             key,
             Entry {
@@ -148,10 +149,11 @@ fn compute_rects<Msg>(
     root: &dyn Widget<Msg>,
     key: WidgetId,
     runtime: &Runtime,
+    theme: &crate::theme::Theme,
     c: Constraints,
 ) -> Vec<Rect> {
     let mut layout = frus_layout::Layout::new();
-    let node = build_layout(root, key, runtime, &mut layout);
+    let node = build_layout(root, key, runtime, theme, &mut layout);
     // `compute_scroll(_, _, false, false)` is equivalent to `compute` (both axes
     // `Definite`): a single path covers both cases.
     if c.fill {
@@ -174,9 +176,10 @@ pub(crate) fn layout_signature<Msg>(
     root: &dyn Widget<Msg>,
     id: WidgetId,
     runtime: &Runtime,
+    theme: &crate::theme::Theme,
 ) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hash_node(root, id, runtime, &mut hasher);
+    hash_node(root, id, runtime, theme, &mut hasher);
     hasher.finish()
 }
 
@@ -184,6 +187,7 @@ fn hash_node<Msg, H: Hasher>(
     widget: &dyn Widget<Msg>,
     id: WidgetId,
     runtime: &Runtime,
+    theme: &crate::theme::Theme,
     hasher: &mut H,
 ) {
     // These branches must stay aligned with `build_layout`: the shape of the taffy
@@ -196,12 +200,13 @@ fn hash_node<Msg, H: Hasher>(
     if let Some(q) = widget.rotated_quarter_turns() {
         4u8.hash(hasher);
         q.hash(hasher);
-        effective_style(widget, id, runtime).layout_hash(hasher);
+        effective_style(widget, id, runtime, theme).layout_hash(hasher);
         if let Some(child) = widget.children().first() {
             hash_node(
                 child.as_ref(),
                 child_id(id, 0, child.as_ref()),
                 runtime,
+                theme,
                 hasher,
             );
         }
@@ -218,19 +223,19 @@ fn hash_node<Msg, H: Hasher>(
         || widget.stack()
     {
         1u8.hash(hasher);
-        effective_style(widget, id, runtime).layout_hash(hasher);
+        effective_style(widget, id, runtime, theme).layout_hash(hasher);
         return;
     }
     if widget.overlay().is_some() {
         2u8.hash(hasher);
-        effective_style(widget, id, runtime).layout_hash(hasher);
+        effective_style(widget, id, runtime, theme).layout_hash(hasher);
         let anchor = widget.children()[0].as_ref();
-        hash_node(anchor, child_id(id, 0, anchor), runtime, hasher);
+        hash_node(anchor, child_id(id, 0, anchor), runtime, theme, hasher);
         return;
     }
     let children = widget.children();
     3u8.hash(hasher);
-    effective_style(widget, id, runtime).layout_hash(hasher);
+    effective_style(widget, id, runtime, theme).layout_hash(hasher);
     // A measured leaf: its **content** (text…) affects the geometry without going
     // through the style — without this fingerprint, two different contents would
     // be conflated and the cache would keep an old layout.
@@ -241,6 +246,7 @@ fn hash_node<Msg, H: Hasher>(
             child.as_ref(),
             child_id(id, i, child.as_ref()),
             runtime,
+            theme,
             hasher,
         );
     }
@@ -252,7 +258,12 @@ mod tests {
     use crate::{Container, Flex};
 
     fn sig<Msg>(w: &dyn Widget<Msg>) -> u64 {
-        layout_signature(w, WidgetId::ROOT, &Runtime::default())
+        layout_signature(
+            w,
+            WidgetId::ROOT,
+            &Runtime::default(),
+            &crate::theme::Theme::default(),
+        )
     }
 
     #[test]
@@ -284,8 +295,8 @@ mod tests {
         let c = Constraints::definite(Size::new(200.0, 100.0));
 
         let tree: Container<()> = Container::new().width(200.0).height(100.0);
-        let first = cache.rects(key, &tree, &rt, c);
-        let second = cache.rects(key, &tree, &rt, c);
+        let first = cache.rects(key, &tree, &rt, &crate::theme::Theme::default(), c);
+        let second = cache.rects(key, &tree, &rt, &crate::theme::Theme::default(), c);
         assert_eq!(first, second, "the same rectangles");
         // 1 miss (computed), then 1 hit (reused).
         assert_eq!((cache.hits, cache.misses), (1, 1));
@@ -297,16 +308,19 @@ mod tests {
         let rt = Runtime::default();
         let key = WidgetId::ROOT;
         let tree: Container<()> = Container::new();
+        let theme = crate::theme::Theme::default();
         cache.rects(
             key,
             &tree,
             &rt,
+            &theme,
             Constraints::definite(Size::new(200.0, 100.0)),
         );
         cache.rects(
             key,
             &tree,
             &rt,
+            &theme,
             Constraints::definite(Size::new(300.0, 100.0)),
         );
         assert_eq!(
@@ -322,13 +336,31 @@ mod tests {
         let rt = Runtime::default();
         let c = Constraints::definite(Size::new(10.0, 10.0));
         let tree: Container<()> = Container::new();
-        cache.rects(WidgetId::ROOT, &tree, &rt, c);
-        cache.rects(WidgetId::ROOT.child(0), &tree, &rt, c);
+        cache.rects(
+            WidgetId::ROOT,
+            &tree,
+            &rt,
+            &crate::theme::Theme::default(),
+            c,
+        );
+        cache.rects(
+            WidgetId::ROOT.child(0),
+            &tree,
+            &rt,
+            &crate::theme::Theme::default(),
+            c,
+        );
         cache.end_frame();
         assert_eq!(cache.entries.len(), 2);
 
         // Next frame: only one root touched → the other is evicted.
-        cache.rects(WidgetId::ROOT, &tree, &rt, c);
+        cache.rects(
+            WidgetId::ROOT,
+            &tree,
+            &rt,
+            &crate::theme::Theme::default(),
+            c,
+        );
         cache.end_frame();
         assert_eq!(cache.entries.len(), 1);
         assert!(cache.entries.contains_key(&WidgetId::ROOT));

@@ -492,6 +492,10 @@ impl<Msg: Clone> Widget<Msg> for DataTable<Msg> {
         self.inner.style()
     }
 
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.inner.style_themed(theme)
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         self.inner.children()
     }

@@ -52,7 +52,11 @@ const DEFAULT_ALPHA: f32 = 0.12;
 /// It is a **default**, not a rule — every widget that takes ink can hand back a colour
 /// of its own, and every one that builds on [`InkWell`] can be given one by the caller.
 pub fn default_splash(theme: &Theme) -> Color {
-    theme.scheme.on_surface.fade(DEFAULT_ALPHA)
+    theme
+        .widgets
+        .ink
+        .color
+        .unwrap_or_else(|| theme.scheme.on_surface.fade(DEFAULT_ALPHA))
 }
 
 /// What a widget declares when it takes ink: what colour to splash in, and the shape to

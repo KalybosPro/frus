@@ -41,6 +41,10 @@ impl<Msg> Widget<Msg> for Keyed<Msg> {
         self.inner.style()
     }
 
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.inner.style_themed(theme)
+    }
+
     fn debug_name(&self) -> &'static str {
         // A transparent wrapper: the inspector shows the wrapped widget.
         self.inner.debug_name()

@@ -63,7 +63,7 @@ impl<Msg> Button<Msg> {
         self
     }
 
-    /// Choisit la variante visuelle.
+    /// Chooses the visual variant.
     pub fn variant(mut self, variant: Variant) -> Self {
         self.variant = variant;
         self
@@ -169,9 +169,17 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         // primary button, dark ink on a pale secondary one. The theme's default
         // (`on_surface`) would vanish on the first and shout on the third.
         let (_, on_color, _) = self.palette(theme);
+        // The button's own `on` colour, unless the application has named one: a theme
+        // that says what ink looks like has said it for every surface, not for the
+        // plain ones only.
+        let splash = theme
+            .widgets
+            .ink
+            .color
+            .unwrap_or_else(|| on_color.fade(0.16));
         Some(
             crate::InkStyle::of(theme)
-                .color(on_color.fade(0.16))
+                .color(splash)
                 .radius(self.radius.unwrap_or_else(|| theme.radius.into())),
         )
     }

@@ -8,12 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 308 so far, each documenting the objective, the alternatives
+> record — one per step, 309 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Per-widget theme defaults** (J309). `Theme` carries `widgets: WidgetThemes` —
+  `CardTheme`, `DividerTheme`, `DrawerTheme`, `InkTheme` — so an application can say
+  *every card in this app is flat* once instead of at every call site. Resolution is the
+  reference's chain, `caller ?? theme ?? framework`; every field is an `Option` and a
+  theme that sets nothing behaves exactly as none. The theme reaches **layout** as well
+  as paint, through a new `Widget::style_themed` that defaults to `style` — a theme that
+  stopped at paint could recolour a divider but not make one thin. The relayout cache
+  fingerprints the themed style, so swapping themes recomputes geometry instead of
+  serving the old one.
 
 - **The card is three cards** (J308). `Card` had two fields — a padding and its child —
   and wrote everything else into `paint` as a literal, drawing a shadow **and** an

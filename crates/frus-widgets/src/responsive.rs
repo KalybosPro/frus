@@ -80,6 +80,13 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().map(|w| w.style()).unwrap_or_default()
     }
 
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.inner
+            .as_ref()
+            .map(|w| w.style_themed(theme))
+            .unwrap_or_default()
+    }
+
     fn debug_name(&self) -> &'static str {
         // A transparent wrapper: the inspector shows the realised widget.
         self.inner

@@ -39,8 +39,17 @@ struct DrawerPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
     /// Draws the hairline on the left edge (a drawer docked to the right).
     border_left: bool,
-    /// The panel's width in logical pixels.
-    width: f32,
+    /// The panel's width; `None` = the theme's, then [`DRAWER_WIDTH`].
+    width: Option<f32>,
+}
+
+impl<Msg> DrawerPanel<Msg> {
+    /// The width actually used: what the caller said, then the theme, then ours.
+    fn resolved_width(&self, theme: Option<&Theme>) -> f32 {
+        self.width
+            .or_else(|| theme.and_then(|t| t.widgets.drawer.width))
+            .unwrap_or(DRAWER_WIDTH)
+    }
 }
 
 impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
@@ -51,12 +60,19 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
             // `max_width: Percent(1.0)` does not fix it: the overlay layer the panel is
             // laid out in has no definite width to take a percentage of. Recorded in
             // milestone 307 rather than patched with something that does nothing.
-            width: Dimension::Length(self.width),
+            width: Dimension::Length(self.resolved_width(None)),
             // The height expands to the whole window (side placement) or to the
             // row's height (permanent mode).
             height: Dimension::Percent(1.0),
             flex_direction: FlexDirection::Column,
             ..Default::default()
+        }
+    }
+
+    fn style_themed(&self, theme: &Theme) -> Style {
+        Style {
+            width: Dimension::Length(self.resolved_width(Some(theme))),
+            ..Widget::<Msg>::style(self)
         }
     }
 
@@ -156,7 +172,7 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
             Box::new(DrawerPanel {
                 children: vec![content],
                 border_left: self.right,
-                width: self.width.unwrap_or(DRAWER_WIDTH),
+                width: self.width,
             }) as Box<dyn Widget<Msg>>
         });
 

@@ -317,6 +317,11 @@ pub struct Theme {
     /// driver mirrors the layout horizontally. Carried here (an ambient context
     /// threaded down to paint) pending a dedicated `Env` (§2).
     pub direction: TextDirection,
+    /// **Per-widget defaults**: what a widget looks like when the caller has not said,
+    /// resolved as `caller ?? theme ?? framework`. Empty by default — a theme that sets
+    /// nothing behaves exactly as if there were none. See
+    /// [`WidgetThemes`](crate::WidgetThemes).
+    pub widgets: crate::widgettheme::WidgetThemes,
 }
 
 impl Theme {
@@ -343,6 +348,7 @@ impl Theme {
             radius: 10.0,
             spacing: 8.0,
             direction: TextDirection::Ltr,
+            widgets: crate::widgettheme::WidgetThemes::default(),
         }
     }
 

@@ -500,6 +500,22 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The widget's style **once the theme has had its say** — the layout half of the
+    /// `caller ?? theme ?? framework` chain.
+    ///
+    /// Defaults to [`Widget::style`], which is what almost every widget wants: only the
+    /// ones whose *size or spacing* a theme can set need to override this. It exists
+    /// because `style` has no theme and cannot be given one without touching every
+    /// implementation; a theme that could only reach `paint` would be able to recolour a
+    /// divider but not make one thin, which is the setting an application actually asks
+    /// for (milestone 309).
+    ///
+    /// A **transparent wrapper must forward this** alongside `style`, or its child's
+    /// themed size is silently dropped for the unthemed one.
+    fn style_themed(&self, _theme: &Theme) -> Style {
+        self.style()
+    }
+
     /// If the widget takes **ink** — the splash a tap leaves on a material surface —
     /// the shape and colour to splash in. `None` = no ink, which is the default: a
     /// widget has to ask.
@@ -638,6 +654,9 @@ pub(crate) fn short_type_name<T: ?Sized>() -> &'static str {
 impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn style(&self) -> Style {
         (**self).style()
+    }
+    fn style_themed(&self, theme: &Theme) -> Style {
+        (**self).style_themed(theme)
     }
     fn debug_name(&self) -> &'static str {
         (**self).debug_name()

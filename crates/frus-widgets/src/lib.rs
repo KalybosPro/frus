@@ -112,6 +112,7 @@ mod tree;
 mod twopane;
 mod ui;
 mod widget;
+mod widgettheme;
 
 pub use alert::{Alert, AlertKind};
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
@@ -229,6 +230,7 @@ pub use ui::{
     FocusDirection, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, ReorderAxis, Widget};
+pub use widgettheme::{CardTheme, DividerTheme, DrawerTheme, InkTheme, WidgetThemes};
 
 // Convenience re-exports for callers.
 pub use frus_core::{

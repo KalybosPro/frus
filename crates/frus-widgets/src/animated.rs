@@ -28,6 +28,9 @@ macro_rules! forward_to_container {
             fn style(&self) -> Style {
                 Widget::style(&self.inner)
             }
+            fn style_themed(&self, theme: &Theme) -> Style {
+                Widget::style_themed(&self.inner, theme)
+            }
             fn children(&self) -> &[Box<dyn Widget<Msg>>] {
                 Widget::children(&self.inner)
             }
