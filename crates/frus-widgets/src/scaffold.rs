@@ -3,7 +3,7 @@
 //!
 //! The developer declares **slots** (app bar, body, navigation, drawer, FAB, modal
 //! sheet); the Scaffold assembles them correctly — the **app bar pinned** at the
-//! top, a **scrolling body** in the middle, **navigation** in a bottom bar (or a
+//! top, the **body** filling the middle, **navigation** in a bottom bar (or a
 //! rail, if one is asked for), all of it **respecting the safe area**
 //! (system insets). One piece of code, with no branching on mobile vs desktop.
 //!
@@ -12,7 +12,7 @@
 //!     .window_insets(app.insets)             // system bars **and** the keyboard
 //!     .background(theme.background)
 //!     .app_bar(appbar)                       // pinned at the top
-//!     .body(content)                         // scrolls
+//!     .body(content)                         // fills what the bars leave
 //!     .nav(app.section, Msg::SetSection)     // destinations, in a bottom bar
 //!     .destination("✔", "Tasks").badge(3)
 //!     .destination("▦", "Stats")
@@ -27,11 +27,20 @@
 //!
 //! **What the body is given, and what it is given under.** By default the body gets
 //! what the bars leave it: it starts below the app bar, stops above the bottom bar,
-//! and is shortened by the soft keyboard so that a field at the end of a form can
-//! still be scrolled to. Each of those three is a decision a screen may reverse —
+//! and is shortened by the soft keyboard so that a field at the end of a form is not
+//! covered by it. Each of those three is a decision a screen may reverse —
 //! [`Scaffold::extend_body_behind_app_bar`], [`Scaffold::extend_body`] and
 //! [`Scaffold::resize_to_avoid_bottom_inset`] — and none of them lets content sit
 //! under the system's own bars, which are not the application's to spend.
+//!
+//! **The body does not scroll.** It is placed in the room the bars leave and that is
+//! all; a screen that needs to scroll puts a scrolling widget in the body, and picks
+//! which one. That is not a limitation the shell happens to have — it is the whole
+//! decision. A shell that scrolls everything decides for every screen at once: a
+//! centred empty state cannot be centred any more, a screen with its own list ends up
+//! with a scroller inside a scroller, and a screen with nothing to scroll still
+//! reports itself scrollable to the gesture arena. Scrolling is a property of the
+//! content, and the content is the screen's.
 
 use frus_core::{Color, Insets, WindowInsets};
 use frus_layout::Justify;
@@ -41,7 +50,6 @@ use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
 use crate::navrail::{BottomBar, NavRail, BAR_HEIGHT, RAIL_WIDTH};
-use crate::scroll::Scroll;
 use crate::stack::Stack;
 use crate::widget::Widget;
 
@@ -249,7 +257,18 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// The screen's body: it **scrolls** in the space between the bars.
+    /// The screen's body: it **fills** the space between the bars.
+    ///
+    /// It does **not** scroll. A body that may be taller than the room it is given
+    /// goes inside a scrolling widget the screen chooses — [`Scroll`](crate::Scroll)
+    /// for a page that occasionally overflows, [`List`](crate::List) for a long one:
+    ///
+    /// ```ignore
+    /// .body(Scroll::new().flex(1.0).child(form))
+    /// ```
+    ///
+    /// Left plain, the body is positioned at the top of that room, so a body that
+    /// wants all of it says so — `.flex(1.0)`, or a `Flex` that centres its content.
     pub fn body(mut self, widget: impl Widget<Msg> + 'static) -> Self {
         self.body = Some(Box::new(widget));
         self
@@ -506,8 +525,11 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             insets.bottom
         };
 
-        // A scrolling body, with the side insets applied to its content.
-        let scroll_body = Scroll::new().flex(1.0).child(inset_pad(
+        // The body: given the room the bars leave, with the side insets applied to its
+        // content, and **not** wrapped in a scroller. A pane rather than a viewport —
+        // whether this screen scrolls is the screen's to say, and it says it by what it
+        // puts here.
+        let body_pane = Flex::column().flex(1.0).child(inset_pad(
             body_widget,
             0.0,
             insets.right,
@@ -517,9 +539,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
         // Whether the bottom clearance falls to the body. With a bar or a footer below
         // it, they hold the edge off; alone — or with the body told to run under them —
-        // it is on the body, and it is the **viewport** that must shrink, not the
-        // content that must be padded: a field at the bottom of a form has to be
-        // scrolled to, not merely followed by empty space under the keyboard.
+        // it is on the body, and it is taken as a **sibling** rather than as padding
+        // inside it: the room the body is given shrinks, so a scrolling body scrolls
+        // within what is left instead of running under the keyboard.
         // A rail is beside the body, not beneath it, so it holds nothing off the edge.
         let bar_below_body = has_nav && !rail_nav;
         let body_owns_bottom = !extend_body && footer.is_none() && !bar_below_body;
@@ -552,7 +574,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                     col = col.child(app_bar_pad(bar, insets.left));
                 }
             }
-            col = col.child(scroll_body);
+            col = col.child(body_pane);
             if body_spacer {
                 col = col.child(Container::new().height(bottom_clear));
             }
@@ -578,7 +600,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                     content = content.child(app_bar_pad(bar, 0.0));
                 }
             }
-            content = content.child(scroll_body);
+            content = content.child(body_pane);
             if body_spacer {
                 content = content.child(Container::new().height(bottom_clear));
             }
@@ -798,9 +820,20 @@ mod tests {
         Container::new().height(height).color(MARK)
     }
 
+    /// A body that **fills** the room it is given, which is how that room is measured.
+    ///
+    /// Before milestone 321 these tests passed an over-tall block and read the *clip*
+    /// instead: the body was wrapped in a scroller, so what showed of an oversized block
+    /// was the viewport. Now that the scaffold places the body rather than scrolling it,
+    /// nothing clips, and an over-tall block would simply paint past the bottom of the
+    /// screen and measure nothing. Asking to fill is both the honest measurement and the
+    /// documented way for a body to take all of its room.
+    fn filling<M: Clone + 'static>() -> Container<M> {
+        Container::new().flex(1.0).color(MARK)
+    }
+
     /// Every marked rectangle in the assembled scaffold, top to bottom, **as seen**:
-    /// clipped to the box it was drawn in. A body taller than its viewport is exactly
-    /// how its viewport gets measured.
+    /// clipped to the box it was drawn in.
     fn marks(scaffold: Box<dyn Widget<Msg>>) -> Vec<frus_core::Rect> {
         let ui = build_ui(
             scaffold.as_ref(),
@@ -838,7 +871,7 @@ mod tests {
         let lifted = marks(
             Scaffold::new(W, H)
                 .window_insets(keyboard_up())
-                .body(marked(2000.0))
+                .body(filling())
                 .build(),
         );
         assert_eq!(lifted.len(), 1);
@@ -852,7 +885,7 @@ mod tests {
             Scaffold::new(W, H)
                 .window_insets(keyboard_up())
                 .resize_to_avoid_bottom_inset(false)
-                .body(marked(2000.0))
+                .body(filling())
                 .build(),
         );
         // Declined: only the permanent bottom bar is kept clear, the keyboard covers.
@@ -863,6 +896,47 @@ mod tests {
         );
     }
 
+    /// Whether the finger finds anything to scroll, asked of the registry the gesture
+    /// arena actually consults.
+    fn scrollable_under_the_middle(scaffold: Box<dyn Widget<Msg>>) -> bool {
+        build_ui(
+            scaffold.as_ref(),
+            Size::new(W, H),
+            &Runtime::default(),
+            &Theme::default(),
+        )
+        .scroll_hit(frus_core::Point::new(W / 2.0, H / 2.0))
+        .is_some()
+    }
+
+    /// **The body is not a scroller.** A screen with nothing to scroll must offer the
+    /// gesture arena nothing to scroll, and a screen that wants to scroll says so.
+    ///
+    /// This is the test the device asked for. A shell that wrapped every body registered
+    /// a scrollable area on every screen, so a page whose content fitted still answered
+    /// the finger — and, before milestone 316 taught the arena to decline, still lit an
+    /// end-of-list glow on a page that had no end to reach. Fixing the arena stopped the
+    /// glow; this stops the phantom scroller that fed it.
+    #[test]
+    fn a_body_that_does_not_ask_to_scroll_is_not_scrollable() {
+        assert!(
+            !scrollable_under_the_middle(Scaffold::new(W, H).body(filling()).build()),
+            "a plain body must not register a scrollable area"
+        );
+        assert!(
+            !scrollable_under_the_middle(Scaffold::new(W, H).body(marked(2000.0)).build()),
+            "not even one taller than the screen — overflowing is not the same as scrolling"
+        );
+        assert!(
+            scrollable_under_the_middle(
+                Scaffold::new(W, H)
+                    .body(crate::Scroll::new().flex(1.0).child(marked::<Msg>(2000.0)))
+                    .build()
+            ),
+            "and a body that asks for a scroller gets one"
+        );
+    }
+
     /// Without a bottom bar or a footer, the body itself must clear the system bar —
     /// there is nobody else below it to do it.
     #[test]
@@ -870,7 +944,7 @@ mod tests {
         let body = marks(
             Scaffold::new(W, H)
                 .insets(Insets::new(40.0, 0.0, 30.0, 0.0))
-                .body(marked(2000.0))
+                .body(filling())
                 .build(),
         );
         assert!(
@@ -886,7 +960,7 @@ mod tests {
     fn an_extended_body_runs_under_the_bottom_bar() {
         let stops = marks(
             Scaffold::new(W, H)
-                .body(marked(2000.0))
+                .body(filling())
                 .nav(0, Msg::Go)
                 .destination("H", "Home")
                 .build(),
@@ -894,7 +968,7 @@ mod tests {
         let runs_under = marks(
             Scaffold::new(W, H)
                 .extend_body(true)
-                .body(marked(2000.0))
+                .body(filling())
                 .nav(0, Msg::Go)
                 .destination("H", "Home")
                 .build(),
@@ -946,7 +1020,7 @@ mod tests {
     fn the_persistent_footer_sits_between_the_body_and_the_bar() {
         let rects = marks(
             Scaffold::new(W, H)
-                .body(marked(2000.0))
+                .body(filling())
                 .persistent_footer(marked::<Msg>(40.0).width(100.0))
                 .nav(0, Msg::Go)
                 .destination("H", "Home")

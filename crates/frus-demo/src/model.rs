@@ -145,7 +145,7 @@ pub(crate) struct TodoApp {
     pub(crate) info_open: bool,
     /// What is typed in the autocomplete (a demo).
     pub(crate) tag_draft: String,
-    /// Section active de l'accueil (0 = Tasks, 1 = Stats, 2 = About) — NavScaffold.
+    /// The active section of the home screen (0 = Tasks, 1 = Stats, 2 = About).
     pub(crate) section: usize,
     /// The metric selected in the Stats section (a master-detail TwoPane).
     pub(crate) stat_sel: usize,

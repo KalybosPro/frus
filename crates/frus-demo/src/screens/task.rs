@@ -45,7 +45,17 @@ pub(crate) fn task_screen(
     Scaffold::new(width, height)
         .background(theme.background)
         .app_bar(NavBar::new("Task").on_back(Msg::Pop))
-        .body(Container::new().width(width).padding(24.0).child(body))
+        // No scroller: this screen's content is centred in whatever room it is given, so
+        // it wants the **whole** of that room and nothing more. `flex(1.0)` is how a body
+        // asks to fill, now that the Scaffold places it rather than expanding it
+        // (milestone 321) — without it the centring would have nothing to centre within.
+        .body(
+            Container::new()
+                .width(width)
+                .flex(1.0)
+                .padding(24.0)
+                .child(body),
+        )
         .bottom_app_bar(
             // Unfilled actions, as a bottom app bar carries: icons and words, not
             // filled buttons. Also the only thing that works today — see the renderer

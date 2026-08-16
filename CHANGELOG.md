@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 320 so far, each documenting the objective, the alternatives
+> record — one per step, 321 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -39,6 +39,18 @@ any release may break.
   type, the background, the foreground, the elevation and the height.
 
 ### Changed
+
+- **`Scaffold` no longer scrolls the body** (J321). **Breaking.** Every body was wrapped
+  in a `Scroll`, so every screen scrolled whether or not it had anything to scroll, with
+  no way to say otherwise. Scrolling comes from a widget the screen chooses — the
+  reference's own body documentation says *consider using a `ListView`*, and consider is
+  the whole point. That wrapper is what gave the home page a scrollable to light an
+  end-of-list glow on in the first place; milestone 316 stopped it acting, this removes
+  it. A body is now placed loose and top-aligned in the room the bars leave it: **a body
+  that wants all of that room says `.flex(1.0)`**, and a body that may overflow goes
+  inside a `Scroll` or a `List`. The keyboard, the safe area, `extend_body` and
+  `extend_body_behind_app_bar` are unchanged — the bottom clearance is simply a sibling of
+  the body now rather than padding inside a viewport.
 
 - **The application bar is a fixed height** (J318). `AppBar` sized itself to whatever was
   in it, so a bar with two actions was taller than one without: every screen a slightly

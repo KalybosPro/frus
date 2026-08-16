@@ -249,11 +249,15 @@ pub(crate) fn wizard_screen(
     // the **persistent footer**, so they stay put while the steps scroll and are not
     // hunted for at the end of a long form; and the body is shortened by the keyboard
     // rather than covered by it, which is the default and is what a form needs.
+    //
+    // The form itself is what scrolls, and it says so: the Scaffold places the body and
+    // does not wrap it (milestone 321). That matters most here — the footer must stay
+    // pinned while the steps move, which is exactly the split between the two slots.
     let inner = column![steps, content].gap(24.0).padding(24.0);
     Scaffold::new(width, height)
         .background(theme.background)
         .app_bar(NavBar::new("Sign-up wizard").on_back(Msg::Pop))
-        .body(inner)
+        .body(Scroll::new().flex(1.0).child(inner))
         .persistent_footer(nav)
         .build()
 }

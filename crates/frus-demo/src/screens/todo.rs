@@ -360,13 +360,19 @@ pub(crate) fn todo_screen(
     let tasks_body = column![row![card].justify(Justify::Center)].padding(24.0);
 
     // The body follows the active section (the adaptive navigation lives in the Scaffold).
+    //
+    // **Each section says whether it scrolls**, because each of the three answers
+    // differently (milestone 321: the Scaffold no longer decides this for them). Tasks
+    // grows with the list and About is a long read, so both go in a `Scroll`; Stats is a
+    // master-detail pane sized to the size class, and wrapping it would give the screen a
+    // scrollable with nothing to scroll.
     let section: Box<dyn Widget<Msg>> = match app.section {
         1 => Box::new(stats_section(app, theme, class)),
-        2 => Box::new(about_section(theme, width)),
-        _ => Box::new(tasks_body),
+        2 => Box::new(Scroll::new().flex(1.0).child(about_section(theme, width))),
+        _ => Box::new(Scroll::new().flex(1.0).child(tasks_body)),
     };
 
-    // The screen's skeleton: the Scaffold pins the top bar and the navigation, scrolls the body,
+    // The screen's skeleton: the Scaffold pins the top bar and the navigation, places the body,
     // and coordinates the drawer / sheet / FAB — a single entry point. The insets are already
     // handled by `view` (which passes safe dimensions), so the Scaffold simply pins itself inside
     // that viewport.
