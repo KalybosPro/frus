@@ -516,6 +516,30 @@ pub trait Widget<Msg> {
         self.style()
     }
 
+    /// The theme this widget imposes on **itself and its subtree**, given the one it
+    /// inherits. `None` — the default — means "whatever came down from above", which is
+    /// what every widget but [`crate::Themed`] answers.
+    ///
+    /// This is the third and last thing a theme needed to be usable: milestone 309 gave
+    /// it per-widget defaults, and this makes those defaults *scoped*. A dark panel on a
+    /// light page is one theme swapped for a subtree, not a colour written out by hand at
+    /// every call site inside it.
+    ///
+    /// It is honoured by **layout as well as paint** — the walk and the layout pass swap
+    /// the ambient theme on the way down and restore it on the way out — so a subtree
+    /// theme can change a divider's height, not only its colour. A deferred overlay
+    /// (a dialog, a drawer, a tooltip) is painted long after the walk has left the node
+    /// that declared it, so it **carries the theme it was declared under** rather than
+    /// the root's.
+    ///
+    /// Boxed because a `Theme` is a page and a half of tokens and this is asked of
+    /// **every node, every frame**: an `Option<Box<_>>` costs a word on the stack of a
+    /// recursion as deep as the tree, and the allocation happens only where a subtree
+    /// actually claims a theme.
+    fn theme_override(&self, _inherited: &Theme) -> Option<Box<Theme>> {
+        None
+    }
+
     /// If the widget takes **ink** — the splash a tap leaves on a material surface —
     /// the shape and colour to splash in. `None` = no ink, which is the default: a
     /// widget has to ask.
@@ -657,6 +681,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn style_themed(&self, theme: &Theme) -> Style {
         (**self).style_themed(theme)
+    }
+    fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
+        (**self).theme_override(inherited)
     }
     fn debug_name(&self) -> &'static str {
         (**self).debug_name()

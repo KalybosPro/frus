@@ -190,6 +190,12 @@ fn hash_node<Msg, H: Hasher>(
     theme: &crate::theme::Theme,
     hasher: &mut H,
 ) {
+    // A themed subtree, exactly as `build_layout` sees it: its styles are resolved
+    // against its own theme, so the fingerprint is taken against that one too. A
+    // fingerprint that skipped the swap would hash one geometry and the cache would
+    // store another.
+    let scoped = widget.theme_override(theme);
+    let theme = scoped.as_deref().unwrap_or(theme);
     // These branches must stay aligned with `build_layout`: the shape of the taffy
     // tree (and therefore the number and order of the rectangles) depends on it.
     // The **effective** style is hashed (animated size injected) — the same source

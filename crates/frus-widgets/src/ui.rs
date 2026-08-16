@@ -649,6 +649,12 @@ pub(crate) fn build_layout<Msg>(
     theme: &Theme,
     layout: &mut Layout<()>,
 ) -> NodeId {
+    // A themed subtree lays out under **its** theme, not the frame's: a theme reaches
+    // sizes and spacing (milestone 309), so this has to happen here and not only at paint
+    // time. `hash_node`, which fingerprints this same walk for the relayout cache, makes
+    // the same swap — the two staying in step is what keeps the cache honest.
+    let scoped = widget.theme_override(theme);
+    let theme = scoped.as_deref().unwrap_or(theme);
     // `RotatedBox`: a leaf whose box is the child's **natural** size, with its dimensions
     // **swapped** for an odd quarter turn (the rotation does affect layout). The child itself
     // is laid out separately (at render time).
@@ -770,9 +776,14 @@ pub(crate) fn natural_size<Msg>(
 }
 
 /// A deferred overlay: `(content, id, the anchor's bounds, placement, dismissal,
-/// progress 0..=1, whether it takes the pointer)`. The progress animates the
-/// appearance — a drawer sliding in, a scrim fading — and is `1.0` for overlays that
-/// are not animated.
+/// progress 0..=1, whether it takes the pointer, the theme it was declared under)`. The
+/// progress animates the appearance — a drawer sliding in, a scrim fading — and is
+/// `1.0` for overlays that are not animated.
+///
+/// The **theme travels with it** because an overlay is painted long after the walk has
+/// left the node that declared it: a dialog opened from inside a [`crate::Themed`]
+/// subtree would otherwise come out in the root's theme, which is the surprise the
+/// reference had to grow a whole mechanism to avoid.
 type Overlay<'a, Msg> = (
     &'a dyn Widget<Msg>,
     WidgetId,
@@ -781,6 +792,7 @@ type Overlay<'a, Msg> = (
     Option<Msg>,
     f32,
     bool,
+    Theme,
 );
 
 struct Builder<'a, Msg> {
@@ -807,7 +819,10 @@ struct Builder<'a, Msg> {
     wants_animation: bool,
     available: Size,
     runtime: &'a Runtime,
-    theme: &'a Theme,
+    /// The theme **in force at this point of the walk** — the root's, unless a
+    /// [`crate::Themed`] ancestor replaced it. Owned rather than borrowed because a
+    /// subtree's theme is derived from the one above it and outlives nothing.
+    theme: Theme,
     /// The inspector's collection (`Some` only while it is on): one node per painted widget,
     /// in paint order.
     inspector: Option<Vec<crate::inspector::InspectorNode>>,
@@ -830,9 +845,6 @@ struct Builder<'a, Msg> {
     refreshes: Vec<Refreshable>,
     /// The frame's dismissible items, in paint order.
     dismissables: Vec<Dismissable>,
-    /// Layout direction: in RTL, each root's rects are **mirrored** horizontally about the
-    /// root's width.
-    rtl: bool,
     /// Accessibility nodes collected during the walk (paint order).
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
 }
@@ -851,15 +863,29 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.runtime
                 .layout_cache
                 .borrow_mut()
-                .rects(key, root, self.runtime, self.theme, c);
+                .rects(key, root, self.runtime, &self.theme, c);
         self.mirror(&mut rects);
         rects
+    }
+
+    /// The layout direction **in force here** — read from the ambient theme rather than
+    /// from a field set once at the root, so a [`crate::Themed`] subtree carries its own.
+    ///
+    /// What that reaches is everything decided during the walk: which edge a drawer
+    /// slides from, which way an anchored overlay opens, the sign of a rotation, the
+    /// mirroring of any **layout root** inside the subtree (a scrollable, an overlay).
+    /// What it does not reach is ordinary flow inside the subtree: the frame's rects are
+    /// computed once at the root and mirrored there as a whole, so a direction set part
+    /// way down does not reverse the rows around it. Setting the direction on the theme
+    /// handed to `build_ui` is still the way to flip an application.
+    fn rtl(&self) -> bool {
+        self.theme.direction.is_rtl()
     }
 
     /// Mirrors a root's rects horizontally (RTL). The first rect is the root itself: its
     /// width is the axis of symmetry.
     fn mirror(&self, rects: &mut [Rect]) {
-        if !self.rtl {
+        if !self.rtl() {
             return;
         }
         let Some(root) = rects.first().copied() else {
@@ -883,7 +909,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         sub: &[Rect],
     ) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.rtl.hash(&mut h);
+        self.rtl().hash(&mut h);
         translation.0.to_bits().hash(&mut h);
         translation.1.to_bits().hash(&mut h);
         for r in sub {
@@ -1209,7 +1235,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
             let area = Refreshable { id, viewport, spec };
             if let Some(pull) = self.runtime.refresh.get(&id) {
-                crate::refresh::paint_refresh(&mut self.scene, &area, pull, self.theme, clip);
+                crate::refresh::paint_refresh(&mut self.scene, &area, pull, &self.theme, clip);
                 // A pull that is settling, spinning or fading away drives itself, so the
                 // frame after this one has to happen.
                 self.wants_animation = true;
@@ -1318,7 +1344,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 matrix = matrix.then(Affine::scale(sx, sy).about(pivot_of(pivot_align)));
             }
             if let Some((angle, pivot_align)) = rotate {
-                let angle = if self.rtl { -angle } else { angle };
+                let angle = if self.rtl() { -angle } else { angle };
                 matrix = matrix.then(Affine::rotation(angle).about(pivot_of(pivot_align)));
             }
 
@@ -1416,7 +1442,31 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.transform_interaction_registries(&base, matrix);
     }
 
+    /// Paints one node, **under the theme it asks for**. A [`crate::Themed`] replaces the
+    /// ambient theme for itself and everything below it; it is put back on the way out, so
+    /// the sibling that follows is untouched. Everything the subtree reads — its paint,
+    /// its ink, its focus ring, its layout through `cached_rects`, and any overlay it
+    /// defers — goes through this field, which is what makes one swap enough.
     fn walk_node(
+        &mut self,
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        translation: (f32, f32),
+        clip: Rect,
+        rects: &[Rect],
+        index: &mut usize,
+    ) {
+        let Some(theme) = widget.theme_override(&self.theme) else {
+            return self.walk_node_themed(widget, id, translation, clip, rects, index);
+        };
+        let outer = std::mem::replace(&mut self.theme, *theme);
+        self.walk_node_themed(widget, id, translation, clip, rects, index);
+        self.theme = outer;
+    }
+
+    /// The walk proper, with the theme already in place — split out so that no early
+    /// return inside it can skip putting the outer theme back.
+    fn walk_node_themed(
         &mut self,
         widget: &'a dyn Widget<Msg>,
         id: WidgetId,
@@ -1441,13 +1491,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // says only where it starts, and the renderer has to know what it covers to
         // order it against anything else (milestone 295).
         self.scene.set_bounds(draw_rect);
-        widget.paint(draw_rect, status, self.theme, &mut self.scene);
+        widget.paint(draw_rect, status, &self.theme, &mut self.scene);
         // A widget may have tightened the clip (TextInput, for one): it is restored here.
         self.scene.set_clip(clip);
         // The ink a tap left on this surface: over the surface's own paint, under its
         // children — where a material surface puts it. The box is recorded too, so the
         // shell can start the next splash at the right place, in the right size.
-        if let Some(style) = widget.ink(self.theme) {
+        if let Some(style) = widget.ink(&self.theme) {
             self.inks.push((id, draw_rect));
             if let Some(ripples) = self.runtime.ink.get(&id) {
                 ripples.paint(
@@ -1671,7 +1721,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 );
                 let translation = (center.x - nat.width / 2.0, center.y - nat.height / 2.0);
                 let angle = q.rem_euclid(4) as f32 * std::f32::consts::FRAC_PI_2;
-                let angle = if self.rtl { -angle } else { angle };
+                let angle = if self.rtl() { -angle } else { angle };
                 let matrix = Affine::rotation(angle).about(center);
                 self.emit_transformed_child(
                     child,
@@ -2070,6 +2120,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     widget.overlay_dismiss(),
                     progress,
                     widget.overlay_traps_focus(),
+                    self.theme,
                 ));
             }
         } else {
@@ -2114,20 +2165,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // Resolves the alignment (physical or directional) against the reading direction;
             // `resolve` produces a physical `Alignment` that the rest (with its RTL correction)
             // handles uniformly.
-            let direction = if self.rtl {
+            let direction = if self.rtl() {
                 frus_core::TextDirection::Rtl
             } else {
                 frus_core::TextDirection::Ltr
             };
             let align = geo.resolve(direction);
             let child = rects[child_index];
-            let pad = effective_style(widget, id, self.runtime, self.theme).padding;
+            let pad = effective_style(widget, id, self.runtime, &self.theme).padding;
             let free_w = (container.width - pad.left - pad.right - child.width).max(0.0);
             let free_h = (container.height - pad.top - pad.bottom - child.height).max(0.0);
             // In RTL, taffy lays the child out on the left and `mirror` has sent it back to
             // the right: the baseline is therefore already right-aligned. 1 is subtracted so
             // the fraction stays **physical** (x = +1 ⇒ the right in both directions).
-            let fx = align.fraction_x() - if self.rtl { 1.0 } else { 0.0 };
+            let fx = align.fraction_x() - if self.rtl() { 1.0 } else { 0.0 };
             off.0 += free_w * fx;
             off.1 += free_h * align.fraction_y();
         }
@@ -2136,7 +2187,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // logical +x offset ("towards the end") points left — the sign is inverted to stay
         // consistent with the reading direction.
         if let Some((tx, ty)) = widget.transform_translate() {
-            off.0 += if self.rtl { -tx } else { tx };
+            off.0 += if self.rtl() { -tx } else { tx };
             off.1 += ty;
         }
 
@@ -2238,7 +2289,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // says only where it starts, and the renderer has to know what it covers to
         // order it against anything else (milestone 295).
         self.scene.set_bounds(draw_rect);
-        widget.paint(draw_rect, status, self.theme, &mut self.scene);
+        widget.paint(draw_rect, status, &self.theme, &mut self.scene);
         self.scene.set_clip(clip);
         self.draw_focus_ring(draw_rect, &status, widget);
 
@@ -2322,9 +2373,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// everything (their clickable areas win). May spawn further overlays (nested portals).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement, dismiss, progress, traps)) =
+        while let Some((content, oid, anchor, placement, dismiss, progress, traps, theme)) =
             self.overlays.pop()
         {
+            // The theme this overlay was declared under, for the whole of its layout and
+            // painting; whatever was in force when the walk ended is put back after it,
+            // so two overlays declared under two themes do not bleed into each other.
+            let outer = std::mem::replace(&mut self.theme, theme);
             // Drawers slide along a **spring curve** (a gentle arrival), not linearly; the
             // other overlays keep their raw progress.
             let progress = if matches!(
@@ -2360,7 +2415,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let from_right = self.available.width - progress * size.width;
             // An anchored menu/tooltip: aligned to the anchor's **start** edge — in RTL that
             // edge is the right one (the menu opens leftwards).
-            let anchor_x = if self.rtl {
+            let anchor_x = if self.rtl() {
                 anchor.x + anchor.width - size.width
             } else {
                 anchor.x
@@ -2373,10 +2428,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 ),
                 Placement::Tooltip => (anchor_x, anchor.y - size.height - 6.0),
                 // `Left` = a drawer on the **start** side; in RTL, start = the right.
-                Placement::Left if self.rtl => (from_right, 0.0),
+                Placement::Left if self.rtl() => (from_right, 0.0),
                 Placement::Left => (from_left, 0.0),
                 // `Right` = the **end** side; in RTL, end = the left.
-                Placement::Right if self.rtl => (from_left, 0.0),
+                Placement::Right if self.rtl() => (from_left, 0.0),
                 Placement::Right => (from_right, 0.0),
                 // The sheet slides up from the bottom: its bottom edge stays flush with the
                 // window, offset downwards by `(1-progress)·height`.
@@ -2447,6 +2502,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
             let mut index = 0;
             self.walk(content, oid, pos, window, &rects, &mut index);
+            self.theme = outer;
         }
     }
 }
@@ -2582,7 +2638,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         wants_animation: false,
         available,
         runtime,
-        theme,
+        theme: *theme,
         inspector: inspect.then(Vec::new),
         depth: 0,
         refresh_host: None,
@@ -2590,7 +2646,6 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         heroes: Vec::new(),
         refreshes: Vec::new(),
         dismissables: Vec::new(),
-        rtl: theme.direction.is_rtl(),
         semantics: Vec::new(),
     };
     // The root is mirrored in RTL (like every layout root).

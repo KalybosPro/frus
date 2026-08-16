@@ -8,12 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 309 so far, each documenting the objective, the alternatives
+> record — one per step, 310 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A theme for one subtree** (J310). New `Themed` widget: `Themed::new(theme, child)`
+  replaces the theme wholesale for a subtree, `Themed::tweak(|t| …, child)` changes part
+  of the one it inherits. Nesting composes, outer first. It reaches **layout** as well as
+  paint — the swap happens in the layout walk and in the relayout cache's fingerprint of
+  that walk, so the two cannot disagree — and a deferred overlay (dialog, drawer, tooltip)
+  now **carries the theme it was declared under** rather than the root's. The layout
+  direction comes from the ambient theme too, which reaches everything the walk decides,
+  though not the flow of the rows around it (see the milestone note).
+
+  Transparent-wrapper forwarding became a macro rather than a second hand-written copy;
+  a test comparing it against the `Widget` trait immediately found `reorder_axis` and
+  `reorder_draggable` missing from `Keyed`, where they had always been: a keyed board card
+  dragged along the wrong axis, and a drop-only slot could be lifted. **Fixed.**
 
 - **Per-widget theme defaults** (J309). `Theme` carries `widgets: WidgetThemes` —
   `CardTheme`, `DividerTheme`, `DrawerTheme`, `InkTheme` — so an application can say
