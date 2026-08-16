@@ -6,7 +6,8 @@ use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Autocomplete, Avatar, BarChart, Button, Chip, Container, DateTimePicker, Dropdown, Flex,
-    IconName, LineChart, Menu, RangeSlider, Table, Text, TextInput, Theme, TimePicker, Variant,
+    IconName, LineChart, Menu, RangeSlider, SegmentedControl, Table, Text, TextInput, Theme,
+    TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -131,6 +132,64 @@ fn outlined_field_matches_golden() {
         "borders, labels and text are drawn"
     );
     snapshot.assert_golden(golden("outlined_field"));
+}
+
+/// **Unavailable, not merely quieter (milestone 320)**: `enabled(false)` on a chip and
+/// on a segmented control, each beside its live twin. The disabled pair **flattens** to
+/// `on_surface` at 12 % under a label at 38 % rather than fading its accent — a pale
+/// accent reads as *quietly selected*, and a grey one reads as *unavailable*. The chosen
+/// segment is still identifiable, because a disabled control is read-only, not invisible.
+#[test]
+fn disabled_controls_match_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(20.0)
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .child(Chip::<()>::new("Active").on_press(()).selected(true))
+                    .child(
+                        Chip::<()>::new("Active")
+                            .on_press(())
+                            .selected(true)
+                            .enabled(false),
+                    ),
+            )
+            .child(
+                Flex::row()
+                    .gap(12.0)
+                    .child(Chip::<()>::new("Tag").on_press(()).on_remove(()))
+                    .child(
+                        Chip::<()>::new("Tag")
+                            .on_press(())
+                            .on_remove(())
+                            .enabled(false),
+                    ),
+            )
+            .child(
+                SegmentedControl::<()>::new(1, |_| ())
+                    .segment("Day")
+                    .segment("Week")
+                    .segment("Month"),
+            )
+            .child(
+                SegmentedControl::<()>::new(1, |_| ())
+                    .segment("Day")
+                    .segment("Week")
+                    .segment("Month")
+                    .enabled(false),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 420, 260, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "chips, outlines and labels are drawn"
+    );
+    snapshot.assert_golden(golden("disabled_controls"));
 }
 
 /// **The other field (milestone 317)**: `filled` — a tinted container with a single

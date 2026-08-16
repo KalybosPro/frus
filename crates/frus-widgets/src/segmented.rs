@@ -160,6 +160,9 @@ struct Segment<Msg> {
     selected: bool,
     style: SegmentedStyle,
     message: Msg,
+    /// The control's availability. A segment is never disabled on its own here — the
+    /// reference can disable one of several, which is noted as missing.
+    enabled: bool,
 }
 
 impl<Msg> Segment<Msg> {
@@ -206,7 +209,11 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
         let o = status.opacity;
         let border = self.style.border_width(theme);
         let label_style = self.style.label_style(theme);
-        let color = self.style.label_color(theme, self.selected);
+        let color = if self.enabled {
+            self.style.label_color(theme, self.selected)
+        } else {
+            theme.scheme.on_surface.fade(0.38)
+        };
 
         // The fill sits **inside** the group's outline rather than over it: the control
         // draws one outline around the lot, and a fill painted edge to edge would rub out
@@ -220,7 +227,12 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
             );
             scene.draw_rect(
                 inset,
-                self.style.selected_color(theme).fade(o),
+                if self.enabled {
+                    self.style.selected_color(theme)
+                } else {
+                    theme.scheme.on_surface.fade(0.12)
+                }
+                .fade(o),
                 self.radius(theme),
                 0.0,
                 Color::TRANSPARENT,
@@ -261,10 +273,14 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
     }
 
     fn on_click(&self) -> Option<Msg> {
-        Some(self.message.clone())
+        self.enabled.then(|| self.message.clone())
     }
 
     fn ink(&self, theme: &Theme) -> Option<crate::InkStyle> {
+        // No splash where there is nothing to answer it.
+        if !self.enabled {
+            return None;
+        }
         let splash = self.style.label_color(theme, self.selected).fade(0.10);
         Some(
             crate::InkStyle::of(theme)
@@ -274,16 +290,20 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        Some(
-            frus_core::Semantics::new(frus_core::Role::Button)
-                .label(self.label.clone())
-                .toggled(self.selected)
-                .clickable(),
-        )
+        let semantics = frus_core::Semantics::new(frus_core::Role::Button)
+            .label(self.label.clone())
+            .toggled(self.selected);
+        // Still announced, and still saying which one is chosen: a disabled control is
+        // read-only, not invisible.
+        Some(if self.enabled {
+            semantics.clickable()
+        } else {
+            semantics.disabled(true)
+        })
     }
 }
 
@@ -292,6 +312,9 @@ pub struct SegmentedControl<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Rc<Vec<String>>,
+    /// A control that is shown but cannot be used: greyed out and inert, its labels and
+    /// its current choice still legible. The reference dims rather than hides.
+    enabled: bool,
     style: SegmentedStyle,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -303,6 +326,7 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
             selected,
             on_select: Box::new(on_select),
             labels: Rc::new(Vec::new()),
+            enabled: true,
             style: SegmentedStyle::default(),
             children: Vec::new(),
         }
@@ -378,6 +402,15 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
         self
     }
 
+    /// Greys the whole control out and makes it inert: no press, no ink, out of the tab
+    /// order, and announced as disabled. The labels and the current choice stay legible —
+    /// a disabled control is read-only, not invisible.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self.rebuild();
+        self
+    }
+
     /// Whether the chosen segment carries a checkmark. On by default; turning it off gives
     /// every segment back the room it reserved.
     pub fn show_selected_icon(mut self, show: bool) -> Self {
@@ -400,6 +433,7 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
                     selected: i == self.selected,
                     style: self.style,
                     message: (self.on_select)(i),
+                    enabled: self.enabled,
                 }) as Box<dyn Widget<Msg>>
             })
             .collect();
@@ -437,7 +471,14 @@ impl<Msg: Clone> Widget<Msg> for SegmentedControl<Msg> {
             return;
         }
         let o = status.opacity;
-        let color = self.style.border_color(theme).fade(o);
+        // Disabled flattens to `on_surface` at 12 %, as `Button` and `Chip` do: the same
+        // grey everywhere says unavailable, where a faded accent only says quieter.
+        let color = if self.enabled {
+            self.style.border_color(theme)
+        } else {
+            theme.scheme.on_surface.fade(0.12)
+        }
+        .fade(o);
         scene.draw_rect(
             bounds,
             Color::TRANSPARENT,
@@ -500,6 +541,63 @@ mod tests {
         .scene()
         .primitives()
         .to_vec()
+    }
+
+    /// The gap milestones 312, 313 and 314 each recorded as missing. Greying out is the
+    /// easy half: a disabled control must also be out of the tab order, refuse the press,
+    /// splash at nothing, and still tell a reader which segment is chosen — read-only, not
+    /// invisible.
+    #[test]
+    fn a_disabled_control_is_inert_but_still_readable() {
+        let live = three(1);
+        let dead = three(1).enabled(false);
+        fn segments(c: &SegmentedControl<Msg>) -> &[Box<dyn Widget<Msg>>] {
+            Widget::<Msg>::children(c)
+        }
+        for seg in segments(&live) {
+            assert!(seg.on_click().is_some());
+            assert!(seg.focusable());
+        }
+        for seg in segments(&dead) {
+            assert_eq!(seg.on_click(), None, "disabled: the press goes nowhere");
+            assert!(!seg.focusable(), "disabled: out of the tab order");
+            assert!(
+                seg.ink(&Theme::default()).is_none(),
+                "disabled: nothing to splash for"
+            );
+            let semantics = seg.semantics().expect("still announced");
+            assert!(semantics.disabled, "and announced as disabled");
+        }
+        // The chosen segment is still identifiable to a reader: a control that stops
+        // saying which one is on has become a row of words.
+        let chosen = segments(&dead)[1].semantics().unwrap();
+        assert_eq!(chosen.toggled, frus_core::Toggled::True);
+    }
+
+    /// Disabled flattens to one grey — the reference collapses every state to
+    /// `on_surface` at 12 % under a label at 38 %, so unavailable reads as unavailable
+    /// rather than as a quieter version of the accent.
+    #[test]
+    fn a_disabled_control_flattens_rather_than_fades() {
+        let theme = Theme::default();
+        let accent = SegmentedStyle::default().selected_color(&theme);
+        let fills = |c: SegmentedControl<Msg>| -> Vec<frus_core::Color> {
+            primitives(c)
+                .into_iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { color, .. } if color.a > 0.0 => Some(color),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert!(
+            fills(three(1)).contains(&accent),
+            "a live control fills the chosen segment with the accent"
+        );
+        assert!(
+            !fills(three(1).enabled(false)).contains(&accent),
+            "a disabled one never uses it"
+        );
     }
 
     #[test]

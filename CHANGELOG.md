@@ -8,12 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 319 so far, each documenting the objective, the alternatives
+> record — one per step, 320 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`enabled` on `Chip` and `SegmentedControl`** (J320). The gap milestones 312, 313 and
+  314 each recorded. It turns off more than a colour: the press goes nowhere, no ink, out
+  of the tab order, announced as disabled rather than falling silent, and still saying
+  which segment is chosen — a disabled control is read-only, not invisible. A chip's
+  **delete cross goes dead with it**, which would otherwise have been the one live control
+  on an inert thing. Disabled **flattens** to `on_surface` at 12 % under a label at 38 %,
+  as `Button` already did, rather than fading the accent: a pale accent reads as *quietly
+  selected* where a grey one reads as *unavailable*.
 
 - **`ThemeBuilder`** (J319). A widget that builds its subtree **from the ambient theme**,
   through a new `Widget::build_themed` hook called on the way down by the layout pass.

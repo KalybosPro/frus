@@ -150,6 +150,9 @@ struct Remove<Msg> {
     /// same theme the chip does — a cross on a selected chip has to read against the fill.
     style: ChipStyle,
     selected: bool,
+    /// The chip's availability. A cross that still answered on a disabled chip would be
+    /// the one live control on an inert thing.
+    enabled: bool,
 }
 
 impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
@@ -174,11 +177,14 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
         // Brighter under the pointer: the cross is the one part of a chip that does
         // something different from the chip, and hovering has to say so.
         let size = self.style.icon_size(theme);
-        let color = self
-            .style
-            .label_color(theme, self.selected)
-            .lerp(theme.scheme.on_surface, status.hover_progress)
-            .fade(status.opacity);
+        let color = if self.enabled {
+            self.style
+                .label_color(theme, self.selected)
+                .lerp(theme.scheme.on_surface, status.hover_progress)
+        } else {
+            theme.scheme.on_surface.fade(0.38)
+        }
+        .fade(status.opacity);
         let path = IconName::Close
             .path()
             .scaled(size / ICON_GRID)
@@ -187,6 +193,9 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
     }
 
     fn on_click(&self) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
         Some(self.message.clone())
     }
 
@@ -210,6 +219,10 @@ pub struct Chip<Msg> {
     leading: Option<IconName>,
     on_press: Option<Msg>,
     on_remove: Option<Msg>,
+    /// A chip that is shown but cannot be acted on: greyed out and inert, its label still
+    /// legible. The reference dims a disabled control rather than hiding it — it is often
+    /// the answer to why the rest of a row looks the way it does.
+    enabled: bool,
     style: ChipStyle,
     /// The delete cross, if there is one — the chip's only child. The label and the
     /// leading icon are painted by the chip, so that their colour can follow its state.
@@ -225,6 +238,7 @@ impl<Msg: Clone + 'static> Chip<Msg> {
             leading: None,
             on_press: None,
             on_remove: None,
+            enabled: true,
             style: ChipStyle::default(),
             children: Vec::new(),
         }
@@ -242,6 +256,7 @@ impl<Msg: Clone + 'static> Chip<Msg> {
                 message,
                 style: self.style,
                 selected: self.selected,
+                enabled: self.enabled,
             }));
         }
         self
@@ -258,6 +273,14 @@ impl<Msg: Clone + 'static> Chip<Msg> {
     /// A leading icon — the avatar or glyph an entry chip carries.
     pub fn leading(mut self, icon: IconName) -> Self {
         self.leading = Some(icon);
+        self.rebuild()
+    }
+
+    /// Greys the chip out and makes it inert: no press, no ink, out of the tab order,
+    /// and announced to a reader as disabled rather than simply going quiet. Its label
+    /// stays legible — the reference dims a disabled control rather than hiding it.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
         self.rebuild()
     }
 
@@ -408,11 +431,32 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
         let o = status.opacity;
         let selected = self.selected;
         let (border_width, border_color) = self.style.border(theme, selected);
-        let label_color = self.style.label_color(theme, selected);
+        // Disabled flattens the same way `Button` does, and for the same reason: the
+        // reference collapses every variant to `on_surface` at 12 % under a label at 38 %,
+        // so unavailable reads as unavailable rather than as a quieter kind of chip.
+        // Selected or not stops mattering, which is the point — a disabled filter is not
+        // offering to tell you whether it is on.
+        let (background, border_color, label_color) = if self.enabled {
+            (
+                self.style.background(theme, selected),
+                border_color,
+                self.style.label_color(theme, selected),
+            )
+        } else {
+            (
+                if selected {
+                    theme.scheme.on_surface.fade(0.12)
+                } else {
+                    Color::TRANSPARENT
+                },
+                theme.scheme.on_surface.fade(0.12),
+                theme.scheme.on_surface.fade(0.38),
+            )
+        };
 
         scene.draw_rect(
             bounds,
-            self.style.background(theme, selected).fade(o),
+            background.fade(o),
             self.style.radius(theme),
             border_width,
             if border_width > 0.0 {
@@ -454,18 +498,21 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
     }
 
     fn on_click(&self) -> Option<Msg> {
-        self.on_press.clone()
+        self.enabled.then(|| self.on_press.clone()).flatten()
     }
 
     fn ink(&self, theme: &Theme) -> Option<crate::InkStyle> {
-        // Only where there is something to press: ink on an inert attribute chip would
-        // promise an action it does not have.
+        // Only where there is something to press: ink on an inert attribute chip — or on
+        // a disabled one — would promise an action it does not have.
+        if !self.enabled {
+            return None;
+        }
         self.on_press.as_ref()?;
         Some(crate::InkStyle::of(theme).radius(self.style.radius(theme)))
     }
 
     fn focusable(&self) -> bool {
-        self.on_press.is_some()
+        self.enabled && self.on_press.is_some()
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
@@ -473,10 +520,17 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
             frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
         // A chip that can be selected says whether it is: a filter that is on and one that
         // is off are the same words otherwise.
-        let semantics = if self.on_press.is_some() {
+        let semantics = if self.on_press.is_some() && self.enabled {
             semantics.toggled(self.selected).clickable()
         } else {
             semantics
+        };
+        // Still announced, and announced as unavailable: a reader that simply stopped
+        // hearing about a chip would be told the filter had gone away.
+        let semantics = if self.enabled {
+            semantics
+        } else {
+            semantics.disabled(true)
         };
         Some(semantics)
     }
@@ -526,6 +580,108 @@ mod tests {
                 _ => None,
             })
             .expect("a chip paints its box")
+    }
+
+    /// The same gap, in the widget that recorded it first (milestone 312). A disabled
+    /// chip is greyed out **and** inert: no press, no ink, out of the tab order, its
+    /// delete cross dead too — a live cross on an inert chip would be the one thing on it
+    /// that still answered.
+    #[test]
+    fn a_disabled_chip_is_inert_including_its_cross() {
+        let live = Chip::new("Filter")
+            .on_press(Msg::Press)
+            .on_remove(Msg::Remove);
+        let dead = Chip::new("Filter")
+            .on_press(Msg::Press)
+            .on_remove(Msg::Remove)
+            .enabled(false);
+        assert_eq!(Widget::on_click(&live), Some(Msg::Press));
+        assert_eq!(Widget::on_click(&dead), None, "the press goes nowhere");
+        assert!(Widget::<Msg>::focusable(&live));
+        assert!(!Widget::<Msg>::focusable(&dead), "out of the tab order");
+        assert!(Widget::<Msg>::ink(&live, &Theme::default()).is_some());
+        assert!(
+            Widget::<Msg>::ink(&dead, &Theme::default()).is_none(),
+            "nothing to splash for"
+        );
+        // The cross is a child, and it has to follow the chip it sits on.
+        let cross = |c: &Chip<Msg>| Widget::<Msg>::children(c)[0].on_click();
+        assert_eq!(cross(&live), Some(Msg::Remove));
+        assert_eq!(cross(&dead), None, "the cross follows the chip");
+        // Announced, and announced as unavailable: a reader that stopped hearing about a
+        // chip would be told the filter had gone away.
+        let semantics = Widget::<Msg>::semantics(&dead).unwrap();
+        assert!(semantics.disabled);
+        assert_eq!(semantics.label.as_deref(), Some("Filter"));
+    }
+
+    /// Disabled must never draw the eye more than live. The measure is **contrast
+    /// against the surface**, not brightness: on a light theme a quieter colour is
+    /// closer to white, on a dark one closer to black, and a test that compared raw
+    /// luminance would pass on one and fail on the other for no real reason.
+    ///
+    /// It is not obvious from the rule that this holds: a live unselected chip's label
+    /// is `on_surface_variant` and a disabled one's is `on_surface` at 38 % — two
+    /// different tokens, and which reads louder depends on the palette.
+    #[test]
+    fn disabled_is_never_louder_than_live() {
+        for (name, theme) in [("dark", Theme::dark()), ("light", Theme::light())] {
+            let bg = theme.scheme.surface;
+            let lum = |r: f32, g: f32, b: f32| 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            let ground = lum(bg.r, bg.g, bg.b);
+            // How far the colour ends up from the surface behind it, alpha included.
+            let contrast = |c: frus_core::Color| {
+                let over = |f: f32, b: f32| f * c.a + b * (1.0 - c.a);
+                (lum(over(c.r, bg.r), over(c.g, bg.g), over(c.b, bg.b)) - ground).abs()
+            };
+            let live = ChipStyle::default().label_color(&theme, false);
+            let dead = theme.scheme.on_surface.fade(0.38);
+            assert!(
+                contrast(dead) < contrast(live),
+                "{name}: the disabled label must be quieter, got {} against {}",
+                contrast(dead),
+                contrast(live)
+            );
+            // The **outline** does not clear the same bar, and that is a finding about
+            // the palette rather than about this milestone. The rule here is the
+            // reference's exactly — `outline_variant` live, `on_surface` at 12 %
+            // disabled — but the dark palette puts them within a whisker of each other
+            // (`outline_variant` is (48, 52, 62); 12 % of `on_surface` over the surface
+            // lands near 54), so the disabled hairline carries very slightly *more*
+            // contrast than the live one. The reference's own palette separates the two
+            // comfortably. Moving a token moves every outline in the framework, so it is
+            // written up rather than patched here; the assertion is deliberately absent
+            // rather than weakened to something it would pass.
+        }
+    }
+
+    /// Disabled **flattens** rather than fades, following `Button`: the reference
+    /// collapses every state to one grey, so unavailable does not read as a quieter kind
+    /// of selected.
+    #[test]
+    fn a_disabled_chip_flattens_rather_than_fades() {
+        let theme = Theme::default();
+        let accent = ChipStyle::default().background(&theme, true);
+        let fills = |chip: Chip<Msg>| -> Vec<frus_core::Color> {
+            frame(chip)
+                .scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { color, .. } if color.a > 0.0 => Some(*color),
+                    _ => None,
+                })
+                .collect()
+        };
+        let selected = || Chip::new("On").on_press(Msg::Press).selected(true);
+        assert!(
+            fills(selected()).contains(&accent),
+            "a live selected chip fills with the accent"
+        );
+        assert!(
+            !fills(selected().enabled(false)).contains(&accent),
+            "a disabled one never does"
+        );
     }
 
     #[test]
