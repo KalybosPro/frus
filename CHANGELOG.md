@@ -8,12 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 310 so far, each documenting the objective, the alternatives
+> record — one per step, 311 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A tab bar, not a row of buttons** (J311). `Tabs` painted its header as `Button`s — the
+  selected one filled, the others outlined — and had two builders, so nothing about it could
+  be changed. It is a tab bar now: labels on the surface, a **sliding** indicator under the
+  selected one (the runtime tweens the index, so the indicator's centre and width travel
+  together), and a hairline dividing the bar from the panel. Both of the reference's
+  variants are here — `TabsVariant::Primary`, whose indicator is as wide as the label and
+  rounded, and `Secondary`, whose indicator spans the tab — with `variant`,
+  `indicator_color`, `indicator_weight`, `label_color`, `unselected_label_color`,
+  `label_style`, `divider_color`, `divider_height`, `label_padding` and `tab_height`
+  settable per call and through the new `TabsTheme`. A tab now announces itself as a tab and
+  takes ink. **Breaking:** the bar looks entirely different, and the twelve-pixel gap under
+  it is gone — the hairline is what separates the bar from its panel.
+
+  Fixed along the way: a widget animated through `Widget::anim_target` was painted **at
+  zero** in any frame the runtime had not advanced, against the runtime's own documented
+  rule that a widget seen for the first time adopts its target. A `Switch` rendered on its
+  own came out off however it was set.
 
 - **A theme for one subtree** (J310). New `Themed` widget: `Themed::new(theme, child)`
   replaces the theme wholesale for a subtree, `Themed::tweak(|t| …, child)` changes part

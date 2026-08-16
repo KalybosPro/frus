@@ -23,7 +23,7 @@
 //! beside `style`. A theme that could only reach paint would be able to recolour a
 //! divider but not make one thin, which is the setting an application actually wants.
 
-use frus_core::{BorderRadius, Color};
+use frus_core::{BorderRadius, Color, TextStyle};
 
 use crate::card::CardVariant;
 
@@ -37,6 +37,7 @@ pub struct WidgetThemes {
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
     pub ink: InkTheme,
+    pub tabs: TabsTheme,
 }
 
 /// Defaults for [`Card`](crate::Card).
@@ -76,6 +77,31 @@ pub struct DividerTheme {
 pub struct DrawerTheme {
     /// The panel's width.
     pub width: Option<f32>,
+}
+
+/// Defaults for [`Tabs`](crate::Tabs) — the bar, its labels and its indicator.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TabsTheme {
+    /// Which of the two bars an untold `Tabs::new()` is.
+    pub variant: Option<crate::tabs::TabsVariant>,
+    /// The indicator's colour.
+    pub indicator_color: Option<Color>,
+    /// Its thickness — and, on a primary bar, the radius of its top corners.
+    pub indicator_weight: Option<f32>,
+    /// The **selected** label's colour.
+    pub label_color: Option<Color>,
+    /// Every other label's colour.
+    pub unselected_label_color: Option<Color>,
+    /// The labels' type.
+    pub label_style: Option<TextStyle>,
+    /// The colour of the hairline between the bar and what it labels.
+    pub divider_color: Option<Color>,
+    /// Its thickness; `0.0` removes it.
+    pub divider_height: Option<f32>,
+    /// The room on either side of a label.
+    pub label_padding: Option<f32>,
+    /// The tabs' height, the indicator excluded.
+    pub tab_height: Option<f32>,
 }
 
 /// Defaults for the **ink ripple** — every surface that splashes, including
@@ -251,5 +277,6 @@ mod tests {
         assert_eq!(WidgetThemes::default().divider.height, None);
         assert_eq!(WidgetThemes::default().drawer.width, None);
         assert_eq!(WidgetThemes::default().ink.color, None);
+        assert_eq!(WidgetThemes::default().tabs.indicator_color, None);
     }
 }

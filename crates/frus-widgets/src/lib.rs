@@ -216,7 +216,10 @@ pub use stepper::Stepper;
 pub use steps::Steps;
 pub use switch::Switch;
 pub use table::Table;
-pub use tabs::Tabs;
+pub use tabs::{
+    Tabs, TabsVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_INDICATOR_PRIMARY,
+    TAB_INDICATOR_SECONDARY, TAB_LABEL_PADDING,
+};
 pub use text::Text;
 pub use textinput::TextInput;
 pub use theme::{ColorScheme, TextTheme, Theme};
@@ -233,7 +236,7 @@ pub use ui::{
     FocusDirection, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, ReorderAxis, Widget};
-pub use widgettheme::{CardTheme, DividerTheme, DrawerTheme, InkTheme, WidgetThemes};
+pub use widgettheme::{CardTheme, DividerTheme, DrawerTheme, InkTheme, TabsTheme, WidgetThemes};
 
 // Convenience re-exports for callers.
 pub use frus_core::{

@@ -926,7 +926,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// walk's identity scheme (`child_id`) **exactly**, so it lines up with the order in which
     /// `walk_node` paints them.
     fn hash_statuses<H: Hasher>(&self, widget: &dyn Widget<Msg>, id: WidgetId, h: &mut H) {
-        hash_status(&self.full_status(id), h);
+        hash_status(&self.full_status(widget, id), h);
         // Live ink is part of what the boundary paints, and it moves every frame while a
         // splash is alive. Without it here the cached primitives would be replayed and
         // the ripple would stand still — and once the ink dries the hash goes back to
@@ -1480,7 +1480,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let draw_rect = rect.translate(translation.0, translation.1);
         self.inspect_enter(widget, id, draw_rect);
 
-        let status = self.full_status(id);
+        let status = self.full_status(widget, id);
         if widget.continuous() {
             self.wants_animation = true;
         }
@@ -2211,12 +2211,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
     /// A widget's full status: pointer interaction + focus + animation progresses + the
     /// cursor/selection when there is one.
-    fn full_status(&self, id: WidgetId) -> crate::interaction::Status {
+    fn full_status(&self, widget: &dyn Widget<Msg>, id: WidgetId) -> crate::interaction::Status {
         let mut status = self.runtime.input.status_for(id);
         status.hover_progress = self.runtime.hover_progress(id);
         status.focus_progress = self.runtime.focus_progress(id);
         status.opacity = self.runtime.opacity(id);
-        status.value = self.runtime.value(id);
+        // A widget's own animated value, or **its target** where the runtime has never
+        // heard of it: the same rule the runtime applies on mount (adopt, do not animate
+        // in from zero). Without the fallback an isolated render — a test, a frame built
+        // before the loop has advanced anything — draws every such widget at zero: a
+        // switch that is on drawn off, an indicator under the wrong tab.
+        status.value = match widget.anim_target() {
+            Some(target) => self.runtime.value_or(id, target),
+            None => self.runtime.value(id),
+        };
         status.anim_color = self.runtime.anim_color(id);
         status.anim_radius = self.runtime.anim_radius(id);
         status.time = self.runtime.time;
@@ -2279,7 +2287,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         let draw_rect = rect.translate(translation.0, translation.1);
         self.inspect_enter(widget, id, draw_rect);
 
-        let status = self.full_status(id);
+        let status = self.full_status(widget, id);
         if widget.continuous() {
             self.wants_animation = true;
         }
