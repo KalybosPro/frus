@@ -42,6 +42,37 @@ pub struct WidgetThemes {
     pub ink: InkTheme,
     pub segmented: SegmentedTheme,
     pub tabs: TabsTheme,
+    pub text_input: TextInputTheme,
+}
+
+/// Defaults for [`TextInput`](crate::TextInput).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextInputTheme {
+    /// The container's fill. A filled field takes the theme's high surface container by
+    /// default; an outlined one has none.
+    pub fill: Option<Color>,
+    /// The border, or the underline, at rest.
+    pub border_color: Option<Color>,
+    /// The border once focused.
+    pub focused_border_color: Option<Color>,
+    /// Border, label and helper colour while an error is showing.
+    pub error_color: Option<Color>,
+    /// The value's colour.
+    pub text_color: Option<Color>,
+    /// The label and the hint, at rest.
+    pub label_color: Option<Color>,
+    /// The label once focused.
+    pub focused_label_color: Option<Color>,
+    /// The helper line.
+    pub helper_color: Option<Color>,
+    /// The prefix and suffix icons.
+    pub icon_color: Option<Color>,
+    /// Corner radius.
+    pub radius: Option<f32>,
+    /// Border weight at rest.
+    pub border_width: Option<f32>,
+    /// Border weight once focused.
+    pub focused_border_width: Option<f32>,
 }
 
 /// Defaults for [`Button`](crate::Button).

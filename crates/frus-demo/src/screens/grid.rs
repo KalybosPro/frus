@@ -33,6 +33,8 @@ pub(crate) fn grid_screen(
                     let mut input = TextInput::new(value.clone())
                         .width(w)
                         .size(15.0)
+                        // A cell editor lives inside a row: dense is what that is for.
+                        .dense(true)
                         .on_input(move |v| Msg::GridInput(r, c, v))
                         .on_submit(Msg::GridEnter(r, c));
                     if let Some(e) = err {

@@ -8,10 +8,35 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 316 so far, each documenting the objective, the alternatives
+> record — one per step, 317 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **`TextInput` follows the reference** (J317). The widget an application cannot avoid had
+  nine hardcoded numbers and no way to change any of them. The measurements are read out of
+  the reference now: content padding `(12, 8, 12, 8)` filled and `(12, 20, 12, 12)`
+  outlined — the asymmetry being the room an outlined field's label takes **on** its top
+  border — `body_large` for the value, `body_small` for the helper, 24 px icons, a 4 px
+  radius, and a floating label that **scales** by 0.75 instead of taking a second fixed
+  size, so a field given larger text keeps the relationship. The reference's two fields are
+  both here at last: `filled()` is a tinted container with its top corners rounded and one
+  line under it, not the outlined box wearing a tint. Fourteen settings per call or through
+  the new `TextInputTheme`.
+
+### Added
+
+- **`dense` on `TextInput`** (J317). A field is 56 px tall, which is right for a form and
+  wrong inside a table row. The reference's `isDense` gives the padding back —
+  `(12, 4, 12, 4)` filled, `(12, 16, 12, 8)` outlined — without touching the shape, the
+  label or the border. The editable table and the demo's grid use it.
+
+- **`enabled` on `TextInput`** (J317). The gap three milestones in a row recorded as
+  missing. A disabled field keeps 38% of its colours and still shows its value — the
+  reference dims rather than hides — while leaving the tab order, refusing a caret,
+  ignoring a key from a stale focus, showing no focus ring, and telling a screen reader.
 
 ### Fixed
 
@@ -28,6 +53,12 @@ any release may break.
   end-of-content glow at edges it does not have, and a dead scrollable stopped swallowing
   presses meant for what is behind it. Pull-to-refresh and already-displaced content are
   the two exceptions, as they are there.
+
+- **Scrolled multi-line text was painted over its own label** (J317). The content was
+  clipped to the box rather than to the box *inside its padding*, so a scrolled field's
+  text rode up onto the top border — which is where an outlined field's floating label
+  sits. Wrong since the clip was written; six pixels of padding hid it and the reference's
+  twenty did not.
 
 - **The demo's drawer clears the status bar** (J316). Its content is in a `SafeArea`: a
   drawer is drawn edge to edge, and the "frus" title sat under the notch on the device.

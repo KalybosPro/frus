@@ -133,6 +133,49 @@ fn outlined_field_matches_golden() {
     snapshot.assert_golden(golden("outlined_field"));
 }
 
+/// **The other field (milestone 317)**: `filled` — a tinted container with a single
+/// line under it and the label floating *inside* the box, which is the reference's
+/// second text field and had no equivalent here. Three states side by side: a filled
+/// value with the label raised, an empty one with the label at rest, and a disabled one
+/// dimmed to 38% but still readable.
+#[test]
+fn filled_field_matches_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(20.0)
+            .child(
+                TextInput::<()>::new("Ada Lovelace")
+                    .width(280.0)
+                    .filled()
+                    .label("Full name"),
+            )
+            .child(
+                TextInput::<()>::new("")
+                    .width(280.0)
+                    .filled()
+                    .label("Email")
+                    .helper("We will not share it"),
+            )
+            .child(
+                TextInput::<()>::new("locked@example.com")
+                    .width(280.0)
+                    .filled()
+                    .label("Account")
+                    .enabled(false),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 360, 300, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "containers, underlines and text are drawn"
+    );
+    snapshot.assert_golden(golden("filled_field"));
+}
+
 /// **A data table (milestone 145)**: a sortable header, with a ▲ indicator on the
 /// sorted column, and a highlighted selected row. Reproduces its golden.
 #[test]
@@ -1039,8 +1082,14 @@ fn table_editable_matches_golden() {
     let editing = |value: &str| -> Box<dyn Fn() -> Box<dyn frus_widgets::Widget<()>>> {
         let value = value.to_string();
         Box::new(move || {
-            Box::new(TextInput::<()>::new(value.clone()).width(180.0).size(15.0))
-                as Box<dyn frus_widgets::Widget<()>>
+            Box::new(
+                TextInput::<()>::new(value.clone())
+                    .width(180.0)
+                    .size(15.0)
+                    // A cell editor has a row to fit inside: the reference's
+                    // dense padding is what this case is for.
+                    .dense(true),
+            ) as Box<dyn frus_widgets::Widget<()>>
         })
     };
     let table = Table::new(3)

@@ -235,7 +235,13 @@ pub use tabs::{
     TAB_INDICATOR_SECONDARY, TAB_LABEL_PADDING,
 };
 pub use text::Text;
-pub use textinput::TextInput;
+pub use textinput::{
+    TextInput, TextInputStyle, TextInputVariant, FIELD_BORDER_WIDTH,
+    FIELD_DENSE_OUTLINED_PADDING_BOTTOM, FIELD_DENSE_OUTLINED_PADDING_TOP, FIELD_DENSE_PADDING_Y,
+    FIELD_DISABLED_OPACITY, FIELD_FOCUSED_BORDER_WIDTH, FIELD_GAP, FIELD_ICON_SIZE,
+    FIELD_LABEL_SCALE, FIELD_NOTCH_GAP, FIELD_OUTLINED_PADDING_BOTTOM, FIELD_OUTLINED_PADDING_TOP,
+    FIELD_PADDING_X, FIELD_PADDING_Y, FIELD_RADIUS, FIELD_SUB_SIZE, FIELD_TEXT_SIZE,
+};
 pub use theme::{ColorScheme, TextTheme, Theme};
 pub use themed::Themed;
 pub use timeline::Timeline;
@@ -250,7 +256,9 @@ pub use ui::{
     FocusDirection, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, ReorderAxis, Widget};
-pub use widgettheme::{CardTheme, DividerTheme, DrawerTheme, InkTheme, TabsTheme, WidgetThemes};
+pub use widgettheme::{
+    CardTheme, DividerTheme, DrawerTheme, InkTheme, TabsTheme, TextInputTheme, WidgetThemes,
+};
 
 // Convenience re-exports for callers.
 pub use frus_core::{

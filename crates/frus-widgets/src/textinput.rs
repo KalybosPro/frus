@@ -14,23 +14,105 @@ use crate::runtime::Edit;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-const PAD_X: f32 = 8.0;
-const PAD_Y: f32 = 6.0;
+/// Padding either side of the content, both variants.
+pub const FIELD_PADDING_X: f32 = 12.0;
+/// Padding above and below the content in a [`filled`](TextInput::filled) field.
+///
+/// The reference's Material 3 content padding is `(12, 8, 12, 8)` filled and
+/// `(12, 20, 12, 12)` outlined. The asymmetry is not decoration: an outlined field's
+/// floating label sits **on** the top border, so the top has to give it room, while a
+/// filled one floats its label inside the box.
+pub const FIELD_PADDING_Y: f32 = 8.0;
+/// Padding above the content in an [`outlined`](TextInput::outlined) field.
+pub const FIELD_OUTLINED_PADDING_TOP: f32 = 20.0;
+/// Padding below the content in an outlined field.
+pub const FIELD_OUTLINED_PADDING_BOTTOM: f32 = 12.0;
 
-/// Font size of the label (above the field) and of the helper/error text (below)
-/// — the decoration's "secondary" typography.
-const LABEL_SIZE: f32 = 13.0;
-const SUB_SIZE: f32 = 12.0;
-/// Vertical gap between the label, the input box and the helper/error line.
-const DECO_GAP: f32 = 4.0;
-/// Margin around the floating label inside the border's **notch** (`outlined` mode).
-const NOTCH_GAP: f32 = 4.0;
+/// Padding above and below the content in a [`dense`](TextInput::dense) filled field —
+/// the reference's `(12, 4, 12, 4)`.
+pub const FIELD_DENSE_PADDING_Y: f32 = 4.0;
+/// Padding above the content in a dense **outlined** field: the reference's
+/// `(12, 16, 12, 8)`, which keeps room for the label on the border while giving back
+/// everything else.
+pub const FIELD_DENSE_OUTLINED_PADDING_TOP: f32 = 16.0;
+/// Padding below the content in a dense outlined field.
+pub const FIELD_DENSE_OUTLINED_PADDING_BOTTOM: f32 = 8.0;
+
+/// Size of the value and of the resting label — the reference's `body_large`.
+pub const FIELD_TEXT_SIZE: f32 = 16.0;
+/// What the label shrinks to once it floats. The reference scales it rather than naming
+/// a second size, so a field given a larger type keeps the same proportion.
+pub const FIELD_LABEL_SCALE: f32 = 0.75;
+/// Size of the helper and error line — the reference's `body_small`.
+pub const FIELD_SUB_SIZE: f32 = 12.0;
+/// Vertical gap between the box and the helper/error line, and above a floating label.
+pub const FIELD_GAP: f32 = 4.0;
+/// Margin either side of the floating label inside the border's **notch**, which is the
+/// reference's `OutlineInputBorder.gapPadding`.
+pub const FIELD_NOTCH_GAP: f32 = 4.0;
+
+/// Corner radius of the box, and of a filled field's two top corners.
+pub const FIELD_RADIUS: f32 = 4.0;
+/// Border weight at rest, and once focused — the reference widens rather than recolours
+/// alone, which is what makes focus readable without colour.
+pub const FIELD_BORDER_WIDTH: f32 = 1.0;
+/// Border weight of a focused field.
+pub const FIELD_FOCUSED_BORDER_WIDTH: f32 = 2.0;
 
 /// Side of a prefix/suffix icon (logical px) and the margin around it.
-const ICON_SIZE: f32 = 20.0;
+pub const FIELD_ICON_SIZE: f32 = 24.0;
 const ICON_PAD: f32 = 6.0;
+/// What a disabled field keeps of its colours, following the reference's 38%.
+pub const FIELD_DISABLED_OPACITY: f32 = 0.38;
 /// Default masking character of a password field.
 const OBSCURE_CHAR: char = '•';
+
+/// Which of the reference's two fields this is.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum TextInputVariant {
+    /// A box the caller can see all the way round, the floating label notching its top
+    /// border. The default here.
+    #[default]
+    Outlined,
+    /// A tinted container with a single line under it, the label floating **inside** the
+    /// box. The line carries the state; the fill carries the affordance.
+    Filled,
+}
+
+/// Everything a [`TextInput`] paints, each answer the caller's, the theme's, or the
+/// framework's — resolved in that order.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextInputStyle {
+    /// Container fill. A filled field defaults to the theme's high surface container; an
+    /// outlined one to nothing at all.
+    pub fill: Option<frus_core::Color>,
+    /// The border, or the underline, at rest.
+    pub border_color: Option<frus_core::Color>,
+    /// The border once focused.
+    pub focused_border_color: Option<frus_core::Color>,
+    /// Border, label and helper colour while an error is showing.
+    pub error_color: Option<frus_core::Color>,
+    /// The value's colour.
+    pub text_color: Option<frus_core::Color>,
+    /// The label and the hint, at rest.
+    pub label_color: Option<frus_core::Color>,
+    /// The label once focused.
+    pub focused_label_color: Option<frus_core::Color>,
+    /// The helper line.
+    pub helper_color: Option<frus_core::Color>,
+    /// The prefix and suffix icons.
+    pub icon_color: Option<frus_core::Color>,
+    /// Corner radius.
+    pub radius: Option<f32>,
+    /// Border weight at rest.
+    pub border_width: Option<f32>,
+    /// Border weight once focused.
+    pub focused_border_width: Option<f32>,
+    /// Side of the prefix/suffix icons.
+    pub icon_size: Option<f32>,
+    /// Padding either side of the content.
+    pub padding_x: Option<f32>,
+}
 
 /// A single-line text input field, with optional **form decoration** (label, hint,
 /// helper text, error). **Validity** stays decided by the application (a pure
@@ -67,10 +149,16 @@ pub struct TextInput<Msg> {
     multiline: bool,
     /// Number of visible lines in multi-line mode.
     rows: u16,
-    /// **Outlined** style: the floating label sits **on** the top border, which opens a
-    /// **notch** behind it. Otherwise (the default), the label floats in a band reserved
-    /// above the box.
-    outlined: bool,
+    /// Which of the reference's two fields to draw.
+    variant: TextInputVariant,
+    /// A field that is shown but cannot be edited: greyed out, and inert. It still
+    /// displays its value — the reference's disabled field is readable, not hidden.
+    enabled: bool,
+    /// A **dense** field: the same shape, less room around the content. What a table's
+    /// inline cell editor wants, and what a form does not.
+    dense: bool,
+    /// Per-call overrides; everything unset falls to the theme, then the framework.
+    style: TextInputStyle,
 }
 
 /// A "word" character (letter/digit/`_`) for word jumps (Ctrl+Arrow).
@@ -141,7 +229,7 @@ impl<Msg> TextInput<Msg> {
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
-            size: 18.0,
+            size: FIELD_TEXT_SIZE,
             width: Dimension::Length(220.0),
             on_input: None,
             on_submit: None,
@@ -155,15 +243,184 @@ impl<Msg> TextInput<Msg> {
             suffix_action: None,
             multiline: false,
             rows: 3,
-            outlined: false,
+            variant: TextInputVariant::Outlined,
+            enabled: true,
+            dense: false,
+            style: TextInputStyle::default(),
         }
     }
 
-    /// **Outlined** style: the floating label sits on the top border, which opens a
-    /// notch behind it.
+    /// **Outlined**: a box the caller can see all the way round, the floating label
+    /// notching its top border. The default.
     pub fn outlined(mut self) -> Self {
-        self.outlined = true;
+        self.variant = TextInputVariant::Outlined;
         self
+    }
+
+    /// **Filled**: a tinted container with a single line under it, the label floating
+    /// inside the box rather than on its edge.
+    pub fn filled(mut self) -> Self {
+        self.variant = TextInputVariant::Filled;
+        self
+    }
+
+    /// Chooses the variant directly, for a caller holding one in a variable.
+    pub fn variant(mut self, variant: TextInputVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Greys the field out and makes it inert. A disabled field still **shows** its
+    /// value: the reference dims it rather than hiding it, since it is usually the answer
+    /// to why the rest of a form is the way it is.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Overrides part of the styling for this field alone. Anything left `None` falls to
+    /// the theme's [`TextInputTheme`](crate::widgettheme::TextInputTheme), then to the
+    /// framework's defaults.
+    pub fn style(mut self, style: TextInputStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Tightens the field: the reference's `isDense`, which trades the comfortable
+    /// padding for a control that fits inside a table row. The shape, the label and the
+    /// border are unchanged — only the room around the content.
+    pub fn dense(mut self, dense: bool) -> Self {
+        self.dense = dense;
+        self
+    }
+
+    /// Whether this field is outlined (a box) rather than filled (a container and a line).
+    fn is_outlined(&self) -> bool {
+        self.variant == TextInputVariant::Outlined
+    }
+
+    /// Padding either side of the content.
+    fn pad_x(&self) -> f32 {
+        self.style.padding_x.unwrap_or(FIELD_PADDING_X)
+    }
+
+    /// Padding above the content: an outlined field gives its floating label room on the
+    /// border, a filled one floats it inside the box and needs none.
+    fn pad_top(&self) -> f32 {
+        match (self.is_outlined(), self.dense) {
+            (true, false) => FIELD_OUTLINED_PADDING_TOP,
+            (true, true) => FIELD_DENSE_OUTLINED_PADDING_TOP,
+            (false, false) => FIELD_PADDING_Y,
+            (false, true) => FIELD_DENSE_PADDING_Y,
+        }
+    }
+
+    /// Padding below the content.
+    fn pad_bottom(&self) -> f32 {
+        match (self.is_outlined(), self.dense) {
+            (true, false) => FIELD_OUTLINED_PADDING_BOTTOM,
+            (true, true) => FIELD_DENSE_OUTLINED_PADDING_BOTTOM,
+            (false, false) => FIELD_PADDING_Y,
+            (false, true) => FIELD_DENSE_PADDING_Y,
+        }
+    }
+
+    /// Size the label shrinks to once it floats — a proportion of the field's own type,
+    /// not a second number, so a field given larger text keeps the relationship.
+    fn label_size(&self) -> f32 {
+        self.size * FIELD_LABEL_SCALE
+    }
+
+    /// Side of the prefix/suffix icons.
+    fn icon_size(&self) -> f32 {
+        self.style.icon_size.unwrap_or(FIELD_ICON_SIZE)
+    }
+
+    /// Distance from the top of the box to the first line of text: the padding, plus the
+    /// room a filled field reserves for its floating label.
+    fn text_top(&self) -> f32 {
+        self.pad_top() + self.floating_label_height()
+    }
+
+    /// Room a **filled** field reserves above its content for the floating label. The
+    /// reference computes it as `4 + 0.75 × label size` rather than reserving a band
+    /// outside the box, which is why a filled field is taller than its text.
+    fn floating_label_height(&self) -> f32 {
+        if self.is_outlined() || self.label.is_none() {
+            0.0
+        } else {
+            FIELD_GAP + self.label_size()
+        }
+    }
+
+    /// This field's settings, resolved `caller ?? theme ?? framework`.
+    fn resolved(&self, theme: &Theme) -> TextInputStyle {
+        let t = theme.widgets.text_input;
+        let pick = |a: Option<frus_core::Color>,
+                    b: Option<frus_core::Color>,
+                    c: frus_core::Color| { Some(a.or(b).unwrap_or(c)) };
+        TextInputStyle {
+            fill: pick(
+                self.style.fill,
+                t.fill,
+                if self.is_outlined() {
+                    frus_core::Color::TRANSPARENT
+                } else {
+                    theme.scheme.surface_container_high
+                },
+            ),
+            border_color: pick(
+                self.style.border_color,
+                t.border_color,
+                if self.is_outlined() {
+                    theme.scheme.outline
+                } else {
+                    theme.scheme.on_surface_variant
+                },
+            ),
+            focused_border_color: pick(
+                self.style.focused_border_color,
+                t.focused_border_color,
+                theme.scheme.primary,
+            ),
+            error_color: pick(self.style.error_color, t.error_color, theme.scheme.error),
+            text_color: pick(self.style.text_color, t.text_color, theme.scheme.on_surface),
+            label_color: pick(
+                self.style.label_color,
+                t.label_color,
+                theme.scheme.on_surface_variant,
+            ),
+            focused_label_color: pick(
+                self.style.focused_label_color,
+                t.focused_label_color,
+                theme.scheme.primary,
+            ),
+            helper_color: pick(
+                self.style.helper_color,
+                t.helper_color,
+                theme.scheme.on_surface_variant,
+            ),
+            icon_color: pick(
+                self.style.icon_color,
+                t.icon_color,
+                theme.scheme.on_surface_variant,
+            ),
+            radius: Some(self.style.radius.or(t.radius).unwrap_or(FIELD_RADIUS)),
+            border_width: Some(
+                self.style
+                    .border_width
+                    .or(t.border_width)
+                    .unwrap_or(FIELD_BORDER_WIDTH),
+            ),
+            focused_border_width: Some(
+                self.style
+                    .focused_border_width
+                    .or(t.focused_border_width)
+                    .unwrap_or(FIELD_FOCUSED_BORDER_WIDTH),
+            ),
+            icon_size: Some(self.icon_size()),
+            padding_x: Some(self.pad_x()),
+        }
     }
 
     /// Switches the field to **multi-line**: Enter inserts a line break (instead of
@@ -214,7 +471,7 @@ impl<Msg> TextInput<Msg> {
         if self.suffix.is_none() {
             return false;
         }
-        let zone_left = width - (ICON_SIZE + ICON_PAD * 2.0);
+        let zone_left = width - (self.icon_size() + ICON_PAD * 2.0);
         let top = self.label_block();
         let bottom = top + self.field_height();
         local_x >= zone_left && local_y >= top && local_y <= bottom
@@ -296,7 +553,7 @@ impl<Msg> TextInput<Msg> {
     /// Width reserved for the prefix icon (0 if there is none).
     fn prefix_w(&self) -> f32 {
         if self.prefix.is_some() {
-            ICON_SIZE + ICON_PAD
+            self.icon_size() + ICON_PAD
         } else {
             0.0
         }
@@ -305,7 +562,7 @@ impl<Msg> TextInput<Msg> {
     /// Width reserved for the suffix icon (0 if there is none).
     fn suffix_w(&self) -> f32 {
         if self.suffix.is_some() {
-            ICON_SIZE + ICON_PAD
+            self.icon_size() + ICON_PAD
         } else {
             0.0
         }
@@ -313,7 +570,7 @@ impl<Msg> TextInput<Msg> {
 
     /// Text width (between the padding and the icons) for a given widget width.
     fn content_width(&self, width: f32) -> f32 {
-        (width - (PAD_X + self.prefix_w()) - PAD_X - self.suffix_w()).max(0.0)
+        (width - (self.pad_x() + self.prefix_w()) - self.pad_x() - self.suffix_w()).max(0.0)
     }
 
     /// Height reserved for the label above the box (0 if there is no label). In
@@ -321,10 +578,10 @@ impl<Msg> TextInput<Msg> {
     /// half** must be reserved (the rest bites into the box), instead of a full band.
     fn label_block(&self) -> f32 {
         if self.label.is_some() {
-            if self.outlined {
-                (frus_text::line_height(LABEL_SIZE) * 0.5).ceil()
+            if self.is_outlined() {
+                (frus_text::line_height(self.label_size()) * 0.5).ceil()
             } else {
-                frus_text::line_height(LABEL_SIZE) + DECO_GAP
+                frus_text::line_height(self.label_size()) + FIELD_GAP
             }
         } else {
             0.0
@@ -334,7 +591,7 @@ impl<Msg> TextInput<Msg> {
     /// Height reserved for the helper/error line below the box (0 if there is none).
     fn sub_block(&self) -> f32 {
         if self.error.is_some() || self.helper.is_some() {
-            frus_text::line_height(SUB_SIZE) + DECO_GAP
+            frus_text::line_height(FIELD_SUB_SIZE) + FIELD_GAP
         } else {
             0.0
         }
@@ -348,7 +605,7 @@ impl<Msg> TextInput<Msg> {
         } else {
             1.0
         };
-        (frus_text::line_height(self.size) * lines + PAD_Y * 2.0).ceil()
+        (frus_text::line_height(self.size) * lines + self.text_top() + self.pad_bottom()).ceil()
     }
 }
 
@@ -367,9 +624,21 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let o = status.opacity;
-        let has_error = self.error.is_some();
-        let fp = status.focus_progress.clamp(0.0, 1.0);
+        let s = self.resolved(theme);
+        // A disabled field keeps 38% of everything, following the reference, and never
+        // shows a focus: it cannot be focused, so a focus ring left over from before it
+        // was disabled would be a lie about what Tab will do.
+        let o = if self.enabled {
+            status.opacity
+        } else {
+            status.opacity * FIELD_DISABLED_OPACITY
+        };
+        let has_error = self.error.is_some() && self.enabled;
+        let fp = if self.enabled {
+            status.focus_progress.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
 
         // Decoration: label above, input box in the middle, helper/error below. The
         // box is the sub-rectangle where all the editing lives.
@@ -387,64 +656,101 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // the focus (`fp`) — a filled but unfocused field keeps a discreet label, not
         // yet accented.
         let float_t = if self.value.is_empty() { fp } else { 1.0 };
-        let content_left = field.x + PAD_X + self.prefix_w();
+        let content_left = field.x + self.pad_x() + self.prefix_w();
         // Geometry of the floating label, interpolated between **rest** (inside the box,
         // in the hint's place) and the **floated target**. That target differs with the
         // style: `outlined` → on the top border (with a notch); otherwise → a reserved band.
         let label_geom = self.label.as_ref().map(|label| {
-            let rest = Point::new(content_left, field.y + PAD_Y);
-            let (fx, fy) = if self.outlined {
+            let rest = Point::new(content_left, field.y + self.text_top());
+            let (fx, fy) = if self.is_outlined() {
+                // On the top border, which the notch opens behind it.
                 (
-                    field.x + PAD_X,
-                    field.y - frus_text::line_height(LABEL_SIZE) * 0.5,
+                    field.x + self.pad_x(),
+                    field.y - frus_text::line_height(self.label_size()) * 0.5,
                 )
             } else {
-                (bounds.x, bounds.y)
+                // Inside the container, in the room reserved above the content — a filled
+                // field never spills outside its own box.
+                (content_left, field.y + self.pad_top())
             };
             let x = rest.x + (fx - rest.x) * float_t;
             let y = rest.y + (fy - rest.y) * float_t;
-            let size = self.size + (LABEL_SIZE - self.size) * float_t;
+            let size = self.size + (self.label_size() - self.size) * float_t;
             let color = if has_error {
-                theme.error
+                s.error_color.unwrap()
             } else {
-                theme.muted.lerp(theme.focus, fp)
+                s.label_color
+                    .unwrap()
+                    .lerp(s.focused_label_color.unwrap(), fp)
             };
             (label.clone(), x, y, size, color)
         });
         // Helper/error line below the box (the error takes precedence over the helper).
         let sub = self.error.as_ref().or(self.helper.as_ref());
         if let Some(sub) = sub {
-            let color = if has_error { theme.error } else { theme.muted };
+            let color = if has_error {
+                s.error_color.unwrap()
+            } else {
+                s.helper_color.unwrap()
+            };
             scene.text(
-                Point::new(bounds.x, field.y + field.height + DECO_GAP),
+                Point::new(bounds.x, field.y + field.height + FIELD_GAP),
                 sub.clone(),
-                SUB_SIZE,
+                FIELD_SUB_SIZE,
                 color.fade(o),
             );
         }
 
-        // Border animated by the focus progress (rest → focus), red when in error.
+        // The border follows the focus in **two** ways, as the reference does: the colour
+        // moves to the accent and the weight goes from 1 to 2. Either alone is legible;
+        // both together is what makes a focused field unmistakable without relying on
+        // colour, which not every reader has.
         let border_color = if has_error {
-            theme.error
+            s.error_color.unwrap()
         } else {
-            theme.border.lerp(theme.focus, fp)
+            s.border_color
+                .unwrap()
+                .lerp(s.focused_border_color.unwrap(), fp)
         }
         .fade(o);
-        let border_width = 1.0 + fp;
-        scene.draw_rect(
-            field,
-            theme.surface.fade(o),
-            theme.radius,
-            border_width,
-            border_color,
-        );
+        let rest_w = s.border_width.unwrap();
+        let border_width = rest_w + (s.focused_border_width.unwrap() - rest_w) * fp;
+        let radius = s.radius.unwrap();
+        let fill = s.fill.unwrap();
+        if self.is_outlined() {
+            scene.draw_rect(field, fill.fade(o), radius, border_width, border_color);
+        } else {
+            // Filled: a container with its **top** corners rounded, and a single line
+            // under it. A box all the way round would be the other variant wearing a fill.
+            scene.draw_rect(
+                field,
+                fill.fade(o),
+                frus_core::BorderRadius {
+                    top_left: radius,
+                    top_right: radius,
+                    bottom_right: 0.0,
+                    bottom_left: 0.0,
+                },
+                0.0,
+                frus_core::Color::TRANSPARENT,
+            );
+            scene.fill_rect(
+                Rect::new(
+                    field.x,
+                    field.y + field.height - border_width,
+                    field.width,
+                    border_width,
+                ),
+                border_color,
+            );
+        }
 
         // The label goes **after** the box, in both styles. Floated, it sits above the
         // box and the order would not matter; at rest it sits *inside* it, in the
         // hint's place, over an opaque surface. It used to be painted first and
         // survived only because the renderer drew all text above everything — which it
         // stopped doing in milestone 295, and the golden went blank.
-        if !self.outlined {
+        if !self.is_outlined() {
             if let Some((label, x, y, size, color)) = &label_geom {
                 scene.text(Point::new(*x, *y), label.clone(), *size, color.fade(o));
             }
@@ -453,15 +759,15 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // Outlined: the label's **notch**. The border segment behind the floating label
         // is masked by a flat surface-coloured fill, then the label is painted on top.
         // The notch only opens as the label rises (`float_t`).
-        if self.outlined {
+        if self.is_outlined() {
             if let Some((label, x, y, size, color)) = &label_geom {
                 if float_t > 0.01 {
-                    let label_w = frus_text::measure(label, LABEL_SIZE).width;
+                    let label_w = frus_text::measure(label, self.label_size()).width;
                     let notch = Rect::new(
-                        *x - NOTCH_GAP,
-                        field.y - (border_width + NOTCH_GAP) * 0.5,
-                        label_w + NOTCH_GAP * 2.0,
-                        border_width + NOTCH_GAP,
+                        *x - FIELD_NOTCH_GAP,
+                        field.y - (border_width + FIELD_NOTCH_GAP) * 0.5,
+                        label_w + FIELD_NOTCH_GAP * 2.0,
+                        border_width + FIELD_NOTCH_GAP,
                     );
                     scene.fill_rect(notch, theme.surface.fade(o * float_t));
                 }
@@ -470,9 +776,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
 
         // Decorative icons, vertically centred in the box (a discreet colour).
-        let icon_color = theme.muted.fade(o);
-        let icon_y = field.y + (field.height - ICON_SIZE) * 0.5;
-        let icon_scale = ICON_SIZE / 24.0;
+        let icon_color = s.icon_color.unwrap().fade(o);
+        let icon_y = field.y + (field.height - self.icon_size()) * 0.5;
+        let icon_scale = self.icon_size() / 24.0;
         if let Some(prefix) = self.prefix {
             let path = prefix
                 .path()
@@ -481,15 +787,19 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
             scene.fill_path(&path, icon_color);
         }
         if let Some(suffix) = self.suffix {
-            let x = field.x + field.width - ICON_SIZE - ICON_PAD;
+            let x = field.x + field.width - self.icon_size() - ICON_PAD;
             // Highlight (milestone 208): a discreet halo behind the **clickable** suffix when
             // the pointer hovers it (the absolute position is brought back to local through
             // `bounds`). Purely visual.
             if self.suffix_action.is_some() {
                 if let Some(hc) = status.hover_cursor {
                     if self.suffix_hit(hc.x - bounds.x, hc.y - bounds.y, bounds.width) {
-                        let halo =
-                            Rect::new(x - 4.0, icon_y - 4.0, ICON_SIZE + 8.0, ICON_SIZE + 8.0);
+                        let halo = Rect::new(
+                            x - 4.0,
+                            icon_y - 4.0,
+                            self.icon_size() + 8.0,
+                            self.icon_size() + 8.0,
+                        );
                         scene.draw_rect(
                             halo,
                             theme.muted.fade(o * 0.18),
@@ -506,10 +816,10 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
 
         let len = self.value.chars().count();
         // The content is inset between the prefix/suffix icons, where there are any.
-        let left = PAD_X + self.prefix_w();
+        let left = self.pad_x() + self.prefix_w();
         let content_x = field.x + left;
         let content_w = self.content_width(field.width);
-        let text_y = field.y + PAD_Y;
+        let text_y = field.y + self.text_top();
         // Multi-line: the text **wraps** at the content width — the same `max_width` for
         // the measure (caret/hit) and for the render → identical wraps.
         let wrap = if self.multiline {
@@ -549,7 +859,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // **Retained** vertical scroll (wheel/scrollbar, caret-following by the shell);
         // clamped to how far the content overflows the box.
         let vscroll = if self.multiline {
-            let overflow = (layout.size().height - (field.height - PAD_Y * 2.0)).max(0.0);
+            let overflow = (layout.size().height
+                - (field.height - self.text_top() - self.pad_bottom()))
+            .max(0.0);
             status.scroll_y.clamp(0.0, overflow)
         } else {
             0.0
@@ -557,11 +869,18 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // Vertical origin of the content (offset by the multi-line scroll).
         let text_top = text_y - vscroll;
 
-        // Clipped to the content frame (otherwise the text overflows onto its neighbours).
-        let content_clip =
-            scene
-                .current_clip()
-                .intersect(Rect::new(content_x, field.y, content_w, field.height));
+        // Clipped to the **content** frame — inside the padding, not the whole box.
+        // Clipping to the box let scrolled multi-line text ride up onto the top border,
+        // which is where an outlined field's floating label lives: the third line of a
+        // scrolled field was painted straight over the label naming it. It only became
+        // visible once the padding grew to the reference's, which is the useful kind of
+        // regression — the old 6 px hid it rather than avoided it.
+        let content_clip = scene.current_clip().intersect(Rect::new(
+            content_x,
+            field.y + self.text_top(),
+            content_w,
+            (field.height - self.text_top() - self.pad_bottom()).max(0.0),
+        ));
         scene.set_clip(content_clip);
 
         // Selection highlight (below the text).
@@ -626,6 +945,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         width: f32,
         _height: f32,
     ) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
         if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
             self.suffix_action.clone()
         } else {
@@ -649,6 +971,12 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     }
 
     fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
+        // A disabled field cannot be focused, so this should be unreachable — but a key
+        // arriving from a stale focus must not edit a value the caller has declared
+        // untouchable.
+        if !self.enabled {
+            return None;
+        }
         let mut chars: Vec<char> = self.value.chars().collect();
         let len = chars.len();
         let mut cursor = edit.cursor.min(len);
@@ -760,6 +1088,11 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         width: f32,
         scroll_cursor: usize,
     ) -> Option<usize> {
+        // A disabled field takes no caret: it is readable, not editable, and a caret
+        // sitting in it would promise otherwise.
+        if !self.enabled {
+            return None;
+        }
         // A click on the **clickable suffix icon**: do not place a caret (the shell will
         // emit its message through `positional_click`).
         if self.suffix_action.is_some() && self.suffix_hit(local_x, local_y, width) {
@@ -768,7 +1101,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // Rebuilds the same content geometry as the render (icon and decoration insets,
         // wrapping, horizontal scroll), for an exact click. The **retained vertical
         // scroll** is already folded into `local_y` by the shell.
-        let left = PAD_X + self.prefix_w();
+        let left = self.pad_x() + self.prefix_w();
         let content_w = self.content_width(width);
         let layout = self.layout(if self.multiline {
             Some(content_w)
@@ -779,7 +1112,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         // `local_*` are relative to the **widget's** top-left corner (label included):
         // the label band and the padding are removed to land inside the text.
         let target_x = local_x - left + scroll;
-        let target_y = local_y - self.label_block() - PAD_Y;
+        let target_y = local_y - self.label_block() - self.text_top();
         Some(layout.hit_test(Point::new(target_x, target_y)))
     }
 
@@ -789,7 +1122,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         }
         let layout = self.layout(Some(self.content_width(width)));
         let caret = layout.caret_rect(cursor);
-        let visible = self.field_height() - PAD_Y * 2.0;
+        let visible = self.field_height() - self.text_top() - self.pad_bottom();
         Some((layout.size().height, visible, caret.y, caret.height))
     }
 
@@ -824,7 +1157,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         let x = goal_x.unwrap_or(caret.x);
         // A step of one line, or of one page (the field's visible height, at least 1 line).
         let step = if page {
-            (self.field_height() - PAD_Y * 2.0).max(line_h)
+            (self.field_height() - self.text_top() - self.pad_bottom()).max(line_h)
         } else {
             line_h
         };
@@ -859,6 +1192,9 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
         };
         if let Some(label) = label {
             s = s.label(label);
+        }
+        if !self.enabled {
+            s = s.disabled(true);
         }
         Some(s)
     }
@@ -899,7 +1235,7 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn draws_own_focus(&self) -> bool {
@@ -919,6 +1255,247 @@ mod tests {
 
     fn input(value: &str) -> TextInput<Msg> {
         TextInput::new(value).on_input(Msg::Changed)
+    }
+
+    /// Every rectangle a field paints, in order.
+    fn rects(field: &TextInput<Msg>, theme: &Theme, w: f32, h: f32) -> Vec<frus_core::Primitive> {
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            field,
+            Rect::new(0.0, 0.0, w, h),
+            Status::default(),
+            theme,
+            &mut scene,
+        );
+        scene
+            .primitives()
+            .iter()
+            .filter(|p| matches!(p, frus_core::Primitive::Rect { .. }))
+            .cloned()
+            .collect()
+    }
+
+    /// The reference's content padding is `(12, 8, 12, 8)` filled and `(12, 20, 12, 12)`
+    /// outlined, and the outlined asymmetry is the room its floating label takes on the
+    /// border. A field measured any other way is a field that does not line up beside
+    /// anything else drawn to the same specification.
+    #[test]
+    fn a_field_is_the_references_size() {
+        let line = frus_text::line_height(FIELD_TEXT_SIZE);
+        let outlined = input("x");
+        assert_eq!(
+            outlined.field_height(),
+            (line + FIELD_OUTLINED_PADDING_TOP + FIELD_OUTLINED_PADDING_BOTTOM).ceil()
+        );
+        // A filled field is tighter — until it carries a label, which it floats *inside*
+        // the box and therefore has to make room for.
+        let filled = input("x").filled();
+        assert_eq!(filled.field_height(), (line + FIELD_PADDING_Y * 2.0).ceil());
+        let labelled = input("x").filled().label("Name");
+        assert_eq!(
+            labelled.field_height() - filled.field_height(),
+            (FIELD_GAP + FIELD_TEXT_SIZE * FIELD_LABEL_SCALE).ceil()
+        );
+        // The label shrinks by a proportion, not to a fixed size: a field given larger
+        // text keeps the relationship.
+        assert_eq!(input("x").size(32.0).label_size(), 24.0);
+    }
+
+    /// A field is 56 px tall, which is right for a form and wrong inside a table row.
+    /// `dense` is the reference's answer, and it gives back the padding without changing
+    /// the shape, the label or the border.
+    #[test]
+    fn a_dense_field_gives_back_its_padding() {
+        let line = frus_text::line_height(FIELD_TEXT_SIZE);
+        assert_eq!(
+            input("x").dense(true).field_height(),
+            (line + FIELD_DENSE_OUTLINED_PADDING_TOP + FIELD_DENSE_OUTLINED_PADDING_BOTTOM).ceil()
+        );
+        assert_eq!(
+            input("x").filled().dense(true).field_height(),
+            (line + FIELD_DENSE_PADDING_Y * 2.0).ceil()
+        );
+        // It is only the room: a dense field is shorter than its roomy twin in both
+        // variants, and never taller.
+        for dense in [input("x").dense(true), input("x").filled().dense(true)] {
+            let roomy = if dense.is_outlined() {
+                input("x")
+            } else {
+                input("x").filled()
+            };
+            assert!(dense.field_height() < roomy.field_height());
+        }
+    }
+
+    /// A filled field is a container with **one line under it**; an outlined one is a box.
+    /// Drawing a fill inside a stroked box on all four sides would be the other variant
+    /// wearing a tint, which is the mistake this variant exists to avoid.
+    #[test]
+    fn a_filled_field_has_a_line_not_a_box() {
+        let theme = Theme::default();
+        let stroked = |field: &TextInput<Msg>| {
+            rects(field, &theme, 220.0, 80.0)
+                .iter()
+                .filter(|p| {
+                    matches!(p, frus_core::Primitive::Rect { border_width, .. } if *border_width > 0.0)
+                })
+                .count()
+        };
+        assert_eq!(
+            stroked(&input("x").outlined()),
+            1,
+            "outlined: one stroked box"
+        );
+        assert_eq!(stroked(&input("x").filled()), 0, "filled: nothing stroked");
+        // ...and the line is a filled rectangle the width of the field, at its foot.
+        let filled = input("x").filled();
+        let height = filled.field_height();
+        let has_underline = rects(&filled, &theme, 220.0, 80.0).iter().any(|p| {
+            matches!(
+                p,
+                frus_core::Primitive::Rect { rect, border_width, .. }
+                    if *border_width == 0.0
+                        && (rect.width - 220.0).abs() < 0.5
+                        && (rect.height - FIELD_BORDER_WIDTH).abs() < 0.5
+                        && (rect.y + rect.height - height).abs() < 0.5
+            )
+        });
+        assert!(has_underline, "a filled field is underlined");
+    }
+
+    /// A disabled field keeps 38% of its colours and shows no focus — it cannot be
+    /// focused, so a ring left over from before would say the wrong thing about Tab.
+    #[test]
+    fn a_disabled_field_dims_and_never_looks_focused() {
+        let theme = Theme::default();
+        let focused = Status {
+            focus_progress: 1.0,
+            ..Default::default()
+        };
+        let border = |field: &TextInput<Msg>, status: Status| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                field,
+                Rect::new(0.0, 0.0, 220.0, 80.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene.primitives().iter().find_map(|p| match p {
+                frus_core::Primitive::Rect {
+                    border_width,
+                    border_color,
+                    ..
+                } if *border_width > 0.0 => Some((*border_width, *border_color)),
+                _ => None,
+            })
+        };
+        let (live_w, live_c) = border(&input("x"), focused).unwrap();
+        assert_eq!(
+            live_w, FIELD_FOCUSED_BORDER_WIDTH,
+            "focus widens the border"
+        );
+        assert_eq!(live_c.a, 1.0, "and it is fully opaque");
+        let (dead_w, dead_c) = border(&input("x").enabled(false), focused).unwrap();
+        assert_eq!(dead_w, FIELD_BORDER_WIDTH, "disabled: no focus weight");
+        assert!(
+            (dead_c.a - FIELD_DISABLED_OPACITY).abs() < 0.01,
+            "disabled: dimmed to the reference's 38%, got {}",
+            dead_c.a
+        );
+    }
+
+    /// Scrolled multi-line text must stay **inside the padding**, not merely inside the
+    /// box: the top border is where an outlined field's floating label lives, and text
+    /// clipped only to the box was painted straight over the label naming it.
+    #[test]
+    fn scrolled_text_is_clipped_below_the_label() {
+        let theme = Theme::default();
+        let field = input("one\ntwo\nthree\nfour\nfive\nsix")
+            .rows(3)
+            .label("Notes");
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(
+            &field,
+            Rect::new(0.0, 0.0, 220.0, 140.0),
+            Status {
+                scroll_y: 40.0,
+                ..Default::default()
+            },
+            &theme,
+            &mut scene,
+        );
+        let box_top = field.label_block();
+        let clip = scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                // The label and the helper are painted unclipped; the value is not, and
+                // its clip is the one under test.
+                frus_core::Primitive::Text { clip, .. } if clip.y > -1.0e6 => Some(*clip),
+                _ => None,
+            })
+            .expect("the value is clipped");
+        assert!(
+            clip.y >= box_top + field.text_top() - 0.5,
+            "the clip starts below the padding, not at the border: {} < {}",
+            clip.y,
+            box_top + field.text_top()
+        );
+    }
+
+    /// Greying a field out is not enough: it has to be out of the tab order, refuse a
+    /// caret, and ignore a key that reaches it from a focus set before it was disabled.
+    #[test]
+    fn a_disabled_field_is_inert() {
+        let live = input("hello");
+        let dead = input("hello").enabled(false);
+        assert!(Widget::<Msg>::focusable(&live));
+        assert!(!Widget::<Msg>::focusable(&dead), "out of the tab order");
+        assert!(
+            Widget::<Msg>::cursor_at(&live, 40.0, 30.0, 220.0, 0).is_some(),
+            "a live field takes a caret"
+        );
+        assert_eq!(
+            Widget::<Msg>::cursor_at(&dead, 40.0, 30.0, 220.0, 0),
+            None,
+            "a disabled field takes none"
+        );
+        let mut edit = Edit::default();
+        assert!(
+            Widget::on_edit(&dead, &mut edit, &Key::Text("x".into())).is_none(),
+            "and no key edits it"
+        );
+        let semantics = Widget::<Msg>::semantics(&dead).unwrap();
+        assert!(semantics.disabled, "a reader is told it is disabled");
+    }
+
+    /// `caller ?? theme ?? framework`, on a field that has all three to choose from.
+    #[test]
+    fn the_caller_outranks_the_theme_which_outranks_the_framework() {
+        let radius = |field: &TextInput<Msg>, theme: &Theme| {
+            rects(field, theme, 220.0, 80.0)
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect {
+                        border_width,
+                        radius,
+                        ..
+                    } if *border_width > 0.0 => Some(radius.top_left),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let plain = Theme::default();
+        assert_eq!(radius(&input("x"), &plain), FIELD_RADIUS);
+        let mut themed = Theme::default();
+        themed.widgets.text_input.radius = Some(10.0);
+        assert_eq!(radius(&input("x"), &themed), 10.0);
+        let overridden = input("x").style(TextInputStyle {
+            radius: Some(2.0),
+            ..Default::default()
+        });
+        assert_eq!(radius(&overridden, &themed), 2.0);
     }
 
     #[test]
@@ -943,7 +1520,7 @@ mod tests {
             })
             .expect("text primitive");
         assert!(
-            (clip.width - (100.0 - PAD_X * 2.0)).abs() < 0.5,
+            (clip.width - (100.0 - FIELD_PADDING_X * 2.0)).abs() < 0.5,
             "clip = {clip:?}"
         );
     }
@@ -999,14 +1576,17 @@ mod tests {
         let inp = input("0123456789 abcdefghij");
         // Without scrolling (cursor 0): a click on the left edge → index 0.
         assert_eq!(
-            Widget::<Msg>::cursor_at(&inp, PAD_X, PAD_Y, 80.0, 0),
+            Widget::<Msg>::cursor_at(&inp, FIELD_PADDING_X, FIELD_OUTLINED_PADDING_TOP, 80.0, 0),
             Some(0)
         );
         // Scrolled (caret at the end): a click on the right lands on a larger index than
         // a click on the left (the offset is indeed taken into account).
         let end = inp.value.chars().count();
-        let at_left = Widget::<Msg>::cursor_at(&inp, PAD_X, PAD_Y, 80.0, end).unwrap();
-        let at_right = Widget::<Msg>::cursor_at(&inp, 76.0, PAD_Y, 80.0, end).unwrap();
+        let at_left =
+            Widget::<Msg>::cursor_at(&inp, FIELD_PADDING_X, FIELD_OUTLINED_PADDING_TOP, 80.0, end)
+                .unwrap();
+        let at_right =
+            Widget::<Msg>::cursor_at(&inp, 76.0, FIELD_OUTLINED_PADDING_TOP, 80.0, end).unwrap();
         assert!(at_left > 0, "scrolled: the left edge is no longer index 0");
         assert!(at_right > at_left, "a click on the right → a larger index");
     }
@@ -1273,8 +1853,11 @@ mod tests {
             "the prefix icon draws a path"
         );
         let plain = input("hello world");
-        let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, PAD_Y, 220.0, 0).unwrap();
-        let at_icon = Widget::<Msg>::cursor_at(&with_icon, 60.0, PAD_Y, 220.0, 0).unwrap();
+        let at_plain =
+            Widget::<Msg>::cursor_at(&plain, 60.0, FIELD_OUTLINED_PADDING_TOP, 220.0, 0).unwrap();
+        let at_icon =
+            Widget::<Msg>::cursor_at(&with_icon, 60.0, FIELD_OUTLINED_PADDING_TOP, 220.0, 0)
+                .unwrap();
         assert!(
             at_icon < at_plain,
             "the prefix offsets the content ({at_plain} → {at_icon})"
@@ -1318,10 +1901,22 @@ mod tests {
             .rows(4)
             .width(160.0);
         let line_h = frus_text::line_height(inp.size);
-        let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + 1.0, 160.0, 0).unwrap();
-        let wrapped =
-            Widget::<Msg>::cursor_at(&inp, PAD_X + 2.0, PAD_Y + line_h * 2.0 + 1.0, 160.0, 0)
-                .unwrap();
+        let top = Widget::<Msg>::cursor_at(
+            &inp,
+            FIELD_PADDING_X + 2.0,
+            FIELD_OUTLINED_PADDING_TOP + 1.0,
+            160.0,
+            0,
+        )
+        .unwrap();
+        let wrapped = Widget::<Msg>::cursor_at(
+            &inp,
+            FIELD_PADDING_X + 2.0,
+            FIELD_OUTLINED_PADDING_TOP + line_h * 2.0 + 1.0,
+            160.0,
+            0,
+        )
+        .unwrap();
         assert!(top < 10, "1st line: {top}");
         assert!(
             wrapped > top,
@@ -1480,10 +2075,23 @@ mod tests {
             .rows(3);
         let line_h = frus_text::line_height(inp.size);
         // A top-left click → the 1st line (index ≤ 2).
-        let top = Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + 1.0, 220.0, 0).unwrap();
+        let top = Widget::<Msg>::cursor_at(
+            &inp,
+            FIELD_PADDING_X + 1.0,
+            FIELD_OUTLINED_PADDING_TOP + 1.0,
+            220.0,
+            0,
+        )
+        .unwrap();
         // A click one line lower → the 2nd line (index ≥ 3).
-        let below =
-            Widget::<Msg>::cursor_at(&inp, PAD_X + 1.0, PAD_Y + line_h + 1.0, 220.0, 0).unwrap();
+        let below = Widget::<Msg>::cursor_at(
+            &inp,
+            FIELD_PADDING_X + 1.0,
+            FIELD_OUTLINED_PADDING_TOP + line_h + 1.0,
+            220.0,
+            0,
+        )
+        .unwrap();
         assert!(top <= 2, "1st line: {top}");
         assert!(below >= 3, "2nd line: {below}");
     }
@@ -1648,8 +2256,8 @@ mod tests {
                 .iter()
                 .filter(|p| match p {
                     frus_core::Primitive::Rect { rect, .. } => {
-                        (rect.width - (ICON_SIZE + 8.0)).abs() < 0.5
-                            && (rect.height - (ICON_SIZE + 8.0)).abs() < 0.5
+                        (rect.width - (FIELD_ICON_SIZE + 8.0)).abs() < 0.5
+                            && (rect.height - (FIELD_ICON_SIZE + 8.0)).abs() < 0.5
                     }
                     _ => false,
                 })
