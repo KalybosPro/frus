@@ -8,12 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 317 so far, each documenting the objective, the alternatives
+> record — one per step, 318 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Changed
+
+- **The application bar is a fixed height** (J318). `AppBar` sized itself to whatever was
+  in it, so a bar with two actions was taller than one without: every screen a slightly
+  different shape, and the page moving the moment an action appeared. It is the
+  reference's `toolbarHeight` — **64** — with `AppBar::height` still overriding. The title
+  is `title_large` (22, was 20) and the actions are `label_large` (14, was 16), the
+  reference's app-bar actions being text buttons.
 
 - **`TextInput` follows the reference** (J317). The widget an application cannot avoid had
   nine hardcoded numbers and no way to change any of them. The measurements are read out of

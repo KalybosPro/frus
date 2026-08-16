@@ -58,10 +58,18 @@ pub const fn platform_centers_title(actions: usize) -> bool {
     }
 }
 
-/// The title's font size (the default, overridden by [`AppBar::title_style`]).
-const TITLE_SIZE: f32 = 20.0;
-/// The actions' font size (the default, overridden by [`AppBar::action_size`]).
-const ACTION_SIZE: f32 = 16.0;
+/// The bar's height, the reference's Material 3 `toolbarHeight`.
+///
+/// A **fixed** height, not the content's: chrome that changes height with what happens
+/// to be in it makes every screen a slightly different shape, and the page below it move
+/// when an action appears. [`AppBar::height`] overrides it.
+pub const APP_BAR_HEIGHT: f32 = 64.0;
+/// The title's font size — the reference's `title_large` (the default, overridden by
+/// [`AppBar::title_style`]).
+const TITLE_SIZE: f32 = 22.0;
+/// The actions' font size — the reference's `label_large`, which is what its app bar's
+/// actions are: text buttons (the default, overridden by [`AppBar::action_size`]).
+const ACTION_SIZE: f32 = 14.0;
 /// A button's inner horizontal padding (must follow `button::PAD_X`).
 const BTN_PAD_X: f32 = 20.0;
 /// The space between the bar's elements (the default, overridden by [`AppBar::gap`]).
@@ -151,8 +159,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// The text title's style (size/weight/italic/color). Default: 20 px, medium
-    /// weight, the theme's color.
+    /// The text title's style (size/weight/italic/color). Default: the reference's
+    /// `title_large` at medium weight, in the theme's colour.
     pub fn title_style(mut self, style: TextStyle) -> Self {
         self.title_style = style;
         self
@@ -498,10 +506,11 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         } else {
             row
         };
+        // The bar is a **fixed** height, the caller's or the reference's. It used to hug
+        // its content, which made the chrome a different shape on every screen and moved
+        // the page below it the moment an action appeared or a title wrapped.
         let mut toolbar = Container::new().padding_each(0.0, H_PAD, 0.0, H_PAD);
-        if let Some(h) = height {
-            toolbar = toolbar.height(h);
-        }
+        toolbar = toolbar.height(height.unwrap_or(APP_BAR_HEIGHT));
         let toolbar = toolbar.child(row);
 
         let content: Box<dyn Widget<Msg>> = match bottom {
@@ -562,6 +571,48 @@ mod tests {
             .iter()
             .filter(|(_, _, s)| s.role == frus_core::Role::Button)
             .count()
+    }
+
+    /// Chrome is a **fixed** height, not its content's. A bar that hugged what happened
+    /// to be in it made every screen a slightly different shape, and moved the page below
+    /// it the moment an action appeared or a title grew.
+    #[test]
+    fn the_bar_is_the_references_height() {
+        let plain = AppBar::<Msg>::new("Title").width(400.0).build();
+        let busy = AppBar::<Msg>::new("Title")
+            .width(400.0)
+            .leading(button("=", Msg::A))
+            .action("One", Msg::A)
+            .action("Two", Msg::B)
+            .build();
+        assert_eq!(bar_height(plain.as_ref()), Some(APP_BAR_HEIGHT));
+        assert_eq!(
+            bar_height(busy.as_ref()),
+            Some(APP_BAR_HEIGHT),
+            "content does not change the chrome's height"
+        );
+        let tall = AppBar::<Msg>::new("Title")
+            .width(400.0)
+            .height(96.0)
+            .build();
+        assert_eq!(
+            bar_height(tall.as_ref()),
+            Some(96.0),
+            "and the caller still decides"
+        );
+    }
+
+    /// The toolbar's imposed height, wherever it sits in the composition.
+    fn bar_height(widget: &dyn Widget<Msg>) -> Option<f32> {
+        if let frus_layout::Dimension::Length(h) = widget.style().height {
+            if (h - APP_BAR_HEIGHT).abs() < 0.01 || h > APP_BAR_HEIGHT {
+                return Some(h);
+            }
+        }
+        widget
+            .children()
+            .iter()
+            .find_map(|c| bar_height(c.as_ref()))
     }
 
     #[test]
