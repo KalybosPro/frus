@@ -689,6 +689,10 @@ pub(crate) fn build_layout<Msg>(
     // the same swap — the two staying in step is what keeps the cache honest.
     let scoped = widget.theme_override(theme);
     let theme = scoped.as_deref().unwrap_or(theme);
+    // A subtree that could not be composed until the theme was known (`ThemeBuilder`).
+    // It has to happen **before** anything reads `children()`, and under the subtree's
+    // own theme, which is why it sits after the swap above rather than at the call site.
+    widget.build_themed(theme);
     // `RotatedBox`: a leaf whose box is the child's **natural** size, with its dimensions
     // **swapped** for an odd quarter turn (the rotation does affect layout). The child itself
     // is laid out separately (at render time).

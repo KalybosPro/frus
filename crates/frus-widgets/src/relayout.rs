@@ -196,6 +196,10 @@ fn hash_node<Msg, H: Hasher>(
     // store another.
     let scoped = widget.theme_override(theme);
     let theme = scoped.as_deref().unwrap_or(theme);
+    // The cache exists to **skip** `build_layout`, so this walk can be the first one down
+    // the tree: a deferred subtree has to be composed here too, or the fingerprint would
+    // be taken of a node with no children and the cache would agree with itself forever.
+    widget.build_themed(theme);
     // These branches must stay aligned with `build_layout`: the shape of the taffy
     // tree (and therefore the number and order of the rectangles) depends on it.
     // The **effective** style is hashed (animated size injected) — the same source

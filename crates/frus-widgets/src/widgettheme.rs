@@ -33,6 +33,7 @@ use crate::card::CardVariant;
 /// widget already has, resolved in the same order everywhere.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
+    pub app_bar: AppBarTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
     pub chip: ChipTheme,
@@ -43,6 +44,25 @@ pub struct WidgetThemes {
     pub segmented: SegmentedTheme,
     pub tabs: TabsTheme,
     pub text_input: TextInputTheme,
+}
+
+/// Defaults for [`AppBar`](crate::AppBar).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AppBarTheme {
+    /// Whether the title is centred. Unset, the **platform**'s convention decides, which
+    /// is the one place the framework's last word is a system convention rather than a
+    /// taste of its own.
+    pub center_title: Option<bool>,
+    /// The title's type.
+    pub title_style: Option<TextStyle>,
+    /// The bar's surface.
+    pub background: Option<Color>,
+    /// What is drawn on it — the title's colour.
+    pub foreground: Option<Color>,
+    /// The shadow's depth. Unset, the bar is flat, as the reference's is.
+    pub elevation: Option<f32>,
+    /// The toolbar's height.
+    pub height: Option<f32>,
 }
 
 /// Defaults for [`TextInput`](crate::TextInput).

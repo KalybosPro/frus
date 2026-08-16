@@ -104,6 +104,7 @@ mod tabs;
 mod text;
 mod textinput;
 mod theme;
+mod themebuilder;
 mod themed;
 mod timeline;
 mod timepicker;
@@ -243,6 +244,7 @@ pub use textinput::{
     FIELD_PADDING_X, FIELD_PADDING_Y, FIELD_RADIUS, FIELD_SUB_SIZE, FIELD_TEXT_SIZE,
 };
 pub use theme::{ColorScheme, TextTheme, Theme};
+pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
@@ -257,7 +259,8 @@ pub use ui::{
 };
 pub use widget::{CellFn, ReorderAxis, Widget};
 pub use widgettheme::{
-    CardTheme, DividerTheme, DrawerTheme, InkTheme, TabsTheme, TextInputTheme, WidgetThemes,
+    AppBarTheme, CardTheme, DividerTheme, DrawerTheme, InkTheme, TabsTheme, TextInputTheme,
+    WidgetThemes,
 };
 
 // Convenience re-exports for callers.

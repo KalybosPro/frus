@@ -32,6 +32,7 @@ use crate::dsl::button;
 use crate::flex::Flex;
 use crate::menu::Menu;
 use crate::text::Text;
+use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// Does this platform centre an application bar's title by default?
@@ -112,6 +113,9 @@ enum Action<Msg> {
 pub struct AppBar<Msg> {
     title: Title<Msg>,
     title_style: TextStyle,
+    /// Was the title's style left at the framework's default? Only then may the theme
+    /// have its say — a caller who set one outranks it.
+    title_style_default: bool,
     width: f32,
     leading: Option<Box<dyn Widget<Msg>>>,
     overflow: Option<(bool, Msg)>,
@@ -135,6 +139,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         Self {
             title: Title::Text(title.into()),
             title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
+            title_style_default: true,
             width: f32::MAX,
             leading: None,
             overflow: None,
@@ -163,6 +168,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// `title_large` at medium weight, in the theme's colour.
     pub fn title_style(mut self, style: TextStyle) -> Self {
         self.title_style = style;
+        self.title_style_default = false;
         self
     }
 
@@ -321,10 +327,28 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     /// gone. So the folding budget is computed against the title's *floor*, and
     /// whatever is left afterwards is what the title gets - with an ellipsis if it
     /// does not fit.
+    /// Finishes the bar.
+    ///
+    /// The composition is **deferred until the theme is known** ([`ThemeBuilder`]):
+    /// `center_title` decides which children exist and in what order, so it cannot be
+    /// resolved by a hook that runs after the row has been assembled. Everything the
+    /// theme has a say in — the title's centring, its type, the bar's colours — is
+    /// resolved inside, `caller ?? theme ?? framework`.
+    ///
+    /// [`ThemeBuilder`]: crate::ThemeBuilder
     pub fn build(self) -> Box<dyn Widget<Msg>> {
+        Box::new(crate::themebuilder::ThemeBuilder::boxed(move |theme| {
+            self.build_with(theme)
+        }))
+    }
+
+    /// The composition proper, against a known theme.
+    fn build_with(self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+        let t = theme.widgets.app_bar;
         let AppBar {
             title,
             mut title_style,
+            title_style_default,
             width,
             leading,
             overflow,
@@ -341,12 +365,31 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             elevation,
         } = self;
 
-        // What the caller asked for, or the platform's convention when it was not asked.
-        let center_title = center_title.unwrap_or_else(|| platform_centers_title(actions.len()));
+        // `caller ?? theme ?? platform`. The platform is the last word rather than the
+        // framework's own taste, because where a title sits is a system convention before
+        // it is a design one — see `platform_centers_title`.
+        let center_title = center_title
+            .or(t.center_title)
+            .unwrap_or_else(|| platform_centers_title(actions.len()));
 
-        if let Some(color) = foreground {
-            title_style.color = Some(color);
+        // The title's type, likewise: the caller's style, else the theme's, else the
+        // reference's `title_large`.
+        if title_style_default {
+            if let Some(style) = t.title_style {
+                title_style = style;
+            }
         }
+        let foreground = foreground
+            .or(t.foreground)
+            .unwrap_or(theme.scheme.on_surface);
+        title_style.color = Some(foreground);
+        let background = background.or(t.background);
+        let elevation = if elevation > 0.0 {
+            elevation
+        } else {
+            t.elevation.unwrap_or(0.0)
+        };
+        let height = height.or(t.height);
         let leading_w = match (&leading, leading_width) {
             (None, _) => 0.0,
             (Some(_), Some(w)) => w,
@@ -573,6 +616,68 @@ mod tests {
             .count()
     }
 
+    /// The middle term milestone 318 could not add. `center_title` decides which children
+    /// exist and in what order, so it cannot be resolved by any hook that runs after the
+    /// row has been assembled — the composition is deferred to the theme instead.
+    #[test]
+    fn center_title_resolves_caller_then_theme_then_platform() {
+        // A centred title is a spring, the title, another spring; a flush one is the
+        // title straight after the leading. Counting the springs reads the decision.
+        fn springs(widget: &dyn Widget<Msg>, theme: &crate::theme::Theme) -> usize {
+            widget.build_themed(theme);
+            let mine = usize::from(matches!(
+                widget.style().flex_grow,
+                g if g > 0.0
+            ));
+            mine + widget
+                .children()
+                .iter()
+                .map(|c| springs(c.as_ref(), theme))
+                .sum::<usize>()
+        }
+        let bar = || AppBar::<Msg>::new("Title").width(400.0);
+        let plain = crate::theme::Theme::default();
+        let mut centred = crate::theme::Theme::default();
+        centred.widgets.app_bar.center_title = Some(true);
+        let mut flush = crate::theme::Theme::default();
+        flush.widgets.app_bar.center_title = Some(false);
+
+        let untold = springs(bar().build().as_ref(), &plain);
+        // Guard the instrument before trusting it: if centring did not change the
+        // composition, every assertion below would pass while proving nothing.
+        assert_ne!(
+            springs(bar().center_title(true).build().as_ref(), &plain),
+            springs(bar().center_title(false).build().as_ref(), &plain),
+            "centring changes the row, or this test cannot see anything"
+        );
+        assert_eq!(
+            springs(bar().build().as_ref(), &centred),
+            springs(bar().center_title(true).build().as_ref(), &plain),
+            "the theme centres it, as the caller would have"
+        );
+        assert_eq!(
+            springs(bar().build().as_ref(), &flush),
+            springs(bar().center_title(false).build().as_ref(), &plain),
+            "and un-centres it"
+        );
+        // The caller outranks the theme, whichever way the theme leant.
+        assert_eq!(
+            springs(bar().center_title(false).build().as_ref(), &centred),
+            springs(bar().center_title(false).build().as_ref(), &plain)
+        );
+        // And with neither, the platform still has the last word.
+        assert_eq!(
+            untold,
+            springs(
+                bar()
+                    .center_title(platform_centers_title(0))
+                    .build()
+                    .as_ref(),
+                &plain
+            )
+        );
+    }
+
     /// Chrome is a **fixed** height, not its content's. A bar that hugged what happened
     /// to be in it made every screen a slightly different shape, and moved the page below
     /// it the moment an action appeared or a title grew.
@@ -603,7 +708,11 @@ mod tests {
     }
 
     /// The toolbar's imposed height, wherever it sits in the composition.
+    ///
+    /// The bar defers its composition to the theme, so the walk down has to build it —
+    /// exactly as the layout pass does — before the children are there to look at.
     fn bar_height(widget: &dyn Widget<Msg>) -> Option<f32> {
+        widget.build_themed(&crate::theme::Theme::default());
         if let frus_layout::Dimension::Length(h) = widget.style().height {
             if (h - APP_BAR_HEIGHT).abs() < 0.01 || h > APP_BAR_HEIGHT {
                 return Some(h);

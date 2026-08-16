@@ -47,6 +47,13 @@ macro_rules! forward_transparent {
                 self.inner.style_themed(theme)
             }
 
+            fn build_themed(&self, theme: &$crate::theme::Theme) {
+                // A deferred subtree inside a wrapper still has to be composed: without
+                // this, a `ThemeBuilder` behind a `Keyed` never builds and the wrapper
+                // reports a node with no children.
+                self.inner.build_themed(theme)
+            }
+
             fn debug_name(&self) -> &'static str {
                 // A transparent wrapper: the inspector shows the wrapped widget.
                 self.inner.debug_name()

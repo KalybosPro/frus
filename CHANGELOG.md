@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 318 so far, each documenting the objective, the alternatives
+> record — one per step, 319 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`ThemeBuilder`** (J319). A widget that builds its subtree **from the ambient theme**,
+  through a new `Widget::build_themed` hook called on the way down by the layout pass.
+  It closes the hole milestone 318 ran into: `caller ?? theme ?? framework` reached
+  painted properties and layout, but nothing decided while a composition was being
+  *assembled* — `AppBar::build()` never saw a theme, and `center_title` picks which
+  children exist rather than how they look. Unlike `LayoutBuilder` it keeps **retained
+  state**: a theme is the same frame to frame where a box is not, so the subtree keeps
+  its positional identity and an application bar inside one keeps its overflow menu open.
+
+- **`AppBarTheme`** (J319). The first consumer. `center_title` resolves
+  `caller ?? theme ?? platform` — the platform last, because where a title sits is a
+  system convention before it is a design one — and the theme also carries the title's
+  type, the background, the foreground, the elevation and the height.
 
 ### Changed
 

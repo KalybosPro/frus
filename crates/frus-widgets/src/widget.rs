@@ -540,6 +540,24 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Builds this widget's subtree **from the ambient theme**, for the widgets that
+    /// defer that decision — see [`ThemeBuilder`](crate::ThemeBuilder). Does nothing by
+    /// default, which is what all but a handful of widgets want.
+    ///
+    /// [`Self::style_themed`] and [`Self::paint`] let a theme decide how a widget
+    /// **looks**. This is for the questions a theme answers *earlier* than that: whether
+    /// an application bar centres its title decides which children exist and in what
+    /// order, and by the time anything is being painted the composition has already been
+    /// made. A widget assembled by a builder — `AppBar::new(…).build()` — never sees a
+    /// theme at all.
+    ///
+    /// Called by the layout pass on the way down, **before** [`Self::children`] is read,
+    /// under the theme of the subtree the node sits in. It takes `&self` like every other
+    /// hook, so an implementor needs interior mutability; that is safe here because a
+    /// widget tree is rebuilt from `view` rather than mutated, so "once per instance" and
+    /// "once per frame" are the same thing.
+    fn build_themed(&self, _theme: &Theme) {}
+
     /// If the widget takes **ink** — the splash a tap leaves on a material surface —
     /// the shape and colour to splash in. `None` = no ink, which is the default: a
     /// widget has to ask.
