@@ -8,6 +8,7 @@
 use frus_core::{Path, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::flex::Flex;
 use crate::icons::IconName;
 use crate::interaction::Status;
@@ -27,6 +28,8 @@ struct Row<Msg> {
     is_header: bool,
     /// The currently selected option (highlighted + ticked). Ignored for the header.
     selected: bool,
+    /// The list's availability, handed down to the header and to every option.
+    enabled: bool,
     on_click: Option<Msg>,
 }
 
@@ -46,20 +49,37 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         // Selected option: a primary-tinted background; hover on top (the state layer).
-        let base = if self.selected {
+        let base = if self.selected && self.enabled {
             theme.surface.lerp(theme.primary, 0.14)
         } else {
             theme.surface
         };
-        let bg = theme.state_layer(base, theme.on_surface, &status);
-        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
+        // No state layer while disabled: a hover tint is a promise that a press would do
+        // something. The outline is the row's **container**, so it takes the container
+        // opacity rather than the content one.
+        let bg = if self.enabled {
+            theme.state_layer(base, theme.on_surface, &status)
+        } else {
+            base
+        };
+        let outline = if self.enabled {
+            theme.border
+        } else {
+            disabled_container(theme)
+        };
+        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, outline.fade(o));
 
+        let ink = if self.enabled {
+            theme.on_surface
+        } else {
+            disabled_content(theme)
+        };
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
             SIZE,
-            theme.on_surface.fade(o),
+            ink.fade(o),
         );
 
         if self.is_header {
@@ -72,7 +92,12 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
                 .line_to(Point::new(cx + w, cy - h))
                 .line_to(Point::new(cx, cy + h))
                 .close();
-            scene.fill_path(&tri, theme.muted.fade(o));
+            let chevron = if self.enabled {
+                theme.muted
+            } else {
+                disabled_content(theme)
+            };
+            scene.fill_path(&tri, chevron.fade(o));
         } else if self.selected {
             // The selected option's tick, on the right.
             let size = 18.0;
@@ -80,16 +105,44 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
             let x = bounds.x + self.width - PAD_X - size;
             let y = bounds.y + (ROW_H - size) * 0.5;
             let path = IconName::Check.path().scaled(scale).translated(x, y);
-            scene.fill_path(&path, theme.primary.fade(o));
+            // The tick stays: which option is chosen is still owed to a reader who cannot
+            // choose another.
+            let check = if self.enabled {
+                theme.primary
+            } else {
+                disabled_content(theme)
+            };
+            scene.fill_path(&path, check.fade(o));
         }
     }
 
     fn on_click(&self) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
         self.on_click.clone()
     }
 
     fn focusable(&self) -> bool {
-        self.on_click.is_some()
+        self.enabled && self.on_click.is_some()
+    }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        // A dropdown row said nothing to a reader before this. Announcing that a row is
+        // unavailable without ever announcing the row would have been announcing an
+        // absence, the same hole `RadioOption` had in milestone 322.
+        let semantics =
+            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+        let semantics = if self.is_header {
+            semantics
+        } else {
+            semantics.toggled(self.selected)
+        };
+        Some(if self.enabled {
+            semantics.clickable()
+        } else {
+            semantics.disabled(true)
+        })
     }
 }
 
@@ -100,6 +153,7 @@ pub struct Dropdown<Msg> {
     width: f32,
     selected: Option<usize>,
     open: bool,
+    enabled: bool,
     labels: Vec<String>,
     on_select: Option<Box<dyn Fn(usize) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -114,12 +168,27 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
             width: DEFAULT_WIDTH,
             selected: None,
             open: false,
+            enabled: true,
             labels: Vec::new(),
             on_select: None,
             children: Vec::new(),
         };
         dropdown.rebuild();
         dropdown
+    }
+
+    /// Whether the list can be opened or chosen from. Disabled it is **inert** - the
+    /// header takes no press, no row takes focus - and it still shows the current choice.
+    ///
+    /// A disabled list is also **never open**: whatever `options` was told, the menu is
+    /// not built, because a floating menu over a control that cannot be chosen from is a
+    /// menu that traps a press and returns nothing.
+    ///
+    /// See [`crate::disabled`] for the whole contract.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self.rebuild();
+        self
     }
 
     /// Width of the header and the menu, in logical pixels (240 by default).
@@ -158,11 +227,12 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
             width: self.width,
             is_header: true,
             selected: false,
+            enabled: self.enabled,
             on_click: Some(self.on_toggle.clone()),
         };
         self.children = vec![Box::new(header)];
 
-        if self.open && !self.labels.is_empty() {
+        if self.open && self.enabled && !self.labels.is_empty() {
             let mut menu = Flex::column().gap(4.0);
             for (index, label) in self.labels.iter().enumerate() {
                 let on_click = self.on_select.as_ref().map(|f| f(index));
@@ -171,6 +241,7 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
                     width: self.width,
                     is_header: false,
                     selected: self.selected == Some(index),
+                    enabled: self.enabled,
                     on_click,
                 });
             }
@@ -228,7 +299,7 @@ mod tests {
         let open = Dropdown::new("Pick one", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
         assert!(
             Widget::<Msg>::overlay(&open).is_some(),
-            "ouverte : menu flottant"
+            "open: a floating menu"
         );
         let menu = &Widget::<Msg>::children(&open)[1];
         assert_eq!(menu.children().len(), 2);
@@ -275,5 +346,40 @@ mod tests {
             )
         });
         assert!(has_tint, "the selected option is highlighted");
+    }
+
+    #[test]
+    fn a_disabled_list_is_inert_and_cannot_be_open() {
+        let dead = Dropdown::new("Option B", Msg::Toggle)
+            .selected(1)
+            .options(true, &["A", "B"], Msg::Select)
+            .enabled(false);
+        // Told to be open, and not open: a floating menu over a control that cannot be
+        // chosen from would trap a press and return nothing.
+        assert!(Widget::<Msg>::overlay(&dead).is_none(), "no floating menu");
+        assert_eq!(Widget::<Msg>::children(&dead).len(), 1, "header only");
+
+        let header = &Widget::<Msg>::children(&dead)[0];
+        assert_eq!(header.on_click(), None, "the header takes no press");
+        assert!(!header.focusable(), "and no focus");
+        let semantics = header.semantics().expect("still announced");
+        assert!(semantics.disabled, "announced as unavailable");
+        assert_eq!(
+            semantics.label.as_deref(),
+            Some("Option B"),
+            "and still says which option is current"
+        );
+    }
+
+    #[test]
+    fn a_live_list_is_untouched_by_it() {
+        let live = Dropdown::new("Pick one", Msg::Toggle)
+            .options(true, &["A", "B"], Msg::Select)
+            .enabled(true);
+        assert!(Widget::<Msg>::overlay(&live).is_some());
+        assert_eq!(
+            Widget::<Msg>::children(&live)[0].on_click(),
+            Some(Msg::Toggle)
+        );
     }
 }

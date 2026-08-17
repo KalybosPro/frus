@@ -258,11 +258,7 @@ impl<Msg> Button<Msg> {
     /// unavailable rather than as a quieter version of the variant.
     fn palette(&self, theme: &Theme) -> (Color, Color, Option<Color>) {
         if !self.enabled {
-            return (
-                disabled_container(theme),
-                disabled_content(theme),
-                None,
-            );
+            return (disabled_container(theme), disabled_content(theme), None);
         }
         let (background, label, outline) = match self.variant {
             Variant::Filled => (theme.scheme.primary, theme.scheme.on_primary, None),

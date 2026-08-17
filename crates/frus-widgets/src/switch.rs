@@ -66,10 +66,7 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         // track is a container (12 %), the thumb is content drawn on it (38 %), and when
         // the thumb sits on that flattened track it punches through opaquely instead.
         let (track, thumb) = if self.enabled {
-            (
-                theme.border.lerp(theme.primary, t),
-                Color::WHITE,
-            )
+            (theme.border.lerp(theme.primary, t), Color::WHITE)
         } else {
             (
                 disabled_container(theme),
@@ -188,9 +185,20 @@ mod tests {
         for theme in [Theme::dark(), Theme::light()] {
             let off = painted(false, false, &theme);
             let (track, thumb) = (off[0], off[1]);
-            assert_eq!(track, disabled_container(&theme), "the track is a container");
-            assert_eq!(thumb, disabled_content(&theme), "the thumb is content on it");
-            assert!(track.a < thumb.a, "and the container is the quieter of the two");
+            assert_eq!(
+                track,
+                disabled_container(&theme),
+                "the track is a container"
+            );
+            assert_eq!(
+                thumb,
+                disabled_content(&theme),
+                "the thumb is content on it"
+            );
+            assert!(
+                track.a < thumb.a,
+                "and the container is the quieter of the two"
+            );
 
             // Flipped on, the thumb is sitting *on* that flattened track, so it punches
             // through opaquely rather than adding a third translucent layer.

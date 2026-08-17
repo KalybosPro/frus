@@ -6,8 +6,8 @@ use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Autocomplete, Avatar, BarChart, Button, Checkbox, Chip, Container, DateTimePicker, Dropdown,
-    Flex, IconName, LineChart, Menu, RadioGroup, RangeSlider, SegmentedControl, Switch, Table,
-    Text, TextInput, Theme, TimePicker, Variant,
+    Flex, IconName, LineChart, Menu, RadioGroup, RangeSlider, SegmentedControl, Slider, Switch,
+    Table, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -206,7 +206,8 @@ fn disabled_controls_match_golden() {
 #[test]
 fn disabled_selection_controls_match_golden() {
     let theme = Theme::dark();
-    let pair = |live: Box<dyn frus_widgets::Widget<()>>, dead: Box<dyn frus_widgets::Widget<()>>| {
+    let pair = |live: Box<dyn frus_widgets::Widget<()>>,
+                dead: Box<dyn frus_widgets::Widget<()>>| {
         Flex::row().gap(28.0).child(live).child(dead)
     };
     let root: Container<()> = Container::new().padding(24.0).child(
@@ -214,11 +215,7 @@ fn disabled_selection_controls_match_golden() {
             .gap(22.0)
             .child(pair(
                 Box::new(Checkbox::<()>::new(true).label("Notify me")),
-                Box::new(
-                    Checkbox::<()>::new(true)
-                        .label("Notify me")
-                        .enabled(false),
-                ),
+                Box::new(Checkbox::<()>::new(true).label("Notify me").enabled(false)),
             ))
             .child(pair(
                 Box::new(Checkbox::<()>::new(false).label("Digest")),
@@ -233,7 +230,11 @@ fn disabled_selection_controls_match_golden() {
                 Box::new(Switch::<()>::new(false).enabled(false)),
             ))
             .child(pair(
-                Box::new(RadioGroup::<()>::new(1, |_| ()).option("Daily").option("Weekly")),
+                Box::new(
+                    RadioGroup::<()>::new(1, |_| ())
+                        .option("Daily")
+                        .option("Weekly"),
+                ),
                 Box::new(
                     RadioGroup::<()>::new(1, |_| ())
                         .option("Daily")
@@ -251,6 +252,67 @@ fn disabled_selection_controls_match_golden() {
         "boxes, tracks, dots and labels are drawn"
     );
     snapshot.assert_golden(golden("disabled_selection_controls"));
+}
+
+/// **The dragged controls, disabled (milestone 323)** — a slider, a range slider and a
+/// dropdown, each beside its live twin.
+///
+/// The slider is the reason this picture exists. Its disabled state is the clearest case
+/// of the framework's one rule applied to a single control: the rail still to travel is a
+/// **container** at 12 %, the travelled part and the thumb are **content** on it at 38 %.
+/// Two greys that must stay apart, and no assertion reads as convincingly as seeing them.
+///
+/// The dropdown is here for the other half of what `enabled` turns off. It is told to be
+/// **open** and is not: a floating menu over a control that cannot be chosen from would
+/// trap a press and return nothing.
+#[test]
+fn disabled_inputs_match_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(20.0)
+            .child(Slider::<()>::new(0.55).width(180.0).on_change(|_| ()))
+            .child(
+                Slider::<()>::new(0.55)
+                    .width(180.0)
+                    .on_change(|_| ())
+                    .enabled(false),
+            )
+            .child(
+                RangeSlider::<()>::new(0.25, 0.75)
+                    .width(180.0)
+                    .on_change(|_, _| ()),
+            )
+            .child(
+                RangeSlider::<()>::new(0.25, 0.75)
+                    .width(180.0)
+                    .on_change(|_, _| ())
+                    .enabled(false),
+            )
+            .child(
+                Dropdown::<()>::new("Option B", ())
+                    .width(180.0)
+                    .selected(1)
+                    .options(false, &["A", "B"], |_| ()),
+            )
+            .child(
+                Dropdown::<()>::new("Option B", ())
+                    .width(180.0)
+                    .selected(1)
+                    // Told to be open, and drawn closed.
+                    .options(true, &["A", "B"], |_| ())
+                    .enabled(false),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 240, 320, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "rails, thumbs and rows are drawn"
+    );
+    snapshot.assert_golden(golden("disabled_inputs"));
 }
 
 /// **The other field (milestone 317)**: `filled` — a tinted container with a single

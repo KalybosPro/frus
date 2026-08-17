@@ -219,7 +219,9 @@ mod tests {
 
     #[test]
     fn picking_an_option_reports_its_index() {
-        let live = RadioGroup::new(0, Msg::Pick).option("Daily").option("Weekly");
+        let live = RadioGroup::new(0, Msg::Pick)
+            .option("Daily")
+            .option("Weekly");
         let options = Widget::children(&live);
         assert_eq!(options.len(), 2);
         assert_eq!(options[1].on_click(), Some(Msg::Pick(1)));

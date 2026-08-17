@@ -51,10 +51,14 @@
 //! ## The guard
 //!
 //! `every_control_with_an_enabled_flag_honours_all_four` reads the crate's own sources,
-//! finds every widget carrying `enabled: bool`, and insists that each of the four hooks
-//! it implements mentions that flag. It is the same instrument as
-//! [`crate::transparent`]'s, written for the same reason: a rule kept by convention is
-//! kept by whoever remembered it.
+//! finds every widget carrying `enabled: bool`, and insists that **every** hook it
+//! implements which could carry one of those four out mentions that flag — the tap hooks,
+//! and equally the drag and key hooks, since a slider is dragged and a field is typed
+//! into. It is the same instrument as [`crate::transparent`]'s, written for the same
+//! reason: a rule kept by convention is kept by whoever remembered it.
+//!
+//! It has caught three omissions so far, two of them in the milestones that introduced
+//! the rule it checks.
 
 use frus_core::Color;
 
@@ -72,8 +76,13 @@ pub fn disabled_container(theme: &Theme) -> Color {
     theme.scheme.on_surface.fade(DISABLED_CONTAINER_OPACITY)
 }
 
-/// What is drawn on a disabled control — its label, its glyph, its outline, and a
-/// selection control's own mark: `on_surface` at [`DISABLED_CONTENT_OPACITY`].
+/// What is drawn on a disabled control — its label, its glyph, and a selection control's
+/// own mark: `on_surface` at [`DISABLED_CONTENT_OPACITY`].
+///
+/// **Outlines go both ways**, and the same test decides it as everywhere else. The outline
+/// *of a container* — a chip, an outlined button, a field, a dropdown row — is part of that
+/// container and takes [`disabled_container`]. A checkbox's box or a radio's ring is not a
+/// container with a mark inside it; it **is** the mark, so it takes this.
 pub fn disabled_content(theme: &Theme) -> Color {
     theme.scheme.on_surface.fade(DISABLED_CONTENT_OPACITY)
 }
@@ -128,7 +137,11 @@ mod tests {
             // The tests at the foot of a module are full of `.enabled(false)` and would
             // pass the check for the implementation.
             let src = src.split("\nmod tests {").next().unwrap_or(&src).to_owned();
-            let name = path.file_name().expect("a name").to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .expect("a name")
+                .to_string_lossy()
+                .to_string();
             for group in hooks {
                 for hook in group {
                     // **Every** occurrence, not the first: a module often holds more than

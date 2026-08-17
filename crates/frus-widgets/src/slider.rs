@@ -5,6 +5,7 @@ use std::rc::Rc;
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::flex::Flex;
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::theme::Theme;
@@ -25,6 +26,7 @@ const THUMB: f32 = 18.0;
 pub struct Slider<Msg> {
     value: f32,
     width: f32,
+    enabled: bool,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
 }
 
@@ -34,6 +36,7 @@ impl<Msg> Slider<Msg> {
         Self {
             value: value.clamp(0.0, 1.0),
             width: 220.0,
+            enabled: true,
             on_change: None,
         }
     }
@@ -47,6 +50,17 @@ impl<Msg> Slider<Msg> {
     /// A closure producing a message from the new value (`0..=1`).
     pub fn on_change(mut self, on_change: impl Fn(f32) -> Msg + 'static) -> Self {
         self.on_change = Some(Box::new(on_change));
+        self
+    }
+
+    /// Whether the slider can be moved. Disabled it is **inert** — it takes no drag and
+    /// answers no key — and it still shows where it is set.
+    ///
+    /// A slider is the control that makes the point of [`crate::disabled`]'s contract:
+    /// greying it out while it still answered a drag would leave it inert only to the
+    /// gesture nobody was using on it.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
         self
     }
 }
@@ -67,19 +81,28 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let track_y = bounds.y + (H - TRACK_H) * 0.5;
-        // Piste.
+        // A slider splits cleanly along the framework's one disabled rule: the part of the
+        // track still to travel is a **container** (12 %), the part already travelled and
+        // the thumb are **content** on it (38 %). That is the reference's own split too.
+        let (rail, filled_color, thumb, ring) = if self.enabled {
+            (theme.border, theme.primary, Color::WHITE, theme.primary)
+        } else {
+            let dead = disabled_content(theme);
+            (disabled_container(theme), dead, dead, dead)
+        };
+        // The rail, its whole length.
         scene.draw_rect(
             Rect::new(bounds.x, track_y, bounds.width, TRACK_H),
-            theme.border.fade(o),
+            rail.fade(o),
             TRACK_H * 0.5,
             0.0,
             Color::TRANSPARENT,
         );
-        // Remplissage.
+        // The travelled part.
         let filled = bounds.width * self.value;
         scene.draw_rect(
             Rect::new(bounds.x, track_y, filled, TRACK_H),
-            theme.primary.fade(o),
+            filled_color.fade(o),
             TRACK_H * 0.5,
             0.0,
             Color::TRANSPARENT,
@@ -88,10 +111,10 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         let cx = bounds.x + filled;
         scene.draw_rect(
             Rect::new(cx - THUMB * 0.5, bounds.y + (H - THUMB) * 0.5, THUMB, THUMB),
-            Color::WHITE.fade(o),
+            thumb.fade(o),
             THUMB * 0.5,
             2.0,
-            theme.primary.fade(o),
+            ring.fade(o),
         );
     }
 
@@ -100,19 +123,29 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
+        // The value survives: a reader who cannot move the slider is still owed where it
+        // sits, which is the whole of what a slider says.
         let pct = (self.value * 100.0).round();
-        Some(
-            frus_core::Semantics::new(frus_core::Role::Slider)
-                .value(format!("{pct}%"))
-                .range(0.0, self.value, 1.0),
-        )
+        let semantics = frus_core::Semantics::new(frus_core::Role::Slider)
+            .value(format!("{pct}%"))
+            .range(0.0, self.value, 1.0);
+        Some(if self.enabled {
+            semantics
+        } else {
+            semantics.disabled(true)
+        })
     }
 
     fn draggable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
+        // `draggable` already says no, but a drag in flight when the caller disables the
+        // slider must not land either.
+        if !self.enabled {
+            return None;
+        }
         self.on_change
             .as_ref()
             .map(|make| make(fraction.clamp(0.0, 1.0)))
@@ -166,6 +199,8 @@ struct RangeThumb<Msg> {
     divisions: Option<usize>,
     /// The tooltip formatter: the bubble only appears on **hover or focus** of the thumb.
     label: Option<Rc<dyn Fn(f32) -> String>>,
+    /// The slider's availability, handed down to each thumb.
+    enabled: bool,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
 }
 
@@ -227,16 +262,28 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
         let o = status.opacity;
         // The thumb in the lower `H` band; an accented ring on keyboard focus.
         let y = bounds.y + bounds.height - H + (H - THUMB) * 0.5;
-        let border = if status.focused { 3.0 } else { 2.0 };
+        // A disabled thumb never shows the focus ring, because it never takes focus.
+        let border = if status.focused && self.enabled {
+            3.0
+        } else {
+            2.0
+        };
+        let (fill, ring) = if self.enabled {
+            (Color::WHITE, theme.primary)
+        } else {
+            let dead = disabled_content(theme);
+            (dead, dead)
+        };
         scene.draw_rect(
             Rect::new(bounds.x, y, THUMB, THUMB),
-            Color::WHITE.fade(o),
+            fill.fade(o),
             THUMB * 0.5,
             border,
-            theme.primary.fade(o),
+            ring.fade(o),
         );
         // The tooltip revealed on hover or focus (the upper zone the slider reserves).
-        if let Some(label) = &self.label {
+        // A disabled thumb shows none: it is a hint about a value being changed.
+        if let Some(label) = self.label.as_ref().filter(|_| self.enabled) {
             let active = status.focused || status.hover_progress > 0.01;
             if active {
                 let reveal = if status.focused {
@@ -261,15 +308,15 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        self.on_change.is_some()
+        self.enabled && self.on_change.is_some()
     }
 
     fn draggable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
-        if dx == 0.0 || self.track <= 0.0 {
+        if !self.enabled || dx == 0.0 || self.track <= 0.0 {
             return None;
         }
         let (low, high) = self.moved(dx / self.track);
@@ -277,6 +324,11 @@ impl<Msg: Clone> Widget<Msg> for RangeThumb<Msg> {
     }
 
     fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
+        // A disabled thumb cannot be focused, so this should be unreachable - but a key
+        // arriving from a stale focus must not move a value the caller has frozen.
+        if !self.enabled {
+            return KeyResponse::Ignored;
+        }
         // Arrows: one step; Home/End: this side's min/max bound (the shell offers
         // these keys to the focused widget before the default action).
         let delta = match key {
@@ -303,6 +355,7 @@ pub struct RangeSlider<Msg> {
     /// The **value tooltip** formatter: when set, a bubble above each thumb shows
     /// `label(value)` (and the height reserves the room for it).
     label: Option<Rc<dyn Fn(f32) -> String>>,
+    enabled: bool,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -318,6 +371,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             width: 220.0,
             divisions: None,
             label: None,
+            enabled: true,
             on_change: None,
             children: Vec::new(),
         };
@@ -347,6 +401,16 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
         self
     }
 
+    /// Whether the interval can be changed. Disabled the whole control is **inert** -
+    /// neither thumb takes a drag, a key or the focus - and it still shows its interval.
+    ///
+    /// See [`crate::disabled`] for the whole contract.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self.rebuild();
+        self
+    }
+
     /// Shows a **value tooltip** above each thumb, formatted by `label(value)` (a
     /// percentage, a price…). Reserves the room above the track.
     pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
@@ -366,6 +430,7 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             height,
             divisions: self.divisions,
             label: self.label.clone(),
+            enabled: self.enabled,
             on_change: self.on_change.clone(),
         };
         let lo_gap = (self.low * self.width - THUMB * 0.5).max(0.0);
@@ -443,9 +508,15 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
         // Track + segment in the **lower** `H` band (the upper zone holds the bubbles).
         let base_y = bounds.y + bounds.height - H;
         let track_y = base_y + (H - TRACK_H) * 0.5;
+        // The same split as the single slider: rail a container, chosen span content.
+        let (rail, span) = if self.enabled {
+            (theme.border, theme.primary)
+        } else {
+            (disabled_container(theme), disabled_content(theme))
+        };
         scene.draw_rect(
             Rect::new(bounds.x, track_y, bounds.width, TRACK_H),
-            theme.border.fade(o),
+            rail.fade(o),
             TRACK_H * 0.5,
             0.0,
             Color::TRANSPARENT,
@@ -454,7 +525,7 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
         let hi = bounds.x + bounds.width * self.high;
         scene.draw_rect(
             Rect::new(lo, track_y, (hi - lo).max(0.0), TRACK_H),
-            theme.primary.fade(o),
+            span.fade(o),
             TRACK_H * 0.5,
             0.0,
             Color::TRANSPARENT,
@@ -467,23 +538,30 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
+        // The interval survives, as the single slider's value does.
         let pct = |v: f32| (v * 100.0).round();
-        Some(
-            frus_core::Semantics::new(frus_core::Role::Slider).value(format!(
-                "{}%–{}%",
-                pct(self.low),
-                pct(self.high)
-            )),
-        )
+        let semantics = frus_core::Semantics::new(frus_core::Role::Slider).value(format!(
+            "{}%–{}%",
+            pct(self.low),
+            pct(self.high)
+        ));
+        Some(if self.enabled {
+            semantics
+        } else {
+            semantics.disabled(true)
+        })
     }
 
     fn draggable(&self) -> bool {
         // The **track** (outside the thumbs, which sit above it) answers clicks and
         // drags: the nearest thumb moves to the position.
-        self.on_change.is_some()
+        self.enabled && self.on_change.is_some()
     }
 
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
         let f = self.snap(fraction.clamp(0.0, 1.0));
         // The nearest thumb, bounded by the other, with no crossing.
         let (low, high) = if f <= self.low {
@@ -677,5 +755,96 @@ mod tests {
             (lo - 0.15).abs() < 1e-4 && (hi - 0.9).abs() < 1e-4,
             "reordered ({lo}, {hi})"
         );
+    }
+
+    /// The thumbs **by position** (the row is spacer, thumb, spacer, thumb), which is the
+    /// only way to reach them once they are disabled: the `thumbs` helper above finds them
+    /// by `draggable`, and a disabled thumb is exactly the thing that is not.
+    fn thumbs_by_position(rs: &RangeSlider<Msg>) -> Vec<&dyn Widget<Msg>> {
+        let row = &Widget::<Msg>::children(rs)[0];
+        let kids = row.children();
+        vec![kids[1].as_ref(), kids[3].as_ref()]
+    }
+
+    #[test]
+    fn a_disabled_slider_is_inert_but_still_says_where_it_sits() {
+        let dead = Slider::new(0.4).on_change(Msg::Value).enabled(false);
+        assert!(!Widget::<Msg>::draggable(&dead), "it takes no drag");
+        assert_eq!(
+            Widget::on_drag(&dead, 0.9),
+            None,
+            "and a drag in flight does not land"
+        );
+        let semantics = Widget::<Msg>::semantics(&dead).expect("still announced");
+        assert!(semantics.disabled, "announced as unavailable");
+        assert_eq!(semantics.value.as_deref(), Some("40%"), "value survives");
+    }
+
+    /// A slider is dragged and keyed rather than tapped, which is why milestone 322's
+    /// guard covers those hooks: greying one out while it still answered a drag leaves it
+    /// inert only to the gesture nobody was using on it.
+    #[test]
+    fn a_disabled_range_slider_takes_no_drag_no_key_and_no_focus() {
+        let dead = RangeSlider::new(0.2, 0.8)
+            .on_change(Msg::Range)
+            .enabled(false);
+        assert!(!Widget::<Msg>::draggable(&dead), "the track takes no drag");
+        assert_eq!(Widget::on_drag(&dead, 0.5), None);
+        for (i, thumb) in thumbs_by_position(&dead).into_iter().enumerate() {
+            assert!(!thumb.draggable(), "thumb {i} still drags");
+            assert!(!thumb.focusable(), "thumb {i} still takes focus");
+            assert_eq!(thumb.on_drag_delta(20.0), None, "thumb {i} still moves");
+            assert!(
+                matches!(
+                    thumb.on_key(&Key::Right {
+                        shift: false,
+                        word: false
+                    }),
+                    KeyResponse::Ignored
+                ),
+                "thumb {i} still answers an arrow"
+            );
+        }
+        let semantics = Widget::<Msg>::semantics(&dead).expect("still announced");
+        assert!(semantics.disabled);
+        assert_eq!(
+            semantics.value.as_deref(),
+            Some("20%–80%"),
+            "interval survives"
+        );
+    }
+
+    /// The track splits along the framework's one rule: the part still to travel is a
+    /// container, the travelled part and the thumb are content on it.
+    #[test]
+    fn a_disabled_slider_takes_both_halves_of_the_rule() {
+        for theme in [Theme::dark(), Theme::light()] {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &Slider::<Msg>::new(0.5).enabled(false),
+                Rect::new(0.0, 0.0, 200.0, H),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            let fills: Vec<frus_core::Color> = scene
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Rect { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(fills[0], disabled_container(&theme), "the rail");
+            assert_eq!(fills[1], disabled_content(&theme), "the travelled part");
+            assert_eq!(fills[2], disabled_content(&theme), "the thumb");
+            assert!(
+                fills[0].a < fills[1].a,
+                "the rail is the quieter of the two"
+            );
+        }
     }
 }

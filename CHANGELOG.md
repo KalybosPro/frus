@@ -8,12 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 322 so far, each documenting the objective, the alternatives
+> record — one per step, 323 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`enabled` on `Slider`, `RangeSlider` and `Dropdown`** (J323). The other two of the five
+  form controls milestone 322 named. A disabled slider takes no drag on its track, none on
+  either thumb and no arrow key on a focused one — which is the case 322's guard widened
+  itself for, a slider being neither tapped nor typed into. It is also the clearest picture
+  of the container/content split: the track still to travel is a container at 12 %, the part
+  travelled and the thumb are content at 38 %. A disabled `Dropdown` is **never open**,
+  whatever `options(open, …)` was told, because a floating menu over a header that answers
+  nothing traps a press and returns no message; its rows gained the semantics they never
+  had.
 
 - **One disabled state, shared** (J322). The new `frus_widgets::disabled` module holds the
   rule once — `disabled_container` at 12 % under `disabled_content` at 38 % — where five
