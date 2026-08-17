@@ -24,9 +24,14 @@
 //! switch track take [`disabled_container`].
 //!
 //! The one thing that is neither is a mark drawn **on** a disabled fill: a disabled
-//! selected checkbox's tick, a disabled selected switch's thumb. Another translucent
+//! selected checkbox's tick, a disabled selected switch's thumb. Another wash of
 //! `on_surface` there would sink into the 38 % it sits on, so it punches through in
 //! [`disabled_mark`] instead.
+//!
+//! All three are **opaque**, resolved in sRGB by [`over_surface`] rather than handed to
+//! the GPU as an alpha. Milestone 329, and the reason is the sentence above: an opaque
+//! colour is what *flattens rather than fades* actually means. It also happens to be the
+//! only way these numbers mean what the reference means by them — see [`over_surface`].
 //!
 //! ## Greying out is the easy half
 //!
@@ -54,8 +59,9 @@
 //! finds every widget carrying `enabled: bool`, and insists that **every** hook it
 //! implements which could carry one of those four out mentions that flag — the tap hooks,
 //! and equally the drag and key hooks, since a slider is dragged and a field is typed
-//! into. It is the same instrument as [`crate::transparent`]'s, written for the same
-//! reason: a rule kept by convention is kept by whoever remembered it.
+//! into. It is the same instrument as `transparent`'s — that module is crate-private, so
+//! this cannot be a link — written for the same reason: a rule kept by convention is kept
+//! by whoever remembered it.
 //!
 //! It has caught three omissions so far, two of them in the milestones that introduced
 //! the rule it checks.
@@ -71,9 +77,36 @@ pub const DISABLED_CONTAINER_OPACITY: f32 = 0.12;
 pub const DISABLED_CONTENT_OPACITY: f32 = 0.38;
 
 /// The surface a disabled control sits on: `on_surface` at
-/// [`DISABLED_CONTAINER_OPACITY`], whatever the control's variant would have been.
+/// [`DISABLED_CONTAINER_OPACITY`] over the surface, whatever the control's variant
+/// would have been.
+///
+/// **Resolved, not translucent** — see [`over_surface`].
 pub fn disabled_container(theme: &Theme) -> Color {
-    theme.scheme.on_surface.fade(DISABLED_CONTAINER_OPACITY)
+    over_surface(theme, DISABLED_CONTAINER_OPACITY)
+}
+
+/// `on_surface` at `opacity` **over `surface`**, resolved to an opaque colour here
+/// rather than handed to the GPU as an alpha.
+///
+/// The reference's 12 % and 38 % are a design language, and a design language assumes
+/// the blend happens in the space the colours are written in: sRGB. Ours does not.
+/// The render target is `Rgba8UnormSrgb`, so the hardware decodes the destination to
+/// linear, blends there and re-encodes — correct physics, ordinary wgpu, and a whisper
+/// that paints at roughly what 33 % would give. Milestone 328 measured it: a 12 % wash
+/// meant to read near tone 24 in the dark scheme painted at tone 38.
+///
+/// Resolving the blend here, in sRGB, is not a workaround for that. It is what this
+/// module has said all along — *a disabled control flattens; it does not fade* — and an
+/// opaque colour is the literal form of it. The alpha was the part that disagreed.
+///
+/// The cost is an assumption: that the control sits on `surface`. One on the darker
+/// `background` lands about 11/255 light of a true blend, which is the difference
+/// between the two backdrops and is why the reference specifies these tokens *over the
+/// surface* too. What this does **not** touch is everything else translucent — scrims,
+/// ink, state layers — which still blend in linear light. That is the open question, on
+/// the roadmap, pinned by `frus-test/tests/blending.rs`.
+pub fn over_surface(theme: &Theme, opacity: f32) -> Color {
+    theme.scheme.surface.lerp(theme.scheme.on_surface, opacity)
 }
 
 /// What is drawn on a disabled control — its label, its glyph, and a selection control's
@@ -83,8 +116,10 @@ pub fn disabled_container(theme: &Theme) -> Color {
 /// *of a container* — a chip, an outlined button, a field, a dropdown row — is part of that
 /// container and takes [`disabled_container`]. A checkbox's box or a radio's ring is not a
 /// container with a mark inside it; it **is** the mark, so it takes this.
+///
+/// **Resolved, not translucent** — see [`over_surface`].
 pub fn disabled_content(theme: &Theme) -> Color {
-    theme.scheme.on_surface.fade(DISABLED_CONTENT_OPACITY)
+    over_surface(theme, DISABLED_CONTENT_OPACITY)
 }
 
 /// A mark drawn **on** a disabled fill — a disabled selected checkbox's tick, a disabled
@@ -181,8 +216,23 @@ mod tests {
     #[test]
     fn the_container_is_quieter_than_the_content() {
         // And that the ordering survives the resolution through a theme, in both.
+        // Measured as a distance from the surface, which is what "quieter" means once
+        // the blend is resolved here (milestone 329) rather than left to the GPU —
+        // there is no alpha left to compare.
         for theme in [Theme::dark(), Theme::light()] {
-            assert!(disabled_container(&theme).a < disabled_content(&theme).a);
+            let from_surface = |c: Color| {
+                (c.r - theme.scheme.surface.r).abs()
+                    + (c.g - theme.scheme.surface.g).abs()
+                    + (c.b - theme.scheme.surface.b).abs()
+            };
+            assert!(
+                from_surface(disabled_container(&theme)) < from_surface(disabled_content(&theme)),
+                "the container must sit closer to the surface than the content on it"
+            );
+            // Both are opaque: a disabled control flattens rather than fading, and
+            // nothing downstream should be compositing these a second time.
+            assert_eq!(disabled_container(&theme).a, 1.0);
+            assert_eq!(disabled_content(&theme).a, 1.0);
         }
     }
 }

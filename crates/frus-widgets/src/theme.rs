@@ -106,7 +106,12 @@ impl ColorScheme {
             on_primary_container: Color::rgb8(178, 240, 200),
             secondary: Color::rgb8(150, 170, 200),
             on_secondary: Color::rgb8(20, 26, 36),
-            secondary_container: Color::rgb8(44, 52, 68),
+            // Tone 30 of its own hue and chroma, where the reference puts a dark
+            // secondary container and where the light scheme's already sat. This one was
+            // at tone 22 — under the disabled fill it has to beat, so a slider's rail and
+            // a selected segment read as unavailable. Only checkable once milestone 329
+            // resolved that fill in sRGB; before, it was 14 tones adrift.
+            secondary_container: Color::rgb8(63, 71, 88),
             on_secondary_container: Color::rgb8(205, 220, 240),
             background: Color::rgb8(18, 20, 24),
             surface: Color::rgb8(30, 33, 40),
@@ -538,6 +543,78 @@ mod tests {
                     "{name}: {role} is {gap:.1} tones from a disabled outline \
                      (needs {floor}) — a live control and an unavailable one \
                      would be drawn the same"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 10);
+    }
+
+    /// The same question for a control that is **filled** rather than outlined: it must
+    /// be tellable from the disabled fill, or the filled half of the disabled rule
+    /// inverts. A slider's rail was fainter than its own disabled twin in both schemes,
+    /// which is what sent us looking.
+    ///
+    /// Two ways to be tellable, and a fill needs one of them. **Tone**, measured as a
+    /// distance from the surface rather than from each other — what the eye reads is how
+    /// far a fill sits from what it lies on, and the disabled fill is by construction a
+    /// fixed step from it. Or **chroma**: the disabled fill is `on_surface` at 12 %, so
+    /// it is nearly grey, and a fill carrying real colour is told apart from it at any
+    /// tone. `primary_container` in the dark scheme is tone 24 against a disabled tone 24
+    /// and nobody would confuse them, because one is green.
+    ///
+    /// What the rail had was neither: a near-neutral of the surface's own hue, sitting
+    /// *closer* to the surface than the disabled fill.
+    ///
+    /// This guard could not be written before milestone 329. It models the disabled fill
+    /// as an sRGB blend, which was a fiction while the GPU blended the token in linear
+    /// light — 14 tones adrift in the dark scheme. Now [`crate::disabled::over_surface`]
+    /// resolves exactly this arithmetic, so the model is the painted truth.
+    #[test]
+    fn a_live_container_is_never_quieter_than_a_disabled_fill() {
+        let tone = |c: Color| frus_core::Hct::from_color(c).tone;
+        let chroma = |c: Color| frus_core::Hct::from_color(c).chroma;
+        /// A fill this much more colourful than the disabled one is told apart by its
+        /// colour whatever its tone. Set where a *saturated* container sits — the two
+        /// `primary_container`s clear it by a third — and well above the rail that
+        /// failed, which was only 8 more colourful and would have reached for this
+        /// escape without deserving it.
+        const CHROMA_MARGIN: f64 = 15.0;
+        let mut checked = 0;
+        for (name, s) in [
+            ("dark", ColorScheme::dark()),
+            ("light", ColorScheme::light()),
+            (
+                "seeded dark",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), true),
+            ),
+            (
+                "seeded light",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), false),
+            ),
+            (
+                "grey seeded dark",
+                ColorScheme::from_seed(Color::rgb8(0x80, 0x80, 0x80), true),
+            ),
+        ] {
+            let surface = tone(s.surface);
+            let fill = s.surface.lerp(s.on_surface, DISABLED_CONTAINER_OPACITY);
+            let dead = (tone(fill) - surface).abs();
+            // The roles a live control is filled with. `secondary_container` carries a
+            // slider's rail, a selected chip, a selected segment and a tonal button;
+            // `primary_container` the louder selections.
+            for (role, colour) in [
+                ("secondary_container", s.secondary_container),
+                ("primary_container", s.primary_container),
+            ] {
+                let live = (tone(colour) - surface).abs();
+                let colourful = chroma(colour) - chroma(fill) >= CHROMA_MARGIN;
+                assert!(
+                    live >= dead || colourful,
+                    "{name}: {role} is {live:.1} tones off the surface where a disabled \
+                     fill is {dead:.1}, and only {:.1} more colourful — a live control \
+                     would read as an unavailable one",
+                    chroma(colour) - chroma(fill)
                 );
                 checked += 1;
             }

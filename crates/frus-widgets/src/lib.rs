@@ -159,7 +159,7 @@ pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
 pub use disabled::{
-    disabled_container, disabled_content, disabled_mark, DISABLED_CONTAINER_OPACITY,
+    disabled_container, disabled_content, disabled_mark, over_surface, DISABLED_CONTAINER_OPACITY,
     DISABLED_CONTENT_OPACITY,
 };
 pub use dismiss::{

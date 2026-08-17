@@ -216,13 +216,17 @@ mod tests {
                     + (c.g - theme.scheme.surface.g).abs()
                     + (c.b - theme.scheme.surface.b).abs()
             };
-            assert!(
-                tick.a > box_fill.a,
-                "the tick must be the opaque one: {tick:?} on {box_fill:?}"
-            );
+            // The tick is the surface punching through, so it is *at* the surface while
+            // the fill it sits on is a measurable way off it. Since milestone 329 the
+            // disabled tokens resolve to opaque colours, so the two are told apart by
+            // where they sit rather than by an alpha.
             assert!(
                 against(tick) < 0.01,
-                "and it is the surface punching through: {tick:?}"
+                "the tick is the surface punching through: {tick:?}"
+            );
+            assert!(
+                against(box_fill) > 0.1,
+                "and the box it is inside is not: {box_fill:?}"
             );
         }
     }

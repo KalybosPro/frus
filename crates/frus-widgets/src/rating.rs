@@ -251,8 +251,15 @@ mod tests {
                 "star {i} should be dark"
             );
         }
+        // Louder means further from the surface. Since milestone 329 both tokens are
+        // opaque — the flattening this rule is named for — so there is no alpha left.
+        let from_surface = |c: frus_core::Color| {
+            (c.r - theme.scheme.surface.r).abs()
+                + (c.g - theme.scheme.surface.g).abs()
+                + (c.b - theme.scheme.surface.b).abs()
+        };
         assert!(
-            lit(0).a > lit(4).a,
+            from_surface(lit(0)) > from_surface(lit(4)),
             "and a lit star reads louder than an unlit one"
         );
     }

@@ -195,8 +195,15 @@ mod tests {
                 disabled_content(&theme),
                 "the thumb is content on it"
             );
+            // Quieter means closer to the surface: since milestone 329 both tokens are
+            // opaque, which is the flattening this rule asks for.
+            let from_surface = |c: Color| {
+                (c.r - theme.scheme.surface.r).abs()
+                    + (c.g - theme.scheme.surface.g).abs()
+                    + (c.b - theme.scheme.surface.b).abs()
+            };
             assert!(
-                track.a < thumb.a,
+                from_surface(track) < from_surface(thumb),
                 "and the container is the quieter of the two"
             );
 

@@ -10,15 +10,22 @@
 //!
 //! In the dark scheme the gap is not subtle: a 12 % wash of `on_surface` is meant to
 //! read around tone 24 and paints at about tone 38 — roughly what 33 % would give in
-//! sRGB. Every disabled control in a dark app is therefore louder than intended, which
-//! is the thread behind a run of device reports (milestones 324, 325, 328): a live
-//! outline that could not be told from a disabled one, and a live fill quieter than the
-//! disabled fill beside it.
+//! sRGB. That was the thread behind a run of device reports (milestones 324, 325, 328):
+//! a live outline that could not be told from a disabled one, and a live fill quieter
+//! than the disabled fill beside it.
 //!
-//! This test does not assert that the current behaviour is right. It **pins** it, so
-//! that changing the blend space, or pre-compositing the disabled tokens, is a
-//! deliberate and visible change rather than a silent one. When it fails, read
-//! `docs/milestone-328.md` before blessing it.
+//! Milestone 329 took the **disabled tokens** out of the pipeline's hands:
+//! `frus_widgets::disabled::over_surface` resolves that blend in sRGB and hands the GPU
+//! an opaque colour, which is what this module always said the rule was — *a disabled
+//! control flattens; it does not fade*. So the finding below no longer reaches the
+//! controls it was found through.
+//!
+//! It still reaches **everything else translucent**: scrims, ink, state layers,
+//! elevation overlays, and any colour an application fades itself. None of that has been
+//! audited. This test does not assert that the behaviour is right; it **pins** it, so
+//! that changing the blend space is a deliberate and visible change rather than a silent
+//! one. When it fails, read `docs/milestone-328.md` and `docs/milestone-329.md` before
+//! blessing it.
 
 use frus_test::render_widget;
 use frus_widgets::{Container, Theme, Widget};

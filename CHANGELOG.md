@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 328 so far, each documenting the objective, the alternatives
+> record — one per step, 329 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -39,7 +39,33 @@ any release may break.
   asserts the current behaviour without claiming it is right, so that changing the blend
   space is a deliberate and visible change.
 
+- **`a_live_container_is_never_quieter_than_a_disabled_fill`** (J329). A control *filled*
+  with a live container must be tellable from the disabled fill, on tone — measured as a
+  distance from the surface — or on chroma, since the disabled fill is nearly grey. Written
+  for milestone 328 and thrown away because it modelled a blend the GPU was not doing; it
+  is back unchanged now that `over_surface` performs exactly that arithmetic.
+
 ### Fixed
+
+- **The disabled tokens painted at roughly three times their opacity** (J329). Milestone 328
+  measured it: the reference's 12 % and 38 % assume an sRGB blend, and an `Rgba8UnormSrgb`
+  target makes the hardware blend in linear light. `disabled_container` and
+  `disabled_content` now resolve the blend in sRGB and hand the GPU an opaque colour —
+  which is what the module always said the rule was, *a disabled control flattens; it does
+  not fade*. The error ran opposite ways in the two schemes and both are corrected: dark
+  disabled controls were too loud (two disabled sliders were the brightest rails on the
+  page, beating the live ones), light ones too faint to read. Ten goldens, read as pairs.
+  Everything else translucent — scrims, ink, state layers — still blends in linear.
+
+- **The blocking rustdoc check was red** (J329), and had been before this milestone.
+  `disabled`'s module docs link to `crate::transparent`, which is `pub(crate)`, so
+  `RUSTDOCFLAGS=-D warnings` refuses it. Found by editing that header and running the tool;
+  the routine check is clippy and the tests, and neither `fmt` nor `cargo doc` is in it.
+
+- **Dark `secondary_container` sat below the disabled fill it has to beat** (J329). Tone 22
+  where the reference puts it at 30 and where the light scheme's already sat, which is why a
+  slider's rail and a selected segment read as unavailable. Only checkable once the blend
+  above was resolved.
 
 - **A slider's inactive rail was on the wrong container role** (J328). The reference's M3
   slider uses `secondaryContainer` for it, not a surface container — a surface container

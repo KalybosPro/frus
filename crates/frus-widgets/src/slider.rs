@@ -852,8 +852,16 @@ mod tests {
             assert_eq!(fills[0], disabled_container(&theme), "the rail");
             assert_eq!(fills[1], disabled_content(&theme), "the travelled part");
             assert_eq!(fills[2], disabled_content(&theme), "the thumb");
+            // Quieter means closer to the surface. Since milestone 329 both tokens are
+            // opaque, so there is no alpha to compare — which is the point: a disabled
+            // control flattens.
+            let from_surface = |c: Color| {
+                (c.r - theme.scheme.surface.r).abs()
+                    + (c.g - theme.scheme.surface.g).abs()
+                    + (c.b - theme.scheme.surface.b).abs()
+            };
             assert!(
-                fills[0].a < fills[1].a,
+                from_surface(fills[0]) < from_surface(fills[1]),
                 "the rail is the quieter of the two"
             );
         }
