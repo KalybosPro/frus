@@ -676,9 +676,9 @@ mod tests {
         );
         assert_eq!(Widget::<Msg>::children(&dp).len(), 3);
         let grid = &Widget::<Msg>::children(&dp)[2];
-        // Cases de remplissage (mercredi = 3) + 31 jours.
+        // Leading blanks (Wednesday = 3) plus 31 days.
         assert_eq!(grid.children().len(), 34);
-        // Le 10 juillet (3 vides + jours 1..10 → index 12) reste cliquable.
+        // 10 July (3 blanks + days 1..10 → index 12) is still clickable.
         assert_eq!(grid.children()[12].on_click(), Some(Msg::Pick(10)));
     }
 

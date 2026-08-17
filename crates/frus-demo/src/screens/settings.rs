@@ -56,10 +56,21 @@ pub(crate) fn settings_screen(
             .align(Align::Center)
             .gap(12.0),
             Divider::new(),
+            // **A setting that depends on another** (milestone 322): scheduling which days
+            // to be notified on means nothing while notifications are off, so the switch
+            // goes unavailable rather than staying live and doing nothing visible. This is
+            // what `enabled` is for, and the label has to follow it — a live label over a
+            // dead control reads as a control that is merely quiet.
             row![
-                text("Weekdays only").size(16.0),
+                text("Weekdays only").size(16.0).color(if app.notifs {
+                    theme.on_surface
+                } else {
+                    disabled_content(theme)
+                }),
                 spacer(),
-                Switch::new(app.weekdays_only).on_toggle(Msg::SetWeekdaysOnly),
+                Switch::new(app.weekdays_only)
+                    .on_toggle(Msg::SetWeekdaysOnly)
+                    .enabled(app.notifs),
             ]
             .align(Align::Center)
             .gap(12.0),

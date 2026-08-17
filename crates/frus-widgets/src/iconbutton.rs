@@ -23,6 +23,7 @@
 use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::icons::IconName;
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -204,9 +205,9 @@ impl<Msg> IconButton<Msg> {
             return (
                 match self.variant {
                     IconButtonVariant::Standard | IconButtonVariant::Outlined => Color::TRANSPARENT,
-                    _ => theme.scheme.on_surface.fade(0.12),
+                    _ => disabled_container(theme),
                 },
-                theme.scheme.on_surface.fade(0.38),
+                disabled_content(theme),
                 None,
             );
         }

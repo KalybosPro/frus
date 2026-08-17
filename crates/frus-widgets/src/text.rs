@@ -53,7 +53,7 @@ impl Text {
         self
     }
 
-    /// Fixe la graisse.
+    /// Sets the weight.
     pub fn weight(mut self, weight: FontWeight) -> Self {
         self.style.weight = weight;
         self

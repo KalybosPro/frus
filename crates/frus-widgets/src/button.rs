@@ -19,6 +19,7 @@
 use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -258,8 +259,8 @@ impl<Msg> Button<Msg> {
     fn palette(&self, theme: &Theme) -> (Color, Color, Option<Color>) {
         if !self.enabled {
             return (
-                theme.scheme.on_surface.fade(0.12),
-                theme.scheme.on_surface.fade(0.38),
+                disabled_container(theme),
+                disabled_content(theme),
                 None,
             );
         }

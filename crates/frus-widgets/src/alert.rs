@@ -40,7 +40,7 @@ impl Alert {
         }
     }
 
-    /// Ajoute un titre.
+    /// Adds a title.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self

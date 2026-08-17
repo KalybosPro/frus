@@ -8,6 +8,7 @@ use frus_core::{FontWeight, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
+use crate::disabled::DISABLED_CONTENT_OPACITY;
 use crate::icons::IconName;
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
@@ -62,8 +63,12 @@ pub const FIELD_FOCUSED_BORDER_WIDTH: f32 = 2.0;
 /// Side of a prefix/suffix icon (logical px) and the margin around it.
 pub const FIELD_ICON_SIZE: f32 = 24.0;
 const ICON_PAD: f32 = 6.0;
-/// What a disabled field keeps of its colours, following the reference's 38%.
-pub const FIELD_DISABLED_OPACITY: f32 = 0.38;
+/// What a disabled field keeps of its colours.
+///
+/// An alias, kept for the name: the number is the framework's one disabled content
+/// opacity, [`DISABLED_CONTENT_OPACITY`], and a field's 38 % moving independently of
+/// every other control's would be a bug rather than a setting.
+pub const FIELD_DISABLED_OPACITY: f32 = DISABLED_CONTENT_OPACITY;
 /// Default masking character of a password field.
 const OBSCURE_CHAR: char = '•';
 

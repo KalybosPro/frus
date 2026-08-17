@@ -8,12 +8,36 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 321 so far, each documenting the objective, the alternatives
+> record — one per step, 322 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **One disabled state, shared** (J322). The new `frus_widgets::disabled` module holds the
+  rule once — `disabled_container` at 12 % under `disabled_content` at 38 % — where five
+  widgets had been writing both colours out by hand. The split is **container against
+  content**, which the switch proves by taking both halves at once: its track flattens at
+  12 %, its thumb at 38 %. A third colour, `disabled_mark`, is for a mark drawn *on* a
+  disabled fill (a ticked checkbox's tick, an on switch's thumb) — 38 % on 38 % is not
+  visible, so it punches through opaquely, as the reference's does.
+
+- **`enabled` on `Checkbox`, `Switch` and `RadioGroup`** (J322). Three of the five controls
+  a form is mostly made of had no way to be disabled at all. All three keep their answer —
+  ticked, on, chosen — because read-only is not invisible. `RadioGroup` disables the whole
+  group and derives its options rather than freezing them, so `.enabled(false)` at the end
+  of a builder chain still reaches every one; `RadioOption` also gained the semantics it
+  never had.
+
+### Fixed
+
+- **A disabled chip's delete cross was still in the tab order** (J322), and still announced
+  as clickable. Milestone 320 gated its tap and stopped there — the same control reported
+  three ways, two of them wrong. Found by the new guard on its first run:
+  `every_control_with_an_enabled_flag_honours_all_four` reads the crate's own sources and
+  insists every widget carrying `enabled` consults it in each hook it implements, drag and
+  key hooks included, since a slider is dragged rather than tapped.
 
 - **`enabled` on `Chip` and `SegmentedControl`** (J320). The gap milestones 312, 313 and
   314 each recorded. It turns off more than a colour: the press goes nowhere, no ink, out

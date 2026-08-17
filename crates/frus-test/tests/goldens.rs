@@ -5,9 +5,9 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, BarChart, Button, Chip, Container, DateTimePicker, Dropdown, Flex,
-    IconName, LineChart, Menu, RangeSlider, SegmentedControl, Table, Text, TextInput, Theme,
-    TimePicker, Variant,
+    Autocomplete, Avatar, BarChart, Button, Checkbox, Chip, Container, DateTimePicker, Dropdown,
+    Flex, IconName, LineChart, Menu, RadioGroup, RangeSlider, SegmentedControl, Switch, Table,
+    Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -190,6 +190,67 @@ fn disabled_controls_match_golden() {
         "chips, outlines and labels are drawn"
     );
     snapshot.assert_golden(golden("disabled_controls"));
+}
+
+/// **The selection controls, disabled (milestone 322)** — a checkbox, a switch and a
+/// radio group, each beside its live twin, ticked/on/chosen so that the *selected*
+/// disabled state is what is shown.
+///
+/// The picture is the point here rather than a record of it. Milestone 322 gave the
+/// framework one disabled rule and then discovered that this row of controls does not
+/// take the same half of it: a checkbox's box and a radio's dot are the **mark**, so they
+/// flatten at 38 %, while the switch takes both halves at once — its track a container at
+/// 12 %, its thumb content at 38 %. The tick and the on-thumb punch through opaquely,
+/// because 38 % drawn on 38 % is not visible, and that is exactly the kind of claim that
+/// is easy to assert and hard to believe without looking.
+#[test]
+fn disabled_selection_controls_match_golden() {
+    let theme = Theme::dark();
+    let pair = |live: Box<dyn frus_widgets::Widget<()>>, dead: Box<dyn frus_widgets::Widget<()>>| {
+        Flex::row().gap(28.0).child(live).child(dead)
+    };
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(22.0)
+            .child(pair(
+                Box::new(Checkbox::<()>::new(true).label("Notify me")),
+                Box::new(
+                    Checkbox::<()>::new(true)
+                        .label("Notify me")
+                        .enabled(false),
+                ),
+            ))
+            .child(pair(
+                Box::new(Checkbox::<()>::new(false).label("Digest")),
+                Box::new(Checkbox::<()>::new(false).label("Digest").enabled(false)),
+            ))
+            .child(pair(
+                Box::new(Switch::<()>::new(true)),
+                Box::new(Switch::<()>::new(true).enabled(false)),
+            ))
+            .child(pair(
+                Box::new(Switch::<()>::new(false)),
+                Box::new(Switch::<()>::new(false).enabled(false)),
+            ))
+            .child(pair(
+                Box::new(RadioGroup::<()>::new(1, |_| ()).option("Daily").option("Weekly")),
+                Box::new(
+                    RadioGroup::<()>::new(1, |_| ())
+                        .option("Daily")
+                        .option("Weekly")
+                        .enabled(false),
+                ),
+            )),
+    );
+    let Some(snapshot) = render_widget(&root, 420, 340, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "boxes, tracks, dots and labels are drawn"
+    );
+    snapshot.assert_golden(golden("disabled_selection_controls"));
 }
 
 /// **The other field (milestone 317)**: `filled` — a tinted container with a single

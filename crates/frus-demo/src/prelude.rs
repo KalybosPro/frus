@@ -19,17 +19,17 @@ pub(crate) use frus_shell::{Application, Command, Lifecycle, Subscription};
 // to be imported by name in each module, not carried in through a glob.
 pub(crate) use frus_widgets::form::{Form, Rule};
 pub(crate) use frus_widgets::{
-    bar_spacer, button, fab_button, keyed, spacer, text, Alert, Align, AnimationController, AppBar,
-    Autocomplete, Avatar, Axis, BarChart, BottomAppBar, BoxFit, Breadcrumb, Card, Carousel, CellFn,
-    Checkbox, Chip, Collapsible, Color, ColorPicker, Container, CustomPaint, DataTable, DatePicker,
-    Dismissible, Divider, DragTarget, Draggable, Dropdown, ErrorSummary, FabLocation, Flex,
-    FontWeight, Grid, Hero, Icon, IconButton, IconName, Image, ImageData, ImageHandle, Insets,
-    Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar, Navigator, Orientation, PageView,
-    Pagination, Placement, Popover, Portal, ProgressBar, RadioGroup, Rating, Rect, Refresh,
-    RichText, SafeArea, Scaffold, Scroll, ScrollPhysics, SegmentedControl, Size, SizeClass,
-    SizedBox, Skeleton, Slider, SnackbarQueue, SpringDescription, Stack, Stepper, Steps, Switch,
-    Table, Tabs, TextInput, TextSpan, Theme, Timeline, Toast, ToastHost, ToastPosition, Tree,
-    TwoPane, Variant, Widget, WindowInsets,
+    bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, Alert, Align,
+    AnimationController, AppBar, Autocomplete, Avatar, Axis, BarChart, BottomAppBar, BoxFit,
+    Breadcrumb, Card, Carousel, CellFn, Checkbox, Chip, Collapsible, Color, ColorPicker, Container,
+    CustomPaint, DataTable, DatePicker, Dismissible, Divider, DragTarget, Draggable, Dropdown,
+    ErrorSummary, FabLocation, Flex, FontWeight, Grid, Hero, Icon, IconButton, IconName, Image,
+    ImageData, ImageHandle, Insets, Justify, Kanban, Kbd, LayoutBuilder, LineChart, List, NavBar,
+    Navigator, Orientation, PageView, Pagination, Placement, Popover, Portal, ProgressBar,
+    RadioGroup, Rating, Rect, Refresh, RichText, SafeArea, Scaffold, Scroll, ScrollPhysics,
+    SegmentedControl, Size, SizeClass, SizedBox, Skeleton, Slider, SnackbarQueue,
+    SpringDescription, Stack, Stepper, Steps, Switch, Table, Tabs, TextInput, TextSpan, Theme,
+    Timeline, Toast, ToastHost, ToastPosition, Tree, TwoPane, Variant, Widget, WindowInsets,
 };
 
 // The application's own vocabulary: its state, its messages, and the small modules

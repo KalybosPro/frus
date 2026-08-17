@@ -36,6 +36,8 @@ mod datatable;
 mod datepicker;
 mod datetimepicker;
 mod datetimerange;
+/// The **disabled state** every control shares: two colours and a four-part contract.
+pub mod disabled;
 /// Swipe-to-dismiss: the [`dismiss::Dismissible`] widget and its retained state.
 pub mod dismiss;
 mod divider;
@@ -156,6 +158,10 @@ pub use datatable::{
 pub use datepicker::DatePicker;
 pub use datetimepicker::DateTimePicker;
 pub use datetimerange::DateTimeRange;
+pub use disabled::{
+    disabled_container, disabled_content, disabled_mark, DISABLED_CONTAINER_OPACITY,
+    DISABLED_CONTENT_OPACITY,
+};
 pub use dismiss::{
     DismissAxis, DismissDirection, DismissPhase, DismissSpec, DismissState, Dismissable,
     Dismissible,

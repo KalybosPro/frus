@@ -22,6 +22,7 @@ use std::rc::Rc;
 use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::icons::IconName;
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -212,7 +213,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
         let color = if self.enabled {
             self.style.label_color(theme, self.selected)
         } else {
-            theme.scheme.on_surface.fade(0.38)
+            disabled_content(theme)
         };
 
         // The fill sits **inside** the group's outline rather than over it: the control
@@ -230,7 +231,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
                 if self.enabled {
                     self.style.selected_color(theme)
                 } else {
-                    theme.scheme.on_surface.fade(0.12)
+                    disabled_container(theme)
                 }
                 .fade(o),
                 self.radius(theme),
@@ -476,7 +477,7 @@ impl<Msg: Clone> Widget<Msg> for SegmentedControl<Msg> {
         let color = if self.enabled {
             self.style.border_color(theme)
         } else {
-            theme.scheme.on_surface.fade(0.12)
+            disabled_container(theme)
         }
         .fade(o);
         scene.draw_rect(

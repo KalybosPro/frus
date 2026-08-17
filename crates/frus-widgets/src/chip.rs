@@ -19,6 +19,7 @@
 use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::icons::IconName;
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -182,7 +183,7 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
                 .label_color(theme, self.selected)
                 .lerp(theme.scheme.on_surface, status.hover_progress)
         } else {
-            theme.scheme.on_surface.fade(0.38)
+            disabled_content(theme)
         }
         .fade(status.opacity);
         let path = IconName::Close
@@ -200,15 +201,20 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        Some(
-            frus_core::Semantics::new(frus_core::Role::Button)
-                .label("Remove")
-                .clickable(),
-        )
+        let semantics = frus_core::Semantics::new(frus_core::Role::Button).label("Remove");
+        // Milestone 320 stopped this cross answering a tap and stopped there. Tab still
+        // landed on it and a reader was still told it could be pressed — the same control
+        // reported three different ways, and the two that were wrong are the two nobody
+        // looks at in a screenshot. Milestone 322's guard is what found it.
+        Some(if self.enabled {
+            semantics.clickable()
+        } else {
+            semantics.disabled(true)
+        })
     }
 }
 
@@ -445,12 +451,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
         } else {
             (
                 if selected {
-                    theme.scheme.on_surface.fade(0.12)
+                    disabled_container(theme)
                 } else {
                     Color::TRANSPARENT
                 },
-                theme.scheme.on_surface.fade(0.12),
-                theme.scheme.on_surface.fade(0.38),
+                disabled_container(theme),
+                disabled_content(theme),
             )
         };
 

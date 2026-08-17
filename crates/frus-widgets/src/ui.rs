@@ -3085,7 +3085,7 @@ mod tests {
     #[test]
     fn open_menu_traps_focus_in_its_items() {
         use crate::Menu;
-        // Fond focusable + un menu **ouvert** (ancre + deux items).
+        // A focusable background plus an **open** menu (anchor + two items).
         let menu = Menu::new(Button::new("open").on_press(Msg::A), true, Msg::D)
             .item("one", Msg::B)
             .item("two", Msg::C);
