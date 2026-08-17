@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 327 so far, each documenting the objective, the alternatives
+> record — one per step, 328 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -30,7 +30,23 @@ any release may break.
   `ThemeBuilder` — its second consumer — rather than from a `Theme::default()` guessed at
   assembly time.
 
+- **`blending`, a test that pins how a translucent token actually paints** (J328). A 12 %
+  wash of `on_surface` is meant to read near tone 24 in the dark scheme and paints at
+  tone 38: the target is `Rgba8UnormSrgb`, so the hardware blends in linear light, while
+  the reference's opacity tokens assume the blend happens in sRGB. Nothing is
+  misconfigured — but a whisper is painting at roughly what 33 % would give, which is the
+  thread behind the disabled-state reports of milestones 324, 325 and 328. The test
+  asserts the current behaviour without claiming it is right, so that changing the blend
+  space is a deliberate and visible change.
+
 ### Fixed
+
+- **A slider's inactive rail was on the wrong container role** (J328). The reference's M3
+  slider uses `secondaryContainer` for it, not a surface container — a surface container
+  sits by definition a few tones from the surface it lies on, which is where the disabled
+  wash lands. Milestone 325 had moved the rail off `outline`, which was right, and onto
+  `surface_container_high`, which was half a memory. Visible in light; it does not close
+  the gap the roadmap reported, because that gap is the blend space (above).
 
 - **A tap on a dismissible row did nothing** (J327). Found on a device: a task row's avatar
   opened nothing. The hit box was fine — a probe found the target exactly where it is drawn

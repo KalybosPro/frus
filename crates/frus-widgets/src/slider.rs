@@ -85,10 +85,14 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         // track still to travel is a **container** (12 %), the part already travelled and
         // the thumb are **content** on it (38 %). That is the reference's own split too.
         let (rail, filled_color, thumb, ring) = if self.enabled {
-            // The rail is a filled track, not an edge: it takes a container tone
-            // rather than `outline`, which the reference reserves for borders.
+            // The rail is a filled track, not an edge, so it takes a container rather
+            // than `outline` — and the reference names *which* container: the
+            // **secondary** one, not a surface tone. A surface container sits by
+            // definition a few tones from the surface it lies on, which is the same
+            // place the 12 % disabled rail lands; the secondary container is the role
+            // that carries a live-but-quiet fill and stays clear of it.
             (
-                theme.scheme.surface_container_high,
+                theme.scheme.secondary_container,
                 theme.primary,
                 Color::WHITE,
                 theme.primary,
@@ -515,9 +519,9 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
         // Track + segment in the **lower** `H` band (the upper zone holds the bubbles).
         let base_y = bounds.y + bounds.height - H;
         let track_y = base_y + (H - TRACK_H) * 0.5;
-        // The same split as the single slider: rail a container, chosen span content.
+        // The same split as the single slider, and the same secondary container.
         let (rail, span) = if self.enabled {
-            (theme.scheme.surface_container_high, theme.primary)
+            (theme.scheme.secondary_container, theme.primary)
         } else {
             (disabled_container(theme), disabled_content(theme))
         };
