@@ -153,14 +153,17 @@ impl TextPainter {
         // rectangle pipeline just under its glyphs.
         let mut decoration_ranges = Vec::with_capacity(batches.len());
 
-        // The target is sRGB, so we send linear values — as the quads do — to avoid
-        // encoding twice, which washes the text out. Alpha passes through as is.
+        // **sRGB straight through.** The quads send *linear* values because their own
+        // shader does the sRGB→linear step; glyphon's shader already does it, so doing it
+        // here as well decoded twice and the sRGB target only ever re-encodes once. What
+        // survived was one extra linearisation: text specified at `on_surface`
+        // (230, 232, 236) painted at (202, 206, 214), every glyph in the framework darker
+        // than the theme said. Milestone 330. Alpha passes through as is.
         let to_glyphon = |color: &frus_core::Color| {
-            let linear = color.to_linear();
             glyphon::Color::rgba(
-                to_u8(linear.r),
-                to_u8(linear.g),
-                to_u8(linear.b),
+                to_u8(color.r),
+                to_u8(color.g),
+                to_u8(color.b),
                 to_u8(color.a),
             )
         };

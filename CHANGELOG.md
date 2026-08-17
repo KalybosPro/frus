@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 329 so far, each documenting the objective, the alternatives
+> record — one per step, 330 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -46,6 +46,17 @@ any release may break.
   is back unchanged now that `over_surface` performs exactly that arithmetic.
 
 ### Fixed
+
+- **Every glyph in the framework was painted at its linearised value** (J330), so all text
+  was darker than the theme said — `on_surface` (230, 232, 236) reached the screen as
+  (202, 206, 214). `text.rs` converted each glyph colour to linear before handing it to
+  glyphon, reasoning that the sRGB target would re-encode it. That is right for the quads,
+  whose own shader does the conversion; glyphon's shader already does it, so the colour was
+  decoded twice and encoded once. Found on a device: a disabled label at (37, 39, 43) on a
+  card at (36, 40, 48), invisible — `disabled_content` is (106, 109, 114), and the scene
+  primitive carried exactly that. 110 goldens moved; 228 477 pixels changed and not one got
+  darker, which is the exact invariant of removing a linearisation. Confirmed on hardware:
+  both labels now land on their token to the byte.
 
 - **The disabled tokens painted at roughly three times their opacity** (J329). Milestone 328
   measured it: the reference's 12 % and 38 % assume an sRGB blend, and an `Rgba8UnormSrgb`
