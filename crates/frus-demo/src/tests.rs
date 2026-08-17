@@ -996,3 +996,33 @@ fn rotating_the_phone_leaves_the_navigation_at_the_bottom() {
         landscape.1
     );
 }
+
+/// **Choosing a navigating item closes the overflow menu (milestone 326)** — the
+/// application half of a defect found on a device.
+///
+/// The framework half is that a departing screen's overlay was drawn over the screen that
+/// replaced it, and it is guarded in `navigator.rs`. This is the other half of what was
+/// seen: the menu also **came back** on returning home, because nothing ever closed it.
+/// `Push` already dismisses the drawer and the popup menu; the app bar's overflow was the
+/// one that was missed.
+#[test]
+fn navigating_from_the_overflow_menu_closes_it() {
+    let mut app = TodoApp::default();
+    let _ = app.init();
+
+    reduce(&mut app, Msg::ToggleActions);
+    assert!(app.actions_open, "the menu is open");
+
+    // "Settings →" is one of the overflow's own actions.
+    reduce(&mut app, Msg::Push(Route::Settings));
+    assert!(
+        !app.actions_open,
+        "the menu stayed open, and would reappear on returning home"
+    );
+
+    // An action that does *not* navigate leaves it alone — dismissing on every press
+    // would make the menu useless for the toggles that live in it.
+    reduce(&mut app, Msg::ToggleActions);
+    reduce(&mut app, Msg::ToggleTheme);
+    assert!(app.actions_open, "a toggle does not dismiss the menu");
+}

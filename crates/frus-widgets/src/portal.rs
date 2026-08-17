@@ -138,4 +138,46 @@ mod tests {
             );
         assert!(full_screen, "the full-screen scrim must be present");
     }
+
+    /// An anchored overlay is nudged back inside the window when it overflows an edge —
+    /// that is for a menu opened near the right margin, and it assumes the window is
+    /// showing the anchor. When the anchor has **left** the window the nudge does the
+    /// opposite of its job: it pulls a menu into view that belongs to something nobody
+    /// can see, and leaves a window-wide dismissal barrier behind it that swallows the
+    /// next press anywhere.
+    #[test]
+    fn an_overlay_whose_anchor_left_the_window_goes_with_it() {
+        // A row far wider than the window puts the portal's anchor past the right edge.
+        let row: crate::Flex<()> = crate::Flex::row()
+            .child(Container::<()>::new().width(900.0).height(20.0))
+            .child(
+                Portal::new(Container::<()>::new().width(20.0).height(20.0))
+                    .overlay(
+                        Container::<()>::new()
+                            .width(120.0)
+                            .height(40.0)
+                            .color(frus_core::Color::WHITE),
+                        Placement::Below,
+                    )
+                    .dismiss(()),
+            );
+        let ui = crate::build_ui(
+            &row,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &crate::Theme::default(),
+        );
+        // The overlay's own 120x40 panel must not have been dragged back on screen.
+        let inside = ui.scene().primitives().iter().any(|p| {
+            matches!(p, frus_core::Primitive::Rect { rect, .. }
+                if (rect.width - 120.0).abs() < 0.5 && rect.x < 400.0)
+        });
+        assert!(!inside, "the overlay was pulled back into the window");
+        // And no window-wide dismissal barrier was left behind — `top_dismiss` is what
+        // Escape and an outside press both resolve through.
+        assert!(
+            ui.top_dismiss().is_none(),
+            "an invisible barrier would eat the next press"
+        );
+    }
 }

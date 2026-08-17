@@ -107,6 +107,63 @@ mod tests {
         assert!(has(blue), "the incoming screen is rendered");
     }
 
+    /// **An overlay belongs to its screen (milestone 326).** Found on a device: an app
+    /// bar's overflow menu, left open while choosing an item that navigates, stayed drawn
+    /// over the screen that replaced it.
+    ///
+    /// `process_overlays` runs after both screens and paints above the whole window, so a
+    /// deferred overlay outranks everything — including the screen that covers its owner.
+    /// The parallax is why nothing corrected it on its own: the outgoing screen travels
+    /// only 30 % of the width, so the anchor the menu hangs from never leaves the window.
+    ///
+    /// `from` inserts the screen being left at index 0, so `children[1]` is always the
+    /// destination — on a push, on a pop, and under a back gesture alike.
+    #[test]
+    fn a_departing_screens_overlay_is_not_drawn_over_the_incoming_one() {
+        let mark = Color::rgb(0.0, 1.0, 0.0);
+        let menu = || {
+            crate::Portal::new(screen(Color::rgb(1.0, 0.0, 0.0))).overlay(
+                Container::<()>::new().width(80.0).height(30.0).color(mark),
+                crate::Placement::Below,
+            )
+        };
+        let drawn = |nav: &Navigator<()>| {
+            let ui = build_ui(
+                nav,
+                Size::new(400.0, 300.0),
+                &Runtime::default(),
+                &crate::Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, Primitive::Rect { color, .. } if *color == mark))
+        };
+
+        // The screen being left holds the menu: it goes with the screen.
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        assert!(
+            !drawn(&Navigator::new(screen(blue), 400.0, 300.0).from(menu(), 0.5, true)),
+            "a push: the menu belongs to the screen being left"
+        );
+        assert!(
+            !drawn(&Navigator::new(screen(blue), 400.0, 300.0).from(menu(), 0.5, false)),
+            "a pop: the same, and the screen being left is the *front* one here"
+        );
+
+        // The destination's own overlay is untouched — this must not suppress overlays
+        // wholesale, only the ones belonging to a screen on its way out.
+        assert!(
+            drawn(&Navigator::new(menu(), 400.0, 300.0).from(screen(blue), 0.5, true)),
+            "the destination's own menu is still drawn"
+        );
+        // And with no transition in flight, nothing changes at all.
+        assert!(
+            drawn(&Navigator::new(menu(), 400.0, 300.0)),
+            "no transition: the menu is simply drawn"
+        );
+    }
+
     #[test]
     fn pop_parallaxes_and_orders_back_screen() {
         let red = Color::rgb(1.0, 0.0, 0.0);

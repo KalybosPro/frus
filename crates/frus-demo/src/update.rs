@@ -161,6 +161,12 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
         Msg::Push(route) => {
             app.drawer_open = false;
             app.menu_open = false;
+            // The app bar's overflow menu too: half of these actions navigate, and a menu
+            // left open while its screen is left comes back the next time that screen is
+            // shown. The framework no longer draws it over the incoming screen (J326), but
+            // whether choosing an item dismisses the menu is the application's to say, and
+            // it says yes.
+            app.actions_open = false;
             app.nav_from = Some(current_route(app));
             app.routes.push(route);
             start_nav(app, true);

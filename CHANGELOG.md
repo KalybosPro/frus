@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 325 so far, each documenting the objective, the alternatives
+> record — one per step, 326 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -31,6 +31,23 @@ any release may break.
   assembly time.
 
 ### Fixed
+
+- **An overlay was drawn over the screen that replaced its own** (J326). Found on a device:
+  an app bar's overflow menu, left open while choosing an item that navigates, stayed on top
+  of the incoming screen. `process_overlays` runs after both screens and paints above the
+  whole window, and the transition is parallaxed — the outgoing screen travels only 30 % of
+  the width — so the anchor never left and nothing corrected it. A screen on its way out now
+  takes its floating layers with it.
+
+- **An overlay whose anchor had left the window was dragged back into it** (J326). The
+  auto-flip that keeps a menu inside the window assumed the window was showing the anchor.
+  A portal in a horizontally scrolled row hits this with no navigator involved, and the
+  window-wide dismissal barrier it left behind would swallow the next press anywhere.
+
+- **The demo's overflow menu survived a navigation** (J326), so it reappeared on returning
+  to the screen. `Msg::Push` dismissed the drawer and the popup menu and missed this one.
+  Scoped to the messages that navigate — the toggles in that menu want it to stay open.
+
 
 - **A live outline was the same colour as a disabled one** (J325), in both shipped palettes.
   Open since milestone 320, which wrote it up rather than weaken an assertion to something it

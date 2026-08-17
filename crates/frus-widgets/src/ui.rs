@@ -1668,6 +1668,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let hero_base = self.heroes.len();
                 let scene_base = self.scene.primitives().len();
                 let outer_screen = self.hero_screen.replace(back as u8);
+                // A screen being left keeps its floating layers to itself.
+                // `process_overlays` draws every overlay above the **whole window**, after
+                // both screens, so a menu left open on the departing screen is painted on
+                // top of the screen that replaced it — opaque, and anchored to a bar the
+                // window no longer shows. A device found it; the parallax is why it is not
+                // self-correcting, since the outgoing screen travels only 30 % of the width
+                // and its anchor never actually leaves.
+                //
+                // `Navigator::from` inserts the screen being left at index 0, so
+                // `children[1]` is always the destination — on a push, on a pop, and under
+                // a back gesture alike. Whatever the other one defers is dropped.
+                let overlay_base = self.overlays.len();
                 self.render_screen(
                     children[back].as_ref(),
                     child_id(id, back, children[back].as_ref()),
@@ -1675,6 +1687,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     off[back],
                     clip,
                 );
+                if back != 1 {
+                    self.overlays.truncate(overlay_base);
+                }
                 // Darkens the screen behind in proportion to how far it is covered.
                 let coverage = (off[back].abs() / (w * NAV_PARALLAX)).min(1.0);
                 if coverage > 0.0 {
@@ -1686,6 +1701,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         .fill_rect(scrim, self.theme.scheme.scrim.with_alpha(0.22 * coverage));
                 }
                 self.hero_screen = Some(front as u8);
+                let overlay_base = self.overlays.len();
                 self.render_screen(
                     children[front].as_ref(),
                     child_id(id, front, children[front].as_ref()),
@@ -1693,6 +1709,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     off[front],
                     clip,
                 );
+                if front != 1 {
+                    self.overlays.truncate(overlay_base);
+                }
                 self.hero_screen = outer_screen;
                 self.fly_heroes(hero_base, scene_base, progress);
             } else if let Some(screen) = children.first() {
@@ -2484,9 +2503,26 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 Placement::Bottom => (0.0, self.available.height - progress * size.height),
             };
 
+            // An **anchored** overlay follows a widget; the others (a modal, a drawer, a
+            // sheet) are positioned against the window and have no anchor worth the name.
+            // Only the first kind can find its anchor gone from the window: a screen
+            // sliding out under a `Navigator`, a row scrolled sideways past the edge.
+            let anchored = matches!(placement, Placement::Below | Placement::Tooltip);
+            let anchor_on_screen = !anchored
+                || (anchor.x < self.available.width
+                    && anchor.x + anchor.width > 0.0
+                    && anchor.y < self.available.height
+                    && anchor.y + anchor.height > 0.0);
+
             // Auto-flip: when an anchored overlay overflows an edge, it is flipped / nudged
             // back inside the window.
-            if matches!(placement, Placement::Below | Placement::Tooltip) {
+            //
+            // This is for a menu opened near the right margin, and it assumes the anchor is
+            // something the window is showing. When the anchor has **left** the window the
+            // nudge does the opposite of its job: it drags a departing screen's menu back
+            // into view, fully opaque, over the screen that replaced it. An overlay whose
+            // anchor is off screen goes off screen with it.
+            if anchored && anchor_on_screen {
                 // A vertical overflow → flip to the other side of the anchor.
                 if placement == Placement::Below
                     && pos.1 + size.height > self.available.height
@@ -2524,7 +2560,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // hit added **before** the content, so the content beats it where they overlap.
             // The dismissal is also remembered for Escape (the last one rendered = the
             // topmost).
-            if let Some(msg) = dismiss {
+            //
+            // Gated on the same condition as the nudge, and for the same reason: a
+            // window-wide barrier belonging to an overlay nobody can see would swallow the
+            // next press anywhere on the screen that replaced it.
+            if let Some(msg) = dismiss.filter(|_| anchor_on_screen) {
                 self.dismisses.push(msg.clone());
                 self.hits.push(Hit {
                     id: oid,
