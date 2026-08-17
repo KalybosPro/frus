@@ -8,10 +8,45 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 323 so far, each documenting the objective, the alternatives
+> record — one per step, 324 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **`enabled` on `Rating`, `Stepper`, `Menu`, `Tabs` and `Pagination`** (J324). The last
+  five. Every control in the framework that can be pressed can now be told not to be.
+  `Stepper`'s value colour comes from the ambient theme through milestone 319's
+  `ThemeBuilder` — its second consumer — rather than from a `Theme::default()` guessed at
+  assembly time.
+
+### Fixed
+
+- **A disabled button flattened too far** (J324). `Button` gave **every** variant a 12 %
+  container and dropped the outlined variant's outline. The reference is explicit that a
+  text button's background is transparent in every state and that an outlined one keeps its
+  outline at 12 % with no fill. A disabled button loses its **accent**, not its **shape** —
+  which is what lets a group of buttons carrying a selection through their variants (a page
+  strip) still show which one is current. `IconButton` had the same missing outline: a
+  disabled stepper was drawn as two bare glyphs with no buttons around them.
+
+- **A disabled rating lost its score** (J324), and a disabled tab bar kept its accent.
+  Flattening every star to one grey says nothing about how many are lit, so a lit star takes
+  the mark opacity and an unlit one the container's; the tab **indicator** was still painted
+  in the accent under labels that had already flattened. Both found by reading the golden,
+  neither by a test.
+
+- **A bound you can see** (J324). `Stepper` clamped at its range ends, so "+" at the top
+  stayed live and emitted the value already showing; `Pagination` built its end arrows
+  without a message but left them painted as full buttons that Tab stopped on — its own
+  comments said "disabled" and only the code did not. Both are disabled at their bounds now.
+
+- **`Box<dyn Widget>` was two hooks short** (J324): `build_themed` and `repaint_boundary`
+  were not forwarded, so a boxed `ThemeBuilder` asked to build did nothing and a boxed
+  repaint boundary reported that it was not one. Latent — every walk in the framework takes
+  `&dyn Widget` and dispatches virtually — and now guarded by the same source-reflection
+  test that guards the transparent-wrapper macro.
 
 ### Added
 

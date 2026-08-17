@@ -208,7 +208,14 @@ impl<Msg> IconButton<Msg> {
                     _ => disabled_container(theme),
                 },
                 disabled_content(theme),
-                None,
+                // An outlined icon button **keeps its outline**, at the container opacity.
+                // Dropping it took the shape away entirely: milestone 324's golden showed a
+                // disabled stepper as two bare glyphs with no buttons around them, which
+                // reads as broken rather than as unavailable.
+                match self.variant {
+                    IconButtonVariant::Outlined => Some(disabled_container(theme)),
+                    _ => None,
+                },
             );
         }
         let (surface, glyph, outline) = match self.variant {

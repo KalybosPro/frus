@@ -253,12 +253,27 @@ impl<Msg> Button<Msg> {
 
     /// `(background, label, outline)` for the variant and the theme, disabled included.
     ///
-    /// A disabled control is the same in every variant: the reference flattens all five
-    /// to `on_surface` at 12 % under a label at 38 %, so that unavailable reads as
-    /// unavailable rather than as a quieter version of the variant.
+    /// A disabled button loses its accent in every variant — the label goes to `on_surface`
+    /// at 38 % throughout, so unavailable reads as unavailable rather than as a quieter
+    /// version of the variant. What it does **not** do is give every variant a container.
+    ///
+    /// Until milestone 324 it did, and the reference is explicit that it should not: a text
+    /// button's background is `transparent` in every state, and an outlined one's disabled
+    /// state keeps its outline at 12 % rather than trading it for a fill. Flattening all six
+    /// to the same grey pill destroyed any selection a group of buttons was carrying — a
+    /// disabled page strip showed six identical pills with no current page — which is the
+    /// same mistake as fading a selected chip's accent, arrived at from the other side.
     fn palette(&self, theme: &Theme) -> (Color, Color, Option<Color>) {
         if !self.enabled {
-            return (disabled_container(theme), disabled_content(theme), None);
+            let label = disabled_content(theme);
+            return match self.variant {
+                // No container, disabled or not.
+                Variant::Text => (Color::TRANSPARENT, label, None),
+                // The outline *is* the container here, so it takes the container opacity.
+                Variant::Outlined => (Color::TRANSPARENT, label, Some(disabled_container(theme))),
+                // The variants that genuinely are a filled container flatten to one.
+                _ => (disabled_container(theme), label, None),
+            };
         }
         let (background, label, outline) = match self.variant {
             Variant::Filled => (theme.scheme.primary, theme.scheme.on_primary, None),
@@ -595,11 +610,50 @@ mod tests {
         );
     }
 
+    /// A disabled button loses its **accent** in every variant — that is what makes
+    /// unavailable read as unavailable rather than as a quieter version of the variant.
+    ///
+    /// It does not lose its **shape**. This test asserted the opposite until milestone 324,
+    /// and the picture is what settled it: flattening all six to the same grey pill left a
+    /// disabled page strip showing six identical pills with no current page, and the
+    /// reference is explicit that a text button's background is transparent in every state.
     #[test]
-    fn a_disabled_button_looks_the_same_in_every_variant() {
-        // Unavailable has to read as unavailable, not as a quieter version of the variant.
+    fn a_disabled_button_drops_its_accent_but_keeps_its_shape() {
         let theme = Theme::default();
-        let grey = theme.scheme.on_surface.fade(0.12);
+        let grey = disabled_container(&theme);
+        // The variants that genuinely are a filled container flatten to one.
+        for variant in [
+            Variant::Filled,
+            Variant::Tonal,
+            Variant::Elevated,
+            Variant::Danger,
+        ] {
+            let (fill, _, _) = surface(&Button::<Msg>::new("Go").variant(variant).enabled(false));
+            assert_eq!(fill, grey, "{variant:?} should flatten to a container");
+        }
+        // A text button has no container, disabled or not.
+        let (fill, _, width) = surface(
+            &Button::<Msg>::new("Go")
+                .variant(Variant::Text)
+                .enabled(false),
+        );
+        assert_eq!(fill.a, 0.0, "a disabled text button gains no fill");
+        assert_eq!(width, 0.0, "and no outline");
+        // An outlined one keeps its outline, at the container opacity, and gains no fill.
+        let (fill, _, width) = surface(
+            &Button::<Msg>::new("Go")
+                .variant(Variant::Outlined)
+                .enabled(false),
+        );
+        assert_eq!(fill.a, 0.0, "a disabled outlined button gains no fill");
+        assert!(width > 0.0, "and keeps its outline");
+    }
+
+    /// Whatever the shape, the **label** is the same grey in every variant: that is the
+    /// half of the rule that says "unavailable".
+    #[test]
+    fn a_disabled_label_is_the_same_in_every_variant() {
+        let theme = Theme::default();
         for variant in [
             Variant::Filled,
             Variant::Tonal,
@@ -608,11 +662,15 @@ mod tests {
             Variant::Text,
             Variant::Danger,
         ] {
-            assert_eq!(
-                surface(&Button::<Msg>::new("Go").variant(variant).enabled(false)).0,
-                grey,
-                "{variant:?}"
-            );
+            let label = painted(&Button::<Msg>::new("Go").variant(variant).enabled(false))
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Text { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .expect("a button paints its label");
+            assert_eq!(label, disabled_content(&theme), "{variant:?}");
+            assert_ne!(label, theme.scheme.primary, "never the accent: {variant:?}");
         }
     }
 

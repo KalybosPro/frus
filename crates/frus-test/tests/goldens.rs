@@ -6,8 +6,8 @@ use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Autocomplete, Avatar, BarChart, Button, Checkbox, Chip, Container, DateTimePicker, Dropdown,
-    Flex, IconName, LineChart, Menu, RadioGroup, RangeSlider, SegmentedControl, Slider, Switch,
-    Table, Text, TextInput, Theme, TimePicker, Variant,
+    Flex, IconName, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, SegmentedControl,
+    Slider, Stepper, Switch, Table, Tabs, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -313,6 +313,64 @@ fn disabled_inputs_match_golden() {
         "rails, thumbs and rows are drawn"
     );
     snapshot.assert_golden(golden("disabled_inputs"));
+}
+
+/// **The controls that are not form fields, disabled (milestone 324)** — a rating, a
+/// numeric picker, a page strip and a tab bar, each beside its live twin.
+///
+/// Two rows here are not about `enabled` at all, and are the reason this picture is worth
+/// taking. The **picker at its maximum** and the **page strip on its first page** each
+/// have one button that cannot do anything, and until this milestone both were painted as
+/// live outlined buttons that emitted the value already showing. A bound you can see is
+/// the whole point of the change, and a bound is a thing you look at.
+///
+/// The tab bar shows the flattening rule on a control where fading would have been
+/// tempting: both labels go to the same grey, so a disabled bar does not read as one tab
+/// being *quietly* selected.
+#[test]
+fn disabled_actions_match_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(20.0).child(
+        Flex::column()
+            .gap(18.0)
+            .child(
+                Flex::row()
+                    .gap(24.0)
+                    .child(Rating::<()>::new(3, 5, |_| ()))
+                    .child(Rating::<()>::new(3, 5, |_| ()).enabled(false)),
+            )
+            .child(
+                Flex::row()
+                    .gap(24.0)
+                    .child(Stepper::<()>::new(5, |_| ()).range(0, 10))
+                    // At the top of its range: "+" is disabled rather than clamped.
+                    .child(Stepper::<()>::new(10, |_| ()).range(0, 10)),
+            )
+            .child(Stepper::<()>::new(5, |_| ()).range(0, 10).enabled(false))
+            // On the first page: the back arrow is disabled, not merely silent.
+            .child(Pagination::<()>::new(1, 5, |_| ()))
+            .child(Pagination::<()>::new(3, 5, |_| ()).enabled(false))
+            .child(
+                Tabs::<()>::new(0, |_| ())
+                    .tab("Live", Text::new(""))
+                    .tab("Other", Text::new("")),
+            )
+            .child(
+                Tabs::<()>::new(0, |_| ())
+                    .tab("Dead", Text::new(""))
+                    .tab("Other", Text::new(""))
+                    .enabled(false),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 440, 470, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(
+        snapshot.lit_pixels(40) > 100,
+        "stars, buttons, pages and labels are drawn"
+    );
+    snapshot.assert_golden(golden("disabled_actions"));
 }
 
 /// **The other field (milestone 317)**: `filled` — a tinted container with a single

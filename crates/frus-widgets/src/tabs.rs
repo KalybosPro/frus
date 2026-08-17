@@ -13,6 +13,7 @@
 use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
+use crate::disabled::disabled_content;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -158,6 +159,8 @@ struct Tab<Msg> {
     label: String,
     selected: bool,
     style: TabStyle,
+    /// The bar's availability, handed down to every tab.
+    enabled: bool,
     message: Msg,
 }
 
@@ -187,7 +190,12 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let label_style = self.style.label_style(theme);
-        let color = if self.selected {
+        // A label is content whichever tab it is on, so both the selected and the
+        // unselected one flatten to the same grey. Fading the accent instead would read as
+        // *quietly selected* rather than as unavailable.
+        let color = if !self.enabled {
+            disabled_content(theme)
+        } else if self.selected {
             self.style.label_color(theme)
         } else {
             self.style.unselected_label_color(theme)
@@ -214,10 +222,17 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
     }
 
     fn on_click(&self) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
         Some(self.message.clone())
     }
 
     fn ink(&self, theme: &Theme) -> Option<crate::InkStyle> {
+        // A disabled tab does not answer a tap, so it does not splash either.
+        if !self.enabled {
+            return None;
+        }
         // The splash follows the label: the accent under a selected tab, the surface's own
         // ink under the others — the reference's overlay, which changes with the state
         // rather than being one colour for the bar.
@@ -230,15 +245,20 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
     }
 
     fn focusable(&self) -> bool {
-        true
+        self.enabled
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        Some(
-            frus_core::Semantics::new(frus_core::Role::Tab)
-                .label(self.label.clone())
-                .clickable(),
-        )
+        // Which tab is showing survives: a reader who cannot switch is still owed where
+        // they are.
+        let semantics = frus_core::Semantics::new(frus_core::Role::Tab)
+            .label(self.label.clone())
+            .toggled(self.selected);
+        Some(if self.enabled {
+            semantics.clickable()
+        } else {
+            semantics.disabled(true)
+        })
     }
 }
 
@@ -248,6 +268,10 @@ struct TabBar<Msg> {
     selected: usize,
     labels: Vec<String>,
     style: TabStyle,
+    /// The bar's availability. The **indicator** is the part that would otherwise keep the
+    /// accent on a disabled bar: milestone 324's golden showed exactly that, flattened
+    /// labels above a bar still painted in the accent colour.
+    enabled: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -341,7 +365,12 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
                 width,
                 weight,
             ),
-            self.style.indicator_color(theme).fade(o),
+            if self.enabled {
+                self.style.indicator_color(theme)
+            } else {
+                disabled_content(theme)
+            }
+            .fade(o),
             radius,
             0.0,
             Color::TRANSPARENT,
@@ -358,6 +387,7 @@ pub struct Tabs<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
+    enabled: bool,
     style: TabStyle,
     /// Either `[bar]` or `[bar, panel]`.
     children: Vec<Box<dyn Widget<Msg>>>,
@@ -370,6 +400,7 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
             selected,
             on_select: Box::new(on_select),
             labels: Vec::new(),
+            enabled: true,
             style: TabStyle::default(),
             children: Vec::new(),
         };
@@ -390,6 +421,17 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
                 self.children.push(Box::new(content));
             }
         }
+        self
+    }
+
+    /// Whether the bar can be switched. Disabled every tab is **inert** - no press, no
+    /// ink, out of the tab order - and the **panel stays**, because which tab is showing
+    /// is still the answer even when it cannot be changed.
+    ///
+    /// See [`crate::disabled`] for the whole contract.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self.rebuild_bar();
         self
     }
 
@@ -480,6 +522,7 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
                     label: label.clone(),
                     selected: i == self.selected,
                     style: self.style,
+                    enabled: self.enabled,
                     message: (self.on_select)(i),
                 }) as Box<dyn Widget<Msg>>
             })
@@ -488,6 +531,7 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
             selected: self.selected,
             labels: self.labels.clone(),
             style: self.style,
+            enabled: self.enabled,
             children: tabs,
         });
         if self.children.is_empty() {
@@ -705,5 +749,108 @@ mod tests {
         let tabs = three(0);
         let bar = &Widget::<Msg>::children(&tabs)[0];
         assert_eq!(bar.children()[2].on_click(), Some(Msg::Select(2)));
+    }
+
+    #[test]
+    fn a_disabled_bar_is_inert_but_keeps_its_panel() {
+        let dead = Tabs::new(1, Msg::Select)
+            .tab("One", Text::new("first"))
+            .tab("Two", Text::new("second"))
+            .enabled(false);
+        // The panel survives: which tab is showing is still the answer.
+        assert_eq!(
+            Widget::<Msg>::children(&dead).len(),
+            2,
+            "the bar and its panel"
+        );
+        let bar = &Widget::<Msg>::children(&dead)[0];
+        for (i, tab) in bar.children().iter().enumerate() {
+            assert_eq!(tab.on_click(), None, "tab {i} still answers");
+            assert!(!tab.focusable(), "tab {i} is still in the tab order");
+            assert!(
+                tab.ink(&Theme::default()).is_none(),
+                "tab {i} still splashes"
+            );
+            let semantics = tab.semantics().expect("still announced");
+            assert!(semantics.disabled, "tab {i} does not say it is disabled");
+        }
+        // And the selected one still says so.
+        assert_eq!(
+            bar.children()[1].semantics().unwrap().toggled,
+            frus_core::Toggled::True
+        );
+    }
+
+    #[test]
+    fn a_disabled_bar_flattens_rather_than_fading_the_accent() {
+        // Selected and unselected labels go to the same grey; the accent never appears.
+        let theme = Theme::default();
+        let dead = Tabs::new(0, Msg::Select)
+            .tab("One", Text::new("first"))
+            .tab("Two", Text::new("second"))
+            .enabled(false);
+        let bar = &Widget::<Msg>::children(&dead)[0];
+        for tab in bar.children() {
+            let mut scene = frus_core::Scene::new();
+            tab.paint(
+                Rect::new(0.0, 0.0, 80.0, 48.0),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            let color = scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Text { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .expect("a label");
+            assert_eq!(color, disabled_content(&theme));
+        }
+    }
+
+    /// The indicator is the part a flattened bar would otherwise keep the accent on -
+    /// found by reading milestone 324's golden, not by a test.
+    #[test]
+    fn a_disabled_bars_indicator_loses_the_accent_too() {
+        let theme = Theme::default();
+        let indicator = |enabled: bool| {
+            let tabs = Tabs::new(0, Msg::Select)
+                .tab("One", Text::new("first"))
+                .tab("Two", Text::new("second"))
+                .enabled(enabled);
+            let bar = &Widget::<Msg>::children(&tabs)[0];
+            let mut scene = frus_core::Scene::new();
+            bar.paint(
+                Rect::new(0.0, 0.0, 200.0, 48.0),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            // The indicator is the last box the bar paints, over the hairline.
+            scene
+                .primitives()
+                .iter()
+                .rev()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .expect("an indicator")
+        };
+        assert_eq!(indicator(false), disabled_content(&theme));
+        assert_ne!(indicator(true), disabled_content(&theme));
+        assert_ne!(
+            indicator(false),
+            indicator(true),
+            "the instrument must be able to tell the two apart"
+        );
     }
 }

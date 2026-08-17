@@ -458,6 +458,52 @@ mod tests {
         );
     }
 
+    /// The **same instrument, second target**: `Box<dyn Widget>` also claims to be the
+    /// widget it holds, through a hand-written blanket impl with no macro behind it.
+    ///
+    /// Milestone 324 found it two hooks short — `build_themed` and `repaint_boundary` —
+    /// so a boxed `ThemeBuilder` asked to build would quietly do nothing and a boxed
+    /// repaint boundary would report that it was not one. Neither was reachable, because
+    /// every walk in the framework takes `&dyn Widget` and dispatches virtually; both were
+    /// waiting for the first caller to hold a `Box` instead. That is exactly the shape of
+    /// bug this module exists to prevent, and the blanket impl had no guard at all.
+    #[test]
+    fn the_boxed_widget_forwards_every_hook_the_trait_declares() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/widget.rs"))
+            .expect("widget.rs");
+        let trait_body = src
+            .split_once("pub trait Widget")
+            .expect("the trait")
+            .1
+            .split_once(
+                "
+}
+",
+            )
+            .expect("its end")
+            .0;
+        let blanket = src
+            .split_once("impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>>")
+            .expect("the blanket impl")
+            .1;
+        let names = |src: &str| -> Vec<String> {
+            src.lines()
+                .filter_map(|l| l.trim().strip_prefix("fn "))
+                .filter_map(|l| l.split(['(', '<']).next())
+                .map(str::to_owned)
+                .collect()
+        };
+        let forwarded = names(blanket);
+        let missing: Vec<String> = names(trait_body)
+            .into_iter()
+            .filter(|n| !forwarded.contains(n))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "a boxed widget answers these for itself: {missing:?}"
+        );
+    }
+
     /// And every wrapper states the two the macro left out — forwarding one of them by
     /// forgetting it is the same silence this module exists to prevent.
     #[test]

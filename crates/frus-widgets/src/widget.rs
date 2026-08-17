@@ -703,6 +703,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn theme_override(&self, inherited: &Theme) -> Option<Box<Theme>> {
         (**self).theme_override(inherited)
     }
+    fn build_themed(&self, theme: &Theme) {
+        (**self).build_themed(theme)
+    }
+    fn repaint_boundary(&self) -> bool {
+        (**self).repaint_boundary()
+    }
     fn debug_name(&self) -> &'static str {
         (**self).debug_name()
     }

@@ -4,6 +4,7 @@
 use frus_core::{Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
+use crate::disabled::{disabled_container, disabled_content};
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::portal::Placement;
@@ -18,6 +19,8 @@ const SIZE: f32 = 16.0;
 /// One menu action, a clickable row.
 struct Item<Msg> {
     label: String,
+    /// The menu's availability, handed down to every row.
+    enabled: bool,
     message: Msg,
 }
 
@@ -37,36 +40,68 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         // A floating panel is an **elevated** surface, the `surface_container_high` role.
-        let bg = theme.state_layer(
-            theme.scheme.surface_container_high,
-            theme.on_surface,
-            &status,
-        );
-        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
+        // No state layer while disabled: a hover tint promises that a press would do
+        // something. The row's outline is its container, so it takes the container opacity.
+        let bg = if self.enabled {
+            theme.state_layer(
+                theme.scheme.surface_container_high,
+                theme.on_surface,
+                &status,
+            )
+        } else {
+            theme.scheme.surface_container_high
+        };
+        let outline = if self.enabled {
+            theme.border
+        } else {
+            disabled_container(theme)
+        };
+        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, outline.fade(o));
+        let ink = if self.enabled {
+            theme.on_surface
+        } else {
+            disabled_content(theme)
+        };
         let ty = bounds.y + (ROW_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),
             self.label.clone(),
             SIZE,
-            theme.on_surface.fade(o),
+            ink.fade(o),
         );
     }
 
     fn on_click(&self) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
         Some(self.message.clone())
     }
 
     fn focusable(&self) -> bool {
-        true
+        self.enabled
+    }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        // A menu row said nothing to a reader before this.
+        let semantics =
+            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+        Some(if self.enabled {
+            semantics.clickable()
+        } else {
+            semantics.disabled(true)
+        })
     }
 }
 
 /// A controlled action menu, opened and closed by the application.
 pub struct Menu<Msg> {
     open: bool,
-    /// `[ancre]` ou `[ancre, liste]`.
+    enabled: bool,
+    /// `[anchor]`, or `[anchor, list]` when the menu is showing.
     children: Vec<Box<dyn Widget<Msg>>>,
     items: Vec<(String, Msg)>,
+    dismiss: Option<Msg>,
     on_dismiss: Option<Msg>,
 }
 
@@ -76,10 +111,28 @@ impl<Msg: Clone + 'static> Menu<Msg> {
     pub fn new(anchor: impl Widget<Msg> + 'static, open: bool, on_dismiss: Msg) -> Self {
         Self {
             open,
+            enabled: true,
             children: vec![Box::new(anchor)],
             items: Vec::new(),
+            dismiss: Some(on_dismiss.clone()),
             on_dismiss: if open { Some(on_dismiss) } else { None },
         }
+    }
+
+    /// Whether the menu can be used. Disabled it is **inert** and, like a disabled
+    /// [`Dropdown`](crate::Dropdown), **never open**: a floating panel over an anchor that
+    /// answers nothing traps a press and returns no message.
+    ///
+    /// See [`crate::disabled`] for the whole contract.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self.on_dismiss = if self.open && enabled {
+            self.dismiss.clone()
+        } else {
+            None
+        };
+        self.rebuild();
+        self
     }
 
     /// Adds an action: a label plus a message on click. Ignored when the menu is closed.
@@ -92,11 +145,19 @@ impl<Msg: Clone + 'static> Menu<Msg> {
     }
 
     /// (Re)builds the floating list (child 1) from the items.
+    ///
+    /// A disabled menu keeps only its anchor, so there is no overlay to return and no
+    /// panel to trap a press.
     fn rebuild(&mut self) {
+        if !self.enabled {
+            self.children.truncate(1);
+            return;
+        }
         let mut list = Flex::column().gap(2.0);
         for (label, message) in &self.items {
             list = list.child(Item {
                 label: label.clone(),
+                enabled: self.enabled,
                 message: message.clone(),
             });
         }
