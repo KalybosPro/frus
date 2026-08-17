@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 332 so far, each documenting the objective, the alternatives
+> record — one per step, 333 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -38,6 +38,13 @@ any release may break.
   thread behind the disabled-state reports of milestones 324, 325 and 328. The test
   asserts the current behaviour without claiming it is right, so that changing the blend
   space is a deliberate and visible change.
+
+- **`Text::ellipsis()`** (J333), the reference's `TextOverflow.ellipsis`: one line, cut to
+  the box the layout gives it. Two things, and the second matters more — an ellipsising
+  text also tells the layout it may be given *less* than it asked for (`min_width: 0`),
+  where a plain one's automatic minimum size is its own content and it pushes its siblings
+  out instead. The truncation itself moves out of `AppBar`, which had the only copy, into
+  `text::truncate` where both callers can see it.
 
 - **`painted_colours`, four tests asking whether a colour survives to the screen** (J331).
   Milestones 328, 329 and 330 were all one sRGB↔linear conversion in the wrong place, and

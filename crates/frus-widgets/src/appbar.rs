@@ -83,8 +83,6 @@ const H_PAD: f32 = 8.0;
 /// The width the title is never squeezed below, in px. A title cut to nothing tells a
 /// reader less than a title cut to two characters and an ellipsis.
 const TITLE_MIN: f32 = 64.0;
-/// What a truncated title ends with.
-const ELLIPSIS: &str = "\u{2026}";
 /// The glyph on the overflow button.
 const OVERFLOW_GLYPH: &str = "\u{22ef}";
 /// The elevation shadow's colour. Only its alpha is local; the hue is the theme's
@@ -282,29 +280,6 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// The longest prefix of `content` that fits in `max_width`, ending in an ellipsis
-    /// when anything was cut. Returns `content` untouched when it already fits.
-    fn truncated(content: &str, style: &TextStyle, max_width: f32) -> String {
-        let measure = |text: &str| {
-            frus_text::measure_styled(text, style.size, style.weight, style.italic).width
-        };
-        if max_width <= 0.0 || measure(content) <= max_width {
-            return content.to_string();
-        }
-        // Character by character from the end: a title is short, and a binary search
-        // over char boundaries would buy nothing at this length.
-        let mut chars: Vec<char> = content.chars().collect();
-        while !chars.is_empty() {
-            chars.pop();
-            let kept: String = chars.iter().collect();
-            let candidate = format!("{}{ELLIPSIS}", kept.trim_end());
-            if measure(&candidate) <= max_width {
-                return candidate;
-            }
-        }
-        ELLIPSIS.to_string()
-    }
-
     /// The width an action button would take for this label.
     fn action_width(label: &str, size: f32) -> f32 {
         frus_text::measure(label, size).width + BTN_PAD_X * 2.0
@@ -481,7 +456,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         }
         match title {
             Title::Text(content) => {
-                let content = Self::truncated(&content, &title_style, title_room);
+                let content = crate::text::truncate(&content, &title_style, title_room);
                 row = row.child(Text::styled(content, title_style));
             }
             Title::Widget(widget) => row = row.child(widget),

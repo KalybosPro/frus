@@ -17,6 +17,35 @@ pub struct Text {
     style: TextStyle,
     /// Paragraph: wraps at the width the parent offers.
     wrap: bool,
+    /// Single line, cut with an ellipsis at whatever width the layout gives it —
+    /// and, crucially, willing to *be* given less than it asked for.
+    ellipsis: bool,
+}
+
+/// The ellipsis a cut line ends in.
+pub(crate) const ELLIPSIS: &str = "…";
+
+/// The longest prefix of `content` that fits in `max_width`, ending in an ellipsis when
+/// anything was cut. Returns `content` untouched when it already fits.
+///
+/// Character by character from the end: the strings this is used on are a line, not a
+/// document, and a binary search over char boundaries would buy nothing at that length.
+pub(crate) fn truncate(content: &str, style: &TextStyle, max_width: f32) -> String {
+    let measure =
+        |text: &str| frus_text::measure_styled(text, style.size, style.weight, style.italic).width;
+    if max_width <= 0.0 || measure(content) <= max_width {
+        return content.to_string();
+    }
+    let mut chars: Vec<char> = content.chars().collect();
+    while !chars.is_empty() {
+        chars.pop();
+        let kept: String = chars.iter().collect();
+        let candidate = format!("{}{ELLIPSIS}", kept.trim_end());
+        if measure(&candidate) <= max_width {
+            return candidate;
+        }
+    }
+    ELLIPSIS.to_string()
 }
 
 impl Text {
@@ -26,6 +55,7 @@ impl Text {
             content: content.into(),
             style: TextStyle::new(16.0),
             wrap: false,
+            ellipsis: false,
         }
     }
 
@@ -36,6 +66,7 @@ impl Text {
             content: content.into(),
             style,
             wrap: false,
+            ellipsis: false,
         }
     }
 
@@ -44,6 +75,26 @@ impl Text {
     /// out on a single line.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
+        self.ellipsis = false;
+        self
+    }
+
+    /// Keeps the text on **one line and inside its box**, cut with an ellipsis when it
+    /// does not fit — the reference's `TextOverflow.ellipsis`.
+    ///
+    /// This is two things, and the second is the one that matters. The obvious half is the
+    /// cut. The other is that an ellipsising text tells the layout it may be given *less
+    /// than it asked for*: a flex item's automatic minimum size is its content, so a plain
+    /// `Text` in a row refuses to shrink and pushes its siblings out of the box instead —
+    /// which is how a long task name evicted its own delete button, off the card and out of
+    /// the hit registry, on a device (milestone 333). `min_width: 0` is what lets flexbox
+    /// do its job, and it is the same fix the web has needed for the same reason forever.
+    ///
+    /// Mutually exclusive with [`Text::wrap`], which is the other answer to the same
+    /// question: wrap grows downwards, this one cuts. The last one called wins.
+    pub fn ellipsis(mut self) -> Self {
+        self.ellipsis = true;
+        self.wrap = false;
         self
     }
 
@@ -111,6 +162,14 @@ impl<Msg> Widget<Msg> for Text {
         Style {
             width: Dimension::Length(measured.width.ceil()),
             height: Dimension::Length(measured.height.ceil()),
+            // A flex item's automatic minimum size is its content, so a plain text
+            // refuses to shrink and pushes its siblings out instead. An ellipsising one
+            // says it may be given less; the paint cuts to whatever it gets.
+            min_width: if self.ellipsis {
+                Dimension::Length(0.0)
+            } else {
+                Dimension::Auto
+            },
             ..Default::default()
         }
     }
@@ -159,12 +218,12 @@ impl<Msg> Widget<Msg> for Text {
                 bounds.width,
             );
         } else {
-            scene.text_styled(
-                Point::new(bounds.x, bounds.y),
-                self.content.clone(),
-                &self.style,
-                color,
-            );
+            let content = if self.ellipsis {
+                truncate(&self.content, &self.style, bounds.width)
+            } else {
+                self.content.clone()
+            };
+            scene.text_styled(Point::new(bounds.x, bounds.y), content, &self.style, color);
         }
     }
 
@@ -180,6 +239,56 @@ impl<Msg> Widget<Msg> for Text {
 
 #[cfg(test)]
 mod tests {
+    /// An ellipsising text is **cut to the box it is given** instead of drawing past it.
+    ///
+    /// It also tells the layout it may be given less than it asked for (`min_width: 0`),
+    /// which is half of what a row needs to keep its trailing widget intact. The other
+    /// half — a trailing widget that refuses to shrink — is not expressible yet: there is
+    /// no `flex_shrink` in `frus_layout::Style`, so a deficit is always shared out in
+    /// proportion to base size. See the roadmap; milestone 333 measured it.
+    #[test]
+    fn an_ellipsising_text_is_cut_to_its_box() {
+        let long = "A task name that is really rather long indeed and keeps going";
+        let style = TextStyle::new(18.0);
+        let full = frus_text::measure_styled(long, style.size, style.weight, style.italic).width;
+        assert!(full > 300.0, "the fixture has to overflow: {full}");
+
+        let cut = truncate(long, &style, 150.0);
+        assert!(cut.ends_with(ELLIPSIS), "cut with an ellipsis: {cut}");
+        let cut_width =
+            frus_text::measure_styled(&cut, style.size, style.weight, style.italic).width;
+        assert!(cut_width <= 150.0, "and it fits: {cut_width}");
+        assert!(cut.len() > 4, "without cutting everything: {cut}");
+
+        // A width it already fits in leaves it alone, ellipsis and all.
+        assert_eq!(truncate("Short", &style, 500.0), "Short");
+        // A box with no room at all is left alone — inherited from the app bar, where
+        // a zero width means "the layout has not run yet" rather than "there is no
+        // room". It is a wart: a genuinely collapsed box draws the whole string. Pinned
+        // here so that changing it is a decision rather than a surprise.
+        assert_eq!(truncate(long, &style, 0.0), long);
+    }
+
+    /// The layout half: an ellipsising text accepts less width than it asked for, a plain
+    /// one does not.
+    #[test]
+    fn an_ellipsising_text_lets_the_layout_shrink_it() {
+        use frus_layout::Dimension;
+        let plain = Widget::<()>::style(&Text::new("A rather long label indeed").size(18.0));
+        let cut = Widget::<()>::style(
+            &Text::new("A rather long label indeed")
+                .size(18.0)
+                .ellipsis(),
+        );
+        assert_eq!(plain.min_width, Dimension::Auto, "content is its own floor");
+        assert_eq!(
+            cut.min_width,
+            Dimension::Length(0.0),
+            "and this one has none"
+        );
+        assert_eq!(plain.width, cut.width, "both still ask for the same width");
+    }
+
     use super::*;
     use frus_core::Primitive;
 
