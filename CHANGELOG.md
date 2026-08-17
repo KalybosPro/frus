@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 326 so far, each documenting the objective, the alternatives
+> record — one per step, 327 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -31,6 +31,17 @@ any release may break.
   assembly time.
 
 ### Fixed
+
+- **A tap on a dismissible row did nothing** (J327). Found on a device: a task row's avatar
+  opened nothing. The hit box was fine — a probe found the target exactly where it is drawn
+  — and the gesture arena was the whole of it. A press on such a row prepares a swipe, which
+  engages only past a threshold; the release told a tap from a drag against a list of the
+  gestures that work that way, and the swipe was the one variant missing from it. So the
+  press was recorded, the release returned early, and the widget under the finger was never
+  told. It shows when the list is too short to scroll — a scrolling list claims the press
+  first, and `Scroll` *was* in the list — and, reading the routing, on every pointer click
+  whatever the list was doing. The list is now a named function, `gesture_was_a_tap`, with
+  all five variants and a test that pins both directions.
 
 - **An overlay was drawn over the screen that replaced its own** (J326). Found on a device:
   an app bar's overflow menu, left open while choosing an item that navigates, stayed on top

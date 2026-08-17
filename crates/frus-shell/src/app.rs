@@ -2315,15 +2315,9 @@ impl<A: Application> App<A> {
             self.request_redraw();
             return;
         }
-        // A touch scroll or a pan that never moved is a plain tap: we let it follow
-        // the ordinary click path below.
-        let was_tap = matches!(
-            ended,
-            Some(Drag::Scroll { moved: false, .. })
-                | Some(Drag::Pan { moved: false, .. })
-                | Some(Drag::Reorder { moved: false, .. })
-                | Some(Drag::Item { moved: false, .. })
-        );
+        // A touch scroll, a pan or a swipe that never moved is a plain tap: we let it
+        // follow the ordinary click path below.
+        let was_tap = gesture_was_a_tap(ended.as_ref());
         // Reordering: on the drop, the target column is the reorderable header under
         // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
         if let Some(Drag::Reorder {
@@ -3566,6 +3560,29 @@ impl<A: Application> App<A> {
     }
 }
 
+/// Was the gesture that just ended **still a tap**?
+///
+/// Every drag here engages only past a threshold, so a press that never crossed it is
+/// not a drag at all: it is a tap, and the release owes the widget underneath its
+/// click. A drag that *did* move has already been answered — a fling, a drop, a
+/// dismissal — and must not also click.
+///
+/// One list, because forgetting a variant is silent: the widget stays hittable, the
+/// press still records it, and only the release quietly does nothing. That is how a
+/// dismissible row came to swallow every tap on it (milestone 327).
+fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
+    matches!(
+        ended,
+        Some(
+            Drag::Scroll { moved: false, .. }
+                | Drag::Pan { moved: false, .. }
+                | Drag::Reorder { moved: false, .. }
+                | Drag::Item { moved: false, .. }
+                | Drag::Dismiss { moved: false, .. }
+        )
+    )
+}
+
 /// Moves `current` toward `target` by one **exponential** spring step, with time
 /// constant `tau` in seconds, over an interval `dt`: frame-rate independent and free
 /// of overshoot. Used to smooth the abscissa during a reorder.
@@ -3709,9 +3726,57 @@ fn claim_area(
 mod tests {
     use super::{
         claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
-        resolve_focus, spring_toward, Rect, Scene, Theme, VelocityEstimate, PRECISE_SLOP,
-        TOUCH_SLOP,
+        gesture_was_a_tap, resolve_focus, spring_toward, Drag, Point, Rect, Scene, Theme,
+        VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
+
+    /// A press on a **dismissible** row that never moved is a tap, and the widget under
+    /// the finger owes it a click (reported on a device: a task row's avatar opened
+    /// nothing, while a control a few hundred pixels away in the same card worked).
+    ///
+    /// The row registers a swipe on the press, in case the finger is about to slide
+    /// sideways. When it does not, the swipe has to stand down. Every other gesture
+    /// here already did; this one was left out of the list.
+    #[test]
+    fn a_swipe_that_never_started_is_still_a_tap() {
+        let item = frus_widgets::Dismissable {
+            id: WidgetId::from_u64(1),
+            rect: Rect::new(0.0, 0.0, 300.0, 62.0),
+            spec: frus_widgets::DismissSpec::default(),
+        };
+        let dismiss = |moved| Drag::Dismiss {
+            item,
+            last: Point::new(0.0, 0.0),
+            moved,
+        };
+        assert!(
+            gesture_was_a_tap(Some(&dismiss(false))),
+            "a swipe under the threshold leaves the click alone"
+        );
+        assert!(
+            !gesture_was_a_tap(Some(&dismiss(true))),
+            "a swipe that ran has already been answered and must not also click"
+        );
+        // A scroll, the variant that was already right — and the one that masked this
+        // bug, since a list long enough to scroll claims the press before the swipe can.
+        let scroll = Drag::Scroll {
+            id: WidgetId::from_u64(2),
+            last: Point::new(0.0, 0.0),
+            moved: false,
+            carried: (0.0, 0.0),
+            dismiss: None,
+            axis: None,
+        };
+        assert!(gesture_was_a_tap(Some(&scroll)));
+        // And a gesture that captures on the press, rather than at a threshold, never
+        // becomes a tap however still the finger was.
+        let select = Drag::TextSelect {
+            id: WidgetId::from_u64(3),
+            rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+        };
+        assert!(!gesture_was_a_tap(Some(&select)));
+        assert!(!gesture_was_a_tap(None), "no gesture, no verdict to give");
+    }
 
     /// A page that scrolls down must not drift sideways while it does it (reported on a
     /// device, 2026-08-16). No finger travels in a straight line, so an area that can go
