@@ -86,6 +86,26 @@ One existing picture moved with it: `data_table_paginated`, whose back arrow now
 unavailable on the first page instead of as a full outlined button. That is the change, seen
 somewhere it was not put on purpose, which is the best kind of confirmation a golden gives.
 
+## Postscript: what the device said about "a bound you can see"
+
+The section above is wrong as shipped, and the phone is what said so.
+
+On the demo's Settings screen, `Quantity` sits at 0, so its "−" is disabled and its "+" is
+not. Pressing "+" takes it to 1 and the "−" becomes live. Measuring that region across the
+two screenshots, the "−" button's mean colour moves from `(39.0, 42.9, 50.7)` to
+`(37.6, 41.7, 49.9)` — about **1.4 of 255**, and *smaller* than the incidental shift on the
+"+" button beside it, which never changed state at all. The disabled one is also, very
+slightly, the **brighter** of the two.
+
+So the behaviour is right — no message, out of the tab order, and the tests prove both — and
+the appearance conveys nothing. On this palette a disabled outlined icon button and a live
+one are the same button.
+
+This is not a new problem. It is milestone 320's open item, `outline_variant` sitting on top
+of `on_surface` at 12 %, showing up for the third time and now on hardware, on a control a
+person actually presses. What that entry needed was evidence that it was worth the cost of
+moving a token that every outline in the framework depends on. It has it.
+
 ## Left
 
 - **No single disabled item**, still: it is the whole rating, group, control or strip.
