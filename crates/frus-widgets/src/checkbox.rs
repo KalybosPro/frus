@@ -4,7 +4,7 @@ use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_content, disabled_mark};
-use crate::interaction::Status;
+use crate::interaction::{Interaction, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -100,10 +100,18 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         } else {
             // Unticked, the outline *is* the control — the mark rather than a container —
             // so it takes the content opacity, as the reference's does.
-            let border = if self.enabled {
-                theme.border
-            } else {
+            //
+            // And it is **not** `outline`. The reference resolves this side per state:
+            // `on_surface_variant` at rest, the full `on_surface` under a finger, a
+            // pointer or focus, and `on_surface` at 38 % when disabled. An unselected
+            // checkbox is a mark, and a mark is drawn in an *on* colour; `outline` is for
+            // the edge of a container, which this is not. Milestone 332.
+            let border = if !self.enabled {
                 disabled_content(theme)
+            } else if status.interaction != Interaction::None || status.focused {
+                theme.scheme.on_surface
+            } else {
+                theme.scheme.on_surface_variant
             };
             scene.draw_rect(box_rect, theme.surface.fade(o), 5.0, 2.0, border.fade(o));
         }
@@ -176,6 +184,57 @@ mod tests {
         assert!(semantics.disabled, "and announced as unavailable");
         // The answer survives: read-only is not invisible.
         assert_eq!(semantics.toggled, frus_core::Toggled::True);
+    }
+
+    /// An unselected box's side, state by state. The reference resolves it as
+    /// `on_surface_variant` at rest and the full `on_surface` under a finger, a pointer or
+    /// focus — an unselected checkbox is a **mark**, so it takes an *on* colour. Ours was
+    /// `outline`, the role for the edge of a container, since it was written.
+    #[test]
+    fn an_unticked_box_is_a_mark_not_a_container_edge() {
+        let theme = Theme::dark();
+        let side = |status: Status| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &Checkbox::<Msg>::new(false),
+                Rect::new(0.0, 0.0, 20.0, 20.0),
+                status,
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect { border_color, .. } => Some(*border_color),
+                    _ => None,
+                })
+                .expect("the box")
+        };
+        let at = |interaction, focused| Status {
+            opacity: 1.0,
+            interaction,
+            focused,
+            ..Default::default()
+        };
+        assert_eq!(
+            side(at(Interaction::None, false)),
+            theme.scheme.on_surface_variant,
+            "at rest"
+        );
+        for (name, status) in [
+            ("hovered", at(Interaction::Hovered, false)),
+            ("pressed", at(Interaction::Pressed, false)),
+            ("focused", at(Interaction::None, true)),
+        ] {
+            assert_eq!(side(status), theme.scheme.on_surface, "{name}");
+        }
+        // And it is no longer the container-edge role, which is what it used to be.
+        assert_ne!(
+            side(at(Interaction::None, false)),
+            theme.scheme.outline,
+            "an unselected box is a mark, not a container's edge"
+        );
     }
 
     #[test]

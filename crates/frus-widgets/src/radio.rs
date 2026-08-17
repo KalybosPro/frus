@@ -4,7 +4,7 @@ use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
-use crate::interaction::Status;
+use crate::interaction::{Interaction, Status};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -44,12 +44,19 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
         // A radio has no container: the ring and the dot *are* the control, so both take
         // the content opacity — the reference disables its fill at 38 % whether the option
         // is the chosen one or not.
+        //
+        // An **unselected** ring is not `outline` either, for the same reason a checkbox's
+        // box is not: it is the mark itself, so it takes an *on* colour. The reference
+        // resolves it `on_surface_variant` at rest and the full `on_surface` under a
+        // finger, a pointer or focus. Milestone 332.
         let (ring, dot, label) = if self.enabled {
             (
                 if self.selected {
                     theme.primary
+                } else if status.interaction != Interaction::None || status.focused {
+                    theme.scheme.on_surface
                 } else {
-                    theme.border
+                    theme.scheme.on_surface_variant
                 },
                 theme.primary,
                 theme.on_surface,
@@ -198,6 +205,71 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Pick(usize),
+    }
+
+    /// An unselected ring, state by state — the same rule as a checkbox's box, and for
+    /// the same reason: it is the mark, not a container's edge. See
+    /// `checkbox::tests::an_unticked_box_is_a_mark_not_a_container_edge`.
+    #[test]
+    fn an_unselected_ring_is_a_mark_not_a_container_edge() {
+        let theme = Theme::dark();
+        let ring = |selected: bool, interaction, focused| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &RadioOption {
+                    label: "Daily".into(),
+                    selected,
+                    size: 18.0,
+                    enabled: true,
+                    on_click: Some(Msg::Pick(0)),
+                },
+                Rect::new(0.0, 0.0, 120.0, 20.0),
+                Status {
+                    opacity: 1.0,
+                    interaction,
+                    focused,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect { border_color, .. } => Some(*border_color),
+                    _ => None,
+                })
+                .expect("the ring")
+        };
+        assert_eq!(
+            ring(false, Interaction::None, false),
+            theme.scheme.on_surface_variant,
+            "at rest"
+        );
+        assert_eq!(
+            ring(false, Interaction::Hovered, false),
+            theme.scheme.on_surface,
+            "hovered"
+        );
+        assert_eq!(
+            ring(false, Interaction::None, true),
+            theme.scheme.on_surface,
+            "focused"
+        );
+        // The chosen one is the accent in every state, which is what the reference does.
+        for interaction in [
+            Interaction::None,
+            Interaction::Hovered,
+            Interaction::Pressed,
+        ] {
+            assert_eq!(ring(true, interaction, false), theme.primary, "selected");
+        }
+        assert_ne!(
+            ring(false, Interaction::None, false),
+            theme.scheme.outline,
+            "a ring is a mark, not a container's edge"
+        );
     }
 
     fn group(enabled_first: bool) -> RadioGroup<Msg> {

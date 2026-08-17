@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 331 so far, each documenting the objective, the alternatives
+> record — one per step, 332 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -57,6 +57,14 @@ any release may break.
   is back unchanged now that `over_surface` performs exactly that arithmetic.
 
 ### Fixed
+
+- **An unselected checkbox's box and radio's ring were `outline`** (J332), the role for the
+  edge of a container. They are not containers: they *are* the mark, and a mark takes an
+  *on* colour — which `disabled.rs` has said in prose since milestone 322, while the
+  enabled branch of both controls said otherwise. The reference resolves the side per
+  state, and the roadmap's `on_surface` was only half of it: `on_surface_variant` at rest,
+  the full `on_surface` under a finger, a pointer or focus. `RadioOption` is its own widget
+  so it gets its own `Status`, and hovering one option lifts that ring alone.
 
 - **Every glyph in the framework was painted at its linearised value** (J330), so all text
   was darker than the theme said — `on_surface` (230, 232, 236) reached the screen as
