@@ -86,7 +86,7 @@ impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
         scene.fill_rect(bounds, theme.background.fade(o));
         scene.fill_rect(
             Rect::new(bounds.x, bounds.y + bounds.height - 1.0, bounds.width, 1.0),
-            theme.border.fade(o),
+            theme.scheme.outline_variant.fade(o),
         );
 
         // The title is centred horizontally in the bar, following `title_style`

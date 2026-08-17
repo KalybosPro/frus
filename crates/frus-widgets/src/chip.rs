@@ -648,16 +648,20 @@ mod tests {
                 contrast(dead),
                 contrast(live)
             );
-            // The **outline** does not clear the same bar, and that is a finding about
-            // the palette rather than about this milestone. The rule here is the
-            // reference's exactly — `outline_variant` live, `on_surface` at 12 %
-            // disabled — but the dark palette puts them within a whisker of each other
-            // (`outline_variant` is (48, 52, 62); 12 % of `on_surface` over the surface
-            // lands near 54), so the disabled hairline carries very slightly *more*
-            // contrast than the live one. The reference's own palette separates the two
-            // comfortably. Moving a token moves every outline in the framework, so it is
-            // written up rather than patched here; the assertion is deliberately absent
-            // rather than weakened to something it would pass.
+            // The **outline** now clears the same bar. Milestone 320 left this assertion
+            // out rather than weaken it: the rule was the reference's exactly, but both
+            // shipped palettes put `outline_variant` on top of `on_surface` at 12 %, so a
+            // disabled hairline carried marginally *more* contrast than a live one. J325
+            // moved the two outline roles to their reference tones, which is what lets the
+            // claim be asserted instead of written up.
+            let live_edge = ChipStyle::default().border(&theme, false).1;
+            let dead_edge = theme.scheme.on_surface.fade(0.12);
+            assert!(
+                contrast(dead_edge) < contrast(live_edge),
+                "{name}: the disabled outline must be quieter, got {} against {}",
+                contrast(dead_edge),
+                contrast(live_edge)
+            );
         }
     }
 

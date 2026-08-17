@@ -254,6 +254,75 @@ fn disabled_selection_controls_match_golden() {
     snapshot.assert_golden(golden("disabled_selection_controls"));
 }
 
+/// **The light theme, which nothing else photographs (milestone 325)** — the outlined
+/// controls, live beside disabled, on `Theme::light()`.
+///
+/// Every other golden here is dark, and that is how both shipped palettes came to put a
+/// live outline on top of a disabled one without a picture ever objecting. The tone
+/// arithmetic is guarded by a unit test now; this is the half that arithmetic cannot
+/// check — that the reference's outline tones, dropped into this palette, produce a light
+/// theme somebody would want to use rather than a wireframe.
+#[test]
+fn light_outlines_match_golden() {
+    let theme = Theme::light();
+    let pair = |live: Box<dyn frus_widgets::Widget<()>>,
+                dead: Box<dyn frus_widgets::Widget<()>>| {
+        Flex::row().gap(24.0).child(live).child(dead)
+    };
+    let root: Container<()> = Container::new().padding(24.0).child(
+        Flex::column()
+            .gap(20.0)
+            .child(pair(
+                Box::new(
+                    Button::new("Outlined")
+                        .variant(Variant::Outlined)
+                        .on_press(()),
+                ),
+                Box::new(
+                    Button::new("Outlined")
+                        .variant(Variant::Outlined)
+                        .on_press(())
+                        .enabled(false),
+                ),
+            ))
+            .child(pair(
+                Box::new(TextInput::<()>::new("Ada Lovelace").label("Full name")),
+                Box::new(Checkbox::<()>::new(false).label("Digest")),
+            ))
+            .child(pair(
+                Box::new(Chip::<()>::new("Tag")),
+                Box::new(Chip::<()>::new("Tag").enabled(false)),
+            ))
+            .child(pair(
+                Box::new(
+                    SegmentedControl::<()>::new(1, |_| ())
+                        .segment("Day")
+                        .segment("Week"),
+                ),
+                Box::new(
+                    SegmentedControl::<()>::new(1, |_| ())
+                        .segment("Day")
+                        .segment("Week")
+                        .enabled(false),
+                ),
+            ))
+            .child(pair(
+                Box::new(Slider::<()>::new(0.4).width(180.0).on_change(|_| ())),
+                Box::new(
+                    Slider::<()>::new(0.4)
+                        .width(180.0)
+                        .on_change(|_| ())
+                        .enabled(false),
+                ),
+            )),
+    );
+    let Some(snapshot) = render_widget(&root, 520, 400, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("light_outlines"));
+}
+
 /// **The dragged controls, disabled (milestone 323)** — a slider, a range slider and a
 /// dropdown, each beside its live twin.
 ///

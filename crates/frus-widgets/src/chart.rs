@@ -290,7 +290,7 @@ fn draw_grid(
         if i > 0 {
             scene.fill_rect(
                 Rect::new(plot_left, y, plot_w, 1.0),
-                theme.border.fade(opacity * 0.6),
+                theme.scheme.outline_variant.fade(opacity * 0.6),
             );
         }
         // A tick: the value (or the percentage in 100% mode), right-aligned in the margin.
@@ -374,7 +374,7 @@ fn draw_tooltip(
 ) {
     scene.fill_rect(
         Rect::new(gx - 0.5, plot_top, 1.0, baseline_y - plot_top),
-        theme.border.fade(o * 0.8),
+        theme.scheme.outline_variant.fade(o * 0.8),
     );
     let pad = 8.0;
     let line_h = TOOLTIP_SIZE + 5.0;
@@ -399,7 +399,7 @@ fn draw_tooltip(
         theme.surface.fade(o),
         6.0,
         1.0,
-        theme.border.fade(o),
+        theme.scheme.outline_variant.fade(o),
     );
     let mut ty = by + pad;
     for (c, t) in lines {
@@ -492,7 +492,7 @@ impl<Msg> Widget<Msg> for BarChart<Msg> {
         // Baseline (the x-axis).
         scene.fill_rect(
             Rect::new(plot_left, baseline_y, plot_w, 1.5),
-            theme.border.fade(o),
+            theme.scheme.outline_variant.fade(o),
         );
 
         // Every series: the main one then the extras (grouped bars).
@@ -1086,7 +1086,7 @@ impl<Msg> Widget<Msg> for LineChart<Msg> {
         // Baseline (the x-axis).
         scene.fill_rect(
             Rect::new(plot_left, baseline_y, plot_w, 1.5),
-            theme.border.fade(o),
+            theme.scheme.outline_variant.fade(o),
         );
 
         // Every series to draw: the main one then the extras, aligned by index.

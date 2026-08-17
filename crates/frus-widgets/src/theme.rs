@@ -117,8 +117,11 @@ impl ColorScheme {
             surface_container_high: Color::rgb8(44, 48, 58),
             inverse_surface: Color::rgb8(226, 228, 234),
             on_inverse_surface: Color::rgb8(28, 32, 38),
-            outline: Color::rgb8(70, 76, 88),
-            outline_variant: Color::rgb8(48, 52, 62),
+            // Tones 60 and 30 of this palette's neutral-variant family, which is where
+            // the reference puts them in a dark scheme. Anything darker collides with a
+            // disabled outline — `on_surface` at 12 % over this surface is tone 24.
+            outline: Color::rgb8(141, 145, 153),
+            outline_variant: Color::rgb8(67, 71, 78),
             error: Color::rgb8(224, 108, 108),
             on_error: Color::rgb8(38, 12, 12),
             scrim: Color::BLACK,
@@ -146,8 +149,10 @@ impl ColorScheme {
             surface_container_high: Color::rgb8(238, 240, 244),
             inverse_surface: Color::rgb8(45, 50, 58),
             on_inverse_surface: Color::rgb8(240, 242, 246),
-            outline: Color::rgb8(206, 210, 218),
-            outline_variant: Color::rgb8(226, 230, 236),
+            // Tones 50 and 80, the reference's light-scheme positions. A disabled
+            // outline here is tone 91, so both must sit well below it.
+            outline: Color::rgb8(115, 119, 127),
+            outline_variant: Color::rgb8(195, 198, 207),
             error: Color::rgb8(200, 64, 64),
             on_error: Color::rgb8(255, 255, 255),
             scrim: Color::BLACK,
@@ -434,6 +439,7 @@ impl Default for Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::disabled::DISABLED_CONTAINER_OPACITY;
 
     /// The WCAG contrast between two colors (a ratio ≥ 1).
     fn contrast(a: Color, b: Color) -> f32 {
@@ -490,6 +496,53 @@ mod tests {
         // And the dark one is indeed… dark.
         assert!(dark.background.compute_luminance() < 0.1);
         assert!(light.background.compute_luminance() > 0.85);
+    }
+
+    #[test]
+    fn an_outline_is_never_the_colour_of_a_disabled_one() {
+        // Since milestone 322 a disabled control's outline is `on_surface` at 12 % over
+        // the surface. If a scheme puts a *live* outline at the same tone, then every
+        // outlined control in the framework looks available whether it is or not — which
+        // is what a device found on the dark palette. This is the guard against it.
+        //
+        // The bar is the reference's own margin at its narrowest: its baseline schemes
+        // separate `outline_variant` from a disabled outline by about ten tones, and
+        // `outline` by nearly forty.
+        let tone = |c: Color| frus_core::Hct::from_color(c).tone;
+        let mut checked = 0;
+        for (name, s) in [
+            ("dark", ColorScheme::dark()),
+            ("light", ColorScheme::light()),
+            (
+                "seeded dark",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), true),
+            ),
+            (
+                "seeded light",
+                ColorScheme::from_seed(Color::rgb8(0x42, 0x85, 0xF4), false),
+            ),
+            (
+                "grey seeded dark",
+                ColorScheme::from_seed(Color::rgb8(0x80, 0x80, 0x80), true),
+            ),
+        ] {
+            // Opaque over opaque: the lerp is the composite `fade(0.12)` resolves to.
+            let disabled = tone(s.surface.lerp(s.on_surface, DISABLED_CONTAINER_OPACITY));
+            for (role, colour, floor) in [
+                ("outline", s.outline, 24.0),
+                ("outline_variant", s.outline_variant, 6.0),
+            ] {
+                let gap = (tone(colour) - disabled).abs();
+                assert!(
+                    gap >= floor,
+                    "{name}: {role} is {gap:.1} tones from a disabled outline \
+                     (needs {floor}) — a live control and an unavailable one \
+                     would be drawn the same"
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 10);
     }
 
     #[test]

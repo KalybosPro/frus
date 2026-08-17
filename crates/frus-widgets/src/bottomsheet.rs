@@ -68,7 +68,7 @@ impl<Msg: Clone> Widget<Msg> for SheetPanel<Msg> {
                 (bounds.width - 2.0 * radius).max(0.0),
                 1.0,
             ),
-            theme.border.fade(o),
+            theme.scheme.outline_variant.fade(o),
         );
         // A rounded grabber, centred near the top.
         let gx = bounds.x + (bounds.width - GRABBER_WIDTH) * 0.5;

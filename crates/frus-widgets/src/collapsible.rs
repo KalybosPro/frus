@@ -35,7 +35,13 @@ impl<Msg: Clone> Widget<Msg> for Header<Msg> {
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         let bg = theme.state_layer(theme.surface, theme.on_surface, &status);
-        scene.draw_rect(bounds, bg.fade(o), theme.radius, 1.0, theme.border.fade(o));
+        scene.draw_rect(
+            bounds,
+            bg.fade(o),
+            theme.radius,
+            1.0,
+            theme.scheme.outline_variant.fade(o),
+        );
         let ty = bounds.y + (HEADER_H - frus_text::line_height(SIZE)) * 0.5;
         scene.text(
             Point::new(bounds.x + PAD_X, ty),

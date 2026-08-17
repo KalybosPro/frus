@@ -229,7 +229,7 @@ impl<Msg: Clone> Widget<Msg> for NavRail<Msg> {
         let x = bounds.x + bounds.width - 1.0;
         scene.fill_rect(
             Rect::new(x, bounds.y, 1.0, bounds.height),
-            theme.border.fade(status.opacity),
+            theme.scheme.outline_variant.fade(status.opacity),
         );
     }
 
@@ -293,7 +293,7 @@ impl<Msg: Clone> Widget<Msg> for BottomBar<Msg> {
         // Horizontal separator on the top edge.
         scene.fill_rect(
             Rect::new(bounds.x, bounds.y, bounds.width, 1.0),
-            theme.border.fade(status.opacity),
+            theme.scheme.outline_variant.fade(status.opacity),
         );
     }
 

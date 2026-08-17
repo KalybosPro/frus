@@ -10,7 +10,7 @@ pub(crate) fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container<M
         .height(64.0)
         .radius(10.0)
         .color(theme.surface)
-        .border(1.0, theme.border)
+        .border(1.0, theme.outline_variant)
         .padding_each(10.0, 12.0, 10.0, 12.0)
         .child(column![
             text(value.to_string()).size(24.0),

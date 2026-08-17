@@ -85,7 +85,14 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         // track still to travel is a **container** (12 %), the part already travelled and
         // the thumb are **content** on it (38 %). That is the reference's own split too.
         let (rail, filled_color, thumb, ring) = if self.enabled {
-            (theme.border, theme.primary, Color::WHITE, theme.primary)
+            // The rail is a filled track, not an edge: it takes a container tone
+            // rather than `outline`, which the reference reserves for borders.
+            (
+                theme.scheme.surface_container_high,
+                theme.primary,
+                Color::WHITE,
+                theme.primary,
+            )
         } else {
             let dead = disabled_content(theme);
             (disabled_container(theme), dead, dead, dead)
@@ -510,7 +517,7 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
         let track_y = base_y + (H - TRACK_H) * 0.5;
         // The same split as the single slider: rail a container, chosen span content.
         let (rail, span) = if self.enabled {
-            (theme.border, theme.primary)
+            (theme.scheme.surface_container_high, theme.primary)
         } else {
             (disabled_container(theme), disabled_content(theme))
         };

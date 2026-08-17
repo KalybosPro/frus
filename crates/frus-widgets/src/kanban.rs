@@ -102,7 +102,7 @@ impl<Msg: Clone> Widget<Msg> for Card<Msg> {
             fill.fade(o),
             theme.radius,
             1.0,
-            theme.border.fade(o),
+            theme.scheme.outline_variant.fade(o),
         );
         // A label only for a **text** card (a rich card paints its own content).
         if self.content.is_empty() {
@@ -163,7 +163,7 @@ impl<Msg: Clone> Widget<Msg> for DropZone {
             Color::TRANSPARENT,
             theme.radius,
             1.0,
-            theme.border.fade(status.opacity * 0.5),
+            theme.scheme.outline_variant.fade(status.opacity * 0.5),
         );
     }
 

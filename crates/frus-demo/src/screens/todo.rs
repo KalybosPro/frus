@@ -72,7 +72,7 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         // ×, or a swipe.
         .radius(10.0)
         .color(theme.surface)
-        .border(1.0, theme.border)
+        .border(1.0, theme.outline_variant)
         .padding_each(8.0, 12.0, 8.0, 12.0)
         .child(line)
 }

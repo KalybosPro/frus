@@ -8,12 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 324 so far, each documenting the objective, the alternatives
+> record — one per step, 325 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A tone-gap guard on the outline roles** (J325). `an_outline_is_never_the_colour_of_a_disabled_one`
+  checks both shipped schemes and three seeded ones: a live outline must sit a measurable
+  number of tones away from `on_surface` at 12 %, which is what a disabled one resolves to.
+  A palette cannot reintroduce this silently.
+
+- **`light_outlines`, the first light-theme golden** (J325). Every picture in the repository
+  was dark, which is how a palette bug affecting *both* schemes shipped — the light theme's
+  outlines were the closer pair of the two.
 
 - **`enabled` on `Rating`, `Stepper`, `Menu`, `Tabs` and `Pagination`** (J324). The last
   five. Every control in the framework that can be pressed can now be told not to be.
@@ -22,6 +31,33 @@ any release may break.
   assembly time.
 
 ### Fixed
+
+- **A live outline was the same colour as a disabled one** (J325), in both shipped palettes.
+  Open since milestone 320, which wrote it up rather than weaken an assertion to something it
+  would pass, and promoted by 324's device pass. `outline_variant` sat **2.2 tones** from the
+  12 % disabled composite in dark and **0.5** in light; the reference separates them by about
+  ten, and separates `outline` by nearly forty. `from_seed` already placed both roles at the
+  reference's tones — only the hand-written schemes had drifted, downward — so the fix is
+  those tones taken from each palette's own neutral-variant family. Milestone 320's absent
+  assertion is now in `chip.rs`.
+
+- **Separators were painted in the control-edge colour** (J325). Thirteen `theme.border`
+  call sites — a chart's gridlines and axes, a navigation bar's hairline, a rail's dividers, a
+  drawer's edge, a kanban column's frame, a collapsible's border — are separators, which the
+  reference paints in `outline_variant`. Invisible at the old tone; they would have shouted at
+  the new one.
+
+- **A slider's rail is a track, not an edge** (J325). It was on `outline` and moved to a
+  container tone, as the reference has it.
+
+- **`cargo test --workspace --release` could never pass** (J325). `ReloadWatcher::new`
+  refuses outside a debug build, and its test asserted the debug branch unconditionally,
+  so the release suite failed in `frus-shell` before it ever reached the widgets or the
+  goldens. Found while verifying this milestone, not by looking for it.
+
+- **Outlined text fields had no visible outline** (J325). Not the defect this milestone set
+  out to fix, and the largest visible change in the sixty-two goldens that moved: a field, an
+  outlined button and a checkbox ring were all drawn at tone 32 on a tone-13 surface.
 
 - **A disabled button flattened too far** (J324). `Button` gave **every** variant a 12 %
   container and dropped the outlined variant's outline. The reference is explicit that a

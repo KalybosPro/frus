@@ -91,7 +91,7 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
         };
         scene.fill_rect(
             Rect::new(x, bounds.y, 1.0, bounds.height),
-            theme.border.fade(o),
+            theme.scheme.outline_variant.fade(o),
         );
     }
 

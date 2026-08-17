@@ -171,7 +171,13 @@ mod tests {
         std::env::set_var(WATCH_ENV, "1");
         let watcher = ReloadWatcher::new();
         std::env::remove_var(WATCH_ENV);
-        // In debug the test binary can be observed → Some.
+        // Opting in is necessary but not sufficient: `new` also refuses outside a debug
+        // build, so under `--release` there is nothing further to observe. Asserting the
+        // `Some` unconditionally is what made `cargo test --workspace --release` fail.
+        if !cfg!(debug_assertions) {
+            assert!(watcher.is_none(), "a release build never watches itself");
+            return;
+        }
         let Some(mut watcher) = watcher else {
             panic!("a watcher was expected in debug under FRUS_WATCH=1");
         };
