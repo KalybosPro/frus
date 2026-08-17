@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 330 so far, each documenting the objective, the alternatives
+> record — one per step, 331 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -38,6 +38,17 @@ any release may break.
   thread behind the disabled-state reports of milestones 324, 325 and 328. The test
   asserts the current behaviour without claiming it is right, so that changing the blend
   space is a deliberate and visible change.
+
+- **`painted_colours`, four tests asking whether a colour survives to the screen** (J331).
+  Milestones 328, 329 and 330 were all one sRGB↔linear conversion in the wrong place, and
+  nothing caught any of them: the widget builds the right colour, the scene primitive
+  carries it, and the golden is regenerated from the same broken pipeline so it agrees with
+  itself forever. These render a known colour through each surface that paints one — quad,
+  glyph, path and image tint, which convert in four different places — and read the pixel
+  back. A failure names the slip ("one sRGB→linear conversion too many") rather than
+  leaving you to suspect the palette. Each was shown to fail: reverting milestone 330 fails
+  only the glyph case; doubling `srgb_to_linear` in the three shaders fails the other three
+  and leaves the glyph green.
 
 - **`a_live_container_is_never_quieter_than_a_disabled_fill`** (J329). A control *filled*
   with a live container must be tellable from the disabled fill, on tone — measured as a
