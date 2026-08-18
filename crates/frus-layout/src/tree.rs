@@ -17,6 +17,35 @@ pub type NodeId = taffy::NodeId;
 /// width of `Some(0.0)`, max-content gives `None`).
 pub type MeasureFn = Box<dyn Fn(Option<f32>, Option<f32>) -> Size>;
 
+/// The edge a box's content ran past.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    /// Past the left edge.
+    Left,
+    /// Past the right edge.
+    Right,
+    /// Past the top edge.
+    Top,
+    /// Past the bottom edge.
+    Bottom,
+}
+
+/// A box whose children do not fit inside it, and by how much.
+///
+/// The reference reports this to the console and paints a striped band across the
+/// offending edge. Here a child simply draws outside its parent and nothing says so,
+/// which is how a task row's delete button came to be laid out past the window — drawn
+/// nowhere, hittable nowhere, and undiagnosed across three milestones (327, 333, 334).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Overflowing {
+    /// The **parent's** absolute box: the one that turned out to be too small.
+    pub rect: Rect,
+    /// The edge the content ran past.
+    pub side: Side,
+    /// By how many logical pixels.
+    pub amount: f32,
+}
+
 /// A layout tree. `T` is user data attached to the nodes — a colour, say — handed
 /// back with each computed rectangle.
 pub struct Layout<T> {
@@ -199,6 +228,73 @@ impl<T> Layout<T> {
         out
     }
 
+    /// Every box in the tree whose children spill out of it, with the edge and the
+    /// amount — the measurement behind [`Overflowing`].
+    ///
+    /// Only within **one** taffy tree, which is exactly the useful scope: a scrollable, a
+    /// stack, a page view, a fitter and an overflow box are all laid out as leaves here
+    /// and their content computed separately, so content larger than its viewport — the
+    /// one overflow that is deliberate — never reaches this walk.
+    pub fn overflows(&self, root: NodeId) -> Vec<Overflowing> {
+        let mut out = Vec::new();
+        self.collect_overflow(root, 0.0, 0.0, &mut out);
+        out
+    }
+
+    fn collect_overflow(
+        &self,
+        node: NodeId,
+        offset_x: f32,
+        offset_y: f32,
+        out: &mut Vec<Overflowing>,
+    ) {
+        let layout = self.tree.layout(node).expect("the node's layout");
+        let x = offset_x + layout.location.x;
+        let y = offset_y + layout.location.y;
+
+        let child_count = self.tree.child_count(node);
+        if child_count > 0 {
+            // The content box, in the node's own coordinates. Taffy places children
+            // relative to the border box, so these bounds are directly comparable.
+            let left = layout.border.left + layout.padding.left;
+            let top = layout.border.top + layout.padding.top;
+            let right = layout.size.width - layout.border.right - layout.padding.right;
+            let bottom = layout.size.height - layout.border.bottom - layout.padding.bottom;
+
+            let (mut over_l, mut over_t, mut over_r, mut over_b) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            for i in 0..child_count {
+                let child = self.tree.child_at_index(node, i).expect("the node's child");
+                let c = self.tree.layout(child).expect("the child's layout");
+                over_l = over_l.max(left - c.location.x);
+                over_t = over_t.max(top - c.location.y);
+                over_r = over_r.max(c.location.x + c.size.width - right);
+                over_b = over_b.max(c.location.y + c.size.height - bottom);
+            }
+
+            // Sub-pixel slack. Rounding a fractional text width against a fractional box
+            // produces overflows of a few hundredths that no one can see and nobody
+            // should be told about; the reference has the same tolerance for the same
+            // reason.
+            const TOLERANCE: f32 = 0.5;
+            let rect = Rect::new(x, y, layout.size.width, layout.size.height);
+            for (amount, side) in [
+                (over_l, Side::Left),
+                (over_t, Side::Top),
+                (over_r, Side::Right),
+                (over_b, Side::Bottom),
+            ] {
+                if amount > TOLERANCE {
+                    out.push(Overflowing { rect, side, amount });
+                }
+            }
+        }
+
+        for i in 0..child_count {
+            let child = self.tree.child_at_index(node, i).expect("the node's child");
+            self.collect_overflow(child, x, y, out);
+        }
+    }
+
     fn collect<'a>(
         &'a self,
         node: NodeId,
@@ -229,6 +325,102 @@ impl<T> Default for Layout<T> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A row that does not fit says so, on the side it ran past and by how much.
+    #[test]
+    fn a_row_too_small_for_its_children_reports_it() {
+        let mut layout: Layout<()> = Layout::new();
+        let a = layout.leaf(
+            Style {
+                width: Dimension::Length(80.0),
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            (),
+        );
+        let b = layout.leaf(
+            Style {
+                width: Dimension::Length(80.0),
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            (),
+        );
+        let row = layout.container(
+            Style {
+                width: Dimension::Length(100.0),
+                height: Dimension::Length(20.0),
+                ..Default::default()
+            },
+            &[a, b],
+        );
+        layout.compute(row, Size::new(200.0, 200.0));
+        let over = layout.overflows(row);
+        assert_eq!(over.len(), 1, "one edge, once: {over:?}");
+        assert_eq!(over[0].side, Side::Right);
+        assert_eq!(over[0].amount, 60.0);
+        assert_eq!(over[0].rect.width, 100.0, "the box named is the parent's");
+    }
+
+    /// Padding is part of the box the children have to fit inside.
+    #[test]
+    fn padding_counts_as_room_taken() {
+        let mut layout: Layout<()> = Layout::new();
+        let child = layout.leaf(
+            Style {
+                width: Dimension::Length(100.0),
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            (),
+        );
+        let boxed = layout.container(
+            Style {
+                width: Dimension::Length(100.0),
+                height: Dimension::Length(20.0),
+                padding: frus_core::Insets::uniform(10.0),
+                ..Default::default()
+            },
+            &[child],
+        );
+        layout.compute(boxed, Size::new(200.0, 200.0));
+        let over = layout.overflows(boxed);
+        assert_eq!(over.len(), 1);
+        assert_eq!(over[0].amount, 20.0, "10 px of padding on either side");
+    }
+
+    /// And a row that fits says nothing — including when the arithmetic lands a hair off,
+    /// which fractional text widths do constantly.
+    #[test]
+    fn a_row_that_fits_is_silent() {
+        let mut layout: Layout<()> = Layout::new();
+        let a = layout.leaf(
+            Style {
+                width: Dimension::Length(50.2),
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            (),
+        );
+        let b = layout.leaf(
+            Style {
+                width: Dimension::Length(50.1),
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            (),
+        );
+        let row = layout.container(
+            Style {
+                width: Dimension::Length(100.0),
+                height: Dimension::Length(20.0),
+                ..Default::default()
+            },
+            &[a, b],
+        );
+        layout.compute(row, Size::new(200.0, 200.0));
+        assert!(layout.overflows(row).is_empty(), "0.3 px is nobody's bug");
+    }
     use super::*;
     use crate::{Align, Dimension, FlexDirection, Justify, Style};
     use frus_core::Insets;

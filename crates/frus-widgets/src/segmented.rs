@@ -132,9 +132,11 @@ impl SegmentedStyle {
     /// The width **every** segment takes: the widest label, plus the checkmark's room if
     /// there is one, plus the padding.
     ///
-    /// The reference gives every segment the width of the widest, which is why each one
-    /// carries the whole list of labels: a segment that sized itself would make a control
-    /// whose divisions move when a label is renamed.
+    /// The reference gives every segment the width of the widest, which is why this is
+    /// asked of the **control** rather than of a segment: a segment that sized itself
+    /// would make a control whose divisions move when a label is renamed. It is the
+    /// control's natural width; the segments then divide whatever width it is granted,
+    /// equally, which comes to the same thing whenever there is room for it.
     fn segment_width(&self, theme: &Theme, labels: &[String]) -> f32 {
         let style = self.label_style(theme);
         let widest = labels
@@ -155,7 +157,6 @@ impl SegmentedStyle {
 /// One segment: a fill when it is the chosen one, a label, and a tap.
 struct Segment<Msg> {
     label: String,
-    labels: Rc<Vec<String>>,
     index: usize,
     count: usize,
     selected: bool,
@@ -194,9 +195,16 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
 
-    fn style_themed(&self, theme: &Theme) -> Style {
+    fn style_themed(&self, _theme: &Theme) -> Style {
         Style {
-            width: Dimension::Length(self.style.segment_width(theme, &self.labels)),
+            // **An equal share**, not a fixed width. The reference sizes every segment
+            // alike and caps that size at `maxWidth / count`, so the control never runs
+            // past its parent; a fixed width sized from the widest label cannot do the
+            // capping half, and on a phone the last segment was simply drawn outside the
+            // card (found by the overflow survey, milestone 335).
+            flex_basis: Dimension::Length(0.0),
+            flex_grow: 1.0,
+            min_width: Dimension::Length(0.0),
             height: Dimension::Percent(1.0),
             ..Default::default()
         }
@@ -242,14 +250,25 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
 
         // The checkmark and the label are centred **together**, so that the pair reads as
         // one thing rather than a label pushed aside by a tick.
+        let icon = self.style.icon_size(theme);
+        let shows_icon = self.selected && self.style.show_selected_icon(theme);
+        // Cut to the room left once the padding and any checkmark are taken out. A
+        // segment that has had to share a narrow control shows an ellipsis rather than a
+        // label running into its neighbour.
+        let room = bounds.width
+            - self.style.padding(theme) * 2.0
+            - if shows_icon {
+                icon + SEGMENTED_ICON_GAP
+            } else {
+                0.0
+            };
+        let label = crate::text::truncate(&self.label, &label_style, room);
         let measured = frus_text::measure_styled(
-            &self.label,
+            &label,
             label_style.size,
             label_style.weight,
             label_style.italic,
         );
-        let icon = self.style.icon_size(theme);
-        let shows_icon = self.selected && self.style.show_selected_icon(theme);
         let group = measured.width
             + if shows_icon {
                 icon + SEGMENTED_ICON_GAP
@@ -267,7 +286,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
         }
         scene.text_styled(
             Point::new(x, bounds.y + (bounds.height - measured.height) / 2.0),
-            self.label.clone(),
+            label,
             &label_style,
             color.fade(o),
         );
@@ -428,7 +447,6 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
             .map(|i| {
                 Box::new(Segment {
                     label: self.labels[i].clone(),
-                    labels: Rc::clone(&self.labels),
                     index: i,
                     count,
                     selected: i == self.selected,
@@ -451,6 +469,10 @@ impl<Msg: Clone> Widget<Msg> for SegmentedControl<Msg> {
             width: Dimension::Length(
                 self.style.segment_width(theme, &self.labels) * self.labels.len() as f32,
             ),
+            // The cap. With room, the control is its natural width and the segments each
+            // get exactly `segment_width` back — the same picture as before. Without, it
+            // stops at the parent's edge and the segments divide what there is.
+            max_width: Dimension::Percent(1.0),
             height: Dimension::Length(self.style.height(theme)),
             flex_direction: FlexDirection::Row,
             // No gap: the segments touch, and the hairline between them is drawn here.
@@ -487,11 +509,13 @@ impl<Msg: Clone> Widget<Msg> for SegmentedControl<Msg> {
             width,
             color,
         );
-        // The divisions are taken from the width the segments were **given**, not from the
-        // control's box divided by their number: the two agree today, and would stop
-        // agreeing the moment anything stretched the control — leaving hairlines that no
-        // longer fall where the segments meet.
-        let segment = self.style.segment_width(theme, &self.labels);
+        // The divisions are the control's **own box** divided by their number, which is
+        // exactly how the segments divide it. Taken from the natural segment width
+        // instead, the two agreed only while the control had all the room it wanted: on a
+        // phone, where milestone 335 caps it, the hairlines stayed at their roomy spacing
+        // and stopped falling where the segments meet — visible on a device before this
+        // line was changed, and the reason a fix should be looked at as well as measured.
+        let segment = bounds.width / count as f32;
         for i in 1..count {
             scene.fill_rect(
                 Rect::new(
@@ -645,12 +669,12 @@ mod tests {
             .count();
         assert_eq!(hairlines, 2);
         // And they fall where the segments actually meet.
+        // Asked of the **control**: a segment no longer carries a width of its own, it
+        // takes an equal share of whatever the control is granted (milestone 335). With
+        // room, that share is the natural width, which is what this reads.
         let control = three(0);
-        let seg_width = match Widget::<Msg>::children(&control)[0]
-            .style_themed(&theme)
-            .width
-        {
-            Dimension::Length(w) => w,
+        let seg_width = match Widget::<Msg>::style_themed(&control, &theme).width {
+            Dimension::Length(w) => w / 3.0,
             other => panic!("{other:?}"),
         };
         let xs: Vec<f32> = painted
@@ -671,6 +695,76 @@ mod tests {
             })
             .collect();
         assert_eq!(xs, vec![seg_width, seg_width * 2.0]);
+    }
+
+    /// The reference caps a segment at `maxWidth / count`, so the control never runs past
+    /// its parent. Ours sized every segment from the widest label and let the sum go where
+    /// it liked: on a phone the chart dashboard's four segments came to 584 px in a 363 px
+    /// row and the last one was drawn 221 px outside the card, which the overflow survey
+    /// of milestone 335 found on its first run.
+    #[test]
+    fn a_control_too_wide_for_its_room_divides_it_instead_of_leaving_it() {
+        use crate::interaction::WidgetId;
+        use crate::runtime::Runtime;
+
+        let theme = Theme::default();
+        let natural = match Widget::<Msg>::style_themed(&three(0), &theme).width {
+            Dimension::Length(w) => w,
+            other => panic!("{other:?}"),
+        };
+        let room = natural / 2.0;
+
+        let row = crate::Flex::row().child(three(0)).width(room);
+        let runtime = Runtime::default();
+        let mut layout = frus_layout::Layout::new();
+        let node = crate::ui::build_layout(&row, WidgetId::ROOT, &runtime, &theme, &mut layout);
+        layout.compute_filled(node, room, 60.0);
+
+        assert!(
+            layout.overflows(node).is_empty(),
+            "it fits: {:?}",
+            layout.overflows(node)
+        );
+        let rects: Vec<f32> = layout
+            .absolute_rects(node)
+            .iter()
+            .map(|(r, _)| r.width)
+            .collect();
+        // Taffy rounds a box to whole pixels, so "exactly the room" is to within one.
+        assert!(
+            (rects[1] - room).abs() <= 1.0,
+            "the control is {}, not the {room} on offer",
+            rects[1]
+        );
+        // Three segments, an equal share each.
+        for (i, w) in rects[2..5].iter().enumerate() {
+            assert!(
+                (w - room / 3.0).abs() <= 1.0,
+                "segment {i} is {w}, not a third of {room}"
+            );
+        }
+    }
+
+    /// And the hairlines follow. They used to be spaced by the natural segment width,
+    /// which is the same number only while the control has all the room it wants.
+    #[test]
+    fn the_hairlines_fall_where_the_segments_meet_however_narrow_it_is() {
+        let theme = Theme::default();
+        let control = three(0);
+        let bounds = Rect::new(0.0, 0.0, 120.0, 40.0);
+        let mut scene = Scene::new();
+        Widget::<Msg>::paint(&control, bounds, Status::default(), &theme, &mut scene);
+        let xs: Vec<f32> = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect {
+                    rect, border_width, ..
+                } if *border_width == 0.0 && rect.width == SEGMENTED_BORDER_WIDTH => Some(rect.x),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(xs, vec![40.0, 80.0], "thirds of the box it was given");
     }
 
     #[test]

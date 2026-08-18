@@ -1090,3 +1090,53 @@ fn navigating_from_the_overflow_menu_closes_it() {
     reduce(&mut app, Msg::ToggleTheme);
     assert!(app.actions_open, "a toggle does not dismiss the menu");
 }
+
+/// **Nothing in the application may draw outside its parent** — checked on every screen,
+/// at a phone's width and at a desktop's, because that is where the difference shows.
+///
+/// This is the instrument milestone 335 exists for. Its first run found a real one: the
+/// chart dashboard's segmented control was 584 px of segments in a 363 px row on a phone,
+/// running 221 px past the card. Nothing had ever said so.
+#[test]
+fn no_screen_draws_outside_itself() {
+    let theme = Theme::default();
+    let routes = [
+        Route::Home,
+        Route::Settings,
+        Route::Journal,
+        Route::Wizard,
+        Route::Grid,
+        Route::Charts,
+        Route::Data,
+        Route::Board,
+        Route::Tour,
+    ];
+    let mut worst: Vec<String> = Vec::new();
+    for route in routes {
+        let mut app = TodoApp::default();
+        add(&mut app, "short");
+        reduce(&mut app, Msg::Push(route));
+        for (label, w, h) in [("phone", 411.0, 869.0), ("desktop", 1200.0, 800.0)] {
+            let tree = build_view(&app, &theme, w, h);
+            let ui = build_ui(&tree, Size::new(w, h), &Runtime::default(), &theme);
+            let over = ui
+                .overflows()
+                .iter()
+                .map(|o| o.amount)
+                .fold(0.0_f32, f32::max);
+            // Settings at a phone's width is a **known** 5 px, measured in milestone 335
+            // and left on the roadmap: the settings card's margins make the tab panel
+            // 9 px wider than the content column, so it hangs out either side. Pinned so
+            // it cannot grow while it waits.
+            let allowed = if matches!(route, Route::Settings) && label == "phone" {
+                5.5
+            } else {
+                0.0
+            };
+            if over > allowed {
+                worst.push(format!("{route:?}/{label} overflows by {over:.1} px"));
+            }
+        }
+    }
+    assert!(worst.is_empty(), "{worst:#?}");
+}

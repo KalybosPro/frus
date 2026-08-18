@@ -340,6 +340,9 @@ pub struct App<A: Application> {
     runtime: Runtime,
     /// Live-reload watching (development, `FRUS_WATCH=1`): relaunch on recompilation.
     reload: Option<crate::reload::ReloadWatcher>,
+    /// Overflowing boxes already named on the console, so that a layout that does not
+    /// fit is reported once and not sixty times a second.
+    reported_overflows: std::cell::RefCell<std::collections::HashSet<u64>>,
     /// Is the runtime inspector on? Toggled by F12, in debug builds only.
     inspector: bool,
     /// A tree dump to print on the next inspected frame.
@@ -459,6 +462,7 @@ impl<A: Application> App<A> {
             last_size: None,
             runtime: Runtime::default(),
             reload: crate::reload::ReloadWatcher::new(),
+            reported_overflows: std::cell::RefCell::new(std::collections::HashSet::new()),
             inspector: false,
             inspector_dump: false,
             shift: false,
@@ -1763,6 +1767,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     };
                     (ui, scene)
                 };
+                self.report_overflows(&ui);
                 if let Some(renderer) = self.renderer.as_mut() {
                     match renderer.render(&scene) {
                         Ok(()) => {}
@@ -3180,6 +3185,49 @@ impl<A: Application> App<A> {
     /// column dimmed, a **drop indicator** at the target column's insertion edge, and a
     /// **lifted card** — shadow plus a `primary` border — following the pointer. No
     /// effect outside an engaged header drag.
+    /// Names, on the console, every box this frame whose children did not fit inside it.
+    ///
+    /// The reference treats an overflowing flex as an error condition, paints a striped
+    /// band along the offending edge and writes to the console; nothing here said anything
+    /// at all, which is how a task row's delete button came to be laid out past the window
+    /// and stayed there for three milestones — drawn nowhere, hittable nowhere. Half of
+    /// that is now here: the words, once per site, with the two ways out the reference
+    /// suggests. The striped band is not.
+    ///
+    /// Once per site, because a layout that does not fit does not fit on every frame, and
+    /// sixty lines a second is the same as silence.
+    fn report_overflows(&self, ui: &Ui<A::Message>) {
+        for o in ui.overflows() {
+            // The site: a box, an edge, and the amount rounded to the pixel. Enough to
+            // stay quiet while a window is resized past the same defect, and to speak up
+            // when the defect changes.
+            let mut key = std::collections::hash_map::DefaultHasher::new();
+            use std::hash::{Hash, Hasher};
+            (
+                o.rect.width.to_bits(),
+                o.rect.height.to_bits(),
+                o.side as u8,
+                o.amount.round() as i32,
+            )
+                .hash(&mut key);
+            if !self.reported_overflows.borrow_mut().insert(key.finish()) {
+                continue;
+            }
+            let side = match o.side {
+                frus_widgets::Side::Left => "left",
+                frus_widgets::Side::Right => "right",
+                frus_widgets::Side::Top => "top",
+                frus_widgets::Side::Bottom => "bottom",
+            };
+            log::warn!(
+                "a box {:.0}x{:.0} is overflowed by {:.0} px on the {side}: its children                  do not fit inside it, and what runs past the edge is drawn outside its                  parent — invisible where something clips it, and untappable where it                  leaves the window. Give the child that should give way an `Expanded`,                  or put the content in a `Scroll`.",
+                o.rect.width,
+                o.rect.height,
+                o.amount,
+            );
+        }
+    }
+
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {
         let Some(Drag::Reorder {
             id,

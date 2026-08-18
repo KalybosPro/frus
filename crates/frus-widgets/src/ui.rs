@@ -5,7 +5,7 @@
 use std::hash::{Hash, Hasher};
 
 use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
-use frus_layout::{Layout, NodeId};
+use frus_layout::{Layout, NodeId, Overflowing, Side};
 
 use crate::barrier::Barrier;
 use crate::dismiss::{DismissPhase, Dismissable};
@@ -305,10 +305,22 @@ pub struct Ui<Msg> {
     /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
     /// shell maps it onto AccessKit.
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
+    /// Boxes whose children ran outside them, with the edge and the amount.
+    overflows: Vec<Overflowing>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
     /// The scene to hand to the renderer.
+    /// Boxes in this frame whose children did not fit inside them.
+    ///
+    /// Empty is the normal answer. A non-empty one means content is being drawn outside
+    /// its parent — invisible where it is clipped, unhittable where it leaves the window,
+    /// and silent either way until something asks. That silence is what let a task row's
+    /// delete button sit off-screen through three milestones.
+    pub fn overflows(&self) -> &[Overflowing] {
+        &self.overflows
+    }
+
     pub fn scene(&self) -> &Scene {
         &self.scene
     }
@@ -885,6 +897,12 @@ struct Builder<'a, Msg> {
     dismissables: Vec<Dismissable>,
     /// Accessibility nodes collected during the walk (paint order).
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
+    /// Boxes whose children did not fit, screen-positioned, from every sub-root walked
+    /// this frame.
+    overflows: std::cell::RefCell<Vec<Overflowing>>,
+    /// The same, still in their sub-root's own coordinates, waiting for the walk to reach
+    /// that sub-root and say where on screen it ended up.
+    pending_overflows: std::cell::RefCell<std::collections::HashMap<WidgetId, Vec<Overflowing>>>,
 }
 
 impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
@@ -897,13 +915,59 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// and the margins flip — without touching the widgets. The text itself is drawn
     /// normally inside its moved box (the *internal* bidi is handled by cosmic-text).
     fn cached_rects(&self, key: WidgetId, root: &dyn Widget<Msg>, c: Constraints) -> Vec<Rect> {
-        let mut rects =
+        let (mut rects, overflows) =
             self.runtime
                 .layout_cache
                 .borrow_mut()
                 .rects(key, root, self.runtime, &self.theme, c);
         self.mirror(&mut rects);
+        self.record_overflows(key, &rects, overflows);
         rects
+    }
+
+    /// Files this sub-root's overflowing boxes under its identity, mirrored with
+    /// everything else in RTL — where an edge changes name as well as position, since the
+    /// layout is the mirror image and "ran past the right" becomes "ran past the left".
+    ///
+    /// They wait here rather than going straight out because a sub-root's rectangles are
+    /// in its **own** coordinates: a scrollable's content, a page, a list item and a
+    /// stack's layer each get their own taffy pass, and where that pass lands on screen is
+    /// only known when the walk reaches it. [`Self::claim_overflows`] is the other half.
+    fn record_overflows(&self, key: WidgetId, mirrored: &[Rect], overflows: Vec<Overflowing>) {
+        if overflows.is_empty() {
+            return;
+        }
+        let rtl = self.rtl();
+        let root = mirrored.first().copied();
+        let list: Vec<Overflowing> = overflows
+            .into_iter()
+            .map(|mut o| {
+                if let (true, Some(root)) = (rtl, root) {
+                    o.rect.x = root.x + (root.width - (o.rect.x - root.x) - o.rect.width);
+                    o.side = match o.side {
+                        Side::Left => Side::Right,
+                        Side::Right => Side::Left,
+                        other => other,
+                    };
+                }
+                o
+            })
+            .collect();
+        self.pending_overflows.borrow_mut().insert(key, list);
+    }
+
+    /// The walk has reached sub-root `id` and knows where it sits: its overflowing boxes
+    /// become screen rectangles.
+    fn claim_overflows(&self, id: WidgetId, translation: (f32, f32)) {
+        let taken = self.pending_overflows.borrow_mut().remove(&id);
+        if let Some(list) = taken {
+            self.overflows
+                .borrow_mut()
+                .extend(list.into_iter().map(|o| Overflowing {
+                    rect: o.rect.translate(translation.0, translation.1),
+                    ..o
+                }));
+        }
     }
 
     /// The layout direction **in force here** — read from the ambient theme rather than
@@ -1259,6 +1323,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects: &[Rect],
         index: &mut usize,
     ) {
+        self.claim_overflows(id, translation);
         // A **refresh area**: the subtree is walked with this widget named as the host, so
         // every scrollable inside records where to send the movement its physics refuses at
         // the top edge. The indicator is then painted **over** the subtree — painting it in
@@ -2697,7 +2762,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
     theme: &'a Theme,
     inspect: bool,
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
-    let mut rects = runtime.layout_cache.borrow_mut().rects(
+    let (mut rects, overflows) = runtime.layout_cache.borrow_mut().rects(
         WidgetId::ROOT,
         root,
         runtime,
@@ -2733,9 +2798,12 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         refreshes: Vec::new(),
         dismissables: Vec::new(),
         semantics: Vec::new(),
+        overflows: std::cell::RefCell::new(Vec::new()),
+        pending_overflows: std::cell::RefCell::new(std::collections::HashMap::new()),
     };
     // The root is mirrored in RTL (like every layout root).
     builder.mirror(&mut rects);
+    builder.record_overflows(WidgetId::ROOT, &rects, overflows);
     let mut index = 0;
     builder.walk(
         root,
@@ -2782,6 +2850,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         dismissables: builder.dismissables,
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
+        overflows: builder.overflows.into_inner(),
     };
     (ui, builder.inspector)
 }

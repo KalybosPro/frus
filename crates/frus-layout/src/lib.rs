@@ -11,7 +11,7 @@ mod style;
 mod tree;
 
 pub use style::{Align, Dimension, FlexDirection, Justify, Style};
-pub use tree::{Layout, MeasureFn, NodeId};
+pub use tree::{Layout, MeasureFn, NodeId, Overflowing, Side};
 
 // Re-export of the core geometry types, as a convenience for callers.
 pub use frus_core::{Rect, Size};

@@ -8,12 +8,32 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 334 so far, each documenting the objective, the alternatives
+> record — one per step, 335 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A box that does not fit now says so** (J335). `frus_layout::Layout::overflows` and
+  `Ui::overflows()` name every box whose children ran past it, with the edge and the amount;
+  the shell reports each site on the console once. Three milestones (327, 333, 334) were one
+  bug that took a device report to find, because nothing anywhere said a row did not fit.
+  Content larger than the viewport that scrolls it never reaches the walk — scrollables,
+  stacks, page views and fitters are laid out as leaves with their content computed
+  separately — so no exception list was needed.
+
+- **`no_screen_draws_outside_itself`** (J335), which surveys every demo route at a phone's
+  width and a desktop's. Sixteen of eighteen were clean on the first run.
+
+### Fixed
+
+- **A segmented control ran past its parent** (J335), found by the survey above: four
+  segments came to 584 px in a 363 px row on a phone and the last was drawn outside the
+  card. The reference gives every segment the same width **capped at an equal share of the
+  room**; ours had the first half and not the second. The control now stops at its parent's
+  edge and the segments divide what there is, with the labels ellipsised. With room the
+  share is the natural width, so nothing moved — no golden changed.
 
 - **`Expanded`, the child that takes what is left** (J334). The reference's, and the fix for a
   device finding three milestones old: a long task label pushed the row's delete button off the

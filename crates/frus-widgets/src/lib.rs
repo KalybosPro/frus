@@ -290,4 +290,4 @@ pub use frus_core::{
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.
 pub use frus_core::Status as AnimationStatus;
-pub use frus_layout::{Align, Justify};
+pub use frus_layout::{Align, Justify, Overflowing, Side};

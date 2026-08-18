@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use frus_core::{Rect, Size};
+use frus_layout::Overflowing;
 
 use crate::interaction::WidgetId;
 use crate::runtime::Runtime;
@@ -78,6 +79,10 @@ struct Entry {
     signature: u64,
     constraints: Constraints,
     rects: Vec<Rect>,
+    /// Boxes in this root whose children did not fit. Cached alongside the rectangles
+    /// because it is computed from the same taffy pass and would otherwise need a
+    /// second one on every cache hit.
+    overflows: Vec<Overflowing>,
 }
 
 /// The relayout cache, retained in the [`crate::Runtime`] from one frame to the next.
@@ -104,26 +109,27 @@ impl LayoutCache {
         runtime: &Runtime,
         theme: &crate::theme::Theme,
         c: Constraints,
-    ) -> Vec<Rect> {
+    ) -> (Vec<Rect>, Vec<Overflowing>) {
         self.touched.insert(key);
         let signature = layout_signature(root, key, runtime, theme);
         if let Some(entry) = self.entries.get(&key) {
             if entry.signature == signature && entry.constraints == c {
                 self.hits += 1;
-                return entry.rects.clone();
+                return (entry.rects.clone(), entry.overflows.clone());
             }
         }
         self.misses += 1;
-        let rects = compute_rects(root, key, runtime, theme, c);
+        let (rects, overflows) = compute_rects(root, key, runtime, theme, c);
         self.entries.insert(
             key,
             Entry {
                 signature,
                 constraints: c,
                 rects: rects.clone(),
+                overflows: overflows.clone(),
             },
         );
-        rects
+        (rects, overflows)
     }
 
     /// To be called at the end of a frame: forgets untouched roots (vanished
@@ -151,7 +157,7 @@ fn compute_rects<Msg>(
     runtime: &Runtime,
     theme: &crate::theme::Theme,
     c: Constraints,
-) -> Vec<Rect> {
+) -> (Vec<Rect>, Vec<Overflowing>) {
     let mut layout = frus_layout::Layout::new();
     let node = build_layout(root, key, runtime, theme, &mut layout);
     // `compute_scroll(_, _, false, false)` is equivalent to `compute` (both axes
@@ -161,11 +167,12 @@ fn compute_rects<Msg>(
     } else {
         layout.compute_scroll(node, c.w, c.h, c.free_x, c.free_y);
     }
-    layout
+    let rects = layout
         .absolute_rects(node)
         .into_iter()
         .map(|(rect, _)| rect)
-        .collect()
+        .collect();
+    (rects, layout.overflows(node))
 }
 
 /// A 64-bit fingerprint of a subtree's **layout**: styles + structure, following
