@@ -67,6 +67,7 @@ mod kbd;
 mod keyed;
 mod layoutbuilder;
 mod list;
+mod listtile;
 mod media;
 mod menu;
 mod navbar;
@@ -78,6 +79,7 @@ mod pageview;
 mod pagination;
 mod paintcache;
 mod physics;
+mod placeholder;
 mod popover;
 mod portal;
 mod progressbar;
@@ -171,7 +173,7 @@ pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;
-pub use dsl::{button, expanded, keyed, spacer, text};
+pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::Expanded;
 pub use fittedbox::FittedBox;
 pub use flex::{Flex, Wrap};
@@ -194,6 +196,11 @@ pub use kbd::Kbd;
 pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
 pub use list::{List, VirtualList};
+pub use listtile::{
+    ListTile, LIST_TILE_DENSE_HEIGHTS, LIST_TILE_HEIGHTS, LIST_TILE_MIN_LEADING_WIDTH,
+    LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
+    LIST_TILE_TITLE_GAP,
+};
 pub use media::{Edges, MediaQuery};
 pub use menu::Menu;
 pub use navbar::NavBar;
@@ -210,6 +217,7 @@ pub use physics::{
     page_of, page_target, Ballistic, ScrollMetrics, ScrollPhysics, MAX_FLING_VELOCITY,
     MIN_FLING_VELOCITY,
 };
+pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
 pub use popover::Popover;
 pub use portal::{Placement, Portal};
 pub use progressbar::ProgressBar;

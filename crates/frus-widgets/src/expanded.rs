@@ -45,6 +45,9 @@ use crate::widget::Widget;
 pub struct Expanded<Msg> {
     inner: Box<dyn Widget<Msg>>,
     flex: f32,
+    /// A **loose** fit: the child may take less than its share. The reference calls this
+    /// `Flexible`; `Expanded` is the tight one, and the difference is one line here.
+    loose: bool,
 }
 
 impl<Msg> Expanded<Msg> {
@@ -53,7 +56,24 @@ impl<Msg> Expanded<Msg> {
         Self {
             inner: Box::new(inner),
             flex: 1.0,
+            loose: false,
         }
+    }
+
+    /// A **loose** fit: the child takes *at most* its share, and less if that is all it
+    /// wants — the reference's `Flexible`, where [`Expanded`] is `Flexible(fit: tight)`.
+    ///
+    /// The difference is the basis: tight starts the child at nothing and grows it into
+    /// its whole share, loose starts it at its content and only lets it *give way* when
+    /// the share is smaller than that.
+    ///
+    /// One caveat the reference does not have: flexbox shares a deficit in proportion to
+    /// basis, so a fixed sibling gives up its share too unless it says
+    /// [`Container::no_shrink`](crate::Container::no_shrink). The reference's inflexible
+    /// children are never squeezed at all, so it gets that for nothing.
+    pub fn loose(mut self) -> Self {
+        self.loose = true;
+        self
     }
 
     /// The share of the spare room, when several children expand: two children at
@@ -66,8 +86,13 @@ impl<Msg> Expanded<Msg> {
     /// The one thing this wrapper changes: the flex item its child is.
     fn restyle(&self, base: Style) -> Style {
         Style {
-            flex_grow: self.flex,
-            flex_basis: Dimension::Length(0.0),
+            flex_grow: if self.loose { 0.0 } else { self.flex },
+            flex_shrink: self.flex,
+            flex_basis: if self.loose {
+                Dimension::Auto
+            } else {
+                Dimension::Length(0.0)
+            },
             // The floor that makes `flex: 1` alone a no-op. `Auto` here means *the
             // content*, so the child would grow to its share and then refuse to go below
             // its natural width — which is the whole of the bug this widget exists for.
@@ -197,6 +222,42 @@ mod tests {
             .child(Container::<()>::new().width(40.0).height(40.0));
         let widths = widths(row, 200.0);
         assert_eq!(widths[0], 160.0, "the expanded child fills, not 100");
+    }
+
+    /// The **loose** fit — the reference's `Flexible`. It never grows a child into room
+    /// it did not ask for; it only lets one give way when there is not enough.
+    #[test]
+    fn a_loose_child_gives_way_but_does_not_fill() {
+        // Room to spare: the tight one fills it, the loose one keeps its size.
+        let tight = Flex::row()
+            .child(Expanded::new(
+                Container::<()>::new().width(40.0).height(20.0),
+            ))
+            .child(Container::<()>::new().width(40.0).height(20.0));
+        assert_eq!(widths(tight, 200.0)[0], 160.0);
+
+        let loose = Flex::row()
+            .child(Expanded::new(Container::<()>::new().width(40.0).height(20.0)).loose())
+            .child(Container::<()>::new().width(40.0).height(20.0));
+        assert_eq!(widths(loose, 200.0)[0], 40.0, "at most its share, not more");
+
+        // Not enough room: it gives way. The sibling has to say `no_shrink` for the
+        // whole deficit to land here — flexbox shares a deficit in proportion to basis,
+        // and a wrapper cannot speak for its siblings. The reference gets this for free
+        // because its inflexible children are never squeezed at all; ours is one call.
+        let squeezed = Flex::row()
+            .child(
+                Expanded::new(
+                    Text::new("a label far longer than this row")
+                        .size(18.0)
+                        .ellipsis(),
+                )
+                .loose(),
+            )
+            .child(Container::<()>::new().width(40.0).height(20.0).no_shrink());
+        let widths = widths(squeezed, 200.0);
+        assert_eq!(widths[1], 40.0, "the fixed sibling keeps its width");
+        assert_eq!(widths[0], 160.0, "and the loose one takes what is left");
     }
 
     /// It is a wrapper, so the things a wrapper must not eat: the child's identity, and

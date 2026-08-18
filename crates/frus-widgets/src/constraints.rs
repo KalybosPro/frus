@@ -153,6 +153,18 @@ impl<Msg> ConstrainedBox<Msg> {
         }
     }
 
+    /// The same, for a child that is **already boxed** — what a slot holds once the
+    /// caller's type has been erased.
+    pub fn new_boxed(child: Box<dyn Widget<Msg>>) -> Self {
+        Self {
+            min_width: Dimension::Auto,
+            max_width: Dimension::Auto,
+            min_height: Dimension::Auto,
+            max_height: Dimension::Auto,
+            children: vec![child],
+        }
+    }
+
     /// A box whose floor **is** its ceiling on both axes: exactly `width`×`height`.
     pub fn tight(width: f32, height: f32, child: impl Widget<Msg> + 'static) -> Self {
         Self::new(child)

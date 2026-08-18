@@ -8,12 +8,33 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 335 so far, each documenting the objective, the alternatives
+> record — one per step, 336 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`ListTile`** (J336). The most reached-for row in the reference's catalogue and this
+  framework's largest single gap: leading, title, subtitle, trailing, with the reference's
+  Material 3 measurements (16 / 24 padding, a 16 px gap either side of the text, heights of
+  56 / 72 / 88 by line count and 48 / 64 / 76 dense) and its text roles. The text column is
+  an `Expanded`, so a long title is cut and the trailing chevron keeps its size; a
+  three-line tile's subtitle wraps instead, which is what the extra room is for. Composed
+  under the ambient theme rather than at construction, so a tile inside a `Themed` subtree
+  comes out in that subtree's palette.
+
+- **`Flexible`** (J336), as `Expanded::loose()` and the `flexible(child)` shorthand: at
+  most its share, and less if it wants less. Flexbox shares a deficit in proportion to
+  basis, so a fixed sibling still needs `no_shrink()` for the whole of it to land on the
+  flexible child — a caveat the reference does not have, documented rather than hidden.
+
+- **`Placeholder`** (J336), with the reference's blue grey, 2 px stroke and 400 px
+  fallback, all overridable. It grows into the room on offer rather than insisting on its
+  fallback.
+
+- **`ConstrainedBox::new_boxed`** (J336), for a child that is already erased — what every
+  widget slot holds.
 
 - **A box that does not fit now says so** (J335). `frus_layout::Layout::overflows` and
   `Ui::overflows()` name every box whose children ran past it, with the edge and the amount;

@@ -27,6 +27,12 @@ pub fn expanded<Msg>(child: impl Widget<Msg> + 'static) -> Expanded<Msg> {
     Expanded::new(child)
 }
 
+/// Shorthand: a child that takes **at most** the room its siblings left, and less if it
+/// wants less. `flexible(child)` = `Expanded::new(child).loose()`.
+pub fn flexible<Msg>(child: impl Widget<Msg> + 'static) -> Expanded<Msg> {
+    Expanded::new(child).loose()
+}
+
 /// Shorthand: a button with its click message.
 /// `button("Ajouter", Msg::Add)` = `Button::new("Ajouter").on_press(Msg::Add)`.
 pub fn button<Msg>(label: impl Into<String>, on_press: Msg) -> Button<Msg> {

@@ -1,0 +1,477 @@
+//! [`ListTile`]: a row of a list — something in front, one or two lines of text, and
+//! something behind.
+//!
+//! The most reached-for row in the reference's catalogue, and the shape behind a drawer
+//! entry, a settings line, a contact, a menu item. It was the largest single gap in this
+//! framework's coverage of that catalogue.
+//!
+//! ```ignore
+//! ListTile::new()
+//!     .leading(Icon::new(IconName::Star))
+//!     .title("Starred")
+//!     .subtitle("Everything you kept")
+//!     .trailing(Icon::new(IconName::ChevronRight))
+//!     .on_tap(Msg::OpenStarred)
+//! ```
+//!
+//! The measurements are the reference's Material 3 defaults: 16 px in front, 24 behind, a
+//! 16 px gap either side of the text, and a height of **56** for one line, **72** for two
+//! and **88** for three — 48 / 64 / 76 when dense. Every one of them is overridable, and
+//! each of the four slots takes a widget when a caller wants something the tile would not
+//! have made.
+
+use std::cell::{OnceCell, RefCell};
+
+use frus_core::{Color, Insets, Rect, Scene, TextStyle};
+use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
+
+use crate::constraints::ConstrainedBox;
+use crate::disabled::disabled_content;
+use crate::expanded::Expanded;
+use crate::flex::Flex;
+use crate::interaction::Status;
+use crate::text::Text;
+use crate::theme::Theme;
+use crate::widget::Widget;
+
+/// Room in front of the leading slot — the start of the reference's
+/// `EdgeInsetsDirectional.only(start: 16, end: 24)`.
+pub const LIST_TILE_PADDING_START: f32 = 16.0;
+/// Room behind the trailing slot. See [`LIST_TILE_PADDING_START`].
+pub const LIST_TILE_PADDING_END: f32 = 24.0;
+/// The gap between the leading slot and the text, and between the text and the trailing
+/// slot (`horizontalTitleGap`).
+pub const LIST_TILE_TITLE_GAP: f32 = 16.0;
+/// The narrowest the leading slot may be, so that a column of tiles lines its text up
+/// whatever each row put in front of it (`minLeadingWidth`).
+pub const LIST_TILE_MIN_LEADING_WIDTH: f32 = 24.0;
+/// The least room above and below the text (`minVerticalPadding`).
+pub const LIST_TILE_MIN_VERTICAL_PADDING: f32 = 8.0;
+/// Heights by line count — one, two, three.
+pub const LIST_TILE_HEIGHTS: [f32; 3] = [56.0, 72.0, 88.0];
+/// The same, dense. See [`LIST_TILE_HEIGHTS`].
+pub const LIST_TILE_DENSE_HEIGHTS: [f32; 3] = [48.0, 64.0, 76.0];
+
+/// A text slot: a string the tile styles itself, or a widget the caller styled.
+enum Slot<Msg> {
+    Text(String),
+    Child(Box<dyn Widget<Msg>>),
+}
+
+/// A row of a list: leading, title, subtitle, trailing.
+///
+/// The reference's Material 3 measurements — 16 px in front, 24 behind, a 16 px gap
+/// either side of the text, heights of 56 / 72 / 88 by line count and 48 / 64 / 76 dense —
+/// and every one of them replaceable, as is each of the four slots.
+pub struct ListTile<Msg> {
+    leading: RefCell<Option<Box<dyn Widget<Msg>>>>,
+    trailing: RefCell<Option<Box<dyn Widget<Msg>>>>,
+    title: RefCell<Option<Slot<Msg>>>,
+    subtitle: RefCell<Option<Slot<Msg>>>,
+    has_subtitle: bool,
+    three_line: bool,
+    dense: bool,
+    selected: bool,
+    enabled: bool,
+    on_tap: Option<Msg>,
+    padding: Option<Insets>,
+    title_gap: Option<f32>,
+    min_leading_width: Option<f32>,
+    min_height: Option<f32>,
+    title_style: Option<TextStyle>,
+    subtitle_style: Option<TextStyle>,
+    tile_color: Option<Color>,
+    selected_color: Option<Color>,
+    /// The assembled row, as the one-element slice [`Widget::children`] hands back.
+    built: OnceCell<Vec<Box<dyn Widget<Msg>>>>,
+}
+
+impl<Msg> Default for ListTile<Msg> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Msg> ListTile<Msg> {
+    /// An empty tile. Give it at least a title.
+    pub fn new() -> Self {
+        Self {
+            leading: RefCell::new(None),
+            trailing: RefCell::new(None),
+            title: RefCell::new(None),
+            subtitle: RefCell::new(None),
+            has_subtitle: false,
+            three_line: false,
+            dense: false,
+            selected: false,
+            enabled: true,
+            on_tap: None,
+            padding: None,
+            title_gap: None,
+            min_leading_width: None,
+            min_height: None,
+            title_style: None,
+            subtitle_style: None,
+            tile_color: None,
+            selected_color: None,
+            built: OnceCell::new(),
+        }
+    }
+
+    /// What goes in front: an icon, an avatar, a checkbox.
+    pub fn leading(self, leading: impl Widget<Msg> + 'static) -> Self {
+        *self.leading.borrow_mut() = Some(Box::new(leading));
+        self
+    }
+
+    /// What goes behind: a chevron, a switch, a timestamp.
+    pub fn trailing(self, trailing: impl Widget<Msg> + 'static) -> Self {
+        *self.trailing.borrow_mut() = Some(Box::new(trailing));
+        self
+    }
+
+    /// The first line, styled by the tile (`body_large` on `on_surface`).
+    pub fn title(self, title: impl Into<String>) -> Self {
+        *self.title.borrow_mut() = Some(Slot::Text(title.into()));
+        self
+    }
+
+    /// The first line as a **widget**, for a caller who wants something the tile would
+    /// not have made — a rich span, a row of chips.
+    pub fn title_child(self, title: impl Widget<Msg> + 'static) -> Self {
+        *self.title.borrow_mut() = Some(Slot::Child(Box::new(title)));
+        self
+    }
+
+    /// The second line, styled by the tile (`body_medium` on `on_surface_variant`).
+    /// Its presence is what makes the tile a two-line one.
+    pub fn subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        *self.subtitle.borrow_mut() = Some(Slot::Text(subtitle.into()));
+        self.has_subtitle = true;
+        self
+    }
+
+    /// The second line as a **widget**. See [`Self::title_child`].
+    pub fn subtitle_child(mut self, subtitle: impl Widget<Msg> + 'static) -> Self {
+        *self.subtitle.borrow_mut() = Some(Slot::Child(Box::new(subtitle)));
+        self.has_subtitle = true;
+        self
+    }
+
+    /// Room for three lines rather than two, for a subtitle that wraps.
+    pub fn three_line(mut self) -> Self {
+        self.three_line = true;
+        self
+    }
+
+    /// The compact height, for a dense list.
+    pub fn dense(mut self) -> Self {
+        self.dense = true;
+        self
+    }
+
+    /// Marks the tile as the chosen one: its text and its two slots take the primary
+    /// colour.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    /// Available or not. A disabled tile flattens and stops answering.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// The message a tap sends.
+    pub fn on_tap(mut self, msg: Msg) -> Self {
+        self.on_tap = Some(msg);
+        self
+    }
+
+    /// Room around the content, replacing the 16 / 24 default.
+    pub fn padding(mut self, padding: Insets) -> Self {
+        self.padding = Some(padding);
+        self
+    }
+
+    /// The gap either side of the text.
+    pub fn title_gap(mut self, gap: f32) -> Self {
+        self.title_gap = Some(gap);
+        self
+    }
+
+    /// The narrowest the leading slot may be.
+    pub fn min_leading_width(mut self, width: f32) -> Self {
+        self.min_leading_width = Some(width);
+        self
+    }
+
+    /// A height of the caller's choosing, replacing the one the line count implies.
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.min_height = Some(height);
+        self
+    }
+
+    /// The title's text style.
+    pub fn title_style(mut self, style: TextStyle) -> Self {
+        self.title_style = Some(style);
+        self
+    }
+
+    /// The subtitle's text style.
+    pub fn subtitle_style(mut self, style: TextStyle) -> Self {
+        self.subtitle_style = Some(style);
+        self
+    }
+
+    /// The tile's own background. Transparent by default, as the reference has it: a
+    /// tile takes the colour of whatever it is sitting on.
+    pub fn tile_color(mut self, color: Color) -> Self {
+        self.tile_color = Some(color);
+        self
+    }
+
+    /// The colour the text and the two slots take when the tile is the chosen one.
+    pub fn selected_color(mut self, color: Color) -> Self {
+        self.selected_color = Some(color);
+        self
+    }
+
+    /// The height this tile asks for: the reference's, by line count and density, unless
+    /// the caller named one.
+    pub fn height(&self) -> f32 {
+        if let Some(height) = self.min_height {
+            return height;
+        }
+        let row = if self.three_line {
+            2
+        } else if self.has_subtitle {
+            1
+        } else {
+            0
+        };
+        if self.dense {
+            LIST_TILE_DENSE_HEIGHTS[row]
+        } else {
+            LIST_TILE_HEIGHTS[row]
+        }
+    }
+
+    /// The colour a line of text resolves to. Disabled wins over chosen, as everywhere
+    /// else: a tile that cannot be picked does not advertise that it was.
+    fn content_color(&self, theme: &Theme, subtitle: bool) -> Color {
+        if !self.enabled {
+            disabled_content(theme)
+        } else if self.selected {
+            self.selected_color.unwrap_or(theme.primary)
+        } else if subtitle {
+            theme.scheme.on_surface_variant
+        } else {
+            theme.scheme.on_surface
+        }
+    }
+}
+
+impl<Msg: Clone + 'static> ListTile<Msg> {
+    /// Assembles the row, once, under the theme in force where the tile sits.
+    ///
+    /// Not at construction time: a theme reaches text styles and colours, and a tile
+    /// built under `Theme::default()` inside a [`crate::Themed`] subtree would come out
+    /// in the wrong palette.
+    fn row(&self, theme: &Theme) -> &[Box<dyn Widget<Msg>>] {
+        self.built.get_or_init(|| {
+            let gap = self.title_gap.unwrap_or(LIST_TILE_TITLE_GAP);
+            let mut row = Flex::row().align(Align::Center).gap(gap);
+
+            if let Some(leading) = self.leading.borrow_mut().take() {
+                let min = self
+                    .min_leading_width
+                    .unwrap_or(LIST_TILE_MIN_LEADING_WIDTH);
+                row = row.child(ConstrainedBox::new_boxed(leading).min_width(min));
+            }
+
+            // The text column is the one part that gives way when the row is narrow:
+            // the slots either side keep their size and the lines are cut.
+            let mut column = Flex::column().align(Align::Start).justify(Justify::Center);
+            for (slot, subtitle) in [(&self.title, false), (&self.subtitle, true)] {
+                let taken = slot.borrow_mut().take();
+                match taken {
+                    Some(Slot::Child(child)) => column = column.child_boxed(child),
+                    Some(Slot::Text(content)) => {
+                        let base = if subtitle {
+                            self.subtitle_style.unwrap_or(theme.text.body_medium)
+                        } else {
+                            self.title_style.unwrap_or(theme.text.body_large)
+                        };
+                        let mut text =
+                            Text::styled(content, base).color(self.content_color(theme, subtitle));
+                        // A tile is a fixed height, so a line that wrapped would run out
+                        // of the bottom of it — except the subtitle of a three-line tile,
+                        // which is what the extra room is for.
+                        if subtitle && self.three_line {
+                            text = text.wrap();
+                        } else {
+                            text = text.ellipsis();
+                        }
+                        column = column.child(text);
+                    }
+                    None => {}
+                }
+            }
+            row = row.child(Expanded::new(column));
+
+            if let Some(trailing) = self.trailing.borrow_mut().take() {
+                row = row.child_boxed(trailing);
+            }
+            vec![Box::new(row) as Box<dyn Widget<Msg>>]
+        })
+    }
+}
+
+impl<Msg: Clone + 'static> Widget<Msg> for ListTile<Msg> {
+    fn style(&self) -> Style {
+        Widget::<Msg>::style_themed(self, &Theme::default())
+    }
+
+    fn style_themed(&self, _theme: &Theme) -> Style {
+        Style {
+            width: Dimension::Percent(1.0),
+            min_height: Dimension::Length(self.height()),
+            flex_direction: FlexDirection::Row,
+            align: Align::Center,
+            padding: self.padding.unwrap_or(Insets::new(
+                LIST_TILE_MIN_VERTICAL_PADDING,
+                LIST_TILE_PADDING_END,
+                LIST_TILE_MIN_VERTICAL_PADDING,
+                LIST_TILE_PADDING_START,
+            )),
+            ..Default::default()
+        }
+    }
+
+    fn build_themed(&self, theme: &Theme) {
+        self.row(theme);
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        self.built.get().map(|v| &v[..]).unwrap_or(&[])
+    }
+
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // Transparent by default, as the reference has it, so a tile takes the colour of
+        // whatever it sits on; a state layer over that when it can be tapped.
+        let base = self.tile_color.unwrap_or(Color::TRANSPARENT);
+        let color = if self.enabled && self.on_tap.is_some() {
+            theme.state_layer(base, theme.scheme.on_surface, &status)
+        } else {
+            base
+        };
+        if color.a > 0.0 {
+            scene.draw_rect(
+                bounds,
+                color.fade(status.opacity),
+                frus_core::BorderRadius::ZERO,
+                0.0,
+                Color::TRANSPARENT,
+            );
+        }
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        self.enabled.then(|| self.on_tap.clone()).flatten()
+    }
+
+    fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
+        (self.enabled && self.on_tap.is_some()).then(|| crate::ink::InkStyle::of(theme))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Tapped,
+    }
+
+    /// The reference's heights, by line count and density.
+    #[test]
+    fn the_height_follows_the_line_count() {
+        let one: ListTile<Msg> = ListTile::new().title("a");
+        assert_eq!(one.height(), 56.0);
+        let two: ListTile<Msg> = ListTile::new().title("a").subtitle("b");
+        assert_eq!(two.height(), 72.0);
+        let three: ListTile<Msg> = ListTile::new().title("a").subtitle("b").three_line();
+        assert_eq!(three.height(), 88.0);
+        let dense: ListTile<Msg> = ListTile::new().title("a").dense();
+        assert_eq!(dense.height(), 48.0);
+        let asked: ListTile<Msg> = ListTile::new().title("a").min_height(100.0);
+        assert_eq!(asked.height(), 100.0);
+    }
+
+    /// The four slots are assembled in order, and only those that were given.
+    #[test]
+    fn it_assembles_the_slots_it_was_given() {
+        let theme = Theme::default();
+        let bare: ListTile<Msg> = ListTile::new().title("only a title");
+        Widget::<Msg>::build_themed(&bare, &theme);
+        let row = &Widget::<Msg>::children(&bare)[0];
+        assert_eq!(row.children().len(), 1, "just the text column");
+
+        let full: ListTile<Msg> = ListTile::new()
+            .leading(crate::Icon::new(crate::IconName::Star))
+            .title("title")
+            .subtitle("subtitle")
+            .trailing(crate::Icon::new(crate::IconName::ChevronRight));
+        Widget::<Msg>::build_themed(&full, &theme);
+        let row = &Widget::<Msg>::children(&full)[0];
+        assert_eq!(row.children().len(), 3, "leading, text, trailing");
+    }
+
+    /// A disabled tile does not answer, and says so in its colour before it is asked.
+    #[test]
+    fn a_disabled_tile_is_inert_and_flattened() {
+        let theme = Theme::default();
+        let tile: ListTile<Msg> = ListTile::new()
+            .title("x")
+            .on_tap(Msg::Tapped)
+            .enabled(false);
+        assert_eq!(Widget::<Msg>::on_click(&tile), None);
+        assert_eq!(tile.content_color(&theme, false), disabled_content(&theme));
+        assert!(Widget::<Msg>::ink(&tile, &theme).is_none());
+    }
+
+    /// Chosen wins over the ordinary roles, and disabled wins over chosen: a tile that
+    /// cannot be picked does not advertise that it was.
+    #[test]
+    fn selected_takes_the_primary_and_disabled_takes_it_back() {
+        let theme = Theme::default();
+        let chosen: ListTile<Msg> = ListTile::new().title("x").selected(true);
+        assert_eq!(chosen.content_color(&theme, false), theme.primary);
+        assert_eq!(chosen.content_color(&theme, true), theme.primary);
+
+        let both: ListTile<Msg> = ListTile::new().title("x").selected(true).enabled(false);
+        assert_eq!(both.content_color(&theme, false), disabled_content(&theme));
+    }
+
+    /// Untouched, the two lines take the reference's roles: `on_surface` for the title,
+    /// `on_surface_variant` for the one below it.
+    #[test]
+    fn the_two_lines_take_their_own_roles() {
+        let theme = Theme::default();
+        let tile: ListTile<Msg> = ListTile::new().title("x").subtitle("y");
+        assert_eq!(tile.content_color(&theme, false), theme.scheme.on_surface);
+        assert_eq!(
+            tile.content_color(&theme, true),
+            theme.scheme.on_surface_variant
+        );
+    }
+
+    #[test]
+    fn a_tap_sends_its_message() {
+        let tile: ListTile<Msg> = ListTile::new().title("x").on_tap(Msg::Tapped);
+        assert_eq!(Widget::<Msg>::on_click(&tile), Some(Msg::Tapped));
+    }
+}
