@@ -201,6 +201,35 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// If `false`, **nothing inside this subtree** can take focus — the reference's
+    /// `ExcludeFocus`. A dimmed panel behind a sheet is still drawn and still measured;
+    /// it simply stops being somewhere Tab can land.
+    fn descendants_focusable(&self) -> bool {
+        true
+    }
+
+    /// If `true`, this subtree's focus stops are **skipped by Tab** while remaining
+    /// focusable by a click — the reference's `ExcludeFocusTraversal`. The two are
+    /// separate questions: a toolbar button may be reachable with the pointer and still
+    /// not belong in the keyboard's order.
+    fn focus_skip_traversal(&self) -> bool {
+        false
+    }
+
+    /// A **traversal order** for this subtree's focus stops, smallest first — the
+    /// reference's `NumericFocusOrder`. `None` leaves them in tree order, which is where
+    /// everything sits until someone says otherwise.
+    fn focus_order(&self) -> Option<f32> {
+        None
+    }
+
+    /// If `true`, this subtree is a **traversal group**: an order set inside it is
+    /// resolved among its own members and nowhere else, so a reordered dialog does not
+    /// reshuffle the page behind it.
+    fn focus_group(&self) -> bool {
+        false
+    }
+
     /// If `true`, the widget draws its focus indicator **itself** (the driver then
     /// does not stroke the generic ring). E.g. `TextInput`.
     fn draws_own_focus(&self) -> bool {
@@ -774,6 +803,22 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn focusable(&self) -> bool {
         (**self).focusable()
+    }
+
+    fn descendants_focusable(&self) -> bool {
+        (**self).descendants_focusable()
+    }
+
+    fn focus_skip_traversal(&self) -> bool {
+        (**self).focus_skip_traversal()
+    }
+
+    fn focus_order(&self) -> Option<f32> {
+        (**self).focus_order()
+    }
+
+    fn focus_group(&self) -> bool {
+        (**self).focus_group()
     }
     fn draws_own_focus(&self) -> bool {
         (**self).draws_own_focus()

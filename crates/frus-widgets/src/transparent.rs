@@ -179,6 +179,22 @@ macro_rules! forward_transparent {
                 self.inner.focusable()
             }
 
+            fn descendants_focusable(&self) -> bool {
+                self.inner.descendants_focusable()
+            }
+
+            fn focus_skip_traversal(&self) -> bool {
+                self.inner.focus_skip_traversal()
+            }
+
+            fn focus_order(&self) -> Option<f32> {
+                self.inner.focus_order()
+            }
+
+            fn focus_group(&self) -> bool {
+                self.inner.focus_group()
+            }
+
             // The **structural** questions the walk and the layout ask before they look
             // at a widget's children. A transparent wrapper that answered these for
             // itself would change how its content is laid out — a keyed stack would have

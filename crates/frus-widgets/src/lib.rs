@@ -48,6 +48,7 @@ mod dsl;
 mod expanded;
 mod fittedbox;
 mod flex;
+mod focus;
 /// Form validation, pure and application-side: [`form::Rule`] and [`form::Form`].
 pub mod form;
 pub use form::ErrorSummary;
@@ -177,6 +178,9 @@ pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::Expanded;
 pub use fittedbox::FittedBox;
 pub use flex::{Flex, Wrap};
+pub use focus::{
+    ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
+};
 pub use fractional::FractionallySizedBox;
 pub use grid::Grid;
 pub use hero::{lerp_rect, Hero, HeroSpot};
@@ -271,7 +275,7 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
-    FocusDirection, Scrollable, Scrollbar, Ui,
+    FocusDirection, Focusable, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, ReorderAxis, Widget};
 pub use widgettheme::{

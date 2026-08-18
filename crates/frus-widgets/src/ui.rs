@@ -148,7 +148,7 @@ struct BoundaryData<Msg> {
     hits: Vec<Hit<Msg>>,
     long_presses: Vec<Hit<Msg>>,
     dismisses: Vec<Msg>,
-    focusables: Vec<(WidgetId, Rect)>,
+    focusables: Vec<Focusable>,
     scrollables: Vec<Scrollable>,
     draggables: Vec<(WidgetId, Rect)>,
     drag_sources: Vec<DragSource>,
@@ -267,6 +267,24 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
 }
 
 /// The result of building an interface for one frame.
+/// A **focus stop**: somewhere the keyboard can land, and what the traversal should make
+/// of it.
+#[derive(Clone, Copy, Debug)]
+pub struct Focusable {
+    /// The widget's identity.
+    pub id: WidgetId,
+    /// Its visible box this frame.
+    pub rect: Rect,
+    /// Focusable by a click, but **passed over by Tab** — the reference's
+    /// `ExcludeFocusTraversal`. The two are separate questions.
+    pub skip: bool,
+    /// An explicit traversal position, smallest first. `None` means tree order, which is
+    /// where everything sits until someone says otherwise.
+    pub order: Option<f32>,
+    /// The traversal group it belongs to, within which its order is resolved.
+    pub group: Option<WidgetId>,
+}
+
 pub struct Ui<Msg> {
     scene: Scene,
     hits: Vec<Hit<Msg>>,
@@ -274,7 +292,7 @@ pub struct Ui<Msg> {
     long_presses: Vec<Hit<Msg>>,
     /// Overlay dismissal messages, from the bottom to the **top**.
     dismisses: Vec<Msg>,
-    focusables: Vec<(WidgetId, Rect)>,
+    focusables: Vec<Focusable>,
     /// **Focus scope**: index of the topmost modal overlay's first focusable —
     /// Tab/arrows/click-to-focus are trapped from there on (`None` = no modal, every
     /// focusable takes part).
@@ -395,13 +413,13 @@ impl<Msg: Clone> Ui<Msg> {
         self.focus_pool()
             .iter()
             .rev()
-            .find(|(_, rect)| rect.contains(point))
-            .map(|(id, rect)| (*id, *rect))
+            .find(|f| f.rect.contains(point))
+            .map(|f| (f.id, f.rect))
     }
 
     /// The **participating** focusables: those of the topmost modal scope when there is one
     /// (a focus trap), otherwise all of them.
-    fn focus_pool(&self) -> &[(WidgetId, Rect)] {
+    fn focus_pool(&self) -> &[Focusable] {
         match self.focus_scope_start {
             Some(start) => &self.focusables[start.min(self.focusables.len())..],
             None => &self.focusables,
@@ -422,14 +440,15 @@ impl<Msg: Clone> Ui<Msg> {
         let from = self
             .focusables
             .iter()
-            .find(|(id, _)| *id == current)
-            .map(|(_, rect)| rect)?;
+            .find(|f| f.id == current)
+            .map(|f| &f.rect)?;
         let center = |r: &Rect| (r.x + r.width * 0.5, r.y + r.height * 0.5);
         let (fx, fy) = center(from);
 
         let mut best: Option<(WidgetId, f32)> = None;
-        for (id, rect) in self.focus_pool() {
-            if *id == current {
+        for candidate in self.focus_pool() {
+            let (id, rect) = (candidate.id, &candidate.rect);
+            if id == current {
                 continue;
             }
             let (cx, cy) = center(rect);
@@ -448,33 +467,72 @@ impl<Msg: Clone> Ui<Msg> {
             }
             let score = ahead + cross * 3.0;
             if best.map(|(_, s)| score < s).unwrap_or(true) {
-                best = Some((*id, score));
+                best = Some((id, score));
             }
         }
         best.map(|(id, _)| id)
     }
 
-    /// Next/previous focusable in tree order (wrapping), for Tab navigation. With no current
-    /// focus, returns the first (or the last).
+    /// Next/previous focus stop for Tab, wrapping. With no current focus, the first (or
+    /// the last).
+    ///
+    /// **Tree order, unless something said otherwise.** Stops carrying an explicit order
+    /// are sorted ahead of those that do not, smallest first, and the sort is applied
+    /// **within a traversal group** rather than across the whole frame — so a reordered
+    /// dialog does not reshuffle the page behind it. Stops marked `skip` are passed over
+    /// here while remaining reachable by a click: the keyboard's order and the pointer's
+    /// reach are two different questions.
     pub fn focus_next(&self, current: Option<WidgetId>, forward: bool) -> Option<WidgetId> {
-        let pool = self.focus_pool();
-        if pool.is_empty() {
+        let order = self.traversal_order();
+        if order.is_empty() {
             return None;
         }
-        let n = pool.len();
-        // A current focus **outside the scope** (taken before the modal opened) is treated as
-        // "none": Tab enters the trap.
-        match current.and_then(|c| pool.iter().position(|(id, _)| *id == c)) {
+        let n = order.len();
+        // A current focus **outside the scope** (taken before the modal opened) is treated
+        // as "none": Tab enters the trap.
+        match current.and_then(|c| order.iter().position(|id| *id == c)) {
             Some(i) => {
                 let j = if forward {
                     (i + 1) % n
                 } else {
                     (i + n - 1) % n
                 };
-                Some(pool[j].0)
+                Some(order[j])
             }
-            None => Some(pool[if forward { 0 } else { n - 1 }].0),
+            None => Some(order[if forward { 0 } else { n - 1 }]),
         }
+    }
+
+    /// The Tab order: the participating stops, minus those that asked to be skipped,
+    /// with each traversal group's members sorted among themselves.
+    ///
+    /// A **stable** sort on the order key, so everything without one keeps tree order and
+    /// ties do too — the property that makes an explicit order a local statement rather
+    /// than a rearrangement of the whole frame.
+    pub fn traversal_order(&self) -> Vec<WidgetId> {
+        let pool: Vec<&Focusable> = self.focus_pool().iter().filter(|f| !f.skip).collect();
+        if pool.iter().all(|f| f.order.is_none()) {
+            return pool.iter().map(|f| f.id).collect();
+        }
+        let mut out: Vec<WidgetId> = Vec::with_capacity(pool.len());
+        let mut i = 0;
+        while i < pool.len() {
+            // A group's members are contiguous: the walk is depth-first, so a subtree's
+            // stops arrive together.
+            let group = pool[i].group;
+            let mut j = i;
+            while j < pool.len() && pool[j].group == group {
+                j += 1;
+            }
+            let mut run: Vec<&Focusable> = pool[i..j].to_vec();
+            run.sort_by(|a, b| {
+                let key = |f: &Focusable| f.order.unwrap_or(f32::INFINITY);
+                key(a).total_cmp(&key(b))
+            });
+            out.extend(run.iter().map(|f| f.id));
+            i = j;
+        }
+        out
     }
 
     /// Topmost scrollable area containing `point`.
@@ -506,8 +564,8 @@ impl<Msg: Clone> Ui<Msg> {
     pub fn widget_rect(&self, id: WidgetId) -> Option<Rect> {
         self.focusables
             .iter()
-            .find(|(fid, _)| *fid == id)
-            .map(|(_, rect)| *rect)
+            .find(|f| f.id == id)
+            .map(|f| f.rect)
             // Falls back to the **reorderables** registry. Kanban cards (and headers that are
             // reorderable but **not** sortable) are not focusable: without this fallback the
             // shell cannot find their bounds, and the whole **vertical** drag preview (ghost,
@@ -536,7 +594,7 @@ impl<Msg: Clone> Ui<Msg> {
     /// The identities of **every** focusable widget of the frame (the scope included) — so
     /// the shell can detect the focus **disappearing** (an overlay closed) and restore it.
     pub fn focusable_ids(&self) -> impl Iterator<Item = WidgetId> + '_ {
-        self.focusables.iter().map(|(id, _)| *id)
+        self.focusables.iter().map(|f| f.id)
     }
 
     /// Frame (viewport) of the scrollable area `id`, when there is one — so the shell can find
@@ -850,9 +908,17 @@ struct Builder<'a, Msg> {
     hits: Vec<Hit<Msg>>,
     long_presses: Vec<Hit<Msg>>,
     dismisses: Vec<Msg>,
-    focusables: Vec<(WidgetId, Rect)>,
+    focusables: Vec<Focusable>,
     /// Start of the topmost modal overlay's focus scope.
     focus_scope_start: Option<usize>,
+    /// Set while inside an `ExcludeFocus`: nothing in here registers a focus stop.
+    focus_excluded: bool,
+    /// Set while inside an `ExcludeFocusTraversal`: stops register, Tab passes them by.
+    focus_skipped: bool,
+    /// The traversal order in force, from the nearest enclosing `FocusTraversalOrder`.
+    focus_order: Option<f32>,
+    /// The nearest enclosing `FocusTraversalGroup`, within which an order is resolved.
+    focus_group: Option<WidgetId>,
     scrollables: Vec<Scrollable>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
@@ -1283,8 +1349,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             h.xform.get_or_insert(inverse);
         }
         if matrix.is_axis_aligned() {
-            for (_, r) in &mut self.focusables[base.focusables..] {
-                *r = matrix.apply_rect(*r);
+            for f in &mut self.focusables[base.focusables..] {
+                f.rect = matrix.apply_rect(f.rect);
             }
             for area in &mut self.scrollables[base.scrollables..] {
                 area.viewport = matrix.apply_rect(area.viewport);
@@ -1314,7 +1380,48 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// tries to replay its subtree from the paint cache; otherwise (or on a *miss*) it
     /// delegates to the full walk [`walk_node`](Self::walk_node), capturing its output for the
     /// next frame. Every recursion goes through here → nested boundaries get cached too.
+    /// The focus flags a subtree carries — exclusion, Tab-skipping, an order, a group —
+    /// are **subtree-scoped**, so they are pushed here and popped on the way out rather
+    /// than asked of each widget at the moment it registers. The body of the walk has
+    /// early returns in a dozen branches; wrapping it is the only way to be sure the
+    /// scope is closed on every one of them.
     fn walk(
+        &mut self,
+        widget: &'a dyn Widget<Msg>,
+        id: WidgetId,
+        translation: (f32, f32),
+        clip: Rect,
+        rects: &[Rect],
+        index: &mut usize,
+    ) {
+        let outer = (
+            self.focus_excluded,
+            self.focus_skipped,
+            self.focus_order,
+            self.focus_group,
+        );
+        if !widget.descendants_focusable() {
+            self.focus_excluded = true;
+        }
+        if widget.focus_skip_traversal() {
+            self.focus_skipped = true;
+        }
+        if let Some(order) = widget.focus_order() {
+            self.focus_order = Some(order);
+        }
+        if widget.focus_group() {
+            self.focus_group = Some(id);
+        }
+        self.walk_scoped(widget, id, translation, clip, rects, index);
+        (
+            self.focus_excluded,
+            self.focus_skipped,
+            self.focus_order,
+            self.focus_group,
+        ) = outer;
+    }
+
+    fn walk_scoped(
         &mut self,
         widget: &'a dyn Widget<Msg>,
         id: WidgetId,
@@ -1651,8 +1758,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     xform: None,
                 });
             }
-            if widget.focusable() {
-                self.focusables.push((id, visible));
+            if widget.focusable() && !self.focus_excluded {
+                self.focusables.push(Focusable {
+                    id,
+                    rect: visible,
+                    skip: self.focus_skipped || widget.focus_skip_traversal(),
+                    order: widget.focus_order().or(self.focus_order),
+                    group: self.focus_group,
+                });
             }
             if widget.draggable() {
                 self.draggables.push((id, visible));
@@ -2441,8 +2554,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     xform: None,
                 });
             }
-            if widget.focusable() {
-                self.focusables.push((id, visible));
+            if widget.focusable() && !self.focus_excluded {
+                self.focusables.push(Focusable {
+                    id,
+                    rect: visible,
+                    skip: self.focus_skipped || widget.focus_skip_traversal(),
+                    order: widget.focus_order().or(self.focus_order),
+                    group: self.focus_group,
+                });
             }
             if widget.draggable() {
                 self.draggables.push((id, visible));
@@ -2798,6 +2917,10 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         refreshes: Vec::new(),
         dismissables: Vec::new(),
         semantics: Vec::new(),
+        focus_excluded: false,
+        focus_skipped: false,
+        focus_order: None,
+        focus_group: None,
         overflows: std::cell::RefCell::new(Vec::new()),
         pending_overflows: std::cell::RefCell::new(std::collections::HashMap::new()),
     };
@@ -3442,8 +3565,8 @@ mod tests {
             &Theme::default(),
         );
         assert_eq!(ui.focusables.len(), 2, "both buttons are focusable");
-        let first = ui.focusables[0].0;
-        let second = ui.focusables[1].0;
+        let first = ui.focusables[0].id;
+        let second = ui.focusables[1].id;
 
         // With no focus: Tab -> first, Shift+Tab -> last.
         assert_eq!(ui.focus_next(None, true), Some(first));
@@ -3461,7 +3584,7 @@ mod tests {
         let count_ring = |tree: &dyn Widget<Msg>, keyboard: bool| -> usize {
             let mut rt = Runtime::default();
             let probe = build_ui(tree, Size::new(200.0, 200.0), &rt, &theme);
-            rt.input.focused = probe.focusables.first().map(|(id, _)| *id);
+            rt.input.focused = probe.focusables.first().map(|f| f.id);
             rt.focus_visible = keyboard;
             let ui = build_ui(tree, Size::new(200.0, 200.0), &rt, &theme);
             ui.scene()

@@ -8,12 +8,29 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 336 so far, each documenting the objective, the alternatives
+> record — one per step, 337 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **The focus wrappers** (J337): `Focus`, `ExcludeFocus`, `ExcludeFocusTraversal`,
+  `FocusTraversalOrder` and `FocusTraversalGroup`. Focus was a property of a widget and Tab
+  followed the walk; what was missing is the ability for a *caller* to say something about
+  focus without owning the widget that has it. `ExcludeFocus` and `ExcludeFocusTraversal`
+  are deliberately two things: a panel behind a sheet is unreachable, a toolbar button is
+  reachable and simply does not belong in a form's keyboard order.
+
+- **`Ui::traversal_order()` and `Focusable`** (J337). A focus stop is no longer
+  `(id, rect)` but carries whether Tab skips it, an explicit order and its traversal group.
+  The sort is stable and runs *within* a group, so an explicit order is a local statement:
+  a dialog that swaps its two fields leaves the page behind it in tree order.
+
+- **Four subtree-scoped focus hooks on `Widget`** (J337) — `descendants_focusable`,
+  `focus_skip_traversal`, `focus_order`, `focus_group` — pushed and popped around the walk
+  rather than set inside it, because the walk has early returns in a dozen branches and a
+  flag cleared at the end of the function would leak out of every one of them.
 
 - **`ListTile`** (J336). The most reached-for row in the reference's catalogue and this
   framework's largest single gap: leading, title, subtitle, trailing, with the reference's
