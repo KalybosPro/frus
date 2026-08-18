@@ -16,7 +16,9 @@ opening an issue.
 | [getting-started.md](getting-started.md) | Write and run your first frus application |
 | [brief.md](brief.md) | The original brief: vision, philosophy, working method |
 | [prior-art.md](prior-art.md) | Ideas from mature UI toolkits, evaluated for porting — what to take, what to fix |
+| [platform-integration.md](platform-integration.md) | What a developer writes, and where Rust stops: JNI, the dex shims, iOS without Swift |
 | [status.html](status.html) | A visual snapshot of the framework's state |
+| [hn-post.md](hn-post.md) | The Show HN launch post, with every claim traced to its source |
 
 ## Where to start
 

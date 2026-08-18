@@ -1,0 +1,13 @@
+I spent the last months building a UI framework in Rust. Here is what it looks like running.
+
+frus draws all of it on the GPU — layout, type, charts, spring transitions. One codebase, running today on desktop, Android and the web. iOS is next.
+
+The whole framework is Rust: renderer, layout, widgets, gestures, theming, animation, accessibility. No embedded VM, no second language for app logic.
+
+It's cargo-native — no DSL, no codegen, no bespoke CLI. Apps are Elm-shaped, so update is pure and ~970 of the tests run headless, with no GPU and no window.
+
+Honestly: pre-alpha, the API isn't stable, nothing on crates.io yet. 327 design notes say why every decision went the way it did.
+
+github.com/KalybosPro/frus
+
+#rustlang #opensource #ui
