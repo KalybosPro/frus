@@ -196,6 +196,37 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Keystrokes this subtree binds to **intents** — see [`crate::Shortcuts`].
+    fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {
+        &[]
+    }
+
+    /// Keystrokes this subtree binds **straight to messages** — see
+    /// [`crate::CallbackShortcuts`].
+    fn shortcut_callbacks(&self) -> &[(crate::shortcuts::KeyStroke, Msg)] {
+        &[]
+    }
+
+    /// Intents this subtree **answers** — see [`crate::Actions`].
+    fn action_bindings(&self) -> &[(crate::shortcuts::Intent, Msg)] {
+        &[]
+    }
+
+    /// Intents this subtree **watches** without answering — see
+    /// [`crate::ActionListener`].
+    fn action_listeners(&self) -> &[(crate::shortcuts::Intent, Msg)] {
+        &[]
+    }
+
+    /// Every keystroke reaching this subtree, handed to a closure — see
+    /// [`crate::KeyboardListener`]. `None` (the default) is not a listener.
+    #[allow(clippy::type_complexity)]
+    fn on_keystroke(
+        &self,
+    ) -> Option<std::rc::Rc<dyn Fn(crate::shortcuts::KeyStroke) -> Option<Msg>>> {
+        None
+    }
+
     /// If `true`, the widget can take keyboard focus (click or Tab).
     fn focusable(&self) -> bool {
         false
@@ -803,6 +834,28 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn focusable(&self) -> bool {
         (**self).focusable()
+    }
+
+    fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {
+        (**self).shortcut_bindings()
+    }
+
+    fn shortcut_callbacks(&self) -> &[(crate::shortcuts::KeyStroke, Msg)] {
+        (**self).shortcut_callbacks()
+    }
+
+    fn action_bindings(&self) -> &[(crate::shortcuts::Intent, Msg)] {
+        (**self).action_bindings()
+    }
+
+    fn action_listeners(&self) -> &[(crate::shortcuts::Intent, Msg)] {
+        (**self).action_listeners()
+    }
+
+    fn on_keystroke(
+        &self,
+    ) -> Option<std::rc::Rc<dyn Fn(crate::shortcuts::KeyStroke) -> Option<Msg>>> {
+        (**self).on_keystroke()
     }
 
     fn descendants_focusable(&self) -> bool {

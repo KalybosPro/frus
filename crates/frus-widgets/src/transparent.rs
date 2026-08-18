@@ -179,6 +179,30 @@ macro_rules! forward_transparent {
                 self.inner.focusable()
             }
 
+            fn shortcut_bindings(
+                &self,
+            ) -> &[($crate::shortcuts::KeyStroke, $crate::shortcuts::Intent)] {
+                self.inner.shortcut_bindings()
+            }
+
+            fn shortcut_callbacks(&self) -> &[($crate::shortcuts::KeyStroke, Msg)] {
+                self.inner.shortcut_callbacks()
+            }
+
+            fn action_bindings(&self) -> &[($crate::shortcuts::Intent, Msg)] {
+                self.inner.action_bindings()
+            }
+
+            fn action_listeners(&self) -> &[($crate::shortcuts::Intent, Msg)] {
+                self.inner.action_listeners()
+            }
+
+            fn on_keystroke(
+                &self,
+            ) -> Option<std::rc::Rc<dyn Fn($crate::shortcuts::KeyStroke) -> Option<Msg>>> {
+                self.inner.on_keystroke()
+            }
+
             fn descendants_focusable(&self) -> bool {
                 self.inner.descendants_focusable()
             }

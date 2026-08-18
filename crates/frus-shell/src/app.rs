@@ -15,8 +15,9 @@ use frus_gpu::{wgpu, Renderer};
 use frus_widgets::{
     build_ui, collect_ids, find_by_key, find_path, find_widget, reflow_reorder_cards,
     reflow_reorder_columns, subtree_ids, Color, Cursor as UiCursor, Edit, FocusDirection, Insets,
-    Key, KeyResponse, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene, Size, Theme,
-    Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId, WindowInsets,
+    Key, KeyResponse, KeyStroke, MediaQuery, Point, Primitive, Rect, ReorderAxis, Runtime, Scene,
+    ShortcutKey, Size, Theme, Ui, VelocityEstimate, VelocityTracker, Widget, WidgetId,
+    WindowInsets,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{
@@ -350,6 +351,8 @@ pub struct App<A: Application> {
     /// The current keyboard modifiers.
     shift: bool,
     ctrl: bool,
+    alt: bool,
+    meta: bool,
     /// The remembered "goal" visual column for Up/Down/PgUp/PgDn: crossing shorter
     /// lines keeps the original column, the way an editor does. Cleared as soon as any
     /// other caret movement happens.
@@ -467,6 +470,8 @@ impl<A: Application> App<A> {
             inspector_dump: false,
             shift: false,
             ctrl: false,
+            alt: false,
+            meta: false,
             goal_x: None,
             clipboard: clip::Clipboard::new(),
             started: false,
@@ -1034,6 +1039,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 let state = modifiers.state();
                 self.shift = state.shift_key();
                 self.ctrl = state.control_key();
+                self.alt = state.alt_key();
+                self.meta = state.super_key();
             }
 
             WindowEvent::MouseInput {
@@ -1090,6 +1097,31 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         self.request_redraw();
                     }
                     return;
+                }
+
+                // **Shortcuts.** Placed after the system keys the shell owns outright
+                // (back, F12) and before everything an application can bind, so that a
+                // binding cannot take the inspector or the back gesture away.
+                //
+                // A stroke with no Ctrl, Alt or Meta goes to a focused field first: a
+                // binding on a bare letter would otherwise make every field under it
+                // impossible to type in.
+                if let Some(stroke) = self.keystroke(&event) {
+                    let typing = !stroke.is_command() && self.runtime.input.focused.is_some();
+                    if !typing {
+                        let msgs = self
+                            .ui
+                            .as_ref()
+                            .map(|ui| ui.keystroke(stroke, self.runtime.input.focused))
+                            .unwrap_or_default();
+                        if !msgs.is_empty() {
+                            for msg in msgs {
+                                self.dispatch(msg);
+                            }
+                            self.request_redraw();
+                            return;
+                        }
+                    }
                 }
 
                 // Tab and Shift+Tab move between focusables, even with nothing focused.
@@ -3226,6 +3258,50 @@ impl<A: Application> App<A> {
                 o.amount,
             );
         }
+    }
+
+    /// Winit's key event as a [`KeyStroke`] — the general vocabulary shortcuts are bound
+    /// to, as opposed to [`Key`], which is the one text editing needs.
+    ///
+    /// `None` for anything with no place in a shortcut: a dead key, a compose sequence, a
+    /// modifier pressed on its own.
+    fn keystroke(&self, event: &winit::event::KeyEvent) -> Option<KeyStroke> {
+        let key = match &event.logical_key {
+            WinitKey::Named(NamedKey::Enter) => ShortcutKey::Enter,
+            WinitKey::Named(NamedKey::Escape) => ShortcutKey::Escape,
+            WinitKey::Named(NamedKey::Tab) => ShortcutKey::Tab,
+            WinitKey::Named(NamedKey::Space) => ShortcutKey::Space,
+            WinitKey::Named(NamedKey::Backspace) => ShortcutKey::Backspace,
+            WinitKey::Named(NamedKey::Delete) => ShortcutKey::Delete,
+            WinitKey::Named(NamedKey::ArrowUp) => ShortcutKey::Up,
+            WinitKey::Named(NamedKey::ArrowDown) => ShortcutKey::Down,
+            WinitKey::Named(NamedKey::ArrowLeft) => ShortcutKey::Left,
+            WinitKey::Named(NamedKey::ArrowRight) => ShortcutKey::Right,
+            WinitKey::Named(NamedKey::Home) => ShortcutKey::Home,
+            WinitKey::Named(NamedKey::End) => ShortcutKey::End,
+            WinitKey::Named(NamedKey::PageUp) => ShortcutKey::PageUp,
+            WinitKey::Named(NamedKey::PageDown) => ShortcutKey::PageDown,
+            WinitKey::Named(NamedKey::F1) => ShortcutKey::F(1),
+            WinitKey::Named(NamedKey::F2) => ShortcutKey::F(2),
+            WinitKey::Named(NamedKey::F3) => ShortcutKey::F(3),
+            WinitKey::Named(NamedKey::F4) => ShortcutKey::F(4),
+            WinitKey::Named(NamedKey::F5) => ShortcutKey::F(5),
+            WinitKey::Named(NamedKey::F6) => ShortcutKey::F(6),
+            WinitKey::Named(NamedKey::F7) => ShortcutKey::F(7),
+            WinitKey::Named(NamedKey::F8) => ShortcutKey::F(8),
+            WinitKey::Named(NamedKey::F9) => ShortcutKey::F(9),
+            WinitKey::Named(NamedKey::F10) => ShortcutKey::F(10),
+            WinitKey::Named(NamedKey::F11) => ShortcutKey::F(11),
+            WinitKey::Character(text) => ShortcutKey::Char(text.chars().next()?),
+            _ => return None,
+        };
+        Some(KeyStroke {
+            key,
+            ctrl: self.ctrl,
+            shift: self.shift,
+            alt: self.alt,
+            meta: self.meta,
+        })
     }
 
     fn paint_reorder_preview(&self, ui: &Ui<A::Message>, theme: &Theme, scene: &mut Scene) {

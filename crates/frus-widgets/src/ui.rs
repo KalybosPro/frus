@@ -7,6 +7,8 @@ use std::hash::{Hash, Hasher};
 use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
 use frus_layout::{Layout, NodeId, Overflowing, Side};
 
+use crate::shortcuts::{Intent, KeyStroke};
+
 use crate::barrier::Barrier;
 use crate::dismiss::{DismissPhase, Dismissable};
 use crate::dragdrop::{DragSource, DropZone};
@@ -267,6 +269,21 @@ fn hash_status<H: Hasher>(s: &Status, h: &mut H) {
 }
 
 /// The result of building an interface for one frame.
+/// A **shortcut / action scope**: a subtree that binds keystrokes, answers intents, or
+/// both, together with the range of focus stops it contains.
+///
+/// The range is how "focus is inside this subtree" is answered without an ancestor test:
+/// the walk is depth-first, so a subtree's focus stops are contiguous, and the focused
+/// stop's index either falls inside the range or does not.
+struct Scope<Msg> {
+    strokes: Vec<(KeyStroke, Intent)>,
+    callbacks: Vec<(KeyStroke, Msg)>,
+    actions: Vec<(Intent, Msg)>,
+    listeners: Vec<(Intent, Msg)>,
+    /// The focus stops this subtree contains, as indices into `focusables`.
+    range: std::ops::Range<usize>,
+}
+
 /// A **focus stop**: somewhere the keyboard can land, and what the traversal should make
 /// of it.
 #[derive(Clone, Copy, Debug)]
@@ -325,6 +342,15 @@ pub struct Ui<Msg> {
     semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
     /// Boxes whose children ran outside them, with the edge and the amount.
     overflows: Vec<Overflowing>,
+    /// Shortcut and action scopes, in the order the walk closed them — innermost first
+    /// among any that overlap, which is the order the resolution wants.
+    scopes: Vec<Scope<Msg>>,
+    /// Keystroke listeners, with the focus stops they cover.
+    #[allow(clippy::type_complexity)]
+    listeners: Vec<(
+        std::ops::Range<usize>,
+        std::rc::Rc<dyn Fn(KeyStroke) -> Option<Msg>>,
+    )>,
 }
 
 impl<Msg: Clone> Ui<Msg> {
@@ -531,6 +557,74 @@ impl<Msg: Clone> Ui<Msg> {
             });
             out.extend(run.iter().map(|f| f.id));
             i = j;
+        }
+        out
+    }
+
+    /// What a keystroke means here: the messages it sends, in the order they should be
+    /// applied.
+    ///
+    /// The resolution, in one place because it is the whole feature:
+    ///
+    /// 1. Only scopes **containing the focused stop** are candidates; with nothing
+    ///    focused, all of them are. Innermost first — `scopes` is filled on the way *out*
+    ///    of the walk, so that order is already the one wanted.
+    /// 2. A [`crate::KeyboardListener`] gets the first refusal, and a `None` from it lets
+    ///    the stroke carry on.
+    /// 3. A direct binding ([`crate::CallbackShortcuts`]) sends its message.
+    /// 4. Otherwise a [`crate::Shortcuts`] binding names an **intent**, and the innermost
+    ///    [`crate::Actions`] that answers it supplies the message. An intent nobody
+    ///    answers does nothing — deliberately: a key bound to a meaning the current screen
+    ///    has no answer for should be inert, not an error.
+    /// 5. Every [`crate::ActionListener`] watching that intent adds its message too.
+    ///
+    /// Empty means *nobody wanted it*, and the caller should carry on to whatever it would
+    /// have done with the key.
+    pub fn keystroke(&self, stroke: KeyStroke, focused: Option<WidgetId>) -> Vec<Msg> {
+        let at = focused.and_then(|id| self.focusables.iter().position(|f| f.id == id));
+        let covers = |range: &std::ops::Range<usize>| match at {
+            Some(i) => range.contains(&i),
+            None => true,
+        };
+
+        for (range, on_key) in self.listeners.iter().rev() {
+            if covers(range) {
+                if let Some(msg) = on_key(stroke) {
+                    return vec![msg];
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        for scope in self.scopes.iter().filter(|s| covers(&s.range)) {
+            if let Some((_, msg)) = scope.callbacks.iter().find(|(s, _)| stroke.matches(s)) {
+                out.push(msg.clone());
+                return out;
+            }
+            let Some((_, intent)) = scope.strokes.iter().find(|(s, _)| stroke.matches(s)) else {
+                continue;
+            };
+            let answer = self
+                .scopes
+                .iter()
+                .filter(|s| covers(&s.range))
+                .find_map(|s| {
+                    s.actions
+                        .iter()
+                        .find(|(i, _)| i == intent)
+                        .map(|(_, m)| m.clone())
+                });
+            if let Some(msg) = answer {
+                out.push(msg);
+                for watcher in self.scopes.iter().filter(|s| covers(&s.range)) {
+                    for (i, m) in &watcher.listeners {
+                        if i == intent {
+                            out.push(m.clone());
+                        }
+                    }
+                }
+            }
+            return out;
         }
         out
     }
@@ -919,6 +1013,14 @@ struct Builder<'a, Msg> {
     focus_order: Option<f32>,
     /// The nearest enclosing `FocusTraversalGroup`, within which an order is resolved.
     focus_group: Option<WidgetId>,
+    /// Shortcut and action scopes closed so far this frame.
+    scopes: Vec<Scope<Msg>>,
+    /// Keystroke listeners, with the focus stops they cover.
+    #[allow(clippy::type_complexity)]
+    listeners: Vec<(
+        std::ops::Range<usize>,
+        std::rc::Rc<dyn Fn(KeyStroke) -> Option<Msg>>,
+    )>,
     scrollables: Vec<Scrollable>,
     scrollbars: Vec<Scrollbar>,
     draggables: Vec<(WidgetId, Rect)>,
@@ -1412,6 +1514,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if widget.focus_group() {
             self.focus_group = Some(id);
         }
+        // The focus stops this subtree contains start here; the walk is depth-first, so
+        // they are contiguous and the range closes below.
+        let stops_before = self.focusables.len();
         self.walk_scoped(widget, id, translation, clip, rects, index);
         (
             self.focus_excluded,
@@ -1419,6 +1524,31 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.focus_order,
             self.focus_group,
         ) = outer;
+        self.close_scope(widget, stops_before);
+    }
+
+    /// Files whatever tables this subtree carried, with the focus stops it turned out to
+    /// contain. Recorded **on the way out**, because the range is not known on the way in;
+    /// so `scopes` ends up innermost-first among any that overlap, which is the order the
+    /// resolution wants and the reason it is not sorted afterwards.
+    fn close_scope(&mut self, widget: &'a dyn Widget<Msg>, stops_before: usize) {
+        let range = stops_before..self.focusables.len();
+        if let Some(on_key) = widget.on_keystroke() {
+            self.listeners.push((range.clone(), on_key));
+        }
+        let (strokes, callbacks) = (widget.shortcut_bindings(), widget.shortcut_callbacks());
+        let (actions, listeners) = (widget.action_bindings(), widget.action_listeners());
+        if strokes.is_empty() && callbacks.is_empty() && actions.is_empty() && listeners.is_empty()
+        {
+            return;
+        }
+        self.scopes.push(Scope {
+            strokes: strokes.to_vec(),
+            callbacks: callbacks.to_vec(),
+            actions: actions.to_vec(),
+            listeners: listeners.to_vec(),
+            range,
+        });
     }
 
     fn walk_scoped(
@@ -2921,6 +3051,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         focus_skipped: false,
         focus_order: None,
         focus_group: None,
+        scopes: Vec::new(),
+        listeners: Vec::new(),
         overflows: std::cell::RefCell::new(Vec::new()),
         pending_overflows: std::cell::RefCell::new(std::collections::HashMap::new()),
     };
@@ -2974,6 +3106,8 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         wants_animation: builder.wants_animation,
         semantics: builder.semantics,
         overflows: builder.overflows.into_inner(),
+        scopes: builder.scopes,
+        listeners: builder.listeners,
     };
     (ui, builder.inspector)
 }

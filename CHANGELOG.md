@@ -8,12 +8,33 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 337 so far, each documenting the objective, the alternatives
+> record — one per step, 338 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Shortcuts and actions** (J338): `Shortcuts`, `Actions`, `CallbackShortcuts`,
+  `ActionListener`, `KeyboardListener` and `FocusableActionDetector`. Two steps rather than
+  one, as the reference has it — a keystroke names an **intent**, and the innermost
+  `Actions` that answers it supplies the message — so keys and handlers can be replaced
+  independently. An intent nobody answers is inert, deliberately.
+
+- **`KeyStroke` and `ShortcutKey`** (J338): a general key vocabulary, separate from `Key`,
+  which is the one text editing needs. Letters match without case; Shift alone is not a
+  command, which is what makes a bare-letter binding coexist with typing.
+
+- **`Ui::keystroke()`** (J338), which resolves a stroke against the scopes containing the
+  focused stop. A scope records the *range of focus stops* it contains — the walk is
+  depth-first, so a subtree's stops are contiguous — which answers "is focus inside this
+  subtree" without an ancestor test, and records innermost-first for free.
+
+### Changed
+
+- **The shell tracks Alt and Meta** (J338), and checks application shortcuts after its own
+  keys (system back, F12) so that no binding can take those away, and before everything
+  else. A stroke with no Ctrl, Alt or Meta goes to a focused field first.
 
 - **The focus wrappers** (J337): `Focus`, `ExcludeFocus`, `ExcludeFocusTraversal`,
   `FocusTraversalOrder` and `FocusTraversalGroup`. Focus was a property of a widget and Tab

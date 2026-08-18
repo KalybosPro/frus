@@ -98,6 +98,7 @@ mod safearea;
 mod scaffold;
 mod scroll;
 mod segmented;
+mod shortcuts;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -242,6 +243,10 @@ pub use scroll::{Axis, Scroll};
 pub use segmented::{
     SegmentedControl, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
+};
+pub use shortcuts::{
+    ActionListener, Actions, CallbackShortcuts, FocusableActionDetector, Intent, KeyStroke,
+    KeyboardListener, ShortcutKey, Shortcuts,
 };
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
