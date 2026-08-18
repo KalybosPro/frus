@@ -26,6 +26,11 @@ impl<Msg> Keyed<Msg> {
             inner: Box::new(inner),
         }
     }
+
+    /// A key is an identity, not a box: the child's own, unchanged.
+    fn restyle(&self, base: frus_layout::Style) -> frus_layout::Style {
+        base
+    }
 }
 
 crate::transparent::forward_transparent!(Keyed {

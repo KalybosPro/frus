@@ -8,12 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 333 so far, each documenting the objective, the alternatives
+> record — one per step, 334 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`Expanded`, the child that takes what is left** (J334). The reference's, and the fix for a
+  device finding three milestones old: a long task label pushed the row's delete button off the
+  card, out of the window and out of the hit registry, so the task could not be deleted at all.
+  Three properties together — `flex_basis: 0` so the child stops telling the row how wide it
+  wants to be, `flex_grow` so it takes the spare room, and `min_width: 0` to lift the automatic
+  minimum that makes `flex: 1` alone a no-op on a long label. Any one of them alone does nothing.
+
+- **`flex_shrink` and `flex_basis` on `frus_layout::Style`** (J334), with `shrink()` and
+  `no_shrink()` on `Flex` and `Container`. The flex item model has three properties and this
+  framework shipped with one. `flex_shrink` defaults to `1.0`, flexbox's and taffy's, so nothing
+  moves until something asks.
+
+- **`restyle`, a third hook on the transparent-wrapper macro** (J334). `forward_transparent!`
+  hardcoded `style`, so a wrapper that changes the **box** had to be hand-written — the exact
+  mistake the macro exists to prevent. Both `style` and `style_themed` now go through an inherent
+  `restyle` each wrapper writes, and the test that checks wrappers state their hooks finds them by
+  looking for the macro instead of from a hand-kept list of two.
 
 - **A tone-gap guard on the outline roles** (J325). `an_outline_is_never_the_colour_of_a_disabled_one`
   checks both shipped schemes and three seeded ones: a live outline must sit a measurable

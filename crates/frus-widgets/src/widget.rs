@@ -42,6 +42,8 @@ pub(crate) fn sizing_of(style: Style) -> Style {
         max_width: style.max_width,
         max_height: style.max_height,
         flex_grow: style.flex_grow,
+        flex_shrink: style.flex_shrink,
+        flex_basis: style.flex_basis,
         aspect_ratio: style.aspect_ratio,
         ..Default::default()
     }

@@ -22,6 +22,7 @@ pub struct Container<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
+    flex_shrink: f32,
     padding: Insets,
     /// The **outer** margin (around the box, outside the decoration).
     margin: Insets,
@@ -71,6 +72,7 @@ impl<Msg> Container<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
+            flex_shrink: 1.0,
             padding: Insets::ZERO,
             margin: Insets::ZERO,
             radius: BorderRadius::ZERO,
@@ -135,6 +137,20 @@ impl<Msg> Container<Msg> {
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
+    }
+
+    /// Refuses to give up room when a row does not fit: `no_shrink()` is
+    /// `shrink(0.0)`, and it is what fixed chrome wants — an icon button at the end of a
+    /// row keeps its width however long the label beside it grows. The default is
+    /// `1.0`, flexbox's, where every child absorbs its share of the deficit.
+    pub fn shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = shrink;
+        self
+    }
+
+    /// This box never shrinks; the deficit goes to its siblings. See [`Self::shrink`].
+    pub fn no_shrink(self) -> Self {
+        self.shrink(0.0)
     }
 
     /// Uniform inner padding, in logical pixels.
@@ -340,6 +356,7 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
             padding: self.effective_padding(),
             margin: self.margin,
             ..Default::default()
@@ -470,6 +487,52 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The other half of [`crate::Expanded`]: when a row is over budget even so, a box
+    /// can refuse to pay for it. Without this the deficit is shared in proportion to
+    /// base size, and the smallest fixed thing in the row — an icon button — is
+    /// squashed along with everything else (milestone 333 found one at 13 px of 40).
+    #[test]
+    fn a_box_that_refuses_to_shrink_keeps_its_width() {
+        use crate::interaction::WidgetId;
+        use crate::runtime::Runtime;
+        use crate::theme::Theme;
+        use crate::Flex;
+
+        let widths = |row: &Flex<()>| -> Vec<f32> {
+            let runtime = Runtime::default();
+            let theme = Theme::light();
+            let mut layout = frus_layout::Layout::new();
+            let node = crate::ui::build_layout(row, WidgetId::ROOT, &runtime, &theme, &mut layout);
+            layout.compute_filled(node, 100.0, 50.0);
+            layout
+                .absolute_rects(node)
+                .iter()
+                .skip(1)
+                .take(2)
+                .map(|(r, _)| r.width)
+                .collect()
+        };
+
+        // 120 px of children in 100 px of row.
+        let sharing = Flex::row()
+            .child(Container::<()>::new().width(80.0).height(20.0))
+            .child(Container::<()>::new().width(40.0).height(20.0));
+        let shared = widths(&sharing);
+        assert!(
+            shared[1] < 40.0,
+            "the default is flexbox's: everyone pays ({shared:?})"
+        );
+
+        let refusing = Flex::row()
+            .child(Container::<()>::new().width(80.0).height(20.0))
+            .child(Container::<()>::new().width(40.0).height(20.0).no_shrink());
+        assert_eq!(
+            widths(&refusing),
+            vec![60.0, 40.0],
+            "the whole deficit goes to the child that did not refuse"
+        );
+    }
 
     /// A `Container` with a group opacity < 1 has its painted subtree wrapped in a
     /// [`frus_core::Primitive::Layer`] at that opacity.

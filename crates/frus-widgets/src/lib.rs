@@ -45,6 +45,7 @@ mod dragdrop;
 mod drawer;
 mod dropdown;
 mod dsl;
+mod expanded;
 mod fittedbox;
 mod flex;
 /// Form validation, pure and application-side: [`form::Rule`] and [`form::Form`].
@@ -170,7 +171,8 @@ pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;
-pub use dsl::{button, keyed, spacer, text};
+pub use dsl::{button, expanded, keyed, spacer, text};
+pub use expanded::Expanded;
 pub use fittedbox::FittedBox;
 pub use flex::{Flex, Wrap};
 pub use fractional::FractionallySizedBox;

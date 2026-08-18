@@ -56,8 +56,12 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
             .on_click(Msg::OpenTask(id))
             .child(Hero::new(id, Avatar::new(todo.text.clone()).size(30.0))),
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
-        label,
-        spacer(),
+        // The label takes what the rest of the row leaves, and is cut with an ellipsis
+        // at that width. Laid out by its own content instead, a long task title pushed
+        // the delete button off the card and out of the hit registry: the task could no
+        // longer be deleted (milestones 333 and 334). No `spacer()` is needed — the
+        // expanding label is what pushes the button to the right edge.
+        Expanded::new(label.ellipsis()),
         IconButton::new(IconName::Close)
             .label("Delete task")
             .icon_color(theme.error)
@@ -65,7 +69,12 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
             .on_press(Msg::DeleteTodo(id)),
     ]
     .align(Align::Center)
-    .gap(12.0);
+    .gap(12.0)
+    // Fills the card. A row is sized by its content on its own main axis, so without
+    // this it is only as wide as its children and the expanding label has nothing to
+    // expand into — the delete button then sits against the label instead of the card's
+    // right edge (milestone 334).
+    .flex(1.0);
     Container::new()
         // No long press here: the hold is what **lifts** the row for dragging
         // (`todo_row_draggable`), and one hold cannot mean two things. Deleting is the

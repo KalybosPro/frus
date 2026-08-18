@@ -28,6 +28,24 @@
 //! ones a transparent wrapper can have a reason to claim, so the macro leaves **both** to
 //! the caller: whichever one this wrapper is not for is then visibly forwarded rather than
 //! quietly defaulted.
+//!
+//! ## The third hook: `restyle`
+//!
+//! [`crate::Expanded`] is transparent in every respect but one — it alters the flex item
+//! its child *is*. So the **box** is the third thing a wrapper may legitimately claim,
+//! and the macro asks for it the same way: an inherent method every wrapper writes, so
+//! that the one which does not change the box has to say so.
+//!
+//! ```ignore
+//! impl<Msg> Expanded<Msg> {
+//!     fn restyle(&self, base: Style) -> Style {
+//!         Style { flex_grow: self.flex, ..base }
+//!     }
+//! }
+//! ```
+//!
+//! It is applied to `style` **and** `style_themed`, so a themed child keeps its themed
+//! sizing and the two cannot drift apart.
 
 /// Implements `Widget<Msg>` for a `{ inner: Box<dyn Widget<Msg>>, … }` wrapper by
 /// delegating every hook to `inner`, except [`Widget::key`] and
@@ -39,12 +57,14 @@ macro_rules! forward_transparent {
         impl<Msg> $crate::widget::Widget<Msg> for $ty<Msg> {
             $($extra)*
 
+            // Both go through `restyle`, the wrapper's own inherent method, so a themed
+            // child keeps its themed sizing and the two cannot drift apart.
             fn style(&self) -> frus_layout::Style {
-                self.inner.style()
+                self.restyle(self.inner.style())
             }
 
             fn style_themed(&self, theme: &$crate::theme::Theme) -> frus_layout::Style {
-                self.inner.style_themed(theme)
+                self.restyle(self.inner.style_themed(theme))
             }
 
             fn build_themed(&self, theme: &$crate::theme::Theme) {
@@ -508,13 +528,34 @@ mod tests {
     /// forgetting it is the same silence this module exists to prevent.
     #[test]
     fn every_wrapper_states_the_hooks_the_macro_leaves_out() {
-        for file in ["keyed.rs", "themed.rs"] {
-            let src = std::fs::read_to_string(format!("{}/src/{file}", env!("CARGO_MANIFEST_DIR")))
-                .expect("the wrapper's source");
-            for hook in ["fn key(", "fn theme_override("] {
+        // Found, not listed: a wrapper added to the crate is covered the day it is
+        // written, which a hand-kept array is not.
+        let mut checked = 0;
+        for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))
+            .expect("the source directory")
+        {
+            let path = entry.expect("a directory entry").path();
+            let file = path
+                .file_name()
+                .expect("a name")
+                .to_string_lossy()
+                .to_string();
+            if file == "transparent.rs" {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).expect("the wrapper's source");
+            if !src.contains("forward_transparent!(") {
+                continue;
+            }
+            checked += 1;
+            for hook in ["fn key(", "fn theme_override(", "fn restyle("] {
                 assert!(src.contains(hook), "{file} says nothing about `{hook}`");
             }
         }
+        assert!(
+            checked >= 3,
+            "only {checked} wrappers found — did the search break?"
+        );
     }
 
     #[test]

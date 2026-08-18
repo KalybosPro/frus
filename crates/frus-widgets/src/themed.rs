@@ -69,6 +69,14 @@ impl<Msg> Themed<Msg> {
     }
 }
 
+impl<Msg> Themed<Msg> {
+    /// A theme does reach sizes and spacing, but through the child's own
+    /// `style_themed`; this wrapper adds nothing on top of it.
+    fn restyle(&self, base: frus_layout::Style) -> frus_layout::Style {
+        base
+    }
+}
+
 crate::transparent::forward_transparent!(Themed {
     /// A theme says nothing about identity: a keyed widget wrapped in a theme keeps its key.
     fn key(&self) -> Option<u64> {

@@ -14,6 +14,7 @@ pub struct Flex<Msg> {
     width: Dimension,
     height: Dimension,
     flex_grow: f32,
+    flex_shrink: f32,
     justify: Justify,
     align: Align,
     padding: Insets,
@@ -39,6 +40,7 @@ impl<Msg> Flex<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
+            flex_shrink: 1.0,
             justify: Justify::Start,
             align: Align::Stretch,
             padding: Insets::ZERO,
@@ -64,6 +66,20 @@ impl<Msg> Flex<Msg> {
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self
+    }
+
+    /// Refuses to give up room when a row does not fit: `no_shrink()` is
+    /// `shrink(0.0)`, and it is what fixed chrome wants — an icon button at the end of a
+    /// row keeps its width however long the label beside it grows. The default is
+    /// `1.0`, flexbox's, where every child absorbs its share of the deficit.
+    pub fn shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = shrink;
+        self
+    }
+
+    /// This box never shrinks; the deficit goes to its siblings. See [`Self::shrink`].
+    pub fn no_shrink(self) -> Self {
+        self.shrink(0.0)
     }
 
     /// How the children are distributed along the main axis.
@@ -123,6 +139,7 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             width: self.width,
             height: self.height,
             flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
             flex_direction: self.direction,
             justify: self.justify,
             align: self.align,

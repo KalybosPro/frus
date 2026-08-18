@@ -3,7 +3,7 @@
 
 use crate::prelude::*;
 use crate::screens::*;
-use frus_widgets::{build_ui, Runtime, Size};
+use frus_widgets::{build_ui, Point, Runtime, Size};
 
 /// An app whose editable grid is already filled — the shape half of these tests
 /// start from.
@@ -230,6 +230,70 @@ fn toggle_delete_and_clear_done() {
     reduce(&mut app, Msg::ConfirmClearDone);
     assert_eq!(app.todos.len(), 1);
     assert_eq!(app.todos[0].text, "c");
+}
+
+/// The device finding of milestone 327, closed in 334. A task label long enough to
+/// overflow the row used to be laid out at its own content width, which pushed the delete
+/// button off the card, out of the window, and — the part that mattered — out of the hit
+/// registry: the × was not merely invisible, it was unclickable, and that task could not
+/// be deleted at all.
+///
+/// Driven through `view` at a phone's width, and read from the **hit registry** rather
+/// than from the picture, because the registry is what the report was about.
+#[test]
+fn a_long_task_label_still_leaves_its_delete_button_clickable() {
+    // A phone in portrait, in logical pixels.
+    const W: f32 = 411.0;
+    const H: f32 = 869.0;
+
+    let mut app = TodoApp::default();
+    add(&mut app, "short");
+    add(
+        &mut app,
+        "a task label far longer than any phone is wide, which is exactly the case that          used to push the delete button out of the window entirely",
+    );
+    let long_id = app.todos[1].id;
+
+    let theme = Theme::default();
+    let tree = build_view(&app, &theme, W, H);
+    let ui = build_ui(&tree, Size::new(W, H), &Runtime::default(), &theme);
+
+    // Sweep the window and ask what a tap there would send.
+    let mut targets = Vec::new();
+    let mut y = 1.0;
+    while y < H {
+        let mut x = 1.0;
+        while x < W {
+            if let Some(Msg::DeleteTodo(id)) =
+                ui.hit(Point::new(x, y)).and_then(|id| ui.msg_for(id))
+            {
+                if id == long_id {
+                    targets.push((x, y));
+                }
+            }
+            x += 2.0;
+        }
+        y += 2.0;
+    }
+
+    assert!(
+        !targets.is_empty(),
+        "no tap anywhere in the window deletes the long task"
+    );
+    // And it is a real target, not a sliver: an icon button's 40 px, near the right edge.
+    let left = targets.iter().map(|t| t.0).fold(f32::MAX, f32::min);
+    let right = targets.iter().map(|t| t.0).fold(f32::MIN, f32::max);
+    assert!(
+        right - left > 20.0,
+        "the delete target is a sliver {left}..{right}, not a button"
+    );
+    assert!(right < W, "and it is inside the window");
+    // And it is where a trailing button belongs: against the row's right edge, not
+    // sitting on top of the label because the label was given no width at all.
+    assert!(
+        left > W * 0.5,
+        "the delete target is at {left}..{right}, not on the right-hand side"
+    );
 }
 
 #[test]

@@ -102,8 +102,19 @@ pub struct Style {
     pub max_width: Dimension,
     /// **Maximum** height: the same ceiling on the vertical axis (`Auto` = none).
     pub max_height: Dimension,
-    /// The main-axis grow factor (flexbox).
+    /// The main-axis grow factor (flexbox): the share of **spare** room this item takes.
     pub flex_grow: f32,
+    /// The main-axis **shrink** factor: the share of a *deficit* this item absorbs when
+    /// the children do not fit. `1.0` — the flexbox default — means everything squashes
+    /// together, in proportion to its basis; `0.0` means *not me*, and is what fixed
+    /// chrome wants: an icon button at the end of a row keeps its 40 px however long the
+    /// label beside it is. See [`Style::flex_basis`] for the other half.
+    pub flex_shrink: f32,
+    /// The main-axis **basis**: the size an item starts from, before growing or
+    /// shrinking. `Auto` — the default — means *use the content*, so a long label starts
+    /// long and drags the whole row with it. `Length(0.0)` means *start from nothing and
+    /// take what is left*, which is the shape of the reference's expanding child.
+    pub flex_basis: Dimension,
     /// The main-axis direction, for a container.
     pub flex_direction: FlexDirection,
     /// Distribution along the main axis.
@@ -139,6 +150,10 @@ impl Default for Style {
             max_width: Dimension::Auto,
             max_height: Dimension::Auto,
             flex_grow: 0.0,
+            // The flexbox default, kept: every item absorbs its share of a deficit
+            // unless it says otherwise.
+            flex_shrink: 1.0,
+            flex_basis: Dimension::Auto,
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Stretch,
@@ -180,6 +195,8 @@ impl Style {
         dim(self.max_width, hasher);
         dim(self.max_height, hasher);
         self.flex_grow.to_bits().hash(hasher);
+        self.flex_shrink.to_bits().hash(hasher);
+        dim(self.flex_basis, hasher);
         (self.flex_direction as u8).hash(hasher);
         (self.justify as u8).hash(hasher);
         (self.align as u8).hash(hasher);
@@ -218,6 +235,8 @@ impl Style {
                 height: self.max_height.to_taffy(),
             },
             flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
+            flex_basis: self.flex_basis.to_taffy(),
             flex_direction: self.flex_direction.to_taffy(),
             flex_wrap: if self.flex_wrap {
                 taffy::FlexWrap::Wrap

@@ -5,6 +5,7 @@
 use std::hash::Hash;
 
 use crate::button::Button;
+use crate::expanded::Expanded;
 use crate::flex::Flex;
 use crate::keyed::Keyed;
 use crate::text::Text;
@@ -18,6 +19,12 @@ pub fn text(content: impl Into<String>) -> Text {
 /// Shorthand: a flexible **spacer** that pushes its neighbours apart (`flex: 1`).
 pub fn spacer<Msg>() -> Flex<Msg> {
     Flex::row().flex(1.0)
+}
+
+/// Shorthand: the child that takes the room its siblings left.
+/// `expanded(text(&title).ellipsis())` = `Expanded::new(...)`.
+pub fn expanded<Msg>(child: impl Widget<Msg> + 'static) -> Expanded<Msg> {
+    Expanded::new(child)
 }
 
 /// Shorthand: a button with its click message.
