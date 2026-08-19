@@ -9,7 +9,7 @@
 //!
 //! ## The order they apply in
 //!
-//! One layer may carry all three, and the order is fixed:
+//! Three of the four act on the layer's own pixels, and the order is fixed:
 //!
 //! 1. the [`ImageFilter`] — it treats the layer as an image, so it must run while the
 //!    pixels are still the layer's own;
@@ -17,6 +17,10 @@
 //! 3. the [`ShaderMask`] — a colour blended over what the first two produced;
 //!
 //! and then, as before, the group opacity and the clip shape.
+//!
+//! The fourth, the [`Backdrop`], is not one of them: it filters what has already been
+//! painted **underneath** the layer, and is drawn before the layer's own content
+//! rather than applied to it.
 //!
 //! ## Colour space
 //!
@@ -486,6 +490,51 @@ impl FractionalMask {
     }
 }
 
+/// A filter over what has already been painted **underneath** a layer: the frosted
+/// glass a sheet, a bar or a dialog sits on.
+///
+/// This is the expensive one, and the difference from [`ImageFilter`] on the layer
+/// itself is worth stating plainly. `ImageFiltered` blurs *the widget*, and its input
+/// is a texture the renderer was going to make anyway. A backdrop blurs *the frame so
+/// far*, so the renderer has to stop, take a copy of what it has drawn, filter that,
+/// and carry on — once per backdrop. When the effect wanted is "blur this widget",
+/// the other one is both easier and dramatically cheaper.
+///
+/// The **region** is the layer's clip, which is the ambient clip unless something
+/// narrows it. Unclipped, that is the whole surface — the same rule the reference
+/// states, and the same advice follows from it: wrap a backdrop in a clip to bound it
+/// to the shape it belongs to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Backdrop {
+    /// What to do to the pixels underneath. A blur, nearly always.
+    pub filter: ImageFilter,
+    /// How the filtered copy meets what it was copied from. [`BlendMode::SrcOver`] —
+    /// the default — paints it over, which is what an opaque frame wants;
+    /// [`BlendMode::Src`] replaces instead, which is what a frame that is *not* opaque
+    /// underneath wants. Those are the two the reference singles out, and the two
+    /// supported here.
+    pub blend: BlendMode,
+    /// The **sharing key**. Several backdrops with the same key are filtered once and
+    /// the one result is reused, which turns a list of sixty frosted rows from sixty
+    /// full-surface blurs into one. `None` means this backdrop is filtered on its own.
+    ///
+    /// Two backdrops that **overlap** must not share a key: the shared copy is taken
+    /// once, before the first of them, so the second would not see the first.
+    pub key: Option<u64>,
+}
+
+impl Backdrop {
+    /// A backdrop blur of `sigma` logical pixels, painted over what it filtered, on
+    /// its own rather than shared.
+    pub const fn blur(sigma: f32) -> Backdrop {
+        Backdrop {
+            filter: ImageFilter::blur(sigma),
+            blend: BlendMode::SrcOver,
+            key: None,
+        }
+    }
+}
+
 /// Everything a layer applies to its own pixels at compositing time. All three are
 /// optional and independent; [`LayerFilter::is_none`] is the fast path the renderer
 /// takes when nothing is asked for, which is nearly always.
@@ -497,6 +546,9 @@ pub struct LayerFilter {
     pub color: Option<ColorFilter>,
     /// A colour blended over the result.
     pub mask: Option<ShaderMask>,
+    /// A filter over what is painted **underneath**, drawn before the layer's own
+    /// content. Not one of the three above: it never touches the layer's pixels.
+    pub backdrop: Option<Backdrop>,
 }
 
 impl LayerFilter {
@@ -506,12 +558,16 @@ impl LayerFilter {
         image: None,
         color: None,
         mask: None,
+        backdrop: None,
     };
 
     /// `true` when this layer asks for no effect, so compositing can take its
     /// original path unchanged.
     pub fn is_none(&self) -> bool {
-        self.image.is_none() && self.color.is_none() && self.mask.is_none()
+        self.image.is_none()
+            && self.color.is_none()
+            && self.mask.is_none()
+            && self.backdrop.is_none()
     }
 
     /// Folds `other` into this filter, keeping what is already set.
@@ -520,17 +576,29 @@ impl LayerFilter {
     /// single layer instead of nesting two. It returns `None` when both sides ask
     /// for the **same** slot, because there the outer one is a filter *of the
     /// inner's result* and merging would silently drop one of them.
+    /// A backdrop refuses to share with a filter **of the layer itself**. It is a
+    /// filter of what lies *underneath*, drawn before the layer's content; a colour
+    /// filter sharing the layer would be applied to the content and not to the
+    /// backdrop, and the picture would quietly differ from what the two widgets read
+    /// as. It shares happily with nothing at all, which is what a clip is, and that
+    /// case matters: a clip around a backdrop is the shape the backdrop should take.
     pub fn merge(self, other: LayerFilter) -> Option<LayerFilter> {
         let clash = (self.image.is_some() && other.image.is_some())
             || (self.color.is_some() && other.color.is_some())
-            || (self.mask.is_some() && other.mask.is_some());
+            || (self.mask.is_some() && other.mask.is_some())
+            || (self.backdrop.is_some() && other.backdrop.is_some());
         if clash {
+            return None;
+        }
+        let own = |f: &LayerFilter| f.image.is_some() || f.color.is_some() || f.mask.is_some();
+        if (self.backdrop.is_some() && own(&other)) || (other.backdrop.is_some() && own(&self)) {
             return None;
         }
         Some(LayerFilter {
             image: self.image.or(other.image),
             color: self.color.or(other.color),
             mask: self.mask.or(other.mask),
+            backdrop: self.backdrop.or(other.backdrop),
         })
     }
 
@@ -543,6 +611,10 @@ impl LayerFilter {
             mask: self.mask.map(|m| ShaderMask {
                 shader: m.shader.scaled_xy(sx, sy),
                 blend: m.blend,
+            }),
+            backdrop: self.backdrop.map(|b| Backdrop {
+                filter: b.filter.scaled_xy(sx, sy),
+                ..b
             }),
         }
     }
@@ -684,6 +756,37 @@ mod tests {
             ..LayerFilter::NONE
         }
         .is_none());
+    }
+
+    /// A backdrop refuses to share a layer with a filter of the layer itself, in
+    /// either direction: the three others filter the layer and it filters what is
+    /// under it, so folding them would apply the colour filter to the content and not
+    /// to the backdrop it sits on.
+    #[test]
+    fn a_backdrop_does_not_fold_with_a_filter_of_the_layer() {
+        let backdrop = LayerFilter {
+            backdrop: Some(Backdrop::blur(20.0)),
+            ..LayerFilter::NONE
+        };
+        let grey = LayerFilter {
+            color: Some(ColorFilter::grayscale()),
+            ..LayerFilter::NONE
+        };
+        assert!(backdrop.merge(grey).is_none());
+        assert!(grey.merge(backdrop).is_none());
+    }
+
+    /// But it folds happily with **nothing**, and that case is the one that matters:
+    /// a clip carries no filter of its own, and a clip around a backdrop is exactly
+    /// how the reference tells callers to give a backdrop its shape.
+    #[test]
+    fn a_clip_folds_into_a_backdrop() {
+        let backdrop = LayerFilter {
+            backdrop: Some(Backdrop::blur(20.0)),
+            ..LayerFilter::NONE
+        };
+        let merged = LayerFilter::NONE.merge(backdrop).expect("a clip folds in");
+        assert!(merged.backdrop.is_some());
     }
 
     #[test]

@@ -1009,6 +1009,9 @@ struct Builder<'a, Msg> {
     focus_scope_start: Option<usize>,
     /// Set while inside an `ExcludeFocus`: nothing in here registers a focus stop.
     focus_excluded: bool,
+    /// The identity of the nearest enclosing backdrop group — the key a backdrop
+    /// asking to be shared takes. Pushed and popped by the walk, like the focus flags.
+    backdrop_group: Option<u64>,
     /// Set while inside an `ExcludeFocusTraversal`: stops register, Tab passes them by.
     focus_skipped: bool,
     /// The traversal order in force, from the nearest enclosing `FocusTraversalOrder`.
@@ -1516,6 +1519,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if widget.focus_group() {
             self.focus_group = Some(id);
         }
+        // The backdrop group a subtree sits in, scoped the same way and for the same
+        // reason. Its own identity is the key: stable across frames, and unique
+        // without anything having to hand one out.
+        let outer_group = self.backdrop_group;
+        if widget.backdrop_group() {
+            self.backdrop_group = Some(id.as_u64());
+        }
         // The focus stops this subtree contains start here; the walk is depth-first, so
         // they are contiguous and the range closes below.
         let stops_before = self.focusables.len();
@@ -1526,6 +1536,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.focus_order,
             self.focus_group,
         ) = outer;
+        self.backdrop_group = outer_group;
         self.close_scope(widget, stops_before);
     }
 
@@ -1639,9 +1650,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         //
         // The box is passed in because a mask is written in fractions of the box it
         // covers, and this is the first point at which that box is a place on screen.
-        if let Some(filter) =
-            widget.layer_filter(rects[*index].translate(translation.0, translation.1))
-        {
+        if let Some(filter) = widget.layer_filter(crate::widget::FilterContext {
+            box_rect: rects[*index].translate(translation.0, translation.1),
+            backdrop_group: self.backdrop_group,
+        }) {
             // The layer keeps the **ambient** clip rather than its own box: an image
             // filter reaches past the pixels it came from, and cutting it at the box
             // would shave the edge off every blur.
@@ -1678,13 +1690,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let start = self.scene.primitives().len();
             self.walk_node(widget, id, translation, clip_box, rects, index);
             let group = self.scene.split_off(start);
+            // A clip around a filter is **one** layer, not two. It matters most for a
+            // backdrop: the reference's own advice is to wrap one in a clip to give it
+            // its shape, and a backdrop pushed a level down would be filtering the
+            // clip's contents rather than the frame.
+            let (group, filter, clip_box) = fold_filter(group, LayerFilter::NONE, clip_box);
             self.scene.push_primitive(Primitive::Layer {
                 primitives: group,
                 opacity: 1.0,
                 clip: clip_box,
                 clip_shape: shape,
                 transform: None,
-                filter: LayerFilter::NONE,
+                filter,
                 owner: id.as_u64(),
             });
             return;
@@ -3084,6 +3101,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         dismissables: Vec::new(),
         semantics: Vec::new(),
         focus_excluded: false,
+        backdrop_group: None,
         focus_skipped: false,
         focus_order: None,
         focus_group: None,

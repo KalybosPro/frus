@@ -161,7 +161,8 @@ fn headless_device() -> Option<(wgpu::Device, wgpu::Queue, u32)> {
 mod tests {
     use super::*;
     use frus_core::{
-        ColorFilter, ImageFilter, LayerFilter, MaskShader, Path, Point, Primitive, Rect, ShaderMask,
+        Backdrop, ColorFilter, ImageFilter, LayerFilter, MaskShader, Path, Point, Primitive, Rect,
+        ShaderMask,
     };
 
     /// The offscreen path renders what the windowed pipeline does: a solid red
@@ -471,5 +472,211 @@ mod tests {
             (middle - 188).abs() <= 12,
             "half way is half the light: {middle}"
         );
+    }
+    /// A **backdrop** filters what is already painted, not the layer that carries it.
+    ///
+    /// The scene is a hard black/white split down the middle with a backdrop blur over
+    /// the bottom half. Along the seam, the top half must stay a clean edge and the
+    /// bottom half must be a gradient — which is the whole claim: the blur reached
+    /// pixels that were painted by something else entirely.
+    #[test]
+    fn a_backdrop_blurs_what_is_underneath_it() {
+        let mut scene = Scene::new();
+        // The picture underneath: white on the left, nothing (the clear colour) right.
+        scene.fill_rect(Rect::new(0.0, 0.0, 32.0, 64.0), Color::WHITE);
+        // A backdrop over the bottom half only, with no content of its own.
+        scene.push_primitive(Primitive::Layer {
+            primitives: Vec::new(),
+            opacity: 1.0,
+            clip: Rect::new(0.0, 32.0, 64.0, 32.0),
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter {
+                backdrop: Some(Backdrop::blur(6.0)),
+                ..LayerFilter::NONE
+            },
+            owner: 0,
+        });
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let at = |x: u32, y: u32| frame.rgba[((y * frame.width + x) * 4) as usize] as i32;
+        // Above the backdrop: the seam is untouched, black one side and white the other.
+        assert_eq!(at(36, 16), 0, "above: still the clear colour");
+        assert_eq!(at(28, 16), 255, "above: still white");
+        // Below it: the same two places have bled into each other.
+        assert!(
+            at(36, 48) > 20,
+            "below: the white has spread right ({})",
+            at(36, 48)
+        );
+        assert!(
+            at(28, 48) < 255,
+            "below: the white has given some away ({})",
+            at(28, 48)
+        );
+    }
+
+    /// The backdrop is bounded by the layer's clip and by nothing else: outside it,
+    /// the frame is exactly what it was.
+    #[test]
+    fn a_backdrop_stops_at_its_clip() {
+        let mut scene = Scene::new();
+        // The top half white, the bottom the clear colour: an erode has something to
+        // eat only where the two meet.
+        scene.fill_rect(Rect::new(0.0, 0.0, 64.0, 32.0), Color::WHITE);
+        scene.push_primitive(Primitive::Layer {
+            primitives: Vec::new(),
+            opacity: 1.0,
+            clip: Rect::new(0.0, 0.0, 20.0, 64.0),
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter {
+                // An erode eats the shape inwards, so its effect is unmistakable
+                // against a flat fill and cannot be confused with a rounding error.
+                backdrop: Some(Backdrop {
+                    filter: ImageFilter::Erode {
+                        radius_x: 8.0,
+                        radius_y: 8.0,
+                    },
+                    ..Backdrop::blur(0.0)
+                }),
+                ..LayerFilter::NONE
+            },
+            owner: 0,
+        });
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let at = |x: u32, y: u32| frame.rgba[((y * frame.width + x) * 4) as usize] as i32;
+        // Four pixels above the seam, inside the clip: eaten by the black below it.
+        assert!(
+            at(2, 28) < 255,
+            "inside the clip, the white was eaten ({})",
+            at(2, 28)
+        );
+        // The same place outside the clip: untouched white.
+        assert_eq!(at(40, 28), 255, "outside the clip, nothing happened");
+    }
+
+    /// Two backdrops sharing a key are filtered **once**: they read the same copy, so
+    /// the second one cannot see what the first one drew. That is the price of the
+    /// sharing and the reason overlapping backdrops must not share a key — and it is
+    /// also the only observable proof that the sharing happened at all.
+    #[test]
+    fn a_shared_key_filters_once() {
+        let backdrop = |key: Option<u64>, y: f32| Primitive::Layer {
+            primitives: Vec::new(),
+            opacity: 1.0,
+            clip: Rect::new(0.0, y, 64.0, 32.0),
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter {
+                backdrop: Some(Backdrop {
+                    key,
+                    ..Backdrop::blur(6.0)
+                }),
+                ..LayerFilter::NONE
+            },
+            owner: 0,
+        };
+        // The two backdrops cover the same region. Unshared, the second blurs the
+        // first's output and the seam softens twice; shared, both blur the same copy
+        // and it softens once.
+        let build = |key: Option<u64>| {
+            let mut scene = Scene::new();
+            scene.fill_rect(Rect::new(0.0, 0.0, 32.0, 64.0), Color::WHITE);
+            scene.push_primitive(backdrop(key, 0.0));
+            scene.push_primitive(backdrop(key, 0.0));
+            scene
+        };
+        let Some(twice) = render_offscreen(&build(None), 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let once = render_offscreen(&build(Some(7)), 64, 64, Color::BLACK).expect("adapter");
+        let at = |f: &OffscreenFrame, x: u32| f.rgba[((16 * f.width + x) * 4) as usize] as i32;
+        // Twelve pixels past the seam: two blurs reach further than one.
+        assert!(
+            at(&twice, 44) > at(&once, 44),
+            "unshared blurs twice ({}) and shared blurs once ({})",
+            at(&twice, 44),
+            at(&once, 44)
+        );
+    }
+    /// A layer **inside** a layer is composited, not dropped.
+    ///
+    /// A group is rendered into a texture of its own and that texture is composited;
+    /// a layer found inside it is not a primitive the group can paint, so for a long
+    /// time it was simply skipped — a rounded card around a fading group, a clip
+    /// around a transform, gone. The group now renders its nested layers first and
+    /// composites them into its own pass, and this is the test that says so.
+    #[test]
+    fn a_layer_inside_a_layer_is_drawn() {
+        let mut inner = Scene::new();
+        inner.fill_rect(Rect::new(8.0, 8.0, 48.0, 48.0), Color::WHITE);
+        let group = Primitive::Layer {
+            primitives: inner.primitives().to_vec(),
+            // A group opacity, so the test also proves the nested layer keeps its own
+            // compositing rather than being flattened into the parent.
+            opacity: 0.5,
+            clip: Rect::UNBOUNDED,
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter::NONE,
+            owner: 0,
+        };
+        let mut scene = Scene::new();
+        scene.push_primitive(Primitive::Layer {
+            primitives: vec![group],
+            opacity: 1.0,
+            clip: Rect::new(0.0, 0.0, 64.0, 64.0),
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter::NONE,
+            owner: 0,
+        });
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let at = |x: u32, y: u32| frame.rgba[((y * frame.width + x) * 4) as usize] as i32;
+        // Half of white over black is half the light, which is 188 once encoded.
+        assert!(
+            (at(32, 32) - 188).abs() <= 12,
+            "the nested group is drawn, at its own opacity: {}",
+            at(32, 32)
+        );
+        assert_eq!(at(2, 2), 0, "and only where it is");
+    }
+
+    /// Three deep, with the middle one clipped to an ellipse: the recursion is not a
+    /// special case for one level.
+    #[test]
+    fn nesting_goes_as_deep_as_the_scene_does() {
+        let mut leaf = Scene::new();
+        leaf.fill_rect(Rect::new(0.0, 0.0, 64.0, 64.0), Color::WHITE);
+        let level = |primitives: Vec<Primitive>, shape: frus_core::ClipShape| Primitive::Layer {
+            primitives,
+            opacity: 1.0,
+            clip: Rect::new(0.0, 0.0, 64.0, 64.0),
+            clip_shape: shape,
+            transform: None,
+            filter: LayerFilter::NONE,
+            owner: 0,
+        };
+        let inner = level(leaf.primitives().to_vec(), frus_core::ClipShape::Rect);
+        let middle = level(vec![inner], frus_core::ClipShape::Oval);
+        let mut scene = Scene::new();
+        scene.push_primitive(level(vec![middle], frus_core::ClipShape::Rect));
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let at = |x: u32, y: u32| frame.rgba[((y * frame.width + x) * 4) as usize] as i32;
+        assert_eq!(at(32, 32), 255, "the middle of the disc is white");
+        assert_eq!(at(2, 2), 0, "its corner is not: the ellipse clipped it");
     }
 }

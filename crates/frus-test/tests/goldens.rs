@@ -5,10 +5,10 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, BarChart, Button, Checkbox, Chip, ColorFiltered, Container,
-    DateTimePicker, Dropdown, Flex, IconName, ImageFiltered, LineChart, Menu, Pagination,
-    RadioGroup, RangeSlider, Rating, SegmentedControl, ShaderMask, Slider, Stepper, Switch, Table,
-    Tabs, Text, TextInput, Theme, TimePicker, Variant,
+    Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
+    ColorFiltered, Container, DateTimePicker, Dropdown, Flex, IconName, ImageFiltered, LineChart,
+    Menu, Pagination, RadioGroup, RangeSlider, Rating, SegmentedControl, ShaderMask, Slider, Stack,
+    Stepper, Switch, Table, Tabs, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -2874,4 +2874,52 @@ fn a_greyscale_filter_keeps_its_colour_space() {
         "the luminance of red: {r} (wanted about {want})"
     );
     assert_eq!((r, g, b), (r, r, r), "grey: the three channels agree");
+}
+
+/// A **backdrop**: a translucent bar over a striped page, blurring what is under it.
+///
+/// The stripes are there so the blur is legible at a glance — a frosted panel over a
+/// flat colour looks like a flat colour. The rounded clip is the shape the reference
+/// tells callers to reach for, and the reason: without it the blur would run to the
+/// edges of the surface.
+#[test]
+fn a_backdrop_matches_its_golden() {
+    let theme = Theme::dark();
+    let stripe = |i: usize| {
+        Container::<()>::new()
+            .width(180.0)
+            .height(10.0)
+            .color(if i.is_multiple_of(2) {
+                Color::rgb8(220, 70, 60)
+            } else {
+                Color::rgb8(40, 90, 200)
+            })
+    };
+    let mut page = Flex::column();
+    for i in 0..12 {
+        page = page.child(stripe(i));
+    }
+    // What a backdrop filters is the clip around it, so the clip is what has to be
+    // the shape the frosting should take — here a 14-pixel rounded rectangle hugging
+    // the bar exactly.
+    let bar = ClipRRect::new(14.0).child(
+        BackdropFilter::blur(10.0).child(
+            Container::new()
+                .width(140.0)
+                .height(40.0)
+                .color(Color::WHITE.fade(0.15)),
+        ),
+    );
+    let root: Container<()> = Container::new().child(
+        Stack::new().width(180.0).height(120.0).layer(page).layer(
+            Container::new()
+                .padding(20.0)
+                .child(Flex::column().child(bar)),
+        ),
+    );
+    let Some(snapshot) = render_widget(&root, 180, 120, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("backdrop_bar"));
 }

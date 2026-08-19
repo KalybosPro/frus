@@ -8,12 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 339 so far, each documenting the objective, the alternatives
+> record — one per step, 340 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`BackdropFilter` and `BackdropGroup`** (J340), which closes the filter subsystem. A
+  backdrop filters **the frame so far**, so a frame containing one is built in a staging
+  texture, cut into segments at each backdrop, and blitted to the target at the end; a
+  frame without one takes the single pass it always took. `BackdropGroup` makes several
+  backdrops share one filtered copy — sixty frosted rows, one blur — keyed by the group's
+  own identity in the tree.
+
+- **`FilterContext`** (J340): the filter hook now carries the widget's box *and* the
+  enclosing backdrop group. Both are properties of where the widget turned out to be, and
+  a widget cannot see its own ancestors.
 
 - **Three filters** (J339): `ColorFiltered`, `ImageFiltered` and `ShaderMask` — the three
   that apply a pixel effect to their **own** subtree. They ride on the layer a subtree is
@@ -47,6 +58,19 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **A layer nested in another layer is drawn** (J340). It never was: a group renders into a
+  texture and composites it, and a layer found inside that group is not a primitive the
+  group can paint, so it was skipped — a rounded card around a fading group, a clip around
+  a transform, silently gone. A group now renders its nested layers first, depth-first,
+  and composites them into its own pass. Two goldens moved and every pixel that changed
+  got brighter: the milestone-339 coverage fix finally reaching the antialiased edges of
+  those layers.
+
+- **A clip around a filter is one layer, not two** (J340), which is what makes
+  `ClipRect` around a `BackdropFilter` — the shape the reference tells callers to reach
+  for — mean what it reads as. A backdrop refuses to share a layer with a filter *of the
+  layer itself*, but shares with nothing at all, and a clip is nothing at all.
 
 - **Layer compositing blends premultiplied** (J339). A layer texture is premultiplied — it
   was painted over a transparent target — and the composite pass was handing it to the

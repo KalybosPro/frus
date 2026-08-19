@@ -46,6 +46,10 @@ const QUAD_VERTICES: &[QuadVertex] = &[
 /// the second starting here.
 const PARAMS_STRIDE: wgpu::BufferAddress = 256;
 
+/// Three slots: the two filter passes, and the blit that puts a staged frame on the
+/// screen — which is this same pipeline with nothing to do.
+const PARAMS_SLOTS: wgpu::BufferAddress = 3;
+
 /// The separable image-filter pipeline, plus the scratch texture the first pass
 /// writes and the second reads.
 pub(crate) struct FilterPainter {
@@ -157,7 +161,7 @@ impl FilterPainter {
 
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frus.filter.params"),
-            size: PARAMS_STRIDE * 2,
+            size: PARAMS_STRIDE * PARAMS_SLOTS,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -302,6 +306,77 @@ impl FilterPainter {
         }
         queue.submit(std::iter::once(encoder.finish()));
         output
+    }
+}
+
+impl FilterPainter {
+    /// Copies `source` onto `target`, one to one.
+    ///
+    /// It is the filter pipeline with a radius of zero, which the shader answers by
+    /// returning the sample it centred on. A blit deserves no pipeline of its own, and
+    /// the one place it is needed — putting a staged frame on the screen once the
+    /// backdrops in it have been drawn — is downstream of this file anyway.
+    pub(crate) fn blit(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::TextureView,
+        target: &wgpu::TextureView,
+    ) {
+        const SLOT: wgpu::BufferAddress = 2;
+        let params = Params {
+            size: [1.0, 1.0],
+            dir: [0.0, 0.0],
+            radius: 0.0,
+            kind: 0.0,
+            _pad: [0.0, 0.0],
+        };
+        queue.write_buffer(
+            &self.params,
+            SLOT * PARAMS_STRIDE,
+            bytemuck::bytes_of(&params),
+        );
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("frus.filter.blit.bind_group"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.params,
+                        offset: SLOT * PARAMS_STRIDE,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<Params>() as u64),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("frus.filter.blit"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, self.quad.slice(..));
+        pass.draw(0..QUAD_VERTICES.len() as u32, 0..1);
     }
 }
 

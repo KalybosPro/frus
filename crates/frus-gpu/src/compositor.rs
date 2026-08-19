@@ -16,6 +16,7 @@ use frus_core::{
     BoxFit, Color, ColorFilter, ImageData, ImageFilter, LayerFilter, MaskShader, Path, Point,
     Primitive, Rect, Scene,
 };
+use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 
 use crate::filter::FilterPainter;
@@ -183,6 +184,31 @@ struct LayerComposite {
     filter: LayerFilter,
 }
 
+/// A backdrop waiting for the frame underneath it to exist: where in the draw list
+/// it sits, what to do to the pixels, and whether it shares its filtered copy.
+struct BackdropDraw {
+    /// Its index in the composite draw list. Everything before it is what it filters.
+    at: usize,
+    filter: ImageFilter,
+    /// `true` for [`frus_core::BlendMode::Src`]: the filtered copy **replaces** what
+    /// it was copied from rather than being painted over it.
+    replace: bool,
+    /// The sharing key, when several backdrops are filtered once between them.
+    key: Option<u64>,
+}
+
+/// This frame's content draws, prepared once and replayed by whichever pass draws
+/// them. Only the first pass of a frame does: the content is painted once, and the
+/// passes after it exist only to interleave backdrops between the layers.
+struct ContentPlan<'a> {
+    batches: &'a [batch::Batch],
+    rect_ranges: &'a [std::ops::Range<u32>],
+    image_ranges: &'a [std::ops::Range<u32>],
+    path_ranges: &'a [std::ops::Range<u32>],
+    decoration_ranges: &'a [std::ops::Range<u32>],
+    decoration_base: u32,
+}
+
 /// A layer texture **kept across frames** — a repaint boundary on the GPU side —
 /// together with a snapshot of its content and its dimensions: as long as those do
 /// not change the texture is reused as is, and the pre-pass (submit, tessellation
@@ -212,6 +238,10 @@ struct MsaaScratch {
 /// The layer compositing pipeline.
 struct CompositePainter {
     pipeline: wgpu::RenderPipeline,
+    /// The same pipeline with blending off, so a draw can **replace** what is under
+    /// it instead of painting over it. Only a backdrop asks for that
+    /// ([`frus_core::BlendMode::Src`]).
+    pipeline_src: wgpu::RenderPipeline,
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
@@ -377,6 +407,40 @@ impl CompositePainter {
             cache: None,
         });
 
+        let pipeline_src = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("frus.composite.pipeline.src"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[QuadVertex::layout(), comp_instance_layout()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    // No blending at all: the source is written as it stands.
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("frus.composite.quad_vertex_buffer"),
             contents: bytemuck::cast_slice(QUAD_VERTICES),
@@ -419,6 +483,7 @@ impl CompositePainter {
 
         Self {
             pipeline,
+            pipeline_src,
             viewport_buffer,
             viewport_bind_group,
             texture_layout,
@@ -529,16 +594,66 @@ impl CompositePainter {
         }
     }
 
-    fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
-        if self.bind_groups.is_empty() {
+    /// Points draw `index` at a texture that did not exist when the frame was
+    /// prepared — which is every backdrop, since what a backdrop filters is the frame
+    /// itself and the frame is drawn after this.
+    fn rebind(&mut self, device: &wgpu::Device, index: usize, view: &wgpu::TextureView) {
+        let white = self.white_mask_view();
+        self.bind_groups[index] = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("frus.composite.texture.bind_group.backdrop"),
+            layout: &self.texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&white),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.filter_buffer,
+                        offset: index as wgpu::BufferAddress * FilterParams::STRIDE,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<FilterParams>() as u64),
+                    }),
+                },
+            ],
+        });
+    }
+
+    /// Draws a **range** of the composite list. `replace_at` names the one draw that
+    /// writes instead of blending, which only a backdrop asks for.
+    fn draw_range<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+        range: std::ops::Range<usize>,
+        replace_at: Option<usize>,
+    ) {
+        if range.is_empty() || self.bind_groups.is_empty() {
             return;
         }
-        pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
         pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        for (i, bind_group) in self.bind_groups.iter().enumerate() {
-            pass.set_bind_group(1, bind_group, &[]);
+        // `None` rather than `Some(false)`, so the first draw always sets a pipeline.
+        let mut bound: Option<bool> = None;
+        for i in range {
+            let replace = replace_at == Some(i);
+            if bound != Some(replace) {
+                pass.set_pipeline(if replace {
+                    &self.pipeline_src
+                } else {
+                    &self.pipeline
+                });
+                bound = Some(replace);
+            }
+            pass.set_bind_group(1, &self.bind_groups[i], &[]);
             let inst = i as u32;
             pass.draw(0..QUAD_VERTEX_COUNT, inst..inst + 1);
         }
@@ -573,6 +688,9 @@ pub(crate) struct Painters {
     sample_count: u32,
     /// The intermediate MSAA texture, created on demand and recreated on resize.
     msaa: Option<MsaaScratch>,
+    /// The staging texture a frame **with backdrops** is built in, so that a backdrop
+    /// can read the frame so far. `None` until the first such frame.
+    stage: Option<MsaaScratch>,
     /// Layer textures kept across frames, indexed by the layer's rank.
     layer_cache: Vec<CachedLayer>,
     /// How many layer pre-passes were actually rendered — the cache's proof.
@@ -596,6 +714,7 @@ impl Painters {
             filter: FilterPainter::new(device, format),
             sample_count,
             msaa: None,
+            stage: None,
             layer_cache: Vec::new(),
             layer_renders: 0,
         }
@@ -661,7 +780,8 @@ impl Painters {
 
     /// Renders `scene`, layers included, into `target` of size `w×h`. `clear` is
     /// `Some(colour)` to clear the target, `None` to paint over it. **Submitted
-    /// internally**: one pass per layer, plus the main pass.
+    /// internally**: one pass per layer, plus the main pass — and, when a layer asks
+    /// for a backdrop, one more pass per backdrop.
     ///
     /// Note: under MSAA, `clear == None` — painting over — is not supported, since
     /// the multisampled target does not hold `target`'s existing content. Every
@@ -684,7 +804,12 @@ impl Painters {
 
         // Pre-passes: each layer into its own full-surface texture — but **reused**
         // as is when its content has not changed, which is the GPU-side cache.
-        let mut layers: Vec<LayerComposite> = Vec::new();
+        //
+        // The result is a flat list of composite draws in the order they happen. A
+        // layer that asks for a backdrop contributes **two** entries: the filtered
+        // copy of what is underneath, and then the layer itself over it.
+        let mut draws: Vec<LayerComposite> = Vec::new();
+        let mut backdrops: Vec<BackdropDraw> = Vec::new();
         let mut layer_index = 0usize;
         for primitive in scene.primitives() {
             if let Primitive::Layer {
@@ -707,40 +832,35 @@ impl Painters {
                     w,
                     h,
                 );
-                // The fragment samples at the **counter-transformed** position, so
-                // we pass the inverse (screen → texture); identity when there is none.
-                let inverse = match transform {
-                    Some(t) => t.affine.inverse().m,
-                    None => frus_core::Affine::IDENTITY.m,
-                };
-                // The clip shape: (kind, per-corner radii) — an SDF in the fragment
-                // shader for rect/rrect/oval, a rendered **mask** for a free path.
-                let (shape, radii) = match clip_shape {
-                    frus_core::ClipShape::Rect => ([0.0, 0.0, 0.0, 0.0], [0.0; 4]),
-                    frus_core::ClipShape::RRect(br) => ([1.0, 0.0, 0.0, 0.0], br.to_array()),
-                    frus_core::ClipShape::Oval => ([2.0, 0.0, 0.0, 0.0], [0.0; 4]),
-                    frus_core::ClipShape::Path(_) => ([3.0, 0.0, 0.0, 0.0], [0.0; 4]),
-                };
-                let mask = match clip_shape {
-                    frus_core::ClipShape::Path(path) => {
-                        self.render_mask(device, queue, format, path, w, h)
-                    }
-                    _ => self.composite.white_mask_view(),
-                };
-                layers.push(LayerComposite {
-                    view,
-                    mask,
-                    opacity: *opacity,
-                    clip: clip.to_array(),
-                    shape,
-                    radii,
-                    inverse,
-                    // The image filter has already been spent, in the pre-pass above.
-                    filter: LayerFilter {
-                        image: None,
-                        ..*filter
-                    },
-                });
+                let entry = self.layer_entry(
+                    device, queue, format, view, *opacity, *clip, clip_shape, transform, filter, w,
+                    h,
+                );
+                // The backdrop goes **first**: it is a picture of what was already
+                // there, and the layer is painted over it. It borrows the layer's clip
+                // and shape, which is the region it applies to.
+                if let Some(backdrop) = filter.backdrop {
+                    backdrops.push(BackdropDraw {
+                        at: draws.len(),
+                        filter: backdrop.filter,
+                        replace: backdrop.blend == frus_core::BlendMode::Src,
+                        key: backdrop.key,
+                    });
+                    draws.push(LayerComposite {
+                        // Filled in once the frame so far has actually been drawn;
+                        // until then any texture will do, since nothing samples it.
+                        view: self.composite.white_mask_view(),
+                        mask: self.composite.white_mask_view(),
+                        opacity: 1.0,
+                        clip: entry.clip,
+                        shape: entry.shape,
+                        radii: entry.radii,
+                        // The copy is of the screen, at the screen's own coordinates.
+                        inverse: frus_core::Affine::IDENTITY.m,
+                        filter: LayerFilter::NONE,
+                    });
+                }
+                draws.push(entry);
                 layer_index += 1;
             }
         }
@@ -748,7 +868,7 @@ impl Painters {
         self.layer_cache.truncate(layer_index);
 
         self.composite
-            .prepare(device, queue, &layers, w as f32, h as f32);
+            .prepare(device, queue, &draws, w as f32, h as f32);
         // What may share a draw call, and in what order — see `batch`. The plan comes
         // first now: text is interleaved with the rest, so the text painter needs to
         // know the batches before it can prepare a renderer for each.
@@ -761,58 +881,288 @@ impl Painters {
                 .prepare_frame(device, queue, scene, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, scene, &batches);
         let path_ranges = self.path.prepare_frame(device, queue, scene, &batches);
+        let content = ContentPlan {
+            batches: &batches,
+            rect_ranges: &rect_ranges,
+            image_ranges: &image_ranges,
+            path_ranges: &path_ranges,
+            decoration_ranges: &decoration_ranges,
+            decoration_base: decoration_base.start,
+        };
 
-        // With MSAA we paint into the multisampled texture then resolve to `target`;
-        // without it we paint straight into `target`.
+        // With MSAA we paint into the multisampled texture then resolve; without it
+        // we paint straight into whatever the pass is aimed at.
         let msaa_view = self.ensure_msaa(device, format, w, h);
+        let load = match clear {
+            Some(c) => wgpu::LoadOp::Clear(c),
+            None => wgpu::LoadOp::Load,
+        };
+
+        if backdrops.is_empty() {
+            // The ordinary frame: one pass, straight into the target, exactly as it
+            // was before backdrops existed.
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frus.encoder"),
+            });
+            self.pass(
+                &mut encoder,
+                msaa_view.as_ref(),
+                target,
+                load,
+                Some(&content),
+                0..draws.len(),
+                None,
+            );
+            queue.submit(std::iter::once(encoder.finish()));
+            return;
+        }
+
+        // A backdrop is a filter of **what is already painted**, so the frame has to
+        // be readable half-way through. It cannot be read out of `target`: a surface
+        // texture is a render attachment and nothing else. So the frame is built in a
+        // staging texture we own, cut into segments at each backdrop, and blitted to
+        // the target at the end.
+        let stage = self
+            .stage(device, format, w, h)
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        // Backdrops sharing a key are filtered **once**: the copy is taken before the
+        // first of them and every other one reads the same texture. That is what
+        // turns a list of frosted rows from one full-surface blur per row into one.
+        let mut shared: HashMap<u64, wgpu::Texture> = HashMap::new();
+        let mut cursor = 0usize;
+        let mut first = true;
+        // Every segment after the first **starts** with a backdrop — that is what ends
+        // the segment before it — so a segment has at most one, and this is it.
+        let mut replace_at: Option<usize> = None;
+        for backdrop in &backdrops {
+            {
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("frus.encoder.segment"),
+                });
+                self.pass(
+                    &mut encoder,
+                    msaa_view.as_ref(),
+                    &stage,
+                    if first { load } else { wgpu::LoadOp::Load },
+                    first.then_some(&content),
+                    cursor..backdrop.at,
+                    replace_at,
+                );
+                // Submitted here and not at the end: the filter below reads the stage,
+                // and a command buffer still being recorded has not written it yet.
+                queue.submit(std::iter::once(encoder.finish()));
+            }
+            first = false;
+
+            let reuse = backdrop
+                .key
+                .and_then(|k| shared.get(&k))
+                .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+            let view = match reuse {
+                Some(view) => view,
+                None => {
+                    // Two disjoint fields of `self`: the stage is read, the filter
+                    // painter is driven. Naming them separately is what lets the
+                    // borrow checker see that.
+                    let stage_texture = &self
+                        .stage
+                        .as_ref()
+                        .expect("the stage exists whenever a backdrop is drawn")
+                        .texture;
+                    let filtered = self.filter.apply(
+                        device,
+                        queue,
+                        format,
+                        stage_texture,
+                        backdrop.filter,
+                        w,
+                        h,
+                    );
+                    let view = filtered.create_view(&wgpu::TextureViewDescriptor::default());
+                    if let Some(k) = backdrop.key {
+                        shared.insert(k, filtered);
+                    }
+                    view
+                }
+            };
+            self.composite.rebind(device, backdrop.at, &view);
+            cursor = backdrop.at;
+            replace_at = backdrop.replace.then_some(backdrop.at);
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("frus.encoder"),
+            label: Some("frus.encoder.tail"),
         });
-        {
-            let load = match clear {
-                Some(c) => wgpu::LoadOp::Clear(c),
-                None => wgpu::LoadOp::Load,
-            };
-            let (view, resolve_target) = match &msaa_view {
-                Some(msaa) => (msaa, Some(target)),
-                None => (target, None),
-            };
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frus.render_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target,
-                    ops: wgpu::Operations {
-                        load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        self.pass(
+            &mut encoder,
+            msaa_view.as_ref(),
+            &stage,
+            wgpu::LoadOp::Load,
+            None,
+            cursor..draws.len(),
+            replace_at,
+        );
+        // And the staged frame onto the target it was always meant for.
+        self.filter
+            .blit(device, queue, &mut encoder, &stage, target);
+        queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Turns one [`Primitive::Layer`] into the composite draw that puts it on the
+    /// screen: its clip shape as an SDF kind plus radii, or a rendered coverage mask
+    /// for a free path, and the **inverse** of its transform, since the fragment
+    /// samples at the counter-transformed position.
+    ///
+    /// Shared by the top-level frame and by a group compositing the layers nested
+    /// inside it: the two ask exactly the same question.
+    #[allow(clippy::too_many_arguments)]
+    fn layer_entry(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        view: wgpu::TextureView,
+        opacity: f32,
+        clip: Rect,
+        clip_shape: &frus_core::ClipShape,
+        transform: &Option<frus_core::LayerTransform>,
+        filter: &LayerFilter,
+        w: u32,
+        h: u32,
+    ) -> LayerComposite {
+        let inverse = match transform {
+            Some(t) => t.affine.inverse().m,
+            None => frus_core::Affine::IDENTITY.m,
+        };
+        let (shape, radii) = match clip_shape {
+            frus_core::ClipShape::Rect => ([0.0, 0.0, 0.0, 0.0], [0.0; 4]),
+            frus_core::ClipShape::RRect(br) => ([1.0, 0.0, 0.0, 0.0], br.to_array()),
+            frus_core::ClipShape::Oval => ([2.0, 0.0, 0.0, 0.0], [0.0; 4]),
+            frus_core::ClipShape::Path(_) => ([3.0, 0.0, 0.0, 0.0], [0.0; 4]),
+        };
+        let mask = match clip_shape {
+            frus_core::ClipShape::Path(path) => self.render_mask(device, queue, format, path, w, h),
+            _ => self.composite.white_mask_view(),
+        };
+        LayerComposite {
+            view,
+            mask,
+            opacity,
+            clip: clip.to_array(),
+            shape,
+            radii,
+            inverse,
+            // The image filter has already been spent, in the pre-pass; the backdrop
+            // is a draw of its own.
+            filter: LayerFilter {
+                image: None,
+                backdrop: None,
+                ..*filter
+            },
+        }
+    }
+
+    /// One render pass: the content batches (when `content` is given — only the first
+    /// pass of a frame draws them) followed by a range of composite draws.
+    ///
+    /// `replace_at` names a draw that **replaces** rather than paints over, which only
+    /// a backdrop asks for.
+    // A pass is its attachment, its load, and what to put in it; the arguments are the
+    // pass.
+    #[allow(clippy::too_many_arguments)]
+    fn pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        msaa_view: Option<&wgpu::TextureView>,
+        target: &wgpu::TextureView,
+        load: wgpu::LoadOp<wgpu::Color>,
+        content: Option<&ContentPlan>,
+        layers: std::ops::Range<usize>,
+        replace_at: Option<usize>,
+    ) {
+        if content.is_none() && layers.is_empty() {
+            return;
+        }
+        let (view, resolve_target) = match msaa_view {
+            Some(msaa) => (msaa, Some(target)),
+            None => (target, None),
+        };
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("frus.render_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target,
+                ops: wgpu::Operations {
+                    load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        if let Some(content) = content {
             let mut slot = 0;
-            for (i, batch) in batches.iter().enumerate() {
+            for (i, batch) in content.batches.iter().enumerate() {
                 match batch.kind {
-                    batch::Kind::Rect => self.rect.draw(&mut pass, rect_ranges[i].clone()),
-                    batch::Kind::Image => self.image.draw(&mut pass, image_ranges[i].clone()),
-                    batch::Kind::Path => self.path.draw(&mut pass, path_ranges[i].clone()),
+                    batch::Kind::Rect => self.rect.draw(&mut pass, content.rect_ranges[i].clone()),
+                    batch::Kind::Image => {
+                        self.image.draw(&mut pass, content.image_ranges[i].clone())
+                    }
+                    batch::Kind::Path => self.path.draw(&mut pass, content.path_ranges[i].clone()),
                     batch::Kind::Text => {
                         // The underlines first — they are rectangles, and they belong
                         // beneath the glyphs they decorate rather than in a batch of
                         // their own.
-                        let base = decoration_base.start;
-                        let d = &decoration_ranges[i];
+                        let base = content.decoration_base;
+                        let d = &content.decoration_ranges[i];
                         self.rect.draw(&mut pass, base + d.start..base + d.end);
                         self.text.draw(&mut pass, slot);
                         slot += 1;
                     }
                 }
             }
-            self.composite.draw(&mut pass);
         }
-        queue.submit(std::iter::once(encoder.finish()));
+        self.composite.draw_range(&mut pass, layers, replace_at);
+    }
+
+    /// The staging texture a frame with backdrops is built in, created on demand and
+    /// recreated on resize. It exists because a backdrop has to *read* the frame so
+    /// far, and a surface texture cannot be read.
+    fn stage(
+        &mut self,
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        w: u32,
+        h: u32,
+    ) -> &wgpu::Texture {
+        let stale = match &self.stage {
+            Some(s) => s.width != w || s.height != h || s.format != format,
+            None => true,
+        };
+        if stale {
+            self.stage = Some(MsaaScratch {
+                width: w,
+                height: h,
+                format,
+                texture: device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("frus.stage"),
+                    size: wgpu::Extent3d {
+                        width: w.max(1),
+                        height: h.max(1),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                }),
+            });
+        }
+        &self.stage.as_ref().expect("just created").texture
     }
 
     /// Returns the view of a layer's texture: **reused** as is when its content and
@@ -900,6 +1250,43 @@ impl Painters {
         h: u32,
     ) -> wgpu::Texture {
         self.layer_renders += 1;
+
+        // **Nested** layers first, depth-first: each rendered into a texture of its
+        // own so that this group's pass can composite it. Without this a layer inside
+        // a layer simply vanished — a rounded card around a fading group, a clip
+        // around a transform — because a group's pass draws primitives and a layer is
+        // not one.
+        //
+        // The recursion is safe to interleave with the shared instance buffers because
+        // every level prepares, records and **submits** before returning: the deepest
+        // group is on the queue before its parent writes a single instance.
+        let mut nested: Vec<LayerComposite> = Vec::new();
+        for primitive in primitives {
+            if let Primitive::Layer {
+                primitives: inner,
+                opacity,
+                clip,
+                clip_shape,
+                transform,
+                filter,
+                ..
+            } = primitive
+            {
+                let mut texture = self.render_group(device, queue, format, inner, w, h);
+                if let Some(f) = filter.image.filter(|f| !f.is_identity()) {
+                    texture = self.filter.apply(device, queue, format, &texture, f, w, h);
+                }
+                // The view holds a reference to its texture, so the texture outlives
+                // this loop without being named again.
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let entry = self.layer_entry(
+                    device, queue, format, view, *opacity, *clip, clip_shape, transform, filter, w,
+                    h,
+                );
+                nested.push(entry);
+            }
+        }
+
         let mut sub = Scene::new();
         for primitive in primitives {
             sub.push_primitive(primitive.clone());
@@ -929,6 +1316,10 @@ impl Painters {
                 .prepare_frame(device, queue, &sub, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, &sub, &batches);
         let path_ranges = self.path.prepare_frame(device, queue, &sub, &batches);
+        if !nested.is_empty() {
+            self.composite
+                .prepare(device, queue, &nested, w as f32, h as f32);
+        }
 
         // With MSAA the layer is painted multisampled then resolved to its
         // single-sample texture, the one the compositor samples afterwards.
@@ -972,6 +1363,8 @@ impl Painters {
                     }
                 }
             }
+            // The nested layers over this group's own primitives, as at the top level.
+            self.composite.draw_range(&mut pass, 0..nested.len(), None);
         }
         queue.submit(std::iter::once(encoder.finish()));
         texture

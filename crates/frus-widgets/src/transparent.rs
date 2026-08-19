@@ -414,9 +414,13 @@ macro_rules! forward_transparent {
 
             fn layer_filter(
                 &self,
-                box_rect: frus_core::Rect,
+                cx: $crate::widget::FilterContext,
             ) -> Option<frus_core::LayerFilter> {
-                self.inner.layer_filter(box_rect)
+                self.inner.layer_filter(cx)
+            }
+
+            fn backdrop_group(&self) -> bool {
+                self.inner.backdrop_group()
             }
 
             fn barrier(&self) -> Option<$crate::barrier::Barrier> {

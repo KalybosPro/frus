@@ -53,6 +53,22 @@ pub(crate) fn sizing_of(style: Style) -> Style {
 ///
 /// `Msg` is the application message type emitted on interaction (a message-passing
 /// model, in the Elm/iced style).
+/// What the paint walk knows and a widget does not, at the moment its layer filter is
+/// asked for.
+///
+/// Both fields are there for the same reason: they are properties of *where the widget
+/// turned out to be*, not of what it was built with. A mask is written in fractions of
+/// a box, and the box is only a place on screen once layout has run; a shared backdrop
+/// belongs to the nearest enclosing group, and a widget cannot see its own ancestors.
+#[derive(Clone, Copy, Debug)]
+pub struct FilterContext {
+    /// The widget's own box, on screen.
+    pub box_rect: frus_core::Rect,
+    /// The identity of the nearest enclosing [`crate::BackdropGroup`], if any — the
+    /// key a backdrop asking to be shared should use.
+    pub backdrop_group: Option<u64>,
+}
+
 pub trait Widget<Msg> {
     /// Layout style (handed to `frus-layout`).
     fn style(&self) -> Style;
@@ -634,18 +650,24 @@ pub trait Widget<Msg> {
     }
 
     /// The **pixel effects** this widget applies to its whole subtree: a blur, a
-    /// colour transform, a mask. The paint walk drains the subtree into a composited
-    /// layer and hands the filter to the renderer, exactly as it does for an opacity
-    /// group or a shape clip.
+    /// colour transform, a mask, or a filter over what is painted underneath. The
+    /// paint walk drains the subtree into a composited layer and hands the filter to
+    /// the renderer, exactly as it does for an opacity group or a shape clip.
     ///
-    /// `box_rect` is the widget's own box, on screen. It is passed in because a mask
-    /// is written in fractions of the box it covers and only the walk knows where
-    /// that box ended up; the two filters that have no geometry ignore it.
+    /// The [`FilterContext`] carries what only the walk knows — where the box ended
+    /// up, and which backdrop group encloses it. A widget that needs neither ignores
+    /// it.
     ///
     /// `None` — the default — means no layer and no cost. See [`crate::ColorFiltered`],
-    /// [`crate::ImageFiltered`], [`crate::ShaderMask`].
-    fn layer_filter(&self, _box_rect: frus_core::Rect) -> Option<frus_core::LayerFilter> {
+    /// [`crate::ImageFiltered`], [`crate::ShaderMask`], [`crate::BackdropFilter`].
+    fn layer_filter(&self, _cx: FilterContext) -> Option<frus_core::LayerFilter> {
         None
+    }
+
+    /// `true` when this widget is a **backdrop group**: the backdrops below it that
+    /// ask to be shared are filtered once between them. See [`crate::BackdropGroup`].
+    fn backdrop_group(&self) -> bool {
+        false
     }
 
     /// If the widget clips its child to an **arbitrary path** (`ClipPath`), returns the
@@ -1023,8 +1045,11 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn clip_path(&self) -> Option<&frus_core::Path> {
         (**self).clip_path()
     }
-    fn layer_filter(&self, box_rect: frus_core::Rect) -> Option<frus_core::LayerFilter> {
-        (**self).layer_filter(box_rect)
+    fn layer_filter(&self, cx: FilterContext) -> Option<frus_core::LayerFilter> {
+        (**self).layer_filter(cx)
+    }
+    fn backdrop_group(&self) -> bool {
+        (**self).backdrop_group()
     }
     fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
         (**self).ink(theme)
