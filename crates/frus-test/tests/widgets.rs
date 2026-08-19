@@ -723,6 +723,10 @@ fn a_colour_palette() {
 
 /// A group faded as one — the overlap between the two boxes must not darken, which
 /// is the whole difference between group opacity and per-widget alpha.
+///
+/// The offset is 10 px, not the 20 it was: at 20 the padded box needed 130x100 of a
+/// 120x80 stack, and milestone 345 painted a striped band across the very overlap this
+/// exists to look at. The fixture was overflowing all along and nothing said so.
 #[test]
 fn a_faded_group() {
     let group: Stack<()> = Stack::new()
@@ -731,7 +735,7 @@ fn a_faded_group() {
         .layer(box_of(TEAL, 90.0, 60.0))
         .layer(
             Container::new()
-                .padding(20.0)
+                .padding(10.0)
                 .child(box_of(AMBER, 90.0, 60.0)),
         );
     let root: Container<()> = Container::new().padding(12.0).child(
@@ -746,7 +750,7 @@ fn a_faded_group() {
                     .layer(box_of(TEAL, 90.0, 60.0))
                     .layer(
                         Container::new()
-                            .padding(20.0)
+                            .padding(10.0)
                             .child(box_of(AMBER, 90.0, 60.0)),
                     ),
             )),

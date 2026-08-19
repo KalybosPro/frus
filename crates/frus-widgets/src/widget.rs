@@ -689,9 +689,11 @@ pub trait Widget<Msg> {
         false
     }
 
-    /// The widget's **own main axis**, when it wants to fill the room the parent leaves
-    /// it along that axis rather than shrink-wrapping its children — `MainAxisSize::Max`
-    /// on a [`crate::Row`] or a [`crate::Column`]. `None` means shrink-wrap.
+    /// The **axis this widget asks to fill**: it takes the room the parent leaves it
+    /// along that axis rather than shrink-wrapping its children. `MainAxisSize::Max` on a
+    /// [`crate::Row`] or a [`crate::Column`] is the reason it exists, and there the axis
+    /// is the widget's own main one; a [`crate::Tabs`] asks for the horizontal one, which
+    /// is its cross axis. `None` means shrink-wrap.
     ///
     /// It is a question about the *parent*, which is why it is asked rather than written
     /// into the style: filling means growing when the parent runs the same way and

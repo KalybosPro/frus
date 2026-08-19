@@ -3027,3 +3027,36 @@ fn text_alignment_and_overflow_match_their_golden() {
     };
     snapshot.assert_golden(golden("text_align_overflow"));
 }
+
+/// The striped band a box wears when its children ran past it — black and yellow, over a
+/// tenth of the box, on the edge they ran past.
+///
+/// It is the reference's look on purpose: the point of it is to be recognised on sight by
+/// somebody who has never read this framework's documentation.
+#[test]
+fn an_overflow_band_matches_its_golden() {
+    let theme = Theme::dark();
+    let tile = |w: f32| {
+        Container::new()
+            .width(w)
+            .height(28.0)
+            .no_shrink()
+            .radius(6.0)
+            .color(Color::WHITE.fade(0.25))
+    };
+    let root: Container<()> = Container::new().padding(10.0).child(
+        Flex::row()
+            .width(140.0)
+            .height(40.0)
+            .gap(8.0)
+            .align(Align::Center)
+            .child(tile(70.0))
+            .child(tile(70.0))
+            .child(tile(70.0)),
+    );
+    let Some(snapshot) = render_widget(&root, 200, 60, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("overflow_band"));
+}

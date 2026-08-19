@@ -340,7 +340,13 @@ impl<T> Layout<T> {
         offset_y: f32,
         out: &mut Vec<Overflowing>,
     ) {
-        let layout = self.tree.layout(node).expect("the node's layout");
+        // The **unrounded** layout, which is the only one the question can be asked of.
+        // taffy rounds each node's edges to whole pixels independently, so a box 169.6
+        // tall whose child sits at 21.6 and is 148 tall becomes a box of 169 with a child
+        // at 22: one pixel of overflow that exists nowhere but in the rounding, reported
+        // against a widget nobody wrote wrong. Four of this framework's own goldens wore a
+        // band for it the day the band was painted.
+        let layout = self.tree.unrounded_layout(node);
         let x = offset_x + layout.location.x;
         let y = offset_y + layout.location.y;
 
@@ -356,7 +362,7 @@ impl<T> Layout<T> {
             let (mut over_l, mut over_t, mut over_r, mut over_b) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
             for i in 0..child_count {
                 let child = self.tree.child_at_index(node, i).expect("the node's child");
-                let c = self.tree.layout(child).expect("the child's layout");
+                let c = self.tree.unrounded_layout(child);
                 over_l = over_l.max(left - c.location.x);
                 over_t = over_t.max(top - c.location.y);
                 over_r = over_r.max(c.location.x + c.size.width - right);

@@ -8,12 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 344 so far, each documenting the objective, the alternatives
+> record — one per step, 345 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **A striped band across every box whose children ran past it** (J345), in debug builds.
+  Milestone 335 taught the layout to notice an overflow and the shell to report it in the
+  console; this is the half a *screenshot* shows, and a screenshot is what a bug report is
+  made of. Black and yellow diagonal stripes over a tenth of the box, which are the
+  reference's colours and its fraction — the point of it is to be recognised on sight.
 
 - **`Widget::main_axis_floor`** (J344): the width below which a widget will not be squeezed
   *along a row*. Flexbox has one `min-width` for both axes and the reference does not: along
@@ -100,6 +106,18 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **An overflow is measured on the unrounded layout** (J345). taffy rounds every node's
+  edges to whole pixels independently, so a box 169.6 tall whose child sits at 21.6 and is
+  148 tall becomes a box of 169 with a child at 22 — one pixel of overflow that exists
+  nowhere but in the rounding. Four goldens wore a band for it the day the band was
+  painted. It was making the console reports untrustworthy too: a survey that cries wolf at
+  rounding is one nobody reads.
+
+- **`Tabs` takes the width it is offered** (J345), as the reference's does. Sized by its
+  content, the widest thing on the busiest tab decided how wide the whole control was — so
+  the bar jumped from tab to tab, and a panel that did not fit hung out of whatever was
+  centring it rather than being told to fit.
 
 - **`Text` wraps by default** (J344), as in the reference. The flag was never the reason it
   did not: a text *declared its own width*, and a box that answers before it is asked cannot

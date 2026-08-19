@@ -1124,12 +1124,14 @@ fn no_screen_draws_outside_itself() {
                 .iter()
                 .map(|o| o.amount)
                 .fold(0.0_f32, f32::max);
-            // Settings at a phone's width is a **known** 5 px, measured in milestone 335
-            // and left on the roadmap: the settings card's margins make the tab panel
-            // 9 px wider than the content column, so it hangs out either side. Pinned so
-            // it cannot grow while it waits.
+            // Settings at a phone's width is a **known** 4.5 px, measured in milestone 335
+            // and left on the roadmap: something in the Controls tab will not go below
+            // about 380 px, so the row centring the tab set lets it hang out either side.
+            // Milestone 345 disproved the cause recorded here — the tab set fills its box
+            // now and the overflow did not move — and measured it unrounded, which is why
+            // the pin came down from 5.5. Pinned so it cannot grow while it waits.
             let allowed = if matches!(route, Route::Settings) && label == "phone" {
-                5.5
+                4.6
             } else {
                 0.0
             };

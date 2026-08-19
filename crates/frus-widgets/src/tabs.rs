@@ -557,6 +557,14 @@ impl<Msg: Clone> Widget<Msg> for Tabs<Msg> {
         &self.children
     }
 
+    /// A tab set takes the **width it is offered**, as the reference's does. Sized by its
+    /// content instead, the widest thing on the busiest tab decides how wide the whole
+    /// control is — so the bar jumps from tab to tab, and a panel that does not fit hangs
+    /// out of whatever is centring it rather than being told to fit.
+    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
+        Some(frus_layout::FlexDirection::Row)
+    }
+
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
 
     fn on_click(&self) -> Option<Msg> {
@@ -582,6 +590,37 @@ mod tests {
             .tab("One", Text::new("panel one"))
             .tab("Two", Text::new("panel two"))
             .tab("Three", Text::new("panel three"))
+    }
+
+    /// A tab set takes the width it is offered rather than the width of whatever is on
+    /// the busiest tab. Sized by its content, a centring row lets it hang out either side
+    /// instead of telling it to fit — which is how a settings screen came to draw 5 px
+    /// off a phone (milestone 335).
+    #[test]
+    fn a_tab_set_takes_the_width_it_is_offered() {
+        let root = crate::flex::Flex::row()
+            .width(300.0)
+            .height(200.0)
+            .justify(frus_layout::Justify::Center)
+            .child(three(0));
+        let mut runtime = Runtime::default();
+        runtime.advance_values::<Msg>(&root, 0.0);
+        let ui = build_ui(&root, Size::new(300.0, 200.0), &runtime, &Theme::default());
+        // The bar is `width: 100%` of the tab set, so the hairline under it is the tab
+        // set's width made visible.
+        let widest = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, .. } => Some(rect.width),
+                _ => None,
+            })
+            .fold(0.0_f32, f32::max);
+        assert!(
+            (widest - 300.0).abs() < 0.5,
+            "the whole row, not the widest label: {widest}"
+        );
     }
 
     /// The frame's crisp boxes: the hairline, then the indicator.

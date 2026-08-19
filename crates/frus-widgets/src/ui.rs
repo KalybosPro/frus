@@ -5,7 +5,8 @@
 use std::hash::{Hash, Hasher};
 
 use frus_core::{
-    Affine, ClipShape, Color, LayerFilter, LayerTransform, Point, Primitive, Rect, Scene, Size,
+    Affine, ClipShape, Color, LayerFilter, LayerTransform, Path, Point, Primitive, Rect, Scene,
+    Size,
 };
 use frus_layout::{Layout, NodeId, Overflowing, Side};
 
@@ -782,6 +783,76 @@ impl<Msg: Clone> Ui<Msg> {
     pub fn interactive_bounds(&self) -> Vec<(WidgetId, Rect)> {
         self.interactives.clone()
     }
+}
+
+/// Paints a **striped band** along the edge of every box whose children ran past it.
+///
+/// Milestone 335 taught the layout to notice an overflow and the shell to say so in the
+/// console. That is the half a developer reads; this is the half a *screenshot* shows —
+/// and a screenshot is what a bug report is made of. Three of this framework's own
+/// milestones went looking for defects that a band would have pointed at: a delete button
+/// laid out past the card (333, 334), a segmented control 221 px outside its parent (335).
+///
+/// The look is the reference's, because the point of it is to be recognised on sight:
+/// black and yellow diagonal stripes, three quarters opaque, over a tenth of the box along
+/// the offending edge. Not the mechanism, though — the reference paints one repeating
+/// gradient and this paints the stripes, because a repeating diagonal gradient is a
+/// shader feature and a parallelogram is four points.
+///
+/// **Debug builds only.** A band is a message to whoever is building the application, and
+/// in a release build there is nobody to read it — the reference draws the same line.
+fn paint_overflow_bands(scene: &mut Scene, overflows: &[Overflowing]) {
+    if !cfg!(debug_assertions) || overflows.is_empty() {
+        return;
+    }
+    // The reference's two colours and its 10 % band, exactly.
+    const BLACK: Color = Color::rgba(0.0, 0.0, 0.0, 0.75);
+    const YELLOW: Color = Color::rgba(1.0, 1.0, 0.0, 0.75);
+    const FRACTION: f32 = 0.1;
+    /// The stripes run at 45°; this is their period measured along the x axis.
+    const PERIOD: f32 = 14.0;
+
+    let outer = scene.current_clip();
+    scene.set_clip(Rect::UNBOUNDED);
+    for over in overflows {
+        let r = over.rect;
+        let band = match over.side {
+            Side::Left => Rect::new(r.x, r.y, r.width * FRACTION, r.height),
+            Side::Right => Rect::new(
+                r.x + r.width * (1.0 - FRACTION),
+                r.y,
+                r.width * FRACTION,
+                r.height,
+            ),
+            Side::Top => Rect::new(r.x, r.y, r.width, r.height * FRACTION),
+            Side::Bottom => Rect::new(
+                r.x,
+                r.y + r.height * (1.0 - FRACTION),
+                r.width,
+                r.height * FRACTION,
+            ),
+        };
+        if band.width <= 0.0 || band.height <= 0.0 {
+            continue;
+        }
+        scene.set_clip(band);
+        scene.fill_rect(band, BLACK);
+        // One parallelogram per stripe, sheared by the band's height so that every one
+        // of them crosses it at 45° whatever shape the band is.
+        let shear = band.height;
+        let mut x = band.x - shear;
+        while x < band.x + band.width {
+            let stripe = Path::new()
+                .move_to(Point::new(x, band.y))
+                .line_to(Point::new(x + PERIOD / 2.0, band.y))
+                .line_to(Point::new(x + PERIOD / 2.0 + shear, band.y + band.height))
+                .line_to(Point::new(x + shear, band.y + band.height))
+                .close();
+            scene.fill_path(&stripe, YELLOW);
+            x += PERIOD;
+        }
+    }
+    scene.set_clip(outer);
 }
 
 /// Identity of the `index`-th child: **by key** when the child declares one (stable whatever
@@ -3416,6 +3487,10 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         }
     }
 
+    // A box whose children ran past it now **says so on the screen**, not only in the
+    // console — see `paint_overflow_bands`. Last, so nothing paints over it.
+    paint_overflow_bands(&mut builder.scene, &builder.overflows.borrow());
+
     let ui = Ui {
         scene: builder.scene,
         hits: builder.hits,
@@ -3652,6 +3727,59 @@ mod tests {
                     .color(Color::rgb(0.0, 0.0, 1.0))
                     .on_click(Msg::B),
             )
+    }
+
+    /// A box whose children ran past it is **marked on the screen**, over a tenth of it,
+    /// on the edge they ran past — and a box whose children fit is left alone.
+    #[test]
+    fn an_overflow_paints_a_band_on_the_edge_it_ran_past() {
+        use crate::{Container, Flex};
+        let row = |child_width: f32| {
+            let root: Flex<()> = Flex::row().width(100.0).height(40.0).child(
+                Container::new()
+                    .width(child_width)
+                    .height(20.0)
+                    .no_shrink()
+                    .color(Color::WHITE),
+            );
+            let rt = crate::runtime::Runtime::default();
+            build_ui(
+                &root,
+                Size::new(200.0, 100.0),
+                &rt,
+                &crate::theme::Theme::dark(),
+            )
+        };
+        // The stripes are paths; nothing else in this tree draws one.
+        let stripes = |ui: &Ui<()>| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { .. }))
+                .count()
+        };
+        let over = row(300.0);
+        assert!(!over.overflows().is_empty(), "the fixture has to overflow");
+        assert!(stripes(&over) > 2, "striped: {}", stripes(&over));
+        // The band is on the right-hand tenth: 90..100 of a 100-wide row.
+        let band = over
+            .scene()
+            .primitives()
+            .iter()
+            .rev()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.a > 0.7 && color.r == 0.0 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the band under the stripes");
+        assert!((band.x - 90.0).abs() < 0.5, "at the right edge: {band:?}");
+        assert!((band.width - 10.0).abs() < 0.5, "a tenth of it: {band:?}");
+
+        let fits = row(40.0);
+        assert!(fits.overflows().is_empty());
+        assert_eq!(stripes(&fits), 0, "nothing to mark");
     }
 
     #[test]
