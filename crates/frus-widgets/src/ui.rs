@@ -5,8 +5,8 @@
 use std::hash::{Hash, Hasher};
 
 use frus_core::{
-    Affine, ClipShape, Color, LayerFilter, LayerTransform, Path, Point, Primitive, Rect, Scene,
-    Size,
+    Affine, ClipShape, Color, FontWeight, LayerFilter, LayerTransform, Path, Point, Primitive,
+    Rect, Scene, Size, TextStyle,
 };
 use frus_layout::{Layout, NodeId, Overflowing, Side};
 
@@ -795,9 +795,10 @@ impl<Msg: Clone> Ui<Msg> {
 ///
 /// The look is the reference's, because the point of it is to be recognised on sight:
 /// black and yellow diagonal stripes, three quarters opaque, over a tenth of the box along
-/// the offending edge. Not the mechanism, though — the reference paints one repeating
-/// gradient and this paints the stripes, because a repeating diagonal gradient is a
-/// shader feature and a parallelogram is four points.
+/// the offending edge, with the edge and the number written across it. Not the mechanism,
+/// though — the reference paints one repeating gradient and this paints the stripes,
+/// because a repeating diagonal gradient is a shader feature and a parallelogram is four
+/// points.
 ///
 /// **Debug builds only.** A band is a message to whoever is building the application, and
 /// in a release build there is nobody to read it — the reference draws the same line.
@@ -812,7 +813,7 @@ fn paint_overflow_bands(scene: &mut Scene, overflows: &[Overflowing]) {
     /// The stripes run at 45°; this is their period measured along the x axis.
     const PERIOD: f32 = 14.0;
 
-    let outer = scene.current_clip();
+    let (outer, outer_bounds) = (scene.current_clip(), scene.current_bounds());
     scene.set_clip(Rect::UNBOUNDED);
     for over in overflows {
         let r = over.rect;
@@ -851,8 +852,107 @@ fn paint_overflow_bands(scene: &mut Scene, overflows: &[Overflowing]) {
             scene.fill_path(&stripe, YELLOW);
             x += PERIOD;
         }
+        // The label is **not** clipped to the band: a vertical one is usually longer than
+        // the box is tall, and half a sentence is worse than a sentence written over
+        // whatever is beside it. The reference does not clip it either.
+        scene.set_clip(Rect::UNBOUNDED);
+        scene.set_bounds(Rect::UNBOUNDED);
+        paint_overflow_label(scene, band, over);
     }
     scene.set_clip(outer);
+    scene.set_bounds(outer_bounds);
+}
+
+/// Writes the reference's sentence across a band: which edge overflowed, and by how much.
+///
+/// The console already says it — but the console is on the developer's machine and the
+/// band is on the device, and a photograph of a phone is what half the bug reports in the
+/// world are made of. A striped edge says *something* is too big; `RIGHT OVERFLOWED BY 86
+/// PIXELS` says which edge, and by enough that you can tell a forgotten padding from a
+/// missing wrap without running anything.
+///
+/// The words are the reference's, exactly, so that searching for them finds the same
+/// answers. So are the numbers: 7.5 px, the heaviest weight there is, dark red on an
+/// opaque white plate — a label that must stay readable over stripes cannot be subtle —
+/// centred on the band's outer edge and turned a quarter turn on the vertical ones.
+fn paint_overflow_label(scene: &mut Scene, band: Rect, over: &Overflowing) {
+    /// The reference's label metrics.
+    const SIZE: f32 = 7.5;
+    /// The gap between the label and the outer edge of the band.
+    const PAD: f32 = 1.0;
+    /// `0xFF900000`.
+    const INK: Color = Color::rgb(0.5647059, 0.0, 0.0);
+
+    let side = match over.side {
+        Side::Left => "LEFT",
+        Side::Right => "RIGHT",
+        Side::Top => "TOP",
+        Side::Bottom => "BOTTOM",
+    };
+    let text = format!("{side} OVERFLOWED BY {} PIXELS", format_pixels(over.amount));
+    // The reference asks for an 800 weight; the heaviest this framework has is bold.
+    let style = TextStyle::new(SIZE).weight(FontWeight::Bold);
+    let size = frus_text::measure_styled(&text, SIZE, FontWeight::Bold, false);
+
+    // Where the middle of the label's leading edge goes, before any rotation, and by how
+    // much the whole thing then turns about that point.
+    let (anchor, angle) = match over.side {
+        Side::Left => (
+            Point::new(band.x + SIZE + PAD, band.y + band.height / 2.0),
+            std::f32::consts::FRAC_PI_2,
+        ),
+        Side::Right => (
+            Point::new(band.x + band.width - SIZE - PAD, band.y + band.height / 2.0),
+            -std::f32::consts::FRAC_PI_2,
+        ),
+        Side::Top => (Point::new(band.x + band.width / 2.0, band.y + PAD), 0.0),
+        Side::Bottom => (
+            Point::new(band.x + band.width / 2.0, band.y + band.height - SIZE - PAD),
+            0.0,
+        ),
+    };
+    if angle == 0.0 {
+        let at = Point::new(anchor.x - size.width / 2.0, anchor.y);
+        scene.fill_rect(Rect::from_point_size(at, size), Color::WHITE);
+        scene.text_styled(at, text, &style, INK);
+        return;
+    }
+    // A rotation of a group, not of a glyph: the plate and the sentence turn together and
+    // neither has to know it is turning.
+    //
+    // The group is painted **at the origin** rather than where it lands, because a layer
+    // is rendered flat into a window-sized texture before it is composited: a vertical
+    // label is written across a box near the right edge, so laid out flat it would run
+    // off the texture and lose its last word before the rotation ever brought it back
+    // inside. The transform is the one that carries the origin to where the label goes —
+    // shift it half its width to the left, turn it, and land it on the anchor.
+    let flat = Rect::from_point_size(Point::ZERO, size);
+    let matrix = Affine::translation(-size.width / 2.0, 0.0)
+        .then(Affine::rotation(angle))
+        .then(Affine::translation(anchor.x, anchor.y));
+    scene.transformed(LayerTransform::new(matrix), move |scene: &mut Scene| {
+        scene.fill_rect(flat, Color::WHITE);
+        scene.text_styled(flat.origin(), text, &style, INK);
+    });
+}
+
+/// How the reference writes an overflow: whole pixels past ten, one decimal past one, and
+/// three significant figures below that — because the difference between 0.5 px and
+/// 0.0001 px is the difference between a layout bug and a rounding error.
+fn format_pixels(value: f32) -> String {
+    if value > 10.0 {
+        format!("{value:.0}")
+    } else if value > 1.0 {
+        format!("{value:.1}")
+    } else {
+        // Three significant figures: the first one sits at the first non-zero decimal.
+        let leading = if value > 0.0 {
+            (-value.abs().log10().floor()) as i32
+        } else {
+            0
+        };
+        format!("{value:.*}", (leading + 2).clamp(0, 12) as usize)
+    }
 }
 
 /// Identity of the `index`-th child: **by key** when the child declares one (stable whatever
@@ -3780,6 +3880,58 @@ mod tests {
         let fits = row(40.0);
         assert!(fits.overflows().is_empty());
         assert_eq!(stripes(&fits), 0, "nothing to mark");
+    }
+
+    /// The band says **which edge and by how much**, in the reference's words. A striped
+    /// edge tells you something is too big; the sentence tells you what to look for, and
+    /// it is the only half of the report that survives being photographed off a device.
+    #[test]
+    fn a_band_writes_which_edge_overflowed_and_by_how_much() {
+        use crate::{Container, Flex};
+        let root: Flex<()> = Flex::row().width(100.0).height(40.0).child(
+            Container::new()
+                .width(300.0)
+                .height(20.0)
+                .no_shrink()
+                .color(Color::WHITE),
+        );
+        let ui = build_ui(
+            &root,
+            Size::new(200.0, 100.0),
+            &Runtime::default(),
+            &Theme::dark(),
+        );
+        // The label is inside the rotated layer, which is why the search is recursive.
+        fn labels(primitives: &[Primitive], out: &mut Vec<String>) {
+            for p in primitives {
+                match p {
+                    Primitive::Text { text, .. } => out.push(text.clone()),
+                    Primitive::Layer { primitives, .. } => labels(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut found = Vec::new();
+        labels(ui.scene().primitives(), &mut found);
+        assert!(
+            found.iter().any(|t| t == "RIGHT OVERFLOWED BY 200 PIXELS"),
+            "the sentence, in the reference's words: {found:?}"
+        );
+    }
+
+    /// The reference's precision rule: whole pixels when there are many, a decimal when
+    /// there are few, three significant figures when there is almost nothing — which is
+    /// the difference between a layout bug and a rounding error.
+    #[test]
+    fn an_overflow_is_written_to_the_precision_it_deserves() {
+        assert_eq!(format_pixels(86.0), "86");
+        // Past ten pixels the decimal is noise; at ten exactly it is not yet.
+        assert_eq!(format_pixels(10.4), "10");
+        assert_eq!(format_pixels(10.0), "10.0");
+        assert_eq!(format_pixels(4.5), "4.5");
+        assert_eq!(format_pixels(1.0), "1.00");
+        assert_eq!(format_pixels(0.5), "0.500");
+        assert_eq!(format_pixels(0.0123), "0.0123");
     }
 
     #[test]

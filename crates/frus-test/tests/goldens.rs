@@ -3033,32 +3033,48 @@ fn text_alignment_and_overflow_match_their_golden() {
 }
 
 /// The striped band a box wears when its children ran past it — black and yellow, over a
-/// tenth of the box, on the edge they ran past.
+/// tenth of the box, on the edge they ran past, with the edge and the number written
+/// across it.
 ///
 /// It is the reference's look on purpose: the point of it is to be recognised on sight by
-/// somebody who has never read this framework's documentation.
+/// somebody who has never read this framework's documentation. Both orientations are
+/// here, because the vertical label is turned a quarter turn and that is the half that
+/// can go wrong.
 #[test]
 fn an_overflow_band_matches_its_golden() {
     let theme = Theme::dark();
-    let tile = |w: f32| {
+    let tile = |w: f32, h: f32| {
         Container::new()
             .width(w)
-            .height(28.0)
+            .height(h)
             .no_shrink()
             .radius(6.0)
             .color(Color::WHITE.fade(0.25))
     };
     let root: Container<()> = Container::new().padding(10.0).child(
-        Flex::row()
-            .width(140.0)
-            .height(40.0)
-            .gap(8.0)
-            .align(Align::Center)
-            .child(tile(70.0))
-            .child(tile(70.0))
-            .child(tile(70.0)),
+        Flex::column()
+            .gap(20.0)
+            .child(
+                Flex::row()
+                    .width(140.0)
+                    .height(140.0)
+                    .gap(8.0)
+                    .align(Align::Center)
+                    .child(tile(70.0, 28.0))
+                    .child(tile(70.0, 28.0))
+                    .child(tile(70.0, 28.0)),
+            )
+            .child(
+                Flex::column()
+                    .width(140.0)
+                    .height(60.0)
+                    .gap(8.0)
+                    .child(tile(70.0, 28.0))
+                    .child(tile(70.0, 28.0))
+                    .child(tile(70.0, 28.0)),
+            ),
     );
-    let Some(snapshot) = render_widget(&root, 200, 60, &theme) else {
+    let Some(snapshot) = render_widget(&root, 200, 240, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };

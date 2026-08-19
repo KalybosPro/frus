@@ -1273,6 +1273,35 @@ impl Scene {
         });
     }
 
+    /// Composes a **transformed layer**: `build` fills a subgroup of primitives, which is
+    /// rendered flat and then composited through `transform`.
+    ///
+    /// The transform belongs to the group and not to the primitives inside it, which is
+    /// the whole point: a rotation applies to a rectangle, a line of text and an image at
+    /// once, and none of them has to know how to rotate itself.
+    ///
+    /// **Paint the group where it fits, not where it lands.** The renderer draws the
+    /// group flat into a *window-sized* texture and composites that through the
+    /// transform, so anything laid out flat beyond the window is gone before the
+    /// transform could have brought it back inside. A group that ends up near an edge
+    /// should be built at the origin and carried there by the transform.
+    pub fn transformed(&mut self, transform: LayerTransform, build: impl FnOnce(&mut Scene)) {
+        let mut inner = Scene::new();
+        inner.current_clip = self.current_clip;
+        inner.current_owner = self.current_owner;
+        inner.current_bounds = self.current_bounds;
+        build(&mut inner);
+        self.primitives.push(Primitive::Layer {
+            primitives: inner.primitives,
+            opacity: 1.0,
+            clip: self.current_clip,
+            clip_shape: ClipShape::Rect,
+            transform: Some(transform),
+            filter: LayerFilter::NONE,
+            owner: self.current_owner,
+        });
+    }
+
     /// Adds a **masked group**: everything `build` emits is composited as one, with
     /// `mask` multiplied into it, so the shader's alpha becomes the group's transparency.
     ///

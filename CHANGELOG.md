@@ -8,12 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 347 so far, each documenting the objective, the alternatives
+> record — one per step, 348 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **The overflow band says which edge and by how much** (J348): `RIGHT OVERFLOWED BY 86
+  PIXELS` across the stripes, in the reference's words and at its metrics, turned a
+  quarter turn on the vertical edges. The console has said as much since milestone 335,
+  but the console is on the developer's machine and the band is on the device — and a
+  photograph of a phone is what half the bug reports in the world are made of. New:
+  `Scene::transformed`, a group composited through an arbitrary affine.
 
 - **`frus_text::line_spans`** (J347) replaces `visual_lines`: the visual lines a text breaks
   into, as **byte ranges** rather than as strings, because what the caller wants is a
