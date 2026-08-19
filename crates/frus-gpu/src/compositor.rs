@@ -12,9 +12,13 @@
 
 use crate::batch;
 use bytemuck::{Pod, Zeroable};
-use frus_core::{BoxFit, Color, ImageData, Path, Point, Primitive, Rect, Scene};
+use frus_core::{
+    BoxFit, Color, ColorFilter, ImageData, ImageFilter, LayerFilter, MaskShader, Path, Point,
+    Primitive, Rect, Scene,
+};
 use wgpu::util::DeviceExt;
 
+use crate::filter::FilterPainter;
 use crate::image::ImagePainter;
 use crate::painter::Painter;
 use crate::path::PathPainter;
@@ -71,6 +75,78 @@ struct Viewport {
     _pad: [f32; 2],
 }
 
+/// A layer's colour filter and mask, as the fragment shader reads them.
+///
+/// This rides in a **uniform** rather than in the instance, because a colour matrix
+/// alone is twenty floats and a vertex attribute budget is a small, fixed thing. Each
+/// layer already has its own bind group for its texture, so a slice of one shared
+/// buffer costs nothing extra.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Default)]
+struct FilterParams {
+    /// `[colour kind, mask kind, colour blend, mask blend]`. Colour kind: 0 none,
+    /// 1 matrix, 2 a colour blended in. Mask kind: 0 none, 1 linear, 2 radial.
+    flags: [f32; 4],
+    /// The colour matrix, one row per output channel, then the constant column.
+    rows: [[f32; 4]; 4],
+    constants: [f32; 4],
+    /// The colour of a `Mode` colour filter.
+    mode_color: [f32; 4],
+    /// Linear: `(from.x, from.y, to.x, to.y)`. Radial: `(cx, cy, radius, _)`.
+    mask_geom: [f32; 4],
+    mask_c0: [f32; 4],
+    mask_c1: [f32; 4],
+}
+
+impl FilterParams {
+    /// Uniform bindings must start at a device-aligned offset; 256 bytes is the
+    /// strictest alignment in practice, so the layers take one slot each.
+    const STRIDE: wgpu::BufferAddress = 256;
+
+    /// Translates a scene-level filter into the numbers the shader wants. The image
+    /// filter is not here: it has already run, as a pre-pass over the layer texture.
+    fn new(filter: &LayerFilter) -> FilterParams {
+        let mut p = FilterParams::default();
+        match filter.color {
+            None => {}
+            Some(ColorFilter::Matrix(m)) => {
+                p.flags[0] = 1.0;
+                for row in 0..4 {
+                    p.rows[row] = [m[row * 5], m[row * 5 + 1], m[row * 5 + 2], m[row * 5 + 3]];
+                    p.constants[row] = m[row * 5 + 4];
+                }
+            }
+            Some(ColorFilter::Mode(color, mode)) => {
+                p.flags[0] = 2.0;
+                p.flags[2] = mode.code() as f32;
+                p.mode_color = color.to_array();
+            }
+        }
+        if let Some(mask) = filter.mask {
+            p.flags[1] = mask.shader.code() as f32 + 1.0;
+            p.flags[3] = mask.blend.code() as f32;
+            let (geom, c0, c1) = match mask.shader {
+                MaskShader::Linear {
+                    from,
+                    to,
+                    from_color,
+                    to_color,
+                } => ([from.x, from.y, to.x, to.y], from_color, to_color),
+                MaskShader::Radial {
+                    center,
+                    radius,
+                    from_color,
+                    to_color,
+                } => ([center.x, center.y, radius, 0.0], from_color, to_color),
+            };
+            p.mask_geom = geom;
+            p.mask_c0 = c0.to_array();
+            p.mask_c1 = c1.to_array();
+        }
+        p
+    }
+}
+
 /// The MSAA sample count we aim for: 4× is a good quality/cost trade-off and the
 /// most widely supported, including the llvmpipe software rasteriser.
 pub(crate) const MSAA_SAMPLES: u32 = 4;
@@ -103,6 +179,8 @@ struct LayerComposite {
     radii: [f32; 4],
     /// The affine inverse `[ia, ib, ic, id, ie, if]`; identity means no transform.
     inverse: [f32; 6],
+    /// The colour filter and mask, applied in the compositing fragment.
+    filter: LayerFilter,
 }
 
 /// A layer texture **kept across frames** — a repaint boundary on the GPU side —
@@ -114,6 +192,10 @@ struct CachedLayer {
     width: u32,
     height: u32,
     texture: wgpu::Texture,
+    /// The image filter already baked into `texture`. Part of the key: the same
+    /// primitives blurred by a different amount are a different picture, and an
+    /// animated blur would otherwise hold the first frame it drew for ever.
+    image: Option<ImageFilter>,
 }
 
 /// An intermediate MSAA texture reused as a render target: painting happens there,
@@ -142,6 +224,9 @@ struct CompositePainter {
     /// The **neutral** mask, 1×1 opaque white: bound when a layer has no path clip,
     /// so alpha is multiplied by 1 and nothing changes.
     white_mask: wgpu::Texture,
+    /// This frame's filter parameters, one aligned slot per layer.
+    filter_buffer: wgpu::Buffer,
+    filter_capacity: usize,
 }
 
 impl CompositePainter {
@@ -225,6 +310,17 @@ impl CompositePainter {
                     },
                     count: None,
                 },
+                // The colour filter and mask.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -255,7 +351,14 @@ impl CompositePainter {
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    // **Premultiplied**, unlike every other pipeline here, because
+                    // what this one samples is a layer texture and a layer texture is
+                    // premultiplied: it was painted over a transparent target. Passing
+                    // it through the straight-alpha blend would multiply the colour by
+                    // the coverage a second time, which is invisible on opaque content
+                    // and wrong everywhere else — a mask fade would run to black
+                    // instead of to the background.
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -283,6 +386,13 @@ impl CompositePainter {
             label: Some("frus.composite.instance_buffer"),
             size: (8 * std::mem::size_of::<CompInstance>()) as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let filter_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("frus.composite.filter_buffer"),
+            size: FilterParams::STRIDE * 8,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -318,6 +428,8 @@ impl CompositePainter {
             instance_capacity: 8,
             bind_groups: Vec::new(),
             white_mask: white,
+            filter_buffer,
+            filter_capacity: 8,
         }
     }
 
@@ -365,7 +477,26 @@ impl CompositePainter {
         }
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
-        for layer in layers {
+        if layers.len() > self.filter_capacity {
+            let cap = layers.len().next_power_of_two();
+            self.filter_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("frus.composite.filter_buffer"),
+                size: FilterParams::STRIDE * cap as wgpu::BufferAddress,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.filter_capacity = cap;
+        }
+        for (i, layer) in layers.iter().enumerate() {
+            let params = FilterParams::new(&layer.filter);
+            queue.write_buffer(
+                &self.filter_buffer,
+                i as wgpu::BufferAddress * FilterParams::STRIDE,
+                bytemuck::bytes_of(&params),
+            );
+        }
+
+        for (i, layer) in layers.iter().enumerate() {
             self.bind_groups
                 .push(device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("frus.composite.texture.bind_group"),
@@ -382,6 +513,16 @@ impl CompositePainter {
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::TextureView(&layer.mask),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &self.filter_buffer,
+                                offset: i as wgpu::BufferAddress * FilterParams::STRIDE,
+                                size: wgpu::BufferSize::new(
+                                    std::mem::size_of::<FilterParams>() as u64
+                                ),
+                            }),
                         },
                     ],
                 }));
@@ -426,6 +567,8 @@ pub(crate) struct Painters {
     path: PathPainter,
     text: TextPainter,
     composite: CompositePainter,
+    /// The separable image-filter pre-pass: blur, dilate, erode.
+    filter: FilterPainter,
     /// The MSAA sample count; 1 means no multisampling.
     sample_count: u32,
     /// The intermediate MSAA texture, created on demand and recreated on resize.
@@ -450,6 +593,7 @@ impl Painters {
             path: PathPainter::new(device, format, sample_count),
             text: TextPainter::new(device, queue, format, sample_count),
             composite: CompositePainter::new(device, queue, format, sample_count),
+            filter: FilterPainter::new(device, format),
             sample_count,
             msaa: None,
             layer_cache: Vec::new(),
@@ -549,10 +693,20 @@ impl Painters {
                 clip,
                 clip_shape,
                 transform,
+                filter,
                 ..
             } = primitive
             {
-                let view = self.layer_texture(device, queue, format, layer_index, primitives, w, h);
+                let view = self.layer_texture(
+                    device,
+                    queue,
+                    format,
+                    layer_index,
+                    primitives,
+                    filter.image.filter(|f| !f.is_identity()),
+                    w,
+                    h,
+                );
                 // The fragment samples at the **counter-transformed** position, so
                 // we pass the inverse (screen → texture); identity when there is none.
                 let inverse = match transform {
@@ -581,6 +735,11 @@ impl Painters {
                     shape,
                     radii,
                     inverse,
+                    // The image filter has already been spent, in the pre-pass above.
+                    filter: LayerFilter {
+                        image: None,
+                        ..*filter
+                    },
                 });
                 layer_index += 1;
             }
@@ -658,7 +817,8 @@ impl Painters {
 
     /// Returns the view of a layer's texture: **reused** as is when its content and
     /// dimensions are unchanged since the previous frame, otherwise (re)rendered by
-    /// [`Painters::render_group`]. `index` is the layer's rank in the scene, a stable
+    /// [`Painters::render_group`] and, if the layer asks for one, put through the
+    /// image-filter pre-pass. `index` is the layer's rank in the scene, a stable
     /// cache key; a key that slips — because layers were reordered — only misses the
     /// cache, which re-renders correctly and never wrongly.
     // Same as `render`, one layer at a time.
@@ -670,20 +830,26 @@ impl Painters {
         format: wgpu::TextureFormat,
         index: usize,
         primitives: &[Primitive],
+        image: Option<ImageFilter>,
         w: u32,
         h: u32,
     ) -> wgpu::TextureView {
         let hit = matches!(
             self.layer_cache.get(index),
-            Some(c) if c.width == w && c.height == h && c.primitives.as_slice() == primitives
+            Some(c) if c.width == w && c.height == h && c.image == image
+                && c.primitives.as_slice() == primitives
         );
         if !hit {
-            let texture = self.render_group(device, queue, format, primitives, w, h);
+            let mut texture = self.render_group(device, queue, format, primitives, w, h);
+            if let Some(f) = image {
+                texture = self.filter.apply(device, queue, format, &texture, f, w, h);
+            }
             let entry = CachedLayer {
                 primitives: primitives.to_vec(),
                 width: w,
                 height: h,
                 texture,
+                image,
             };
             if index < self.layer_cache.len() {
                 self.layer_cache[index] = entry;

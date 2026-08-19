@@ -5,9 +5,10 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, BarChart, Button, Checkbox, Chip, Container, DateTimePicker, Dropdown,
-    Flex, IconName, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, SegmentedControl,
-    Slider, Stepper, Switch, Table, Tabs, Text, TextInput, Theme, TimePicker, Variant,
+    Autocomplete, Avatar, BarChart, Button, Checkbox, Chip, ColorFiltered, Container,
+    DateTimePicker, Dropdown, Flex, IconName, ImageFiltered, LineChart, Menu, Pagination,
+    RadioGroup, RangeSlider, Rating, SegmentedControl, ShaderMask, Slider, Stepper, Switch, Table,
+    Tabs, Text, TextInput, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -2823,4 +2824,54 @@ fn diff_count_is_exact() {
         0,
         "the maximum tolerance absorbs everything"
     );
+}
+
+/// The three filters that act on their own subtree, side by side and on one picture:
+/// the same red block greyed, blurred, and faded out to the bottom.
+///
+/// A golden rather than three pixel assertions because that is the only form in which
+/// a blur can be *looked at*: the numbers say it spread, and only the image says it
+/// spread the way a blur does.
+#[test]
+fn the_three_filters_match_their_golden() {
+    let theme = Theme::dark();
+    let block = || Container::<()>::new().width(48.0).height(48.0).color(RED);
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::row()
+            .gap(12.0)
+            .child(ColorFiltered::grayscale().child(block()))
+            .child(ImageFiltered::blur(6.0).child(block()))
+            .child(ShaderMask::fade_out_bottom().child(block())),
+    );
+    let Some(snapshot) = render_widget(&root, 208, 72, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("filters_three"));
+}
+
+/// The colour used by the filter golden, kept beside it so the expected greyscale
+/// value below is checkable by eye: red at 0.2126 luminance.
+const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+
+/// And the one number the picture cannot be read for: greyscale must give the
+/// **luminance** of red, which is 0.21 of the encoded value, not 0.48 of the light.
+/// Every colour-space slip this framework has had looked plausible in the picture.
+#[test]
+fn a_greyscale_filter_keeps_its_colour_space() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().child(
+        ColorFiltered::grayscale().child(Container::new().width(64.0).height(64.0).color(RED)),
+    );
+    let Some(snapshot) = render_widget(&root, 64, 64, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    let [r, g, b, _] = snapshot.pixel(32, 32);
+    let want = (0.2126f32 * 255.0).round() as i32;
+    assert!(
+        (r as i32 - want).abs() <= 3,
+        "the luminance of red: {r} (wanted about {want})"
+    );
+    assert_eq!((r, g, b), (r, r, r), "grey: the three channels agree");
 }

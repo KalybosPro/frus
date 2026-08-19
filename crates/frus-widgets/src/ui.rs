@@ -4,7 +4,9 @@
 
 use std::hash::{Hash, Hasher};
 
-use frus_core::{Affine, ClipShape, Color, LayerTransform, Point, Primitive, Rect, Scene, Size};
+use frus_core::{
+    Affine, ClipShape, Color, LayerFilter, LayerTransform, Point, Primitive, Rect, Scene, Size,
+};
 use frus_layout::{Layout, NodeId, Overflowing, Side};
 
 use crate::shortcuts::{Intent, KeyStroke};
@@ -1621,11 +1623,42 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     clip,
                     clip_shape: ClipShape::Rect,
                     transform: None,
+                    filter: LayerFilter::NONE,
                     owner: id.as_u64(),
                 });
                 return;
             }
             // Fully opaque: an ordinary render (no pointless layer).
+        }
+
+        // A **pixel effect** over the subtree (`ColorFiltered`, `ImageFiltered`,
+        // `ShaderMask`): painted normally, then drained into a composited layer that
+        // carries the effect. The renderer applies it when it composites — the image
+        // filter as a pre-pass over the layer texture, the colour filter and the mask
+        // in the compositing fragment.
+        //
+        // The box is passed in because a mask is written in fractions of the box it
+        // covers, and this is the first point at which that box is a place on screen.
+        if let Some(filter) =
+            widget.layer_filter(rects[*index].translate(translation.0, translation.1))
+        {
+            // The layer keeps the **ambient** clip rather than its own box: an image
+            // filter reaches past the pixels it came from, and cutting it at the box
+            // would shave the edge off every blur.
+            let start = self.scene.primitives().len();
+            self.walk_node(widget, id, translation, clip, rects, index);
+            let group = self.scene.split_off(start);
+            let (group, filter, clip_box) = fold_filter(group, filter, clip);
+            self.scene.push_primitive(Primitive::Layer {
+                primitives: group,
+                opacity: 1.0,
+                clip: clip_box,
+                clip_shape: ClipShape::Rect,
+                transform: None,
+                filter,
+                owner: id.as_u64(),
+            });
+            return;
         }
 
         // **Shape** clipping: the subtree is painted normally, bounded to the widget's box,
@@ -1651,6 +1684,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 clip: clip_box,
                 clip_shape: shape,
                 transform: None,
+                filter: LayerFilter::NONE,
                 owner: id.as_u64(),
             });
             return;
@@ -1700,6 +1734,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 clip,
                 clip_shape: ClipShape::Rect,
                 transform: Some(LayerTransform::new(matrix)),
+                filter: LayerFilter::NONE,
                 owner: id.as_u64(),
             });
             // Counter-transforms the hit-test and maps the subtree's interaction rects.
@@ -1777,6 +1812,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             clip,
             clip_shape: ClipShape::Rect,
             transform: Some(LayerTransform::new(matrix)),
+            filter: LayerFilter::NONE,
             owner: owner.as_u64(),
         });
         self.transform_interaction_registries(&base, matrix);
@@ -3213,6 +3249,51 @@ pub fn find_widget<Msg>(root: &dyn Widget<Msg>, target: WidgetId) -> Option<&dyn
         None
     }
     walk(root, WidgetId::ROOT, target)
+}
+
+/// Folds a filter into the single filtered layer its subtree turned out to be, so two
+/// filter widgets wrapped one inside the other cost one layer rather than two.
+///
+/// It is not only a saving. Compositing renders a layer into a texture and composites
+/// that texture; a layer *inside* that texture is not composited again, so a nested
+/// filter would simply not be applied. Folding is what makes `ColorFiltered` around
+/// `ImageFiltered` mean what it reads as.
+///
+/// Everything about the inner layer must be neutral — full opacity, a plain
+/// rectangular clip, no transform — because those are applied at compositing time and
+/// there is only one composite to apply them at. And the two filters must not want
+/// the same slot: greyscale of an inverted picture is not the inversion of a
+/// greyscale one, so there is no single layer that means both, and the two nest.
+fn fold_filter(
+    group: Vec<Primitive>,
+    filter: LayerFilter,
+    clip: Rect,
+) -> (Vec<Primitive>, LayerFilter, Rect) {
+    if group.len() != 1 {
+        return (group, filter, clip);
+    }
+    let Primitive::Layer {
+        opacity,
+        clip: inner_clip,
+        clip_shape,
+        transform,
+        filter: inner,
+        ..
+    } = &group[0]
+    else {
+        return (group, filter, clip);
+    };
+    if *opacity < 0.999 || !matches!(clip_shape, ClipShape::Rect) || transform.is_some() {
+        return (group, filter, clip);
+    }
+    let (inner, inner_clip) = (*inner, *inner_clip);
+    let Some(merged) = filter.merge(inner) else {
+        return (group, filter, clip);
+    };
+    let Some(Primitive::Layer { primitives, .. }) = group.into_iter().next() else {
+        unreachable!("checked just above")
+    };
+    (primitives, merged, clip.intersect(inner_clip))
 }
 
 #[cfg(test)]

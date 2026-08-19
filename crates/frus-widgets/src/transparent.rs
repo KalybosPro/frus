@@ -412,6 +412,13 @@ macro_rules! forward_transparent {
                 self.inner.clip_path()
             }
 
+            fn layer_filter(
+                &self,
+                box_rect: frus_core::Rect,
+            ) -> Option<frus_core::LayerFilter> {
+                self.inner.layer_filter(box_rect)
+            }
+
             fn barrier(&self) -> Option<$crate::barrier::Barrier> {
                 self.inner.barrier()
             }

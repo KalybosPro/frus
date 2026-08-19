@@ -13,6 +13,7 @@ pub use wgpu;
 
 mod batch;
 mod compositor;
+mod filter;
 mod image;
 mod offscreen;
 mod painter;

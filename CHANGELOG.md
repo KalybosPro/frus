@@ -8,12 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 338 so far, each documenting the objective, the alternatives
+> record — one per step, 339 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Three filters** (J339): `ColorFiltered`, `ImageFiltered` and `ShaderMask` — the three
+  that apply a pixel effect to their **own** subtree. They ride on the layer a subtree is
+  already composited through, as independent slots on one `LayerFilter` applied in a fixed
+  order (image, then colour, then mask). Two filter widgets nested one inside the other are
+  **folded into a single layer**, because a layer nested in another is not re-composited;
+  the fold refuses when both want the same slot, and those nest properly instead.
+
+- **`BlendMode`** (J339): the Porter–Duff set plus the separable blends, eighteen in all.
+  Needed by three separate things — a `ColorFilter::Mode`, a `ShaderMask`, and the backdrop
+  to come — so one enum pays for itself three times.
+
+- **A separable image-filter pre-pass** (J339): blur, dilate and erode, as two passes of
+  twelve taps per side rather than one of `(2n+1)²`. The step scales with the radius, so a
+  40-pixel blur costs exactly what a 4-pixel one does. The result is cached with the layer,
+  and the filter is part of the cache key.
 
 - **Shortcuts and actions** (J338): `Shortcuts`, `Actions`, `CallbackShortcuts`,
   `ActionListener`, `KeyboardListener` and `FocusableActionDetector`. Two steps rather than
@@ -31,6 +47,18 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **Layer compositing blends premultiplied** (J339). A layer texture is premultiplied — it
+  was painted over a transparent target — and the composite pass was handing it to the
+  straight-alpha blend, which multiplied the colour by the coverage a second time. Invisible
+  on opaque content, a slight darkening on an antialiased edge, and unmissable on a mask
+  fade, which ran to black instead of to the background. Half of white over black now reads
+  188 rather than 137.
+
+- **Colour filters and blends are evaluated on sRGB-encoded values** (J339), the space
+  colours are authored in — not on the linear light the GPU holds, where the same greyscale
+  matrix would make pure red more than twice as bright. The blur is the deliberate
+  exception and stays linear, because a blur is an average of light.
 
 - **The shell tracks Alt and Meta** (J338), and checks application shortcuts after its own
   keys (system back, F12) so that no binding can take those away, and before everything

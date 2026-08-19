@@ -10,7 +10,7 @@
 //!
 //! Convention: origin at the top left, y pointing down.
 
-use frus_core::{BorderRadius, ClipShape, Color, Path, Point, Primitive, Rect, Scene};
+use frus_core::{BorderRadius, ClipShape, Color, LayerFilter, Path, Point, Primitive, Rect, Scene};
 use frus_test::{render_scene, Snapshot};
 
 /// A scene: a solid red `inner` rectangle wrapped in a layer clipped to `shape`,
@@ -26,6 +26,7 @@ fn clipped_layer(inner: Rect, shape: ClipShape) -> Scene {
         clip: inner,
         clip_shape: shape,
         transform: None,
+        filter: LayerFilter::NONE,
         owner: 0,
     });
     scene

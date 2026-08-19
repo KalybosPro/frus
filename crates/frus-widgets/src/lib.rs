@@ -46,6 +46,7 @@ mod drawer;
 mod dropdown;
 mod dsl;
 mod expanded;
+mod filters;
 mod fittedbox;
 mod flex;
 mod focus;
@@ -177,6 +178,7 @@ pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::Expanded;
+pub use filters::{ColorFiltered, ImageFiltered, ShaderMask};
 pub use fittedbox::FittedBox;
 pub use flex::{Flex, Wrap};
 pub use focus::{
@@ -290,11 +292,11 @@ pub use widgettheme::{
 
 // Convenience re-exports for callers.
 pub use frus_core::{
-    Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Border, BorderRadius,
-    BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, FontWeight, ImageData, ImageHandle, Insets,
-    InsetsDirectional, LinearGradient, Orientation, Path, PathVerb, Point, Primitive, Rect, Role,
-    Scene, Semantics, Size, SizeClass, TextDecoration, TextDirection, TextSpan, TextStyle, Toggled,
-    WindowInsets,
+    Affine, Alignment, AlignmentDirectional, AlignmentGeometry, BlendMode, Border, BorderRadius,
+    BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, FontWeight, FractionalMask,
+    ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional, LinearGradient, Orientation,
+    Path, PathVerb, Point, Primitive, Rect, Role, Scene, Semantics, Size, SizeClass,
+    TextDecoration, TextDirection, TextSpan, TextStyle, Toggled, WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through

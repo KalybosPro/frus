@@ -8,8 +8,8 @@
 //! [`Scene::set_clip`] before primitives are added.
 
 use crate::{
-    Affine, BorderRadius, Color, FontWeight, ImageHandle, Path, PathVerb, Point, Rect, Size,
-    Stroke, TextDecoration, TextRun, TextStyle,
+    Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
+    Size, Stroke, TextDecoration, TextRun, TextStyle,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -323,6 +323,10 @@ pub enum Primitive {
         /// The affine transform (rotation) applied at compositing. `None` means the
         /// layer is simply composited in place, with group opacity.
         transform: Option<LayerTransform>,
+        /// The **pixel effects** applied when the layer is composited: an image
+        /// filter, a colour filter, a mask. [`LayerFilter::NONE`] — the usual
+        /// case — leaves compositing on its original path.
+        filter: LayerFilter,
         /// The emitting widget's identity.
         owner: u64,
     },
@@ -464,6 +468,7 @@ impl Primitive {
                 clip,
                 clip_shape,
                 transform,
+                filter,
                 owner,
             } => Primitive::Layer {
                 primitives: primitives.iter().map(|p| p.scaled_xy(sx, sy)).collect(),
@@ -471,6 +476,7 @@ impl Primitive {
                 clip: clip.scale_xy(sx, sy),
                 clip_shape: clip_shape.scaled_xy(sx, sy),
                 transform: transform.map(|t| t.scaled_xy(sx, sy)),
+                filter: filter.scaled_xy(sx, sy),
                 owner,
             },
         }
@@ -583,6 +589,7 @@ impl Primitive {
                 clip,
                 clip_shape,
                 transform,
+                filter,
                 owner,
             } => {
                 Primitive::Layer {
@@ -593,6 +600,9 @@ impl Primitive {
                     // rectangle moves, which is handled above.
                     clip_shape,
                     transform: transform.map(|t| t.translated(dx, dy)),
+                    // A blur radius is a length and a mask is written in fractions of
+                    // its box: neither moves with the layer.
+                    filter,
                     owner,
                 }
             }
@@ -754,6 +764,7 @@ impl Primitive {
                 opacity,
                 clip_shape,
                 transform,
+                filter,
                 owner,
                 ..
             } => Primitive::Layer {
@@ -762,6 +773,7 @@ impl Primitive {
                 clip,
                 clip_shape,
                 transform,
+                filter,
                 owner,
             },
         }
@@ -972,6 +984,7 @@ impl Scene {
                 clip,
                 clip_shape,
                 transform,
+                filter,
                 owner,
             } => Primitive::Layer {
                 primitives,
@@ -980,6 +993,7 @@ impl Scene {
                 clip,
                 clip_shape,
                 transform,
+                filter,
                 owner,
             },
         };
@@ -1197,6 +1211,7 @@ impl Scene {
             clip: self.current_clip,
             clip_shape: ClipShape::Rect,
             transform: None,
+            filter: LayerFilter::NONE,
             owner: self.current_owner,
         });
     }

@@ -11,7 +11,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use frus_core::{Affine, Color, LayerTransform, Point, Primitive, Rect, Scene};
+use frus_core::{Affine, Color, LayerFilter, LayerTransform, Point, Primitive, Rect, Scene};
 use frus_test::{render_scene, Snapshot};
 
 /// A scene: a solid `inner` rectangle in `color`, wrapped in a layer transformed by
@@ -27,6 +27,7 @@ fn transformed_layer(inner: Rect, color: Color, m: LayerTransform) -> Scene {
         clip: Rect::UNBOUNDED,
         clip_shape: frus_core::ClipShape::Rect,
         transform: Some(m),
+        filter: LayerFilter::NONE,
         owner: 0,
     });
     scene

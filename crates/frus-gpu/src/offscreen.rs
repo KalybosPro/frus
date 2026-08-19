@@ -160,7 +160,9 @@ fn headless_device() -> Option<(wgpu::Device, wgpu::Queue, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frus_core::{Path, Point, Rect};
+    use frus_core::{
+        ColorFilter, ImageFilter, LayerFilter, MaskShader, Path, Point, Primitive, Rect, ShaderMask,
+    };
 
     /// The offscreen path renders what the windowed pipeline does: a solid red
     /// rectangle gives a red pixel inside, and the clear colour outside.
@@ -345,5 +347,129 @@ mod tests {
         assert_eq!(single[2], 0, "no blue");
         // Outside both rectangles: black background.
         assert_eq!(px(60, 8), [0, 0, 0], "outside the layer → background");
+    }
+
+    /// Builds a layer around one filled rectangle, carrying `filter`.
+    fn filtered(rect: Rect, color: Color, filter: LayerFilter) -> Scene {
+        let mut inner = Scene::new();
+        inner.fill_rect(rect, color);
+        let mut scene = Scene::new();
+        scene.push_primitive(Primitive::Layer {
+            primitives: inner.primitives().to_vec(),
+            opacity: 1.0,
+            clip: Rect::UNBOUNDED,
+            clip_shape: frus_core::ClipShape::Rect,
+            transform: None,
+            filter,
+            owner: 0,
+        });
+        scene
+    }
+
+    /// A **colour matrix**, sampled on the rendered pixel rather than believed from
+    /// the scene: pure red through a greyscale filter must come out at the luminance
+    /// of red, which is 0.2126 — and 0.2126 of the **encoded** value, not of the
+    /// light. Evaluated in linear light the same matrix would give 0.48, more than
+    /// twice as bright, which is exactly the slip this asserts against.
+    #[test]
+    fn a_greyscale_filter_gives_the_luminance_of_red() {
+        let scene = filtered(
+            Rect::new(0.0, 0.0, 64.0, 64.0),
+            Color::rgb(1.0, 0.0, 0.0),
+            LayerFilter {
+                color: Some(ColorFilter::grayscale()),
+                ..LayerFilter::NONE
+            },
+        );
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let i = ((32 * frame.width + 32) * 4) as usize;
+        let (r, g, b) = (frame.rgba[i], frame.rgba[i + 1], frame.rgba[i + 2]);
+        let want = (0.2126f32 * 255.0).round() as i32;
+        assert!(
+            (r as i32 - want).abs() <= 3,
+            "red at its luminance: {r} (wanted about {want})"
+        );
+        assert_eq!((r, g, b), (r, r, r), "grey: the three channels agree");
+    }
+
+    /// A **blur** spreads a shape past its own edge and takes the middle with it: a
+    /// pixel outside the rectangle lights up, and the very centre stays bright.
+    #[test]
+    fn a_blur_spreads_past_the_edge() {
+        let square = Rect::new(24.0, 24.0, 16.0, 16.0);
+        let sharp = filtered(square, Color::WHITE, LayerFilter::NONE);
+        let blurred = filtered(
+            square,
+            Color::WHITE,
+            LayerFilter {
+                image: Some(ImageFilter::blur(5.0)),
+                ..LayerFilter::NONE
+            },
+        );
+        let Some(a) = render_offscreen(&sharp, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let b = render_offscreen(&blurred, 64, 64, Color::BLACK).expect("the adapter is there");
+        let at = |f: &OffscreenFrame, x: u32, y: u32| f.rgba[((y * f.width + x) * 4) as usize];
+        // Eight pixels outside the square, level with its middle.
+        assert_eq!(at(&a, 16, 32), 0, "sharp: nothing outside the square");
+        assert!(
+            at(&b, 16, 32) > 20,
+            "blurred: the edge has reached here ({})",
+            at(&b, 16, 32)
+        );
+        // And the spread came from somewhere: the centre is no longer full white.
+        assert_eq!(at(&a, 32, 32), 255, "sharp: white in the middle");
+        assert!(
+            at(&b, 32, 32) < 255,
+            "blurred: the middle gave some away ({})",
+            at(&b, 32, 32)
+        );
+    }
+
+    /// A **mask** fades a white block from opaque at its top to gone at its bottom.
+    /// The middle is the test that matters: it must sit near the halfway point
+    /// between the two ends, not collapse toward the background — which is what a
+    /// coverage applied twice would do.
+    #[test]
+    fn a_mask_fades_the_layer_from_top_to_bottom() {
+        let scene = filtered(
+            Rect::new(0.0, 0.0, 64.0, 64.0),
+            Color::WHITE,
+            LayerFilter {
+                mask: Some(ShaderMask::new(MaskShader::Linear {
+                    from: Point::new(0.0, 0.0),
+                    to: Point::new(0.0, 64.0),
+                    from_color: Color::WHITE,
+                    to_color: Color::WHITE.fade(0.0),
+                })),
+                ..LayerFilter::NONE
+            },
+        );
+        let Some(frame) = render_offscreen(&scene, 64, 64, Color::BLACK) else {
+            eprintln!("no GPU adapter available: test skipped");
+            return;
+        };
+        let at = |y: u32| frame.rgba[((y * frame.width + 32) * 4) as usize] as i32;
+        let (top, middle, bottom) = (at(1), at(32), at(62));
+        assert!(top > 240, "opaque at the top: {top}");
+        // A fifty-fifth of the light, and still 42 out of 255 once encoded: the sRGB
+        // curve spends most of its range on the dark end, which is why a fade that
+        // looks finished is not, and why a byte threshold here has to be generous.
+        assert!(bottom < 60, "all but gone at the bottom: {bottom}");
+        assert!(
+            top > middle && middle > bottom,
+            "monotonic: {top} {middle} {bottom}"
+        );
+        // Half of white over black is 0.5 of the light, which is 188 encoded — not
+        // the 137 a doubled coverage would give.
+        assert!(
+            (middle - 188).abs() <= 12,
+            "half way is half the light: {middle}"
+        );
     }
 }

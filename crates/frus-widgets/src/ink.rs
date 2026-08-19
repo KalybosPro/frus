@@ -16,7 +16,9 @@
 //! [`InkWell`] is the ready-made wrapper — a transparent box that splashes and clicks,
 //! like the reference's widget of the same name.
 
-use frus_core::{BorderRadius, ClipShape, Color, Curve, Path, Point, Primitive, Rect, Scene, Size};
+use frus_core::{
+    BorderRadius, ClipShape, Color, Curve, LayerFilter, Path, Point, Primitive, Rect, Scene, Size,
+};
 use frus_layout::Style;
 
 use crate::interaction::Status;
@@ -337,6 +339,7 @@ impl Ripples {
                 ClipShape::RRect(radius)
             },
             transform: None,
+            filter: LayerFilter::NONE,
             owner,
         });
     }

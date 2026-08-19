@@ -8,6 +8,7 @@
 pub mod animation;
 mod color;
 mod decoration;
+mod filter;
 mod geometry;
 mod hct;
 mod image;
@@ -26,6 +27,9 @@ pub use animation::{
 };
 pub use color::Color;
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
+pub use filter::{
+    BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader, ShaderMask,
+};
 pub use geometry::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Insets, InsetsDirectional, Point,
     Rect, Size, TextDirection, WindowInsets,

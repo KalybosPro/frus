@@ -633,6 +633,21 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The **pixel effects** this widget applies to its whole subtree: a blur, a
+    /// colour transform, a mask. The paint walk drains the subtree into a composited
+    /// layer and hands the filter to the renderer, exactly as it does for an opacity
+    /// group or a shape clip.
+    ///
+    /// `box_rect` is the widget's own box, on screen. It is passed in because a mask
+    /// is written in fractions of the box it covers and only the walk knows where
+    /// that box ended up; the two filters that have no geometry ignore it.
+    ///
+    /// `None` — the default — means no layer and no cost. See [`crate::ColorFiltered`],
+    /// [`crate::ImageFiltered`], [`crate::ShaderMask`].
+    fn layer_filter(&self, _box_rect: frus_core::Rect) -> Option<frus_core::LayerFilter> {
+        None
+    }
+
     /// If the widget clips its child to an **arbitrary path** (`ClipPath`), returns the
     /// path in **local coordinates** (origin at the box's top-left corner). The walk
     /// offsets it to the screen and wraps it in a layer whose mask (the path) erases
@@ -1007,6 +1022,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn clip_path(&self) -> Option<&frus_core::Path> {
         (**self).clip_path()
+    }
+    fn layer_filter(&self, box_rect: frus_core::Rect) -> Option<frus_core::LayerFilter> {
+        (**self).layer_filter(box_rect)
     }
     fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
         (**self).ink(theme)
