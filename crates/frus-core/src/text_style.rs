@@ -8,6 +8,49 @@
 
 use crate::Color;
 
+/// How the lines of a piece of text are **aligned inside the box** it was given.
+///
+/// It is not the same question as where the box goes. A centred paragraph and a centred
+/// box look identical while the text is one line and stop looking identical the moment it
+/// wraps, which is when the setting starts to matter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    /// The start of the reading direction: the left in a left-to-right script, the right
+    /// in a right-to-left one. The default, and the only one that follows the text.
+    #[default]
+    Start,
+    /// The end of the reading direction.
+    End,
+    /// Centred in the box.
+    Center,
+    /// Both edges flush, the space stretched between the words. Every line but the last.
+    Justify,
+    /// The left edge, whatever the script. A column of figures wants this and not
+    /// [`TextAlign::Start`], because the figures do not change direction with the prose
+    /// around them.
+    Left,
+    /// The right edge, whatever the script.
+    Right,
+}
+
+/// What becomes of text that does not fit the box it was given.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TextOverflow {
+    /// Cut at the edge of the box. The default, and the quiet one: nothing marks the
+    /// place where the words stopped.
+    #[default]
+    Clip,
+    /// Cut, with the last line ending in an ellipsis. The only mode that tells the reader
+    /// something is missing, which is usually the one wanted.
+    Ellipsis,
+    /// Cut, with the last line fading out into the background rather than stopping at a
+    /// hard edge.
+    Fade,
+    /// Draw past the box. Not an accident: a badge or a decoration that is *meant* to
+    /// spill says so this way, rather than by being given a box it does not fit.
+    Visible,
+}
+
 /// Font weight — a useful subset, mapped onto the CSS/OpenType weights.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FontWeight {

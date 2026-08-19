@@ -2,7 +2,7 @@
 //!
 //! With no GPU adapter the tests skip themselves, the harness returning `None`.
 
-use frus_core::{Color, Point, Rect, Scene, TextStyle};
+use frus_core::{Color, Point, Rect, Scene, TextAlign, TextOverflow, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
@@ -2981,4 +2981,45 @@ fn a_row_and_column_match_their_golden() {
         return;
     };
     snapshot.assert_golden(golden("row_and_column"));
+}
+
+/// The four things a piece of text can do about a box it does not fit, and the alignment
+/// that decides where it sits inside one it does.
+///
+/// Top to bottom: centred, justified (both edges flush, the space stretched between the
+/// words), two lines and an ellipsis where the third would have been, and a line fading
+/// out at the edge it ran past.
+#[test]
+fn text_alignment_and_overflow_match_their_golden() {
+    let theme = Theme::dark();
+    let long = "one two three four five six seven eight nine ten eleven twelve thirteen";
+    let body = TextStyle::new(12.0);
+    let root: Container<()> = Container::new()
+        .width(200.0)
+        .height(120.0)
+        .padding(8.0)
+        .child(
+            Flex::column()
+                .width(184.0)
+                .align(Align::Stretch)
+                .gap(6.0)
+                .child(Text::styled("centred", body).align(TextAlign::Center))
+                .child(
+                    Text::styled("one two three four five six seven eight nine", body)
+                        .wrap()
+                        .align(TextAlign::Justify),
+                )
+                .child(
+                    Text::styled(long, body)
+                        .wrap()
+                        .max_lines(2)
+                        .overflow(TextOverflow::Ellipsis),
+                )
+                .child(Text::styled(long, body).overflow(TextOverflow::Fade)),
+        );
+    let Some(snapshot) = render_widget(&root, 200, 120, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("text_align_overflow"));
 }

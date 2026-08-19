@@ -510,6 +510,70 @@ fn remember_measurement(key: MeasureKey, size: Size) {
     cache.current.insert(key, size);
 }
 
+/// The **visual lines** a piece of text breaks into inside a box `max_width` wide — at
+/// most `max_lines` of them — and whether there was more text than fitted.
+///
+/// The reference's `maxLines` and `overflow` both need this and neither can be answered
+/// by a measurement: a height tells you how many lines there are, not *where they broke*,
+/// and a cut has to fall on a break the shaper chose or the words move.
+///
+/// Each line comes back as its own string rather than as an offset into the original.
+/// Offsets would have to be mapped back through the buffer lines a newline splits the
+/// text into, and the caller wants the strings anyway — it is about to cut one of them
+/// and draw the rest.
+///
+/// Not cached. It is only reached by text that asked for a line limit or a visible
+/// overflow, and the shaping it does is the same shaping the renderer will do again; the
+/// texts that do not ask still go through the cached measurement.
+pub fn visual_lines(
+    text: &str,
+    size_px: f32,
+    weight: FontWeight,
+    italic: bool,
+    max_width: Option<f32>,
+    soft_wrap: bool,
+    max_lines: Option<usize>,
+) -> (Vec<String>, bool) {
+    if text.is_empty() {
+        return (vec![String::new()], false);
+    }
+    let mut font_system = font_system().lock().expect("FontSystem lock");
+    let metrics = Metrics::new(size_px, line_height(size_px));
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    if !soft_wrap {
+        buffer.set_wrap(&mut font_system, cosmic_text::Wrap::None);
+    }
+    buffer.set_size(&mut font_system, max_width, None);
+    let attrs = Attrs::new()
+        .family(family_for(text))
+        .weight(Weight(available_weight(weight)))
+        .style(available_style(italic));
+    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut font_system, false);
+
+    let mut lines = Vec::new();
+    let mut more = false;
+    for (index, run) in buffer.layout_runs().enumerate() {
+        if max_lines.is_some_and(|max| index >= max) {
+            more = true;
+            break;
+        }
+        // The glyphs are in **visual** order, so a right-to-left line has its last byte
+        // first: the span is the extent of the run, not its ends in order.
+        let start = run.glyphs.iter().map(|g| g.start).min();
+        let end = run.glyphs.iter().map(|g| g.end).max();
+        match (start, end) {
+            (Some(start), Some(end)) => lines.push(run.text[start..end].to_string()),
+            // A blank line between two paragraphs has no glyphs and is still a line.
+            _ => lines.push(String::new()),
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    (lines, more)
+}
+
 /// Measures a **rich text**'s natural size — resolved runs with mixed styles and
 /// sizes: the longest line's width, and the shaped lines' real height.
 pub fn measure_runs(runs: &[TextRun]) -> Size {
@@ -794,6 +858,80 @@ impl TextLayout {
 
 #[cfg(test)]
 mod tests {
+
+    /// The lines come back **as the shaper broke them**, and putting them back together
+    /// gives the words back — which is what makes it safe to drop the ones past a limit
+    /// and draw the rest.
+    #[test]
+    fn visual_lines_break_where_the_shaper_breaks() {
+        let text = "one two three four five six seven eight";
+        let (lines, more) = visual_lines(
+            text,
+            14.0,
+            FontWeight::Regular,
+            false,
+            Some(80.0),
+            true,
+            None,
+        );
+        assert!(lines.len() > 1, "it wrapped: {lines:?}");
+        assert!(!more, "nothing was dropped");
+        assert_eq!(
+            lines.join(" ").split_whitespace().collect::<Vec<_>>(),
+            text.split_whitespace().collect::<Vec<_>>(),
+            "the same words, in the same order"
+        );
+        for line in &lines {
+            let w = measure_styled(line, 14.0, FontWeight::Regular, false).width;
+            assert!(w <= 80.5, "each line fits: {line:?} at {w}");
+        }
+    }
+
+    /// A limit keeps the first lines and says there were more.
+    #[test]
+    fn a_limit_keeps_the_first_lines_and_says_so() {
+        let text = "one two three four five six seven eight";
+        let (all, _) = visual_lines(
+            text,
+            14.0,
+            FontWeight::Regular,
+            false,
+            Some(80.0),
+            true,
+            None,
+        );
+        let (two, more) = visual_lines(
+            text,
+            14.0,
+            FontWeight::Regular,
+            false,
+            Some(80.0),
+            true,
+            Some(2),
+        );
+        assert!(all.len() > 2, "the fixture has to overflow: {all:?}");
+        assert_eq!(two.len(), 2);
+        assert_eq!(two, all[..2].to_vec(), "and they are the first two");
+        assert!(more, "there was more");
+    }
+
+    /// Without wrapping there is one line however narrow the box: nothing may push a
+    /// word onto the next one, so the line runs past the edge instead.
+    #[test]
+    fn without_wrapping_there_is_one_line() {
+        let text = "one two three four five six seven eight";
+        let (lines, more) = visual_lines(
+            text,
+            14.0,
+            FontWeight::Regular,
+            false,
+            Some(40.0),
+            false,
+            None,
+        );
+        assert_eq!(lines, vec![text.to_string()]);
+        assert!(!more);
+    }
     use super::*;
 
     #[test]

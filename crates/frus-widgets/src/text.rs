@@ -1,6 +1,9 @@
 //! [`Text`]: a widget that displays a line of text.
 
-use frus_core::{Color, FontWeight, Point, Rect, Scene, TextStyle};
+use frus_core::{
+    Color, FontWeight, MaskShader, Point, Rect, Scene, ShaderMask, TextAlign, TextBlock,
+    TextOverflow, TextStyle,
+};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -17,10 +20,26 @@ pub struct Text {
     style: TextStyle,
     /// Paragraph: wraps at the width the parent offers.
     wrap: bool,
-    /// Single line, cut with an ellipsis at whatever width the layout gives it —
-    /// and, crucially, willing to *be* given less than it asked for.
-    ellipsis: bool,
+    /// What becomes of text that does not fit its box.
+    overflow: TextOverflow,
+    /// At most this many lines; the rest is dropped and `overflow` decides how the last
+    /// one ends.
+    max_lines: Option<usize>,
+    /// Where the lines sit inside the box.
+    align: TextAlign,
+    /// Whether this text is willing to be given **less than it asked for**.
+    ///
+    /// It is not the same question as what happens when it overflows, and conflating the
+    /// two would change every text in the framework: a flex item's automatic minimum size
+    /// is its content, so a plain text refuses to shrink and its siblings are pushed out
+    /// instead. Saying what to do on overflow is what says it may be squeezed.
+    shrinkable: bool,
 }
+
+/// The separator the fitted lines are joined with before being handed to the renderer.
+/// They were broken where the shaper chose to break them, and an explicit newline is what
+/// keeps them broken there.
+pub(crate) const NEWLINE: &str = "\n";
 
 /// The ellipsis a cut line ends in.
 pub(crate) const ELLIPSIS: &str = "…";
@@ -48,14 +67,51 @@ pub(crate) fn truncate(content: &str, style: &TextStyle, max_width: f32) -> Stri
     ELLIPSIS.to_string()
 }
 
+/// `line` cut so that it and an ellipsis together fit `max_width` — **always** ending in
+/// one, where [`truncate`] leaves a line that already fits alone.
+///
+/// The difference is which question is being asked. `truncate` asks whether this line
+/// fits; this asks how to end a line that is being cut because the *next* one was
+/// dropped, and there the line usually does fit and still has to say so.
+pub(crate) fn ellipsise(line: &str, style: &TextStyle, max_width: f32) -> String {
+    let measure =
+        |text: &str| frus_text::measure_styled(text, style.size, style.weight, style.italic).width;
+    let mut chars: Vec<char> = line.trim_end().chars().collect();
+    loop {
+        let kept: String = chars.iter().collect();
+        let candidate = format!("{}{ELLIPSIS}", kept.trim_end());
+        if chars.is_empty() || max_width <= 0.0 || measure(&candidate) <= max_width {
+            return candidate;
+        }
+        chars.pop();
+    }
+}
+
+/// What a text came to after being fitted to its box: what to draw, and which way it ran
+/// over — the two are different questions, and a fade needs to know which.
+pub(crate) struct Fitted {
+    /// The text to draw, with the dropped lines gone and any ellipsis already in it.
+    pub text: String,
+    /// The last line is wider than the box.
+    pub too_wide: bool,
+    /// Lines were dropped off the bottom.
+    pub too_tall: bool,
+}
+
+impl Fitted {
+    /// Whether anything ran over at all.
+    fn over(&self) -> bool {
+        self.too_wide || self.too_tall
+    }
+}
+
 impl Text {
     /// Creates a text (16 px, regular weight, the theme's color by default).
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
             style: TextStyle::new(16.0),
-            wrap: false,
-            ellipsis: false,
+            ..Self::defaults()
         }
     }
 
@@ -65,8 +121,21 @@ impl Text {
         Self {
             content: content.into(),
             style,
+            ..Self::defaults()
+        }
+    }
+
+    /// The settings every constructor starts from, so that adding one does not mean
+    /// touching each of them.
+    fn defaults() -> Self {
+        Self {
+            content: String::new(),
+            style: TextStyle::new(16.0),
             wrap: false,
-            ellipsis: false,
+            overflow: TextOverflow::Clip,
+            max_lines: None,
+            align: TextAlign::Start,
+            shrinkable: false,
         }
     }
 
@@ -75,7 +144,47 @@ impl Text {
     /// out on a single line.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
-        self.ellipsis = false;
+        self
+    }
+
+    /// Whether the text wraps at the width it is given. `wrap()` is `soft_wrap(true)`.
+    ///
+    /// Off, the text stays on one line — explicit newlines aside — and runs past its box
+    /// or is cut, according to [`Text::overflow`].
+    pub fn soft_wrap(mut self, soft_wrap: bool) -> Self {
+        self.wrap = soft_wrap;
+        self
+    }
+
+    /// Where the lines sit **inside the box** the text was given.
+    ///
+    /// It does nothing to a text that shrink-wraps, and that is not a limitation of this
+    /// implementation: a box exactly as wide as its text has nowhere to align it to. It
+    /// takes effect once something has made the box wider — a stretched column, an
+    /// [`crate::Expanded`], a width.
+    pub fn align(mut self, align: TextAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// At most `max_lines` lines; what is past them is dropped, and [`Text::overflow`]
+    /// decides how the last one ends.
+    ///
+    /// Asking for a limit also tells the layout this text may be given **less width than
+    /// it asked for** — a limit is only meaningful for a text expected to be squeezed.
+    pub fn max_lines(mut self, max_lines: usize) -> Self {
+        self.max_lines = Some(max_lines.max(1));
+        self.shrinkable = true;
+        self
+    }
+
+    /// What becomes of text that does not fit: cut, cut with an ellipsis, faded out, or
+    /// drawn past the box.
+    ///
+    /// Saying so also tells the layout this text may be given **less than it asked for**.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = overflow;
+        self.shrinkable = true;
         self
     }
 
@@ -93,8 +202,9 @@ impl Text {
     /// Mutually exclusive with [`Text::wrap`], which is the other answer to the same
     /// question: wrap grows downwards, this one cuts. The last one called wins.
     pub fn ellipsis(mut self) -> Self {
-        self.ellipsis = true;
         self.wrap = false;
+        self.overflow = TextOverflow::Ellipsis;
+        self.shrinkable = true;
         self
     }
 
@@ -110,7 +220,7 @@ impl Text {
         self
     }
 
-    /// Passe en italique.
+    /// Switches to italic.
     pub fn italic(mut self) -> Self {
         self.style.italic = true;
         self
@@ -147,11 +257,118 @@ impl Text {
     }
 }
 
+impl Text {
+    /// The text that actually fits `width`, and which way it ran over.
+    ///
+    /// Everything the box does to the words happens here: dropping the lines past the
+    /// limit, cutting the last one, deciding whether a line ran past the edge. The paint
+    /// draws what comes back, and the overflow mode decides how.
+    pub(crate) fn fitted(&self, width: f32) -> Fitted {
+        let (size, weight, italic) = (self.style.size, self.style.weight, self.style.italic);
+        // Only a line **limit** makes the words the widget's business. Left alone, the
+        // text goes to the renderer whole and is broken there — which matters beyond the
+        // shaping saved: a paragraph handed over as lines is a paragraph *per line*, and
+        // rules that span a paragraph (a justified block leaves its last line ragged) no
+        // longer know where it ends.
+        let (mut lines, too_tall) = if self.max_lines.is_some() {
+            frus_text::visual_lines(
+                &self.content,
+                size,
+                weight,
+                italic,
+                Some(width),
+                self.wrap,
+                self.max_lines,
+            )
+        } else {
+            (vec![self.content.clone()], false)
+        };
+        // A line can only be wider than the box when nothing may push it onto the next
+        // one. Where the text wraps, every line fits by construction.
+        let too_wide = !self.wrap
+            && lines.last().is_some_and(|line| {
+                frus_text::measure_styled(line, size, weight, italic).width > width + 0.5
+            });
+        if (too_tall || too_wide) && self.overflow == TextOverflow::Ellipsis {
+            if let Some(last) = lines.last_mut() {
+                *last = ellipsise(last, &self.style, width);
+            }
+        }
+        Fitted {
+            text: lines.join(NEWLINE),
+            too_wide,
+            too_tall,
+        }
+    }
+
+    /// Whether this text needs the **whole width it is offered** rather than its own.
+    ///
+    /// Alignment is the only thing that does. A box exactly as wide as its text has
+    /// nowhere to align it to, so a text asked to centre itself and then given its own
+    /// width would be centred and look untouched — the setting would appear to do nothing
+    /// and there would be nothing to see. Left alone, a text still shrink-wraps.
+    fn fills(&self) -> bool {
+        self.align != TextAlign::Start
+    }
+
+    /// A line limit is a **height** cap and nothing else: the words wrap at the same
+    /// width, and the ones past the limit are not drawn.
+    fn capped(&self, height: f32) -> f32 {
+        match self.max_lines {
+            Some(max) => height.min(frus_text::line_height(self.style.size) * max as f32),
+            None => height,
+        }
+    }
+
+    /// The fade that ends a cut text: opaque until the last stretch of the box, then out
+    /// to nothing at the edge it ran past.
+    fn fade(&self, bounds: Rect, horizontal: bool) -> ShaderMask {
+        // A fifth of the box, and never more than three line heights of it. Over a long
+        // line a proportional fade would start halfway through words that are perfectly
+        // legible; over a short one an absolute fade would swallow the lot.
+        let extent = if horizontal {
+            bounds.width
+        } else {
+            bounds.height
+        };
+        let run = (extent * 0.2).min(frus_text::line_height(self.style.size) * 3.0);
+        let (from, to) = if horizontal {
+            (
+                Point::new(bounds.x + bounds.width - run, bounds.y),
+                Point::new(bounds.x + bounds.width, bounds.y),
+            )
+        } else {
+            (
+                Point::new(bounds.x, bounds.y + bounds.height - run),
+                Point::new(bounds.x, bounds.y + bounds.height),
+            )
+        };
+        ShaderMask::new(MaskShader::Linear {
+            from,
+            to,
+            from_color: Color::WHITE,
+            to_color: Color::WHITE.fade(0.0),
+        })
+    }
+}
+
 impl<Msg> Widget<Msg> for Text {
     fn style(&self) -> Style {
-        // A paragraph: free dimensions, the size comes from `measure()`.
-        if self.wrap {
-            return Style::default();
+        // A flex item's automatic minimum size is its content, so a plain text refuses to
+        // shrink and pushes its siblings out instead. One that has said what to do when it
+        // overflows may be given less; the paint fits the words to whatever it gets.
+        let min_width = if self.shrinkable {
+            Dimension::Length(0.0)
+        } else {
+            Dimension::Auto
+        };
+        // A paragraph, or a text that has to know how wide its box is: free dimensions,
+        // and the size comes from `measure()`.
+        if self.wrap || self.fills() {
+            return Style {
+                min_width,
+                ..Default::default()
+            };
         }
         let measured = frus_text::measure_styled(
             &self.content,
@@ -161,12 +378,16 @@ impl<Msg> Widget<Msg> for Text {
         );
         Style {
             width: Dimension::Length(measured.width.ceil()),
-            height: Dimension::Length(measured.height.ceil()),
-            // A flex item's automatic minimum size is its content, so a plain text
-            // refuses to shrink and pushes its siblings out instead. An ellipsising one
-            // says it may be given less; the paint cuts to whatever it gets.
-            min_width: if self.ellipsis {
-                Dimension::Length(0.0)
+            height: Dimension::Length(self.capped(measured.height).ceil()),
+            min_width,
+            // A text that has said what to do when it overflows is **clamped to its
+            // parent**, which is what the reference does to every one of them: a
+            // paragraph is laid out at `constraints.constrain(its own size)`. Without it a
+            // text declares the width it wants, a narrower box does not take it away, and
+            // the overflow mode never fires — the words simply draw past the edge, which
+            // is the behaviour it was set to prevent.
+            max_width: if self.shrinkable {
+                Dimension::Percent(1.0)
             } else {
                 Dimension::Auto
             },
@@ -186,18 +407,34 @@ impl<Msg> Widget<Msg> for Text {
     }
 
     fn measure(&self) -> Option<frus_layout::MeasureFn> {
-        if !self.wrap {
+        if !self.wrap && !self.fills() {
             return None;
         }
         let content = self.content.clone();
         let style = self.style;
+        let max_lines = self.max_lines;
+        let wrap = self.wrap;
         Some(Box::new(move |max_width, _| {
-            frus_text::measure_wrapped(&content, style.size, style.weight, style.italic, max_width)
+            let mut size = frus_text::measure_wrapped(
+                &content,
+                style.size,
+                style.weight,
+                style.italic,
+                // A text that only wanted the width to align inside is still one line:
+                // the constraint tells it where its box ends, not where to break.
+                if wrap { max_width } else { None },
+            );
+            if let Some(max) = max_lines {
+                size.height = size
+                    .height
+                    .min(frus_text::line_height(style.size) * max as f32);
+            }
+            size
         }))
     }
 
     fn measure_key(&self) -> Option<u64> {
-        if !self.wrap {
+        if !self.wrap && !self.fills() {
             return None;
         }
         use std::hash::{Hash, Hasher};
@@ -206,11 +443,19 @@ impl<Msg> Widget<Msg> for Text {
         self.style.size.to_bits().hash(&mut hasher);
         self.style.weight.to_u16().hash(&mut hasher);
         self.style.italic.hash(&mut hasher);
+        self.max_lines.hash(&mut hasher);
         Some(hasher.finish())
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &[]
+    }
+
+    /// An aligned text takes the width its parent offers: a box exactly as wide as its
+    /// text has nowhere to align it to. It is the same request a [`crate::Row`] makes,
+    /// and it is answered by the same walk.
+    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
+        self.fills().then_some(frus_layout::FlexDirection::Row)
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
@@ -219,23 +464,45 @@ impl<Msg> Widget<Msg> for Text {
             .color
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
-        if self.wrap {
-            // Rendering wraps at the width the layout gives it.
-            scene.text_wrapped(
+        let fitted = self.fitted(bounds.width);
+        let block = TextBlock {
+            // A width is handed over only when something is going to use it. Giving the
+            // renderer one it did not have changes where right-to-left text lands, which
+            // is a bug this codebase has already had once.
+            width: (self.wrap || self.align != TextAlign::Start).then_some(bounds.width),
+            soft_wrap: self.wrap,
+            align: self.align,
+        };
+        let draw = |scene: &mut Scene| {
+            scene.text_block(
                 Point::new(bounds.x, bounds.y),
-                self.content.clone(),
+                fitted.text.clone(),
                 &self.style,
                 color,
-                bounds.width,
+                block,
             );
-        } else {
-            let content = if self.ellipsis {
-                truncate(&self.content, &self.style, bounds.width)
-            } else {
-                self.content.clone()
-            };
-            scene.text_styled(Point::new(bounds.x, bounds.y), content, &self.style, color);
+        };
+        // Nothing hanging over the edge, or already cut to size, or told to spill: the
+        // three cases where the mode has nothing left to do.
+        if !fitted.over()
+            || self.overflow == TextOverflow::Visible
+            || self.overflow == TextOverflow::Ellipsis
+        {
+            draw(scene);
+            return;
         }
+        // Only where it genuinely does not fit: a clip around every text would put a hard
+        // edge through the antialiasing of every one that does.
+        let outer = scene.current_clip();
+        scene.set_clip(outer.intersect(bounds));
+        match self.overflow {
+            TextOverflow::Fade => {
+                let horizontal = fitted.too_wide && !fitted.too_tall;
+                scene.masked(self.fade(bounds, horizontal), draw);
+            }
+            _ => draw(scene),
+        }
+        scene.set_clip(outer);
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -302,6 +569,7 @@ mod tests {
 
     use super::*;
     use frus_core::Primitive;
+    use frus_core::{MaskShader, TextAlign, TextOverflow};
 
     /// A paragraph **sized to fit** — centred on a column's cross axis, so it gets
     /// its natural width rather than the whole row — must be given a box the text
@@ -381,6 +649,183 @@ mod tests {
         }
     }
 
+    /// A line limit drops what is past it and, asked for an ellipsis, says so on the
+    /// last line it kept.
+    #[test]
+    fn a_line_limit_cuts_the_paragraph_and_marks_the_cut() {
+        let long = "one two three four five six seven eight nine ten eleven twelve";
+        let text = Text::new(long)
+            .size(14.0)
+            .wrap()
+            .max_lines(2)
+            .overflow(TextOverflow::Ellipsis);
+        let fitted = text.fitted(90.0);
+        assert_eq!(
+            fitted.text.lines().count(),
+            2,
+            "two lines: {:?}",
+            fitted.text
+        );
+        assert!(fitted.too_tall, "and there was more");
+        assert!(
+            fitted.text.ends_with(ELLIPSIS),
+            "ending in an ellipsis: {:?}",
+            fitted.text
+        );
+    }
+
+    /// The same paragraph with room for every line is left exactly as it was written.
+    #[test]
+    fn a_limit_it_does_not_reach_changes_nothing() {
+        let text = Text::new("one two").size(14.0).wrap().max_lines(4);
+        let fitted = text.fitted(400.0);
+        assert_eq!(fitted.text, "one two");
+        assert!(!fitted.too_tall && !fitted.too_wide);
+    }
+
+    /// A limit is a height cap: the words still wrap where they wrapped, and the box
+    /// stops at the line it was allowed.
+    #[test]
+    fn a_limit_caps_the_measured_height() {
+        let long = "one two three four five six seven eight nine ten eleven twelve";
+        let free = Text::new(long).size(14.0).wrap();
+        let capped = Text::new(long).size(14.0).wrap().max_lines(2);
+        let at = |t: &Text| Widget::<()>::measure(t).expect("measure")(Some(90.0), None).height;
+        assert!(at(&free) > at(&capped), "the limit is doing something");
+        assert!(
+            (at(&capped) - frus_text::line_height(14.0) * 2.0).abs() < 0.5,
+            "two lines exactly: {}",
+            at(&capped)
+        );
+    }
+
+    /// `Visible` draws past the box; `Clip` puts the box in the primitive's clip so the
+    /// renderer stops at the edge. Both draw the whole string — the difference is the
+    /// clip, not the text.
+    #[test]
+    fn clip_and_visible_differ_by_the_clip_and_not_the_words() {
+        let long = "a label far too long for the box it was given";
+        let paint = |overflow: TextOverflow| {
+            let text = Text::new(long).size(16.0).overflow(overflow);
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &text,
+                Rect::new(0.0, 0.0, 60.0, 20.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            match &scene.primitives()[0] {
+                Primitive::Text { text, clip, .. } => (text.clone(), *clip),
+                other => panic!("a text, not {other:?}"),
+            }
+        };
+        let (visible_text, visible_clip) = paint(TextOverflow::Visible);
+        let (clipped_text, clipped_clip) = paint(TextOverflow::Clip);
+        assert_eq!(visible_text, long, "nothing is cut");
+        assert_eq!(clipped_text, long, "nothing is cut here either");
+        assert_eq!(visible_clip, Rect::UNBOUNDED, "and nothing stops it");
+        assert_eq!(
+            clipped_clip,
+            Rect::new(0.0, 0.0, 60.0, 20.0),
+            "this one stops"
+        );
+    }
+
+    /// A text that fits is never clipped, whatever it asked for: a clip on every text
+    /// would put a hard edge through the antialiasing of every one of them.
+    #[test]
+    fn a_text_that_fits_is_not_clipped() {
+        let text = Text::new("short").size(16.0).overflow(TextOverflow::Clip);
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &text,
+            Rect::new(0.0, 0.0, 300.0, 20.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        match &scene.primitives()[0] {
+            Primitive::Text { clip, .. } => assert_eq!(*clip, Rect::UNBOUNDED),
+            other => panic!("a text, not {other:?}"),
+        }
+    }
+
+    /// `Fade` wraps the text in a masked group — the fade has to be a group, or the two
+    /// halves of an overlapping glyph would fade against the background separately.
+    #[test]
+    fn fade_wraps_the_text_in_a_masked_group() {
+        let text = Text::new("a label far too long for the box it was given")
+            .size(16.0)
+            .overflow(TextOverflow::Fade);
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &text,
+            Rect::new(0.0, 0.0, 60.0, 20.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        match &scene.primitives()[0] {
+            Primitive::Layer {
+                primitives, filter, ..
+            } => {
+                assert_eq!(primitives.len(), 1, "the text, and only the text");
+                let mask = filter.mask.expect("a mask");
+                match mask.shader {
+                    // The fade runs to the right edge of the box, horizontally, because
+                    // that is the edge the line ran past.
+                    MaskShader::Linear { from, to, .. } => {
+                        assert!(
+                            to.x > from.x && (to.x - 60.0).abs() < 0.01,
+                            "{from:?} {to:?}"
+                        );
+                        assert!((to.y - from.y).abs() < 0.01, "horizontal");
+                    }
+                    other => panic!("a linear fade, not {other:?}"),
+                }
+            }
+            other => panic!("a masked layer, not {other:?}"),
+        }
+    }
+
+    /// Alignment reaches the primitive, and with it the width it aligns inside — which a
+    /// start-aligned text is deliberately not given.
+    #[test]
+    fn alignment_hands_the_renderer_a_width_and_start_does_not() {
+        let painted = |align: TextAlign| {
+            let text = Text::new("x").size(16.0).align(align);
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &text,
+                Rect::new(0.0, 0.0, 200.0, 20.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            match &scene.primitives()[0] {
+                Primitive::Text {
+                    align, max_width, ..
+                } => (*align, *max_width),
+                other => panic!("a text, not {other:?}"),
+            }
+        };
+        assert_eq!(painted(TextAlign::Center), (TextAlign::Center, Some(200.0)));
+        assert_eq!(painted(TextAlign::Start), (TextAlign::Start, None));
+    }
+
+    /// Saying what to do on overflow is what tells the layout the text may be squeezed;
+    /// a plain one still refuses, which is what keeps a row from losing its last widget.
+    #[test]
+    fn an_overflow_mode_is_what_makes_a_text_shrinkable() {
+        use frus_layout::Dimension;
+        let plain = Widget::<()>::style(&Text::new("a long enough label"));
+        let clipped =
+            Widget::<()>::style(&Text::new("a long enough label").overflow(TextOverflow::Clip));
+        assert_eq!(plain.min_width, Dimension::Auto);
+        assert_eq!(clipped.min_width, Dimension::Length(0.0));
+    }
+
     #[test]
     fn text_paints_a_text_primitive() {
         let text = Text::new("Salut")
@@ -406,6 +851,8 @@ mod tests {
                 weight: FontWeight::Regular,
                 italic: false,
                 max_width: None,
+                soft_wrap: false,
+                align: TextAlign::Start,
                 decoration: frus_core::TextDecoration::NONE,
                 decoration_color: None,
                 clip: Rect::UNBOUNDED,

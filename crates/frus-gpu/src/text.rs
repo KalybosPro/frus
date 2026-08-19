@@ -195,6 +195,8 @@ impl TextPainter {
                         weight,
                         italic,
                         max_width,
+                        soft_wrap,
+                        align,
                         decoration,
                         decoration_color,
                         clip,
@@ -202,6 +204,12 @@ impl TextPainter {
                     } => {
                         let metrics = glyphon::Metrics::new(*size, *size * LINE_HEIGHT_FACTOR);
                         let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+                        // A line that knows where its box ends but was told not to wrap
+                        // still needs the width, to align inside it — so the two travel
+                        // separately here.
+                        if !soft_wrap {
+                            buffer.set_wrap(&mut self.font_system, glyphon::Wrap::None);
+                        }
                         // A paragraph wraps at its layout width. Free text stays
                         // **unconstrained** (`None`) — and above all is not bounded to
                         // the surface: in RTL, cosmic-text right-aligns to the buffer's
@@ -224,6 +232,15 @@ impl TextPainter {
                             attrs,
                             glyphon::Shaping::Advanced,
                         );
+                        // Alignment is per buffer line, and it is only set when it was
+                        // asked for: the default leaves cosmic-text to align by the
+                        // paragraph's own direction, which is what every line of text in
+                        // the framework has been laid out by until now.
+                        if let Some(align) = to_align(*align) {
+                            for line in &mut buffer.lines {
+                                line.set_align(Some(align));
+                            }
+                        }
                         buffer.shape_until_scroll(&mut self.font_system, false);
 
                         // Decorations: one line per layout run, from the first glyph
@@ -395,6 +412,22 @@ impl TextPainter {
         if let Err(err) = renderer.render(&self.atlas, &self.viewport, pass) {
             log::warn!("glyphon render failed: {err:?}");
         }
+    }
+}
+
+/// The renderer's alignment for one of ours. `None` — our `Start` — leaves cosmic-text
+/// to align by the paragraph's own direction, which is the answer for prose; the rest
+/// override it.
+fn to_align(align: frus_core::TextAlign) -> Option<glyphon::cosmic_text::Align> {
+    use frus_core::TextAlign;
+    use glyphon::cosmic_text::Align;
+    match align {
+        TextAlign::Start => None,
+        TextAlign::End => Some(Align::End),
+        TextAlign::Center => Some(Align::Center),
+        TextAlign::Justify => Some(Align::Justified),
+        TextAlign::Left => Some(Align::Left),
+        TextAlign::Right => Some(Align::Right),
     }
 }
 

@@ -9,7 +9,7 @@
 
 use crate::{
     Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
-    Size, Stroke, TextDecoration, TextRun, TextStyle,
+    ShaderMask, Size, Stroke, TextAlign, TextDecoration, TextRun, TextStyle,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -241,9 +241,18 @@ pub enum Primitive {
         weight: FontWeight,
         /// Italic.
         italic: bool,
-        /// Wrap width: beyond it the text wraps (`None` = no wrapping, in which
-        /// case explicit `\n` characters make the lines).
+        /// The width of the box the text was given (`None` = unbounded, in which case
+        /// explicit `\n` characters make the lines). It is what `soft_wrap` wraps at
+        /// and what `align` aligns inside.
         max_width: Option<f32>,
+        /// Whether `max_width` **wraps** the text or only bounds the alignment. A line
+        /// that is told where its box ends but not to wrap runs past it, which is what
+        /// an ellipsised or clipped single line does.
+        soft_wrap: bool,
+        /// How the lines sit inside `max_width`. Ignored when there is no width to sit
+        /// inside — and deliberately so: handing the renderer a width it did not have
+        /// changes where right-to-left text lands.
+        align: TextAlign,
         /// Decoration lines (underline, strikethrough, and so on).
         decoration: TextDecoration,
         /// Decoration colour; `None` means the text's own colour.
@@ -392,6 +401,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 clip,
@@ -405,6 +416,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width: max_width.map(|w| w * sx),
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 clip: clip.scale_xy(sx, sy),
@@ -519,6 +532,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 clip,
@@ -532,6 +547,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 clip: clip.translate(dx, dy),
@@ -695,6 +712,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 bounds,
@@ -708,6 +727,8 @@ impl Primitive {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 clip,
@@ -792,6 +813,18 @@ impl Primitive {
         self.scaled_xy(sx, sy)
             .translated(pivot.x * (1.0 - sx), pivot.y * (1.0 - sy))
     }
+}
+
+/// The box a block of text is laid out in: how wide it is, whether the text wraps at
+/// that width, and where the lines sit inside it. See [`Scene::text_block`].
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct TextBlock {
+    /// The box's width; `None` leaves the text unbounded, and alignment with it.
+    pub width: Option<f32>,
+    /// Whether the text wraps at `width` rather than running past it.
+    pub soft_wrap: bool,
+    /// Where the lines sit inside `width`.
+    pub align: TextAlign,
 }
 
 /// A 2D scene: the declarative description of what to draw.
@@ -908,6 +941,8 @@ impl Scene {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color,
                 clip,
@@ -921,6 +956,8 @@ impl Scene {
                 weight,
                 italic,
                 max_width,
+                soft_wrap,
+                align,
                 decoration,
                 decoration_color: decoration_color.map(|c| c.fade(opacity)),
                 clip,
@@ -1216,6 +1253,32 @@ impl Scene {
         });
     }
 
+    /// Adds a **masked group**: everything `build` emits is composited as one, with
+    /// `mask` multiplied into it, so the shader's alpha becomes the group's transparency.
+    ///
+    /// A fade has to be a group. Applied primitive by primitive it would fade each of
+    /// them against the background separately, and where two of them overlap the result
+    /// is neither one nor the other.
+    pub fn masked(&mut self, mask: ShaderMask, build: impl FnOnce(&mut Scene)) {
+        let mut inner = Scene::new();
+        inner.current_clip = self.current_clip;
+        inner.current_owner = self.current_owner;
+        inner.current_bounds = self.current_bounds;
+        build(&mut inner);
+        self.primitives.push(Primitive::Layer {
+            primitives: inner.primitives,
+            opacity: 1.0,
+            clip: self.current_clip,
+            clip_shape: ClipShape::Rect,
+            transform: None,
+            filter: LayerFilter {
+                mask: Some(mask),
+                ..LayerFilter::NONE
+            },
+            owner: self.current_owner,
+        });
+    }
+
     /// Adds a line of text, anchored by its top-left corner, regular and upright.
     /// See [`Scene::text_styled`] for weight and italics.
     pub fn text(&mut self, position: Point, text: impl Into<String>, size: f32, color: Color) {
@@ -1227,6 +1290,8 @@ impl Scene {
             weight: FontWeight::Regular,
             italic: false,
             max_width: None,
+            soft_wrap: true,
+            align: TextAlign::Start,
             decoration: TextDecoration::NONE,
             decoration_color: None,
             clip: self.current_clip,
@@ -1279,6 +1344,8 @@ impl Scene {
             weight: style.weight,
             italic: style.italic,
             max_width: None,
+            soft_wrap: true,
+            align: TextAlign::Start,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             clip: self.current_clip,
@@ -1305,6 +1372,41 @@ impl Scene {
             weight: style.weight,
             italic: style.italic,
             max_width: Some(max_width),
+            soft_wrap: true,
+            align: TextAlign::Start,
+            decoration: style.decoration,
+            decoration_color: style.decoration_color,
+            clip: self.current_clip,
+            bounds: self.current_bounds,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Adds a **block** of styled text: a box of a known width, which the text may be
+    /// wrapped in and is aligned inside.
+    ///
+    /// The three settings travel together because they are one decision. A width with no
+    /// wrapping is a line that knows where its box ends and runs past it anyway — which is
+    /// what a clipped or ellipsised line is — and an alignment with no width has nothing
+    /// to align against.
+    pub fn text_block(
+        &mut self,
+        position: Point,
+        text: impl Into<String>,
+        style: &TextStyle,
+        color: Color,
+        block: TextBlock,
+    ) {
+        self.primitives.push(Primitive::Text {
+            position,
+            text: text.into(),
+            size: style.size,
+            color,
+            weight: style.weight,
+            italic: style.italic,
+            max_width: block.width,
+            soft_wrap: block.soft_wrap,
+            align: block.align,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
             clip: self.current_clip,

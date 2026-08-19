@@ -8,12 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 342 so far, each documenting the objective, the alternatives
+> record — one per step, 343 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`TextAlign`, `max_lines` and the four `TextOverflow` modes on `Text`** (J343). Where
+  the lines sit inside their box, how many of them there are, and what becomes of the ones
+  that do not fit — three of the reference's questions the widget could previously answer
+  only with `wrap()` and `ellipsis()`. `Clip` intersects the primitive's clip with the box,
+  and only where the text genuinely does not fit; `Fade` wraps the text in a masked group,
+  which is the first time milestone 339's mask machinery is reached from a widget's paint;
+  `Ellipsis` cuts the last kept line; `Visible` draws past the box, as every text did.
+
+- **`frus_text::visual_lines`** (J343): the lines a text breaks into inside a box, at most
+  so many of them, and whether there was more. A cut has to fall on a break the shaper
+  chose or the words move, and a measurement cannot say where those are.
+
+- **`Scene::masked` and `Scene::text_block`** (J343), and `TextBlock`, which carries the
+  box width, whether it wraps, and the alignment inside it as one value — they are one
+  decision.
 
 - **`Row` and `Column`** (J342), with the reference's defaults rather than flexbox's: the
   run **fills the line it is given**, its children are **centred** across that line rather
@@ -79,6 +95,16 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **A text that says what to do on overflow is clamped to its parent** (J343). It is what
+  makes the overflow modes fire at all: a text declares the width it wants, and without the
+  clamp a narrower box does not take it away — the words draw past the edge, which is what
+  the mode was set to prevent. It also lifts the automatic minimum size that makes a text
+  refuse to shrink, which `ellipsis()` alone used to do. A text that has said nothing is
+  untouched, and all 88 existing goldens agree.
+
+- **An aligned text fills the width it is offered** (J343), through the hook milestone 342
+  added. A box exactly as wide as its own words has nowhere to align them to.
 
 - **A request to fill the parent travels up the layout walk** (J342). Filling is a question
   about the *parent* — grow along an axis it shares, stretch across one it does not — so a
