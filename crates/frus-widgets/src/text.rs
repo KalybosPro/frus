@@ -18,7 +18,8 @@ use crate::widget::Widget;
 pub struct Text {
     content: String,
     style: TextStyle,
-    /// Paragraph: wraps at the width the parent offers.
+    /// Whether the text wraps at the width it is given. **On** by default, as in the
+    /// reference: a piece of prose put in a box narrower than itself is a paragraph.
     wrap: bool,
     /// What becomes of text that does not fit its box.
     overflow: TextOverflow,
@@ -131,7 +132,7 @@ impl Text {
         Self {
             content: String::new(),
             style: TextStyle::new(16.0),
-            wrap: false,
+            wrap: true,
             overflow: TextOverflow::Clip,
             max_lines: None,
             align: TextAlign::Start,
@@ -139,11 +140,19 @@ impl Text {
         }
     }
 
-    /// Turns the text into a **paragraph**: it wraps at the width the parent
-    /// offers (measured under constraints through taffy) instead of stretching
-    /// out on a single line.
+    /// Wraps at the width the parent offers. This is the default, and the call is kept
+    /// because saying so at the call site is not redundant when it is the whole point of
+    /// the widget being there.
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
+        self
+    }
+
+    /// Keeps the text on **one line**, explicit newlines aside. It then runs past its box
+    /// rather than folding, and [`Text::overflow`] decides what becomes of the part that
+    /// hangs over.
+    pub fn no_wrap(mut self) -> Self {
+        self.wrap = false;
         self
     }
 
@@ -311,8 +320,8 @@ impl Text {
         self.align != TextAlign::Start
     }
 
-    /// A line limit is a **height** cap and nothing else: the words wrap at the same
-    /// width, and the ones past the limit are not drawn.
+    /// A line limit is a **height** cap and nothing else: the words break where they
+    /// broke, and the ones past the limit are not drawn.
     fn capped(&self, height: f32) -> f32 {
         match self.max_lines {
             Some(max) => height.min(frus_text::line_height(self.style.size) * max as f32),
@@ -363,13 +372,17 @@ impl<Msg> Widget<Msg> for Text {
             Dimension::Auto
         };
         // A paragraph, or a text that has to know how wide its box is: free dimensions,
-        // and the size comes from `measure()`.
+        // and the size comes from `measure` — the only way a box can be *given* a width
+        // and answer with a height.
         if self.wrap || self.fills() {
             return Style {
                 min_width,
                 ..Default::default()
             };
         }
+        // A single line is a box of a known size, and saying so is what keeps it from
+        // being folded: a measured leaf reports its narrowest useful width as its
+        // minimum content, and a row would take that as leave to squeeze it there.
         let measured = frus_text::measure_styled(
             &self.content,
             self.style.size,
@@ -393,6 +406,30 @@ impl<Msg> Widget<Msg> for Text {
             },
             ..Default::default()
         }
+    }
+
+    /// A text will not be **squeezed along a row**: it runs past the end of one rather
+    /// than being folded into a column of single words, which is the reference's rule and
+    /// was, until now, the only thing a declared width was doing here.
+    ///
+    /// A text that has said what to do when it overflows has already said the opposite,
+    /// and is left alone.
+    fn main_axis_floor(&self) -> Option<f32> {
+        // A single line already carries its width in its style; only a text measured
+        // under constraints needs to be told where to stop giving way.
+        if self.shrinkable || !(self.wrap || self.fills()) {
+            return None;
+        }
+        Some(
+            frus_text::measure_styled(
+                &self.content,
+                self.style.size,
+                self.style.weight,
+                self.style.italic,
+            )
+            .width
+            .ceil(),
+        )
     }
 
     /// The line this text sits on, measured from the top of its box. A `Text` is the
@@ -552,7 +589,8 @@ mod tests {
     #[test]
     fn an_ellipsising_text_lets_the_layout_shrink_it() {
         use frus_layout::Dimension;
-        let plain = Widget::<()>::style(&Text::new("A rather long label indeed").size(18.0));
+        let plain =
+            Widget::<()>::style(&Text::new("A rather long label indeed").size(18.0).no_wrap());
         let cut = Widget::<()>::style(
             &Text::new("A rather long label indeed")
                 .size(18.0)
@@ -706,7 +744,7 @@ mod tests {
     fn clip_and_visible_differ_by_the_clip_and_not_the_words() {
         let long = "a label far too long for the box it was given";
         let paint = |overflow: TextOverflow| {
-            let text = Text::new(long).size(16.0).overflow(overflow);
+            let text = Text::new(long).size(16.0).no_wrap().overflow(overflow);
             let mut scene = Scene::new();
             Widget::<()>::paint(
                 &text,
@@ -736,7 +774,10 @@ mod tests {
     /// would put a hard edge through the antialiasing of every one of them.
     #[test]
     fn a_text_that_fits_is_not_clipped() {
-        let text = Text::new("short").size(16.0).overflow(TextOverflow::Clip);
+        let text = Text::new("short")
+            .size(16.0)
+            .no_wrap()
+            .overflow(TextOverflow::Clip);
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &text,
@@ -757,6 +798,7 @@ mod tests {
     fn fade_wraps_the_text_in_a_masked_group() {
         let text = Text::new("a label far too long for the box it was given")
             .size(16.0)
+            .no_wrap()
             .overflow(TextOverflow::Fade);
         let mut scene = Scene::new();
         Widget::<()>::paint(
@@ -794,7 +836,7 @@ mod tests {
     #[test]
     fn alignment_hands_the_renderer_a_width_and_start_does_not() {
         let painted = |align: TextAlign| {
-            let text = Text::new("x").size(16.0).align(align);
+            let text = Text::new("x").size(16.0).no_wrap().align(align);
             let mut scene = Scene::new();
             Widget::<()>::paint(
                 &text,
@@ -830,6 +872,7 @@ mod tests {
     fn text_paints_a_text_primitive() {
         let text = Text::new("Salut")
             .size(20.0)
+            .no_wrap()
             .color(Color::rgb(1.0, 0.0, 0.0));
         let mut scene = Scene::new();
         Widget::<()>::paint(
@@ -880,8 +923,10 @@ mod tests {
             Widget::<()>::measure_key(&text),
             Widget::<()>::measure_key(&other)
         );
-        // A text with no wrapping exposes neither a measure nor a key.
-        let plain = Text::new(long);
+        // A text that does not wrap is a box of a known size, and says so in its style
+        // rather than through a measurement: a measured leaf reports its narrowest useful
+        // width as its minimum content, and a row would take that as leave to fold it.
+        let plain = Text::new(long).no_wrap();
         assert!(Widget::<()>::measure(&plain).is_none());
         assert!(Widget::<()>::measure_key(&plain).is_none());
     }
@@ -919,12 +964,53 @@ mod tests {
 
     #[test]
     fn bold_text_lays_out_wider() {
-        let regular: Style = Widget::<()>::style(&Text::new("Width"));
-        let bold: Style = Widget::<()>::style(&Text::new("Width").weight(FontWeight::Bold));
-        let w = |s: &Style| match s.width {
-            Dimension::Length(v) => v,
-            _ => panic!("a measured width was expected"),
+        let w = |text: &Text| Widget::<()>::measure(text).expect("measure")(None, None).width;
+        assert!(
+            w(&Text::new("Width").weight(FontWeight::Bold)) > w(&Text::new("Width")),
+            "bold must be wider"
+        );
+    }
+
+    /// The default is the reference's: prose put in a box narrower than itself is a
+    /// paragraph. Along a **row** it is not — a text runs past the end of one rather than
+    /// folding into a column of single words — and that is the floor the parent applies.
+    #[test]
+    fn text_wraps_down_a_column_and_runs_on_along_a_row() {
+        use crate::{build_ui, Container, Flex, Runtime, Size};
+        let long = "one two three four five six seven eight nine ten eleven twelve";
+        // The painted box, read from the scene: the text primitive carries the box it
+        // was laid out in, which is the number this is about.
+        let painted = |root: &dyn Widget<()>| {
+            let rt = Runtime::default();
+            let theme = Theme::default();
+            let ui = build_ui(root, Size::new(120.0, 300.0), &rt, &theme);
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Text { bounds, .. } => Some(*bounds),
+                    _ => None,
+                })
+                .expect("the text")
         };
-        assert!(w(&bold) > w(&regular), "bold must be wider");
+        let column: Container<()> = Container::new()
+            .width(120.0)
+            .child(Flex::column().child(Text::new(long).size(12.0)));
+        // Two children, because a box with a single child is handing a width down rather
+        // than dividing a line up — and there a paragraph does wrap.
+        let row: Container<()> = Container::new().width(120.0).child(
+            Flex::row()
+                .child(Text::new(long).size(12.0))
+                .child(Container::new().width(10.0).height(10.0)),
+        );
+        let tall = painted(&column);
+        let wide = painted(&row);
+        assert!(
+            tall.width <= 120.5,
+            "the column gave it 120: {}",
+            tall.width
+        );
+        assert!(tall.height > 20.0, "so it wrapped: {}", tall.height);
+        assert!(wide.width > 120.0, "the row did not: {}", wide.width);
     }
 }

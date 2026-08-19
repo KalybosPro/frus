@@ -439,6 +439,10 @@ macro_rules! forward_transparent {
                 self.inner.main_axis_fill()
             }
 
+            fn main_axis_floor(&self) -> Option<f32> {
+                self.inner.main_axis_floor()
+            }
+
             fn barrier(&self) -> Option<$crate::barrier::Barrier> {
                 self.inner.barrier()
             }

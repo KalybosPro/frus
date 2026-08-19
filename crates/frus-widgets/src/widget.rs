@@ -701,6 +701,20 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The width below which this widget must not be squeezed **when its parent runs
+    /// horizontally** — a line of text that would rather run past the end of a row than
+    /// be folded into a column of single words. `None` means squeeze freely.
+    ///
+    /// It is asked rather than written into the style because the same number means two
+    /// different things on the two axes. Down a column a box is *handed* a width and a
+    /// floor would refuse it; along a row a box is *asked* how wide it wants to be, and
+    /// this is the answer it will not go below. The reference draws the same line: a flex
+    /// leaves its inflexible children an unbounded main axis and never squeezes them,
+    /// while across it they take the width they are given.
+    fn main_axis_floor(&self) -> Option<f32> {
+        None
+    }
+
     /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
     /// the distance from the top of this box at which that baseline should land.
     /// `None` = not a baseline box.
@@ -1097,6 +1111,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
         (**self).main_axis_fill()
+    }
+    fn main_axis_floor(&self) -> Option<f32> {
+        (**self).main_axis_floor()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

@@ -3015,7 +3015,11 @@ fn text_alignment_and_overflow_match_their_golden() {
                         .max_lines(2)
                         .overflow(TextOverflow::Ellipsis),
                 )
-                .child(Text::styled(long, body).overflow(TextOverflow::Fade)),
+                .child(
+                    Text::styled(long, body)
+                        .no_wrap()
+                        .overflow(TextOverflow::Fade),
+                ),
         );
     let Some(snapshot) = render_widget(&root, 200, 120, &theme) else {
         eprintln!("no GPU adapter available: test skipped");

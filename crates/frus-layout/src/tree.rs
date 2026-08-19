@@ -135,6 +135,20 @@ impl<T> Layout<T> {
         self.tree.set_style(node, style).expect("setting a style");
     }
 
+    /// Sets a node's **minimum width**, after it has been built.
+    ///
+    /// It is what stops a leaf being squeezed along a row, and only a row can say so: the
+    /// same number across a column would be a floor on the *cross* axis, where the box is
+    /// handed a width rather than asked for one.
+    pub fn set_min_width(&mut self, node: NodeId, width: f32) {
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        if !matches!(style.min_size.width, taffy::Dimension::Auto) {
+            return;
+        }
+        style.min_size.width = taffy::Dimension::Length(width);
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
     /// Makes the **root** of a layout fill one axis of whatever room it is computed in.
     ///
     /// A root has no parent to grow into, so the flex machinery `fill_parent` uses has

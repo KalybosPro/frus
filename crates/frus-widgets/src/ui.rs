@@ -1147,6 +1147,18 @@ fn build_layout_scoped<Msg>(
                 layout.fill_parent(*node, horizontal, parallel);
             }
         }
+        // A child that refuses to be squeezed along the row. Only a row of **several**
+        // children may say so. Across a column the same floor would refuse a width the
+        // column was handing it, which is how a paragraph is told how wide to be; and a
+        // box with a single child — a padding, an alignment, a decorated box — is handing
+        // one down rather than dividing a line up, whichever way it nominally runs.
+        if style.flex_direction.is_horizontal() && !alone {
+            for (child, node) in children.iter().zip(&child_ids) {
+                if let Some(floor) = child.main_axis_floor() {
+                    layout.set_min_width(*node, floor);
+                }
+            }
+        }
         // **Baseline** cross-alignment: the children are pushed down until their
         // baselines meet, which is the only alignment that makes two runs of different
         // sizes read as one line rather than as one row.

@@ -8,12 +8,17 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 343 so far, each documenting the objective, the alternatives
+> record — one per step, 344 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`Widget::main_axis_floor`** (J344): the width below which a widget will not be squeezed
+  *along a row*. Flexbox has one `min-width` for both axes and the reference does not: along
+  a row its inflexible children are never squeezed, and across a column the same children
+  are handed a width. The walk applies the floor only where the parent runs horizontally.
 
 - **`TextAlign`, `max_lines` and the four `TextOverflow` modes on `Text`** (J343). Where
   the lines sit inside their box, how many of them there are, and what becomes of the ones
@@ -95,6 +100,14 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **`Text` wraps by default** (J344), as in the reference. The flag was never the reason it
+  did not: a text *declared its own width*, and a box that answers before it is asked cannot
+  be told to wrap. A wrapping text is now measured from the space offered. Eighteen goldens
+  moved, all of them by one or two pixels of vertical shift — a measured height is
+  `lines × line height` where a declared one was rounded up — and all eighteen were read.
+  `wrap()` is kept: saying it at the call site is not redundant when it is the whole reason
+  the widget is there, and `no_wrap()` is the other half.
 
 - **A text that says what to do on overflow is clamped to its parent** (J343). It is what
   makes the overflow modes fire at all: a text declares the width it wants, and without the
