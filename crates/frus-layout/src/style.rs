@@ -26,17 +26,49 @@ impl Dimension {
 /// The main-axis direction of a flex container.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FlexDirection {
-    /// Children laid out horizontally.
+    /// Children laid out horizontally, first one at the start.
     Row,
-    /// Children laid out vertically.
+    /// Children laid out vertically, first one at the top.
     Column,
+    /// Horizontal, **last child first**. It is what a row laid out against the reading
+    /// direction amounts to, and the only way to say so per-container: the reading
+    /// direction itself is ambient and mirrors the whole frame.
+    RowReverse,
+    /// Vertical, **last child first** — a column that grows upwards, which is what a
+    /// chat transcript or a stack of toasts anchored to the bottom wants.
+    ColumnReverse,
 }
 
 impl FlexDirection {
+    /// Whether the main axis is the horizontal one, whichever way it runs.
+    pub fn is_horizontal(self) -> bool {
+        matches!(self, FlexDirection::Row | FlexDirection::RowReverse)
+    }
+
+    /// Whether the children run backwards along the main axis.
+    pub fn is_reversed(self) -> bool {
+        matches!(
+            self,
+            FlexDirection::RowReverse | FlexDirection::ColumnReverse
+        )
+    }
+
+    /// The same axis, run backwards (or forwards again).
+    pub fn reversed(self) -> Self {
+        match self {
+            FlexDirection::Row => FlexDirection::RowReverse,
+            FlexDirection::RowReverse => FlexDirection::Row,
+            FlexDirection::Column => FlexDirection::ColumnReverse,
+            FlexDirection::ColumnReverse => FlexDirection::Column,
+        }
+    }
+
     fn to_taffy(self) -> taffy::FlexDirection {
         match self {
             FlexDirection::Row => taffy::FlexDirection::Row,
             FlexDirection::Column => taffy::FlexDirection::Column,
+            FlexDirection::RowReverse => taffy::FlexDirection::RowReverse,
+            FlexDirection::ColumnReverse => taffy::FlexDirection::ColumnReverse,
         }
     }
 }
@@ -49,6 +81,10 @@ pub enum Justify {
     End,
     SpaceBetween,
     SpaceAround,
+    /// Equal space **everywhere**, the outer gaps included: with `SpaceAround` the end
+    /// gaps are half the inner ones, which reads as a mistake when the row is the only
+    /// thing on the line.
+    SpaceEvenly,
 }
 
 impl Justify {
@@ -59,6 +95,7 @@ impl Justify {
             Justify::End => taffy::JustifyContent::FlexEnd,
             Justify::SpaceBetween => taffy::JustifyContent::SpaceBetween,
             Justify::SpaceAround => taffy::JustifyContent::SpaceAround,
+            Justify::SpaceEvenly => taffy::JustifyContent::SpaceEvenly,
         }
     }
 }
@@ -132,8 +169,14 @@ pub struct Style {
     pub flex_direction: FlexDirection,
     /// Distribution along the main axis.
     pub justify: Justify,
-    /// Alignment on the cross axis.
+    /// Alignment on the cross axis, for a container: what it does to its children.
     pub align: Align,
+    /// This item's **own** cross-axis alignment, overriding whatever its parent asked
+    /// for. `None` — the default — means "do as the others do".
+    ///
+    /// One box out of step with its row is a common enough shape that the alternative is
+    /// a wrapper widget per exception, and flexbox already has the field.
+    pub align_self: Option<Align>,
     /// Padding, per side, in logical pixels.
     pub padding: Insets,
     /// **Margin**, per side, in logical pixels: space reserved **around** the box,
@@ -170,6 +213,7 @@ impl Default for Style {
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
             align: Align::Stretch,
+            align_self: None,
             padding: Insets::ZERO,
             margin: Insets::ZERO,
             aspect_ratio: None,
@@ -213,6 +257,13 @@ impl Style {
         (self.flex_direction as u8).hash(hasher);
         (self.justify as u8).hash(hasher);
         (self.align as u8).hash(hasher);
+        match self.align_self {
+            None => 0u8.hash(hasher),
+            Some(a) => {
+                1u8.hash(hasher);
+                (a as u8).hash(hasher);
+            }
+        }
         self.padding.top.to_bits().hash(hasher);
         self.padding.right.to_bits().hash(hasher);
         self.padding.bottom.to_bits().hash(hasher);
@@ -258,6 +309,7 @@ impl Style {
             },
             justify_content: Some(self.justify.to_taffy()),
             align_items: Some(self.align.to_taffy()),
+            align_self: self.align_self.map(Align::to_taffy),
             padding: taffy::Rect {
                 left: taffy::LengthPercentage::Length(self.padding.left),
                 right: taffy::LengthPercentage::Length(self.padding.right),

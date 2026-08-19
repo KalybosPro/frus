@@ -689,6 +689,18 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// The widget's **own main axis**, when it wants to fill the room the parent leaves
+    /// it along that axis rather than shrink-wrapping its children — `MainAxisSize::Max`
+    /// on a [`crate::Row`] or a [`crate::Column`]. `None` means shrink-wrap.
+    ///
+    /// It is a question about the *parent*, which is why it is asked rather than written
+    /// into the style: filling means growing when the parent runs the same way and
+    /// stretching when it runs across, and a widget cannot know what it was put inside.
+    /// The layout walk resolves it, where both are in view.
+    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
+        None
+    }
+
     /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
     /// the distance from the top of this box at which that baseline should land.
     /// `None` = not a baseline box.
@@ -1082,6 +1094,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn baseline_target(&self) -> Option<f32> {
         (**self).baseline_target()
+    }
+    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
+        (**self).main_axis_fill()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

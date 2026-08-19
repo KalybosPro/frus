@@ -435,6 +435,10 @@ macro_rules! forward_transparent {
                 self.inner.baseline_target()
             }
 
+            fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
+                self.inner.main_axis_fill()
+            }
+
             fn barrier(&self) -> Option<$crate::barrier::Barrier> {
                 self.inner.barrier()
             }

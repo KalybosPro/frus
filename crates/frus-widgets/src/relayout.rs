@@ -257,6 +257,12 @@ fn hash_node<Msg, H: Hasher>(
     // through the style — without this fingerprint, two different contents would
     // be conflated and the cache would keep an old layout.
     widget.measure_key().hash(hasher);
+    // Filling the parent is resolved during the walk rather than written into the style,
+    // so the style hash alone would conflate a run that fills with one that shrink-wraps.
+    widget
+        .main_axis_fill()
+        .map(|axis| axis.is_horizontal())
+        .hash(hasher);
     children.len().hash(hasher);
     for (i, child) in children.iter().enumerate() {
         hash_node(
@@ -302,6 +308,17 @@ mod tests {
         let one: Flex<()> = Flex::row().child(Container::new());
         let two: Flex<()> = Flex::row().child(Container::new()).child(Container::new());
         assert_ne!(sig(&one), sig(&two));
+    }
+
+    /// Filling the parent is resolved during the walk and never reaches the style, so
+    /// the fingerprint has to ask for it separately — otherwise a row that fills and one
+    /// that shrink-wraps are the same tree as far as the cache is concerned, and the
+    /// second one silently gets the first one's layout.
+    #[test]
+    fn a_change_of_main_axis_size_changes_the_signature() {
+        let fills: crate::Row<()> = crate::Row::new().child(Container::new());
+        let hugs: crate::Row<()> = crate::Row::new().shrink_wrap().child(Container::new());
+        assert_ne!(sig(&fills), sig(&hugs));
     }
 
     #[test]

@@ -849,7 +849,91 @@ pub(crate) fn build_layout<Msg>(
     theme: &Theme,
     layout: &mut Layout<BaselineData>,
 ) -> NodeId {
-    build_layout_scoped(widget, id, runtime, theme, layout, true)
+    let (node, fills) = build_layout_scoped(widget, id, runtime, theme, layout, true);
+    // A root that wants to fill has no parent to fill: the flex machinery below needs one
+    // on each side of the question. A percentage of the room the layout is being computed
+    // in is the same answer without a parent, and it degrades to hugging the content when
+    // that room is unbounded — a scrollable measuring its content, a natural size.
+    if fills.horizontal {
+        layout.fill_root(node, true);
+    }
+    if fills.vertical {
+        layout.fill_root(node, false);
+    }
+    node
+}
+
+/// The axes a subtree asks to **fill** rather than shrink-wrap.
+///
+/// It is not a property of one widget. A column whose row fills the width is itself as
+/// wide as the room it was given, because the row inside it took that room — so the
+/// request travels up as the layout is built, and each container answers it with the one
+/// thing a container can do about it: grow along its own axis, or stretch across it.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Fills {
+    horizontal: bool,
+    vertical: bool,
+}
+
+impl Fills {
+    /// What a widget asks for on its own account.
+    fn own<Msg>(widget: &dyn Widget<Msg>) -> Self {
+        match widget.main_axis_fill() {
+            Some(axis) if axis.is_horizontal() => Fills {
+                horizontal: true,
+                vertical: false,
+            },
+            Some(_) => Fills {
+                horizontal: false,
+                vertical: true,
+            },
+            None => Fills::default(),
+        }
+    }
+
+    fn merge(self, other: Fills) -> Self {
+        Fills {
+            horizontal: self.horizontal || other.horizontal,
+            vertical: self.vertical || other.vertical,
+        }
+    }
+
+    /// The half of a child's request a container passes on to **its** parent, given
+    /// which way the container runs. Along its own axis a container divides the room up
+    /// and the request stops there; across it, the container's size *is* the child's, so
+    /// the request has to keep going.
+    /// Whether one axis is asked for.
+    fn wants(self, horizontal: bool) -> bool {
+        if horizontal {
+            self.horizontal
+        } else {
+            self.vertical
+        }
+    }
+
+    /// Drops any axis this box was **given a size on**: it has already been told how big
+    /// to be, and a request to fill cannot reach past that answer.
+    fn bounded_by(self, style: &frus_layout::Style) -> Self {
+        let auto = |d| matches!(d, frus_layout::Dimension::Auto);
+        Fills {
+            horizontal: self.horizontal && auto(style.width),
+            vertical: self.vertical && auto(style.height),
+        }
+    }
+
+    fn across(self, direction: frus_layout::FlexDirection) -> Self {
+        if direction.is_horizontal() {
+            Fills {
+                horizontal: false,
+                vertical: self.vertical,
+            }
+        } else {
+            Fills {
+                horizontal: self.horizontal,
+                vertical: false,
+            }
+        }
+    }
 }
 
 /// A layout leaf's **text baseline**, when it has one: the distance from the top of its
@@ -872,7 +956,7 @@ fn build_layout_scoped<Msg>(
     theme: &Theme,
     layout: &mut Layout<BaselineData>,
     baselines: bool,
-) -> NodeId {
+) -> (NodeId, Fills) {
     // A themed subtree lays out under **its** theme, not the frame's: a theme reaches
     // sizes and spacing (milestone 309), so this has to happen here and not only at paint
     // time. `hash_node`, which fingerprints this same walk for the relayout cache, makes
@@ -906,10 +990,10 @@ fn build_layout_scoped<Msg>(
             let child_baseline = natural_baseline(child, cid, runtime, theme)
                 .unwrap_or_else(|| natural_size(child, cid, runtime, theme).height);
             style.padding.top += (target - child_baseline).max(0.0);
-            let node = build_layout_scoped(child, cid, runtime, theme, layout, baselines);
-            return layout.container(style, &[node]);
+            let (node, fills) = build_layout_scoped(child, cid, runtime, theme, layout, baselines);
+            return (layout.container(style, &[node]), fills);
         }
-        return layout.leaf(style, None);
+        return (layout.leaf(style, None), Fills::default());
     }
     // `RotatedBox`: a leaf whose box is the child's **natural** size, with its dimensions
     // **swapped** for an odd quarter turn (the rotation does affect layout). The child itself
@@ -931,7 +1015,7 @@ fn build_layout_scoped<Msg>(
             style.width = frus_layout::Dimension::Length(w);
             style.height = frus_layout::Dimension::Length(h);
         }
-        return layout.leaf(style, own_baseline);
+        return (layout.leaf(style, own_baseline), Fills::default());
     }
     // `Intrinsic`: one axis is taken from what the content would **like** to be, not from
     // the space on offer. The content is measured once, unconstrained, and the answer is
@@ -955,16 +1039,19 @@ fn build_layout_scoped<Msg>(
                     style.height = frus_layout::Dimension::Length(quantise(nat.height));
                 }
             }
-            let node = build_layout_scoped(child, cid, runtime, theme, layout, baselines);
-            return layout.container(style, &[node]);
+            let (node, fills) = build_layout_scoped(child, cid, runtime, theme, layout, baselines);
+            return (layout.container(style, &[node]), fills);
         }
-        return layout.leaf(style, own_baseline);
+        return (layout.leaf(style, own_baseline), Fills::default());
     }
     // `OverflowBox`: a leaf, because its child is laid out **separately**, to constraints of
     // its own. That separation is the whole feature — a child sharing this node's layout
     // could never be bigger than it.
     if widget.overflow_box().is_some() {
-        return layout.leaf(effective_style(widget, id, runtime, theme), own_baseline);
+        return (
+            layout.leaf(effective_style(widget, id, runtime, theme), own_baseline),
+            Fills::default(),
+        );
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
@@ -978,12 +1065,17 @@ fn build_layout_scoped<Msg>(
         || widget.layout_builder().is_some()
         || widget.stack()
     {
-        return layout.leaf(effective_style(widget, id, runtime, theme), own_baseline);
+        // Nothing bubbles out of these: what is inside is laid out somewhere else, to
+        // constraints of its own, and cannot have an opinion about this box.
+        return (
+            layout.leaf(effective_style(widget, id, runtime, theme), own_baseline),
+            Fills::own(widget),
+        );
     }
     // A portal only lays out its anchor (child 0); the overlay is deferred.
     if widget.overlay().is_some() {
         let anchor_w = widget.children()[0].as_ref();
-        let anchor = build_layout_scoped(
+        let (anchor, fills) = build_layout_scoped(
             anchor_w,
             child_id(id, 0, anchor_w),
             runtime,
@@ -991,23 +1083,32 @@ fn build_layout_scoped<Msg>(
             layout,
             baselines,
         );
-        return layout.container(effective_style(widget, id, runtime, theme), &[anchor]);
+        return (
+            layout.container(effective_style(widget, id, runtime, theme), &[anchor]),
+            fills,
+        );
     }
     let children = widget.children();
     if children.is_empty() {
         // A leaf measured under constraints (a paragraph that wraps…): taffy calls the
         // closure during the computation.
         if let Some(measure) = widget.measure() {
-            return layout.measured_leaf(
-                effective_style(widget, id, runtime, theme),
-                own_baseline,
-                measure,
+            return (
+                layout.measured_leaf(
+                    effective_style(widget, id, runtime, theme),
+                    own_baseline,
+                    measure,
+                ),
+                Fills::own(widget),
             );
         }
-        layout.leaf(effective_style(widget, id, runtime, theme), own_baseline)
+        (
+            layout.leaf(effective_style(widget, id, runtime, theme), own_baseline),
+            Fills::own(widget),
+        )
     } else {
         let style = effective_style(widget, id, runtime, theme);
-        let child_ids: Vec<NodeId> = children
+        let built: Vec<(NodeId, Fills)> = children
             .iter()
             .enumerate()
             .map(|(i, child)| {
@@ -1021,6 +1122,31 @@ fn build_layout_scoped<Msg>(
                 )
             })
             .collect();
+        let child_ids: Vec<NodeId> = built.iter().map(|(node, _)| *node).collect();
+        // `MainAxisSize::Max`: a run that fills the room its parent leaves it. Only the
+        // parent knows what that means — grow along an axis it shares, stretch across
+        // one it does not — which is why the child asks rather than saying.
+        //
+        // The request is the child's **and its subtree's**: a column whose row fills the
+        // width is itself as wide as the room it was given.
+        let alone = children.len() == 1;
+        for (node, fills) in &built {
+            for horizontal in [true, false] {
+                if !fills.wants(horizontal) {
+                    continue;
+                }
+                let parallel = horizontal == style.flex_direction.is_horizontal();
+                // Along an axis the parent runs too, the reference leaves the main axis
+                // **unbounded** and `Max` quietly degrades to `Min`: there is no maximum
+                // to take. The exception is a parent with a single child — a padding, an
+                // alignment, a decorated box — which passes its own constraints straight
+                // down, and there the run does fill.
+                if parallel && !alone {
+                    continue;
+                }
+                layout.fill_parent(*node, horizontal, parallel);
+            }
+        }
         // **Baseline** cross-alignment: the children are pushed down until their
         // baselines meet, which is the only alignment that makes two runs of different
         // sizes read as one line rather than as one row.
@@ -1033,9 +1159,7 @@ fn build_layout_scoped<Msg>(
         // will be laid out at some other width: the first line of a piece of text sits
         // in the same place however narrow the box gets, since narrowing it adds lines
         // below rather than moving the first one.
-        if style.align == frus_layout::Align::Baseline
-            && style.flex_direction == frus_layout::FlexDirection::Row
-        {
+        if style.align == frus_layout::Align::Baseline && style.flex_direction.is_horizontal() {
             let own: Vec<Option<f32>> = children
                 .iter()
                 .enumerate()
@@ -1058,7 +1182,22 @@ fn build_layout_scoped<Msg>(
                 }
             }
         }
-        layout.container(style, &child_ids)
+        // What this container passes on to **its** parent. Across its own axis the
+        // container's size is its child's, so the request keeps going; along it the
+        // container divides the room up and the request stops. A container with a single
+        // child divides nothing, and passes the whole request on.
+        let mut fills = Fills::own(widget);
+        for (_, child) in &built {
+            fills = fills.merge(if alone {
+                *child
+            } else {
+                child.across(style.flex_direction)
+            });
+        }
+        (
+            layout.container(style, &child_ids),
+            fills.bounded_by(&style),
+        )
     }
 }
 

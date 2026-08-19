@@ -6,10 +6,10 @@ use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
-    ColorFiltered, Container, DateTimePicker, Dropdown, Flex, IconName, IgnoreBaseline,
-    ImageFiltered, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, SegmentedControl,
-    ShaderMask, Slider, Stack, Stepper, Switch, Table, Tabs, Text, TextInput, Theme, TimePicker,
-    Variant,
+    ColorFiltered, Column, Container, DateTimePicker, Dropdown, Flex, IconName, IgnoreBaseline,
+    ImageFiltered, Justify, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, Row,
+    SegmentedControl, ShaderMask, Slider, Stack, Stepper, Switch, Table, Tabs, Text, TextInput,
+    Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -2946,4 +2946,39 @@ fn a_baseline_row_matches_its_golden() {
         return;
     };
     snapshot.assert_golden(golden("baseline_row"));
+}
+
+/// `Row` and `Column`, and the three things that make them not a `Flex`: the row fills
+/// the line it is given, so `SpaceBetween` has room to work; its children are centred
+/// across that line rather than stretched to it; and the column below it is as wide as
+/// the row inside it, not as wide as its own widest label.
+#[test]
+fn a_row_and_column_match_their_golden() {
+    let theme = Theme::dark();
+    let chip = |label: &str, height: f32| {
+        Container::new()
+            .width(52.0)
+            .height(height)
+            .radius(6.0)
+            .color(Color::WHITE.fade(0.16))
+            .child(Text::styled(label, TextStyle::new(11.0)))
+    };
+    let root: Container<()> = Container::new().padding(10.0).child(
+        Column::new()
+            .cross_axis_alignment(Align::Start)
+            .spacing(10.0)
+            .child(Text::styled("Filters", TextStyle::new(13.0)))
+            .child(
+                Row::new()
+                    .main_axis_alignment(Justify::SpaceBetween)
+                    .child(chip("all", 30.0))
+                    .child(chip("open", 20.0))
+                    .child(chip("done", 30.0)),
+            ),
+    );
+    let Some(snapshot) = render_widget(&root, 220, 90, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("row_and_column"));
 }

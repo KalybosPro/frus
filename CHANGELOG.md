@@ -8,12 +8,22 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 341 so far, each documenting the objective, the alternatives
+> record — one per step, 342 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`Row` and `Column`** (J342), with the reference's defaults rather than flexbox's: the
+  run **fills the line it is given**, its children are **centred** across that line rather
+  than stretched to it, and `start` is the start of the **reading direction**. `Flex` is
+  unchanged and undeprecated — it is the flexbox primitive, and the framework's own widgets
+  still use it.
+
+- **`MainAxisSize`, `VerticalDirection`, `Justify::SpaceEvenly`, `FlexDirection::RowReverse`
+  and `ColumnReverse`, `Style::align_self`** (J342) — the settings `Row` and `Column` need
+  and `Flex` never had.
 
 - **Baseline alignment** (J341): `Align::Baseline` on a row, plus the `Baseline` and
   `IgnoreBaseline` widgets — which closes the widget catalogue the count of milestone 336
@@ -69,6 +79,15 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **A request to fill the parent travels up the layout walk** (J342). Filling is a question
+  about the *parent* — grow along an axis it shares, stretch across one it does not — so a
+  widget cannot answer it alone; and stopping at the parent leaves `Container > Column >
+  Row` twenty pixels wide, each of the three as wide as the one inside it. The request now
+  crosses each container that would take its size from the child, and stops at any box that
+  was given a size of its own. At the root, where neither growing nor stretching means
+  anything, it becomes a percentage of the room the layout is computed in — which hugs the
+  content again when that room is unbounded.
 
 - **The layout tree carries each leaf's baseline** (J341). The alternative was a second
   walk of the widget tree alongside the rectangles, which would have been a copy of

@@ -100,6 +100,62 @@ impl<T> Layout<T> {
         self.tree.set_style(node, style).expect("setting a style");
     }
 
+    /// Makes a node **fill the space its parent leaves it**, after it has been built:
+    /// growing along the parent's main axis, stretching across it, or both.
+    ///
+    /// This is what `MainAxisSize::Max` needs and cannot express on its own. A row that
+    /// fills its line is asking about the *parent's* axis, not its own — grow if the
+    /// parent runs the same way, stretch if it runs across — and a widget does not know
+    /// what it was put inside. The parent does, so it says so here.
+    pub fn fill_parent(&mut self, node: NodeId, horizontal: bool, grow: bool) {
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        let size = if horizontal {
+            style.size.width
+        } else {
+            style.size.height
+        };
+        // A box that was given a size has already answered the question, and growing it
+        // past that number would be answering a different one.
+        if !matches!(size, taffy::Dimension::Auto) {
+            return;
+        }
+        if grow {
+            // From the content rather than from zero: filling is about taking the room
+            // that is going spare, not about splitting the line into equal shares.
+            if style.flex_grow != 0.0 {
+                return;
+            }
+            style.flex_grow = 1.0;
+        } else {
+            if style.align_self.is_some() {
+                return;
+            }
+            style.align_self = Some(taffy::AlignItems::Stretch);
+        }
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
+    /// Makes the **root** of a layout fill one axis of whatever room it is computed in.
+    ///
+    /// A root has no parent to grow into, so the flex machinery `fill_parent` uses has
+    /// nothing to work with. A percentage does: it resolves against the available space
+    /// when that space is definite, and falls back to hugging the content when it is not
+    /// — which is the right answer in both cases. A row at the top of a frame fills the
+    /// window; the same row measured for its natural size still shrink-wraps.
+    pub fn fill_root(&mut self, node: NodeId, horizontal: bool) {
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        let axis = if horizontal {
+            &mut style.size.width
+        } else {
+            &mut style.size.height
+        };
+        if !matches!(axis, taffy::Dimension::Auto) {
+            return;
+        }
+        *axis = taffy::Dimension::Percent(1.0);
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
     /// Adds a container — a node with children — with no associated data.
     pub fn container(&mut self, style: Style, children: &[NodeId]) -> NodeId {
         self.tree

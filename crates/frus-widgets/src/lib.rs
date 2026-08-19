@@ -95,6 +95,7 @@ mod reorder;
 mod responsive;
 mod richtext;
 mod rotatedbox;
+mod rowcolumn;
 mod runtime;
 mod safearea;
 mod scaffold;
@@ -238,6 +239,7 @@ pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
+pub use rowcolumn::{Column, MainAxisSize, Row, VerticalDirection};
 pub use runtime::{
     spring_ease, spring_step, Anim, Edit, Runtime, ScrollBallistic, ScrollState, ValueAnim,
 };
@@ -311,4 +313,4 @@ pub use frus_core::{
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.
 pub use frus_core::Status as AnimationStatus;
-pub use frus_layout::{Align, Justify, Overflowing, Side};
+pub use frus_layout::{Align, FlexDirection, Justify, Overflowing, Side};
