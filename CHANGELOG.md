@@ -8,12 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 345 so far, each documenting the objective, the alternatives
+> record — one per step, 346 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`RichText` answers the same questions as `Text`** (J346): `align`, `max_lines`,
+  `overflow`, and wrapping by default. They are questions about *text*, and the styles
+  being mixed changes none of them. The cut is the one genuinely harder part —
+  `frus_text::runs_cut_at` returns the byte offset into the concatenation of the runs at
+  which the paragraph runs past its line limit, and the widget splits the runs there,
+  keeping the styles; the ellipsis takes the style of the run it ends.
 
 - **A striped band across every box whose children ran past it** (J345), in debug builds.
   Milestone 335 taught the layout to notice an overflow and the shell to report it in the

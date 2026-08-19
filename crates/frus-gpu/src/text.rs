@@ -279,6 +279,8 @@ impl TextPainter {
                         position,
                         runs,
                         max_width,
+                        soft_wrap,
+                        align,
                         clip,
                         ..
                     } => {
@@ -290,6 +292,9 @@ impl TextPainter {
                         let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
                         let metrics = glyphon::Metrics::new(base, base * LINE_HEIGHT_FACTOR);
                         let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+                        if !soft_wrap {
+                            buffer.set_wrap(&mut self.font_system, glyphon::Wrap::None);
+                        }
                         // As for plain text: a rich paragraph wraps at its layout
                         // width, otherwise it is unconstrained (`None`) and never bounded
                         // to the surface, which would push RTL alignment off screen.
@@ -319,6 +324,11 @@ impl TextPainter {
                             glyphon::Attrs::new(),
                             glyphon::Shaping::Advanced,
                         );
+                        if let Some(align) = to_align(*align) {
+                            for line in &mut buffer.lines {
+                                line.set_align(Some(align));
+                            }
+                        }
                         buffer.shape_until_scroll(&mut self.font_system, false);
 
                         // Per-run decorations: consecutive glyphs sharing a run —

@@ -7,9 +7,9 @@ use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
     ColorFiltered, Column, Container, DateTimePicker, Dropdown, Flex, IconName, IgnoreBaseline,
-    ImageFiltered, Justify, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, Row,
-    SegmentedControl, ShaderMask, Slider, Stack, Stepper, Switch, Table, Tabs, Text, TextInput,
-    Theme, TimePicker, Variant,
+    ImageFiltered, Justify, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, RichText,
+    Row, SegmentedControl, ShaderMask, Slider, Stack, Stepper, Switch, Table, Tabs, Text,
+    TextInput, TextSpan, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -3059,4 +3059,49 @@ fn an_overflow_band_matches_its_golden() {
         return;
     };
     snapshot.assert_golden(golden("overflow_band"));
+}
+
+/// Rich text answering the three questions milestone 343 gave plain text: centred,
+/// justified, and cut at two lines with an ellipsis — with the styles surviving the cut,
+/// which is the half a plain-text cut never has to get right.
+#[test]
+fn rich_text_alignment_and_limit_match_their_golden() {
+    let theme = Theme::dark();
+    let body = TextStyle::new(12.0);
+    let span = || {
+        TextSpan::new("one two ")
+            .child(TextSpan::new("three four five").bold())
+            .child(TextSpan::new(" six seven eight nine ten eleven twelve"))
+    };
+    let root: Container<()> = Container::new()
+        .width(200.0)
+        .height(120.0)
+        .padding(8.0)
+        .child(
+            Flex::column()
+                .width(184.0)
+                .align(Align::Stretch)
+                .gap(6.0)
+                .child(
+                    RichText::new(TextSpan::new("centred ").child(TextSpan::new("rich").bold()))
+                        .base_style(body)
+                        .align(TextAlign::Center),
+                )
+                .child(
+                    RichText::new(span())
+                        .base_style(body)
+                        .align(TextAlign::Justify),
+                )
+                .child(
+                    RichText::new(span())
+                        .base_style(body)
+                        .max_lines(2)
+                        .overflow(TextOverflow::Ellipsis),
+                ),
+        );
+    let Some(snapshot) = render_widget(&root, 200, 120, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("rich_text_block"));
 }

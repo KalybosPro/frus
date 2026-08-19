@@ -621,6 +621,65 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
     Size::new(width, height)
 }
 
+/// The byte offset at which a rich text runs past `max_lines` visual lines, and how many
+/// lines it actually took — `None` when it fits.
+///
+/// The offset is into the **concatenation** of the runs' texts, which is what the shaper
+/// was given and the only coordinate the runs and the lines share. Splitting the runs
+/// there is the caller's job, and cheap once the number is known.
+///
+/// Rich text is cut here rather than in the widget because the cut has to land on a break
+/// the shaper chose, and only the shaper knows where those are — the same reason
+/// [`visual_lines`] exists, one primitive along.
+pub fn runs_cut_at(
+    runs: &[TextRun],
+    max_width: Option<f32>,
+    soft_wrap: bool,
+    max_lines: usize,
+) -> Option<usize> {
+    if runs.iter().all(|r| r.text.is_empty()) {
+        return None;
+    }
+    let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
+    let mut font_system = font_system().lock().expect("FontSystem lock");
+    let metrics = Metrics::new(base, line_height(base));
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    if !soft_wrap {
+        buffer.set_wrap(&mut font_system, cosmic_text::Wrap::None);
+    }
+    buffer.set_size(&mut font_system, max_width, None);
+    let spans = runs.iter().map(|run| {
+        (
+            run.text.as_str(),
+            Attrs::new()
+                .family(family_for(&run.text))
+                .weight(Weight(available_weight(run.weight)))
+                .style(available_style(run.italic))
+                .metrics(Metrics::new(run.size, line_height(run.size))),
+        )
+    });
+    buffer.set_rich_text(&mut font_system, spans, Attrs::new(), Shaping::Advanced);
+    buffer.shape_until_scroll(&mut font_system, false);
+
+    // A buffer line per explicit newline; the offsets a layout run carries are into its
+    // own buffer line, so the starts of those lines are what turns them back into offsets
+    // into the whole.
+    let mut line_start = Vec::new();
+    let mut at = 0usize;
+    for line in &buffer.lines {
+        line_start.push(at);
+        at += line.text().len() + 1;
+    }
+    for (index, run) in buffer.layout_runs().enumerate() {
+        if index < max_lines {
+            continue;
+        }
+        let start = run.glyphs.iter().map(|g| g.start).min().unwrap_or(0);
+        return Some(line_start.get(run.line_i).copied().unwrap_or(0) + start);
+    }
+    None
+}
+
 /// One shaped line of a [`TextLayout`]: the `x` offsets of every **character
 /// boundary**, taken from the real glyphs, kerning and ligatures included.
 struct LayoutLine {

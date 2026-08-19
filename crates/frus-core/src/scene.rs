@@ -274,8 +274,12 @@ pub enum Primitive {
     RichText {
         position: Point,
         runs: Vec<TextRun>,
-        /// Wrap width: beyond it the text wraps (`None` = no wrapping).
+        /// The width of the box the runs were given. See [`Primitive::Text`].
         max_width: Option<f32>,
+        /// Whether `max_width` wraps the runs or only bounds the alignment.
+        soft_wrap: bool,
+        /// How the lines sit inside `max_width`.
+        align: TextAlign,
         /// Clip rectangle.
         clip: Rect,
         /// The box the text was laid out in. See [`Primitive::Text`].
@@ -428,6 +432,8 @@ impl Primitive {
                 position,
                 mut runs,
                 max_width,
+                soft_wrap,
+                align,
                 clip,
                 bounds,
                 owner,
@@ -439,6 +445,8 @@ impl Primitive {
                     position: position.scale_xy(sx, sy),
                     runs,
                     max_width: max_width.map(|w| w * sx),
+                    soft_wrap,
+                    align,
                     clip: clip.scale_xy(sx, sy),
                     bounds: bounds.scale_xy(sx, sy),
                     owner,
@@ -559,6 +567,8 @@ impl Primitive {
                 position,
                 runs,
                 max_width,
+                soft_wrap,
+                align,
                 clip,
                 bounds,
                 owner,
@@ -566,6 +576,8 @@ impl Primitive {
                 position: Point::new(position.x + dx, position.y + dy),
                 runs,
                 max_width,
+                soft_wrap,
+                align,
                 clip: clip.translate(dx, dy),
                 bounds: bounds.translate(dx, dy),
                 owner,
@@ -739,6 +751,8 @@ impl Primitive {
                 position,
                 runs,
                 max_width,
+                soft_wrap,
+                align,
                 bounds,
                 owner,
                 ..
@@ -746,6 +760,8 @@ impl Primitive {
                 position,
                 runs,
                 max_width,
+                soft_wrap,
+                align,
                 clip,
                 bounds,
                 owner,
@@ -968,6 +984,8 @@ impl Scene {
                 position,
                 mut runs,
                 max_width,
+                soft_wrap,
+                align,
                 clip,
                 bounds,
                 owner,
@@ -980,6 +998,8 @@ impl Scene {
                     position,
                     runs,
                     max_width,
+                    soft_wrap,
+                    align,
                     clip,
                     bounds,
                     owner,
@@ -1307,6 +1327,8 @@ impl Scene {
             position,
             runs,
             max_width: None,
+            soft_wrap: true,
+            align: TextAlign::Start,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1320,6 +1342,8 @@ impl Scene {
             position,
             runs,
             max_width: Some(max_width),
+            soft_wrap: true,
+            align: TextAlign::Start,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
@@ -1409,6 +1433,22 @@ impl Scene {
             align: block.align,
             decoration: style.decoration,
             decoration_color: style.decoration_color,
+            clip: self.current_clip,
+            bounds: self.current_bounds,
+            owner: self.current_owner,
+        });
+    }
+
+    /// Adds a **block** of rich text: resolved runs in a box of a known width, which they
+    /// may be wrapped in and are aligned inside. The rich counterpart of
+    /// [`Scene::text_block`].
+    pub fn rich_text_block(&mut self, position: Point, runs: Vec<TextRun>, block: TextBlock) {
+        self.primitives.push(Primitive::RichText {
+            position,
+            runs,
+            max_width: block.width,
+            soft_wrap: block.soft_wrap,
+            align: block.align,
             clip: self.current_clip,
             bounds: self.current_bounds,
             owner: self.current_owner,
