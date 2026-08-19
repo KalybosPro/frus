@@ -78,6 +78,28 @@ impl<T> Layout<T> {
         node
     }
 
+    /// Adds `dy` to a node's **top margin**, after it has been built.
+    ///
+    /// Baseline alignment needs it: a row can only know how far to push a child down
+    /// once it has measured every child, and by then the children are nodes rather
+    /// than styles. Nothing else should reach for this — a style is otherwise settled
+    /// when the node is made.
+    pub fn add_margin_top(&mut self, node: NodeId, dy: f32) {
+        if dy <= 0.0 {
+            return;
+        }
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        let base = match style.margin.top {
+            taffy::LengthPercentageAuto::Length(v) => v,
+            // A percentage or `auto` margin is resolved against the parent, which is
+            // not a number we have here; the shift is added as if it were zero, which
+            // is the only reading that cannot make the row worse than it was.
+            _ => 0.0,
+        };
+        style.margin.top = taffy::LengthPercentageAuto::Length(base + dy);
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
     /// Adds a container — a node with children — with no associated data.
     pub fn container(&mut self, style: Style, children: &[NodeId]) -> NodeId {
         self.tree

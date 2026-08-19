@@ -174,6 +174,17 @@ impl<Msg> Widget<Msg> for Text {
         }
     }
 
+    /// The line this text sits on, measured from the top of its box. A `Text` is the
+    /// widget that actually *has* a baseline; every alignment that talks about one is
+    /// ultimately asking one of these.
+    fn text_baseline(&self, _theme: &Theme) -> Option<f32> {
+        Some(frus_text::baseline(
+            self.style.size,
+            self.style.weight,
+            self.style.italic,
+        ))
+    }
+
     fn measure(&self) -> Option<frus_layout::MeasureFn> {
         if !self.wrap {
             return None;

@@ -71,6 +71,15 @@ pub enum Align {
     End,
     /// Children stretch to fill the cross axis. This is the default.
     Stretch,
+    /// Children are aligned on their **text baselines**: the line their letters sit
+    /// on, rather than their tops, their middles or their bottoms.
+    ///
+    /// It is the only alignment that makes two runs of different sizes look like one
+    /// line — a price beside its currency, a heading beside a note. Nothing here
+    /// resolves it: the layer above measures each child's baseline and turns the
+    /// difference into a top margin, so by the time taffy sees it the children are
+    /// already where they belong and it aligns them to the start.
+    Baseline,
 }
 
 impl Align {
@@ -80,6 +89,10 @@ impl Align {
             Align::Center => taffy::AlignItems::Center,
             Align::End => taffy::AlignItems::FlexEnd,
             Align::Stretch => taffy::AlignItems::Stretch,
+            // Already resolved into per-child margins by then; from here it is a
+            // start alignment, and it must be one — stretching would give every child
+            // the row's height and there would be no baseline left to align.
+            Align::Baseline => taffy::AlignItems::FlexStart,
         }
     }
 }

@@ -670,6 +670,32 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// The widget's own **text baseline**: the distance from the top of its box down
+    /// to the line its letters sit on. `None` — the default — means this widget has no
+    /// text of its own, and whatever is inside it answers instead.
+    ///
+    /// It is what makes a price and its currency, or a heading and the note beside it,
+    /// sit on one line rather than merely in one row. See [`crate::Baseline`] and
+    /// `Align::Baseline`.
+    fn text_baseline(&self, _theme: &Theme) -> Option<f32> {
+        None
+    }
+
+    /// `true` when this subtree should be **left out** of a parent's baseline
+    /// alignment: it has a baseline, and the parent is to pretend it does not. An icon
+    /// beside a label, where the label is what the row should line up on. See
+    /// [`crate::IgnoreBaseline`].
+    fn ignores_baseline(&self) -> bool {
+        false
+    }
+
+    /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
+    /// the distance from the top of this box at which that baseline should land.
+    /// `None` = not a baseline box.
+    fn baseline_target(&self) -> Option<f32> {
+        None
+    }
+
     /// If the widget clips its child to an **arbitrary path** (`ClipPath`), returns the
     /// path in **local coordinates** (origin at the box's top-left corner). The walk
     /// offsets it to the screen and wraps it in a layer whose mask (the path) erases
@@ -1047,6 +1073,15 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn layer_filter(&self, cx: FilterContext) -> Option<frus_core::LayerFilter> {
         (**self).layer_filter(cx)
+    }
+    fn text_baseline(&self, theme: &Theme) -> Option<f32> {
+        (**self).text_baseline(theme)
+    }
+    fn ignores_baseline(&self) -> bool {
+        (**self).ignores_baseline()
+    }
+    fn baseline_target(&self) -> Option<f32> {
+        (**self).baseline_target()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

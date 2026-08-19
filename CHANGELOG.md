@@ -8,12 +8,23 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 340 so far, each documenting the objective, the alternatives
+> record — one per step, 341 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Baseline alignment** (J341): `Align::Baseline` on a row, plus the `Baseline` and
+  `IgnoreBaseline` widgets — which closes the widget catalogue the count of milestone 336
+  opened. A row measures each child's baseline, takes the deepest, and turns the difference
+  into a top margin, so a figure and its unit sit on one line however different their
+  sizes. taffy cannot do this: its measure function asks a leaf for a size and a leaf has
+  no way to answer with an ascent.
+
+- **`frus_text::baseline`** (J341), shaped rather than derived from the point size, and
+  taken from the same layout run the renderer positions glyphs with. Memoised on the size
+  and the resolved weight and style, which is everything it depends on.
 
 - **`BackdropFilter` and `BackdropGroup`** (J340), which closes the filter subsystem. A
   backdrop filters **the frame so far**, so a frame containing one is built in a staging
@@ -58,6 +69,11 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **The layout tree carries each leaf's baseline** (J341). The alternative was a second
+  walk of the widget tree alongside the rectangles, which would have been a copy of
+  `build_layout` waiting to drift out of step — a scrollable, a stack, a page view and a
+  fitter are all *leaves* there, with their contents laid out elsewhere.
 
 - **A layer nested in another layer is drawn** (J340). It never was: a group renders into a
   texture and composites it, and a layer found inside that group is not a primitive the

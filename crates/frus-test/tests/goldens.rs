@@ -5,10 +5,11 @@
 use frus_core::{Color, Point, Rect, Scene, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
-    ColorFiltered, Container, DateTimePicker, Dropdown, Flex, IconName, ImageFiltered, LineChart,
-    Menu, Pagination, RadioGroup, RangeSlider, Rating, SegmentedControl, ShaderMask, Slider, Stack,
-    Stepper, Switch, Table, Tabs, Text, TextInput, Theme, TimePicker, Variant,
+    Align, Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
+    ColorFiltered, Container, DateTimePicker, Dropdown, Flex, IconName, IgnoreBaseline,
+    ImageFiltered, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, SegmentedControl,
+    ShaderMask, Slider, Stack, Stepper, Switch, Table, Tabs, Text, TextInput, Theme, TimePicker,
+    Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -2922,4 +2923,27 @@ fn a_backdrop_matches_its_golden() {
         return;
     };
     snapshot.assert_golden(golden("backdrop_bar"));
+}
+
+/// Baseline alignment, which is the only way to see it: a big figure, its unit, and a
+/// note that has been taken out of the reckoning.
+///
+/// The first two sit on one line however different their sizes; the third is present in
+/// the row and does not get to say where that line is.
+#[test]
+fn a_baseline_row_matches_its_golden() {
+    let theme = Theme::dark();
+    let root: Container<()> = Container::new().padding(12.0).child(
+        Flex::row()
+            .align(Align::Baseline)
+            .gap(6.0)
+            .child(Text::styled("48", TextStyle::new(44.0)))
+            .child(Text::styled("px", TextStyle::new(16.0)))
+            .child(IgnoreBaseline::new().child(Text::styled("beta", TextStyle::new(11.0)))),
+    );
+    let Some(snapshot) = render_widget(&root, 180, 80, &theme) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    snapshot.assert_golden(golden("baseline_row"));
 }

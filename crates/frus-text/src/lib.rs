@@ -313,9 +313,86 @@ pub fn available_weight(weight: FontWeight) -> u16 {
     }
 }
 
+/// What a baseline depends on: the size and the **resolved** weight and style. The
+/// text does not enter into it — a baseline is a property of the font at a size, not of
+/// what is written in it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct BaselineKey {
+    size: u32,
+    weight: u16,
+    italic: bool,
+}
+
+static BASELINES: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<BaselineKey, f32>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
 /// The line height for a given font size, in pixels.
 pub fn line_height(size_px: f32) -> f32 {
     size_px * LINE_HEIGHT_FACTOR
+}
+
+/// The **alphabetic baseline** of a line of text at `size_px`: the distance from the
+/// top of the line box down to the line the letters sit on.
+///
+/// It is the number two pieces of text need in order to agree on where "the same line"
+/// is. Sizes and line heights differ, so aligning two runs by their tops or their
+/// bottoms puts them at different heights; aligning them by this puts them where a
+/// reader expects.
+///
+/// It is **shaped**, not derived from the size. The ascent belongs to the font the
+/// fallback chain actually chose, and guessing it from the point size is wrong by a few
+/// per cent per family — enough to see when two labels sit side by side, which is the
+/// only situation this number is ever used in.
+pub fn baseline(size_px: f32, weight: FontWeight, italic: bool) -> f32 {
+    // The system is built before the key is resolved, for the reason `measure_wrapped`
+    // gives: resolving reads state that building it sets.
+    let _ = font_system();
+    let key = BaselineKey {
+        size: size_px.to_bits(),
+        weight: available_weight(weight),
+        italic: available_style(italic) == Style::Italic,
+    };
+    if let Some(cached) = BASELINES.lock().expect("baseline cache").get(&key) {
+        return *cached;
+    }
+
+    let line_h = line_height(size_px);
+    let mut font_system = font_system().lock().expect("FontSystem lock");
+    let metrics = Metrics::new(size_px, line_h);
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    // Two letters with an ascender and a descender, so the line is shaped at its full
+    // height rather than at the height of whatever happens to be in it.
+    let probe = "Hg";
+    let attrs = Attrs::new()
+        .family(family_for(probe))
+        .weight(Weight(available_weight(weight)))
+        .style(available_style(italic));
+    buffer.set_text(&mut font_system, probe, attrs, Shaping::Advanced);
+    buffer.shape_until_scroll(&mut font_system, false);
+    // `line_y` is where the renderer puts the baseline, so taking it from the same
+    // place is what keeps layout and paint talking about the same line.
+    let baseline = buffer
+        .layout_runs()
+        .next()
+        .map(|run| run.line_y)
+        .unwrap_or(size_px);
+    drop(font_system);
+    BASELINES
+        .lock()
+        .expect("baseline cache")
+        .insert(key, baseline);
+    baseline
+}
+
+/// The first baseline of a sequence of styled runs: the **largest** of their
+/// baselines, since they share a line and the tallest ascender sets where it sits.
+pub fn baseline_of_runs(runs: &[TextRun]) -> Option<f32> {
+    runs.iter()
+        .map(|run| baseline(run.size, run.weight, run.italic))
+        .fold(None, |acc: Option<f32>, b| {
+            Some(acc.map_or(b, |a| a.max(b)))
+        })
 }
 
 /// Measures a text's natural size (multiple lines allowed), in pixels, at regular
@@ -1171,5 +1248,42 @@ mod tests {
         forget_measurements();
         let after = measure("forget me", 15.0);
         assert_eq!(before, after, "the same faces must measure the same");
+    }
+    /// A baseline sits inside its line box, below the top and above the bottom — and
+    /// well above the middle, because most of a face is above the baseline.
+    #[test]
+    fn a_baseline_sits_where_a_line_of_text_does() {
+        let size = 20.0;
+        let b = baseline(size, FontWeight::Regular, false);
+        let line = line_height(size);
+        assert!(b > 0.0 && b < line, "inside the line box: {b} of {line}");
+        assert!(b > line * 0.5, "and below its middle: {b} of {line}");
+    }
+
+    /// It scales with the size, which is the whole reason two sizes cannot be aligned
+    /// by their tops.
+    #[test]
+    fn a_bigger_face_has_a_lower_baseline() {
+        let small = baseline(12.0, FontWeight::Regular, false);
+        let large = baseline(24.0, FontWeight::Regular, false);
+        assert!(large > small * 1.5, "{small} then {large}");
+    }
+
+    /// Runs sharing a line share the **largest** baseline: the tallest ascender is
+    /// what decides where the line sits.
+    #[test]
+    fn mixed_runs_take_the_tallest_baseline() {
+        let run = |text: &str, size: f32| TextRun {
+            text: text.into(),
+            size,
+            weight: FontWeight::Regular,
+            italic: false,
+            color: frus_core::Color::WHITE,
+            decoration: frus_core::TextDecoration::default(),
+            decoration_color: None,
+        };
+        let runs = vec![run("small", 12.0), run("large", 24.0)];
+        let mixed = baseline_of_runs(&runs).expect("two runs");
+        assert!((mixed - baseline(24.0, FontWeight::Regular, false)).abs() < 0.01);
     }
 }

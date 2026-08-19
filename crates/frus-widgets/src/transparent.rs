@@ -423,6 +423,18 @@ macro_rules! forward_transparent {
                 self.inner.backdrop_group()
             }
 
+            fn text_baseline(&self, theme: &$crate::theme::Theme) -> Option<f32> {
+                self.inner.text_baseline(theme)
+            }
+
+            fn ignores_baseline(&self) -> bool {
+                self.inner.ignores_baseline()
+            }
+
+            fn baseline_target(&self) -> Option<f32> {
+                self.inner.baseline_target()
+            }
+
             fn barrier(&self) -> Option<$crate::barrier::Barrier> {
                 self.inner.barrier()
             }

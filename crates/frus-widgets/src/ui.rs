@@ -847,7 +847,31 @@ pub(crate) fn build_layout<Msg>(
     id: WidgetId,
     runtime: &Runtime,
     theme: &Theme,
-    layout: &mut Layout<()>,
+    layout: &mut Layout<BaselineData>,
+) -> NodeId {
+    build_layout_scoped(widget, id, runtime, theme, layout, true)
+}
+
+/// A layout leaf's **text baseline**, when it has one: the distance from the top of its
+/// box down to the line its letters sit on.
+///
+/// It rides on the layout tree rather than being asked of the widgets afterwards because
+/// only the layout knows where a node ended up, and only the walk that built it knows
+/// which branch it took — a scrollable, a stack and a page view are all *leaves* here,
+/// with their contents laid out elsewhere, and a second walk guessing at that would be a
+/// copy of this one waiting to drift out of step.
+pub(crate) type BaselineData = Option<f32>;
+
+/// The body of [`build_layout`], carrying whether baselines are still being collected.
+/// An [`crate::IgnoreBaseline`] turns them off for its subtree — the widgets inside still
+/// have baselines, and the point is that nothing above may see them.
+fn build_layout_scoped<Msg>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+    theme: &Theme,
+    layout: &mut Layout<BaselineData>,
+    baselines: bool,
 ) -> NodeId {
     // A themed subtree lays out under **its** theme, not the frame's: a theme reaches
     // sizes and spacing (milestone 309), so this has to happen here and not only at paint
@@ -859,6 +883,34 @@ pub(crate) fn build_layout<Msg>(
     // It has to happen **before** anything reads `children()`, and under the subtree's
     // own theme, which is why it sits after the swap above rather than at the call site.
     widget.build_themed(theme);
+    // Everything below an `IgnoreBaseline` keeps its baseline and loses the right to be
+    // seen: the flag is narrowed once, here, so no branch below has to remember.
+    let baselines = baselines && !widget.ignores_baseline();
+    // A leaf's own baseline, or nothing when this subtree is being ignored.
+    let own_baseline = if baselines {
+        widget.text_baseline(theme)
+    } else {
+        None
+    };
+    // `Baseline`: the child is pushed down until **its** baseline lands `target` pixels
+    // from the top of this box, and this box grows to contain it. If the child's own
+    // baseline is already lower than that, there is nowhere to push it up to and the
+    // child is top-aligned instead — the same answer the reference gives.
+    if let Some(target) = widget.baseline_target() {
+        let mut style = effective_style(widget, id, runtime, theme);
+        if let Some(child) = widget.children().first() {
+            let child = child.as_ref();
+            let cid = child_id(id, 0, child);
+            // A child with no baseline of its own is treated as if its baseline were its
+            // bottom edge, which is what a box with no text amounts to.
+            let child_baseline = natural_baseline(child, cid, runtime, theme)
+                .unwrap_or_else(|| natural_size(child, cid, runtime, theme).height);
+            style.padding.top += (target - child_baseline).max(0.0);
+            let node = build_layout_scoped(child, cid, runtime, theme, layout, baselines);
+            return layout.container(style, &[node]);
+        }
+        return layout.leaf(style, None);
+    }
     // `RotatedBox`: a leaf whose box is the child's **natural** size, with its dimensions
     // **swapped** for an odd quarter turn (the rotation does affect layout). The child itself
     // is laid out separately (at render time).
@@ -879,7 +931,7 @@ pub(crate) fn build_layout<Msg>(
             style.width = frus_layout::Dimension::Length(w);
             style.height = frus_layout::Dimension::Length(h);
         }
-        return layout.leaf(style, ());
+        return layout.leaf(style, own_baseline);
     }
     // `Intrinsic`: one axis is taken from what the content would **like** to be, not from
     // the space on offer. The content is measured once, unconstrained, and the answer is
@@ -903,16 +955,16 @@ pub(crate) fn build_layout<Msg>(
                     style.height = frus_layout::Dimension::Length(quantise(nat.height));
                 }
             }
-            let node = build_layout(child, cid, runtime, theme, layout);
+            let node = build_layout_scoped(child, cid, runtime, theme, layout, baselines);
             return layout.container(style, &[node]);
         }
-        return layout.leaf(style, ());
+        return layout.leaf(style, own_baseline);
     }
     // `OverflowBox`: a leaf, because its child is laid out **separately**, to constraints of
     // its own. That separation is the whole feature — a child sharing this node's layout
     // could never be bigger than it.
     if widget.overflow_box().is_some() {
-        return layout.leaf(effective_style(widget, id, runtime, theme), ());
+        return layout.leaf(effective_style(widget, id, runtime, theme), own_baseline);
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
@@ -926,12 +978,19 @@ pub(crate) fn build_layout<Msg>(
         || widget.layout_builder().is_some()
         || widget.stack()
     {
-        return layout.leaf(effective_style(widget, id, runtime, theme), ());
+        return layout.leaf(effective_style(widget, id, runtime, theme), own_baseline);
     }
     // A portal only lays out its anchor (child 0); the overlay is deferred.
     if widget.overlay().is_some() {
         let anchor_w = widget.children()[0].as_ref();
-        let anchor = build_layout(anchor_w, child_id(id, 0, anchor_w), runtime, theme, layout);
+        let anchor = build_layout_scoped(
+            anchor_w,
+            child_id(id, 0, anchor_w),
+            runtime,
+            theme,
+            layout,
+            baselines,
+        );
         return layout.container(effective_style(widget, id, runtime, theme), &[anchor]);
     }
     let children = widget.children();
@@ -939,25 +998,91 @@ pub(crate) fn build_layout<Msg>(
         // A leaf measured under constraints (a paragraph that wraps…): taffy calls the
         // closure during the computation.
         if let Some(measure) = widget.measure() {
-            return layout.measured_leaf(effective_style(widget, id, runtime, theme), (), measure);
+            return layout.measured_leaf(
+                effective_style(widget, id, runtime, theme),
+                own_baseline,
+                measure,
+            );
         }
-        layout.leaf(effective_style(widget, id, runtime, theme), ())
+        layout.leaf(effective_style(widget, id, runtime, theme), own_baseline)
     } else {
+        let style = effective_style(widget, id, runtime, theme);
         let child_ids: Vec<NodeId> = children
             .iter()
             .enumerate()
             .map(|(i, child)| {
-                build_layout(
+                build_layout_scoped(
                     child.as_ref(),
                     child_id(id, i, child.as_ref()),
                     runtime,
                     theme,
                     layout,
+                    baselines,
                 )
             })
             .collect();
-        layout.container(effective_style(widget, id, runtime, theme), &child_ids)
+        // **Baseline** cross-alignment: the children are pushed down until their
+        // baselines meet, which is the only alignment that makes two runs of different
+        // sizes read as one line rather than as one row.
+        //
+        // It is resolved here rather than by taffy, which cannot: taffy asks a leaf for
+        // a size and a leaf can only answer with one. The measurement a baseline needs
+        // is the font's, so the answer has to come from up here, where the widgets are.
+        //
+        // The **natural** baseline is the right one to measure even though the children
+        // will be laid out at some other width: the first line of a piece of text sits
+        // in the same place however narrow the box gets, since narrowing it adds lines
+        // below rather than moving the first one.
+        if style.align == frus_layout::Align::Baseline
+            && style.flex_direction == frus_layout::FlexDirection::Row
+        {
+            let own: Vec<Option<f32>> = children
+                .iter()
+                .enumerate()
+                .map(|(i, child)| {
+                    natural_baseline(
+                        child.as_ref(),
+                        child_id(id, i, child.as_ref()),
+                        runtime,
+                        theme,
+                    )
+                })
+                .collect();
+            if let Some(deepest) = own.iter().flatten().copied().reduce(f32::max) {
+                for (node, b) in child_ids.iter().zip(&own) {
+                    // A child with no baseline keeps its place: it is a box, and a box
+                    // has nothing to line up.
+                    if let Some(b) = b {
+                        layout.add_margin_top(*node, deepest - b);
+                    }
+                }
+            }
+        }
+        layout.container(style, &child_ids)
     }
+}
+
+/// The distance from the top of `widget`'s **natural** box to the first baseline inside
+/// it, or `None` when there is no text in there to have one.
+///
+/// It lays the subtree out on its own, exactly as [`natural_size`] does, and takes the
+/// first baseline the layout collected. First in *layout* order, which is the order a
+/// reader would find it in — and it is the leaves that carry them, so an intervening
+/// padding or alignment is already counted in the rectangle it comes with.
+pub(crate) fn natural_baseline<Msg>(
+    widget: &dyn Widget<Msg>,
+    id: WidgetId,
+    runtime: &Runtime,
+    theme: &Theme,
+) -> Option<f32> {
+    let mut layout = Layout::new();
+    let node = build_layout(widget, id, runtime, theme, &mut layout);
+    layout.compute_scroll(node, 0.0, 0.0, true, true);
+    let rects = layout.absolute_rects(node);
+    let top = rects.first()?.0.y;
+    rects
+        .iter()
+        .find_map(|(rect, data)| data.copied().flatten().map(|b| rect.y + b - top))
 }
 
 /// **Natural** (intrinsic) size of a subtree: laid out under free axes (`MaxContent`), with

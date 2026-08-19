@@ -87,6 +87,12 @@ impl<Msg> Widget<Msg> for RichText {
         }
     }
 
+    /// The line the first row of runs sits on. Runs of different sizes share a line,
+    /// and the tallest ascender is what decides where it is.
+    fn text_baseline(&self, _theme: &Theme) -> Option<f32> {
+        frus_text::baseline_of_runs(&self.runs(Color::WHITE, 1.0))
+    }
+
     fn measure(&self) -> Option<frus_layout::MeasureFn> {
         if !self.wrap {
             return None;
