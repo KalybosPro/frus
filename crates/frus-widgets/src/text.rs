@@ -37,23 +37,25 @@ pub struct Text {
     shrinkable: bool,
 }
 
-/// The separator the fitted lines are joined with before being handed to the renderer.
-/// They were broken where the shaper chose to break them, and an explicit newline is what
-/// keeps them broken there.
-pub(crate) const NEWLINE: &str = "\n";
-
 /// The ellipsis a cut line ends in.
 pub(crate) const ELLIPSIS: &str = "…";
 
 /// The longest prefix of `content` that fits in `max_width`, ending in an ellipsis when
 /// anything was cut. Returns `content` untouched when it already fits.
 ///
+/// A box with **no room at all** gets an ellipsis and nothing else. It used to get the
+/// whole string, on the reasoning that a zero width meant "the layout has not run yet"
+/// rather than "there is no room" — inherited from the app bar, which cannot produce a
+/// zero anyway (its title room has a floor of 64 px). What the exception actually did was
+/// let a genuinely collapsed box draw its whole label, over whatever was beside it, which
+/// is the one thing ellipsising exists to prevent.
+///
 /// Character by character from the end: the strings this is used on are a line, not a
 /// document, and a binary search over char boundaries would buy nothing at that length.
 pub(crate) fn truncate(content: &str, style: &TextStyle, max_width: f32) -> String {
     let measure =
         |text: &str| frus_text::measure_styled(text, style.size, style.weight, style.italic).width;
-    if max_width <= 0.0 || measure(content) <= max_width {
+    if measure(content) <= max_width {
         return content.to_string();
     }
     let mut chars: Vec<char> = content.chars().collect();
@@ -275,36 +277,38 @@ impl Text {
     pub(crate) fn fitted(&self, width: f32) -> Fitted {
         let (size, weight, italic) = (self.style.size, self.style.weight, self.style.italic);
         // Only a line **limit** makes the words the widget's business. Left alone, the
-        // text goes to the renderer whole and is broken there — which matters beyond the
-        // shaping saved: a paragraph handed over as lines is a paragraph *per line*, and
-        // rules that span a paragraph (a justified block leaves its last line ragged) no
-        // longer know where it ends.
-        let (mut lines, too_tall) = if self.max_lines.is_some() {
-            frus_text::visual_lines(
-                &self.content,
-                size,
-                weight,
-                italic,
-                Some(width),
-                self.wrap,
-                self.max_lines,
-            )
-        } else {
-            (vec![self.content.clone()], false)
-        };
+        // text goes to the renderer whole and is broken there.
+        //
+        // And what goes over is a **prefix**, cut at a break the shaper chose — never a
+        // list of lines glued back together. Lines glued back together are a paragraph
+        // *per line*, and rules that span a paragraph stop working: a justified block can
+        // only leave its last line ragged if it knows which line is the last.
+        let mut text = self.content.clone();
+        let mut too_tall = false;
+        if let Some(max) = self.max_lines {
+            let spans =
+                frus_text::line_spans(&self.content, size, weight, italic, Some(width), self.wrap);
+            if spans.len() > max {
+                too_tall = true;
+                let cut = spans[max].start;
+                let last = spans[max - 1].start;
+                text = if self.overflow == TextOverflow::Ellipsis {
+                    let ended = ellipsise(&self.content[last..cut], &self.style, width);
+                    format!("{}{ended}", &self.content[..last])
+                } else {
+                    self.content[..cut].to_string()
+                };
+            }
+        }
         // A line can only be wider than the box when nothing may push it onto the next
         // one. Where the text wraps, every line fits by construction.
         let too_wide = !self.wrap
-            && lines.last().is_some_and(|line| {
-                frus_text::measure_styled(line, size, weight, italic).width > width + 0.5
-            });
-        if (too_tall || too_wide) && self.overflow == TextOverflow::Ellipsis {
-            if let Some(last) = lines.last_mut() {
-                *last = ellipsise(last, &self.style, width);
-            }
+            && frus_text::measure_styled(&text, size, weight, italic).width > width + 0.5;
+        if too_wide && !too_tall && self.overflow == TextOverflow::Ellipsis {
+            text = ellipsise(&text, &self.style, width);
         }
         Fitted {
-            text: lines.join(NEWLINE),
+            text,
             too_wide,
             too_tall,
         }
@@ -577,11 +581,9 @@ mod tests {
 
         // A width it already fits in leaves it alone, ellipsis and all.
         assert_eq!(truncate("Short", &style, 500.0), "Short");
-        // A box with no room at all is left alone — inherited from the app bar, where
-        // a zero width means "the layout has not run yet" rather than "there is no
-        // room". It is a wart: a genuinely collapsed box draws the whole string. Pinned
-        // here so that changing it is a decision rather than a surprise.
-        assert_eq!(truncate(long, &style, 0.0), long);
+        // A box with no room at all draws an ellipsis and nothing else. It used to draw
+        // the whole string, which is the one thing ellipsising exists to prevent.
+        assert_eq!(truncate(long, &style, 0.0), ELLIPSIS);
     }
 
     /// The layout half: an ellipsising text accepts less width than it asked for, a plain
@@ -698,12 +700,22 @@ mod tests {
             .max_lines(2)
             .overflow(TextOverflow::Ellipsis);
         let fitted = text.fitted(90.0);
-        assert_eq!(
-            fitted.text.lines().count(),
-            2,
-            "two lines: {:?}",
+        // What comes back is a **prefix**, not a list of lines: it wraps into two when the
+        // renderer breaks it, which is where the breaking belongs.
+        assert!(
+            fitted.text.lines().count() == 1,
+            "one string, no newlines in it: {:?}",
             fitted.text
         );
+        let lines = frus_text::line_spans(
+            &fitted.text,
+            14.0,
+            FontWeight::Regular,
+            false,
+            Some(90.0),
+            true,
+        );
+        assert_eq!(lines.len(), 2, "and it breaks into two: {:?}", fitted.text);
         assert!(fitted.too_tall, "and there was more");
         assert!(
             fitted.text.ends_with(ELLIPSIS),

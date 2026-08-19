@@ -3010,8 +3010,12 @@ fn text_alignment_and_overflow_match_their_golden() {
                         .align(TextAlign::Justify),
                 )
                 .child(
+                    // Justified **and** limited: the first line goes flush to both edges
+                    // and the last stays ragged, which only works because the paragraph
+                    // reaches the renderer as one prefix rather than as two lines.
                     Text::styled(long, body)
                         .wrap()
+                        .align(TextAlign::Justify)
                         .max_lines(2)
                         .overflow(TextOverflow::Ellipsis),
                 )

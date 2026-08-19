@@ -8,12 +8,16 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 346 so far, each documenting the objective, the alternatives
+> record — one per step, 347 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`frus_text::line_spans`** (J347) replaces `visual_lines`: the visual lines a text breaks
+  into, as **byte ranges** rather than as strings, because what the caller wants is a
+  prefix of the original.
 
 - **`RichText` answers the same questions as `Text`** (J346): `align`, `max_lines`,
   `overflow`, and wrapping by default. They are questions about *text*, and the styles
@@ -113,6 +117,19 @@ any release may break.
   subtree" without an ancestor test, and records innermost-first for free.
 
 ### Changed
+
+- **A limited paragraph reaches the renderer as one prefix** (J347), not as a list of lines
+  glued back together with newlines. Lines glued back together are a paragraph *per line*,
+  and every rule that spans a paragraph stops working — most visibly justification, which
+  leaves the last line ragged and can only do that if it knows which line is the last. A
+  paragraph that is justified *and* limited to two lines could not be drawn a milestone ago.
+  All ninety-one goldens agreed before and after: the renderer was always going to break the
+  prefix in the same places.
+
+- **A box with no room at all gets an ellipsis** (J347), where `truncate` used to hand back
+  the whole string. The exception came from the app bar, whose title room has a floor of
+  64 px and cannot produce a zero; what it actually did was let a genuinely collapsed box
+  draw its label over whatever was beside it.
 
 - **An overflow is measured on the unrounded layout** (J345). taffy rounds every node's
   edges to whole pixels independently, so a box 169.6 tall whose child sits at 21.6 and is

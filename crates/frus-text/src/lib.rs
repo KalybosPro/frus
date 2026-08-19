@@ -510,33 +510,28 @@ fn remember_measurement(key: MeasureKey, size: Size) {
     cache.current.insert(key, size);
 }
 
-/// The **visual lines** a piece of text breaks into inside a box `max_width` wide — at
-/// most `max_lines` of them — and whether there was more text than fitted.
+/// The **visual lines** a piece of text breaks into inside a box `max_width` wide, as
+/// byte ranges into `text`.
 ///
-/// The reference's `maxLines` and `overflow` both need this and neither can be answered
-/// by a measurement: a height tells you how many lines there are, not *where they broke*,
-/// and a cut has to fall on a break the shaper chose or the words move.
+/// The reference's `maxLines` and `overflow` both need this and neither can be answered by
+/// a measurement: a height tells you how many lines there are, not *where they broke*, and
+/// a cut has to fall on a break the shaper chose or the words move.
 ///
-/// Each line comes back as its own string rather than as an offset into the original.
-/// Offsets would have to be mapped back through the buffer lines a newline splits the
-/// text into, and the caller wants the strings anyway — it is about to cut one of them
-/// and draw the rest.
+/// Ranges rather than strings, because the caller wants a **prefix** of the original: a
+/// text handed to the renderer as separate lines is a paragraph per line, and rules that
+/// span a paragraph — a justified block leaving its last line ragged — stop working.
 ///
-/// Not cached. It is only reached by text that asked for a line limit or a visible
-/// overflow, and the shaping it does is the same shaping the renderer will do again; the
-/// texts that do not ask still go through the cached measurement.
-pub fn visual_lines(
+/// Not cached. Only text that asked for a line limit gets here, and the shaping it does is
+/// the same shaping the renderer does again; everything else goes through the cached
+/// measurement.
+pub fn line_spans(
     text: &str,
     size_px: f32,
     weight: FontWeight,
     italic: bool,
     max_width: Option<f32>,
     soft_wrap: bool,
-    max_lines: Option<usize>,
-) -> (Vec<String>, bool) {
-    if text.is_empty() {
-        return (vec![String::new()], false);
-    }
+) -> Vec<std::ops::Range<usize>> {
     let mut font_system = font_system().lock().expect("FontSystem lock");
     let metrics = Metrics::new(size_px, line_height(size_px));
     let mut buffer = Buffer::new(&mut font_system, metrics);
@@ -551,27 +546,35 @@ pub fn visual_lines(
     buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
     buffer.shape_until_scroll(&mut font_system, false);
 
-    let mut lines = Vec::new();
-    let mut more = false;
-    for (index, run) in buffer.layout_runs().enumerate() {
-        if max_lines.is_some_and(|max| index >= max) {
-            more = true;
-            break;
-        }
+    // A buffer line per explicit newline; a layout run's glyph offsets are into its own
+    // buffer line, so the starts of those lines are what turns them into offsets into the
+    // whole.
+    let mut line_start = Vec::new();
+    let mut at = 0usize;
+    for line in &buffer.lines {
+        line_start.push(at);
+        at += line.text().len() + 1;
+    }
+
+    let mut spans = Vec::new();
+    for run in buffer.layout_runs() {
+        let base = line_start.get(run.line_i).copied().unwrap_or(0);
         // The glyphs are in **visual** order, so a right-to-left line has its last byte
         // first: the span is the extent of the run, not its ends in order.
         let start = run.glyphs.iter().map(|g| g.start).min();
         let end = run.glyphs.iter().map(|g| g.end).max();
         match (start, end) {
-            (Some(start), Some(end)) => lines.push(run.text[start..end].to_string()),
+            (Some(start), Some(end)) => spans.push(base + start..base + end),
             // A blank line between two paragraphs has no glyphs and is still a line.
-            _ => lines.push(String::new()),
+            _ => spans.push(base..base),
         }
     }
-    if lines.is_empty() {
-        lines.push(String::new());
+    // An empty paragraph still occupies a line, and a caller counting them would
+    // otherwise see none.
+    if spans.is_empty() {
+        spans.push(0..0);
     }
-    (lines, more)
+    spans
 }
 
 /// Measures a **rich text**'s natural size — resolved runs with mixed styles and
@@ -630,7 +633,7 @@ pub fn measure_runs_wrapped(runs: &[TextRun], max_width: Option<f32>) -> Size {
 ///
 /// Rich text is cut here rather than in the widget because the cut has to land on a break
 /// the shaper chose, and only the shaper knows where those are — the same reason
-/// [`visual_lines`] exists, one primitive along.
+/// [`line_spans`] exists, one primitive along.
 pub fn runs_cut_at(
     runs: &[TextRun],
     max_width: Option<f32>,
@@ -918,60 +921,38 @@ impl TextLayout {
 #[cfg(test)]
 mod tests {
 
-    /// The lines come back **as the shaper broke them**, and putting them back together
-    /// gives the words back — which is what makes it safe to drop the ones past a limit
-    /// and draw the rest.
+    /// The spans come back **as the shaper broke them**: each one fits the box, and the
+    /// words they cover are the words that were written, in order. That is what makes it
+    /// safe to keep a prefix of the text and drop the rest.
     #[test]
-    fn visual_lines_break_where_the_shaper_breaks() {
+    fn line_spans_break_where_the_shaper_breaks() {
         let text = "one two three four five six seven eight";
-        let (lines, more) = visual_lines(
-            text,
-            14.0,
-            FontWeight::Regular,
-            false,
-            Some(80.0),
-            true,
-            None,
-        );
-        assert!(lines.len() > 1, "it wrapped: {lines:?}");
-        assert!(!more, "nothing was dropped");
-        assert_eq!(
-            lines.join(" ").split_whitespace().collect::<Vec<_>>(),
-            text.split_whitespace().collect::<Vec<_>>(),
-            "the same words, in the same order"
-        );
-        for line in &lines {
-            let w = measure_styled(line, 14.0, FontWeight::Regular, false).width;
-            assert!(w <= 80.5, "each line fits: {line:?} at {w}");
+        let spans = line_spans(text, 14.0, FontWeight::Regular, false, Some(80.0), true);
+        assert!(spans.len() > 1, "it wrapped: {spans:?}");
+        let words: Vec<&str> = spans
+            .iter()
+            .flat_map(|s| text[s.clone()].split_whitespace())
+            .collect();
+        assert_eq!(words, text.split_whitespace().collect::<Vec<_>>());
+        for span in &spans {
+            let w = measure_styled(&text[span.clone()], 14.0, FontWeight::Regular, false).width;
+            assert!(
+                w <= 80.5,
+                "each line fits: {:?} at {w}",
+                &text[span.clone()]
+            );
         }
     }
 
-    /// A limit keeps the first lines and says there were more.
+    /// The spans are **in order and do not overlap**, which is what lets a caller cut at
+    /// the start of the first line it is dropping.
     #[test]
-    fn a_limit_keeps_the_first_lines_and_says_so() {
+    fn the_spans_run_forwards() {
         let text = "one two three four five six seven eight";
-        let (all, _) = visual_lines(
-            text,
-            14.0,
-            FontWeight::Regular,
-            false,
-            Some(80.0),
-            true,
-            None,
-        );
-        let (two, more) = visual_lines(
-            text,
-            14.0,
-            FontWeight::Regular,
-            false,
-            Some(80.0),
-            true,
-            Some(2),
-        );
-        assert!(all.len() > 2, "the fixture has to overflow: {all:?}");
-        assert_eq!(two.len(), 2);
-        assert_eq!(two, all[..2].to_vec(), "and they are the first two");
-        assert!(more, "there was more");
+        let spans = line_spans(text, 14.0, FontWeight::Regular, false, Some(80.0), true);
+        for pair in spans.windows(2) {
+            assert!(pair[0].end <= pair[1].start, "{pair:?}");
+        }
     }
 
     /// Without wrapping there is one line however narrow the box: nothing may push a
@@ -979,17 +960,9 @@ mod tests {
     #[test]
     fn without_wrapping_there_is_one_line() {
         let text = "one two three four five six seven eight";
-        let (lines, more) = visual_lines(
-            text,
-            14.0,
-            FontWeight::Regular,
-            false,
-            Some(40.0),
-            false,
-            None,
-        );
-        assert_eq!(lines, vec![text.to_string()]);
-        assert!(!more);
+        let spans = line_spans(text, 14.0, FontWeight::Regular, false, Some(40.0), false);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&text[spans[0].clone()], text);
     }
     use super::*;
 
