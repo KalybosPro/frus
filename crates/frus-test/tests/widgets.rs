@@ -649,10 +649,22 @@ fn an_image_under_three_fits() {
     let root: Container<()> = Container::new().padding(10.0).child(
         Flex::row()
             .gap(10.0)
-            .child(Image::new(swatch_image(), 70.0, 70.0).fit(BoxFit::Cover))
-            .child(Image::new(swatch_image(), 70.0, 70.0).fit(BoxFit::Contain))
-            .child(Image::new(swatch_image(), 70.0, 70.0).fit(BoxFit::Fill))
-            .child(Image::new(swatch_image(), 70.0, 70.0).tint(AMBER)),
+            .child(
+                Image::new(swatch_image())
+                    .size(70.0, 70.0)
+                    .fit(BoxFit::Cover),
+            )
+            .child(
+                Image::new(swatch_image())
+                    .size(70.0, 70.0)
+                    .fit(BoxFit::Contain),
+            )
+            .child(
+                Image::new(swatch_image())
+                    .size(70.0, 70.0)
+                    .fit(BoxFit::Fill),
+            )
+            .child(Image::new(swatch_image()).size(70.0, 70.0).tint(AMBER)),
     );
     check("image_fits", 340, 90, &root);
 }

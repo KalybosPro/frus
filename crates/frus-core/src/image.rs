@@ -9,7 +9,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crate::{Rect, Size};
+use crate::{Alignment, Rect, Size};
 
 /// Identity counter: every [`ImageData`] gets a unique, stable id, which is the
 /// GPU-side cache key — it keeps the same pixels from being re-uploaded each frame.
@@ -114,19 +114,31 @@ impl BoxFit {
     /// size `src` in this mode. `dst` is never cropped: letterboxing shrinks `dst`
     /// and keeps full UV; cropping keeps `dst` full and shrinks the UV.
     pub fn apply(self, src: Size, dst: Rect) -> (Rect, Rect) {
+        self.apply_aligned(src, dst, Alignment::CENTER)
+    }
+
+    /// [`BoxFit::apply`] with a say in **where** the spare room goes: which part of the
+    /// box a letterboxed image sits in, and which part of the image a cropping one keeps.
+    ///
+    /// Centre is the reference's default and what `apply` uses. It matters as soon as an
+    /// image is not the shape of its box: a portrait cropped to a banner should usually
+    /// keep its top, not its middle.
+    pub fn apply_aligned(self, src: Size, dst: Rect, align: Alignment) -> (Rect, Rect) {
         let full_uv = Rect::new(0.0, 0.0, 1.0, 1.0);
         if src.width <= 0.0 || src.height <= 0.0 || dst.width <= 0.0 || dst.height <= 0.0 {
             return (dst, full_uv);
         }
         let sx = dst.width / src.width;
         let sy = dst.height / src.height;
+        let (fx, fy) = (align.fraction_x(), align.fraction_y());
 
-        // Letterbox: the image at `scale`, centred inside `dst`, with full UV.
+        // Letterbox: the image at `scale`, placed inside `dst` by the alignment, with
+        // full UV.
         let letterbox = |scale: f32| {
             let w = src.width * scale;
             let h = src.height * scale;
-            let x = dst.x + (dst.width - w) * 0.5;
-            let y = dst.y + (dst.height - h) * 0.5;
+            let x = dst.x + (dst.width - w) * fx;
+            let y = dst.y + (dst.height - h) * fy;
             (Rect::new(x, y, w, h), full_uv)
         };
 
@@ -144,7 +156,9 @@ impl BoxFit {
                 let scaled_h = src.height * scale;
                 let uv_w = (dst.width / scaled_w).min(1.0);
                 let uv_h = (dst.height / scaled_h).min(1.0);
-                let uv = Rect::new((1.0 - uv_w) * 0.5, (1.0 - uv_h) * 0.5, uv_w, uv_h);
+                // The crop travels the other way: aligning the image to the top means
+                // keeping the **top** of it, which is the low end of the UV.
+                let uv = Rect::new((1.0 - uv_w) * fx, (1.0 - uv_h) * fy, uv_w, uv_h);
                 (dst, uv)
             }
         }

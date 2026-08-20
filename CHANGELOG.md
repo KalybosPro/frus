@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 357 so far, each documenting the objective, the alternatives
+> record — one per step, 358 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,17 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **An image knows how big it is** (J358). `Image::new` required a width *and* a height,
+  which meant a picture could not be shown by anyone who did not already know its pixel
+  dimensions — the one thing a bitmap always knows about itself. Both are optional now,
+  and the reference's rule fills in the rest: both given is that box, one given derives the
+  other from the image's ratio, neither is the bitmap's own size. `alignment` says where a
+  letterboxed image sits **and** which part of a cropped one survives — one anchor, running
+  opposite ways, with a test for each — and `opacity` fades the tint rather than costing a
+  layer. `BoxFit::apply_aligned` is the new entry point; `BoxFit::apply` is it, centred.
+
+  **Breaking**: `Image::new(handle, w, h)` becomes `Image::new(handle).size(w, h)`.
 
 - **`Positioned`, and a `Stack` that can place a layer** (J357). A badge on a corner, a
   caption over an image, a bar across the bottom of a photo: all of them are a stack with
