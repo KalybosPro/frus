@@ -226,8 +226,11 @@ fn the_pickers_of_one_thing() {
 /// both halves are in one image.
 #[test]
 fn a_section_open_and_one_shut() {
-    let root: Container<()> = Container::new().padding(12.0).child(
+    // Given a **width**: an expansion tile is a row, and a row whose trailing slot is
+    // the chevron only reads as one when there is a far edge for the chevron to reach.
+    let root: Container<()> = Container::new().width(300.0).padding(12.0).child(
         Flex::column()
+            .flex(1.0)
             .gap(8.0)
             .child(
                 ExpansionTile::new("What is open", true, ())

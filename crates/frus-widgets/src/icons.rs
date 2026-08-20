@@ -35,6 +35,10 @@ pub enum IconName {
     ChevronLeft,
     /// A chevron pointing right.
     ChevronRight,
+    /// A chevron pointing down: a section that is open, a menu that drops.
+    ChevronDown,
+    /// A chevron pointing up.
+    ChevronUp,
     /// An eye (visible): a ring-shaped eye outline + a pupil — reveal a password.
     Eye,
     /// A crossed-out eye (hidden): the eye with a diagonal through it — hide.
@@ -76,6 +80,25 @@ impl IconName {
                 (6.2, 18.2),
                 (12.4, 12.0),
                 (6.2, 5.8),
+            ]),
+            // The two vertical ones are the horizontal pair turned a quarter: same
+            // stroke, same 24x24 grid, so a chevron is the same chevron whichever way
+            // it points.
+            IconName::ChevronDown => polygon(&[
+                (4.0, 8.0),
+                (12.0, 16.0),
+                (20.0, 8.0),
+                (18.2, 6.2),
+                (12.0, 12.4),
+                (5.8, 6.2),
+            ]),
+            IconName::ChevronUp => polygon(&[
+                (4.0, 16.0),
+                (12.0, 8.0),
+                (20.0, 16.0),
+                (18.2, 17.8),
+                (12.0, 11.6),
+                (5.8, 17.8),
             ]),
             IconName::Eye => eye(false),
             IconName::EyeOff => eye(true),
@@ -278,6 +301,8 @@ mod tests {
             IconName::Play,
             IconName::ChevronLeft,
             IconName::ChevronRight,
+            IconName::ChevronDown,
+            IconName::ChevronUp,
             IconName::Eye,
             IconName::EyeOff,
         ] {

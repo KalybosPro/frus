@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 367 so far, each documenting the objective, the alternatives
+> record — one per step, 368 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -52,6 +52,45 @@ any release may break.
   it. Layers are ordered by the batch planner now, like everything else, and the render
   pass interleaves composite draws with content draws. Nested layers inside a group's own
   pre-pass had the same bug and the same fix.
+
+### Added
+
+- **An expansion tile that is a tile** (J368). `ExpansionTile`'s whole surface was
+  `new(title, open, on_toggle)` and `content(widget)`. No leading widget, no subtitle, no
+  trailing widget, no colours, no measurements — a title as a `String`, a header painted by
+  hand at a hardcoded 40 px with hardcoded 18 px text, and `▾`/`▸` as **text glyphs**. It
+  was the last widget in the catalogue still written that way, and a plain breach of the
+  standing rule.
+
+  The reference's `ExpansionTile` **is** a `ListTile` with a chevron and a body underneath,
+  and ours is one now. That single decision brings everything milestone 336 already built
+  into a tile — the Material 3 heights, the leading slot's minimum width, the text column
+  that gives way while the slots either side keep their size, the state layer, the selected
+  colour — instead of doing it a second time, worse. On top: `subtitle`, `leading`,
+  `trailing`, `show_trailing_icon`, `control_affinity`, `dense`, `tile_padding`,
+  `children_padding`, and four colour pairs each with a *collapsed* counterpart.
+
+  Two questions the slots forced. The chevron and a widget can want the same place:
+  `control_affinity(Leading)` gives it to the chevron and drops the other, because two
+  widgets in one slot is a bug a row of fixed slots cannot report. `trailing` goes the
+  other way and **replaces** the chevron — a row whose end carries a switch is not also
+  carrying an arrow. And the tile is assembled in `build_themed`, under the theme of the
+  subtree it sits in, or one inside a `Themed` would come out in the wrong palette.
+
+  `IconName::ChevronDown` and `ChevronUp` join the icon set, on the same 24×24 grid as the
+  rest: the old header's `▾` was a font's opinion — a different size and weight from the
+  icons beside it, and missing outright from a font without those code points.
+
+  **It found two bugs in `ListTile`.** The chevron came out against the last letter of the
+  title rather than at the end of the row: the tile was the right width, the `Flex::row()`
+  inside it was not, so it hugged its slots and the `Expanded` text column between them had
+  nothing to push against. Every tile with a trailing widget has drawn it halfway across
+  the row since the tile was written, and no golden had one until this milestone put a
+  chevron there. Fixing that turned up the second: a row that only *grows* fills the tile
+  and then runs straight through it when its content is wider, so a long title pushed the
+  trailing slot **265 px outside a 200 px tile** — reported by the overflow band, and still
+  drawn off the side of the list. `Expanded::new(row)` says both at once: grow into the box,
+  give way rather than run past it, and no content-sized floor underneath.
 
 ### Changed
 

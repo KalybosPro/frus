@@ -156,7 +156,7 @@ pub use chip::{
     CHIP_RADIUS,
 };
 pub use clip::{ClipOval, ClipPath, ClipRRect};
-pub use collapsible::ExpansionTile;
+pub use collapsible::{ControlAffinity, ExpansionTile};
 pub use colorpicker::ColorPicker;
 pub use constraints::{
     ConstrainedBox, Intrinsic, IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow,

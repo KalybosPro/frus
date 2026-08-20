@@ -324,7 +324,20 @@ impl<Msg: Clone + 'static> ListTile<Msg> {
             if let Some(trailing) = self.trailing.borrow_mut().take() {
                 row = row.child_boxed(trailing);
             }
-            vec![Box::new(row) as Box<dyn Widget<Msg>>]
+            // The row is **`Expanded`**, and both halves of that matter.
+            //
+            // It **grows** into the tile rather than hugging its slots: left to hug, the
+            // tile is the right width and the row inside it is not, so the trailing slot
+            // comes to rest against the title instead of at the end of the line — a badge
+            // drawn halfway across a row, and the whole reason the text column between
+            // them is an `Expanded` in the first place.
+            //
+            // And it **gives way** rather than running past the edge. Since milestone 349
+            // nothing is squeezed unless it says so, so a title too long for the row
+            // pushed it straight through the tile: 265 px outside a 200 px box, reported
+            // by the overflow band and drawn off the side of the list. `Expanded` says
+            // both at once — grow, shrink, and no content-sized floor underneath.
+            vec![Box::new(Expanded::new(row)) as Box<dyn Widget<Msg>>]
         })
     }
 }
@@ -473,5 +486,78 @@ mod tests {
     fn a_tap_sends_its_message() {
         let tile: ListTile<Msg> = ListTile::new().title("x").on_tap(Msg::Tapped);
         assert_eq!(Widget::<Msg>::on_click(&tile), Some(Msg::Tapped));
+    }
+}
+
+#[cfg(test)]
+mod fill_tests {
+    use super::*;
+    use crate::{build_ui, Container, Runtime, Size};
+    use frus_core::Primitive;
+
+    const END: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    /// The box the trailing slot was drawn in, laid out at a definite width.
+    fn trailing_rect(width: f32) -> Rect {
+        rect_with(width, "Row")
+    }
+
+    /// The same, with the title the caller chooses.
+    fn rect_with(width: f32, title: &str) -> Rect {
+        let tile: ListTile<()> = ListTile::new()
+            .title(title.to_string())
+            .trailing(Container::<()>::new().width(24.0).height(24.0).color(END));
+        let root = Container::<()>::new().width(width).child(tile);
+        build_ui(
+            &root,
+            Size::new(width, 80.0),
+            &Runtime::default(),
+            &Theme::default(),
+        )
+        .scene()
+        .primitives()
+        .iter()
+        .find_map(|p| match p {
+            Primitive::Rect { rect, color, .. } if *color == END => Some(*rect),
+            _ => None,
+        })
+        .expect("the trailing slot is painted")
+    }
+
+    /// The trailing slot belongs at the **end** of the row.
+    ///
+    /// It did not get there for a long time: the tile was the right width and the row
+    /// inside it was not, so the row hugged its slots and the `Expanded` text column
+    /// between them had nothing to push against — every badge, count and chevron drew
+    /// itself halfway across the line. Milestone 368 found it with a chevron; this is the
+    /// assertion that keeps it found.
+    /// A title too long for the row is **cut**, not carried past the edge.
+    ///
+    /// The same fix has both halves: a row that only grows fills the tile and then runs
+    /// straight through it when its content is wider, because since milestone 349 nothing
+    /// is squeezed unless it says so. The trailing slot ended up 111 px outside a 200 px
+    /// tile, which is a badge drawn off the side of a list.
+    #[test]
+    fn a_title_too_long_is_cut_rather_than_carried_past_the_edge() {
+        let long = "A title far too long for two hundred pixels of row";
+        let rect = rect_with(200.0, long);
+        assert!(
+            rect.x + rect.width <= 200.0 + 1.0,
+            "the slot ends at {} rather than inside the tile",
+            rect.x + rect.width
+        );
+    }
+
+    #[test]
+    fn the_trailing_slot_reaches_the_end_of_the_row() {
+        for width in [200.0, 320.0, 500.0] {
+            let rect = trailing_rect(width);
+            assert!(
+                (rect.x + rect.width - (width - LIST_TILE_PADDING_END)).abs() <= 1.0,
+                "at {width}: the slot ends at {} rather than {}",
+                rect.x + rect.width,
+                width - LIST_TILE_PADDING_END
+            );
+        }
     }
 }

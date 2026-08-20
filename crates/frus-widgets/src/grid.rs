@@ -2,7 +2,7 @@
 //! automatically, row by row.
 //!
 //! Unlike the composites, `GridView` is a **plain container**: the layout is
-//! done by the layout engine (taffy's CSS GridView), so
+//! done by the layout engine (taffy's CSS Grid), so
 //! `cell()` is nothing more than adding a child.
 //!
 //! **How tall is a row?** By default the tallest cell in it, which is what a grid of
