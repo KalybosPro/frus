@@ -62,6 +62,12 @@ that content to a level above it, which is a batch it cannot join. That is the s
 the planner already makes for every other kind, and it is the trade that makes the picture
 right.
 
+## Confirmed where it was found
+
+`XMJNW19B23011768`, release build, the Kanban board: the translucent square is gone, and
+so are the slivers at the left edge. The bug was found by looking at a screen and it is
+closed by looking at the same screen.
+
 ## Left
 
 - **The backdrop path now cuts the frame at a batch** rather than at a composite draw,
