@@ -1,4 +1,4 @@
-//! [`Scroll`]: a vertically scrollable container.
+//! [`SingleChildScrollView`]: a vertically scrollable container.
 //!
 //! It occupies a fixed-size viewport; its single child is laid out at free height by
 //! the driver, then clipped to the viewport and translated by the scroll offset, which
@@ -12,7 +12,7 @@ use crate::physics::ScrollPhysics;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
-/// A [`Scroll`]'s scrolling axis, or axes.
+/// A [`SingleChildScrollView`]'s scrolling axis, or axes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Axis {
     Vertical,
@@ -36,11 +36,11 @@ impl Axis {
 }
 
 /// A scrollable container.
-pub struct Scroll<Msg> {
+pub struct SingleChildScrollView<Msg> {
     width: Dimension,
     height: Dimension,
     /// Was the width **set** explicitly? If not, in flex mode the width must not
-    /// serve as a basis; see [`Scroll::style`].
+    /// serve as a basis; see [`SingleChildScrollView::style`].
     width_explicit: bool,
     /// Was the height **set** explicitly? The same question for the vertical axis.
     height_explicit: bool,
@@ -50,12 +50,12 @@ pub struct Scroll<Msg> {
     /// follows the application, which follows the platform.
     physics: Option<ScrollPhysics>,
     reverse: bool,
-    /// Room around the content, inside the viewport; see [`Scroll::padding`].
+    /// Room around the content, inside the viewport; see [`SingleChildScrollView::padding`].
     padding: Insets,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg> Scroll<Msg> {
+impl<Msg> SingleChildScrollView<Msg> {
     /// Creates a scrollable area, its viewport 200 px tall by default.
     pub fn new() -> Self {
         Self {
@@ -139,9 +139,9 @@ impl<Msg> Scroll<Msg> {
     /// viewport less the two sides.
     ///
     /// ```
-    /// # use frus_widgets::Scroll;
+    /// # use frus_widgets::SingleChildScrollView;
     /// # let feed = frus_widgets::Container::<()>::new();
-    /// Scroll::<()>::new().padding_each(0.0, 16.0, 88.0, 16.0).child(feed);
+    /// SingleChildScrollView::<()>::new().padding_each(0.0, 16.0, 88.0, 16.0).child(feed);
     /// ```
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = Insets::uniform(padding);
@@ -162,13 +162,13 @@ impl<Msg> Scroll<Msg> {
     }
 }
 
-impl<Msg> Default for Scroll<Msg> {
+impl<Msg> Default for SingleChildScrollView<Msg> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
+impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
     fn style(&self) -> Style {
         // In **flex** mode (fill then scroll), an axis dimension that was not set
         // explicitly must not serve as a basis: the default height of 200 would
@@ -237,7 +237,7 @@ mod tests {
 
     /// A scroll 100 tall holding `content_h` of content, at `offset`; returns the
     /// rectangle of the marker drawn at the very end of that content.
-    fn last_mark(scroll: Scroll<()>, offset: f32) -> Rect {
+    fn last_mark(scroll: SingleChildScrollView<()>, offset: f32) -> Rect {
         let mut runtime = Runtime::default();
         let ui = build_ui(
             &scroll,
@@ -282,13 +282,13 @@ mod tests {
     /// **bottom** reversed — the first of the two things reversing is for.
     #[test]
     fn short_content_sits_at_the_end_when_reversed() {
-        let plain = Scroll::<()>::new()
+        let plain = SingleChildScrollView::<()>::new()
             .width(100.0)
             .height(100.0)
             .child(content(1));
         assert_eq!(last_mark(plain, 0.0).y, 0.0, "at the top");
 
-        let reversed = Scroll::<()>::new()
+        let reversed = SingleChildScrollView::<()>::new()
             .width(100.0)
             .height(100.0)
             .reverse()
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn offset_zero_is_the_end_and_stays_there() {
         for rows in [4, 10, 40] {
-            let reversed = Scroll::<()>::new()
+            let reversed = SingleChildScrollView::<()>::new()
                 .width(100.0)
                 .height(100.0)
                 .reverse()
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn a_positive_offset_moves_back_through_the_content() {
         let scroll = || {
-            Scroll::<()>::new()
+            SingleChildScrollView::<()>::new()
                 .width(100.0)
                 .height(100.0)
                 .reverse()
@@ -371,7 +371,9 @@ mod tests {
     #[test]
     fn a_push_moves_the_content_the_way_it_pushes() {
         let region = |reverse: bool| {
-            let mut s = Scroll::<()>::new().width(100.0).height(100.0);
+            let mut s = SingleChildScrollView::<()>::new()
+                .width(100.0)
+                .height(100.0);
             if reverse {
                 s = s.reverse();
             }
@@ -401,7 +403,7 @@ mod padding_tests {
     const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
 
     /// The box the content painted.
-    fn content_rect(scroll: &Scroll<()>) -> Rect {
+    fn content_rect(scroll: &SingleChildScrollView<()>) -> Rect {
         build_ui(
             scroll,
             Size::new(100.0, 100.0),
@@ -418,8 +420,8 @@ mod padding_tests {
         .expect("the content is painted")
     }
 
-    fn area(height: f32) -> Scroll<()> {
-        Scroll::<()>::new()
+    fn area(height: f32) -> SingleChildScrollView<()> {
+        SingleChildScrollView::<()>::new()
             .width(100.0)
             .height(100.0)
             .child(Container::<()>::new().height(height).color(MARK))
@@ -441,7 +443,7 @@ mod padding_tests {
     /// is to scroll rather than being taken out of the window.
     #[test]
     fn the_far_inset_is_reachable_rather_than_lost() {
-        let region = |scroll: &Scroll<()>| {
+        let region = |scroll: &SingleChildScrollView<()>| {
             build_ui(
                 scroll,
                 Size::new(100.0, 100.0),

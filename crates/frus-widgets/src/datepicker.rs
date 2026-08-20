@@ -1,11 +1,11 @@
-//! [`DatePicker`]: a **controlled** month calendar, built on [`crate::Grid`].
+//! [`DatePicker`]: a **controlled** month calendar, built on [`crate::GridView`].
 //! Date arithmetic is **home-grown**, with no time dependency.
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
-use crate::grid::Grid;
+use crate::grid::GridView;
 use crate::interaction::Status;
 use crate::text::Text;
 use crate::theme::Theme;
@@ -412,7 +412,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
             );
 
         // The weekday row.
-        let mut weekdays = Grid::new(7).gap(2.0);
+        let mut weekdays = GridView::new(7).gap(2.0);
         for wd in WEEKDAYS {
             weekdays = weekdays.cell(WeekdayCell {
                 label: wd.to_string(),
@@ -422,7 +422,7 @@ impl<Msg: Clone + 'static> DatePicker<Msg> {
         // The day grid (empty cells before the 1st).
         let lead = first_weekday(year, month);
         let total = days_in_month(year, month);
-        let mut grid = Grid::new(7).gap(2.0);
+        let mut grid = GridView::new(7).gap(2.0);
         for _ in 0..lead {
             grid = grid.cell(Day::<Msg> {
                 day: 0,

@@ -54,7 +54,10 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         // on the task's own screen and flies between the two.
         Container::new()
             .on_click(Msg::OpenTask(id))
-            .child(Hero::new(id, Avatar::new(todo.text.clone()).size(30.0))),
+            .child(Hero::new(
+                id,
+                CircleAvatar::new(todo.text.clone()).size(30.0)
+            )),
         Checkbox::new(todo.done).on_toggle(move |_| Msg::ToggleTodo(id)),
         // The label takes what the rest of the row leaves, and is cut with an ellipsis
         // at that width. Laid out by its own content instead, a long task title pushed
@@ -184,7 +187,7 @@ pub(crate) fn todo_screen(
 
     // Input: a field (Enter submits) + an add button. A non-empty field carries a **clickable**
     // "✕" suffix icon that clears it (milestone 198: a positional click on the suffix).
-    let mut draft_input = TextInput::new(app.draft.as_str())
+    let mut draft_input = TextField::new(app.draft.as_str())
         .width((card_width - 150.0).max(160.0))
         .size(18.0)
         .on_input(Msg::DraftChanged)
@@ -199,7 +202,7 @@ pub(crate) fn todo_screen(
         .gap(10.0);
 
     // The filters: a segmented control (single selection).
-    let segmented = SegmentedControl::new(filter_index(app.filter), |i| {
+    let segmented = SegmentedButton::new(filter_index(app.filter), |i| {
         Msg::SetFilter(filter_from_index(i))
     })
     .segment(tr(app.lang, "filter-all"))
@@ -265,11 +268,11 @@ pub(crate) fn todo_screen(
         .variant(Variant::Danger)
         .size(15.0);
     let clear = if app.confirm_clear {
-        Portal::new(clear_button)
+        OverlayPortal::new(clear_button)
             .overlay(confirm_content(done), Placement::Center)
             .dismiss(Msg::CancelClear)
     } else {
-        Portal::new(clear_button)
+        OverlayPortal::new(clear_button)
     };
     let total = app.todos.len().max(1);
     let pct = (done as f32 / total as f32 * 100.0).round() as u32;
@@ -313,8 +316,8 @@ pub(crate) fn todo_screen(
     .wrap();
 
     // The completion progress bar (done / total).
-    let progress =
-        ProgressBar::new(done as f32 / total as f32).width((card_width - 40.0).max(200.0));
+    let progress = LinearProgressIndicator::new(done as f32 / total as f32)
+        .width((card_width - 40.0).max(200.0));
 
     // The app's card, of responsive width, centred at the top of the screen. The body is built
     // incrementally so the hint can be left out when the window is short.
@@ -325,7 +328,7 @@ pub(crate) fn todo_screen(
         // repainted every frame.
         card_body = card_body.child(
             Container::new().repaint_boundary().child(
-                Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
+                AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
                     .title("Tip"),
             ),
         );
@@ -352,7 +355,7 @@ pub(crate) fn todo_screen(
                 });
             }));
         card_body = card_body.child(
-            Scroll::new()
+            SingleChildScrollView::new()
                 .axis(Axis::Horizontal)
                 .width(card_width)
                 .height(52.0)
@@ -377,13 +380,17 @@ pub(crate) fn todo_screen(
     //
     // **Each section says whether it scrolls**, because each of the three answers
     // differently (milestone 321: the Scaffold no longer decides this for them). Tasks
-    // grows with the list and About is a long read, so both go in a `Scroll`; Stats is a
+    // grows with the list and About is a long read, so both go in a `SingleChildScrollView`; Stats is a
     // master-detail pane sized to the size class, and wrapping it would give the screen a
     // scrollable with nothing to scroll.
     let section: Box<dyn Widget<Msg>> = match app.section {
         1 => Box::new(stats_section(app, theme, class)),
-        2 => Box::new(Scroll::new().flex(1.0).child(about_section(theme, width))),
-        _ => Box::new(Scroll::new().flex(1.0).child(tasks_body)),
+        2 => Box::new(
+            SingleChildScrollView::new()
+                .flex(1.0)
+                .child(about_section(theme, width)),
+        ),
+        _ => Box::new(SingleChildScrollView::new().flex(1.0).child(tasks_body)),
     };
 
     // The screen's skeleton: the Scaffold pins the top bar and the navigation, places the body,
@@ -420,12 +427,12 @@ pub(crate) fn todo_screen(
         .build();
 
     // The notification at the head of the queue floats above everything, anchored bottom-centre by
-    // the `ToastHost` layer (milestone 188): it fades **in**, then fades **out** when it moves into
+    // the `ScaffoldMessenger` layer (milestone 188): it fades **in**, then fades **out** when it moves into
     // its exit before being removed (milestone 193).
     match app.snackbars.current() {
         Some(message) => {
-            let host = ToastHost::new(ToastPosition::BottomCenter)
-                .toast(Toast::new(message.clone()).success());
+            let host = ScaffoldMessenger::new(SnackBarPosition::BottomCenter)
+                .toast(SnackBar::new(message.clone()).success());
             let host = if app.snackbars.is_leaving() {
                 host.fade_out(0.3)
             } else {
@@ -504,7 +511,7 @@ pub(crate) fn drawer_menu(app: &TodoApp, theme: &Theme, active: usize) -> SafeAr
                 button("Sign-up wizard →", Msg::Push(Route::Wizard))
                     .variant(Variant::Outlined)
                     .size(15.0),
-                button("Editable grid →", Msg::Push(Route::Grid))
+                button("Editable grid →", Msg::Push(Route::GridView))
                     .variant(Variant::Outlined)
                     .size(15.0),
                 button("Charts →", Msg::Push(Route::Charts))

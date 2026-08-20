@@ -30,8 +30,8 @@ pub(crate) enum Route {
     Journal,
     /// Multi-step sign-up wizard (an integration demo: Steps + Form + Snackbar).
     Wizard,
-    /// **Inline-editable** data grid (an integration demo: Table + one TextInput per cell).
-    Grid,
+    /// **Inline-editable** data grid (an integration demo: Table + one TextField per cell).
+    GridView,
     /// **Chart** dashboard (an integration demo: LineChart + a clickable legend, milestone 218).
     Charts,
     /// **Read-only** data table (an integration demo: a self-sorting, paginated DataTable —
@@ -124,7 +124,7 @@ pub(crate) struct TodoApp {
     /// The stepper's counter (Settings).
     pub(crate) count: i32,
     /// The notification (Snackbar) queue: one at a time, with an animated exit (milestone 193).
-    pub(crate) snackbars: SnackbarQueue<String>,
+    pub(crate) snackbars: SnackBarQueue<String>,
     /// The pagination selector's current page (a demo).
     pub(crate) page: usize,
     /// The expanded tree nodes (the Tree demo).
@@ -324,7 +324,7 @@ pub(crate) const CHART_SERIES: [(&str, [f32; 5]); 3] = [
 ];
 
 /// **Pure** validation of a grid cell: `Name` (col 0) is required, `Email` (col 2) must look
-/// like an address. `None` = valid. It demonstrates `TextInput::error` per cell.
+/// like an address. `None` = valid. It demonstrates `TextField::error` per cell.
 pub(crate) fn grid_cell_error(col: usize, value: &str) -> Option<&'static str> {
     match col {
         0 if value.trim().is_empty() => Some("Required"),

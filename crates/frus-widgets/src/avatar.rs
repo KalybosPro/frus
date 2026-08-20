@@ -1,4 +1,4 @@
-//! [`Avatar`]: a round pill of initials, or of colour, in the accent colours — for
+//! [`CircleAvatar`]: a round pill of initials, or of colour, in the accent colours — for
 //! lists, headers and the like.
 
 use frus_core::{Color, Point, Rect, Scene};
@@ -11,13 +11,13 @@ use crate::widget::Widget;
 const SIZE: f32 = 36.0;
 
 /// A circular avatar showing up to two initials.
-pub struct Avatar {
+pub struct CircleAvatar {
     initials: String,
     color: Option<Color>,
     size: f32,
 }
 
-impl Avatar {
+impl CircleAvatar {
     /// Creates an avatar from a text: its first two letters, upper-cased.
     pub fn new(initials: impl Into<String>) -> Self {
         let source: String = initials.into();
@@ -52,7 +52,7 @@ impl Avatar {
     }
 }
 
-impl<Msg> Widget<Msg> for Avatar {
+impl<Msg> Widget<Msg> for CircleAvatar {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.size),
@@ -101,15 +101,15 @@ mod tests {
 
     #[test]
     fn takes_two_uppercased_initials() {
-        let a = Avatar::new("ada lovelace");
+        let a = CircleAvatar::new("ada lovelace");
         assert_eq!(a.initials, "AL");
-        let b = Avatar::new("bob");
+        let b = CircleAvatar::new("bob");
         assert_eq!(b.initials, "B");
     }
 
     #[test]
     fn paints_circle_and_initials() {
-        let a = Avatar::new("Zoe");
+        let a = CircleAvatar::new("Zoe");
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &a,

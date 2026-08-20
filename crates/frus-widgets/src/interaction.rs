@@ -132,7 +132,7 @@ pub struct Status {
     /// by `Widget::anim_target`.
     pub value: f32,
     /// The time elapsed (in seconds) since start-up — for continuous,
-    /// time-driven animations (a `Spinner`, for instance).
+    /// time-driven animations (a `CircularProgressIndicator`, for instance).
     pub time: f32,
     /// The **interpolated** color of an animated background
     /// (`Container::animated_color`) while in transition; `None` = no animated

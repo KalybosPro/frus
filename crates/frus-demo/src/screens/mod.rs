@@ -64,7 +64,7 @@ pub(crate) fn screen(
         Route::Settings => Box::new(settings_screen(app, theme, width, height)),
         Route::Journal => Box::new(journal_screen(app, theme, width, height)),
         Route::Wizard => wizard_screen(app, theme, width, height),
-        Route::Grid => grid_screen(app, theme, width, height),
+        Route::GridView => grid_screen(app, theme, width, height),
         Route::Charts => charts_screen(app, theme, width, height),
         Route::Data => data_screen(app, theme, width, height),
         Route::Board => board_screen(app, theme, width, height),

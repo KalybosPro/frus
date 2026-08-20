@@ -87,7 +87,7 @@ pub struct Row<Msg> {
 /// it is offered, centres its children horizontally, and runs top to bottom.
 ///
 /// A column does not scroll. More children than fit is an overflow, reported as one; if
-/// the content can outgrow the screen, that is what [`crate::List`] is for.
+/// the content can outgrow the screen, that is what [`crate::ListView`] is for.
 pub struct Column<Msg> {
     common: Common<Msg>,
 }

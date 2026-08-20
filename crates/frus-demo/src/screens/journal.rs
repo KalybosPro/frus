@@ -12,7 +12,7 @@ pub(crate) fn journal_screen(
     height: f32,
 ) -> Container<Msg> {
     let t = *theme; // Theme is Copy — captured by the item factory.
-    let mut list = List::new(5000, 44.0, move |i| {
+    let mut list = ListView::new(5000, 44.0, move |i| {
         Container::<Msg>::new()
             .height(44.0)
             .radius(8.0)
@@ -39,7 +39,7 @@ pub(crate) fn journal_screen(
     };
     // Pull the list past its top edge to reload it. The indicator spins for exactly as
     // long as the application says it is working — here, a countdown in `tick`.
-    let pullable = Refresh::new(list)
+    let pullable = RefreshIndicator::new(list)
         .on_refresh(Msg::ReloadJournal)
         .refreshing(app.journal_reloading > 0.0);
     let reloads = if app.journal_reloads == 0 {
@@ -62,9 +62,12 @@ pub(crate) fn journal_screen(
     ]
     .gap(12.0)
     .padding(24.0);
-    let screen = column![NavBar::new("Log · 5000 rows").on_back(Msg::Pop), content]
-        .width(width)
-        .height(height);
+    let screen = column![
+        NavigationBar::new("Log · 5000 rows").on_back(Msg::Pop),
+        content
+    ]
+    .width(width)
+    .height(height);
     Container::new()
         .width(width)
         .height(height)

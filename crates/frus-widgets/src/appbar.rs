@@ -30,7 +30,7 @@ use crate::button::Variant;
 use crate::container::Container;
 use crate::dsl::button;
 use crate::flex::Flex;
-use crate::menu::Menu;
+use crate::menu::PopupMenuButton;
 use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -488,7 +488,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 // A controlled overflow menu: the glyph opens it, the items emit the
                 // actions.
                 Some((open, toggle)) => {
-                    let mut menu = Menu::new(
+                    let mut menu = PopupMenuButton::new(
                         button(OVERFLOW_GLYPH, toggle.clone())
                             .variant(Variant::Outlined)
                             .size(action_size),
@@ -561,7 +561,7 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
-        Menu,
+        PopupMenuButton,
         A,
         B,
         C,
@@ -571,7 +571,7 @@ mod tests {
     fn inline_buttons(width: f32, open: bool) -> usize {
         let bar = AppBar::new("Title")
             .width(width)
-            .overflow(open, Msg::Menu)
+            .overflow(open, Msg::PopupMenuButton)
             .action("Action One", Msg::A)
             .action("Action Two", Msg::B)
             .action("Action Three", Msg::C)
@@ -723,8 +723,8 @@ mod tests {
         const W: f32 = 400.0;
         let bar = AppBar::new("Title")
             .width(W)
-            .leading(button("M", Msg::Menu).size(16.0))
-            .overflow(false, Msg::Menu)
+            .leading(button("M", Msg::PopupMenuButton).size(16.0))
+            .overflow(false, Msg::PopupMenuButton)
             .action("One", Msg::A)
             .build();
         let ui = build_ui(
@@ -837,7 +837,7 @@ mod tests {
         const W: f32 = 320.0;
         let bar = AppBar::new("A title far too long to fit in a narrow application bar")
             .width(W)
-            .overflow(false, Msg::Menu)
+            .overflow(false, Msg::PopupMenuButton)
             .action("One", Msg::A)
             .build();
         let texts = texts_of(bar.as_ref(), W);
@@ -888,14 +888,14 @@ mod tests {
         let centred = AppBar::new("Task")
             .width(W)
             .center_title(true)
-            .leading(button("M", Msg::Menu).size(16.0))
+            .leading(button("M", Msg::PopupMenuButton).size(16.0))
             .build();
         // Explicitly flush: the default now follows the platform, and this test is
         // about the two arrangements, not about which one this build prefers.
         let flush = AppBar::new("Task")
             .width(W)
             .center_title(false)
-            .leading(button("M", Msg::Menu).size(16.0))
+            .leading(button("M", Msg::PopupMenuButton).size(16.0))
             .build();
         let x_of = |bar: &dyn Widget<Msg>| {
             let ui = build_ui(
@@ -963,15 +963,15 @@ mod tests {
         // the actions may claim, so more of them fold.
         let narrow = AppBar::new("Title")
             .width(520.0)
-            .overflow(false, Msg::Menu)
+            .overflow(false, Msg::PopupMenuButton)
             .action("Action One", Msg::A)
             .action("Action Two", Msg::B)
             .build();
         let wide = AppBar::new("Title")
             .width(520.0)
             .leading_width(300.0)
-            .leading(button("M", Msg::Menu).size(16.0))
-            .overflow(false, Msg::Menu)
+            .leading(button("M", Msg::PopupMenuButton).size(16.0))
+            .overflow(false, Msg::PopupMenuButton)
             .action("Action One", Msg::A)
             .action("Action Two", Msg::B)
             .build();
@@ -993,7 +993,7 @@ mod tests {
         // cannot be represented as a menu row) stays inline.
         let bar = AppBar::new("Title")
             .width(260.0)
-            .overflow(false, Msg::Menu)
+            .overflow(false, Msg::PopupMenuButton)
             .action("A long labelled action", Msg::A)
             .action_widget(Text::new("★badge★").size(14.0))
             .action("Another long action", Msg::B)

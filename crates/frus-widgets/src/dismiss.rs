@@ -36,7 +36,7 @@
 //!
 //! A `Dismissible` overlays its backgrounds under its child, which makes it a layout
 //! **leaf** like [`crate::Stack`]: give it a height (or a width, on a vertical swipe).
-//! A row in a `List`, which already has a fixed item height, is the usual case.
+//! A row in a `ListView`, which already has a fixed item height, is the usual case.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};

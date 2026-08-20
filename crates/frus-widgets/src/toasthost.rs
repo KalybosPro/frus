@@ -1,13 +1,13 @@
-//! [`ToastHost`]: the **notification layer** — places and stacks [`crate::Toast`]s
+//! [`ScaffoldMessenger`]: the **notification layer** — places and stacks [`crate::SnackBar`]s
 //! in a corner of the screen, with an optional **entry transition**.
 //!
 //! Put it as the last layer of a [`crate::Stack`], above the interface. The widget fills
-//! the available surface and aligns its toasts in the chosen corner ([`ToastPosition`]);
+//! the available surface and aligns its toasts in the chosen corner ([`SnackBarPosition`]);
 //! several toasts **stack** in a column. `fade_in` wraps each toast in an animated
 //! opacity (the existing animation layer, [`crate::AnimatedOpacity`]) for a fade-in.
 //!
 //! The **content** (which toast(s) to show, their queue and auto-dismiss) stays driven
-//! by the application through [`crate::SnackbarQueue`]: `ToastHost` only places them.
+//! by the application through [`crate::SnackBarQueue`]: `ScaffoldMessenger` only places them.
 
 use frus_core::{Curve, Insets, Rect, Scene};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
@@ -24,7 +24,7 @@ const STACK_GAP: f32 = 8.0;
 
 /// The corner the notifications are anchored to.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ToastPosition {
+pub enum SnackBarPosition {
     TopStart,
     TopCenter,
     TopEnd,
@@ -33,11 +33,11 @@ pub enum ToastPosition {
     BottomEnd,
 }
 
-impl ToastPosition {
+impl SnackBarPosition {
     /// Vertical alignment (the column's main axis): top vs bottom.
     fn justify(self) -> Justify {
         match self {
-            ToastPosition::TopStart | ToastPosition::TopCenter | ToastPosition::TopEnd => {
+            SnackBarPosition::TopStart | SnackBarPosition::TopCenter | SnackBarPosition::TopEnd => {
                 Justify::Start
             }
             _ => Justify::End,
@@ -47,23 +47,23 @@ impl ToastPosition {
     /// Horizontal alignment (the cross axis): left / centre / right.
     fn align(self) -> Align {
         match self {
-            ToastPosition::TopStart | ToastPosition::BottomStart => Align::Start,
-            ToastPosition::TopCenter | ToastPosition::BottomCenter => Align::Center,
-            ToastPosition::TopEnd | ToastPosition::BottomEnd => Align::End,
+            SnackBarPosition::TopStart | SnackBarPosition::BottomStart => Align::Start,
+            SnackBarPosition::TopCenter | SnackBarPosition::BottomCenter => Align::Center,
+            SnackBarPosition::TopEnd | SnackBarPosition::BottomEnd => Align::End,
         }
     }
 }
 
 /// A notification layer anchored in a corner.
-pub struct ToastHost<Msg> {
-    position: ToastPosition,
+pub struct ScaffoldMessenger<Msg> {
+    position: SnackBarPosition,
     padding: f32,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> ToastHost<Msg> {
+impl<Msg: Clone + 'static> ScaffoldMessenger<Msg> {
     /// An empty layer anchored at `position`.
-    pub fn new(position: ToastPosition) -> Self {
+    pub fn new(position: SnackBarPosition) -> Self {
         Self {
             position,
             padding: HOST_PAD,
@@ -92,7 +92,7 @@ impl<Msg: Clone + 'static> ToastHost<Msg> {
     /// The mirror of [`fade_in`](Self::fade_in): animates the opacity toward **0** — the
     /// **exit** transition (the toast fades out before it is removed, Material style).
     /// The application plays it when the notification is leaving (see
-    /// [`crate::SnackbarQueue::is_leaving`]).
+    /// [`crate::SnackBarQueue::is_leaving`]).
     pub fn fade_out(self, duration: f32) -> Self {
         self.wrap_opacity(0.0, duration)
     }
@@ -115,7 +115,7 @@ impl<Msg: Clone + 'static> ToastHost<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for ToastHost<Msg> {
+impl<Msg: Clone> Widget<Msg> for ScaffoldMessenger<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Percent(1.0),
@@ -147,13 +147,13 @@ mod tests {
 
     #[test]
     fn empty_host_has_no_children() {
-        let host = ToastHost::<()>::new(ToastPosition::TopEnd);
+        let host = ScaffoldMessenger::<()>::new(SnackBarPosition::TopEnd);
         assert!(Widget::<()>::children(&host).is_empty());
     }
 
     #[test]
     fn position_maps_to_justify_and_align() {
-        let host = ToastHost::<()>::new(ToastPosition::BottomEnd).toast(Text::new("x"));
+        let host = ScaffoldMessenger::<()>::new(SnackBarPosition::BottomEnd).toast(Text::new("x"));
         let style = Widget::<()>::style(&host);
         assert!(
             matches!(style.justify, Justify::End),
@@ -162,14 +162,15 @@ mod tests {
         assert!(matches!(style.align, Align::End), "right → align End");
         assert_eq!(Widget::<()>::children(&host).len(), 1);
 
-        let top_center = Widget::<()>::style(&ToastHost::<()>::new(ToastPosition::TopCenter));
+        let top_center =
+            Widget::<()>::style(&ScaffoldMessenger::<()>::new(SnackBarPosition::TopCenter));
         assert!(matches!(top_center.justify, Justify::Start));
         assert!(matches!(top_center.align, Align::Center));
     }
 
     #[test]
     fn stacks_multiple_and_fade_in_preserves_count() {
-        let host = ToastHost::<()>::new(ToastPosition::BottomCenter)
+        let host = ScaffoldMessenger::<()>::new(SnackBarPosition::BottomCenter)
             .toast(Text::new("a"))
             .toast(Text::new("b"))
             .fade_in(0.2);
@@ -182,7 +183,7 @@ mod tests {
 
     #[test]
     fn fade_out_wraps_children() {
-        let host = ToastHost::<()>::new(ToastPosition::BottomCenter)
+        let host = ScaffoldMessenger::<()>::new(SnackBarPosition::BottomCenter)
             .toast(Text::new("bye"))
             .fade_out(0.3);
         assert_eq!(

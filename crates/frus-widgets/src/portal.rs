@@ -1,4 +1,4 @@
-//! [`Portal`]: shows content **above** everything else (out of the layout flow,
+//! [`OverlayPortal`]: shows content **above** everything else (out of the layout flow,
 //! not clipped by parents). The basis for floating menus, tooltips and modals.
 
 use frus_core::{Rect, Scene};
@@ -29,7 +29,7 @@ pub enum Placement {
 }
 
 /// A portal: an **anchor** (in the flow) and an optional floating **overlay**.
-pub struct Portal<Msg> {
+pub struct OverlayPortal<Msg> {
     /// `[anchor]` or `[anchor, overlay]`.
     children: Vec<Box<dyn Widget<Msg>>>,
     placement: Placement,
@@ -37,7 +37,7 @@ pub struct Portal<Msg> {
     on_dismiss: Option<Msg>,
 }
 
-impl<Msg> Portal<Msg> {
+impl<Msg> OverlayPortal<Msg> {
     /// Creates a portal around an anchor, which is rendered normally.
     pub fn new(anchor: impl Widget<Msg> + 'static) -> Self {
         Self {
@@ -62,7 +62,7 @@ impl<Msg> Portal<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Portal<Msg> {
+impl<Msg: Clone> Widget<Msg> for OverlayPortal<Msg> {
     fn style(&self) -> Style {
         Style::default()
     }
@@ -106,19 +106,19 @@ mod tests {
 
     #[test]
     fn overlay_present_only_when_set() {
-        let bare: Portal<()> = Portal::new(Container::<()>::new());
+        let bare: OverlayPortal<()> = OverlayPortal::new(Container::<()>::new());
         assert!(Widget::<()>::overlay(&bare).is_none());
 
-        let with: Portal<()> =
-            Portal::new(Container::<()>::new()).overlay(Text::new("tip"), Placement::Center);
+        let with: OverlayPortal<()> =
+            OverlayPortal::new(Container::<()>::new()).overlay(Text::new("tip"), Placement::Center);
         assert!(Widget::<()>::overlay(&with).is_some());
     }
 
     #[test]
     fn center_overlay_draws_scrim_and_content() {
         // A Center overlay draws a full-screen scrim + the content on top.
-        let portal: Portal<()> = Portal::new(Container::<()>::new().width(20.0).height(20.0))
-            .overlay(
+        let portal: OverlayPortal<()> =
+            OverlayPortal::new(Container::<()>::new().width(20.0).height(20.0)).overlay(
                 Container::<()>::new()
                     .width(100.0)
                     .height(60.0)
@@ -151,7 +151,7 @@ mod tests {
         let row: crate::Flex<()> = crate::Flex::row()
             .child(Container::<()>::new().width(900.0).height(20.0))
             .child(
-                Portal::new(Container::<()>::new().width(20.0).height(20.0))
+                OverlayPortal::new(Container::<()>::new().width(20.0).height(20.0))
                     .overlay(
                         Container::<()>::new()
                             .width(120.0)

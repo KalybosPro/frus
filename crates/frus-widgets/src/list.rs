@@ -1,4 +1,4 @@
-//! [`List`]: a **virtualised** list — only the **visible** items are built, laid
+//! [`ListView`]: a **virtualised** list — only the **visible** items are built, laid
 //! out and painted. Essential for large lists (thousands of rows): the per-frame
 //! cost is proportional to the visible items, not to the total.
 //!
@@ -27,7 +27,7 @@ pub struct VirtualList<'a, Msg> {
 }
 
 /// A virtualised list with a fixed item height.
-pub struct List<Msg> {
+pub struct ListView<Msg> {
     count: usize,
     item_height: f32,
     width: Dimension,
@@ -35,12 +35,12 @@ pub struct List<Msg> {
     flex_grow: f32,
     physics: Option<ScrollPhysics>,
     reverse: bool,
-    /// Room around the items, inside the viewport; see [`List::padding`].
+    /// Room around the items, inside the viewport; see [`ListView::padding`].
     padding: Insets,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg> List<Msg> {
+impl<Msg> ListView<Msg> {
     /// Creates a list of `count` items of height `item_height`, each item being
     /// built on demand by `build(index)`.
     pub fn new<W: Widget<Msg> + 'static>(
@@ -64,7 +64,7 @@ impl<Msg> List<Msg> {
     /// Builds **from the bottom**: item 0 sits at the bottom of the viewport, item 1
     /// above it, and the list starts resting there.
     ///
-    /// The other half of a conversation, and the half [`crate::Scroll::reverse`] cannot
+    /// The other half of a conversation, and the half [`crate::SingleChildScrollView::reverse`] cannot
     /// give you: a scroll can anchor its content to the end, but only a list decides
     /// which end an *index* is. With index 0 the newest message, adding one keeps every
     /// other item exactly where it was — the view does not jump, and nothing has to be
@@ -91,8 +91,8 @@ impl<Msg> List<Msg> {
     /// item clears.
     ///
     /// ```
-    /// # use frus_widgets::{Container, List};
-    /// List::<()>::new(200, 56.0, |_| Container::<()>::new()).padding(16.0);
+    /// # use frus_widgets::{Container, ListView};
+    /// ListView::<()>::new(200, 56.0, |_| Container::<()>::new()).padding(16.0);
     /// ```
     pub fn padding(mut self, padding: f32) -> Self {
         self.padding = Insets::uniform(padding);
@@ -106,7 +106,7 @@ impl<Msg> List<Msg> {
     }
 
     /// Overrides how the list behaves at its edges and after a fling; see
-    /// [`crate::scroll::Scroll::physics`].
+    /// [`crate::scroll::SingleChildScrollView::physics`].
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
         self
@@ -131,7 +131,7 @@ impl<Msg> List<Msg> {
     }
 }
 
-impl<Msg> Widget<Msg> for List<Msg> {
+impl<Msg> Widget<Msg> for ListView<Msg> {
     fn style(&self) -> Style {
         Style {
             width: self.width,
@@ -186,7 +186,7 @@ mod tests {
         // Counts how many items the list builds.
         let built = Rc::new(Cell::new(0usize));
         let counter = built.clone();
-        let list = List::<()>::new(5000, 40.0, move |_i| {
+        let list = ListView::<()>::new(5000, 40.0, move |_i| {
             counter.set(counter.get() + 1);
             Container::<()>::new()
                 .width(180.0)
@@ -223,7 +223,7 @@ mod tests {
     /// exactly that in milestone 349.
     #[test]
     fn an_item_is_handed_the_list_s_width() {
-        let list = List::<()>::new(20, 40.0, |i| {
+        let list = ListView::<()>::new(20, 40.0, |i| {
             Container::<()>::new()
                 .height(40.0)
                 .color(Color::rgb(1.0, 0.0, 0.0))
@@ -262,7 +262,7 @@ mod tests {
                 Color::rgb(0.0, 0.0, 1.0)
             }
         };
-        let list = List::<()>::new(3, 40.0, move |i| {
+        let list = ListView::<()>::new(3, 40.0, move |i| {
             Container::<()>::new().height(40.0).color(colour(i))
         })
         .reverse()
@@ -315,14 +315,14 @@ mod tests {
     /// them against the bottom rather than leaving them at the top.
     #[test]
     fn a_short_reversed_list_rests_at_the_bottom() {
-        let plain = List::<()>::new(3, 40.0, |_| {
+        let plain = ListView::<()>::new(3, 40.0, |_| {
             Container::<()>::new()
                 .height(40.0)
                 .color(Color::rgb(1.0, 0.0, 0.0))
         })
         .width(100.0)
         .height(200.0);
-        let top_of = |list: &List<()>| {
+        let top_of = |list: &ListView<()>| {
             let ui = build_ui(
                 list,
                 Size::new(100.0, 200.0),
@@ -340,7 +340,7 @@ mod tests {
         };
         assert_eq!(top_of(&plain), 0.0);
 
-        let reversed = List::<()>::new(3, 40.0, |_| {
+        let reversed = ListView::<()>::new(3, 40.0, |_| {
             Container::<()>::new()
                 .height(40.0)
                 .color(Color::rgb(1.0, 0.0, 0.0))
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn scroll_max_covers_full_content() {
-        let list = List::<()>::new(100, 40.0, |_i| Container::<()>::new().height(40.0))
+        let list = ListView::<()>::new(100, 40.0, |_i| Container::<()>::new().height(40.0))
             .width(200.0)
             .height(200.0);
         let ui = build_ui(
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn builds_a_scene() {
-        let list = List::<()>::new(50, 30.0, |i| {
+        let list = ListView::<()>::new(50, 30.0, |i| {
             Container::<()>::new().height(30.0).color(if i % 2 == 0 {
                 Color::rgb(0.2, 0.2, 0.2)
             } else {
@@ -404,7 +404,7 @@ mod padding_tests {
     const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
 
     /// The rectangles the list painted for its items, in the order they came out.
-    fn items(list: &List<()>, size: Size) -> Vec<Rect> {
+    fn items(list: &ListView<()>, size: Size) -> Vec<Rect> {
         build_ui(list, size, &Runtime::default(), &Theme::default())
             .scene()
             .primitives()
@@ -416,8 +416,8 @@ mod padding_tests {
             .collect()
     }
 
-    fn list(count: usize) -> List<()> {
-        List::<()>::new(count, 40.0, |_| {
+    fn list(count: usize) -> ListView<()> {
+        ListView::<()>::new(count, 40.0, |_| {
             Container::<()>::new().height(40.0).color(MARK)
         })
         .width(100.0)

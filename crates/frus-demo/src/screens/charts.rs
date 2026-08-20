@@ -77,7 +77,7 @@ pub(crate) fn dashboard_chart(
     }
 }
 
-/// The **chart dashboard** screen: a `SegmentedControl` picks the kind (lines / stacked areas /
+/// The **chart dashboard** screen: a `SegmentedButton` picks the kind (lines / stacked areas /
 /// grouped bars / stacked bars, milestone 219), and the **clickable** legend hides or shows a
 /// series (milestone 215/218). It demonstrates routing sub-region clicks into the state.
 pub(crate) fn charts_screen(
@@ -86,7 +86,7 @@ pub(crate) fn charts_screen(
     width: f32,
     height: f32,
 ) -> Box<dyn Widget<Msg>> {
-    let selector = SegmentedControl::new(app.chart_kind, Msg::SetChartKind)
+    let selector = SegmentedButton::new(app.chart_kind, Msg::SetChartKind)
         .segment("Lines")
         .segment("Stacked area")
         .segment("Grouped bars")
@@ -137,8 +137,11 @@ pub(crate) fn charts_screen(
     .gap(16.0)
     .padding(24.0);
     // Tall fixed content (the charts + the companion, ≈ 550-650 px): it scrolls **vertically** under the bar.
-    let body = Scroll::new().width(width).flex(1.0).child(content);
-    let screen = column![NavBar::new("Charts").on_back(Msg::Pop), body]
+    let body = SingleChildScrollView::new()
+        .width(width)
+        .flex(1.0)
+        .child(content);
+    let screen = column![NavigationBar::new("Charts").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
     Box::new(

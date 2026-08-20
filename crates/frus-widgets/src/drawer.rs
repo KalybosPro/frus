@@ -1,5 +1,5 @@
 //! [`Drawer`]: a retractable **side drawer** — the 3rd tier of Material
-//! navigation, alongside `NavRail` (the rail) and `BottomBar` (the bar).
+//! navigation, alongside `NavigationRail` (the rail) and `BottomBar` (the bar).
 //!
 //! Two modes:
 //! - **modal** (the default): the body stays visible behind; when the drawer is

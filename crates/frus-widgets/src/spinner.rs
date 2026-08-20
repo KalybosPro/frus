@@ -1,4 +1,4 @@
-//! [`Spinner`]: an activity indicator **animated continuously**, driven by time. It
+//! [`CircularProgressIndicator`]: an activity indicator **animated continuously**, driven by time. It
 //! declares `continuous()`, so the framework keeps redrawing.
 
 use frus_core::{Color, Rect, Scene};
@@ -26,7 +26,7 @@ pub(crate) enum RingMode {
 /// Draws the framework's activity ring: `DOTS` dots on a circle of `radius` about
 /// `(cx, cy)`, each `dot` px in radius.
 ///
-/// Shared by [`Spinner`] and by the pull-to-refresh indicator, so the two cannot drift
+/// Shared by [`CircularProgressIndicator`] and by the pull-to-refresh indicator, so the two cannot drift
 /// into looking like different frameworks' idea of "busy".
 pub(crate) fn paint_activity_ring(
     scene: &mut Scene,
@@ -67,11 +67,11 @@ pub(crate) fn paint_activity_ring(
 }
 
 /// A circular loading indicator: a ring of dots that spins.
-pub struct Spinner {
+pub struct CircularProgressIndicator {
     size: f32,
 }
 
-impl Spinner {
+impl CircularProgressIndicator {
     /// Creates a spinner, `24` px on a side by default.
     pub fn new() -> Self {
         Self { size: 24.0 }
@@ -84,13 +84,13 @@ impl Spinner {
     }
 }
 
-impl Default for Spinner {
+impl Default for CircularProgressIndicator {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Msg> Widget<Msg> for Spinner {
+impl<Msg> Widget<Msg> for CircularProgressIndicator {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.size),
@@ -133,7 +133,7 @@ mod tests {
     use frus_core::Primitive;
 
     fn dot_alphas(time: f32) -> Vec<f32> {
-        let spinner = Spinner::new().size(40.0);
+        let spinner = CircularProgressIndicator::new().size(40.0);
         let status = Status {
             time,
             ..Default::default()
@@ -169,6 +169,6 @@ mod tests {
 
     #[test]
     fn declares_continuous() {
-        assert!(Widget::<()>::continuous(&Spinner::new()));
+        assert!(Widget::<()>::continuous(&CircularProgressIndicator::new()));
     }
 }

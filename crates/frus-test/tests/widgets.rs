@@ -19,13 +19,14 @@ use frus_core::{
 };
 use frus_test::render_widget;
 use frus_widgets::{
-    text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
-    Breadcrumb, Card, Carousel, Checkbox, ClipOval, ClipPath, ClipRRect, Collapsible, ColorPicker,
-    ConstrainedBox, Container, CustomPaint, Divider, Expanded, FittedBox, Flex, FontWeight,
-    FractionallySizedBox, Grid, Icon, IconName, Image, Intrinsic, Kbd, List, NavBar, NavRail,
-    Offstage, Opacity, OverflowBox, Placement, Popover, Portal, ProgressBar, RadioGroup, RichText,
-    RotatedBox, SafeArea, Scroll, SegmentedControl, SizedBox, Skeleton, Spinner, Stack, Stepper,
-    Switch, Tabs, Theme, Timeline, Transform, TwoPane, Visibility, Widget,
+    text, AlertDialog, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
+    Breadcrumb, Card, CarouselView, Checkbox, CircularProgressIndicator, ClipOval, ClipPath,
+    ClipRRect, ColorPicker, ConstrainedBox, Container, CustomPaint, Divider, Expanded,
+    ExpansionTile, FittedBox, Flex, FontWeight, FractionallySizedBox, GridView, Icon, IconName,
+    Image, Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar,
+    NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RichText,
+    RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack,
+    Stepper, Switch, TabBar, Theme, Timeline, Transform, TwoPane, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -107,13 +108,13 @@ fn the_small_indicators() {
     let root: Card<()> = Card::new().padding(16.0).child(
         Flex::column()
             .gap(12.0)
-            .child(ProgressBar::new(0.35).width(200.0))
-            .child(ProgressBar::new(1.0).width(200.0))
+            .child(LinearProgressIndicator::new(0.35).width(200.0))
+            .child(LinearProgressIndicator::new(1.0).width(200.0))
             .child(
                 Flex::row()
                     .gap(12.0)
                     .align(Align::Center)
-                    .child(Spinner::new().size(24.0))
+                    .child(CircularProgressIndicator::new().size(24.0))
                     .child(Badge::new("3"))
                     .child(Kbd::new("Ctrl"))
                     .child(Kbd::new("K")),
@@ -131,19 +132,19 @@ fn the_four_alert_kinds() {
     let root: Container<()> = Container::new().padding(12.0).child(
         Flex::column()
             .gap(8.0)
-            .child(Alert::new("Saved as a draft.").title("Note"))
+            .child(AlertDialog::new("Saved as a draft.").title("Note"))
             .child(
-                Alert::new("Everything went through.")
+                AlertDialog::new("Everything went through.")
                     .title("Done")
                     .success(),
             )
             .child(
-                Alert::new("Two rows were skipped.")
+                AlertDialog::new("Two rows were skipped.")
                     .title("Careful")
                     .warning(),
             )
             .child(
-                Alert::new("The server refused the change.")
+                AlertDialog::new("The server refused the change.")
                     .title("Failed")
                     .error(),
             ),
@@ -206,13 +207,13 @@ fn the_pickers_of_one_thing() {
             )
             .child(Divider::new())
             .child(
-                Tabs::new(1, |_: usize| ())
+                TabBar::new(1, |_: usize| ())
                     .tab("Overview", text("the first pane"))
                     .tab("Details", text("the second pane"))
                     .tab("History", text("the third pane")),
             )
             .child(
-                SegmentedControl::new(0, |_: usize| ())
+                SegmentedButton::new(0, |_: usize| ())
                     .segment("Day")
                     .segment("Week")
                     .segment("Month"),
@@ -229,11 +230,11 @@ fn a_section_open_and_one_shut() {
         Flex::column()
             .gap(8.0)
             .child(
-                Collapsible::new("What is open", true, ())
+                ExpansionTile::new("What is open", true, ())
                     .content(text("The content of the open section.").size(13.0)),
             )
             .child(
-                Collapsible::new("What is shut", false, ())
+                ExpansionTile::new("What is shut", false, ())
                     .content(text("Never drawn.").size(13.0)),
             ),
     );
@@ -296,20 +297,20 @@ fn the_bottom_app_bar() {
 fn the_navigation_chrome() {
     let root: Flex<()> = Flex::row()
         .child(
-            NavRail::new(1, |_: usize| ())
+            NavigationRail::new(1, |_: usize| ())
                 .item("★", "Home")
                 .item("♥", "Saved")
                 .badge(4)
                 .item("■", "Files"),
         )
         .child(
-            // The width is explicit: `NavBar` is `Auto`, so with nothing to fill it
+            // The width is explicit: `NavigationBar` is `Auto`, so with nothing to fill it
             // shrinks around its back button and paints its centred title underneath
             // it. A screen always gives it one; the harness has to as well.
             Flex::column()
                 .width(260.0)
                 .flex(1.0)
-                .child(NavBar::new("Saved").on_back(()))
+                .child(NavigationBar::new("Saved").on_back(()))
                 .child(Container::new().flex(1.0))
                 .child(
                     BottomBar::new(0, |_: usize| ())
@@ -381,14 +382,14 @@ fn a_sheet_over_its_body() {
 /// widget puts something over the frame.
 #[test]
 fn a_popover_and_a_portal() {
-    let popover: Popover<()> = Popover::new(text("Anchor").size(14.0), true, ()).content(
+    let popover: MenuAnchor<()> = MenuAnchor::new(text("Anchor").size(14.0), true, ()).content(
         Container::new()
             .padding(10.0)
             .color(Color::rgb8(46, 52, 66))
             .radius(6.0)
             .child(text("Over the top").size(13.0)),
     );
-    let portal: Portal<()> = Portal::new(text("Second anchor").size(14.0))
+    let portal: OverlayPortal<()> = OverlayPortal::new(text("Second anchor").size(14.0))
         .overlay(
             Container::new()
                 .padding(10.0)
@@ -430,13 +431,13 @@ fn stacked_gridded_and_listed() {
                 .child(text("on top").size(12.0)),
         );
 
-    let mut grid: Grid<()> = Grid::new(3).gap(6.0).width(120.0);
+    let mut grid: GridView<()> = GridView::new(3).gap(6.0).width(120.0);
     for i in 0..6 {
         let shade = 60 + i as u8 * 24;
         grid = grid.cell(box_of(Color::rgb8(shade, 90, 140), 34.0, 26.0));
     }
 
-    let list: List<()> = List::new(12, 24.0, |i| text(format!("Row {i}")).size(12.0))
+    let list: ListView<()> = ListView::new(12, 24.0, |i| text(format!("Row {i}")).size(12.0))
         .width(110.0)
         .height(120.0);
 
@@ -449,7 +450,8 @@ fn stacked_gridded_and_listed() {
 /// A carousel on its second slide, and a two-pane at its expanded size class.
 #[test]
 fn a_carousel_and_two_panes() {
-    let carousel: Carousel<()> = Carousel::new(1, 3, |_: usize| (), box_of(TEAL, 140.0, 70.0));
+    let carousel: CarouselView<()> =
+        CarouselView::new(1, 3, |_: usize| (), box_of(TEAL, 140.0, 70.0));
     let panes: TwoPane<()> = TwoPane::new(SizeClass::Expanded)
         .ratio(0.4)
         .show_detail(true)
@@ -492,9 +494,12 @@ fn a_column_that_does_not_fit() {
                 .child(text(format!("Item {i}")).size(13.0)),
         );
     }
-    let root: Container<()> = Container::new()
-        .padding(10.0)
-        .child(Scroll::new().width(180.0).height(140.0).child(column));
+    let root: Container<()> = Container::new().padding(10.0).child(
+        SingleChildScrollView::new()
+            .width(180.0)
+            .height(140.0)
+            .child(column),
+    );
     check("scroll_clips_its_column", 220, 170, &root);
 }
 

@@ -17,7 +17,8 @@ use frus_core::{Color, Size, SizeClass};
 use frus_test::{Snapshot, Stage};
 use frus_widgets::{
     text, Align, Container, Dismissible, DragTarget, Draggable, Flex, GlowEdge, Hero, Keyed,
-    LayoutBuilder, NavScaffold, Navigator, PageView, Refresh, Responsive, Scroll,
+    LayoutBuilder, NavScaffold, Navigator, PageView, RefreshIndicator, Responsive,
+    SingleChildScrollView,
 };
 
 fn golden(name: &str) -> String {
@@ -104,10 +105,15 @@ fn a_list_pulled_past_its_top() {
     for i in 0..8 {
         rows = rows.child(band(SLATE, &format!("Row {i}")));
     }
-    let root: Container<()> = Container::new()
-        .width(260.0)
-        .padding(10.0)
-        .child(Refresh::new(Scroll::new().width(240.0).height(160.0).child(rows)).on_refresh(()));
+    let root: Container<()> = Container::new().width(260.0).padding(10.0).child(
+        RefreshIndicator::new(
+            SingleChildScrollView::new()
+                .width(240.0)
+                .height(160.0)
+                .child(rows),
+        )
+        .on_refresh(()),
+    );
 
     let mut stage = Stage::new(260, 190);
     stage.settle(&root);
@@ -132,10 +138,12 @@ fn a_list_glowing_at_its_edge() {
     for i in 0..8 {
         rows = rows.child(band(SLATE, &format!("Row {i}")));
     }
-    let root: Container<()> = Container::new()
-        .width(260.0)
-        .padding(10.0)
-        .child(Scroll::new().width(240.0).height(150.0).child(rows));
+    let root: Container<()> = Container::new().width(260.0).padding(10.0).child(
+        SingleChildScrollView::new()
+            .width(240.0)
+            .height(150.0)
+            .child(rows),
+    );
 
     let mut stage = Stage::new(260, 170);
     stage.settle(&root);
@@ -160,9 +168,12 @@ fn a_wide_list_glowing_at_its_top() {
     for i in 0..14 {
         rows = rows.child(band(SLATE, &format!("Row {i}")));
     }
-    let root: Container<()> = Container::new()
-        .width(424.0)
-        .child(Scroll::new().width(424.0).height(600.0).child(rows));
+    let root: Container<()> = Container::new().width(424.0).child(
+        SingleChildScrollView::new()
+            .width(424.0)
+            .height(600.0)
+            .child(rows),
+    );
 
     let mut stage = Stage::new(424, 600);
     stage.settle(&root);
@@ -432,8 +443,12 @@ fn the_stage_actually_advances_time() {
     for i in 0..8 {
         rows = rows.child(band(SLATE, &format!("Row {i}")));
     }
-    let root: Container<()> =
-        Container::new().child(Scroll::new().width(200.0).height(120.0).child(rows));
+    let root: Container<()> = Container::new().child(
+        SingleChildScrollView::new()
+            .width(200.0)
+            .height(120.0)
+            .child(rows),
+    );
 
     let mut stage = Stage::new(200, 120);
     stage.settle(&root);

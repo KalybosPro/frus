@@ -10,7 +10,7 @@ use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
-use crate::grid::Grid;
+use crate::grid::GridView;
 use crate::interaction::Status;
 use crate::text::Text;
 use crate::theme::Theme;
@@ -161,7 +161,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 });
             // A 1–12 grid; each cell targets the 24-hour hour of the current half.
             let current12 = digit12(hour);
-            let mut grid = Grid::new(6).gap(4.0);
+            let mut grid = GridView::new(6).gap(4.0);
             for d in 1..=12u32 {
                 let target24 = (d % 12) + if pm { 12 } else { 0 };
                 grid = grid.cell(TimeCell {
@@ -176,7 +176,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
                 .child(ampm)
                 .child(grid)
         } else {
-            let mut grid = Grid::new(6).gap(4.0);
+            let mut grid = GridView::new(6).gap(4.0);
             for h in 0..24u32 {
                 grid = grid.cell(TimeCell {
                     label: format!("{h:02}"),
@@ -192,7 +192,7 @@ impl<Msg: Clone + 'static> TimePicker<Msg> {
 
         // The minutes section (adjustable step). The selection only lights up if the
         // current minute falls on a step.
-        let mut minutes = Grid::new(6).gap(4.0);
+        let mut minutes = GridView::new(6).gap(4.0);
         let mut m = 0;
         while m < 60 {
             minutes = minutes.cell(TimeCell {

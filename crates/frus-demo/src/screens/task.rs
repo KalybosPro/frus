@@ -27,7 +27,7 @@ pub(crate) fn task_screen(
         // Deleted while its screen was open: say so rather than show an empty page.
         None => ("This task no longer exists.".to_string(), false),
     };
-    let avatar = Hero::new(id, Avatar::new(label.clone()).size(96.0));
+    let avatar = Hero::new(id, CircleAvatar::new(label.clone()).size(96.0));
     let state = if done { "Done" } else { "Still to do" };
     let body = column![
         avatar,
@@ -44,7 +44,7 @@ pub(crate) fn task_screen(
     // edge, in a notch cut to receive it.
     Scaffold::new(width, height)
         .background(theme.background)
-        .app_bar(NavBar::new("Task").on_back(Msg::Pop))
+        .app_bar(NavigationBar::new("Task").on_back(Msg::Pop))
         // No scroller: this screen's content is centred in whatever room it is given, so
         // it wants the **whole** of that room and nothing more. `flex(1.0)` is how a body
         // asks to fill, now that the Scaffold places it rather than expanding it

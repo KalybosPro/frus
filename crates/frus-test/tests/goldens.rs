@@ -5,11 +5,11 @@
 use frus_core::{Color, Point, Rect, Scene, TextAlign, TextOverflow, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
-    Align, Autocomplete, Avatar, BackdropFilter, BarChart, Button, Checkbox, Chip, ClipRRect,
-    ColorFiltered, Column, Container, DateTimePicker, Dropdown, Flex, IconName, IgnoreBaseline,
-    ImageFiltered, Justify, LineChart, Menu, Pagination, RadioGroup, RangeSlider, Rating, RichText,
-    Row, SegmentedControl, ShaderMask, Slider, Stack, Stepper, Switch, Table, Tabs, Text,
-    TextInput, TextSpan, Theme, TimePicker, Variant,
+    Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
+    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, IconName,
+    IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton, RadioGroup,
+    RangeSlider, Rating, RichText, Row, SegmentedButton, ShaderMask, Slider, Stack, Stepper,
+    Switch, TabBar, Table, Text, TextField, TextSpan, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -77,14 +77,14 @@ fn decorated_form_matches_golden() {
         Flex::column()
             .gap(16.0)
             .child(
-                TextInput::<()>::new("ada@")
+                TextField::<()>::new("ada@")
                     .width(280.0)
                     .label("Email")
                     .placeholder("you@example.com")
                     .error("Enter a valid email address"),
             )
             .child(
-                TextInput::<()>::new("")
+                TextField::<()>::new("")
                     .width(280.0)
                     .label("Password")
                     .placeholder("At least 8 characters")
@@ -112,13 +112,13 @@ fn outlined_field_matches_golden() {
         Flex::column()
             .gap(20.0)
             .child(
-                TextInput::<()>::new("Ada Lovelace")
+                TextField::<()>::new("Ada Lovelace")
                     .width(280.0)
                     .outlined()
                     .label("Full name"),
             )
             .child(
-                TextInput::<()>::new("")
+                TextField::<()>::new("")
                     .width(280.0)
                     .outlined()
                     .label("Email")
@@ -170,13 +170,13 @@ fn disabled_controls_match_golden() {
                     ),
             )
             .child(
-                SegmentedControl::<()>::new(1, |_| ())
+                SegmentedButton::<()>::new(1, |_| ())
                     .segment("Day")
                     .segment("Week")
                     .segment("Month"),
             )
             .child(
-                SegmentedControl::<()>::new(1, |_| ())
+                SegmentedButton::<()>::new(1, |_| ())
                     .segment("Day")
                     .segment("Week")
                     .segment("Month")
@@ -288,7 +288,7 @@ fn light_outlines_match_golden() {
                 ),
             ))
             .child(pair(
-                Box::new(TextInput::<()>::new("Ada Lovelace").label("Full name")),
+                Box::new(TextField::<()>::new("Ada Lovelace").label("Full name")),
                 Box::new(Checkbox::<()>::new(false).label("Digest")),
             ))
             .child(pair(
@@ -297,12 +297,12 @@ fn light_outlines_match_golden() {
             ))
             .child(pair(
                 Box::new(
-                    SegmentedControl::<()>::new(1, |_| ())
+                    SegmentedButton::<()>::new(1, |_| ())
                         .segment("Day")
                         .segment("Week"),
                 ),
                 Box::new(
-                    SegmentedControl::<()>::new(1, |_| ())
+                    SegmentedButton::<()>::new(1, |_| ())
                         .segment("Day")
                         .segment("Week")
                         .enabled(false),
@@ -361,13 +361,13 @@ fn disabled_inputs_match_golden() {
                     .enabled(false),
             )
             .child(
-                Dropdown::<()>::new("Option B", ())
+                DropdownButton::<()>::new("Option B", ())
                     .width(180.0)
                     .selected(1)
                     .options(false, &["A", "B"], |_| ()),
             )
             .child(
-                Dropdown::<()>::new("Option B", ())
+                DropdownButton::<()>::new("Option B", ())
                     .width(180.0)
                     .selected(1)
                     // Told to be open, and drawn closed.
@@ -422,12 +422,12 @@ fn disabled_actions_match_golden() {
             .child(Pagination::<()>::new(1, 5, |_| ()))
             .child(Pagination::<()>::new(3, 5, |_| ()).enabled(false))
             .child(
-                Tabs::<()>::new(0, |_| ())
+                TabBar::<()>::new(0, |_| ())
                     .tab("Live", Text::new(""))
                     .tab("Other", Text::new("")),
             )
             .child(
-                Tabs::<()>::new(0, |_| ())
+                TabBar::<()>::new(0, |_| ())
                     .tab("Dead", Text::new(""))
                     .tab("Other", Text::new(""))
                     .enabled(false),
@@ -456,20 +456,20 @@ fn filled_field_matches_golden() {
         Flex::column()
             .gap(20.0)
             .child(
-                TextInput::<()>::new("Ada Lovelace")
+                TextField::<()>::new("Ada Lovelace")
                     .width(280.0)
                     .filled()
                     .label("Full name"),
             )
             .child(
-                TextInput::<()>::new("")
+                TextField::<()>::new("")
                     .width(280.0)
                     .filled()
                     .label("Email")
                     .helper("We will not share it"),
             )
             .child(
-                TextInput::<()>::new("locked@example.com")
+                TextField::<()>::new("locked@example.com")
                     .width(280.0)
                     .filled()
                     .label("Account")
@@ -635,11 +635,11 @@ fn table_widget_cells_matches_golden() {
         .column_widths(&[70.0])
         .header(&["User", "Role"])
         .widget_row(vec![
-            Box::new(|| Box::new(Avatar::new("Ada").size(26.0))),
+            Box::new(|| Box::new(CircleAvatar::new("Ada").size(26.0))),
             Box::new(|| Box::new(Chip::<()>::new("admin"))),
         ])
         .widget_row(vec![
-            Box::new(|| Box::new(Avatar::new("Bo").size(26.0))),
+            Box::new(|| Box::new(CircleAvatar::new("Bo").size(26.0))),
             Box::new(|| Box::new(Chip::<()>::new("editor"))),
         ]);
     let root: Container<()> = Container::new().padding(16.0).child(table);
@@ -665,7 +665,7 @@ fn table_adaptive_rows_matches_golden() {
         .column_widths(&[70.0])
         .header(&["User", "Role"])
         .widget_row(vec![
-            Box::new(|| Box::new(Avatar::new("Ada").size(48.0))),
+            Box::new(|| Box::new(CircleAvatar::new("Ada").size(48.0))),
             Box::new(|| Box::new(Chip::<()>::new("admin"))),
         ])
         .row(&["Bo", "editor"]);
@@ -772,7 +772,7 @@ fn table_widget_header_matches_golden() {
     snapshot.assert_golden(golden("table_widget_header"));
 }
 
-/// **A column menu (milestone 172)**: a `Menu` dropped in as a header action widget
+/// **A column menu (milestone 172)**: a `PopupMenuButton` dropped in as a header action widget
 /// opens a **floating** menu of column actions, rendered over the grid even though it
 /// is nested in the header — with no table-specific code. Reproduces its golden.
 #[test]
@@ -785,7 +785,7 @@ fn table_column_menu_matches_golden() {
         .on_sort(|_| ())
         .header_action(0, || {
             Box::new(
-                Menu::new(
+                PopupMenuButton::new(
                     // Three dots in a header cell: a button sized for a word would take
                     // the column's width. See milestone 313 on the missing icon button.
                     Button::new("...")
@@ -853,7 +853,7 @@ fn table_virtual_widgets_matches_golden() {
         .header(&["User", "Tag"])
         .virtual_widget_rows(500, 130.0, |i| {
             vec![
-                Box::new(Avatar::new(format!("U{i}")).size(26.0))
+                Box::new(CircleAvatar::new(format!("U{i}")).size(26.0))
                     as Box<dyn frus_widgets::Widget<()>>,
                 Box::new(Chip::<()>::new(format!("tag {}", i + 1))),
             ]
@@ -965,7 +965,7 @@ fn form_error_summary_matches_golden() {
     );
     let root: Container<()> = Container::new().padding(20.0).child(
         Flex::column().gap(16.0).child(summary).child(
-            TextInput::<()>::new("nope")
+            TextField::<()>::new("nope")
                 .width(300.0)
                 .label("Email")
                 .error("Enter a valid email address"),
@@ -995,7 +995,7 @@ fn form_wizard_matches_golden() {
             .child(Steps::new(["Account", "Profile", "Review"]).current(1))
             .child(Text::styled("Profile", theme.text.title_medium))
             .child(
-                TextInput::<()>::new("Ada Lovelace")
+                TextField::<()>::new("Ada Lovelace")
                     .width(340.0)
                     .label("Full name"),
             )
@@ -1177,14 +1177,14 @@ fn time_range_matches_golden() {
 }
 
 /// **A notification layer (milestone 188)**: two toasts stacked in the bottom-right
-/// corner (`ToastHost`), the second carrying an "Undo" action. Reproduces its golden.
+/// corner (`ScaffoldMessenger`), the second carrying an "Undo" action. Reproduces its golden.
 #[test]
 fn toast_host_matches_golden() {
-    use frus_widgets::{Toast, ToastHost, ToastPosition};
+    use frus_widgets::{ScaffoldMessenger, SnackBar, SnackBarPosition};
     let theme = Theme::dark();
-    let host: ToastHost<()> = ToastHost::new(ToastPosition::BottomEnd)
-        .toast(Toast::new("File uploaded").success())
-        .toast(Toast::new("Message archived").action("Undo", ()));
+    let host: ScaffoldMessenger<()> = ScaffoldMessenger::new(SnackBarPosition::BottomEnd)
+        .toast(SnackBar::new("File uploaded").success())
+        .toast(SnackBar::new("Message archived").action("Undo", ()));
     let Some(snapshot) = render_widget(&host, 420, 220, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
@@ -1282,7 +1282,7 @@ fn button_disabled_matches_golden() {
 }
 
 /// **The wizard's Security step (milestone 192)**: `Steps` with Security current, two
-/// **obscured** passwords (`TextInput::obscure`), and "Next" **disabled**, the
+/// **obscured** passwords (`TextField::obscure`), and "Next" **disabled**, the
 /// confirmation not matching. Reproduces its golden.
 #[test]
 fn wizard_password_step_matches_golden() {
@@ -1296,13 +1296,13 @@ fn wizard_password_step_matches_golden() {
                 Flex::column()
                     .gap(14.0)
                     .child(
-                        TextInput::<()>::new("secret12")
+                        TextField::<()>::new("secret12")
                             .width(340.0)
                             .label("Password")
                             .obscure(true),
                     )
                     .child(
-                        TextInput::<()>::new("secr")
+                        TextField::<()>::new("secr")
                             .width(340.0)
                             .label("Confirm password")
                             .obscure(true),
@@ -1343,12 +1343,12 @@ fn wizard_password_revealed_matches_golden() {
                 Flex::column()
                     .gap(14.0)
                     .child(
-                        TextInput::<()>::new("secret12")
+                        TextField::<()>::new("secret12")
                             .width(340.0)
                             .label("Password"),
                     )
                     .child(
-                        TextInput::<()>::new("secret12")
+                        TextField::<()>::new("secret12")
                             .width(340.0)
                             .label("Confirm password"),
                     )
@@ -1371,7 +1371,7 @@ fn wizard_password_revealed_matches_golden() {
 
 /// **An inline-editable table (milestone 196)**: a grid in which every cell is a
 /// widget (`Table::widget_row`) — static **clickable** cells, each a `Container` that
-/// emits "edit this cell", and one cell **being edited**, rendered by a `TextInput`.
+/// emits "edit this cell", and one cell **being edited**, rendered by a `TextField`.
 /// Proof that inline editing composes with no new mechanism. Reproduces its golden.
 #[test]
 fn table_editable_matches_golden() {
@@ -1394,7 +1394,7 @@ fn table_editable_matches_golden() {
         let value = value.to_string();
         Box::new(move || {
             Box::new(
-                TextInput::<()>::new(value.clone())
+                TextField::<()>::new(value.clone())
                     .width(180.0)
                     .size(15.0)
                     // A cell editor has a row to fit inside: the reference's
@@ -2227,13 +2227,13 @@ fn line_chart_normalized_matches_golden() {
     snapshot.assert_golden(golden("line_chart_normalized"));
 }
 
-/// **A password field with an eye (milestone 202)**: an **obscured** `TextInput`
+/// **A password field with an eye (milestone 202)**: an **obscured** `TextField`
 /// carrying the suffix eye icon (`on_suffix`) that reveals the text. Reproduces its
 /// golden.
 #[test]
 fn password_eye_matches_golden() {
     let theme = Theme::dark();
-    let field = TextInput::<()>::new("hunter2")
+    let field = TextField::<()>::new("hunter2")
         .width(280.0)
         .label("Password")
         .obscure(true)
@@ -2251,12 +2251,12 @@ fn password_eye_matches_golden() {
     snapshot.assert_golden(golden("password_eye"));
 }
 
-/// **A field with a clickable suffix (milestone 198)**: a filled `TextInput` carrying
+/// **A field with a clickable suffix (milestone 198)**: a filled `TextField` carrying
 /// a clickable "✕" suffix icon (`on_suffix`) that clears it. Reproduces its golden.
 #[test]
 fn textinput_clear_matches_golden() {
     let theme = Theme::dark();
-    let field = TextInput::<()>::new("Buy milk")
+    let field = TextField::<()>::new("Buy milk")
         .width(280.0)
         .label("New task")
         .suffix_icon(IconName::Close)
@@ -2277,9 +2277,9 @@ fn textinput_clear_matches_golden() {
 /// "Undo" button on the right, in the Material manner. Reproduces its golden.
 #[test]
 fn snackbar_action_matches_golden() {
-    use frus_widgets::Toast;
+    use frus_widgets::SnackBar;
     let theme = Theme::dark();
-    let toast = Toast::new("Message archived").action("Undo", ());
+    let toast = SnackBar::new("Message archived").action("Undo", ());
     let root: Container<()> = Container::new().padding(20.0).child(toast);
     let Some(snapshot) = render_widget(&root, 340, 90, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
@@ -2393,7 +2393,7 @@ fn date_time_picker_matches_golden() {
 fn dropdown_menu_matches_golden() {
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(16.0).child(
-        Dropdown::<()>::new("Medium", ())
+        DropdownButton::<()>::new("Medium", ())
             .width(200.0)
             .selected(1)
             .options(true, &["Small", "Medium", "Large"], |_| ()),
@@ -2531,7 +2531,7 @@ fn password_field_matches_golden() {
 
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(20.0).child(
-        TextInput::<()>::new("hunter2")
+        TextField::<()>::new("hunter2")
             .width(280.0)
             .label("Password")
             .obscure(true)
@@ -2575,11 +2575,11 @@ fn validated_signup_form_matches_golden() {
         );
 
     // The report's errors feed the fields directly.
-    let mut email_field = TextInput::<()>::new(email).width(280.0).label("Email");
+    let mut email_field = TextField::<()>::new(email).width(280.0).label("Email");
     if let Some(e) = report.error("email") {
         email_field = email_field.error(e);
     }
-    let mut password_field = TextInput::<()>::new(password)
+    let mut password_field = TextField::<()>::new(password)
         .width(280.0)
         .label("Password")
         .obscure(true);
@@ -2613,7 +2613,7 @@ fn validated_signup_form_matches_golden() {
 fn multiline_field_matches_golden() {
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(20.0).child(
-        TextInput::<()>::new(
+        TextField::<()>::new(
             "Roses are red, violets are blue, and this long line wraps softly to the field width.",
         )
         .width(300.0)

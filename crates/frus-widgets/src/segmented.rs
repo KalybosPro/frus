@@ -1,4 +1,4 @@
-//! [`SegmentedControl`]: a **controlled** segmented picker — one outline around several
+//! [`SegmentedButton`]: a **controlled** segmented picker — one outline around several
 //! segments, of which one is chosen.
 //!
 //! It is one control rather than a row of buttons: a single outline runs around the group,
@@ -8,7 +8,7 @@
 //! this was until milestone 314.
 //!
 //! ```ignore
-//! SegmentedControl::new(selected, Msg::Pick)
+//! SegmentedButton::new(selected, Msg::Pick)
 //!     .segment("Day")
 //!     .segment("Week")
 //!     .segment("Month")
@@ -328,7 +328,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
 }
 
 /// A single-selection segmented control.
-pub struct SegmentedControl<Msg> {
+pub struct SegmentedButton<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Rc<Vec<String>>,
@@ -339,7 +339,7 @@ pub struct SegmentedControl<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> SegmentedControl<Msg> {
+impl<Msg: Clone + 'static> SegmentedButton<Msg> {
     /// Creates a control: `selected` is the active index, `on_select(i)` fires on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
@@ -459,7 +459,7 @@ impl<Msg: Clone + 'static> SegmentedControl<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for SegmentedControl<Msg> {
+impl<Msg: Clone> Widget<Msg> for SegmentedButton<Msg> {
     fn style(&self) -> Style {
         Widget::<Msg>::style_themed(self, &Theme::default())
     }
@@ -545,14 +545,14 @@ mod tests {
         Select(usize),
     }
 
-    fn three(selected: usize) -> SegmentedControl<Msg> {
-        SegmentedControl::new(selected, Msg::Select)
+    fn three(selected: usize) -> SegmentedButton<Msg> {
+        SegmentedButton::new(selected, Msg::Select)
             .segment("One")
             .segment("Two")
             .segment("Three")
     }
 
-    fn primitives(control: SegmentedControl<Msg>) -> Vec<Primitive> {
+    fn primitives(control: SegmentedButton<Msg>) -> Vec<Primitive> {
         let root = crate::flex::Flex::column()
             .width(400.0)
             .height(60.0)
@@ -576,7 +576,7 @@ mod tests {
     fn a_disabled_control_is_inert_but_still_readable() {
         let live = three(1);
         let dead = three(1).enabled(false);
-        fn segments(c: &SegmentedControl<Msg>) -> &[Box<dyn Widget<Msg>>] {
+        fn segments(c: &SegmentedButton<Msg>) -> &[Box<dyn Widget<Msg>>] {
             Widget::<Msg>::children(c)
         }
         for seg in segments(&live) {
@@ -606,7 +606,7 @@ mod tests {
     fn a_disabled_control_flattens_rather_than_fades() {
         let theme = Theme::default();
         let accent = SegmentedStyle::default().selected_color(&theme);
-        let fills = |c: SegmentedControl<Msg>| -> Vec<frus_core::Color> {
+        let fills = |c: SegmentedButton<Msg>| -> Vec<frus_core::Color> {
             primitives(c)
                 .into_iter()
                 .filter_map(|p| match p {
@@ -859,7 +859,7 @@ mod tests {
         let mut theme = Theme::default();
         theme.widgets.segmented.height = Some(48.0);
         let height =
-            |control: SegmentedControl<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(
+            |control: SegmentedButton<Msg>, theme: &Theme| match Widget::<Msg>::style_themed(
                 &control, theme,
             )
             .height

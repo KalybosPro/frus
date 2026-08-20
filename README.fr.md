@@ -242,7 +242,7 @@ c'est fini :
 |---|---|
 | 🟢 [Un README par crate](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Quinze crates, aucune page d'accueil. **Une seule crate fait une très bonne PR.** |
 | 🟢 Fixer une version minimale de Rust | Personne ne sait où est le plancher. Le trouver, le fixer, l'ajouter à la CI. |
-| 🟢 `NavBar` se recroqueville sur son bouton retour | Un petit bug réel, déjà diagnostiqué, avec de quoi le voir. |
+| 🟢 `NavigationBar` se recroqueville sur son bouton retour | Un petit bug réel, déjà diagnostiqué, avec de quoi le voir. |
 | 🟡 [Publier sur crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | Le principal obstacle entre le projet et quiconque voudrait l'essayer. |
 | 🟡 Le planificateur de lots est en O(n²) | 16× les primitives coûtent 127× le temps. Le benchmark est fourni. |
 | 🟡 Presse-papiers et accessibilité sur le Web | Les deux existent sur bureau ; le Web les laisse tomber. |

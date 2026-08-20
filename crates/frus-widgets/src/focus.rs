@@ -240,7 +240,7 @@ mod tests {
     use super::*;
     use crate::runtime::Runtime;
     use crate::ui::build_ui;
-    use crate::{Container, TextInput};
+    use crate::{Container, TextField};
     use frus_core::Size;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -249,8 +249,8 @@ mod tests {
     }
 
     /// Three fields in a column, so there is a tree order to disturb.
-    fn field(label: &str) -> TextInput<Msg> {
-        TextInput::new(label.to_string())
+    fn field(label: &str) -> TextField<Msg> {
+        TextField::new(label.to_string())
             .label(label.to_string())
             .on_input(Msg::Edited)
     }

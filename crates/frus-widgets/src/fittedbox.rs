@@ -16,7 +16,7 @@ use crate::widget::Widget;
 ///
 /// Ideal for making intrinsically sized content (text, an icon, a drawing) **fill**
 /// or **fit** a given frame with no manual arithmetic. The box needs a size (as
-/// [`crate::Scroll`] does): a fixed `width`/`height`, or `flex`.
+/// [`crate::SingleChildScrollView`] does): a fixed `width`/`height`, or `flex`.
 ///
 /// ```ignore
 /// FittedBox::new(BoxFit::Contain).width(120.0).height(40.0).child(Text::new("Big"))

@@ -241,7 +241,7 @@ real, open, and written up with where to look and how to know you are done:
 |---|---|
 | 🟢 [Give every crate a README](https://github.com/KalybosPro/frus/labels/good%20first%20issue) | Fifteen crates, no front page. **One crate is a perfectly good PR.** |
 | 🟢 Pin a minimum supported Rust version | Nobody knows what the floor is. Find it, pin it, add it to CI. |
-| 🟢 `NavBar` collapses around its back button | A small, real, already-diagnosed bug, with a way to see it. |
+| 🟢 `NavigationBar` collapses around its back button | A small, real, already-diagnosed bug, with a way to see it. |
 | 🟡 [Publish to crates.io](https://github.com/KalybosPro/frus/labels/help%20wanted) | The single biggest thing between the project and anyone trying it. |
 | 🟡 The batch planner is O(n²) | 16× the primitives costs 127× the time. Benchmark included. |
 | 🟡 Clipboard and accessibility on the web | Both exist on desktop; the web drops them on the floor. |

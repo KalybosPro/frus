@@ -1,4 +1,4 @@
-//! [`Toast`]: a transient notification (a styled card). The *system* around it
+//! [`SnackBar`]: a transient notification (a styled card). The *system* around it
 //! (stacking, the auto-dismiss timer) is the application's responsibility,
 //! typically through a timed `Command`.
 
@@ -23,7 +23,7 @@ const ACTION_H: f32 = 32.0;
 
 /// The nature of a notification (its accent color).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ToastKind {
+pub enum SnackBarKind {
     Info,
     Success,
     Error,
@@ -31,21 +31,21 @@ pub enum ToastKind {
 
 /// A transient notification, with an optional **action** (Material Snackbar style:
 /// "UNDO"). The action is a text button on the right that emits a message on click.
-pub struct Toast<Msg> {
+pub struct SnackBar<Msg> {
     text: String,
-    kind: ToastKind,
+    kind: SnackBarKind,
     /// Extra width reserved for the action (0 if there is none).
     action_w: f32,
     /// Empty, or `[action button]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> Toast<Msg> {
+impl<Msg: Clone + 'static> SnackBar<Msg> {
     /// Creates an informational notification.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            kind: ToastKind::Info,
+            kind: SnackBarKind::Info,
             action_w: 0.0,
             children: Vec::new(),
         }
@@ -53,13 +53,13 @@ impl<Msg: Clone + 'static> Toast<Msg> {
 
     /// The success variant.
     pub fn success(mut self) -> Self {
-        self.kind = ToastKind::Success;
+        self.kind = SnackBarKind::Success;
         self
     }
 
     /// Variante erreur.
     pub fn error(mut self) -> Self {
-        self.kind = ToastKind::Error;
+        self.kind = SnackBarKind::Error;
         self
     }
 
@@ -78,17 +78,17 @@ impl<Msg: Clone + 'static> Toast<Msg> {
     }
 }
 
-impl<Msg> Toast<Msg> {
+impl<Msg> SnackBar<Msg> {
     fn accent(&self, theme: &Theme) -> Color {
         match self.kind {
-            ToastKind::Info => theme.primary,
-            ToastKind::Success => Color::rgb8(70, 190, 120),
-            ToastKind::Error => Color::rgb8(210, 96, 96),
+            SnackBarKind::Info => theme.primary,
+            SnackBarKind::Success => Color::rgb8(70, 190, 120),
+            SnackBarKind::Error => Color::rgb8(210, 96, 96),
         }
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Toast<Msg> {
+impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
     fn style(&self) -> Style {
         let measured = frus_text::measure(&self.text, SIZE);
         let mut style = Style {
@@ -215,14 +215,14 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
 /// widget side. [`dismiss`](Self::dismiss) closes the current one immediately (a click on
 /// the action or the cross). Generic over the payload `T` (at minimum the text; often the
 /// kind and the action message too).
-pub struct SnackbarQueue<T> {
+pub struct SnackBarQueue<T> {
     /// `(payload, seconds left, leaving)`; the front one is the notification on display.
     /// The "leaving" flag lets the host play an **exit transition** (a fade) before the
     /// removal (see [`start_leaving`](Self::start_leaving) / [`is_leaving`](Self::is_leaving)).
     items: VecDeque<(T, f32, bool)>,
 }
 
-impl<T> Default for SnackbarQueue<T> {
+impl<T> Default for SnackBarQueue<T> {
     fn default() -> Self {
         Self {
             items: VecDeque::new(),
@@ -230,7 +230,7 @@ impl<T> Default for SnackbarQueue<T> {
     }
 }
 
-impl<T> SnackbarQueue<T> {
+impl<T> SnackBarQueue<T> {
     /// An empty queue.
     pub fn new() -> Self {
         Self::default()
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn paints_card_accent_and_text() {
-        let toast = Toast::<()>::new("Saved").success();
+        let toast = SnackBar::<()>::new("Saved").success();
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &toast,
@@ -327,10 +327,10 @@ mod tests {
     #[test]
     fn action_is_clickable_and_uppercased() {
         // Without an action: no children.
-        let plain = Toast::<Msg>::new("Item deleted");
+        let plain = SnackBar::<Msg>::new("Item deleted");
         assert!(Widget::<Msg>::children(&plain).is_empty());
         // With an action: an uppercased button that emits the message.
-        let toast = Toast::new("Item deleted").action("Undo", Msg::Undo);
+        let toast = SnackBar::new("Item deleted").action("Undo", Msg::Undo);
         let kids = Widget::<Msg>::children(&toast);
         assert_eq!(kids.len(), 1);
         assert_eq!(kids[0].on_click(), Some(Msg::Undo));
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn queue_shows_one_at_a_time_and_expires() {
-        let mut q: SnackbarQueue<&str> = SnackbarQueue::new();
+        let mut q: SnackBarQueue<&str> = SnackBarQueue::new();
         assert!(q.is_empty());
         q.push("first", 3.0);
         q.push("second", 3.0);
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn leaving_phase_precedes_dismissal() {
-        let mut q: SnackbarQueue<&str> = SnackbarQueue::new();
+        let mut q: SnackBarQueue<&str> = SnackBarQueue::new();
         assert!(!q.is_leaving(), "empty queue: nothing leaving");
         q.push("hello", 3.0);
         assert!(!q.is_leaving(), "on display: not leaving yet");

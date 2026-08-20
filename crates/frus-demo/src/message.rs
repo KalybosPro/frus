@@ -58,7 +58,7 @@ pub(crate) enum Msg {
     /// The stepper's new value.
     SetCount(i32),
     /// Starts the head notification's **exit** (a fade) before it is removed.
-    ToastExpire,
+    SnackBarExpire,
     /// Removes the current notification (end of its exit / a click) and moves on to the next.
     DismissToast,
     /// Changes the page (the pagination demo).

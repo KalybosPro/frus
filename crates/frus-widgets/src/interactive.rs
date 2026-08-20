@@ -106,7 +106,7 @@ impl InteractiveView {
 /// cursor. Any content that overflows is **clipped** to the viewport. Ideal for a
 /// map, a detailed image, a plan, a diagram.
 ///
-/// Like [`crate::Scroll`], the viewport needs a **bounded size** (otherwise it
+/// Like [`crate::SingleChildScrollView`], the viewport needs a **bounded size** (otherwise it
 /// collapses): a fixed `width`/`height`, or `flex` within a column or row. The
 /// scale is bounded by `min_scale` / `max_scale`.
 pub struct InteractiveViewer<Msg> {

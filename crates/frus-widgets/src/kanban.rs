@@ -15,7 +15,7 @@ use frus_layout::{Align, Dimension, FlexDirection, Style};
 use crate::button::{Button, Variant};
 use crate::flex::Flex;
 use crate::interaction::Status;
-use crate::scroll::{Axis, Scroll};
+use crate::scroll::{Axis, SingleChildScrollView};
 use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::{CellFn, ReorderAxis, Widget};
@@ -265,7 +265,7 @@ pub struct Kanban<Msg = ()> {
     card_area_height: Option<f32>,
     /// Per-column vertical scrolling **Trello style, with no explicit height** (milestone 266):
     /// the columns **fill** the board's height (through a stretched `Row`) and each column's
-    /// card area is a `flex(1)` `Scroll` that takes the rest and then scrolls. It takes
+    /// card area is a `flex(1)` `SingleChildScrollView` that takes the rest and then scrolls. It takes
     /// precedence over `card_area_height`. See [`Kanban::scrollable_columns`].
     fill_columns: bool,
     columns: Vec<(String, ColCards<Msg>)>,
@@ -326,7 +326,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     /// column stretches to the height of its content.
     ///
     /// This is a stopgap **controlled by the application**, which supplies the height: a
-    /// `flex(1)` `Scroll` receives no usable height until its chain of ancestors gives it a
+    /// `flex(1)` `SingleChildScrollView` receives no usable height until its chain of ancestors gives it a
     /// **definite** height (milestone 263), hence an explicit height here.
     pub fn card_area_height(mut self, h: f32) -> Self {
         self.card_area_height = Some(h);
@@ -338,7 +338,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
     /// the columns **fill** the board's height and each column's card area takes the rest
     /// (below the title, above the "+ Add card" button) and then **scrolls**. Unlike
     /// [`Kanban::card_area_height`], the app has no height to compute: the board sits in an
-    /// ancestor of **definite height** (a window, a bounded horizontal `Scroll`…) and the flex
+    /// ancestor of **definite height** (a window, a bounded horizontal `SingleChildScrollView`…) and the flex
     /// fill does the rest. Takes precedence over `card_area_height` when both are set.
     pub fn scrollable_columns(mut self) -> Self {
         self.fill_columns = true;
@@ -389,7 +389,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         let mut children: Vec<Box<dyn Widget<Msg>>> =
             vec![Box::new(Text::new(title.to_string()).size(16.0))];
         // The column's inner width (the column width minus its padding). The scrollable card
-        // area wraps the cards in a vertical `Flex` (a single child for the `Scroll`).
+        // area wraps the cards in a vertical `Flex` (a single child for the `SingleChildScrollView`).
         let inner_w = COL_W - 2.0 * COL_PAD;
         let list = |cards: Vec<Box<dyn Widget<Msg>>>| {
             cards
@@ -398,10 +398,10 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         };
         if self.fill_columns {
             // **Filling** (milestone 266): the column fills the board's height (a stretched Row);
-            // the card area, a `flex(1)` `Scroll`, takes the rest (below the title, above the
+            // the card area, a `flex(1)` `SingleChildScrollView`, takes the rest (below the title, above the
             // button) and then scrolls. No explicit height: the flex does the arithmetic.
             children.push(Box::new(
-                Scroll::new()
+                SingleChildScrollView::new()
                     .axis(Axis::Vertical)
                     .width(inner_w)
                     .flex(1.0)
@@ -410,7 +410,7 @@ impl<Msg: Clone + 'static> Kanban<Msg> {
         } else if let Some(h) = self.card_area_height {
             // An **explicit** height (milestone 264): the fallback when the ancestor has no definite height.
             children.push(Box::new(
-                Scroll::new()
+                SingleChildScrollView::new()
                     .axis(Axis::Vertical)
                     .width(inner_w)
                     .height(h)

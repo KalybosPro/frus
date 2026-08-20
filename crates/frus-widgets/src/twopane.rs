@@ -121,7 +121,7 @@ mod tests {
             .detail(Container::new());
         assert_eq!(Widget::<()>::style(&tp).flex_direction, FlexDirection::Row);
         assert_eq!(Widget::<()>::children(&tp).len(), 2);
-        // List pane = flex 0.4, detail pane = flex 0.6.
+        // ListView pane = flex 0.4, detail pane = flex 0.6.
         let panes = Widget::<()>::children(&tp);
         assert_eq!(Widget::<()>::style(&*panes[0]).flex_grow, 0.4);
         assert!((Widget::<()>::style(&*panes[1]).flex_grow - 0.6).abs() < 1e-6);

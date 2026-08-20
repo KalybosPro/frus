@@ -1,4 +1,4 @@
-//! [`ProgressBar`]: a **determinate** progress bar (`0..1`).
+//! [`LinearProgressIndicator`]: a **determinate** progress bar (`0..1`).
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -11,12 +11,12 @@ use crate::widget::Widget;
 const HEIGHT: f32 = 8.0;
 
 /// A progress bar: a track plus a fill proportional to `value`.
-pub struct ProgressBar {
+pub struct LinearProgressIndicator {
     value: f32,
     width: Dimension,
 }
 
-impl ProgressBar {
+impl LinearProgressIndicator {
     /// Creates a bar filled to `value`, clamped to `0.0..=1.0`.
     pub fn new(value: f32) -> Self {
         Self {
@@ -32,7 +32,7 @@ impl ProgressBar {
     }
 }
 
-impl<Msg> Widget<Msg> for ProgressBar {
+impl<Msg> Widget<Msg> for LinearProgressIndicator {
     fn style(&self) -> Style {
         Style {
             width: self.width,
@@ -90,7 +90,7 @@ mod tests {
     use frus_core::Primitive;
 
     fn fill_and_track(value: f32) -> (f32, f32) {
-        let bar = ProgressBar::new(value).width(100.0);
+        let bar = LinearProgressIndicator::new(value).width(100.0);
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &bar,
@@ -124,7 +124,7 @@ mod tests {
         let (_track, fill) = fill_and_track(2.0);
         assert_eq!(fill, 100.0);
         // value 0 → pas de primitive de remplissage.
-        let bar = ProgressBar::new(0.0).width(100.0);
+        let bar = LinearProgressIndicator::new(0.0).width(100.0);
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &bar,

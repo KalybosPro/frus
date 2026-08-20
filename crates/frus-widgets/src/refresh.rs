@@ -1,7 +1,7 @@
-//! [`Refresh`] — pull a list past its top edge to ask for fresh data.
+//! [`RefreshIndicator`] — pull a list past its top edge to ask for fresh data.
 //!
 //! ```ignore
-//! Refresh::new(list)
+//! RefreshIndicator::new(list)
 //!     .on_refresh(Msg::Reload)
 //!     .refreshing(self.loading)
 //! ```
@@ -14,7 +14,7 @@
 //! acknowledges that distance; a refresh area *accumulates* it, and past a threshold
 //! turns it into a message.
 //!
-//! Where a `Refresh` is listening, the glow on that edge stands down. Two answers to
+//! Where a `RefreshIndicator` is listening, the glow on that edge stands down. Two answers to
 //! one gesture would say the same thing twice, and the indicator already is the
 //! acknowledgement.
 //!
@@ -72,7 +72,7 @@ pub enum RefreshPhase {
     /// Released while armed: settling to the resting displacement.
     Snap,
     /// The application is working, and says so.
-    Refresh,
+    RefreshIndicator,
     /// The work is over: scaling away.
     Done,
     /// Released short of the threshold: sliding back out of sight.
@@ -206,14 +206,14 @@ impl RefreshPull {
                     // work simply plays snap → done, which reads as "already up to
                     // date" rather than as a spinner that never spun.
                     self.begin(if refreshing {
-                        RefreshPhase::Refresh
+                        RefreshPhase::RefreshIndicator
                     } else {
                         RefreshPhase::Done
                     });
                 }
                 true
             }
-            RefreshPhase::Refresh => {
+            RefreshPhase::RefreshIndicator => {
                 self.turns += dt * SPIN_SPEED;
                 if !refreshing {
                     self.begin(RefreshPhase::Done);
@@ -245,7 +245,7 @@ impl RefreshPull {
 /// Turns per second of the ring while the application is working.
 const SPIN_SPEED: f32 = 1.1;
 
-/// What a [`Refresh`] widget tells the frame about itself: everything the shell and the
+/// What a [`RefreshIndicator`] widget tells the frame about itself: everything the shell and the
 /// paint need, without either of them holding on to the widget.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RefreshSpec {
@@ -287,21 +287,21 @@ pub struct Refreshable {
 /// Wraps a scrollable so that pulling it past its top edge asks for fresh data.
 ///
 /// ```ignore
-/// Refresh::new(Scroll::new().child(rows))
+/// RefreshIndicator::new(SingleChildScrollView::new().child(rows))
 ///     .on_refresh(Msg::Reload)
 ///     .refreshing(self.loading)
 ///     .color(theme.scheme.tertiary)     // every part is overridable
 /// ```
 ///
-/// The child does not have to be a `Scroll` directly — any scrollable anywhere inside
+/// The child does not have to be a `SingleChildScrollView` directly — any scrollable anywhere inside
 /// feeds the pull, which is what lets a screen keep its own layout around the list.
-pub struct Refresh<Msg> {
+pub struct RefreshIndicator<Msg> {
     spec: RefreshSpec,
     message: Option<Msg>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg> Refresh<Msg> {
+impl<Msg> RefreshIndicator<Msg> {
     /// Makes `child` refreshable. Nothing happens until
     /// [`on_refresh`](Self::on_refresh) gives it a message to send.
     pub fn new(child: impl Widget<Msg> + 'static) -> Self {
@@ -350,7 +350,7 @@ impl<Msg> Refresh<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Refresh<Msg> {
+impl<Msg: Clone> Widget<Msg> for RefreshIndicator<Msg> {
     fn style(&self) -> Style {
         // A pass-through: the child decides the box, and the indicator is drawn over
         // it rather than laid out beside it.
@@ -430,7 +430,9 @@ pub fn paint_refresh(
     let mode = match pull.phase() {
         // Spinning is what "working" looks like; a filled ring is what "pull further"
         // looks like. They must not be confusable, so a drag never completes the ring.
-        RefreshPhase::Refresh | RefreshPhase::Done => RingMode::Spinning { head: pull.turns },
+        RefreshPhase::RefreshIndicator | RefreshPhase::Done => {
+            RingMode::Spinning { head: pull.turns }
+        }
         _ => RingMode::Filling {
             progress: pull.position() * DRAG_FILL,
         },
@@ -636,7 +638,7 @@ mod tests {
         release_of(&mut pulls, WidgetId::ROOT);
 
         run(&mut pulls, true, SNAP_TIME + 0.05);
-        assert_eq!(pull_of(&pulls).phase(), RefreshPhase::Refresh);
+        assert_eq!(pull_of(&pulls).phase(), RefreshPhase::RefreshIndicator);
         assert!(
             (pull_of(&pulls).position() - ARM_AT).abs() < 1e-3,
             "it rests exactly where the snap put it"
@@ -644,7 +646,7 @@ mod tests {
 
         // Still working, a whole second later.
         run(&mut pulls, true, 1.0);
-        assert_eq!(pull_of(&pulls).phase(), RefreshPhase::Refresh);
+        assert_eq!(pull_of(&pulls).phase(), RefreshPhase::RefreshIndicator);
 
         // The application clears its flag: the indicator scales away and is dropped.
         run(&mut pulls, false, SCALE_TIME + 0.05);
@@ -702,9 +704,9 @@ mod tests {
     /// A refresh area wrapping a scrollable taller than its box, as the root of the
     /// tree — so the area's identity is `WidgetId::ROOT` and the fixtures above key on
     /// the same thing.
-    fn tree(refreshing: bool) -> Refresh<i32> {
-        Refresh::new(
-            crate::Scroll::<i32>::new()
+    fn tree(refreshing: bool) -> RefreshIndicator<i32> {
+        RefreshIndicator::new(
+            crate::SingleChildScrollView::<i32>::new()
                 .width(400.0)
                 .height(EXTENT)
                 .child(crate::Container::new().width(400.0).height(EXTENT * 4.0)),
@@ -750,7 +752,7 @@ mod tests {
     #[test]
     fn a_scrollable_outside_one_names_nothing() {
         let runtime = crate::Runtime::default();
-        let bare = crate::Scroll::<i32>::new()
+        let bare = crate::SingleChildScrollView::<i32>::new()
             .width(400.0)
             .height(EXTENT)
             .child(crate::Container::new().width(400.0).height(EXTENT * 4.0));
@@ -828,7 +830,7 @@ mod tests {
 
     #[test]
     fn the_widget_reports_what_it_was_configured_with() {
-        let widget = Refresh::<i32>::new(crate::Container::new())
+        let widget = RefreshIndicator::<i32>::new(crate::Container::new())
             .on_refresh(7)
             .refreshing(true)
             .displacement(64.0)

@@ -1,4 +1,4 @@
-//! [`Collapsible`]: a controlled **collapsible** section — a clickable header plus
+//! [`ExpansionTile`]: a controlled **collapsible** section — a clickable header plus
 //! content shown when open. The content appearing and disappearing benefits from the
 //! mount and unmount fades.
 
@@ -67,13 +67,13 @@ impl<Msg: Clone> Widget<Msg> for Header<Msg> {
 }
 
 /// A collapsible section.
-pub struct Collapsible<Msg> {
+pub struct ExpansionTile<Msg> {
     open: bool,
     /// Either `[header]` or `[header, content]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> Collapsible<Msg> {
+impl<Msg: Clone + 'static> ExpansionTile<Msg> {
     /// Creates a section: a title, an open state, and a toggle message.
     pub fn new(title: impl Into<String>, open: bool, on_toggle: Msg) -> Self {
         let header = Header {
@@ -97,7 +97,7 @@ impl<Msg: Clone + 'static> Collapsible<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Collapsible<Msg> {
+impl<Msg: Clone> Widget<Msg> for ExpansionTile<Msg> {
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Column,
@@ -129,13 +129,13 @@ mod tests {
 
     #[test]
     fn collapsed_shows_header_only() {
-        let section = Collapsible::new("Title", false, Msg::Toggle).content(Text::new("hidden"));
+        let section = ExpansionTile::new("Title", false, Msg::Toggle).content(Text::new("hidden"));
         assert_eq!(Widget::<Msg>::children(&section).len(), 1);
     }
 
     #[test]
     fn expanded_shows_content_and_header_toggles() {
-        let section = Collapsible::new("Titre", true, Msg::Toggle).content(Text::new("visible"));
+        let section = ExpansionTile::new("Titre", true, Msg::Toggle).content(Text::new("visible"));
         let children = Widget::<Msg>::children(&section);
         assert_eq!(children.len(), 2);
         // The header emits the toggle.

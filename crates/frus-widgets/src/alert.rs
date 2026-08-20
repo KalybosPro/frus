@@ -1,5 +1,5 @@
-//! [`Alert`]: a **persistent** (contextual) message box, as opposed to the
-//! transient [`crate::Toast`].
+//! [`AlertDialog`]: a **persistent** (contextual) message box, as opposed to the
+//! transient [`crate::SnackBar`].
 
 use frus_core::{Color, Point, Rect, Scene};
 use frus_layout::Style;
@@ -24,13 +24,13 @@ pub enum AlertKind {
 }
 
 /// A message box.
-pub struct Alert {
+pub struct AlertDialog {
     title: Option<String>,
     text: String,
     kind: AlertKind,
 }
 
-impl Alert {
+impl AlertDialog {
     /// Creates an informational box.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
@@ -83,7 +83,7 @@ impl Alert {
     }
 }
 
-impl<Msg> Widget<Msg> for Alert {
+impl<Msg> Widget<Msg> for AlertDialog {
     fn style(&self) -> Style {
         // A paragraph: free dimensions, the size comes from `measure()` — the
         // message wraps to the width the parent offers.
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn paints_accent_and_text() {
-        let alert = Alert::new("Attention !").title("Alerte").warning();
+        let alert = AlertDialog::new("Attention !").title("Alerte").warning();
         let mut scene = Scene::new();
         Widget::<()>::paint(
             &alert,
@@ -236,8 +236,9 @@ mod tests {
     /// wider than the offer) — no more box overflowing its parent.
     #[test]
     fn message_wraps_to_the_offered_width() {
-        let alert = Alert::new("Press Enter to add a task; swipe from the left edge to go back.")
-            .title("Tip");
+        let alert =
+            AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
+                .title("Tip");
         let measure = Widget::<()>::measure(&alert).expect("closure de mesure");
         let free = measure(None, None);
         let narrow = measure(Some(280.0), None);
@@ -248,7 +249,7 @@ mod tests {
         );
         assert!(narrow.height > free.height, "wrapped → taller");
         // The measure key follows the content (the relayout cache).
-        let other = Alert::new("short");
+        let other = AlertDialog::new("short");
         assert_ne!(
             Widget::<()>::measure_key(&alert),
             Widget::<()>::measure_key(&other)

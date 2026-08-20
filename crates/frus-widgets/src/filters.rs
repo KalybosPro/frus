@@ -432,7 +432,7 @@ impl<Msg: Clone> Widget<Msg> for BackdropFilter<Msg> {
 ///
 /// ```ignore
 /// BackdropGroup::new().child(
-///     List::new().items(rows.iter().map(|row| {
+///     ListView::new().items(rows.iter().map(|row| {
 ///         ClipRRect::new(16.0).child(
 ///             BackdropFilter::blur(24.0).grouped().child(frosted_row(row)),
 ///         )

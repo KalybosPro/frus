@@ -74,9 +74,13 @@ pub(crate) fn tour_screen(
         .padding(20.0)
         .child(column![picker, position].gap(10.0).align(Align::Center));
 
-    let screen = column![NavBar::new("Guided tour").on_back(Msg::Pop), pages, footer]
-        .width(width)
-        .height(height);
+    let screen = column![
+        NavigationBar::new("Guided tour").on_back(Msg::Pop),
+        pages,
+        footer
+    ]
+    .width(width)
+    .height(height);
     Box::new(
         Container::new()
             .width(width)

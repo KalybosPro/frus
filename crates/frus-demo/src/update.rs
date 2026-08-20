@@ -32,7 +32,7 @@ pub(crate) fn start_nav(app: &mut TodoApp, forward: bool) {
 pub(crate) fn toast_expire_after() -> Command<Msg> {
     Command::perform(|| {
         std::thread::sleep(std::time::Duration::from_secs(2));
-        Msg::ToastExpire
+        Msg::SnackBarExpire
     })
 }
 
@@ -236,7 +236,7 @@ pub(crate) fn reduce(app: &mut TodoApp, message: Msg) -> Command<Msg> {
                 show,
             ])
         }
-        Msg::ToastExpire => {
+        Msg::SnackBarExpire => {
             // Moves the notification into its **exit** (the host plays the fade), then removes it.
             app.snackbars.start_leaving();
             Command::perform(|| {

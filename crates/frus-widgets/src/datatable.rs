@@ -17,7 +17,7 @@ use frus_layout::{Align, Style};
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::pagination::Pagination;
-use crate::segmented::SegmentedControl;
+use crate::segmented::SegmentedButton;
 use crate::table::Table;
 
 /// An application's own ordering for one column — dates, amounts, priorities — where
@@ -27,7 +27,7 @@ type Comparator = Rc<dyn Fn(&str, &str) -> Ordering>;
 /// The buttons of the bulk-action bar, built on demand while a selection stands.
 type BulkActions<Msg> = Rc<dyn Fn() -> Vec<Box<dyn Widget<Msg>>>>;
 use crate::text::Text;
-use crate::textinput::TextInput;
+use crate::textinput::TextField;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -223,7 +223,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         self
     }
 
-    /// Adds a **page size selector** (a `SegmentedControl` of the `sizes` offered) to the
+    /// Adds a **page size selector** (a `SegmentedButton` of the `sizes` offered) to the
     /// footer. `on_page_size(size)` on change (the app updates the size and, usually, returns
     /// to page 1). It has no effect if the table is not paginated.
     pub fn page_sizes(
@@ -449,7 +449,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
                         // A row of numbers in a table's footer: the checkmark would take
                         // more room than the digits it sits beside, and which one is chosen
                         // is already plain from the fill.
-                        let mut seg = SegmentedControl::new(sel, move |i| on_size(sizes[i]))
+                        let mut seg = SegmentedButton::new(sel, move |i| on_size(sizes[i]))
                             .show_selected_icon(false)
                             .padding(10.0);
                         for s in &self.page_sizes {
@@ -481,7 +481,7 @@ impl<Msg: Clone + 'static> DataTable<Msg> {
         // Search: it caps the table with a field (otherwise the block is kept as is).
         self.inner = if let Some(on_query) = &self.on_query {
             let on_query = on_query.clone();
-            let field = TextInput::new(self.query.clone().unwrap_or_default())
+            let field = TextField::new(self.query.clone().unwrap_or_default())
                 .placeholder("Search")
                 .width(240.0)
                 .on_input(move |s| on_query(s));

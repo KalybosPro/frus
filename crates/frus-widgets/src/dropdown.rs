@@ -1,8 +1,8 @@
-//! [`Dropdown`]: a **controlled** dropdown list whose options float above
+//! [`DropdownButton`]: a **controlled** dropdown list whose options float above
 //! everything else (through the overlay mechanism), below the header.
 //!
-//! Adjustable width ([`width`](Dropdown::width)), the **selected** option highlighted
-//! and ticked ([`selected`](Dropdown::selected)), and **keyboard** navigation: the
+//! Adjustable width ([`width`](DropdownButton::width)), the **selected** option highlighted
+//! and ticked ([`selected`](DropdownButton::selected)), and **keyboard** navigation: the
 //! header and the options take focus (Enter opens or picks, the arrows move through).
 
 use frus_core::{Path, Point, Rect, Scene};
@@ -147,7 +147,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
 }
 
 /// A single-selection dropdown list (a floating menu).
-pub struct Dropdown<Msg> {
+pub struct DropdownButton<Msg> {
     header_label: String,
     on_toggle: Msg,
     width: f32,
@@ -159,7 +159,7 @@ pub struct Dropdown<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> Dropdown<Msg> {
+impl<Msg: Clone + 'static> DropdownButton<Msg> {
     /// Creates a list: the current label + the toggle message (open/close).
     pub fn new(selected_label: impl Into<String>, on_toggle: Msg) -> Self {
         let mut dropdown = Self {
@@ -250,7 +250,7 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Dropdown<Msg> {
+impl<Msg: Clone> Widget<Msg> for DropdownButton<Msg> {
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Column,
@@ -290,13 +290,14 @@ mod tests {
     #[test]
     fn closed_has_no_overlay_open_floats_options() {
         let closed =
-            Dropdown::new("Pick one", Msg::Toggle).options(false, &["A", "B"], Msg::Select);
+            DropdownButton::new("Pick one", Msg::Toggle).options(false, &["A", "B"], Msg::Select);
         assert!(
             Widget::<Msg>::overlay(&closed).is_none(),
             "closed: no overlay"
         );
 
-        let open = Dropdown::new("Pick one", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
+        let open =
+            DropdownButton::new("Pick one", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
         assert!(
             Widget::<Msg>::overlay(&open).is_some(),
             "open: a floating menu"
@@ -308,7 +309,7 @@ mod tests {
 
     #[test]
     fn header_and_options_are_keyboard_focusable() {
-        let open = Dropdown::new("Pick", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
+        let open = DropdownButton::new("Pick", Msg::Toggle).options(true, &["A", "B"], Msg::Select);
         // A focusable header (opens from the keyboard) + 2 options.
         assert!(Widget::<Msg>::children(&open)[0].focusable());
         let menu = &Widget::<Msg>::children(&open)[1];
@@ -317,7 +318,7 @@ mod tests {
 
     #[test]
     fn selected_option_is_highlighted_and_checked() {
-        let open = Dropdown::new("Pick", Msg::Toggle)
+        let open = DropdownButton::new("Pick", Msg::Toggle)
             .selected(1)
             .options(true, &["A", "B"], Msg::Select)
             .width(200.0);
@@ -350,7 +351,7 @@ mod tests {
 
     #[test]
     fn a_disabled_list_is_inert_and_cannot_be_open() {
-        let dead = Dropdown::new("Option B", Msg::Toggle)
+        let dead = DropdownButton::new("Option B", Msg::Toggle)
             .selected(1)
             .options(true, &["A", "B"], Msg::Select)
             .enabled(false);
@@ -373,7 +374,7 @@ mod tests {
 
     #[test]
     fn a_live_list_is_untouched_by_it() {
-        let live = Dropdown::new("Pick one", Msg::Toggle)
+        let live = DropdownButton::new("Pick one", Msg::Toggle)
             .options(true, &["A", "B"], Msg::Select)
             .enabled(true);
         assert!(Widget::<Msg>::overlay(&live).is_some());

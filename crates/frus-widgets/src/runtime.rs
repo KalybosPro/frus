@@ -16,7 +16,7 @@ use crate::physics::{Ballistic, ScrollPhysics};
 use crate::relayout::LayoutCache;
 use crate::ui::Scrollable;
 
-/// Scroll offsets `(x, y)`, per scrollable region.
+/// SingleChildScrollView offsets `(x, y)`, per scrollable region.
 pub type ScrollState = HashMap<WidgetId, (f32, f32)>;
 
 /// Edit state of an input field: cursor + selection anchor.
@@ -316,7 +316,7 @@ pub struct Runtime {
     pub scroll: ScrollState,
     /// **Target** scroll offsets (what the spring drives towards), per region.
     pub scroll_target: ScrollState,
-    /// Scroll velocity (for the spring), per region.
+    /// SingleChildScrollView velocity (for the spring), per region.
     pub scroll_velocity: ScrollState,
     /// The **ballistic** motion still running after a fling, per region — the
     /// simulation the platform's physics handed us, sampled frame by frame by
@@ -330,7 +330,7 @@ pub struct Runtime {
     /// is retained here rather than in the widget, which is rebuilt every frame.
     /// Absent = dry.
     pub ink: HashMap<WidgetId, crate::ink::Ripples>,
-    /// The retained pull of each [`crate::Refresh`] area, keyed by the area. Absent =
+    /// The retained pull of each [`crate::RefreshIndicator`] area, keyed by the area. Absent =
     /// nothing pulled and nothing spinning.
     pub refresh: HashMap<WidgetId, crate::refresh::RefreshPull>,
     /// The retained swipe of each [`crate::Dismissible`] item. Absent = at rest.

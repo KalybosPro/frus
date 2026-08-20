@@ -115,7 +115,7 @@ pub trait Widget<Msg> {
     /// **Positional** click: a message emitted according to where the click landed (local
     /// coordinates from the widget's top-left corner, within the `width × height` box), taking
     /// **priority** over [`on_click`](Self::on_click). For clickable sub-regions — e.g. the
-    /// **suffix** icon of a [`crate::TextInput`] (clear / reveal) or a chart **point**
+    /// **suffix** icon of a [`crate::TextField`] (clear / reveal) or a chart **point**
     /// (milestone 221). `None` (the default) = no sub-region; the shell falls back to `on_click`.
     fn positional_click(
         &self,
@@ -158,7 +158,7 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Scroll metrics of a **multi-line** field, for a widget width and a cursor:
+    /// SingleChildScrollView metrics of a **multi-line** field, for a widget width and a cursor:
     /// `(content height, visible box height, caret top, caret height)`, in content
     /// space (px). The shell uses them to register the scrollable region and to keep
     /// the caret in view. `None` otherwise.
@@ -278,7 +278,7 @@ pub trait Widget<Msg> {
     }
 
     /// If `true`, the widget draws its focus indicator **itself** (the driver then
-    /// does not stroke the generic ring). E.g. `TextInput`.
+    /// does not stroke the generic ring). E.g. `TextField`.
     fn draws_own_focus(&self) -> bool {
         false
     }
@@ -391,7 +391,7 @@ pub trait Widget<Msg> {
     }
 
     /// If `true`, the widget animates **continuously** (driven by time, not by a
-    /// target): the framework keeps redrawing. E.g. `Spinner`.
+    /// target): the framework keeps redrawing. E.g. `CircularProgressIndicator`.
     fn continuous(&self) -> bool {
         false
     }
@@ -447,7 +447,7 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// Scroll axis (or axes), for a scrollable container.
+    /// SingleChildScrollView axis (or axes), for a scrollable container.
     fn scroll_axis(&self) -> crate::scroll::Axis {
         crate::scroll::Axis::Vertical
     }
@@ -711,7 +711,7 @@ pub trait Widget<Msg> {
     /// The **axis this widget asks to fill**: it takes the room the parent leaves it
     /// along that axis rather than shrink-wrapping its children. `MainAxisSize::Max` on a
     /// [`crate::Row`] or a [`crate::Column`] is the reason it exists, and there the axis
-    /// is the widget's own main one; a [`crate::Tabs`] asks for the horizontal one, which
+    /// is the widget's own main one; a [`crate::TabBar`] asks for the horizontal one, which
     /// is its cross axis. `None` means shrink-wrap.
     ///
     /// It is a question about the *parent*, which is why it is asked rather than written
@@ -766,7 +766,7 @@ pub trait Widget<Msg> {
         false
     }
 
-    /// Whether this scrollable runs **from the far end** ([`crate::Scroll::reverse`]):
+    /// Whether this scrollable runs **from the far end** ([`crate::SingleChildScrollView::reverse`]):
     /// the content is anchored to the end of the viewport and offsets are counted from
     /// there. Meaningless unless [`Widget::scroll_content`] is `Some`.
     fn scroll_reverse(&self) -> bool {
@@ -813,7 +813,7 @@ pub trait Widget<Msg> {
         None
     }
 
-    /// If the widget is a **refresh area** ([`crate::Refresh`]), its configuration for
+    /// If the widget is a **refresh area** ([`crate::RefreshIndicator`]), its configuration for
     /// this frame. Any scrollable inside it routes the movement its physics refuses at
     /// the top edge into the pull, instead of into the overscroll glow. `None` = not a
     /// refresh area.
@@ -832,10 +832,10 @@ pub trait Widget<Msg> {
     /// input targets, primitives, accessibility nodes. The walk visits the subtree
     /// normally and then discards whatever it added to the selected registries, so a
     /// target registered deep inside is caught just as surely as one at the top.
-    /// `None` = nothing withheld (the default). See [`crate::Barrier`],
+    /// `None` = nothing withheld (the default). See [`crate::ModalBarrier`],
     /// [`crate::IgnorePointer`], [`crate::AbsorbPointer`], [`crate::Visibility`],
     /// [`crate::ExcludeSemantics`].
-    fn barrier(&self) -> Option<crate::barrier::Barrier> {
+    fn barrier(&self) -> Option<crate::barrier::ModalBarrier> {
         None
     }
 
@@ -879,7 +879,7 @@ pub trait Widget<Msg> {
     }
 
     /// Key received while **bubbling leaf→root**: the focused widget gets it first,
-    /// then each ancestor as long as the response is `Ignored`. (E.g. a `Portal`
+    /// then each ancestor as long as the response is `Ignored`. (E.g. an `OverlayPortal`
     /// consumes `Escape` to close itself.)
     fn on_key(&self, _key: &crate::interaction::Key) -> crate::interaction::KeyResponse<Msg> {
         crate::interaction::KeyResponse::Ignored
@@ -1207,7 +1207,7 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn foreground(&self, theme: &Theme) -> Option<frus_core::BoxDecoration> {
         (**self).foreground(theme)
     }
-    fn barrier(&self) -> Option<crate::barrier::Barrier> {
+    fn barrier(&self) -> Option<crate::barrier::ModalBarrier> {
         (**self).barrier()
     }
     fn dismissible(&self) -> Option<crate::dismiss::DismissSpec> {

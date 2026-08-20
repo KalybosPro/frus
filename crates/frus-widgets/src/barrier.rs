@@ -4,7 +4,7 @@
 //! accessibility tree.
 //!
 //! They all express the same idea — *this subtree is built, but part of what it
-//! produced does not count* — and they share one mechanism, [`Barrier`], applied by the
+//! produced does not count* — and they share one mechanism, [`ModalBarrier`], applied by the
 //! walk in `ui.rs`: the subtree is walked normally, then whatever it added to the
 //! selected registries is dropped again.
 //!
@@ -43,7 +43,7 @@ use crate::widget::Widget;
 /// Returned by [`Widget::barrier`]; the walk applies it once the subtree has been
 /// visited, by discarding what that subtree added.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-pub struct Barrier {
+pub struct ModalBarrier {
     /// Drops the subtree's input targets: clicks, long presses, focus stops,
     /// scrollable areas, scrollbars, drag handles, reorder handles and interactive
     /// viewports.
@@ -58,7 +58,7 @@ pub struct Barrier {
     pub semantics: bool,
 }
 
-impl Barrier {
+impl ModalBarrier {
     /// A barrier that lets everything through — what a widget with no opinion returns.
     pub const NONE: Self = Self {
         pointer: false,
@@ -131,10 +131,10 @@ impl<Msg: Clone> Widget<Msg> for IgnorePointer<Msg> {
         None
     }
 
-    fn barrier(&self) -> Option<Barrier> {
-        self.ignoring.then_some(Barrier {
+    fn barrier(&self) -> Option<ModalBarrier> {
+        self.ignoring.then_some(ModalBarrier {
             pointer: true,
-            ..Barrier::NONE
+            ..ModalBarrier::NONE
         })
     }
 }
@@ -184,11 +184,11 @@ impl<Msg: Clone> Widget<Msg> for AbsorbPointer<Msg> {
         None
     }
 
-    fn barrier(&self) -> Option<Barrier> {
-        self.absorbing.then_some(Barrier {
+    fn barrier(&self) -> Option<ModalBarrier> {
+        self.absorbing.then_some(ModalBarrier {
             pointer: true,
             absorb: true,
-            ..Barrier::NONE
+            ..ModalBarrier::NONE
         })
     }
 }
@@ -236,10 +236,10 @@ impl<Msg: Clone> Widget<Msg> for ExcludeSemantics<Msg> {
         None
     }
 
-    fn barrier(&self) -> Option<Barrier> {
-        self.excluding.then_some(Barrier {
+    fn barrier(&self) -> Option<ModalBarrier> {
+        self.excluding.then_some(ModalBarrier {
             semantics: true,
-            ..Barrier::NONE
+            ..ModalBarrier::NONE
         })
     }
 }
@@ -409,13 +409,13 @@ impl<Msg: Clone> Widget<Msg> for Visibility<Msg> {
         None
     }
 
-    fn barrier(&self) -> Option<Barrier> {
+    fn barrier(&self) -> Option<ModalBarrier> {
         // Only the "hidden but still occupying its box" case needs a barrier: the
         // collapsed case has no child in the tree to withhold anything.
         if self.visible || !self.maintain_size {
             return None;
         }
-        Some(Barrier {
+        Some(ModalBarrier {
             pointer: !self.maintain_interactivity,
             absorb: false,
             paint: true,
@@ -427,7 +427,7 @@ impl<Msg: Clone> Widget<Msg> for Visibility<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{build_ui, Button, Container, Runtime, Scroll, Text};
+    use crate::{build_ui, Button, Container, Runtime, SingleChildScrollView, Text};
     use frus_core::{Color, Point, Primitive, Size};
 
     fn ui_of(root: &dyn Widget<i32>) -> crate::Ui<i32> {
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn a_scrollable_inside_a_barrier_stops_scrolling() {
-        let long = Scroll::<i32>::new()
+        let long = SingleChildScrollView::<i32>::new()
             .width(100.0)
             .height(100.0)
             .child(Container::new().width(100.0).height(1000.0));

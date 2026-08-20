@@ -1,4 +1,4 @@
-//! [`Menu`]: a **floating** action menu — an anchor plus a list of items that opens
+//! [`PopupMenuButton`]: a **floating** action menu — an anchor plus a list of items that opens
 //! over it, through the overlay, and closes on an outside click.
 
 use frus_core::{Point, Rect, Scene};
@@ -95,7 +95,7 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
 }
 
 /// A controlled action menu, opened and closed by the application.
-pub struct Menu<Msg> {
+pub struct PopupMenuButton<Msg> {
     open: bool,
     enabled: bool,
     /// `[anchor]`, or `[anchor, list]` when the menu is showing.
@@ -105,7 +105,7 @@ pub struct Menu<Msg> {
     on_dismiss: Option<Msg>,
 }
 
-impl<Msg: Clone + 'static> Menu<Msg> {
+impl<Msg: Clone + 'static> PopupMenuButton<Msg> {
     /// Creates a menu around an anchor. When `open`, the list floats above it;
     /// `on_dismiss` is emitted on a click **outside** the menu.
     pub fn new(anchor: impl Widget<Msg> + 'static, open: bool, on_dismiss: Msg) -> Self {
@@ -120,7 +120,7 @@ impl<Msg: Clone + 'static> Menu<Msg> {
     }
 
     /// Whether the menu can be used. Disabled it is **inert** and, like a disabled
-    /// [`Dropdown`](crate::Dropdown), **never open**: a floating panel over an anchor that
+    /// [`DropdownButton`](crate::DropdownButton), **never open**: a floating panel over an anchor that
     /// answers nothing traps a press and returns no message.
     ///
     /// See [`crate::disabled`] for the whole contract.
@@ -170,7 +170,7 @@ impl<Msg: Clone + 'static> Menu<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Menu<Msg> {
+impl<Msg: Clone> Widget<Msg> for PopupMenuButton<Msg> {
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Column,
@@ -224,14 +224,14 @@ mod tests {
 
     #[test]
     fn closed_has_no_overlay() {
-        let menu = Menu::new(anchor(), false, Msg::Close).item("A", Msg::A);
+        let menu = PopupMenuButton::new(anchor(), false, Msg::Close).item("A", Msg::A);
         assert!(Widget::<Msg>::overlay(&menu).is_none());
         assert_eq!(Widget::<Msg>::children(&menu).len(), 1);
     }
 
     #[test]
     fn open_floats_items_and_dismisses_outside() {
-        let menu = Menu::new(anchor(), true, Msg::Close)
+        let menu = PopupMenuButton::new(anchor(), true, Msg::Close)
             .item("A", Msg::A)
             .item("B", Msg::B);
         assert!(Widget::<Msg>::overlay(&menu).is_some());

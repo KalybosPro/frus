@@ -31,7 +31,7 @@ pub(crate) fn board_screen(
     let cols = app.kanban_cols();
     // Per-column vertical scrolling **with no explicit height** (milestone 266): the columns fill
     // the board's height (laid out in an ancestor with a defined height — here the bounded screen
-    // and the horizontal Scroll below) and each column scrolls its cards through `flex(1)`. No
+    // and the horizontal SingleChildScrollView below) and each column scrolls its cards through `flex(1)`. No
     // height has to be computed any more (the old `card_area_height` stopgap, milestone 264).
     let mut board = Kanban::new(Msg::KanbanMove)
         .on_add(Msg::KanbanAdd)
@@ -62,14 +62,14 @@ pub(crate) fn board_screen(
     // `compute_scroll` **fills the constrained axis**, so this `Container` takes the viewport's
     // height (it used to collapse, hence the old `Flex` `flex(1)` workaround) and the board
     // follows.
-    let board_area = Scroll::new()
+    let board_area = SingleChildScrollView::new()
         .axis(Axis::Horizontal)
         .width(width)
         .flex(1.0)
         .child(Container::new().padding(24.0).child(board));
     let hint_bar = Container::new().width(width).padding(24.0).child(hint);
     let screen = column![
-        NavBar::new("Kanban board").on_back(Msg::Pop),
+        NavigationBar::new("Kanban board").on_back(Msg::Pop),
         board_area,
         hint_bar
     ]

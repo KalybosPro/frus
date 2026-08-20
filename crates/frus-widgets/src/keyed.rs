@@ -117,7 +117,7 @@ mod tests {
             "a keyed stack is still a stack"
         );
 
-        let spinner = crate::Spinner::new();
+        let spinner = crate::CircularProgressIndicator::new();
         assert!(Widget::<()>::continuous(&spinner));
         assert!(Widget::<()>::continuous(&Keyed::new(2u64, spinner)));
     }

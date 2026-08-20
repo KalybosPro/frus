@@ -1,4 +1,4 @@
-//! Scroll physics: **how a scrollable behaves at its edges and after the finger
+//! SingleChildScrollView physics: **how a scrollable behaves at its edges and after the finger
 //! lifts**.
 //!
 //! Two families, because the platforms disagree and users notice:
@@ -10,7 +10,7 @@
 //!   fling follows the platform's spline deceleration and stops dead at the edge.
 //!
 //! [`ScrollPhysics::platform_default`] picks one at compile time, so an app that
-//! says nothing already feels native on each target. A [`crate::scroll::Scroll`]
+//! says nothing already feels native on each target. A [`crate::scroll::SingleChildScrollView`]
 //! can override it, and so can the application (`Application::scroll_physics`),
 //! for the cases where the content wants a particular feel.
 //!

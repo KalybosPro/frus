@@ -1,4 +1,4 @@
-//! [`NavRail`] and [`BottomBar`]: the two presentations of a single-selection
+//! [`NavigationRail`] and [`BottomBar`]: the two presentations of a single-selection
 //! **main navigation**. Same API (`new(selected, on_select).item(icon, label)`);
 //! [`crate::NavScaffold`] picks one or the other by size. The "icon" is a text
 //! glyph (the framework has no icon font): an emoji, or a Unicode character.
@@ -173,14 +173,14 @@ fn build_items<Msg: Clone + 'static>(
 }
 
 /// Rail de navigation **vertical** (tablette / bureau).
-pub struct NavRail<Msg> {
+pub struct NavigationRail<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     items: Vec<Destination>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> NavRail<Msg> {
+impl<Msg: Clone + 'static> NavigationRail<Msg> {
     /// Creates a rail: `selected` = the active index, `on_select(i)` on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         Self {
@@ -208,7 +208,7 @@ impl<Msg: Clone + 'static> NavRail<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for NavRail<Msg> {
+impl<Msg: Clone> Widget<Msg> for NavigationRail<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(RAIL_WIDTH),
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn rail_items_emit_index_and_track_selection() {
-        let rail = NavRail::new(1, Msg::Go)
+        let rail = NavigationRail::new(1, Msg::Go)
             .item("H", "Home")
             .item("S", "Search")
             .item("P", "Profile");
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn badge_decorates_last_item_and_paints_counter() {
-        let rail = NavRail::new(0, Msg::Go)
+        let rail = NavigationRail::new(0, Msg::Go)
             .item("H", "Home")
             .item("M", "Mail")
             .badge(5);

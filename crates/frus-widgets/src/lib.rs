@@ -1,7 +1,7 @@
 //! `frus-widgets` — frus's declarative widget tree.
 //!
 //! An interface is described with composable widgets ([`Container`], [`Flex`],
-//! [`Text`], [`TextInput`], [`Scroll`]) generic over a message type `Msg`, in the
+//! [`Text`], [`TextField`], [`SingleChildScrollView`]) generic over a message type `Msg`, in the
 //! Elm/iced message model. [`build_ui`] translates them into a layout, through
 //! `frus-layout`, and then into a [`Ui`]: the [`Scene`] to draw, plus the hit-test maps
 //! for clicking, focus and scrolling.
@@ -89,7 +89,7 @@ mod positioned;
 mod progressbar;
 mod radio;
 mod rating;
-/// Pull-to-refresh: the [`refresh::Refresh`] widget and its retained pull.
+/// Pull-to-refresh: the [`refresh::RefreshIndicator`] widget and its retained pull.
 pub mod refresh;
 mod relayout;
 mod reorder;
@@ -129,14 +129,16 @@ mod ui;
 mod widget;
 mod widgettheme;
 
-pub use alert::{Alert, AlertKind};
+pub use alert::{AlertDialog, AlertKind};
 pub use animated::{AnimatedContainer, AnimatedOpacity, Opacity};
 pub use appbar::{platform_centers_title, AppBar, APP_BAR_HEIGHT};
 pub use aspectratio::AspectRatio;
 pub use autocomplete::Autocomplete;
-pub use avatar::Avatar;
+pub use avatar::CircleAvatar;
 pub use badge::Badge;
-pub use barrier::{AbsorbPointer, Barrier, ExcludeSemantics, IgnorePointer, Offstage, Visibility};
+pub use barrier::{
+    AbsorbPointer, ExcludeSemantics, IgnorePointer, ModalBarrier, Offstage, Visibility,
+};
 pub use baseline::{Baseline, IgnoreBaseline};
 pub use bottomappbar::{bar_spacer, notched_outline, BottomAppBar};
 pub use bottomsheet::BottomSheet;
@@ -146,7 +148,7 @@ pub use button::{
     BUTTON_PADDING, BUTTON_TEXT_PADDING,
 };
 pub use card::{Card, CardVariant, CARD_ELEVATION, CARD_MARGIN};
-pub use carousel::Carousel;
+pub use carousel::CarouselView;
 pub use chart::{BarChart, LineChart};
 pub use checkbox::Checkbox;
 pub use chip::{
@@ -154,7 +156,7 @@ pub use chip::{
     CHIP_RADIUS,
 };
 pub use clip::{ClipOval, ClipPath, ClipRRect};
-pub use collapsible::Collapsible;
+pub use collapsible::ExpansionTile;
 pub use colorpicker::ColorPicker;
 pub use constraints::{
     ConstrainedBox, Intrinsic, IntrinsicAxis, IntrinsicHeight, IntrinsicWidth, Overflow,
@@ -179,7 +181,7 @@ pub use dismiss::{
 pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_WIDTH};
-pub use dropdown::Dropdown;
+pub use dropdown::DropdownButton;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};
 pub use filters::{BackdropFilter, BackdropGroup, ColorFiltered, ImageFiltered, ShaderMask};
@@ -189,7 +191,7 @@ pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
 pub use fractional::FractionallySizedBox;
-pub use grid::Grid;
+pub use grid::GridView;
 pub use hero::{lerp_rect, Hero, HeroSpot};
 pub use icon::Icon;
 pub use iconbutton::{
@@ -206,17 +208,17 @@ pub use kanban::{kanban_slot, Kanban};
 pub use kbd::Kbd;
 pub use keyed::Keyed;
 pub use layoutbuilder::LayoutBuilder;
-pub use list::{List, VirtualList};
+pub use list::{ListView, VirtualList};
 pub use listtile::{
     ListTile, LIST_TILE_DENSE_HEIGHTS, LIST_TILE_HEIGHTS, LIST_TILE_MIN_LEADING_WIDTH,
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
 };
 pub use media::{Edges, MediaQuery};
-pub use menu::Menu;
-pub use navbar::NavBar;
+pub use menu::PopupMenuButton;
+pub use navbar::NavigationBar;
 pub use navigator::Navigator;
-pub use navrail::{BottomBar, NavRail};
+pub use navrail::{BottomBar, NavigationRail};
 pub use navscaffold::NavScaffold;
 pub use overscroll::{
     cross_axis as glow_cross_axis, edge_for, GlowEdge, OverscrollGlow, ScrollGlows,
@@ -229,13 +231,13 @@ pub use physics::{
     MIN_FLING_VELOCITY,
 };
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
-pub use popover::Popover;
-pub use portal::{Placement, Portal};
+pub use popover::MenuAnchor;
+pub use portal::{OverlayPortal, Placement};
 pub use positioned::{Positioned, Positioning};
-pub use progressbar::ProgressBar;
+pub use progressbar::LinearProgressIndicator;
 pub use radio::RadioGroup;
 pub use rating::Rating;
-pub use refresh::{Refresh, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
+pub use refresh::{RefreshIndicator, RefreshPhase, RefreshPull, RefreshSpec, Refreshable};
 pub use relayout::LayoutCache;
 pub use reorder::{reflow_reorder_cards, reflow_reorder_columns};
 pub use responsive::{responsive, Responsive};
@@ -247,9 +249,9 @@ pub use runtime::{
 };
 pub use safearea::SafeArea;
 pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
-pub use scroll::{Axis, Scroll};
+pub use scroll::{Axis, SingleChildScrollView};
 pub use segmented::{
-    SegmentedControl, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
+    SegmentedButton, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
 };
 pub use shortcuts::{
@@ -258,19 +260,19 @@ pub use shortcuts::{
 };
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
-pub use spinner::Spinner;
+pub use spinner::CircularProgressIndicator;
 pub use stack::{Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
 pub use switch::Switch;
 pub use table::Table;
 pub use tabs::{
-    Tabs, TabsVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_INDICATOR_PRIMARY,
+    TabBar, TabBarVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_INDICATOR_PRIMARY,
     TAB_INDICATOR_SECONDARY, TAB_LABEL_PADDING,
 };
 pub use text::Text;
 pub use textinput::{
-    TextInput, TextInputStyle, TextInputVariant, FIELD_BORDER_WIDTH,
+    TextField, TextFieldStyle, TextFieldVariant, FIELD_BORDER_WIDTH,
     FIELD_DENSE_OUTLINED_PADDING_BOTTOM, FIELD_DENSE_OUTLINED_PADDING_TOP, FIELD_DENSE_PADDING_Y,
     FIELD_DISABLED_OPACITY, FIELD_FOCUSED_BORDER_WIDTH, FIELD_GAP, FIELD_ICON_SIZE,
     FIELD_LABEL_SCALE, FIELD_NOTCH_GAP, FIELD_OUTLINED_PADDING_BOTTOM, FIELD_OUTLINED_PADDING_TOP,
@@ -281,8 +283,8 @@ pub use themebuilder::ThemeBuilder;
 pub use themed::Themed;
 pub use timeline::Timeline;
 pub use timepicker::{Endpoint, TimeField, TimePicker, TimeRange};
-pub use toast::{SnackbarQueue, Toast, ToastKind};
-pub use toasthost::{ToastHost, ToastPosition};
+pub use toast::{SnackBar, SnackBarKind, SnackBarQueue};
+pub use toasthost::{ScaffoldMessenger, SnackBarPosition};
 pub use transform::Transform;
 pub use tree::Tree;
 pub use twopane::TwoPane;
@@ -292,7 +294,7 @@ pub use ui::{
 };
 pub use widget::{CellFn, FilterContext, ReorderAxis, Widget};
 pub use widgettheme::{
-    AppBarTheme, CardTheme, DividerTheme, DrawerTheme, InkTheme, TabsTheme, TextInputTheme,
+    AppBarTheme, CardTheme, DividerTheme, DrawerTheme, InkTheme, TabBarTheme, TextFieldTheme,
     WidgetThemes,
 };
 

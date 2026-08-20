@@ -6,7 +6,7 @@
 //! is the ordinary scrollable machinery; what a page view changes is the single
 //! moment the finger lifts, where a fling is replaced by a spring to one page.
 //!
-//! Like [`crate::List`], it is **virtualised**: pages are built by an
+//! Like [`crate::ListView`], it is **virtualised**: pages are built by an
 //! `index → widget` closure and only the ones on screen exist. A hundred-page
 //! walkthrough costs the same per frame as a two-page one, and — the other side
 //! of the same coin — a page has **no retained state** while it is off screen.
@@ -169,7 +169,7 @@ impl<Msg> PageView<Msg> {
         self
     }
 
-    /// Overrides how the view behaves at its edges; see [`crate::Scroll::physics`].
+    /// Overrides how the view behaves at its edges; see [`crate::SingleChildScrollView::physics`].
     /// The **fling** is a page view's own business either way.
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
@@ -201,7 +201,7 @@ impl<Msg> Widget<Msg> for PageView<Msg> {
     fn style(&self) -> Style {
         // Filling then paging: a default dimension that was never asked for must not
         // stand as a flex **basis**, or the view would need `+200` of free room
-        // before it grew at all. The same trap as [`crate::Scroll::style`], and the
+        // before it grew at all. The same trap as [`crate::SingleChildScrollView::style`], and the
         // same answer: an `Auto` basis of 0, and `flex_grow` does the filling.
         let filling = self.flex_grow > 0.0;
         let width = if filling && !self.width_explicit {

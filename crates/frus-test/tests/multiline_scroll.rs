@@ -3,11 +3,11 @@
 //! eye.
 
 use frus_core::Size;
-use frus_widgets::{build_ui, collect_ids, Container, Runtime, TextInput, Theme};
+use frus_widgets::{build_ui, collect_ids, Container, Runtime, TextField, Theme};
 
 #[test]
 fn scrolled_multiline_matches_golden() {
-    let field = TextInput::<()>::new(
+    let field = TextField::<()>::new(
         "Line one\nLine two\nLine three\nLine four\nLine five\nLine six\nLine seven",
     )
     .width(280.0)

@@ -1,4 +1,4 @@
-//! [`NavBar`]: a persistent navigation bar — a centred title, an optional back
+//! [`NavigationBar`]: a persistent navigation bar — a centred title, an optional back
 //! button on the left. Placed at the head of a screen, it **slides and fades
 //! with it** during [`crate::Navigator`] transitions.
 
@@ -18,7 +18,7 @@ const PAD_LEFT: f32 = 28.0;
 const TITLE_SIZE: f32 = 20.0;
 
 /// A navigation bar: a title + an optional back button.
-pub struct NavBar<Msg> {
+pub struct NavigationBar<Msg> {
     title: String,
     /// Title style (default: 20 px, medium weight, the theme's color).
     title_style: TextStyle,
@@ -28,7 +28,7 @@ pub struct NavBar<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> NavBar<Msg> {
+impl<Msg: Clone + 'static> NavigationBar<Msg> {
     /// Creates a root bar: the title alone, with no back button.
     pub fn new(title: impl Into<String>) -> Self {
         Self {
@@ -63,7 +63,7 @@ impl<Msg: Clone + 'static> NavBar<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for NavBar<Msg> {
+impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Auto,
@@ -123,14 +123,14 @@ mod tests {
 
     #[test]
     fn root_bar_has_no_back_button() {
-        let bar: NavBar<Msg> = NavBar::new("Home");
+        let bar: NavigationBar<Msg> = NavigationBar::new("Home");
         assert!(Widget::children(&bar).is_empty());
     }
 
     #[test]
     fn title_style_and_height_are_customizable() {
         // Overridden title style and height (defaults: medium 20, 56 px).
-        let bar: NavBar<Msg> = NavBar::new("Title")
+        let bar: NavigationBar<Msg> = NavigationBar::new("Title")
             .title_style(TextStyle::new(24.0).weight(FontWeight::Bold).italic())
             .height(72.0);
         match Widget::style(&bar).height {
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn back_button_emits_message() {
-        let bar: NavBar<Msg> = NavBar::new("Settings").on_back(Msg::Back);
+        let bar: NavigationBar<Msg> = NavigationBar::new("Settings").on_back(Msg::Back);
         let ui = build_ui(
             &bar,
             Size::new(400.0, 56.0),
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn bar_paints_title_and_divider() {
-        let bar: NavBar<Msg> = NavBar::new("Title");
+        let bar: NavigationBar<Msg> = NavigationBar::new("Title");
         let ui = build_ui(
             &bar,
             Size::new(400.0, 56.0),

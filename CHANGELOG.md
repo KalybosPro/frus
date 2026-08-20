@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 366 so far, each documenting the objective, the alternatives
+> record — one per step, 367 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -69,6 +69,35 @@ any release may break.
   paying for it by quietly crushing something: a card footer that now wraps, a journal
   header that now ellipsises, an arithmetic slip of four pixels, a text fixture, a
   navigation rail and a two-pane that meant `Expanded`.
+
+### Changed
+
+- **The names the reference uses** (J367). Twenty widgets were the reference's widget
+  under a different name — `TextInput`, `List`, `Grid`, `Scroll`, `Toast`, `NavBar`,
+  `NavRail`, `Spinner`, `Collapsible`, `Popover` and the rest. The whole proposition here
+  is that someone who knows the reference already knows this framework, and a synonym
+  breaks that at the first line they write: they type what they know, it does not exist,
+  and they go looking for a widget that was there all along. It breaks search too — a
+  reader after "how do I limit a text field" searches for `TextField`.
+
+  `TextInput → TextField`, `List → ListView`, `Grid → GridView`,
+  `Scroll → SingleChildScrollView`, `Collapsible → ExpansionTile`, `Alert → AlertDialog`,
+  `Toast → SnackBar`, `ToastHost → ScaffoldMessenger`,
+  `Spinner → CircularProgressIndicator`, `ProgressBar → LinearProgressIndicator`,
+  `SegmentedControl → SegmentedButton`, `NavBar → NavigationBar`,
+  `NavRail → NavigationRail`, `Tabs → TabBar`, `Avatar → CircleAvatar`,
+  `Dropdown → DropdownButton`, `Menu → PopupMenuButton`, `Popover → MenuAnchor`,
+  `Refresh → RefreshIndicator`, `Barrier → ModalBarrier`, `Portal → OverlayPortal`,
+  `Carousel → CarouselView` — with `widgets.text_input` and `widgets.tabs` following as
+  `widgets.text_field` and `widgets.tab_bar`. Twelve widgets keep their names because the
+  reference has nothing to match them to.
+
+  Four exclusions, each a class rather than a one-off: `IconName::Menu` is a picture of
+  three lines, not this widget; a word **in quotes** is a label on a screen rather than a
+  name in the API; `Role::TextInput` and `Role::ProgressBar` belong to the screen reader's
+  vocabulary; and `Drag::Scroll` in the shell is an internal state. The one real collision
+  was `Tabs`, whose module already had a private `TabBar` — the composite takes the public
+  name, since that is what somebody types, and the strip inside is now `TabStrip`.
 
 ### Added
 

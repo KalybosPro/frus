@@ -36,7 +36,7 @@ pub(crate) fn settings_screen(
                 .option("Small")
                 .option("Medium")
                 .option("Large"),
-            Dropdown::new(MENU[app.menu_choice], Msg::ToggleMenu).options(
+            DropdownButton::new(MENU[app.menu_choice], Msg::ToggleMenu).options(
                 app.menu_open,
                 &MENU,
                 Msg::SetMenu,
@@ -83,7 +83,7 @@ pub(crate) fn settings_screen(
     // The tab's usable width (the viewport minus the column/tab paddings), bounded: the showcases
     // adapt to Compact instead of overflowing.
     let inner_w = (width - 72.0).clamp(240.0, 480.0);
-    let stats = Grid::new(3)
+    let stats = GridView::new(3)
         .gap(10.0)
         .width(inner_w)
         .cell(stat_tile(theme, "Total", total))
@@ -139,10 +139,10 @@ pub(crate) fn settings_screen(
         1 => text("About 35 widgets").size(16.0),
         _ => text("Thanks for trying!").size(16.0),
     };
-    let carousel = Carousel::new(app.slide, 3, Msg::SetSlide, slide);
+    let carousel = CarouselView::new(app.slide, 3, Msg::SetSlide, slide);
 
     // An info popover (arbitrary content, dismissed by an outside click).
-    let info = Popover::new(
+    let info = MenuAnchor::new(
         button("Info", Msg::ToggleInfo)
             .variant(Variant::Outlined)
             .size(15.0),
@@ -152,7 +152,7 @@ pub(crate) fn settings_screen(
     .content(
         Card::new().padding(16.0).child(
             column![
-                text("Popover").size(16.0),
+                text("MenuAnchor").size(16.0),
                 text("An arbitrary floating panel; closes on outside click.")
                     .size(14.0)
                     .color(theme.muted),
@@ -197,7 +197,7 @@ pub(crate) fn settings_screen(
         ]
         .gap(8.0),
         Divider::new(),
-        Collapsible::new("Advanced options", app.advanced_open, Msg::ToggleAdvanced).content(
+        ExpansionTile::new("Advanced options", app.advanced_open, Msg::ToggleAdvanced).content(
             column![
                 text("Explorer, palette, timeline:")
                     .size(15.0)
@@ -211,7 +211,7 @@ pub(crate) fn settings_screen(
         ),
     ]
     .gap(12.0);
-    let tabs = Tabs::new(app.settings_tab, Msg::SetSettingsTab)
+    let tabs = TabBar::new(app.settings_tab, Msg::SetSettingsTab)
         .tab("Controls", controls)
         .tab("About", about);
     let content = column![
@@ -224,8 +224,11 @@ pub(crate) fn settings_screen(
     .gap(16.0);
     // The content (the calendar, the advanced options…) is taller than the screen: it scrolls
     // under the bar, which stays pinned.
-    let body = Scroll::new().width(width).flex(1.0).child(content);
-    let screen = column![NavBar::new("Settings").on_back(Msg::Pop), body]
+    let body = SingleChildScrollView::new()
+        .width(width)
+        .flex(1.0)
+        .child(content);
+    let screen = column![NavigationBar::new("Settings").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
     Container::new()

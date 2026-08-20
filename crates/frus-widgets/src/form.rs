@@ -11,7 +11,7 @@
 //!   **first** failing field, the one to focus?
 //!
 //! Nothing here draws: the application calls [`crate::form::Form::error`] to feed a
-//! [`crate::TextInput`]'s `error(...)`, and [`crate::form::Form::first_invalid`] to target the
+//! [`crate::TextField`]'s `error(...)`, and [`crate::form::Form::first_invalid`] to target the
 //! field to bring out. Validity stays a **pure function of the state**.
 //!
 //! ```

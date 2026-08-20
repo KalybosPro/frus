@@ -1,6 +1,6 @@
 //! **One disabled state**, shared by every control that can be unavailable.
 //!
-//! Milestone 320 gave `Chip` and `SegmentedControl` an `enabled` flag and ended by
+//! Milestone 320 gave `Chip` and `SegmentedButton` an `enabled` flag and ended by
 //! noting that each control was carrying its own copy of the rule. That undersold it:
 //! five widgets had the flag with the same two colours written out by hand in each, and
 //! **ten more had no way to be disabled at all**. A form could not grey out a checkbox,

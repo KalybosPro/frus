@@ -49,7 +49,7 @@ use crate::bottomappbar::BottomAppBar;
 use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
-use crate::navrail::{BottomBar, NavRail, BAR_HEIGHT, RAIL_WIDTH};
+use crate::navrail::{BottomBar, NavigationRail, BAR_HEIGHT, RAIL_WIDTH};
 use crate::stack::Stack;
 use crate::widget::Widget;
 
@@ -260,11 +260,11 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     /// The screen's body: it **fills** the space between the bars.
     ///
     /// It does **not** scroll. A body that may be taller than the room it is given
-    /// goes inside a scrolling widget the screen chooses — [`Scroll`](crate::Scroll)
-    /// for a page that occasionally overflows, [`List`](crate::List) for a long one:
+    /// goes inside a scrolling widget the screen chooses — [`SingleChildScrollView`](crate::SingleChildScrollView)
+    /// for a page that occasionally overflows, [`ListView`](crate::ListView) for a long one:
     ///
     /// ```ignore
-    /// .body(Scroll::new().flex(1.0).child(form))
+    /// .body(SingleChildScrollView::new().flex(1.0).child(form))
     /// ```
     ///
     /// Left plain, the body is positioned at the top of that room, so a body that
@@ -455,7 +455,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 }
                 Some(Box::new(bar))
             } else {
-                let mut rail = NavRail::new(selected, on_select);
+                let mut rail = NavigationRail::new(selected, on_select);
                 for (icon, label, badge) in &destinations {
                     rail = rail.item(icon.clone(), label.clone());
                     if let Some(count) = *badge {
@@ -930,7 +930,11 @@ mod tests {
         assert!(
             scrollable_under_the_middle(
                 Scaffold::new(W, H)
-                    .body(crate::Scroll::new().flex(1.0).child(marked::<Msg>(2000.0)))
+                    .body(
+                        crate::SingleChildScrollView::new()
+                            .flex(1.0)
+                            .child(marked::<Msg>(2000.0))
+                    )
                     .build()
             ),
             "and a body that asks for a scroller gets one"

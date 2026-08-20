@@ -1,4 +1,4 @@
-//! [`Carousel`]: ‹ › arrows around a **current slide** the application supplies, so
+//! [`CarouselView`]: ‹ › arrows around a **current slide** the application supplies, so
 //! it is controlled. Only one slide is realised at a time.
 
 use frus_core::{Rect, Scene};
@@ -20,11 +20,11 @@ fn arrow<Msg: Clone + 'static>(label: &str, message: Option<Msg>) -> Box<dyn Wid
 }
 
 /// A controlled carousel.
-pub struct Carousel<Msg> {
+pub struct CarouselView<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> Carousel<Msg> {
+impl<Msg: Clone + 'static> CarouselView<Msg> {
     /// Creates the carousel: slide `index` of `count`, `on_change(i)` on the arrows,
     /// and the current slide's content — the app knows what to show for `index`.
     pub fn new(
@@ -41,7 +41,7 @@ impl<Msg: Clone + 'static> Carousel<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Carousel<Msg> {
+impl<Msg: Clone> Widget<Msg> for CarouselView<Msg> {
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Row,
@@ -75,14 +75,14 @@ mod tests {
     #[test]
     fn arrows_bounded_and_emit_change() {
         // Slide 0 of 3: ‹ disabled, › goes to 1.
-        let first = Carousel::new(0, 3, Msg::Go, Text::new("A"));
+        let first = CarouselView::new(0, 3, Msg::Go, Text::new("A"));
         let c = Widget::<Msg>::children(&first);
         assert_eq!(c.len(), 3);
         assert_eq!(c[0].on_click(), None); // ‹ disabled at the start
         assert_eq!(c[2].on_click(), Some(Msg::Go(1))); // › goes to slide 1
 
         // Slide 2 of 3: ‹ goes to 1, › disabled.
-        let last = Carousel::new(2, 3, Msg::Go, Text::new("C"));
+        let last = CarouselView::new(2, 3, Msg::Go, Text::new("C"));
         let c = Widget::<Msg>::children(&last);
         assert_eq!(c[0].on_click(), Some(Msg::Go(1)));
         assert_eq!(c[2].on_click(), None);

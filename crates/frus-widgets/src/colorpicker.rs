@@ -1,10 +1,10 @@
 //! [`ColorPicker`]: a palette of clickable colour swatches, built on
-//! [`crate::Grid`]. The selected swatch carries a ring.
+//! [`crate::GridView`]. The selected swatch carries a ring.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::grid::Grid;
+use crate::grid::GridView;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -59,7 +59,7 @@ impl<Msg: Clone> Widget<Msg> for Swatch<Msg> {
 pub struct ColorPicker<Msg> {
     selected: Option<Color>,
     on_pick: Box<dyn Fn(Color) -> Msg>,
-    grid: Grid<Msg>,
+    grid: GridView<Msg>,
 }
 
 impl<Msg: Clone + 'static> ColorPicker<Msg> {
@@ -73,7 +73,7 @@ impl<Msg: Clone + 'static> ColorPicker<Msg> {
         Self {
             selected,
             on_pick: Box::new(on_pick),
-            grid: Grid::new(columns.max(1)).gap(8.0),
+            grid: GridView::new(columns.max(1)).gap(8.0),
         }
     }
 
@@ -90,8 +90,8 @@ impl<Msg: Clone + 'static> ColorPicker<Msg> {
     }
 }
 
-// `Msg: 'static` follows the grid this picker *is*: a `Grid` can build its cells late
-// (`Grid::extent`), and a closure that hands back a boxed widget needs the message type
+// `Msg: 'static` follows the grid this picker *is*: a `GridView` can build its cells late
+// (`GridView::extent`), and a closure that hands back a boxed widget needs the message type
 // to outlive it. Every application's message enum does.
 impl<Msg: 'static> Widget<Msg> for ColorPicker<Msg> {
     fn style(&self) -> Style {

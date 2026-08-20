@@ -12,7 +12,7 @@ use frus_layout::{Layout, NodeId, Overflowing, Side};
 
 use crate::shortcuts::{Intent, KeyStroke};
 
-use crate::barrier::Barrier;
+use crate::barrier::ModalBarrier;
 use crate::dismiss::{DismissPhase, Dismissable};
 use crate::dragdrop::{DragSource, DropZone};
 use crate::hero::{lerp_rect, HeroSpot};
@@ -71,7 +71,7 @@ pub struct Scrollable {
     pub max_y: f32,
     /// The area's own physics, when it asked for one.
     pub physics: Option<ScrollPhysics>,
-    /// The [`crate::Refresh`] area this scrollable sits inside, when there is one.
+    /// The [`crate::RefreshIndicator`] area this scrollable sits inside, when there is one.
     /// Movement refused at its **top** edge feeds that area's pull instead of the
     /// overscroll glow.
     pub refresh: Option<WidgetId>,
@@ -112,7 +112,7 @@ impl Scrollable {
     /// end-of-content glow either. An edge effect where there is no edge to meet is a
     /// statement about the content that is not true.
     ///
-    /// A [`crate::Refresh`] listening above is the exception, and the same one the
+    /// A [`crate::RefreshIndicator`] listening above is the exception, and the same one the
     /// reference makes: a list of two items must still pull down to reload.
     pub fn accepts_user_offset(&self, offset: (f32, f32)) -> bool {
         self.max_x > 0.0
@@ -268,7 +268,7 @@ struct Snapshot {
 /// (a scale/rotation layer): only what the subtree has just added is re-mapped. Distinct from
 /// [`Snapshot`] (the boundary cache) because it **includes `reorderables`** — those are never
 /// cached but do have to be transformed. See [`transform_interaction_registries`].
-/// Lengths of the registries a [`Barrier`] withholds from, on entering its subtree: the
+/// Lengths of the registries a [`ModalBarrier`] withholds from, on entering its subtree: the
 /// point each is truncated back to on the way out. Distinct from [`XformBase`] because a
 /// barrier also covers the **scene** and the **scrollbars**, and distinct from [`Snapshot`]
 /// because it covers the registries that are never cached.
@@ -798,7 +798,7 @@ impl<Msg: Clone> Ui<Msg> {
         self.scrollables.iter().find(|area| area.id == id).copied()
     }
 
-    /// Scroll bounds `(id, max_x, max_y)` of every scrollable area.
+    /// SingleChildScrollView bounds `(id, max_x, max_y)` of every scrollable area.
     pub fn scrollable_maxes(&self) -> Vec<(WidgetId, f32, f32)> {
         self.scrollables
             .iter()
@@ -1658,7 +1658,7 @@ struct Builder<'a, Msg> {
     /// Current depth of the walk (for the dump's indentation and the palette of the
     /// inspector's outlines).
     depth: usize,
-    /// The [`crate::Refresh`] area currently being walked, if any: every scrollable
+    /// The [`crate::RefreshIndicator`] area currently being walked, if any: every scrollable
     /// registered under it records it, so the shell knows where to send the movement
     /// its physics refuses. Saved and restored around the subtree, so sibling areas do
     /// not inherit one another's.
@@ -1881,7 +1881,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.semantics.extend(data.semantics);
     }
 
-    /// Lengths of every registry a [`Barrier`] can withhold from, taken before its subtree
+    /// Lengths of every registry a [`ModalBarrier`] can withhold from, taken before its subtree
     /// is walked.
     fn barrier_base(&self) -> BarrierBase {
         BarrierBase {
@@ -1989,7 +1989,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
-    fn apply_barrier(&mut self, barrier: Barrier, base: &BarrierBase, id: WidgetId, own: Rect) {
+    fn apply_barrier(
+        &mut self,
+        barrier: ModalBarrier,
+        base: &BarrierBase,
+        id: WidgetId,
+        own: Rect,
+    ) {
         if barrier.pointer {
             self.hits.truncate(base.hits);
             self.long_presses.truncate(base.long_presses);
@@ -2512,7 +2518,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // order it against anything else (milestone 295).
         self.scene.set_bounds(draw_rect);
         widget.paint(draw_rect, status, &self.theme, &mut self.scene);
-        // A widget may have tightened the clip (TextInput, for one): it is restored here.
+        // A widget may have tightened the clip (TextField, for one): it is restored here.
         self.scene.set_clip(clip);
         // The ink a tap left on this surface: over the surface's own paint, under its
         // children — where a material surface puts it. The box is recorded too, so the
@@ -3102,7 +3108,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // **Filled**, not merely constrained: the content is handed this box, and it
             // was built from this box in the first place. Constraining it instead let a
             // root with no width of its own hug its content — a grid built here laid its
-            // columns out at nothing, which is what `Grid::extent`'s first tests found
+            // columns out at nothing, which is what `GridView::extent`'s first tests found
             // (milestone 356). The same distinction a list's items and a paged view's
             // pages already draw.
             let child_rects = self.cached_rects(
@@ -4104,7 +4110,10 @@ fn fold_filter(
 mod tests {
     use super::*;
     use crate::runtime::Edit;
-    use crate::{Button, Container, Flex, Key, Keyed, Placement, Portal, Scroll, TextInput};
+    use crate::{
+        Button, Container, Flex, Key, Keyed, OverlayPortal, Placement, SingleChildScrollView,
+        TextField,
+    };
     use frus_core::{Color, Point, Primitive, Rect, Size};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -4387,7 +4396,7 @@ mod tests {
 
     #[test]
     fn modal_traps_tab_arrows_and_pointer_focus() {
-        use crate::portal::{Placement, Portal};
+        use crate::portal::{OverlayPortal, Placement};
         // The background: two focusable buttons; the open modal: two buttons as well.
         let dialog = Flex::<Msg>::row()
             .child(Button::new("ok").on_press(Msg::C))
@@ -4396,7 +4405,7 @@ mod tests {
             .child(Button::new("bg1").on_press(Msg::A))
             .child(Button::new("bg2").on_press(Msg::B))
             .child(
-                Portal::new(Container::new())
+                OverlayPortal::new(Container::new())
                     .overlay(dialog, Placement::Center)
                     .dismiss(Msg::A),
             );
@@ -4449,9 +4458,9 @@ mod tests {
 
     #[test]
     fn open_menu_traps_focus_in_its_items() {
-        use crate::Menu;
+        use crate::PopupMenuButton;
         // A focusable background plus an **open** menu (anchor + two items).
-        let menu = Menu::new(Button::new("open").on_press(Msg::A), true, Msg::D)
+        let menu = PopupMenuButton::new(Button::new("open").on_press(Msg::A), true, Msg::D)
             .item("one", Msg::B)
             .item("two", Msg::C);
         let tree: Flex<Msg> = Flex::column()
@@ -4485,7 +4494,7 @@ mod tests {
         // The menu **closed**: no trap, Tab starts at the background.
         let closed: Flex<Msg> = Flex::column()
             .child(Button::new("bg").on_press(Msg::A))
-            .child(Menu::new(
+            .child(PopupMenuButton::new(
                 Button::new("open").on_press(Msg::B),
                 false,
                 Msg::D,
@@ -4502,7 +4511,7 @@ mod tests {
 
     #[test]
     fn escape_infrastructure_finds_path_and_topmost_dismiss() {
-        use crate::portal::{Placement, Portal};
+        use crate::portal::{OverlayPortal, Placement};
         // An open portal (a modal with a dismissal) around a clickable anchor.
         let anchor = Container::<Msg>::new()
             .width(50.0)
@@ -4512,7 +4521,7 @@ mod tests {
             .width(80.0)
             .height(40.0)
             .on_click(Msg::B);
-        let portal = Portal::new(anchor)
+        let portal = OverlayPortal::new(anchor)
             .overlay(content, Placement::Center)
             .dismiss(Msg::C);
         let tree: Flex<Msg> = Flex::column().child(portal);
@@ -4652,7 +4661,7 @@ mod tests {
         // A multi-line field whose content exceeds `rows` registers itself as a scrollable
         // area (with `max_y > 0`) — which is what the wheel and the scrollbar target. A short
         // field does not register.
-        let tall = TextInput::<Msg>::new("a\nb\nc\nd\ne\nf")
+        let tall = TextField::<Msg>::new("a\nb\nc\nd\ne\nf")
             .on_input(Msg::Edited)
             .rows(2)
             .width(200.0);
@@ -4663,7 +4672,7 @@ mod tests {
         assert_eq!(maxes.len(), 1, "the overflowing field registers");
         assert!(maxes[0].2 > 0.0, "max_y > 0 (overflowing content)");
 
-        let short = TextInput::<Msg>::new("a\nb")
+        let short = TextField::<Msg>::new("a\nb")
             .on_input(Msg::Edited)
             .rows(4)
             .width(200.0);
@@ -4682,7 +4691,7 @@ mod tests {
         // capture the click. Only text fields place one.
         let button = Button::<Msg>::new("x").on_press(Msg::A);
         assert_eq!(Widget::<Msg>::cursor_at(&button, 10.0, 5.0, 200.0, 0), None);
-        let input = TextInput::<Msg>::new("hi").on_input(Msg::Edited);
+        let input = TextField::<Msg>::new("hi").on_input(Msg::Edited);
         assert!(Widget::<Msg>::cursor_at(&input, 10.0, 5.0, 200.0, 0).is_some());
     }
 
@@ -4740,7 +4749,7 @@ mod tests {
             "a click does not flash a ring"
         );
 
-        let with_input = Flex::<Msg>::column().child(TextInput::new("hi").on_input(Msg::Edited));
+        let with_input = Flex::<Msg>::column().child(TextField::new("hi").on_input(Msg::Edited));
         assert_eq!(
             count_ring(&with_input, true),
             0,
@@ -4863,9 +4872,10 @@ mod tests {
             .width(100.0)
             .height(60.0)
             .color(Color::WHITE);
-        let portal: Portal<Msg> = Portal::new(Container::<Msg>::new().width(20.0).height(20.0))
-            .overlay(modal, Placement::Center)
-            .dismiss(Msg::A);
+        let portal: OverlayPortal<Msg> =
+            OverlayPortal::new(Container::<Msg>::new().width(20.0).height(20.0))
+                .overlay(modal, Placement::Center)
+                .dismiss(Msg::A);
         let ui = build_ui(
             &portal,
             Size::new(400.0, 300.0),
@@ -4883,7 +4893,7 @@ mod tests {
         let tree = Flex::column()
             .width(300.0)
             .height(80.0)
-            .child(TextInput::new("hi").width(200.0).on_input(Msg::Edited));
+            .child(TextField::new("hi").width(200.0).on_input(Msg::Edited));
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(300.0, 80.0), &rt, &Theme::default());
         let (id, _rect) = ui.focus_hit(Point::new(10.0, 10.0)).expect("the field");
@@ -4913,11 +4923,11 @@ mod tests {
         let tree: Flex<Msg> = Flex::column()
             .child(Keyed::new(
                 "email",
-                TextInput::new("").on_input(Msg::Edited),
+                TextField::new("").on_input(Msg::Edited),
             ))
             .child(Keyed::new(
                 "password",
-                TextInput::new("").on_input(Msg::Edited),
+                TextField::new("").on_input(Msg::Edited),
             ));
 
         let email = find_by_key(&tree, hash("email")).expect("email was found");
@@ -5027,7 +5037,7 @@ mod tests {
 
     #[test]
     fn an_overscroll_glow_is_painted_over_its_scroll_area() {
-        let tree = Scroll::<Msg>::new()
+        let tree = SingleChildScrollView::<Msg>::new()
             .width(200.0)
             .height(100.0)
             .child(Container::<Msg>::new().width(100.0).height(400.0));
@@ -5071,7 +5081,10 @@ mod tests {
     fn a_scroll_area_carries_its_physics_into_the_registry() {
         let content = Container::<Msg>::new().width(100.0).height(400.0);
         // Unset: the region says nothing and the application decides.
-        let plain = Scroll::new().width(200.0).height(100.0).child(content);
+        let plain = SingleChildScrollView::new()
+            .width(200.0)
+            .height(100.0)
+            .child(content);
         let rt = Runtime::default();
         let ui = build_ui(&plain, Size::new(200.0, 100.0), &rt, &Theme::default());
         assert_eq!(ui.scroll_regions()[0].physics, None);
@@ -5082,7 +5095,7 @@ mod tests {
         );
 
         // Set: the area's own choice wins over the application's.
-        let bouncy = Scroll::new()
+        let bouncy = SingleChildScrollView::new()
             .width(200.0)
             .height(100.0)
             .physics(ScrollPhysics::Bouncing)
@@ -5120,7 +5133,10 @@ mod tests {
                     .height(60.0)
                     .color(Color::rgb(0.0, 0.0, 1.0)),
             );
-        let tree = Scroll::new().width(200.0).height(100.0).child(content);
+        let tree = SingleChildScrollView::new()
+            .width(200.0)
+            .height(100.0)
+            .child(content);
 
         let rt = Runtime::default();
         let ui = build_ui(&tree, Size::new(200.0, 100.0), &rt, &Theme::default());
@@ -5173,11 +5189,11 @@ mod tests {
     #[test]
     fn reorderables_inside_a_scroll_are_still_registered() {
         // The milestone 258/260 scenario: the board (with its reorderable cards) is **wrapped
-        // in a `Scroll`**. The reorderables must stay registered — otherwise dragging a card
+        // in a `SingleChildScrollView`**. The reorderables must stay registered — otherwise dragging a card
         // stops engaging as soon as the board scrolls.
-        use crate::{Axis, Kanban, Scroll};
+        use crate::{Axis, Kanban, SingleChildScrollView};
         let board = Kanban::new(|_, _, _, _| Msg::A).column("To do", ["Card A"]);
-        let scrolled = Scroll::new()
+        let scrolled = SingleChildScrollView::new()
             .axis(Axis::Horizontal)
             .width(400.0)
             .height(300.0)
@@ -5186,7 +5202,7 @@ mod tests {
         let ui = build_ui(&scrolled, Size::new(400.0, 300.0), &rt, &Theme::default());
         assert!(
             ui.reorderables.len() >= 2,
-            "the card + the drop zone stay reorderable even inside a Scroll (got {})",
+            "the card + the drop zone stay reorderable even inside a SingleChildScrollView (got {})",
             ui.reorderables.len()
         );
     }
@@ -5194,7 +5210,7 @@ mod tests {
     #[test]
     fn reorderables_inside_a_per_column_card_scroll_are_still_registered() {
         // Milestone 264: `card_area_height` puts each column's cards inside a **vertical
-        // `Scroll` with an explicit height**. This is exactly the case that *collapsed* at
+        // `SingleChildScrollView` with an explicit height**. This is exactly the case that *collapsed* at
         // milestone 263 (a flex scroll with no defined ancestor height → cards clipped to zero
         // and no longer reorderable). With a **defined** height the visible cards must stay
         // registered as reorderables — a guard against a regression of per-column dragging.
@@ -5218,22 +5234,22 @@ mod tests {
         // height (laid out in an ancestor with a defined height), and each column scrolls its
         // cards vertically **with no explicit height** (the flex does the arithmetic, so the
         // milestone 264 stopgap is gone). This checks that at least one column has a vertical
-        // `Scroll` whose viewport **fills** the height (far more than the default 200) and
+        // `SingleChildScrollView` whose viewport **fills** the height (far more than the default 200) and
         // **scrolls** (max_y > 0), which is the proof of fill-then-scroll.
-        use crate::{Axis, Container, Flex, Kanban, Scroll};
+        use crate::{Axis, Container, Flex, Kanban, SingleChildScrollView};
         // Enough cards to **overflow** the filled viewport (otherwise max_y = 0: nothing to scroll).
         let long: Vec<String> = (0..24).map(|i| format!("card {i}")).collect();
         let board = Kanban::new(|_, _, _, _| Msg::A)
             .scrollable_columns()
             .column("To do", long);
         // `board_screen`'s nesting: the board inside a **plain `Container` with padding** (the
-        // visual margin), itself inside a horizontal `flex(1)` Scroll, inside a screen (a Flex
+        // visual margin), itself inside a horizontal `flex(1)` SingleChildScrollView, inside a screen (a Flex
         // column) of bounded height. That `Auto` `Container` **collapsed** at milestone 266
         // (hence the `Flex` `flex(1)` workaround); since `compute_scroll` **fills the
         // constrained axis**, it fills the viewport's height and the board follows — no filler
         // container needed any more.
         let padded = Container::<Msg>::new().padding(24.0).child(board);
-        let scroll_h = Scroll::new()
+        let scroll_h = SingleChildScrollView::new()
             .axis(Axis::Horizontal)
             .width(360.0)
             .flex(1.0)

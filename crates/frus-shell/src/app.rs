@@ -1141,7 +1141,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     return;
                 }
 
-                // Escape walks **leaf to root** from the focused widget — a `Portal`
+                // Escape walks **leaf to root** from the focused widget — an `OverlayPortal`
                 // consumes it to close itself — and failing that closes the topmost
                 // overlay, so Escape works with nothing focused.
                 if matches!(event.logical_key, WinitKey::Named(NamedKey::Escape)) {
@@ -3274,7 +3274,7 @@ impl<A: Application> App<A> {
                 frus_widgets::Side::Bottom => "bottom",
             };
             log::warn!(
-                "a box {:.0}x{:.0} is overflowed by {:.0} px on the {side}: its children                  do not fit inside it, and what runs past the edge is drawn outside its                  parent — invisible where something clips it, and untappable where it                  leaves the window. Give the child that should give way an `Expanded`,                  or put the content in a `Scroll`.",
+                "a box {:.0}x{:.0} is overflowed by {:.0} px on the {side}: its children                  do not fit inside it, and what runs past the edge is drawn outside its                  parent — invisible where something clips it, and untappable where it                  leaves the window. Give the child that should give way an `Expanded`,                  or put the content in a `SingleChildScrollView`.",
                 o.rect.width,
                 o.rect.height,
                 o.amount,

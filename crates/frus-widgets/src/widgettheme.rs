@@ -46,8 +46,8 @@ pub struct WidgetThemes {
     pub segmented: SegmentedTheme,
     pub slider: SliderTheme,
     pub switch: SwitchTheme,
-    pub tabs: TabsTheme,
-    pub text_input: TextInputTheme,
+    pub tab_bar: TabBarTheme,
+    pub text_field: TextFieldTheme,
 }
 
 /// Defaults for [`Checkbox`](crate::Checkbox).
@@ -132,9 +132,9 @@ pub struct AppBarTheme {
     pub height: Option<f32>,
 }
 
-/// Defaults for [`TextInput`](crate::TextInput).
+/// Defaults for [`TextField`](crate::TextField).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct TextInputTheme {
+pub struct TextFieldTheme {
     /// The container's fill. A filled field takes the theme's high surface container by
     /// default; an outlined one has none.
     pub fill: Option<Color>,
@@ -257,7 +257,7 @@ pub struct DrawerTheme {
     pub width: Option<f32>,
 }
 
-/// Defaults for [`SegmentedControl`](crate::SegmentedControl).
+/// Defaults for [`SegmentedButton`](crate::SegmentedButton).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SegmentedTheme {
     /// The fill under the chosen segment.
@@ -284,11 +284,11 @@ pub struct SegmentedTheme {
     pub show_selected_icon: Option<bool>,
 }
 
-/// Defaults for [`Tabs`](crate::Tabs) — the bar, its labels and its indicator.
+/// Defaults for [`TabBar`](crate::TabBar) — the bar, its labels and its indicator.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct TabsTheme {
-    /// Which of the two bars an untold `Tabs::new()` is.
-    pub variant: Option<crate::tabs::TabsVariant>,
+pub struct TabBarTheme {
+    /// Which of the two bars an untold `TabBar::new()` is.
+    pub variant: Option<crate::tabs::TabBarVariant>,
     /// The indicator's colour.
     pub indicator_color: Option<Color>,
     /// Its thickness — and, on a primary bar, the radius of its top corners.
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(WidgetThemes::default().divider.height, None);
         assert_eq!(WidgetThemes::default().drawer.width, None);
         assert_eq!(WidgetThemes::default().ink.color, None);
-        assert_eq!(WidgetThemes::default().tabs.indicator_color, None);
+        assert_eq!(WidgetThemes::default().tab_bar.indicator_color, None);
         assert_eq!(WidgetThemes::default().chip.height, None);
         assert_eq!(WidgetThemes::default().button.height, None);
         assert_eq!(WidgetThemes::default().segmented.height, None);

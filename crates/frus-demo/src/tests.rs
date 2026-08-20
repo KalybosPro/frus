@@ -374,8 +374,8 @@ fn grid_edit_navigate_and_resize() {
             "b@x.com".to_string(),
         ],
     ]);
-    reduce(&mut app, Msg::Push(Route::Grid));
-    assert_eq!(current_route(&app), Route::Grid);
+    reduce(&mut app, Msg::Push(Route::GridView));
+    assert_eq!(current_route(&app), Route::GridView);
     assert!(primitive_count(&app) > 0, "the grid renders");
     // Typing in a cell updates the right box (the grid is always editable).
     reduce(&mut app, Msg::GridInput(0, 1, "Mathematician".to_string()));
@@ -889,7 +889,7 @@ fn snackbar_queue_orders_and_exits() {
     assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
     assert!(!app.snackbars.is_leaving(), "shown, not exiting yet");
     // Expiry → the head moves into its **exit** (a fade) without disappearing.
-    reduce(&mut app, Msg::ToastExpire);
+    reduce(&mut app, Msg::SnackBarExpire);
     assert!(app.snackbars.is_leaving());
     assert_eq!(app.snackbars.current().map(String::as_str), Some("A"));
     // Removal → the next one takes over (fading in).
@@ -897,7 +897,7 @@ fn snackbar_queue_orders_and_exits() {
     assert_eq!(app.snackbars.current().map(String::as_str), Some("B"));
     assert!(!app.snackbars.is_leaving());
     // The last one: exit then removal → an empty queue.
-    reduce(&mut app, Msg::ToastExpire);
+    reduce(&mut app, Msg::SnackBarExpire);
     reduce(&mut app, Msg::DismissToast);
     assert!(app.snackbars.is_empty());
 }
@@ -1105,7 +1105,7 @@ fn no_screen_draws_outside_itself() {
         Route::Settings,
         Route::Journal,
         Route::Wizard,
-        Route::Grid,
+        Route::GridView,
         Route::Charts,
         Route::Data,
         Route::Board,

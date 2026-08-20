@@ -468,7 +468,7 @@ macro_rules! forward_transparent {
                 self.inner.tile_shape()
             }
 
-            fn barrier(&self) -> Option<$crate::barrier::Barrier> {
+            fn barrier(&self) -> Option<$crate::barrier::ModalBarrier> {
                 self.inner.barrier()
             }
 

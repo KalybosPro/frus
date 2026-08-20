@@ -1,4 +1,4 @@
-//! [`TextInput`]: a single-line input field, **controlled** (its value comes from
+//! [`TextField`]: a single-line input field, **controlled** (its value comes from
 //! the application state), with a caret, navigation and selection.
 //!
 //! The value is controlled; the **caret / selection** are edit state retained at
@@ -17,19 +17,19 @@ use crate::widget::Widget;
 
 /// Padding either side of the content, both variants.
 pub const FIELD_PADDING_X: f32 = 12.0;
-/// Padding above and below the content in a [`filled`](TextInput::filled) field.
+/// Padding above and below the content in a [`filled`](TextField::filled) field.
 ///
 /// The reference's Material 3 content padding is `(12, 8, 12, 8)` filled and
 /// `(12, 20, 12, 12)` outlined. The asymmetry is not decoration: an outlined field's
 /// floating label sits **on** the top border, so the top has to give it room, while a
 /// filled one floats its label inside the box.
 pub const FIELD_PADDING_Y: f32 = 8.0;
-/// Padding above the content in an [`outlined`](TextInput::outlined) field.
+/// Padding above the content in an [`outlined`](TextField::outlined) field.
 pub const FIELD_OUTLINED_PADDING_TOP: f32 = 20.0;
 /// Padding below the content in an outlined field.
 pub const FIELD_OUTLINED_PADDING_BOTTOM: f32 = 12.0;
 
-/// Padding above and below the content in a [`dense`](TextInput::dense) filled field —
+/// Padding above and below the content in a [`dense`](TextField::dense) filled field —
 /// the reference's `(12, 4, 12, 4)`.
 pub const FIELD_DENSE_PADDING_Y: f32 = 4.0;
 /// Padding above the content in a dense **outlined** field: the reference's
@@ -74,7 +74,7 @@ const OBSCURE_CHAR: char = '•';
 
 /// Which of the reference's two fields this is.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-pub enum TextInputVariant {
+pub enum TextFieldVariant {
     /// A box the caller can see all the way round, the floating label notching its top
     /// border. The default here.
     #[default]
@@ -84,10 +84,10 @@ pub enum TextInputVariant {
     Filled,
 }
 
-/// Everything a [`TextInput`] paints, each answer the caller's, the theme's, or the
+/// Everything a [`TextField`] paints, each answer the caller's, the theme's, or the
 /// framework's — resolved in that order.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct TextInputStyle {
+pub struct TextFieldStyle {
     /// Container fill. A filled field defaults to the theme's high surface container; an
     /// outlined one to nothing at all.
     pub fill: Option<frus_core::Color>,
@@ -123,8 +123,8 @@ pub struct TextInputStyle {
 /// helper text, error). **Validity** stays decided by the application (a pure
 /// function of the state); the field only displays its result through [`error`].
 ///
-/// [`error`]: TextInput::error
-pub struct TextInput<Msg> {
+/// [`error`]: TextField::error
+pub struct TextField<Msg> {
     value: String,
     size: f32,
     width: Dimension,
@@ -155,20 +155,20 @@ pub struct TextInput<Msg> {
     /// Number of visible lines in multi-line mode.
     rows: u16,
     /// Which of the reference's two fields to draw.
-    variant: TextInputVariant,
+    variant: TextFieldVariant,
     /// A field that is shown but cannot be edited: greyed out, and inert. It still
     /// displays its value — the reference's disabled field is readable, not hidden.
     enabled: bool,
     /// A **dense** field: the same shape, less room around the content. What a table's
     /// inline cell editor wants, and what a form does not.
     dense: bool,
-    /// The most characters the field will hold; see [`TextInput::max_length`].
+    /// The most characters the field will hold; see [`TextField::max_length`].
     max_length: Option<usize>,
     /// A field whose value can be read, selected and copied but not changed; see
-    /// [`TextInput::read_only`].
+    /// [`TextField::read_only`].
     read_only: bool,
     /// Per-call overrides; everything unset falls to the theme, then the framework.
-    style: TextInputStyle,
+    style: TextFieldStyle,
 }
 
 /// A "word" character (letter/digit/`_`) for word jumps (Ctrl+Arrow).
@@ -234,7 +234,7 @@ fn move_cursor(cursor: &mut usize, anchor: &mut Option<usize>, target: usize, sh
     *cursor = target;
 }
 
-impl<Msg> TextInput<Msg> {
+impl<Msg> TextField<Msg> {
     /// Creates a field displaying `value`.
     pub fn new(value: impl Into<String>) -> Self {
         Self {
@@ -253,31 +253,31 @@ impl<Msg> TextInput<Msg> {
             suffix_action: None,
             multiline: false,
             rows: 3,
-            variant: TextInputVariant::Outlined,
+            variant: TextFieldVariant::Outlined,
             enabled: true,
             dense: false,
             max_length: None,
             read_only: false,
-            style: TextInputStyle::default(),
+            style: TextFieldStyle::default(),
         }
     }
 
     /// **Outlined**: a box the caller can see all the way round, the floating label
     /// notching its top border. The default.
     pub fn outlined(mut self) -> Self {
-        self.variant = TextInputVariant::Outlined;
+        self.variant = TextFieldVariant::Outlined;
         self
     }
 
     /// **Filled**: a tinted container with a single line under it, the label floating
     /// inside the box rather than on its edge.
     pub fn filled(mut self) -> Self {
-        self.variant = TextInputVariant::Filled;
+        self.variant = TextFieldVariant::Filled;
         self
     }
 
     /// Chooses the variant directly, for a caller holding one in a variable.
-    pub fn variant(mut self, variant: TextInputVariant) -> Self {
+    pub fn variant(mut self, variant: TextFieldVariant) -> Self {
         self.variant = variant;
         self
     }
@@ -291,9 +291,9 @@ impl<Msg> TextInput<Msg> {
     }
 
     /// Overrides part of the styling for this field alone. Anything left `None` falls to
-    /// the theme's [`TextInputTheme`](crate::widgettheme::TextInputTheme), then to the
+    /// the theme's [`TextFieldTheme`](crate::widgettheme::TextFieldTheme), then to the
     /// framework's defaults.
-    pub fn style(mut self, style: TextInputStyle) -> Self {
+    pub fn style(mut self, style: TextFieldStyle) -> Self {
         self.style = style;
         self
     }
@@ -308,7 +308,7 @@ impl<Msg> TextInput<Msg> {
 
     /// Whether this field is outlined (a box) rather than filled (a container and a line).
     fn is_outlined(&self) -> bool {
-        self.variant == TextInputVariant::Outlined
+        self.variant == TextFieldVariant::Outlined
     }
 
     /// Padding either side of the content.
@@ -366,12 +366,12 @@ impl<Msg> TextInput<Msg> {
     }
 
     /// This field's settings, resolved `caller ?? theme ?? framework`.
-    fn resolved(&self, theme: &Theme) -> TextInputStyle {
-        let t = theme.widgets.text_input;
+    fn resolved(&self, theme: &Theme) -> TextFieldStyle {
+        let t = theme.widgets.text_field;
         let pick = |a: Option<frus_core::Color>,
                     b: Option<frus_core::Color>,
                     c: frus_core::Color| { Some(a.or(b).unwrap_or(c)) };
-        TextInputStyle {
+        TextFieldStyle {
             fill: pick(
                 self.style.fill,
                 t.fill,
@@ -546,7 +546,7 @@ impl<Msg> TextInput<Msg> {
 
     /// A field whose value can be read, selected and copied — but not changed.
     ///
-    /// It is **not** [`enabled(false)`](TextInput::enabled), and the difference matters.
+    /// It is **not** [`enabled(false)`](TextField::enabled), and the difference matters.
     /// A disabled field is greyed out and inert: out of the tab order, no caret, nothing
     /// to select. A read-only one looks and behaves like any other field except that
     /// typing does nothing — you can focus it, move the caret through it, select a
@@ -658,7 +658,7 @@ impl<Msg> TextInput<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
+impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
     fn style(&self) -> Style {
         let height = self.label_block() + self.field_height() + self.sub_block();
         Style {
@@ -1344,12 +1344,12 @@ mod tests {
         Submitted,
     }
 
-    fn input(value: &str) -> TextInput<Msg> {
-        TextInput::new(value).on_input(Msg::Changed)
+    fn input(value: &str) -> TextField<Msg> {
+        TextField::new(value).on_input(Msg::Changed)
     }
 
     /// Every rectangle a field paints, in order.
-    fn rects(field: &TextInput<Msg>, theme: &Theme, w: f32, h: f32) -> Vec<frus_core::Primitive> {
+    fn rects(field: &TextField<Msg>, theme: &Theme, w: f32, h: f32) -> Vec<frus_core::Primitive> {
         let mut scene = Scene::new();
         Widget::<Msg>::paint(
             field,
@@ -1424,7 +1424,7 @@ mod tests {
     #[test]
     fn a_filled_field_has_a_line_not_a_box() {
         let theme = Theme::default();
-        let stroked = |field: &TextInput<Msg>| {
+        let stroked = |field: &TextField<Msg>| {
             rects(field, &theme, 220.0, 80.0)
                 .iter()
                 .filter(|p| {
@@ -1463,7 +1463,7 @@ mod tests {
             focus_progress: 1.0,
             ..Default::default()
         };
-        let border = |field: &TextInput<Msg>, status: Status| {
+        let border = |field: &TextField<Msg>, status: Status| {
             let mut scene = Scene::new();
             Widget::<Msg>::paint(
                 field,
@@ -1564,7 +1564,7 @@ mod tests {
     /// `caller ?? theme ?? framework`, on a field that has all three to choose from.
     #[test]
     fn the_caller_outranks_the_theme_which_outranks_the_framework() {
-        let radius = |field: &TextInput<Msg>, theme: &Theme| {
+        let radius = |field: &TextField<Msg>, theme: &Theme| {
             rects(field, theme, 220.0, 80.0)
                 .iter()
                 .find_map(|p| match p {
@@ -1580,9 +1580,9 @@ mod tests {
         let plain = Theme::default();
         assert_eq!(radius(&input("x"), &plain), FIELD_RADIUS);
         let mut themed = Theme::default();
-        themed.widgets.text_input.radius = Some(10.0);
+        themed.widgets.text_field.radius = Some(10.0);
         assert_eq!(radius(&input("x"), &themed), 10.0);
-        let overridden = input("x").style(TextInputStyle {
+        let overridden = input("x").style(TextFieldStyle {
             radius: Some(2.0),
             ..Default::default()
         });
@@ -1803,7 +1803,7 @@ mod tests {
     #[test]
     fn home_end_are_line_relative_but_ctrl_spans_the_field() {
         // "ab\ncd\nef": caret in the middle of the 2nd line (index 4, between c and d).
-        let inp = TextInput::<Msg>::new("ab\ncd\nef")
+        let inp = TextField::<Msg>::new("ab\ncd\nef")
             .on_input(Msg::Changed)
             .rows(3);
         let mut edit = Edit {
@@ -1888,7 +1888,7 @@ mod tests {
         // A password field: the render never contains the value in the clear, only dots;
         // the real value stays reachable (editing, IME).
         let theme = Theme::default();
-        let field = TextInput::<Msg>::new("secret").obscure(true);
+        let field = TextField::<Msg>::new("secret").obscure(true);
         let mut scene = Scene::new();
         let status = Status {
             focused: true,
@@ -1958,7 +1958,7 @@ mod tests {
     #[test]
     fn multiline_enter_inserts_a_newline_instead_of_submitting() {
         // In multi-line mode, Enter inserts a "\n" (and emits no submission).
-        let inp = TextInput::<Msg>::new("ab")
+        let inp = TextField::<Msg>::new("ab")
             .on_input(Msg::Changed)
             .multiline();
         let mut edit = Edit {
@@ -1987,7 +1987,7 @@ mod tests {
         // below the 1st line places the caret further into the text (a wrapped line under
         // the first one), not at index 0.
         let long = "word ".repeat(30); // 150 characters, no explicit break
-        let inp = TextInput::<Msg>::new(long.trim_end())
+        let inp = TextField::<Msg>::new(long.trim_end())
             .on_input(Msg::Changed)
             .rows(4)
             .width(160.0);
@@ -2018,7 +2018,7 @@ mod tests {
     #[test]
     fn multiline_reports_overflow_and_scrolls_content() {
         // Five lines in a box of two: the content overflows…
-        let inp = TextInput::<Msg>::new("l1\nl2\nl3\nl4\nl5")
+        let inp = TextField::<Msg>::new("l1\nl2\nl3\nl4\nl5")
             .on_input(Msg::Changed)
             .rows(2)
             .width(200.0);
@@ -2065,7 +2065,7 @@ mod tests {
     #[test]
     fn multiline_arrows_move_the_caret_between_lines() {
         // "abc\ndefg\nhi": line 0 = indices 0..3, line 1 = 4..8, line 2 = 9..11.
-        let inp = TextInput::<Msg>::new("abc\ndefg\nhi")
+        let inp = TextField::<Msg>::new("abc\ndefg\nhi")
             .on_input(Msg::Changed)
             .rows(3)
             .width(200.0);
@@ -2101,7 +2101,7 @@ mod tests {
         // Starting from column 5 (the end of "hello") and moving down: the 2nd line "hi"
         // is too short (so the caret is clamped to its end), but the goal column returned
         // stays ~the starting one, so moving down again lands back on column 5.
-        let inp = TextInput::<Msg>::new("hello\nhi\nworld")
+        let inp = TextField::<Msg>::new("hello\nhi\nworld")
             .on_input(Msg::Changed)
             .rows(3)
             .width(200.0);
@@ -2125,7 +2125,7 @@ mod tests {
     fn multiline_page_jump_is_clamped_to_the_field() {
         // Page up/down never leave the multi-line field: at the bounds the caret settles
         // at the start / at the end and returns `Some` (not `None` → the field is kept).
-        let inp = TextInput::<Msg>::new("a\nb\nc\nd\ne")
+        let inp = TextField::<Msg>::new("a\nb\nc\nd\ne")
             .on_input(Msg::Changed)
             .rows(2)
             .width(200.0);
@@ -2147,7 +2147,7 @@ mod tests {
             Dimension::Length(h) => h,
             _ => panic!("a fixed height"),
         };
-        let four = match Widget::<Msg>::style(&TextInput::<Msg>::new("x").rows(4)).height {
+        let four = match Widget::<Msg>::style(&TextField::<Msg>::new("x").rows(4)).height {
             Dimension::Length(h) => h,
             _ => panic!("a fixed height"),
         };
@@ -2161,7 +2161,7 @@ mod tests {
     fn multiline_hit_test_uses_the_click_line() {
         // A click on the 2nd line places the caret inside "cd" (indices ≥ 3), not inside
         // the "ab" of the 1st line.
-        let inp = TextInput::<Msg>::new("ab\ncd")
+        let inp = TextField::<Msg>::new("ab\ncd")
             .on_input(Msg::Changed)
             .rows(3);
         let line_h = frus_text::line_height(inp.size);
@@ -2192,7 +2192,7 @@ mod tests {
         // The label rests inside the box (large, low) while the field is empty and
         // unfocused, and floats above it (small, high) once focused.
         let theme = Theme::default();
-        let field = TextInput::<Msg>::new("").label("Name");
+        let field = TextField::<Msg>::new("").label("Name");
         let label_geo = |status: Status| -> (f32, f32) {
             let mut scene = Scene::new();
             Widget::<Msg>::paint(
@@ -2279,7 +2279,7 @@ mod tests {
         // The hint only appears while the value is empty.
         let theme = Theme::default();
         let count_texts = |value: &str| {
-            let field = TextInput::<Msg>::new(value).placeholder("Type here");
+            let field = TextField::<Msg>::new(value).placeholder("Type here");
             let mut scene = Scene::new();
             Widget::<Msg>::paint(
                 &field,
@@ -2302,7 +2302,7 @@ mod tests {
 
     #[test]
     fn clickable_suffix_emits_and_blocks_caret() {
-        let field = TextInput::new("hello")
+        let field = TextField::new("hello")
             .suffix_icon(IconName::Close)
             .on_suffix(Msg::Submitted)
             .width(220.0);
@@ -2322,7 +2322,7 @@ mod tests {
         );
         assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
         // Without `on_suffix` the icon stays decorative (no positional click).
-        let deco = TextInput::<Msg>::new("hello")
+        let deco = TextField::<Msg>::new("hello")
             .suffix_icon(IconName::Close)
             .width(220.0);
         assert_eq!(
@@ -2333,7 +2333,7 @@ mod tests {
 
     #[test]
     fn hovering_active_suffix_paints_a_halo() {
-        let field = TextInput::new("hello")
+        let field = TextField::new("hello")
             .suffix_icon(IconName::Close)
             .on_suffix(Msg::Submitted)
             .width(220.0);
@@ -2371,7 +2371,7 @@ mod tests {
     #[test]
     fn cursor_icon_is_pointer_over_active_suffix() {
         use crate::interaction::Cursor;
-        let field = TextInput::new("hello")
+        let field = TextField::new("hello")
             .suffix_icon(IconName::Close)
             .on_suffix(Msg::Submitted)
             .width(220.0);
@@ -2383,7 +2383,7 @@ mod tests {
         );
         assert_eq!(Widget::<Msg>::cursor_icon(&field, 20.0, y, w, h), None);
         // A decorative suffix (no on_suffix): no hand.
-        let deco = TextInput::<Msg>::new("hello")
+        let deco = TextField::<Msg>::new("hello")
             .suffix_icon(IconName::Close)
             .width(220.0);
         assert_eq!(Widget::<Msg>::cursor_icon(&deco, w - 8.0, y, w, h), None);
@@ -2408,12 +2408,12 @@ mod limit_tests {
         Changed(String),
     }
 
-    fn field(value: &str) -> TextInput<Msg> {
-        TextInput::new(value).on_input(Msg::Changed)
+    fn field(value: &str) -> TextField<Msg> {
+        TextField::new(value).on_input(Msg::Changed)
     }
 
     /// Types `text` at the end of the field's value and returns what came back.
-    fn typed(field: &TextInput<Msg>, text: &str) -> (Option<Msg>, Edit) {
+    fn typed(field: &TextField<Msg>, text: &str) -> (Option<Msg>, Edit) {
         let end = field.value.chars().count();
         let mut edit = Edit {
             cursor: end,

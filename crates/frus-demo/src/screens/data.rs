@@ -91,14 +91,17 @@ pub(crate) fn data_screen(
         .color(theme.muted);
     // The table (fixed columns, ~610 px) is wider than a phone: a bounded **scrollable** region
     // (columns in X, rows in Y) — not a page pan, a scrollable table.
-    let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
+    let table_area = SingleChildScrollView::new()
+        .axis(Axis::Both)
+        .flex(1.0)
+        .child(table);
     // `flex(1.0)`: the body fills the height under the bar so the table region can stretch
     // (otherwise it falls back to its base size and leaves a large gap below).
     let body = column![table_area, detail, summary, hint]
         .gap(16.0)
         .padding(24.0)
         .flex(1.0);
-    let screen = column![NavBar::new("Data table").on_back(Msg::Pop), body]
+    let screen = column![NavigationBar::new("Data table").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
     let content = Container::new()
@@ -110,7 +113,7 @@ pub(crate) fn data_screen(
     // outside click or Escape (`dismiss`), laid over the screen.
     if app.data_confirm_delete {
         Box::new(
-            Portal::new(content)
+            OverlayPortal::new(content)
                 .overlay(
                     data_confirm_content(app.data_checked.len()),
                     Placement::Center,

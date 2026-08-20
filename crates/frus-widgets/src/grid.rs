@@ -1,23 +1,23 @@
-//! [`Grid`]: a **grid** container of equal columns. Cells place themselves
+//! [`GridView`]: a **grid** container of equal columns. Cells place themselves
 //! automatically, row by row.
 //!
-//! Unlike the composites, `Grid` is a **plain container**: the layout is
-//! done by the layout engine (taffy's CSS Grid), so
+//! Unlike the composites, `GridView` is a **plain container**: the layout is
+//! done by the layout engine (taffy's CSS GridView), so
 //! `cell()` is nothing more than adding a child.
 //!
 //! **How tall is a row?** By default the tallest cell in it, which is what a grid of
 //! forms or of labels wants. A grid of *tiles* — photos, cards, a colour swatch board —
-//! wants every tile the same shape instead, and says so with [`Grid::aspect`] (a
-//! `width / height` ratio, `1.0` for squares) or [`Grid::tile_height`] (an exact number
+//! wants every tile the same shape instead, and says so with [`GridView::aspect`] (a
+//! `width / height` ratio, `1.0` for squares) or [`GridView::tile_height`] (an exact number
 //! of pixels). The reference draws the same distinction and puts the choice on the grid,
 //! not on the tile: a tile cannot know how wide its column came out.
 //!
-//! **How many columns?** [`Grid::new`] takes the number. [`Grid::extent`] takes a
+//! **How many columns?** [`GridView::new`] takes the number. [`GridView::extent`] takes a
 //! *maximum tile width* instead and works the count out from the room there is, which is
 //! what a photo grid actually wants: four columns on a phone, nine on a desktop, without
 //! the application computing breakpoints. That one cannot be a plain container — the
 //! count depends on a width nobody has until the layout runs — so it builds its cells
-//! late, from a factory, and the caveats of building late apply (see [`Grid::extent`]).
+//! late, from a factory, and the caveats of building late apply (see [`GridView::extent`]).
 
 use std::cell::OnceCell;
 use std::rc::Rc;
@@ -39,11 +39,11 @@ type Composed<Msg> = Box<dyn Fn(Size) -> Box<dyn Widget<Msg>>>;
 
 /// Where a grid's cells come from: given, or built once the width is known.
 enum Cells<Msg> {
-    /// Added one at a time with [`Grid::cell`]. The grid is a plain container and the
+    /// Added one at a time with [`GridView::cell`]. The grid is a plain container and the
     /// layout engine places them.
     Given(Vec<Box<dyn Widget<Msg>>>),
     /// Built from an index, with the column count derived from `max` and the width the
-    /// grid is actually given ([`Grid::extent`]).
+    /// grid is actually given ([`GridView::extent`]).
     Built {
         max: f32,
         count: usize,
@@ -52,7 +52,7 @@ enum Cells<Msg> {
 }
 
 /// A grid of `columns` equal columns.
-pub struct Grid<Msg> {
+pub struct GridView<Msg> {
     columns: usize,
     gap: f32,
     row_gap: Option<f32>,
@@ -63,13 +63,13 @@ pub struct Grid<Msg> {
     height: Dimension,
     flex_grow: f32,
     cells: Cells<Msg>,
-    /// The `size → widget` closure a [`Grid::extent`] hands the walk, composed on first
+    /// The `size → widget` closure a [`GridView::extent`] hands the walk, composed on first
     /// use: the builder methods may still be changing the spacing and the shape when the
     /// grid is constructed, so it cannot be composed before it is asked for.
     composed: OnceCell<Composed<Msg>>,
 }
 
-impl<Msg> Grid<Msg> {
+impl<Msg> GridView<Msg> {
     /// Creates a grid of `columns` columns, at least one.
     pub fn new(columns: usize) -> Self {
         Self {
@@ -100,7 +100,7 @@ impl<Msg> Grid<Msg> {
     /// until the width is known:
     ///
     /// ```ignore
-    /// Grid::extent(160.0, photos.len(), move |i| photo_tile(&photos[i]))
+    /// GridView::extent(160.0, photos.len(), move |i| photo_tile(&photos[i]))
     ///     .gap(8.0)
     ///     .aspect(1.0)
     /// ```
@@ -112,7 +112,7 @@ impl<Msg> Grid<Msg> {
     ///   side effects;
     /// - the cells have **no retained state** — hover and clicks work, persistent
     ///   keyboard focus and deferred overlays do not. A grid of images or of buttons is
-    ///   fine; a grid of text fields is not, and wants [`Grid::new`] with a count the
+    ///   fine; a grid of text fields is not, and wants [`GridView::new`] with a count the
     ///   application chose.
     pub fn extent<W: Widget<Msg> + 'static>(
         max_tile_width: f32,
@@ -155,14 +155,14 @@ impl<Msg> Grid<Msg> {
         self
     }
 
-    /// Spacing **between rows** only, in logical pixels. Overrides [`Grid::gap`] down
+    /// Spacing **between rows** only, in logical pixels. Overrides [`GridView::gap`] down
     /// the grid and leaves it alone across.
     pub fn row_gap(mut self, gap: f32) -> Self {
         self.row_gap = Some(gap.max(0.0));
         self
     }
 
-    /// Spacing **between columns** only, in logical pixels. Overrides [`Grid::gap`]
+    /// Spacing **between columns** only, in logical pixels. Overrides [`GridView::gap`]
     /// across the grid and leaves it alone down.
     pub fn column_gap(mut self, gap: f32) -> Self {
         self.column_gap = Some(gap.max(0.0));
@@ -176,7 +176,7 @@ impl<Msg> Grid<Msg> {
     /// the same board is square on a phone and square on a desktop, with wider tiles.
     /// A cell that has chosen a size of its own keeps it.
     ///
-    /// [`Grid::tile_height`] wins over this, as the exact number wins over the ratio in
+    /// [`GridView::tile_height`] wins over this, as the exact number wins over the ratio in
     /// the reference.
     pub fn aspect(mut self, ratio: f32) -> Self {
         self.aspect = Some(ratio.max(f32::MIN_POSITIVE));
@@ -186,7 +186,7 @@ impl<Msg> Grid<Msg> {
     /// Gives every row the same **height**, in logical pixels, whatever its content —
     /// the reference's per-tile main-axis extent.
     ///
-    /// Unlike [`Grid::aspect`] this is a fixed number rather than one derived from the
+    /// Unlike [`GridView::aspect`] this is a fixed number rather than one derived from the
     /// width, which is what a row of fixed-height cards wants. It wins over `aspect`.
     pub fn tile_height(mut self, height: f32) -> Self {
         self.tile_height = Some(height.max(0.0));
@@ -213,7 +213,7 @@ impl<Msg> Grid<Msg> {
 
     /// Adds a cell, placed automatically in the grid.
     ///
-    /// A grid built by [`Grid::extent`] gets its cells from its factory and ignores this.
+    /// A grid built by [`GridView::extent`] gets its cells from its factory and ignores this.
     pub fn cell(mut self, cell: impl Widget<Msg> + 'static) -> Self {
         if let Cells::Given(cells) = &mut self.cells {
             cells.push(Box::new(cell));
@@ -222,7 +222,7 @@ impl<Msg> Grid<Msg> {
     }
 }
 
-impl<Msg: 'static> Widget<Msg> for Grid<Msg> {
+impl<Msg: 'static> Widget<Msg> for GridView<Msg> {
     fn style(&self) -> Style {
         // A grid that builds late is a **leaf** to the layout: its cells live in a tree
         // of their own, laid out inside the box this style asks for. Declaring the grid
@@ -268,7 +268,7 @@ impl<Msg: 'static> Widget<Msg> for Grid<Msg> {
         Some(&**self.composed.get_or_init(|| {
             Box::new(move |size: Size| {
                 let columns = Self::columns_across(max, column_gap.unwrap_or(gap), size.width);
-                let mut grid = Grid::new(columns).gap(gap);
+                let mut grid = GridView::new(columns).gap(gap);
                 if let Some(g) = row_gap {
                     grid = grid.row_gap(g);
                 }
@@ -320,7 +320,7 @@ mod tests {
         let c = Color::rgb(0.0, 0.0, 1.0);
         let d = Color::rgb(1.0, 1.0, 0.0);
         // A 2-column grid: [a b] / [c d].
-        let grid = Grid::<()>::new(2)
+        let grid = GridView::<()>::new(2)
             .gap(10.0)
             .width(220.0)
             .cell(tile(a))
@@ -360,7 +360,7 @@ mod tests {
     }
 
     /// The rectangle the first (red) cell paints, in a grid laid out 220 wide.
-    fn first_cell(grid: Grid<()>) -> Rect {
+    fn first_cell(grid: GridView<()>) -> Rect {
         let ui = build_ui(
             &grid,
             Size::new(220.0, 400.0),
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn a_row_follows_its_content_by_default() {
         let rect = first_cell(
-            Grid::<()>::new(2)
+            GridView::<()>::new(2)
                 .width(220.0)
                 .cell(filled().child(crate::Text::new("x")))
                 .cell(filled().child(crate::Text::new("x"))),
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn a_ratio_derives_the_tile_height_from_the_column() {
         let square = first_cell(
-            Grid::<()>::new(2)
+            GridView::<()>::new(2)
                 .width(220.0)
                 .aspect(1.0)
                 .cell(filled())
@@ -412,7 +412,7 @@ mod tests {
 
         // Twice as wide as it is tall, and the gap comes out of the column first.
         let wide = first_cell(
-            Grid::<()>::new(2)
+            GridView::<()>::new(2)
                 .width(220.0)
                 .gap(10.0)
                 .aspect(2.0)
@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn an_exact_tile_height_wins_over_a_ratio() {
         let rect = first_cell(
-            Grid::<()>::new(2)
+            GridView::<()>::new(2)
                 .width(220.0)
                 .aspect(1.0)
                 .tile_height(60.0)
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn a_cell_that_chose_its_size_keeps_it() {
         let rect = first_cell(
-            Grid::<()>::new(2)
+            GridView::<()>::new(2)
                 .width(220.0)
                 .aspect(1.0)
                 .cell(filled().height(20.0))
@@ -455,8 +455,8 @@ mod tests {
         assert_eq!(rect.height, 20.0);
     }
 
-    /// Every tile a `Grid::extent` painted, in a grid laid out `width` across.
-    fn extent_tiles(width: f32, grid: Grid<()>) -> Vec<Rect> {
+    /// Every tile a `GridView::extent` painted, in a grid laid out `width` across.
+    fn extent_tiles(width: f32, grid: GridView<()>) -> Vec<Rect> {
         let root = crate::Flex::<()>::column()
             .width(width)
             .height(2000.0)
@@ -485,7 +485,7 @@ mod tests {
     /// maximum — and the CSS `auto-fill` that looks like it and is not.
     #[test]
     fn the_column_count_comes_from_the_tile_width() {
-        let tiles = extent_tiles(500.0, Grid::extent(150.0, 4, |_| filled().height(20.0)));
+        let tiles = extent_tiles(500.0, GridView::extent(150.0, 4, |_| filled().height(20.0)));
         assert_eq!(tiles.len(), 4);
         for t in &tiles {
             assert_eq!(t.width, 125.0, "four equal columns of 125: {tiles:?}");
@@ -499,7 +499,10 @@ mod tests {
     #[test]
     fn the_count_follows_the_room() {
         let columns_at = |width: f32| {
-            let tiles = extent_tiles(width, Grid::extent(150.0, 12, |_| filled().height(20.0)));
+            let tiles = extent_tiles(
+                width,
+                GridView::extent(150.0, 12, |_| filled().height(20.0)),
+            );
             let top = tiles[0].y;
             tiles.iter().filter(|t| t.y == top).count()
         };
@@ -515,7 +518,7 @@ mod tests {
     fn the_gap_is_part_of_the_arithmetic() {
         let tiles = extent_tiles(
             500.0,
-            Grid::extent(150.0, 4, |_| filled().height(20.0)).gap(10.0),
+            GridView::extent(150.0, 4, |_| filled().height(20.0)).gap(10.0),
         );
         // ceil(500 / 160) = 4 columns; (500 - 3×10) / 4 = 117.5 — which the layout then
         // rounds to whole pixels, alternating 118 and 117 so that the row still ends
@@ -536,7 +539,7 @@ mod tests {
     /// outer one, which never lays anything out itself.
     #[test]
     fn the_tile_shape_reaches_the_built_grid() {
-        let tiles = extent_tiles(500.0, Grid::extent(150.0, 4, |_| filled()).aspect(1.0));
+        let tiles = extent_tiles(500.0, GridView::extent(150.0, 4, |_| filled()).aspect(1.0));
         assert_eq!((tiles[0].width, tiles[0].height), (125.0, 125.0));
     }
 
@@ -547,7 +550,7 @@ mod tests {
         let root = crate::Flex::<()>::column()
             .width(500.0)
             .height(2000.0)
-            .child(Grid::extent(150.0, 8, |_| filled()).aspect(1.0))
+            .child(GridView::extent(150.0, 8, |_| filled()).aspect(1.0))
             .child(
                 Container::<()>::new()
                     .height(10.0)
@@ -577,7 +580,7 @@ mod tests {
     /// The two spacings are separate: 4 across, 20 down.
     #[test]
     fn rows_and_columns_space_apart_separately() {
-        let grid = Grid::<()>::new(2)
+        let grid = GridView::<()>::new(2)
             .width(220.0)
             .column_gap(4.0)
             .row_gap(20.0)

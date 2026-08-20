@@ -1,4 +1,4 @@
-//! [`Tabs`]: a **controlled** tab bar plus the selected panel.
+//! [`TabBar`]: a **controlled** tab bar plus the selected panel.
 //!
 //! It is composite: its children are `[bar, panel]`, in a column. Only the selected tab's
 //! content is realised, the application rebuilding the view every frame.
@@ -8,7 +8,7 @@
 //! the panel. The two variants are the reference's — a *primary* bar's indicator is as wide
 //! as its **label** and rounded at the top, a *secondary* bar's spans the whole **tab** and
 //! is square — and every measurement and colour in either is overridable, by the caller or
-//! by [`crate::TabsTheme`].
+//! by [`crate::TabBarTheme`].
 
 use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
@@ -35,7 +35,7 @@ pub const TAB_DIVIDER_HEIGHT: f32 = 1.0;
 /// as wide as its label, and a *secondary* bar with one as wide as the whole tab. A primary
 /// bar is for the top level of a screen, a secondary one for a division inside it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-pub enum TabsVariant {
+pub enum TabBarVariant {
     /// Label-wide indicator, rounded at the top; the selected label takes the accent.
     #[default]
     Primary,
@@ -50,7 +50,7 @@ pub enum TabsVariant {
 /// an indicator that does not line up with the label it points at.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct TabStyle {
-    pub variant: Option<TabsVariant>,
+    pub variant: Option<TabBarVariant>,
     pub indicator_color: Option<Color>,
     pub indicator_weight: Option<f32>,
     pub label_color: Option<Color>,
@@ -63,71 +63,71 @@ pub(crate) struct TabStyle {
 }
 
 impl TabStyle {
-    fn variant(&self, theme: &Theme) -> TabsVariant {
+    fn variant(&self, theme: &Theme) -> TabBarVariant {
         self.variant
-            .or(theme.widgets.tabs.variant)
+            .or(theme.widgets.tab_bar.variant)
             .unwrap_or_default()
     }
 
     fn indicator_weight(&self, theme: &Theme) -> f32 {
         self.indicator_weight
-            .or(theme.widgets.tabs.indicator_weight)
+            .or(theme.widgets.tab_bar.indicator_weight)
             .unwrap_or(match self.variant(theme) {
-                TabsVariant::Primary => TAB_INDICATOR_PRIMARY,
-                TabsVariant::Secondary => TAB_INDICATOR_SECONDARY,
+                TabBarVariant::Primary => TAB_INDICATOR_PRIMARY,
+                TabBarVariant::Secondary => TAB_INDICATOR_SECONDARY,
             })
     }
 
     fn indicator_color(&self, theme: &Theme) -> Color {
         self.indicator_color
-            .or(theme.widgets.tabs.indicator_color)
+            .or(theme.widgets.tab_bar.indicator_color)
             .unwrap_or(theme.scheme.primary)
     }
 
     fn label_color(&self, theme: &Theme) -> Color {
         self.label_color
-            .or(theme.widgets.tabs.label_color)
+            .or(theme.widgets.tab_bar.label_color)
             .unwrap_or(match self.variant(theme) {
                 // A primary bar's selected label takes the accent; a secondary bar's stays
                 // on the surface, the indicator alone marking it.
-                TabsVariant::Primary => theme.scheme.primary,
-                TabsVariant::Secondary => theme.scheme.on_surface,
+                TabBarVariant::Primary => theme.scheme.primary,
+                TabBarVariant::Secondary => theme.scheme.on_surface,
             })
     }
 
     fn unselected_label_color(&self, theme: &Theme) -> Color {
         self.unselected_label_color
-            .or(theme.widgets.tabs.unselected_label_color)
+            .or(theme.widgets.tab_bar.unselected_label_color)
             .unwrap_or(theme.scheme.on_surface_variant)
     }
 
     fn label_style(&self, theme: &Theme) -> TextStyle {
         self.label_style
-            .or(theme.widgets.tabs.label_style)
+            .or(theme.widgets.tab_bar.label_style)
             .unwrap_or(theme.text.title_small)
     }
 
     fn divider_color(&self, theme: &Theme) -> Color {
         self.divider_color
-            .or(theme.widgets.tabs.divider_color)
+            .or(theme.widgets.tab_bar.divider_color)
             .unwrap_or(theme.scheme.outline_variant)
     }
 
     fn divider_height(&self, theme: &Theme) -> f32 {
         self.divider_height
-            .or(theme.widgets.tabs.divider_height)
+            .or(theme.widgets.tab_bar.divider_height)
             .unwrap_or(TAB_DIVIDER_HEIGHT)
     }
 
     fn label_padding(&self, theme: &Theme) -> f32 {
         self.label_padding
-            .or(theme.widgets.tabs.label_padding)
+            .or(theme.widgets.tab_bar.label_padding)
             .unwrap_or(TAB_LABEL_PADDING)
     }
 
     fn tab_height(&self, theme: &Theme) -> f32 {
         self.tab_height
-            .or(theme.widgets.tabs.tab_height)
+            .or(theme.widgets.tab_bar.tab_height)
             .unwrap_or(TAB_HEIGHT)
     }
 
@@ -140,8 +140,8 @@ impl TabStyle {
     /// wide. A primary bar measures the label; a secondary one takes the tab.
     fn indicator_width(&self, theme: &Theme, label: &str, tab_width: f32) -> f32 {
         match self.variant(theme) {
-            TabsVariant::Secondary => tab_width,
-            TabsVariant::Primary => {
+            TabBarVariant::Secondary => tab_width,
+            TabBarVariant::Primary => {
                 let style = self.label_style(theme);
                 let measured =
                     frus_text::measure_styled(label, style.size, style.weight, style.italic);
@@ -264,7 +264,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
 
 /// The bar itself: the tabs in a row, the hairline under them, and the indicator that
 /// slides from one to the next.
-struct TabBar<Msg> {
+struct TabStrip<Msg> {
     selected: usize,
     labels: Vec<String>,
     style: TabStyle,
@@ -275,7 +275,7 @@ struct TabBar<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
+impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
     fn style(&self) -> Style {
         self.style_themed(&Theme::default())
     }
@@ -351,12 +351,12 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
         // primary bar only — square where it spans the whole tab, since a rounded end
         // touching the next tab's would read as a gap that is not there.
         let radius = match self.style.variant(theme) {
-            TabsVariant::Primary => BorderRadius {
+            TabBarVariant::Primary => BorderRadius {
                 top_left: weight,
                 top_right: weight,
                 ..BorderRadius::ZERO
             },
-            TabsVariant::Secondary => BorderRadius::ZERO,
+            TabBarVariant::Secondary => BorderRadius::ZERO,
         };
         scene.draw_rect(
             Rect::new(
@@ -383,7 +383,7 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
 }
 
 /// A tabbed view: the bar, and the selected tab's panel under it.
-pub struct Tabs<Msg> {
+pub struct TabBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
     labels: Vec<String>,
@@ -393,7 +393,7 @@ pub struct Tabs<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
-impl<Msg: Clone + 'static> Tabs<Msg> {
+impl<Msg: Clone + 'static> TabBar<Msg> {
     /// Creates tabs: `selected` is the active index, `on_select(i)` the message on click.
     pub fn new(selected: usize, on_select: impl Fn(usize) -> Msg + 'static) -> Self {
         let mut tabs = Self {
@@ -435,8 +435,8 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
         self
     }
 
-    /// Chooses between the two bars. See [`TabsVariant`].
-    pub fn variant(mut self, variant: TabsVariant) -> Self {
+    /// Chooses between the two bars. See [`TabBarVariant`].
+    pub fn variant(mut self, variant: TabBarVariant) -> Self {
         self.style.variant = Some(variant);
         self.rebuild_bar();
         self
@@ -527,7 +527,7 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
                 }) as Box<dyn Widget<Msg>>
             })
             .collect();
-        let bar: Box<dyn Widget<Msg>> = Box::new(TabBar {
+        let bar: Box<dyn Widget<Msg>> = Box::new(TabStrip {
             selected: self.selected,
             labels: self.labels.clone(),
             style: self.style,
@@ -542,7 +542,7 @@ impl<Msg: Clone + 'static> Tabs<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Tabs<Msg> {
+impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Auto,
@@ -585,8 +585,8 @@ mod tests {
         Select(usize),
     }
 
-    fn three(selected: usize) -> Tabs<Msg> {
-        Tabs::new(selected, Msg::Select)
+    fn three(selected: usize) -> TabBar<Msg> {
+        TabBar::new(selected, Msg::Select)
             .tab("One", Text::new("panel one"))
             .tab("Two", Text::new("panel two"))
             .tab("Three", Text::new("panel three"))
@@ -624,7 +624,7 @@ mod tests {
     }
 
     /// The frame's crisp boxes: the hairline, then the indicator.
-    fn boxes(tabs: Tabs<Msg>) -> Vec<(Rect, Color)> {
+    fn boxes(tabs: TabBar<Msg>) -> Vec<(Rect, Color)> {
         let root = crate::flex::Flex::column()
             .width(300.0)
             .height(200.0)
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn no_panel_when_selection_out_of_range() {
-        let tabs = Tabs::new(9, Msg::Select).tab("One", Text::new("x"));
+        let tabs = TabBar::new(9, Msg::Select).tab("One", Text::new("x"));
         assert_eq!(Widget::<Msg>::children(&tabs).len(), 1); // the bar alone
     }
 
@@ -685,7 +685,7 @@ mod tests {
         // The difference between the two bars is not decoration: it is what the indicator
         // measures itself against.
         let theme = Theme::default();
-        let width = |tabs: Tabs<Msg>| {
+        let width = |tabs: TabBar<Msg>| {
             boxes(tabs)
                 .iter()
                 .find(|(_, color)| *color == theme.scheme.primary)
@@ -694,7 +694,7 @@ mod tests {
                 .width
         };
         let primary = width(three(1));
-        let secondary = width(three(1).variant(TabsVariant::Secondary));
+        let secondary = width(three(1).variant(TabBarVariant::Secondary));
         assert_eq!(secondary, 100.0, "a third of 300 — the whole tab");
         assert!(
             primary < secondary,
@@ -740,8 +740,8 @@ mod tests {
     fn every_measurement_is_the_callers_and_then_the_themes() {
         // `caller ?? theme ?? framework`, on the one measurement that reaches layout.
         let mut theme = Theme::default();
-        theme.widgets.tabs.tab_height = Some(60.0);
-        let height = |tabs: Tabs<Msg>, theme: &Theme| {
+        theme.widgets.tab_bar.tab_height = Some(60.0);
+        let height = |tabs: TabBar<Msg>, theme: &Theme| {
             Widget::<Msg>::style_themed(&Widget::<Msg>::children(&tabs)[0], theme).height
         };
         assert_eq!(
@@ -792,7 +792,7 @@ mod tests {
 
     #[test]
     fn a_disabled_bar_is_inert_but_keeps_its_panel() {
-        let dead = Tabs::new(1, Msg::Select)
+        let dead = TabBar::new(1, Msg::Select)
             .tab("One", Text::new("first"))
             .tab("Two", Text::new("second"))
             .enabled(false);
@@ -824,7 +824,7 @@ mod tests {
     fn a_disabled_bar_flattens_rather_than_fading_the_accent() {
         // Selected and unselected labels go to the same grey; the accent never appears.
         let theme = Theme::default();
-        let dead = Tabs::new(0, Msg::Select)
+        let dead = TabBar::new(0, Msg::Select)
             .tab("One", Text::new("first"))
             .tab("Two", Text::new("second"))
             .enabled(false);
@@ -858,7 +858,7 @@ mod tests {
     fn a_disabled_bars_indicator_loses_the_accent_too() {
         let theme = Theme::default();
         let indicator = |enabled: bool| {
-            let tabs = Tabs::new(0, Msg::Select)
+            let tabs = TabBar::new(0, Msg::Select)
                 .tab("One", Text::new("first"))
                 .tab("Two", Text::new("second"))
                 .enabled(enabled);

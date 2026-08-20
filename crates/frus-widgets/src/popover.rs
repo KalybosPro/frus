@@ -1,5 +1,5 @@
-//! [`Popover`]: a floating panel with **free content**, anchored and controlled, that
-//! closes on an outside click. It generalises [`crate::Menu`] to any content.
+//! [`MenuAnchor`]: a floating panel with **free content**, anchored and controlled, that
+//! closes on an outside click. It generalises [`crate::PopupMenuButton`] to any content.
 
 use frus_core::{Rect, Scene};
 use frus_layout::{FlexDirection, Style};
@@ -10,14 +10,14 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// A popover: an anchor plus an optional floating panel.
-pub struct Popover<Msg> {
+pub struct MenuAnchor<Msg> {
     open: bool,
     /// `[ancre]` ou `[ancre, contenu]`.
     children: Vec<Box<dyn Widget<Msg>>>,
     on_dismiss: Option<Msg>,
 }
 
-impl<Msg: Clone + 'static> Popover<Msg> {
+impl<Msg: Clone + 'static> MenuAnchor<Msg> {
     /// Creates a popover around an anchor. When `open`, the content floats;
     /// `on_dismiss` is emitted on a click **outside** the popover.
     pub fn new(anchor: impl Widget<Msg> + 'static, open: bool, on_dismiss: Msg) -> Self {
@@ -38,7 +38,7 @@ impl<Msg: Clone + 'static> Popover<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Popover<Msg> {
+impl<Msg: Clone> Widget<Msg> for MenuAnchor<Msg> {
     fn style(&self) -> Style {
         Style {
             flex_direction: FlexDirection::Column,
@@ -83,13 +83,13 @@ mod tests {
 
     #[test]
     fn closed_has_no_overlay() {
-        let p = Popover::new(anchor(), false, Msg::Close).content(Text::new("hi"));
+        let p = MenuAnchor::new(anchor(), false, Msg::Close).content(Text::new("hi"));
         assert!(Widget::<Msg>::overlay(&p).is_none());
     }
 
     #[test]
     fn open_floats_content_and_dismisses() {
-        let p = Popover::new(anchor(), true, Msg::Close).content(Text::new("hi"));
+        let p = MenuAnchor::new(anchor(), true, Msg::Close).content(Text::new("hi"));
         assert!(Widget::<Msg>::overlay(&p).is_some());
         assert_eq!(Widget::<Msg>::overlay_dismiss(&p), Some(Msg::Close));
     }

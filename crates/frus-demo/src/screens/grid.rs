@@ -3,7 +3,7 @@
 use crate::prelude::*;
 use frus_widgets::{column, row};
 
-/// The **editable grid** screen: a `Table` whose every cell is an always-editable `TextInput`.
+/// The **editable grid** screen: a `Table` whose every cell is an always-editable `TextField`.
 /// Tab / Shift+Tab moves from cell to cell (the shell's focusables), Enter moves down one row
 /// (milestone 201). The headers sort (milestone 204, `on_sort`), invalid cells show an error,
 /// and Enter on the last row creates a new one.
@@ -30,7 +30,7 @@ pub(crate) fn grid_screen(
                 let w = COL_W[c] - 14.0;
                 let err = grid_cell_error(c, &value);
                 let factory: CellFn<Msg> = Box::new(move || {
-                    let mut input = TextInput::new(value.clone())
+                    let mut input = TextField::new(value.clone())
                         .width(w)
                         .size(15.0)
                         // A cell editor lives inside a row: dense is what that is for.
@@ -82,12 +82,15 @@ pub(crate) fn grid_screen(
     }
     actions = actions.child(status);
     // The editable table (fixed columns, ~644 px): a bounded **scrollable** region (columns in X, rows in Y).
-    let table_area = Scroll::new().axis(Axis::Both).flex(1.0).child(table);
+    let table_area = SingleChildScrollView::new()
+        .axis(Axis::Both)
+        .flex(1.0)
+        .child(table);
     let body = column![table_area, actions, hint]
         .gap(16.0)
         .padding(24.0)
         .flex(1.0);
-    let screen = column![NavBar::new("Editable grid").on_back(Msg::Pop), body]
+    let screen = column![NavigationBar::new("Editable grid").on_back(Msg::Pop), body]
         .width(width)
         .height(height);
     Box::new(

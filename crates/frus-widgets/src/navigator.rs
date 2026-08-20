@@ -122,7 +122,7 @@ mod tests {
     fn a_departing_screens_overlay_is_not_drawn_over_the_incoming_one() {
         let mark = Color::rgb(0.0, 1.0, 0.0);
         let menu = || {
-            crate::Portal::new(screen(Color::rgb(1.0, 0.0, 0.0))).overlay(
+            crate::OverlayPortal::new(screen(Color::rgb(1.0, 0.0, 0.0))).overlay(
                 Container::<()>::new().width(80.0).height(30.0).color(mark),
                 crate::Placement::Below,
             )

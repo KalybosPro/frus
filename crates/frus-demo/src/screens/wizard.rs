@@ -78,7 +78,7 @@ pub(crate) fn wizard_input(
     eye: Option<bool>,
     field_width: f32,
 ) -> impl Widget<Msg> + 'static {
-    let mut input = TextInput::new(value)
+    let mut input = TextField::new(value)
         .width(field_width)
         .size(16.0)
         .label(label)
@@ -256,8 +256,8 @@ pub(crate) fn wizard_screen(
     let inner = column![steps, content].gap(24.0).padding(24.0);
     Scaffold::new(width, height)
         .background(theme.background)
-        .app_bar(NavBar::new("Sign-up wizard").on_back(Msg::Pop))
-        .body(Scroll::new().flex(1.0).child(inner))
+        .app_bar(NavigationBar::new("Sign-up wizard").on_back(Msg::Pop))
+        .body(SingleChildScrollView::new().flex(1.0).child(inner))
         .persistent_footer(nav)
         .build()
 }

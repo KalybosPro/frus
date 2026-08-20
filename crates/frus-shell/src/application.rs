@@ -87,7 +87,7 @@ pub trait Application {
     /// The default is what the running platform does — bouncing where the system
     /// scroll views bounce, clamping elsewhere — so an app that says nothing feels
     /// native on each target. Override it to pin one behaviour everywhere; an
-    /// individual [`frus_widgets::Scroll`] can still ask for its own.
+    /// individual [`frus_widgets::SingleChildScrollView`] can still ask for its own.
     fn scroll_physics(&self) -> ScrollPhysics {
         ScrollPhysics::platform_default()
     }

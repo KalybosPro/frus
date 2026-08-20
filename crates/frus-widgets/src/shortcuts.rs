@@ -516,7 +516,7 @@ mod tests {
 
         let save = KeyStroke::new(ShortcutKey::Char('s')).ctrl();
         let field = |name: &str| {
-            crate::TextInput::new(name.to_string())
+            crate::TextField::new(name.to_string())
                 .label(name.to_string())
                 .on_input(Msg::Edited)
         };

@@ -19,7 +19,7 @@ use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
     Align, Alignment, AspectRatio, BoxFit, Button, ClipOval, ClipPath, ClipRRect, Color, Container,
     Curve, FittedBox, Flex, FractionallySizedBox, InteractiveViewer, Justify, Path, Point,
-    RotatedBox, Scroll, Slider, Text, Theme, Transform, Tween, Variant, Widget,
+    RotatedBox, SingleChildScrollView, Slider, Text, Theme, Transform, Tween, Variant, Widget,
 };
 
 /// A five-pointed **star** path inscribed in a `size × size` box, in local
@@ -419,14 +419,19 @@ impl Application for Showcase {
             .child(bar);
 
         // Scrollable: the viewport fills the window through explicit width and height
-        // — a default `Scroll` is only 200px tall with an automatic width — and the
+        // — a default `SingleChildScrollView` is only 200px tall with an automatic width — and the
         // larger content scrolls.
         Box::new(
             Container::new()
                 .width(width)
                 .height(height)
                 .color(theme.background)
-                .child(Scroll::new().width(width).height(height).child(content)),
+                .child(
+                    SingleChildScrollView::new()
+                        .width(width)
+                        .height(height)
+                        .child(content),
+                ),
         )
     }
 
@@ -566,7 +571,7 @@ mod tests {
 
     /// A blank-page guard: the content must be **genuinely sized** and placed
     /// **inside** the window — at least one wide rectangle at a visible position,
-    /// which shows the `Scroll` viewport fills the window instead of collapsing.
+    /// which shows the `SingleChildScrollView` viewport fills the window instead of collapsing.
     #[test]
     fn content_is_laid_out_within_the_window() {
         use frus_core::Primitive;

@@ -15,8 +15,8 @@ use frus_layout::{Align, Dimension, Justify, Style};
 use crate::flex::Flex;
 use crate::icons::IconName;
 use crate::interaction::{Key, KeyResponse, Status};
-use crate::list::List;
-use crate::scroll::{Axis, Scroll};
+use crate::list::ListView;
+use crate::scroll::{Axis, SingleChildScrollView};
 use crate::stack::Stack;
 use crate::theme::Theme;
 use crate::widget::{CellFn, Widget};
@@ -668,7 +668,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// hit-test), while the rest of the header **sorts** and **reorders** as usual. The
     /// factory is called again on every rebuild (a fresh widget).
     ///
-    /// **Column menu**: pass a [`Menu`](crate::Menu) or a [`Dropdown`](crate::Dropdown) here.
+    /// **Column menu**: pass a [`PopupMenuButton`](crate::PopupMenuButton) or a [`DropdownButton`](crate::DropdownButton) here.
     /// Its **floating** menu is rendered even when **nested** inside the header (overlays are
     /// collected at any depth), reachable with **Tab** and driven by the arrows/Enter, and
     /// closed by Escape / an outside click — with no table-specific code (the application
@@ -1049,7 +1049,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             row = row.child(self.frozen_block(0..left, left_w, header_present));
         }
         row = row.child(
-            Scroll::new()
+            SingleChildScrollView::new()
                 .axis(Axis::Horizontal)
                 .width(viewport_w)
                 .height(total_h)
@@ -1152,7 +1152,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             let selected = self.selected.clone();
             let on_select = self.on_select.clone();
             let on_check = self.on_check.clone();
-            let list = List::new(count, ROW_H, move |i| {
+            let list = ListView::new(count, ROW_H, move |i| {
                 let is_selected = selected.contains(&i);
                 let message = on_select.as_ref().map(|f| f(i));
                 let mut row = Flex::row().gap(ROW_GAP);
@@ -1835,8 +1835,8 @@ mod tests {
 
     #[test]
     fn header_action_menu_opens_as_column_menu() {
-        use crate::{Button, Menu};
-        // A Menu dropped in as a header action widget = a column menu: its floating overlay is
+        use crate::{Button, PopupMenuButton};
+        // A PopupMenuButton dropped in as a header action widget = a column menu: its floating overlay is
         // collected **even when nested** in the header, and it closes (Escape / an outside
         // click). The items are focusable → navigable with the keyboard.
         let table = Table::<Msg>::new(2)
@@ -1845,7 +1845,7 @@ mod tests {
             .on_sort(Msg::Sort)
             .header_action(1, || {
                 Box::new(
-                    Menu::new(
+                    PopupMenuButton::new(
                         Button::new("...").on_press(Msg::Filter),
                         true,
                         Msg::CheckAll,

@@ -10,9 +10,9 @@
 //!
 //! ```ignore
 //! // In the list:
-//! Hero::new(task.id, Avatar::new(task.text.clone()).size(30.0))
+//! Hero::new(task.id, CircleAvatar::new(task.text.clone()).size(30.0))
 //! // On the detail screen:
-//! Hero::new(task.id, Avatar::new(task.text.clone()).size(96.0))
+//! Hero::new(task.id, CircleAvatar::new(task.text.clone()).size(96.0))
 //! ```
 //!
 //! What flies is the **destination**'s own painting, lifted out of the frame and

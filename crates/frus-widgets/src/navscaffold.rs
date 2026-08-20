@@ -8,7 +8,7 @@ use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
 use crate::interaction::Status;
-use crate::navrail::{BottomBar, NavRail};
+use crate::navrail::{BottomBar, NavigationRail};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -72,7 +72,7 @@ impl<Msg: Clone + 'static> NavScaffold<Msg> {
             }
             Box::new(bar)
         } else {
-            let mut rail = NavRail::new(self.selected, on_select);
+            let mut rail = NavigationRail::new(self.selected, on_select);
             for (icon, label, badge) in destinations {
                 rail = rail.item(icon, label);
                 if let Some(count) = badge {

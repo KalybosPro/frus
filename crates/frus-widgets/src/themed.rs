@@ -255,7 +255,7 @@ mod tests {
             .height(200.0)
             .child(Themed::tweak(
                 move |t| t.widgets.divider.color = Some(ink),
-                crate::portal::Portal::new(crate::Container::new().width(20.0).height(20.0))
+                crate::portal::OverlayPortal::new(crate::Container::new().width(20.0).height(20.0))
                     .overlay(panel, crate::portal::Placement::Center),
             ));
         assert!(

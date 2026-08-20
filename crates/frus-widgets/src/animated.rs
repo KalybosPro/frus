@@ -85,7 +85,7 @@ macro_rules! forward_to_container {
             fn clip_path(&self) -> Option<&frus_core::Path> {
                 Widget::clip_path(&self.inner)
             }
-            fn barrier(&self) -> Option<$crate::barrier::Barrier> {
+            fn barrier(&self) -> Option<$crate::barrier::ModalBarrier> {
                 Widget::barrier(&self.inner)
             }
             fn interactive(&self) -> Option<(f32, f32)> {

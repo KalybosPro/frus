@@ -5,7 +5,7 @@
 //!
 //! Each suggestion **brings out** the portion matching the query (in the `primary`
 //! color), and the **active** suggestion ([`active`](Autocomplete::active), stepped
-//! through from the keyboard) is highlighted — like a `Dropdown`'s menu.
+//! through from the keyboard) is highlighted — like a `DropdownButton`'s menu.
 
 use std::rc::Rc;
 
@@ -15,8 +15,8 @@ use frus_layout::{Dimension, FlexDirection, Style};
 use crate::flex::Flex;
 use crate::interaction::Status;
 use crate::portal::Placement;
-use crate::scroll::Scroll;
-use crate::textinput::TextInput;
+use crate::scroll::SingleChildScrollView;
+use crate::textinput::TextField;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -181,7 +181,7 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         // The field: rebuilt on every setting (width, value). The shared `on_input`
         // callback (an Rc) is captured by the field.
         let on_input = self.on_input.clone();
-        let input = TextInput::new(self.value.clone())
+        let input = TextField::new(self.value.clone())
             .width(self.width)
             .on_input(move |text| on_input(text));
         self.children = vec![Box::new(input)];
@@ -202,7 +202,10 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
                 Some(n) if self.labels.len() > n => {
                     let viewport = n as f32 * ROW_H + (n as f32 - 1.0) * ROW_GAP;
                     self.children.push(Box::new(
-                        Scroll::new().width(self.width).height(viewport).child(list),
+                        SingleChildScrollView::new()
+                            .width(self.width)
+                            .height(viewport)
+                            .child(list),
                     ));
                 }
                 _ => self.children.push(Box::new(list)),
@@ -340,7 +343,7 @@ mod tests {
             .suggestion("a3")
             .suggestion("a4");
         let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
-        // The overlay is a Scroll bounded to 2 rows (viewport = 2*ROW_H + 1 gap).
+        // The overlay is a SingleChildScrollView bounded to 2 rows (viewport = 2*ROW_H + 1 gap).
         let expected = 2.0 * ROW_H + ROW_GAP;
         assert!(
             matches!(Widget::<Msg>::style(overlay).height, Dimension::Length(v) if (v - expected).abs() < 0.5),
@@ -358,7 +361,7 @@ mod tests {
             .suggestion("a1")
             .suggestion("a2");
         let (overlay, _) = Widget::<Msg>::overlay(&ac).unwrap();
-        // A direct list: its children are the 2 suggestions, not a Scroll one level down.
+        // A direct list: its children are the 2 suggestions, not a SingleChildScrollView one level down.
         assert_eq!(overlay.children().len(), 2);
         assert_eq!(
             overlay.children()[0].on_click(),
