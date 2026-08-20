@@ -34,6 +34,7 @@ pub struct List<Msg> {
     height: Dimension,
     flex_grow: f32,
     physics: Option<ScrollPhysics>,
+    reverse: bool,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
 }
 
@@ -52,8 +53,22 @@ impl<Msg> List<Msg> {
             height: Dimension::Length(200.0),
             flex_grow: 0.0,
             physics: None,
+            reverse: false,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
         }
+    }
+
+    /// Builds **from the bottom**: item 0 sits at the bottom of the viewport, item 1
+    /// above it, and the list starts resting there.
+    ///
+    /// The other half of a conversation, and the half [`crate::Scroll::reverse`] cannot
+    /// give you: a scroll can anchor its content to the end, but only a list decides
+    /// which end an *index* is. With index 0 the newest message, adding one keeps every
+    /// other item exactly where it was — the view does not jump, and nothing has to be
+    /// renumbered.
+    pub fn reverse(mut self) -> Self {
+        self.reverse = true;
+        self
     }
 
     /// Overrides how the list behaves at its edges and after a fling; see
@@ -112,6 +127,10 @@ impl<Msg> Widget<Msg> for List<Msg> {
 
     fn scroll_physics(&self) -> Option<ScrollPhysics> {
         self.physics
+    }
+
+    fn scroll_reverse(&self) -> bool {
+        self.reverse
     }
 }
 
@@ -192,6 +211,106 @@ mod tests {
             })
             .expect("a row is painted");
         assert_eq!(row.width, 200.0, "the row is as wide as the list: {row:?}");
+    }
+
+    /// Item 0 sits at the **bottom** of a reversed list, and item 1 above it — which is
+    /// what lets index 0 be the newest message.
+    #[test]
+    fn a_reversed_list_builds_from_the_bottom() {
+        let colour = |i: usize| {
+            if i == 0 {
+                Color::rgb(1.0, 0.0, 0.0)
+            } else {
+                Color::rgb(0.0, 0.0, 1.0)
+            }
+        };
+        let list = List::<()>::new(3, 40.0, move |i| {
+            Container::<()>::new().height(40.0).color(colour(i))
+        })
+        .reverse()
+        .width(100.0)
+        .height(200.0);
+        let ui = build_ui(
+            &list,
+            Size::new(100.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let rects: Vec<Rect> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.b > 0.9 || color.r > 0.9 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect();
+        let first = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.b < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("item 0 is painted");
+        assert_eq!(
+            first.y + first.height,
+            200.0,
+            "item 0 at the bottom: {first:?}"
+        );
+        assert_eq!(rects.len(), 3, "all three fit");
+        // And item 1 is directly above it.
+        let above = rects
+            .iter()
+            .filter(|r| r.y < first.y)
+            .max_by(|a, b| a.y.total_cmp(&b.y))
+            .expect("something above");
+        assert_eq!(above.y + above.height, first.y);
+    }
+
+    /// Three items of 40 in a viewport of 200 do not fill it, and a reversed list puts
+    /// them against the bottom rather than leaving them at the top.
+    #[test]
+    fn a_short_reversed_list_rests_at_the_bottom() {
+        let plain = List::<()>::new(3, 40.0, |_| {
+            Container::<()>::new()
+                .height(40.0)
+                .color(Color::rgb(1.0, 0.0, 0.0))
+        })
+        .width(100.0)
+        .height(200.0);
+        let top_of = |list: &List<()>| {
+            let ui = build_ui(
+                list,
+                Size::new(100.0, 200.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { rect, color, .. } if color.r > 0.9 => Some(rect.y),
+                    _ => None,
+                })
+                .fold(f32::MAX, f32::min)
+        };
+        assert_eq!(top_of(&plain), 0.0);
+
+        let reversed = List::<()>::new(3, 40.0, |_| {
+            Container::<()>::new()
+                .height(40.0)
+                .color(Color::rgb(1.0, 0.0, 0.0))
+        })
+        .reverse()
+        .width(100.0)
+        .height(200.0);
+        assert_eq!(top_of(&reversed), 80.0, "200 - 3 x 40");
     }
 
     #[test]

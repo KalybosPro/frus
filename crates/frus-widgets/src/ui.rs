@@ -2859,6 +2859,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let (_, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
             let content_h = vlist.count as f32 * vlist.item_height;
             let max_y = (content_h - viewport.height).max(0.0);
+            let reverse = widget.scroll_reverse();
             self.scrollables.push(Scrollable {
                 id,
                 viewport,
@@ -2868,16 +2869,24 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 refresh: self.refresh_host,
                 page: None,
                 reverse_x: false,
-                reverse_y: false,
+                reverse_y: reverse,
             });
 
             if vlist.item_height > 0.0 && vlist.count > 0 {
+                // The **window** is the same arithmetic either way, and that is not a
+                // coincidence: a reversed list counts its indices from the end, and a
+                // reversed offset counts its pixels from the end, so index and offset
+                // agree about which way is forward. Only where an item lands differs.
                 let first = (offset_y / vlist.item_height).floor().max(0.0) as usize;
                 let last = (((offset_y + viewport.height) / vlist.item_height).ceil() as usize)
                     .min(vlist.count);
                 for i in first..last {
                     let item = (vlist.build)(i);
-                    let top = viewport.y + i as f32 * vlist.item_height - offset_y;
+                    let top = if reverse {
+                        viewport.y + viewport.height - (i + 1) as f32 * vlist.item_height + offset_y
+                    } else {
+                        viewport.y + i as f32 * vlist.item_height - offset_y
+                    };
 
                     // **Filled**, not merely constrained: a list hands its children a
                     // box rather than asking them how big they would like to be. The

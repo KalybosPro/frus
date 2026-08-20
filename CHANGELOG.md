@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 359 so far, each documenting the objective, the alternatives
+> record — one per step, 360 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,14 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A list that counts from the bottom** (J360). `List::reverse()`: item 0 at the bottom,
+  item 1 above it, resting there. The other half of a conversation view — a scroll can
+  anchor its content to the end, but only a list decides which end an *index* is, and with
+  index 0 the newest message, appending one leaves every other item where it was. The
+  virtualisation window needed no change at all: a reversed list counts indices from the
+  end and (since J359) a reversed scroll counts pixels from the end, so the two agree
+  about which way forward is.
 
 - **A scroll that runs from the far end** (J359). `Scroll::reverse()`: content shorter
   than the viewport sits at the bottom, and — the point — the view **stays** at the end
