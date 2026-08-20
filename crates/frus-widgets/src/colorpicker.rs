@@ -90,7 +90,10 @@ impl<Msg: Clone + 'static> ColorPicker<Msg> {
     }
 }
 
-impl<Msg> Widget<Msg> for ColorPicker<Msg> {
+// `Msg: 'static` follows the grid this picker *is*: a `Grid` can build its cells late
+// (`Grid::extent`), and a closure that hands back a boxed widget needs the message type
+// to outlive it. Every application's message enum does.
+impl<Msg: 'static> Widget<Msg> for ColorPicker<Msg> {
     fn style(&self) -> Style {
         Widget::<Msg>::style(&self.grid)
     }

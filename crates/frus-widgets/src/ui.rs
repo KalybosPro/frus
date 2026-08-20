@@ -1255,13 +1255,19 @@ fn build_layout_scoped<'a, Msg>(
             let child = build(offered);
             let mut inner: Layout<BaselineData> = Layout::new();
             let node = build_layout(child.as_ref(), cid, runtime, &theme, &mut inner);
-            inner.compute_scroll(
-                node,
-                offered.width,
-                offered.height,
-                w.is_none(),
-                h.is_none(),
-            );
+            // The content is **handed** the offered box, not asked what it would like:
+            // it was built from that box. An axis that was not offered is the one being
+            // asked about, and stays free so the content's own size comes back.
+            match (w, h) {
+                (Some(w), Some(h)) => inner.compute_filled(node, w, h),
+                _ => inner.compute_scroll(
+                    node,
+                    offered.width,
+                    offered.height,
+                    w.is_none(),
+                    h.is_none(),
+                ),
+            }
             inner.size_of(node)
         });
         return (
@@ -2929,10 +2935,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let content_clip = clip.intersect(bounds);
             let child = build(Size::new(bounds.width, bounds.height));
 
+            // **Filled**, not merely constrained: the content is handed this box, and it
+            // was built from this box in the first place. Constraining it instead let a
+            // root with no width of its own hug its content — a grid built here laid its
+            // columns out at nothing, which is what `Grid::extent`'s first tests found
+            // (milestone 356). The same distinction a list's items and a paged view's
+            // pages already draw.
             let child_rects = self.cached_rects(
                 id.child(0),
                 child.as_ref(),
-                Constraints::definite(Size::new(bounds.width, bounds.height)),
+                Constraints::filled(Size::new(bounds.width, bounds.height)),
             );
 
             let mut child_index = 0;

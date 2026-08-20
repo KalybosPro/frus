@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 355 so far, each documenting the objective, the alternatives
+> record — one per step, 356 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,21 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A grid can work its column count out from a tile width** (J356). `Grid::extent(160.0,
+  n, |i| tile(i))` is the reference's other grid delegate: as many equal columns as it
+  takes for none to exceed the maximum — four of 125 in a 500 px grid at `extent(150.0)`,
+  where CSS `auto-fill`, which looks like the same idea, would give three of 166. The
+  count needs the width before the layout, which J355 made possible; the cells come from
+  a factory because there is no grid to put them in until the count is known, with
+  `LayoutBuilder`'s caveats (the factory runs more than once a frame, and the cells have
+  no retained state). `Grid::new` is unchanged.
+
+  Its first tests found a defect one widget along from J351: a `LayoutBuilder`'s content
+  was **constrained** rather than **handed** its box, so a root with no width of its own
+  hugged — a grid built there laid its columns out at nothing. Fixed in both the
+  measurement and the paint. One golden moved and was read: a builder's `flex(1.0)` child
+  now fills the box it was built for instead of hugging its label.
 
 - **`Flexible` by name** (J354). The loose fit has existed since milestone 334 as
   `Expanded::new(child).loose()`, but the reference calls the widget `Flexible` and makes
