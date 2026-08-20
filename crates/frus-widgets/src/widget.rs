@@ -717,6 +717,18 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If this container gives all of its children the **shape of a tile**, the
+    /// `width / height` ratio to impose on each of them. `None` = each child keeps
+    /// its own shape.
+    ///
+    /// A grid's tiles are the same shape in the reference, and it is the grid that
+    /// says so — the tile does not know how wide its column came out. Imposed during
+    /// the walk, like the fill request and the shrink grant, because it needs the
+    /// children's layout nodes rather than their styles.
+    fn tile_shape(&self) -> Option<f32> {
+        None
+    }
+
     /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
     /// the distance from the top of this box at which that baseline should land.
     /// `None` = not a baseline box.
@@ -1116,6 +1128,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn main_axis_floor(&self) -> Option<f32> {
         (**self).main_axis_floor()
+    }
+    fn tile_shape(&self) -> Option<f32> {
+        (**self).tile_shape()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

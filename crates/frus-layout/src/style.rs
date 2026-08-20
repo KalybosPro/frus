@@ -188,12 +188,23 @@ pub struct Style {
     pub aspect_ratio: Option<f32>,
     /// Spacing between children, in logical pixels.
     pub gap: f32,
+    /// Spacing **between rows**, when it differs from `gap`. `None` means `gap`.
+    ///
+    /// A grid's two spacings are separate in the reference — one along the axis it
+    /// scrolls, one across it — and a tile grid usually wants them different.
+    pub row_gap: Option<f32>,
+    /// Spacing **between columns**, when it differs from `gap`. `None` means `gap`.
+    pub column_gap: Option<f32>,
     /// When `true`, children **wrap** onto the next line (flex-wrap) once they
     /// overflow the main axis — automatic responsive reflow.
     pub flex_wrap: bool,
     /// When `Some(n)`, the container is a **grid** of `n` equal columns, with
     /// children placed automatically, row by row. `None` means flex.
     pub grid_columns: Option<usize>,
+    /// When `Some(h)`, every grid row is exactly `h` logical pixels tall instead of
+    /// following its content — the reference's per-tile main-axis extent. Ignored
+    /// outside a grid.
+    pub grid_row_height: Option<f32>,
 }
 
 impl Default for Style {
@@ -224,8 +235,11 @@ impl Default for Style {
             margin: Insets::ZERO,
             aspect_ratio: None,
             gap: 0.0,
+            row_gap: None,
+            column_gap: None,
             flex_wrap: false,
             grid_columns: None,
+            grid_row_height: None,
         }
     }
 }
@@ -286,8 +300,11 @@ impl Style {
             }
         }
         self.gap.to_bits().hash(hasher);
+        self.row_gap.map(f32::to_bits).hash(hasher);
+        self.column_gap.map(f32::to_bits).hash(hasher);
         self.flex_wrap.hash(hasher);
         self.grid_columns.hash(hasher);
+        self.grid_row_height.map(f32::to_bits).hash(hasher);
     }
 
     pub(crate) fn to_taffy(self) -> taffy::Style {
@@ -329,8 +346,8 @@ impl Style {
                 bottom: taffy::LengthPercentageAuto::Length(self.margin.bottom),
             },
             gap: taffy::Size {
-                width: taffy::LengthPercentage::Length(self.gap),
-                height: taffy::LengthPercentage::Length(self.gap),
+                width: taffy::LengthPercentage::Length(self.column_gap.unwrap_or(self.gap)),
+                height: taffy::LengthPercentage::Length(self.row_gap.unwrap_or(self.gap)),
             },
             aspect_ratio: self.aspect_ratio,
             ..Default::default()
@@ -345,6 +362,12 @@ impl Style {
             // `1.0` to `f32` is being withdrawn (future_incompatible, rust#154024).
             // Without the suffix this becomes a hard error.
             style.grid_template_columns = (0..columns).map(|_| fr(1.0_f32)).collect();
+            // A fixed **tile height**: the rows the auto-flow creates are all this tall
+            // instead of following their content, which is what makes a grid of tiles
+            // read as a grid rather than as ragged bands.
+            if let Some(height) = self.grid_row_height {
+                style.grid_auto_rows = vec![taffy::style_helpers::length(height)];
+            }
         }
 
         style

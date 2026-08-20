@@ -443,6 +443,10 @@ macro_rules! forward_transparent {
                 self.inner.main_axis_floor()
             }
 
+            fn tile_shape(&self) -> Option<f32> {
+                self.inner.tile_shape()
+            }
+
             fn barrier(&self) -> Option<$crate::barrier::Barrier> {
                 self.inner.barrier()
             }

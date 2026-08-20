@@ -1334,6 +1334,15 @@ fn build_layout_scoped<Msg>(
                 layout.allow_shrink(*node);
             }
         }
+        // A grid's tiles are all the same shape. The ratio is the *container's*, since a
+        // tile cannot know how wide its column came out, and the reference says the same:
+        // a grid's delegate hands every child a tight box derived from the track, square
+        // unless the application asked for another ratio.
+        if let Some(ratio) = widget.tile_shape() {
+            for node in &child_ids {
+                layout.set_tile_shape(*node, ratio);
+            }
+        }
         // A child that refuses to be squeezed along the row. Only a row of **several**
         // children may say so. Across a column the same floor would refuse a width the
         // column was handing it, which is how a paragraph is told how wide to be; and a

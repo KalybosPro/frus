@@ -99,6 +99,12 @@ impl<Msg> Widget<Msg> for ColorPicker<Msg> {
         Widget::<Msg>::children(&self.grid)
     }
 
+    // The picker *is* its grid, so it answers for it: a hook the grid resolves during
+    // the walk is lost if only `style` and `children` are forwarded.
+    fn tile_shape(&self) -> Option<f32> {
+        Widget::<Msg>::tile_shape(&self.grid)
+    }
+
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
 
     fn on_click(&self) -> Option<Msg> {

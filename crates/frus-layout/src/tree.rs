@@ -158,6 +158,31 @@ impl<T> Layout<T> {
         self.tree.set_style(node, style).expect("setting a style");
     }
 
+    /// Gives a node the **shape of a tile**: a height derived from the width it ends up
+    /// with by `ratio` (`width / height`, taffy's convention and the reference's).
+    ///
+    /// A grid's tiles are all the same shape in the reference, and that shape is the
+    /// *container's* say rather than each tile's — a tile cannot know how wide its
+    /// column came out — which is why it is imposed here instead of asked of the child.
+    ///
+    /// Only the ratio is set, and that is enough **in a grid**: a track's width is
+    /// definite, so the height follows from it. It would not be enough across a flex,
+    /// where a box is merely stretched by the cross-axis alignment and there is no
+    /// number to derive the other axis from (which is why [`crate::Style::aspect_ratio`]
+    /// is paired with a percentage width there).
+    ///
+    /// A child that has already chosen a size of its own keeps it.
+    pub fn set_tile_shape(&mut self, node: NodeId, ratio: f32) {
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        if !matches!(style.size.width, taffy::Dimension::Auto)
+            || !matches!(style.size.height, taffy::Dimension::Auto)
+        {
+            return;
+        }
+        style.aspect_ratio = Some(ratio);
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
     /// Sets a node's **minimum width**, after it has been built.
     ///
     /// It is what stops a leaf being squeezed along a row, and only a row can say so: the

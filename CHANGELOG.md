@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 352 so far, each documenting the objective, the alternatives
+> record — one per step, 353 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -55,6 +55,20 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A grid's tiles can have a shape** (J353). `Grid::aspect(ratio)` gives every cell the
+  same `width / height` — `1.0` for a square board, at any width, since the height follows
+  the column's — and `Grid::tile_height(px)` gives every row an exact extent, which is the
+  reference's per-tile main-axis extent. `row_gap`/`column_gap` split what was one `gap`,
+  as the reference's two spacings are separate. Without one of them a row is still as tall
+  as its content, which is what a grid of forms wants and what the framework's own colour,
+  date and time pickers are built on; the reference's default of square tiles is not taken,
+  deliberately. New: `Widget::tile_shape`, `Layout::set_tile_shape`,
+  `Style::grid_row_height`, `Style::row_gap`, `Style::column_gap`.
+
+  Checked at the same time, and already right: a **scroll** fills its content's constrained
+  axis when exactly one axis is free (and leaves both alone for a two-dimensional scroll),
+  and a **table**'s cells are tight across and free down, which is the reference's rule.
 
 - **The overflow band says which edge and by how much** (J348): `RIGHT OVERFLOWED BY 86
   PIXELS` across the stripes, in the reference's words and at its metrics, turned a

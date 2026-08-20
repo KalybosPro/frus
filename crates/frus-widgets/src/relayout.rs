@@ -264,6 +264,7 @@ fn hash_node<Msg, H: Hasher>(
         .map(|axis| axis.is_horizontal())
         .hash(hasher);
     widget.main_axis_floor().map(f32::to_bits).hash(hasher);
+    widget.tile_shape().map(f32::to_bits).hash(hasher);
     children.len().hash(hasher);
     for (i, child) in children.iter().enumerate() {
         hash_node(
