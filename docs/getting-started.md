@@ -57,17 +57,44 @@ cargo apk run                        # build + install + launch on the device
 Android prerequisites: SDK + NDK installed, `ANDROID_HOME`/`ANDROID_NDK_ROOT`
 set, and a device connected (`adb devices`).
 
-The template's manifest metadata asks for a theme **without** a title bar:
+### The first pixel: your launch background
 
-```toml
-[package.metadata.android.application]
-theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+Android paints the window from the moment it opens it, which is well before your
+first frame exists. Whatever it paints then is what somebody sees when they tap
+your icon — and left to the platform's theme, on a device in light mode, that is
+**white**. A dark application opens with a full-screen white flash.
+
+The template ships the answer as `res/values/styles.xml`:
+
+```xml
+<resources>
+    <color name="launch_background">#121418</color>
+
+    <style name="LaunchTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/launch_background</item>
+    </style>
+</resources>
 ```
 
-Keep it. The safe area is derived from the space the system leaves the activity,
-and a theme that reserves an action bar makes that space 56dp shorter than the
-window — which the app then pads away as if it were a system bar, leaving a wide
-empty band above its own app bar.
+with the manifest metadata pointing at it:
+
+```toml
+[package.metadata.android]
+resources = "res"
+
+[package.metadata.android.application]
+theme = "@style/LaunchTheme"
+```
+
+**Change the colour** to the one your first frame starts with. `#121418` is the
+default theme's background; an application that opens light wants `#F5F6F8`, and
+one that follows the system wants a second copy of the file under
+`res/values-night/`.
+
+Keep the `NoActionBar` parent. The safe area is derived from the space the system
+leaves the activity, and a theme that reserves an action bar makes that space 56dp
+shorter than the window — which the app then pads away as if it were a system bar,
+leaving a wide empty band above its own app bar.
 
 ## Shipping
 

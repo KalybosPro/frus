@@ -41,14 +41,18 @@ gif = { version = "0.13", optional = true }
 [package.metadata.android]
 package = "com.frus.demo"
 build_targets = ["aarch64-linux-android"]
+# The launch theme lives here — see `res/values/styles.xml`.
+resources = "res"
 
 [package.metadata.android.application]
 label = "frus demo"
 
-# No system title bar: the framework draws its own app bar, and a theme that keeps
-# one makes Android report a content rect 56dp shorter than the window — which the
-# shell reads as a safe-area inset and pads a second time. See milestone 288.
-theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+# The application's own theme, whose only job is the **window background**: what is on
+# screen between Android opening the window and the first frame being drawn. Left to the
+# platform's, a dark application opens with a full-screen white flash on a device in
+# light mode. See `res/values/styles.xml`; it is NoActionBar, which matters for the safe
+# area as well (milestone 288).
+theme = "@style/LaunchTheme"
 
 [package.metadata.android.sdk]
 min_sdk_version = 24

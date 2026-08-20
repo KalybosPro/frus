@@ -8,12 +8,19 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 351 so far, each documenting the objective, the alternatives
+> record — one per step, 352 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **An Android application opens in its own colours** (J352). Android paints the window
+  from the moment it opens it, long before the first frame exists, and the platform theme's
+  background is white on a device in light mode — so a dark application opened with a
+  full-screen white flash. The reference ships a `LaunchTheme` in its template for exactly
+  this; frus ships one now, in the demo, the three examples and the `cargo generate`
+  template, with `getting-started` explaining which colour to put in it.
 
 - **A list hands its children a box** (J351). The reference gives a list's children a
   tight cross-axis extent, and a fixed-extent list a tight main-axis one too; ours merely
