@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 372 so far, each documenting the objective, the alternatives
+> record — one per step, 373 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,43 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A response is bytes** (J373). `fetch` returned a `String` and so did
+  `Request::send`; there was no other way out of the HTTP layer, so the framework could
+  fetch a JSON document and could not fetch a picture — an image over the network was
+  blocked on a missing **verb**, not on a missing widget. That is backwards: a response
+  *is* bytes, and text is a conversion applied to them.
+
+  `Request::send_bytes` and `fetch_bytes` are that shape, and `send` is now them plus
+  `String::from_utf8`. Native reads `into_reader()` where it read `into_string()`; the Web
+  reads `arrayBuffer()` where it read `text()` — the same body without the browser
+  deciding it is a string. A non-UTF-8 body is still a `FetchError::Decode`, so nothing
+  that used `send` behaves differently. One transport with two endings, rather than a
+  second copy of an implementation that arms an `AbortController`, a `setTimeout` and a
+  closure outliving the request.
+
+  `MAX_RESPONSE_BYTES` is **32 MiB**, because a client that reads an unbounded body from a
+  server it does not control can be made to run out of memory by that server — the
+  reason `ureq`'s own text reader has a limit. Large enough for a photograph, a font or a
+  document; small enough to be a limit rather than a formality. The native reader takes
+  `MAX + 1`: `take(MAX)` fills exactly `MAX` for a body at the cap and for one far over
+  it, so the check would otherwise pass on a body already silently cut.
+
+  The test **moves bytes** — a one-shot HTTP server on a loopback port, four assertions
+  over a real socket — because what changed here is exactly what a builder test cannot
+  see.
+
+### Fixed
+
+- **The HTTP helper had no CI coverage** (J373). A step called *"Test with optional
+  features (net + json)"* ran `cargo test -p frus --features json`: no `net`, and on the
+  facade rather than on `frus-shell`, where the tests live. Its 55 unit tests sit behind
+  `#[cfg(feature = "net")]` and the routine `cargo test --workspace` compiles them out, so
+  the step whose name promised to cover them covered nothing — and ran green throughout,
+  because a test that is compiled out passes by being absent. It now runs what its name
+  says, on both crates.
 
 ### Added
 

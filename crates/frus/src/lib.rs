@@ -48,4 +48,4 @@ pub mod fonts {
 // Cross-platform HTTP (feature `net`): the `frus::fetch(url).await` shorthand and the
 // `frus::Request` builder (method / headers / body / timeout) — see [`frus::net`].
 #[cfg(feature = "net")]
-pub use frus_shell::{fetch, net, FetchError, Method, Request};
+pub use frus_shell::{fetch, fetch_bytes, net, FetchError, Method, Request, MAX_RESPONSE_BYTES};

@@ -201,11 +201,29 @@ impl Request {
         decode_json(&body)
     }
 
-    /// Runs the request and returns the response's body as text.
+    /// Runs the request and returns the response's body as **text**.
+    ///
+    /// A convenience over [`send_bytes`](Request::send_bytes): a response is bytes, and
+    /// this is the UTF-8 step. A body that is not valid UTF-8 is a
+    /// [`FetchError::Decode`], which is the same answer it has always given.
+    pub async fn send(self) -> Result<String, FetchError> {
+        let bytes = self.send_bytes().await?;
+        String::from_utf8(bytes).map_err(|e| FetchError::Decode(e.to_string()))
+    }
+
+    /// Runs the request and returns the response's body as **bytes**.
+    ///
+    /// What an image, a font, a PDF or a zip needs, and what the transport had all
+    /// along — [`send`](Request::send) is this plus a UTF-8 conversion.
+    ///
+    /// The body is capped at [`MAX_RESPONSE_BYTES`]; a longer one is a
+    /// [`FetchError::Decode`]. A client that reads an unbounded body from a server it
+    /// does not control can be made to run out of memory by that server, which is why
+    /// `ureq`'s own text reader has a limit and why this one does.
     ///
     /// **Native**: the blocking `ureq` client, run inside the future.
     #[cfg(not(web))]
-    pub async fn send(self) -> Result<String, FetchError> {
+    pub async fn send_bytes(self) -> Result<Vec<u8>, FetchError> {
         if let Some(err) = self.error {
             return Err(err);
         }
@@ -230,9 +248,23 @@ impl Request {
                 None => req.call(),
             };
             match result {
-                Ok(resp) => resp
-                    .into_string()
-                    .map_err(|e| FetchError::Decode(e.to_string())),
+                Ok(resp) => {
+                    use std::io::Read;
+                    // One byte past the limit, so a body **at** the cap is not mistaken
+                    // for one over it: `take(MAX)` fills exactly `MAX` for both, and
+                    // there is no way to tell them apart afterwards.
+                    let mut body = Vec::new();
+                    resp.into_reader()
+                        .take(MAX_RESPONSE_BYTES as u64 + 1)
+                        .read_to_end(&mut body)
+                        .map_err(|e| FetchError::Decode(e.to_string()))?;
+                    if body.len() > MAX_RESPONSE_BYTES {
+                        return Err(FetchError::Decode(format!(
+                            "response body over {MAX_RESPONSE_BYTES} bytes"
+                        )));
+                    }
+                    Ok(body)
+                }
                 Err(ureq::Error::Status(code, _)) => Err(FetchError::Status(code)),
                 Err(e) => Err(FetchError::Network(e.to_string())),
             }
@@ -240,12 +272,13 @@ impl Request {
         .await
     }
 
-    /// Runs the request and returns the response's body as text.
+    /// Runs the request and returns the response's body as **bytes**. See the native
+    /// twin above for what this is for and for the size cap.
     ///
     /// **Web**: `window.fetch`; the timeout is armed by an `AbortController` plus
     /// `setTimeout`, and disarmed as soon as the response arrives.
     #[cfg(web)]
-    pub async fn send(self) -> Result<String, FetchError> {
+    pub async fn send_bytes(self) -> Result<Vec<u8>, FetchError> {
         if let Some(err) = self.error {
             return Err(err);
         }
@@ -319,14 +352,21 @@ impl Request {
         if !resp.ok() {
             return Err(FetchError::Status(resp.status()));
         }
-        let text_promise = resp
-            .text()
+        // `arrayBuffer()` rather than `text()`: the same body without the browser
+        // deciding it is a string. The UTF-8 step is `send`'s, and only when asked for.
+        let buffer_promise = resp
+            .array_buffer()
             .map_err(|e| FetchError::Decode(format!("{e:?}")))?;
-        let text = JsFuture::from(text_promise)
+        let buffer = JsFuture::from(buffer_promise)
             .await
             .map_err(|e| FetchError::Decode(format!("{e:?}")))?;
-        text.as_string()
-            .ok_or_else(|| FetchError::Decode("response body is not text".into()))
+        let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+        if bytes.len() > MAX_RESPONSE_BYTES {
+            return Err(FetchError::Decode(format!(
+                "response body over {MAX_RESPONSE_BYTES} bytes"
+            )));
+        }
+        Ok(bytes)
     }
 }
 
@@ -335,6 +375,22 @@ impl Request {
 pub async fn fetch(url: impl Into<String>) -> Result<String, FetchError> {
     Request::get(url).send().await
 }
+
+/// Shortcut: GETs `url` and returns the body as **bytes**. Equivalent to
+/// `Request::get(url).send_bytes().await`.
+pub async fn fetch_bytes(url: impl Into<String>) -> Result<Vec<u8>, FetchError> {
+    Request::get(url).send_bytes().await
+}
+
+/// The largest response body either transport will hand back: **32 MiB**.
+///
+/// A client that reads an unbounded body from a server it does not control can be made
+/// to run out of memory by that server, so there has to be a number. This one is large
+/// enough for the things bytes are wanted for — a photograph, a font, a document — and
+/// small enough to be a limit rather than a formality. Anything bigger is a download,
+/// which wants streaming to a file rather than a `Vec` in memory, and that is a
+/// different tool.
+pub const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 
 /// Deserialises a JSON body into `T`, a parse error becoming [`FetchError::Decode`].
 /// Kept — and tested — apart from the network I/O. See [`Request::send_json`].
@@ -426,5 +482,25 @@ mod tests {
             matches!(bad, Err(FetchError::Decode(_))),
             "an unreadable body -> Decode"
         );
+    }
+
+    /// `fetch_bytes(url)` must add nothing either: the same bare GET as `fetch`, and
+    /// the difference is only what comes back.
+    #[test]
+    fn the_bytes_shortcut_is_the_same_bare_get() {
+        let r = Request::get("https://example.com");
+        assert_eq!(r.method, Method::Get);
+        assert!(r.headers.is_empty() && r.body.is_none() && r.timeout.is_none());
+    }
+
+    /// The cap's **value**, so changing it is a deliberate edit rather than a slip.
+    ///
+    /// What it does is not asserted here and could not usefully be: proving a 32 MiB
+    /// limit takes a 32 MiB body. The behaviour that can be checked — that bytes
+    /// come back at all, and come back unchanged — lives in `tests/fetch_bytes.rs`,
+    /// over a real socket.
+    #[test]
+    fn the_response_cap_is_the_documented_one() {
+        assert_eq!(MAX_RESPONSE_BYTES, 32 * 1024 * 1024);
     }
 }

@@ -47,8 +47,13 @@ jobs:
       - name: Test (headless — everything except the GPU-backed crates)
         run: cargo test --workspace --exclude frus-gpu --exclude frus-test
 
+      # The step said "net + json" and ran only `json`, and on `frus` rather than on the
+      # crate that holds the code -- so the HTTP helper had **no** CI coverage at all
+      # until milestone 373 went looking for somewhere to put a byte-path test.
       - name: Test with optional features (net + json)
-        run: cargo test -p frus --features json
+        run: |
+          cargo test -p frus --features "net json"
+          cargo test -p frus-shell --features net
 
       # One iteration of every benchmark, for compile rot rather than for numbers:
       # a bench suite nobody builds decays exactly like an advisory check nobody

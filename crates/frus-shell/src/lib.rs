@@ -37,7 +37,7 @@ pub use subscription::Subscription;
 /// Cross-platform HTTP (`net` feature) — the [`fetch`] shorthand, the [`Request`]
 /// builder (method / headers / body / timeout) and the [`FetchError`] error type.
 #[cfg(feature = "net")]
-pub use net::{fetch, FetchError, Method, Request};
+pub use net::{fetch, fetch_bytes, FetchError, Method, Request, MAX_RESPONSE_BYTES};
 
 /// Re-export: size classes and orientation, so the application can drive its own
 /// responsive behaviour.

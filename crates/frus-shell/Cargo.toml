@@ -81,6 +81,8 @@ accesskit_winit = "0.33"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+# `Uint8Array`: reading a response body as bytes rather than as text (milestone 373).
+js-sys = "0.3"
 console_error_panic_hook = "0.1"
 console_log = "1"
 # `Request`/`RequestInit`/`Headers`/`Abort*`: the `fetch` HTTP helper (`net`) on the Web.
