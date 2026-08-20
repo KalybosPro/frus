@@ -10,7 +10,7 @@ use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
 use crate::flex::Flex;
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::portal::Placement;
 use crate::theme::Theme;
@@ -104,7 +104,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
             let scale = size / 24.0;
             let x = bounds.x + self.width - PAD_X - size;
             let y = bounds.y + (ROW_H - size) * 0.5;
-            let path = IconName::Check.path().scaled(scale).translated(x, y);
+            let path = Icons::Check.path().scaled(scale).translated(x, y);
             // The tick stays: which option is chosen is still owed to a reader who cannot
             // choose another.
             let check = if self.enabled {

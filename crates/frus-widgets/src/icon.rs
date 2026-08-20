@@ -1,11 +1,11 @@
-//! [`Icon`]: displays a vector icon from the bundled set ([`IconName`]), scaled and
+//! [`Icon`]: displays a vector icon from the bundled set ([`Icons`]), scaled and
 //! coloured to the theme. It is the first consumer of the vector paths
 //! ([`frus_core::Path`]) on the widget side.
 
 use frus_core::{Color, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -16,14 +16,14 @@ const GRID: f32 = 24.0;
 /// A vector icon. Size and colour can both be customised; they default to `24` px
 /// and the theme's foreground colour (`on_surface`).
 pub struct Icon {
-    name: IconName,
+    name: Icons,
     size: f32,
     color: Option<Color>,
 }
 
 impl Icon {
     /// A `24` px icon, in the theme's colour.
-    pub fn new(name: IconName) -> Self {
+    pub fn new(name: Icons) -> Self {
         Self {
             name,
             size: GRID,
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn paints_a_single_filled_path() {
-        let prims = paint_icon(Icon::new(IconName::Star));
+        let prims = paint_icon(Icon::new(Icons::Star));
         assert_eq!(prims.len(), 1);
         assert!(matches!(
             prims[0],
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn color_override_beats_theme() {
-        let prims = paint_icon(Icon::new(IconName::Heart).color(Color::rgb(1.0, 0.0, 0.0)));
+        let prims = paint_icon(Icon::new(Icons::Heart).color(Color::rgb(1.0, 0.0, 0.0)));
         match &prims[0] {
             Primitive::Path { fill: Some(c), .. } => {
                 assert_eq!(c.r, 1.0);
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn size_drives_the_layout_box() {
-        let icon = Icon::new(IconName::Check).size(40.0);
+        let icon = Icon::new(Icons::Check).size(40.0);
         let style = Widget::<()>::style(&icon);
         assert_eq!(style.width, Dimension::Length(40.0));
         assert_eq!(style.height, Dimension::Length(40.0));

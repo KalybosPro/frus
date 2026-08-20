@@ -7,7 +7,7 @@
 
 use frus_core::Size;
 use frus_widgets::{
-    build_ui, button, row, text, Align, Card, Checkbox, Container, Flex, Icon, IconName, Runtime,
+    build_ui, button, row, text, Align, Card, Checkbox, Container, Flex, Icon, Icons, Runtime,
     Theme, Ui, Widget,
 };
 
@@ -28,7 +28,7 @@ pub fn task_list(rows: usize) -> Container<()> {
                 Checkbox::new(i % 2 == 0),
                 text(format!("Task number {i}")).size(15.0),
                 Container::new().flex(1.0),
-                Icon::new(IconName::Close).size(16.0),
+                Icon::new(Icons::Close).size(16.0),
                 button("Open", ()),
             ]
             .gap(12.0)
@@ -54,7 +54,7 @@ pub fn task_list_wordless(rows: usize) -> Container<()> {
                 .child(Checkbox::new(i % 2 == 0))
                 .child(Container::new().width(120.0).height(18.0))
                 .child(Container::new().flex(1.0))
-                .child(Icon::new(IconName::Close).size(16.0))
+                .child(Icon::new(Icons::Close).size(16.0))
                 .child(Container::new().width(56.0).height(32.0))
                 .gap(12.0)
                 .align(Align::Center)

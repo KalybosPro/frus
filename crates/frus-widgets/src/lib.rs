@@ -198,7 +198,7 @@ pub use iconbutton::{
     IconButton, IconButtonVariant, ICON_BUTTON_BORDER_WIDTH, ICON_BUTTON_ICON_SIZE,
     ICON_BUTTON_SIZE,
 };
-pub use icons::IconName;
+pub use icons::Icons;
 pub use image::Image;
 pub use ink::{InkStyle, InkWell, Ripples};
 pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};

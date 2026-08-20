@@ -342,8 +342,8 @@ fn read_png(path: &Path) -> Snapshot {
 mod tests {
     use frus_core::Size;
     use frus_widgets::{
-        build_ui, button, row, text, Align, Card, Checkbox, Container, Flex, Icon, IconName,
-        Runtime, Theme, Widget,
+        build_ui, button, row, text, Align, Card, Checkbox, Container, Flex, Icon, Icons, Runtime,
+        Theme, Widget,
     };
 
     /// Batching has to survive contact with a real widget tree, or the fix for
@@ -363,7 +363,7 @@ mod tests {
                     Checkbox::new(i % 2 == 0),
                     text(format!("Task number {i}")).size(15.0),
                     Container::new().flex(1.0),
-                    Icon::new(IconName::Close).size(16.0),
+                    Icon::new(Icons::Close).size(16.0),
                     button("Open", ()),
                 ]
                 .gap(12.0)

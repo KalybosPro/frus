@@ -65,7 +65,7 @@ pub(crate) fn todo_row(todo: &Todo, theme: &Theme) -> Container<Msg> {
         // longer be deleted (milestones 333 and 334). No `spacer()` is needed — the
         // expanding label is what pushes the button to the right edge.
         Expanded::new(label.ellipsis()),
-        IconButton::new(IconName::Close)
+        IconButton::new(Icons::Close)
             .label("Delete task")
             .icon_color(theme.error)
             .icon_size(18.0)
@@ -194,7 +194,7 @@ pub(crate) fn todo_screen(
         .on_submit(Msg::AddTodo);
     if !app.draft.is_empty() {
         draft_input = draft_input
-            .suffix_icon(IconName::Close)
+            .suffix_icon(Icons::Close)
             .on_suffix(Msg::ClearDraft);
     }
     let input_row = row![draft_input, button("Add", Msg::AddTodo)]
@@ -339,11 +339,11 @@ pub(crate) fn todo_screen(
         let showcase = Flex::row()
             .gap(16.0)
             .align(Align::Center)
-            .child(Icon::new(IconName::Check).color(theme.primary))
-            .child(Icon::new(IconName::Star))
-            .child(Icon::new(IconName::Heart))
-            .child(Icon::new(IconName::Menu))
-            .child(Icon::new(IconName::ChevronRight))
+            .child(Icon::new(Icons::Check).color(theme.primary))
+            .child(Icon::new(Icons::Star))
+            .child(Icon::new(Icons::Heart))
+            .child(Icon::new(Icons::Menu))
+            .child(Icon::new(Icons::ChevronRight))
             .child(Image::new(demo_image()).size(72.0, 48.0).fit(BoxFit::Cover))
             // A group-opacity layer (milestone 92): two overlapping squares, composited as one →
             // the overlap does not darken (no double-blending of the alpha).

@@ -50,7 +50,7 @@ pub(crate) fn grid_screen(
             Box::new(
                 Container::<Msg>::new()
                     .padding(6.0)
-                    .child(Icon::new(IconName::Close).size(16.0).color(muted))
+                    .child(Icon::new(Icons::Close).size(16.0).color(muted))
                     .on_click(Msg::GridDeleteRow(r)),
             ) as Box<dyn Widget<Msg>>
         }));

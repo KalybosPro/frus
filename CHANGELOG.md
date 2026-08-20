@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 368 so far, each documenting the objective, the alternatives
+> record — one per step, 369 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -52,6 +52,25 @@ any release may break.
   it. Layers are ordered by the batch planner now, like everything else, and the render
   pass interleaves composite draws with content draws. Nested layers inside a group's own
   pre-pass had the same bug and the same fix.
+
+### Changed
+
+- **`IconName` is `Icons`** (J369). Milestone 367 corrected twenty widget names against
+  the reference's and stopped at the widgets; this is not a widget, which is why the sweep
+  did not reach it — and it is a name typed more often than most of the twenty, since
+  every button, chip and tile with a picture on it goes through this enum. The reference
+  calls the set `Icons`; ours said `IconName`, and the argument from 367 applies unchanged.
+
+  It leaves a stutter — the module is `icons`, so the full path is `crate::icons::Icons`
+  — and that costs nothing, because the module is private and the only path anybody
+  writes is `frus_widgets::Icons`. Keeping a name nobody would search for in order to tidy
+  a path nobody sees is the wrong trade, and it is the same one milestone 367 made when it
+  left the twenty module files alone.
+
+  Checked before the sweep ran: `IconName` appears in no string literal and is a prefix of
+  no longer identifier, both of which 367 had to unpick by hand. The historical record
+  keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
+  it describe what was true when they were written.
 
 ### Added
 

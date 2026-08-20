@@ -3,8 +3,8 @@
 //! widget scales the path to its real size and colors it from the theme. Every
 //! icon is meant to be *filled* (the non-zero rule).
 //!
-//! Adding an icon = adding a variant to [`IconName`] and its arm in
-//! [`IconName::path`]. The coordinates are in units of the 24×24 grid.
+//! Adding an icon = adding a variant to [`Icons`] and its arm in
+//! [`Icons::path`]. The coordinates are in units of the 24×24 grid.
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
@@ -12,7 +12,7 @@ use frus_core::{Path, Point, Rect};
 
 /// One icon from the bundled set. Each variant returns a `24×24` normalised [`Path`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum IconName {
+pub enum Icons {
     /// A check mark.
     Check,
     /// A close cross.
@@ -45,11 +45,11 @@ pub enum IconName {
     EyeOff,
 }
 
-impl IconName {
+impl Icons {
     /// The icon's vector path, on the `24×24` grid, ready to be scaled.
     pub fn path(self) -> Path {
         match self {
-            IconName::Check => polygon(&[
+            Icons::Check => polygon(&[
                 (9.55, 17.05),
                 (4.0, 11.5),
                 (5.8, 9.7),
@@ -57,15 +57,15 @@ impl IconName {
                 (18.2, 4.8),
                 (20.0, 6.6),
             ]),
-            IconName::Close => cross_x(),
-            IconName::Add => plus(),
-            IconName::Menu => bars(),
-            IconName::Star => star(Point::new(12.0, 12.5), 10.0, 4.2, 5),
-            IconName::Heart => heart(),
-            IconName::Circle => Path::circle(Point::new(12.0, 12.0), 9.0),
-            IconName::Square => Path::rect(Rect::new(3.0, 3.0, 18.0, 18.0)),
-            IconName::Play => polygon(&[(7.0, 4.0), (20.0, 12.0), (7.0, 20.0)]),
-            IconName::ChevronLeft => polygon(&[
+            Icons::Close => cross_x(),
+            Icons::Add => plus(),
+            Icons::Menu => bars(),
+            Icons::Star => star(Point::new(12.0, 12.5), 10.0, 4.2, 5),
+            Icons::Heart => heart(),
+            Icons::Circle => Path::circle(Point::new(12.0, 12.0), 9.0),
+            Icons::Square => Path::rect(Rect::new(3.0, 3.0, 18.0, 18.0)),
+            Icons::Play => polygon(&[(7.0, 4.0), (20.0, 12.0), (7.0, 20.0)]),
+            Icons::ChevronLeft => polygon(&[
                 (16.0, 5.8),
                 (14.2, 4.0),
                 (6.2, 12.0),
@@ -73,7 +73,7 @@ impl IconName {
                 (16.0, 18.2),
                 (9.8, 12.0),
             ]),
-            IconName::ChevronRight => polygon(&[
+            Icons::ChevronRight => polygon(&[
                 (8.0, 4.0),
                 (16.0, 12.0),
                 (8.0, 20.0),
@@ -84,7 +84,7 @@ impl IconName {
             // The two vertical ones are the horizontal pair turned a quarter: same
             // stroke, same 24x24 grid, so a chevron is the same chevron whichever way
             // it points.
-            IconName::ChevronDown => polygon(&[
+            Icons::ChevronDown => polygon(&[
                 (4.0, 8.0),
                 (12.0, 16.0),
                 (20.0, 8.0),
@@ -92,7 +92,7 @@ impl IconName {
                 (12.0, 12.4),
                 (5.8, 6.2),
             ]),
-            IconName::ChevronUp => polygon(&[
+            Icons::ChevronUp => polygon(&[
                 (4.0, 16.0),
                 (12.0, 8.0),
                 (20.0, 16.0),
@@ -100,8 +100,8 @@ impl IconName {
                 (12.0, 11.6),
                 (5.8, 17.8),
             ]),
-            IconName::Eye => eye(false),
-            IconName::EyeOff => eye(true),
+            Icons::Eye => eye(false),
+            Icons::EyeOff => eye(true),
         }
     }
 }
@@ -290,21 +290,21 @@ mod tests {
     #[test]
     fn every_icon_yields_a_non_empty_path() {
         for name in [
-            IconName::Check,
-            IconName::Close,
-            IconName::Add,
-            IconName::Menu,
-            IconName::Star,
-            IconName::Heart,
-            IconName::Circle,
-            IconName::Square,
-            IconName::Play,
-            IconName::ChevronLeft,
-            IconName::ChevronRight,
-            IconName::ChevronDown,
-            IconName::ChevronUp,
-            IconName::Eye,
-            IconName::EyeOff,
+            Icons::Check,
+            Icons::Close,
+            Icons::Add,
+            Icons::Menu,
+            Icons::Star,
+            Icons::Heart,
+            Icons::Circle,
+            Icons::Square,
+            Icons::Play,
+            Icons::ChevronLeft,
+            Icons::ChevronRight,
+            Icons::ChevronDown,
+            Icons::ChevronUp,
+            Icons::Eye,
+            Icons::EyeOff,
         ] {
             let path = name.path();
             assert!(!path.is_empty(), "{name:?} devrait produire un chemin");
@@ -318,22 +318,22 @@ mod tests {
     #[test]
     fn eye_is_a_ring_with_a_pupil_and_off_adds_a_slash() {
         // Eye = outer contour + inner contour (opposite) + pupil = 3 closed subpaths.
-        let subpaths = |name: IconName| {
+        let subpaths = |name: Icons| {
             name.path()
                 .verbs()
                 .iter()
                 .filter(|v| matches!(v, PathVerb::Close))
                 .count()
         };
-        assert_eq!(subpaths(IconName::Eye), 3, "ring (2 almonds) + pupil");
+        assert_eq!(subpaths(Icons::Eye), 3, "ring (2 almonds) + pupil");
         // The crossed-out eye adds the diagonal.
-        assert_eq!(subpaths(IconName::EyeOff), 4, "eye + diagonal bar");
+        assert_eq!(subpaths(Icons::EyeOff), 4, "eye + diagonal bar");
     }
 
     #[test]
     fn star_has_ten_outline_points() {
         // 5 points → 10 vertices (outer/inner alternating) + move + close.
-        let star = IconName::Star.path();
+        let star = Icons::Star.path();
         let lines = star
             .verbs()
             .iter()
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn menu_has_three_subpaths() {
-        let closes = IconName::Menu
+        let closes = Icons::Menu
             .path()
             .verbs()
             .iter()

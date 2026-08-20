@@ -22,11 +22,11 @@ use frus_widgets::{
     text, AlertDialog, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
     Breadcrumb, Card, CarouselView, Checkbox, CircularProgressIndicator, ClipOval, ClipPath,
     ClipRRect, ColorPicker, ConstrainedBox, Container, CustomPaint, Divider, Expanded,
-    ExpansionTile, FittedBox, Flex, FontWeight, FractionallySizedBox, GridView, Icon, IconName,
-    Image, Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar,
-    NavigationRail, Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RichText,
-    RotatedBox, SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack,
-    Stepper, Switch, TabBar, Theme, Timeline, Transform, TwoPane, Visibility, Widget,
+    ExpansionTile, FittedBox, Flex, FontWeight, FractionallySizedBox, GridView, Icon, Icons, Image,
+    Intrinsic, Kbd, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar, NavigationRail,
+    Offstage, Opacity, OverflowBox, OverlayPortal, Placement, RadioGroup, RichText, RotatedBox,
+    SafeArea, SegmentedButton, SingleChildScrollView, SizedBox, Skeleton, Stack, Stepper, Switch,
+    TabBar, Theme, Timeline, Transform, TwoPane, Visibility, Widget,
 };
 
 fn golden(name: &str) -> String {
@@ -157,20 +157,20 @@ fn the_four_alert_kinds() {
 /// change to the path pipeline moved any of them.
 #[test]
 fn every_icon_and_a_divider() {
-    const NAMES: [IconName; 13] = [
-        IconName::Check,
-        IconName::Close,
-        IconName::Add,
-        IconName::Menu,
-        IconName::Star,
-        IconName::Heart,
-        IconName::Circle,
-        IconName::Square,
-        IconName::Play,
-        IconName::ChevronLeft,
-        IconName::ChevronRight,
-        IconName::Eye,
-        IconName::EyeOff,
+    const NAMES: [Icons; 13] = [
+        Icons::Check,
+        Icons::Close,
+        Icons::Add,
+        Icons::Menu,
+        Icons::Star,
+        Icons::Heart,
+        Icons::Circle,
+        Icons::Square,
+        Icons::Play,
+        Icons::ChevronLeft,
+        Icons::ChevronRight,
+        Icons::Eye,
+        Icons::EyeOff,
     ];
     let mut small = Flex::row().gap(8.0).align(Align::Center);
     let mut large = Flex::row().gap(8.0).align(Align::Center);
@@ -268,7 +268,7 @@ fn a_stepper_and_a_timeline() {
 fn the_app_bar() {
     let bar: Box<dyn Widget<()>> = AppBar::new("Inbox")
         .width(360.0)
-        .leading(Icon::new(IconName::Menu).size(20.0))
+        .leading(Icon::new(Icons::Menu).size(20.0))
         .action("Save", ())
         .action("Edit", ())
         .build();
@@ -285,10 +285,10 @@ fn the_bottom_app_bar() {
                 .width(304.0)
                 .gap(16.0)
                 .align(Align::Center)
-                .child(Icon::new(IconName::Menu).size(20.0))
-                .child(Icon::new(IconName::Star).size(20.0))
+                .child(Icon::new(Icons::Menu).size(20.0))
+                .child(Icon::new(Icons::Star).size(20.0))
                 .child(Container::new().flex(1.0))
-                .child(Icon::new(IconName::Close).size(20.0)),
+                .child(Icon::new(Icons::Close).size(20.0)),
         ),
     );
     check("bottom_app_bar", 320, 90, &root);

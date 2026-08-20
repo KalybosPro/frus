@@ -7,9 +7,9 @@
 //! had the answer all along: 40 × 40, circular, no fill, the icon in `on_surface_variant`.
 //!
 //! ```ignore
-//! IconButton::new(IconName::Close).label("Remove").on_press(Msg::Delete)
+//! IconButton::new(Icons::Close).label("Remove").on_press(Msg::Delete)
 //! IconButton::glyph("\u{2190}").label("Back").on_press(Msg::Pop)
-//! IconButton::new(IconName::Star).selected(starred).on_press(Msg::Star)
+//! IconButton::new(Icons::Star).selected(starred).on_press(Msg::Star)
 //! ```
 //!
 //! It takes either an icon from the bundled set or a **glyph**, because the set does not
@@ -24,7 +24,7 @@ use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -55,7 +55,7 @@ pub enum IconButtonVariant {
 
 /// What the button draws: one of the bundled icons, or a glyph of your own.
 enum Content {
-    Icon(IconName),
+    Icon(Icons),
     Glyph(String),
 }
 
@@ -78,7 +78,7 @@ pub struct IconButton<Msg> {
 
 impl<Msg> IconButton<Msg> {
     /// A button showing one of the bundled icons.
-    pub fn new(icon: IconName) -> Self {
+    pub fn new(icon: Icons) -> Self {
         Self::of(Content::Icon(icon))
     }
 
@@ -396,10 +396,10 @@ mod tests {
     #[test]
     fn it_is_a_circle_as_wide_as_it_is_tall() {
         let theme = Theme::default();
-        let style = Widget::<Msg>::style_themed(&IconButton::new(IconName::Close), &theme);
+        let style = Widget::<Msg>::style_themed(&IconButton::new(Icons::Close), &theme);
         assert_eq!(style.width, Dimension::Length(ICON_BUTTON_SIZE));
         assert_eq!(style.height, Dimension::Length(ICON_BUTTON_SIZE));
-        let radius = painted(&IconButton::new(IconName::Close))
+        let radius = painted(&IconButton::new(Icons::Close))
             .iter()
             .find_map(|p| match p {
                 Primitive::Rect { radius, .. } => Some(*radius),
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn a_standard_one_is_a_glyph_and_nothing_else() {
         let theme = Theme::default();
-        let painted = painted(&IconButton::new(IconName::Close));
+        let painted = painted(&IconButton::new(Icons::Close));
         let (color, border) = painted
             .iter()
             .find_map(|p| match p {
@@ -453,7 +453,7 @@ mod tests {
     fn selected_takes_the_accent() {
         let theme = Theme::default();
         let glyph = |selected: bool| {
-            painted(&IconButton::<Msg>::new(IconName::Star).selected(selected))
+            painted(&IconButton::<Msg>::new(Icons::Star).selected(selected))
                 .iter()
                 .find_map(|p| match p {
                     Primitive::Path { fill, .. } => *fill,
@@ -469,7 +469,7 @@ mod tests {
     fn the_variants_are_told_apart_by_their_surface() {
         let theme = Theme::default();
         let surface = |variant: IconButtonVariant| {
-            painted(&IconButton::<Msg>::new(IconName::Close).variant(variant))
+            painted(&IconButton::<Msg>::new(Icons::Close).variant(variant))
                 .iter()
                 .find_map(|p| match p {
                     Primitive::Rect {
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn disabled_is_inert_and_says_so() {
-        let button = IconButton::new(IconName::Close)
+        let button = IconButton::new(Icons::Close)
             .on_press(Msg::Pressed)
             .enabled(false);
         assert_eq!(Widget::on_click(&button), None);
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn an_icon_button_can_be_named() {
         // An icon says nothing to a screen reader; the label is what it is announced by.
-        let named = IconButton::<Msg>::new(IconName::Close).label("Remove");
+        let named = IconButton::<Msg>::new(Icons::Close).label("Remove");
         assert_eq!(
             Widget::<Msg>::semantics(&named).unwrap().label.as_deref(),
             Some("Remove")
@@ -535,17 +535,17 @@ mod tests {
             other => panic!("{other:?}"),
         };
         assert_eq!(
-            side(IconButton::new(IconName::Close), &Theme::default()),
+            side(IconButton::new(Icons::Close), &Theme::default()),
             ICON_BUTTON_SIZE,
             "the framework's"
         );
         assert_eq!(
-            side(IconButton::new(IconName::Close), &theme),
+            side(IconButton::new(Icons::Close), &theme),
             48.0,
             "the theme's"
         );
         assert_eq!(
-            side(IconButton::new(IconName::Close).size(32.0), &theme),
+            side(IconButton::new(Icons::Close).size(32.0), &theme),
             32.0,
             "the caller's, over the theme's"
         );

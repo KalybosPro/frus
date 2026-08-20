@@ -23,7 +23,7 @@ use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -277,7 +277,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
             };
         let mut x = bounds.x + (bounds.width - group) / 2.0;
         if shows_icon {
-            let path = IconName::Check
+            let path = Icons::Check
                 .path()
                 .scaled(icon / ICON_GRID)
                 .translated(x, bounds.y + (bounds.height - icon) / 2.0);

@@ -10,7 +10,7 @@
 //! ```ignore
 //! Chip::new("Draft")                                   // an attribute
 //! Chip::new("Unread").selected(on).on_press(Msg::Toggle)   // a filter
-//! Chip::new(name).leading(IconName::Star).on_remove(Msg::Drop(id))  // an entry
+//! Chip::new(name).leading(Icons::Star).on_remove(Msg::Drop(id))  // an entry
 //! ```
 //!
 //! Every measurement and colour is overridable, per call or through
@@ -20,7 +20,7 @@ use frus_core::{BorderRadius, Color, Insets, Point, Rect, Scene, TextStyle};
 use frus_layout::{Align, Dimension, FlexDirection, Style};
 
 use crate::disabled::{disabled_container, disabled_content};
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -186,7 +186,7 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
             disabled_content(theme)
         }
         .fade(status.opacity);
-        let path = IconName::Close
+        let path = Icons::Close
             .path()
             .scaled(size / ICON_GRID)
             .translated(bounds.x, bounds.y + (bounds.height - size) * 0.5);
@@ -222,7 +222,7 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
 pub struct Chip<Msg> {
     label: String,
     selected: bool,
-    leading: Option<IconName>,
+    leading: Option<Icons>,
     on_press: Option<Msg>,
     on_remove: Option<Msg>,
     /// A chip that is shown but cannot be acted on: greyed out and inert, its label still
@@ -277,7 +277,7 @@ impl<Msg: Clone + 'static> Chip<Msg> {
     }
 
     /// A leading icon — the avatar or glyph an entry chip carries.
-    pub fn leading(mut self, icon: IconName) -> Self {
+    pub fn leading(mut self, icon: Icons) -> Self {
         self.leading = Some(icon);
         self.rebuild()
     }
@@ -383,10 +383,9 @@ impl<Msg: Clone + 'static> Chip<Msg> {
 
     /// Whether anything is drawn in the leading slot, and what: an icon if there is one,
     /// otherwise the checkmark of a selected chip.
-    fn leading_glyph(&self, theme: &Theme) -> Option<IconName> {
-        self.leading.or_else(|| {
-            (self.selected && self.style.show_checkmark(theme)).then_some(IconName::Check)
-        })
+    fn leading_glyph(&self, theme: &Theme) -> Option<Icons> {
+        self.leading
+            .or_else(|| (self.selected && self.style.show_checkmark(theme)).then_some(Icons::Check))
     }
 
     /// Where the label starts, measured from the chip's left edge.
@@ -764,9 +763,9 @@ mod tests {
                 .filter(|p| matches!(p, Primitive::Path { .. }))
                 .count()
         };
-        assert_eq!(paths(Chip::new("Ada").leading(IconName::Star)), 1);
+        assert_eq!(paths(Chip::new("Ada").leading(Icons::Star)), 1);
         assert_eq!(
-            paths(Chip::new("Ada").leading(IconName::Star).selected(true)),
+            paths(Chip::new("Ada").leading(Icons::Star).selected(true)),
             1,
             "the icon, not the icon and a checkmark"
         );

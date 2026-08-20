@@ -14,7 +14,7 @@ use frus_core::{Color, Point, Rect, Role, Scene, Semantics};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::flex::Flex;
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -179,7 +179,7 @@ impl<Msg: Clone> Widget<Msg> for Steps<Msg> {
 
             if completed {
                 // A tick (a centred 16 px icon) on an accent background.
-                let path = IconName::Check
+                let path = Icons::Check
                     .path()
                     .scaled(16.0 / 24.0)
                     .translated(cx - 8.0, cy - 8.0);

@@ -9,7 +9,7 @@ use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
 use crate::disabled::DISABLED_CONTENT_OPACITY;
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::theme::Theme;
@@ -143,9 +143,9 @@ pub struct TextField<Msg> {
     /// [`OBSCURE_CHAR`]. Editing acts on the real value; only the display changes.
     obscure: bool,
     /// Decorative icon on the left inside the box.
-    prefix: Option<IconName>,
+    prefix: Option<Icons>,
     /// Decorative icon on the right inside the box.
-    suffix: Option<IconName>,
+    suffix: Option<Icons>,
     /// Message emitted on a **click on the suffix icon** (a clear / reveal button…). Makes
     /// the suffix clickable: a click there emits this message instead of placing the caret.
     suffix_action: Option<Msg>,
@@ -458,13 +458,13 @@ impl<Msg> TextField<Msg> {
     }
 
     /// Decorative icon on the left inside the field.
-    pub fn prefix_icon(mut self, icon: IconName) -> Self {
+    pub fn prefix_icon(mut self, icon: Icons) -> Self {
         self.prefix = Some(icon);
         self
     }
 
     /// Decorative icon on the right inside the field.
-    pub fn suffix_icon(mut self, icon: IconName) -> Self {
+    pub fn suffix_icon(mut self, icon: Icons) -> Self {
         self.suffix = Some(icon);
         self
     }
@@ -1927,7 +1927,7 @@ mod tests {
         // A prefix icon draws a path and offsets the content to the right: the same
         // click lands on a smaller index than it would without one.
         let theme = Theme::default();
-        let with_icon = input("hello world").prefix_icon(IconName::Star);
+        let with_icon = input("hello world").prefix_icon(Icons::Star);
         let mut scene = Scene::new();
         Widget::<Msg>::paint(
             &with_icon,
@@ -2303,7 +2303,7 @@ mod tests {
     #[test]
     fn clickable_suffix_emits_and_blocks_caret() {
         let field = TextField::new("hello")
-            .suffix_icon(IconName::Close)
+            .suffix_icon(Icons::Close)
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let (w, y) = (220.0, 12.0);
@@ -2323,7 +2323,7 @@ mod tests {
         assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
         // Without `on_suffix` the icon stays decorative (no positional click).
         let deco = TextField::<Msg>::new("hello")
-            .suffix_icon(IconName::Close)
+            .suffix_icon(Icons::Close)
             .width(220.0);
         assert_eq!(
             Widget::<Msg>::positional_click(&deco, x_suffix, y, w, 40.0),
@@ -2334,7 +2334,7 @@ mod tests {
     #[test]
     fn hovering_active_suffix_paints_a_halo() {
         let field = TextField::new("hello")
-            .suffix_icon(IconName::Close)
+            .suffix_icon(Icons::Close)
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let bounds = Rect::new(0.0, 0.0, 220.0, 40.0);
@@ -2372,7 +2372,7 @@ mod tests {
     fn cursor_icon_is_pointer_over_active_suffix() {
         use crate::interaction::Cursor;
         let field = TextField::new("hello")
-            .suffix_icon(IconName::Close)
+            .suffix_icon(Icons::Close)
             .on_suffix(Msg::Submitted)
             .width(220.0);
         let (w, h, y) = (220.0, 40.0, 12.0);
@@ -2384,7 +2384,7 @@ mod tests {
         assert_eq!(Widget::<Msg>::cursor_icon(&field, 20.0, y, w, h), None);
         // A decorative suffix (no on_suffix): no hand.
         let deco = TextField::<Msg>::new("hello")
-            .suffix_icon(IconName::Close)
+            .suffix_icon(Icons::Close)
             .width(220.0);
         assert_eq!(Widget::<Msg>::cursor_icon(&deco, w - 8.0, y, w, h), None);
     }

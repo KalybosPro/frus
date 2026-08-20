@@ -6,10 +6,10 @@ use frus_core::{Color, Point, Rect, Scene, TextAlign, TextOverflow, TextStyle};
 use frus_test::{render_scene, render_widget};
 use frus_widgets::{
     Align, Autocomplete, BackdropFilter, BarChart, Button, Checkbox, Chip, CircleAvatar, ClipRRect,
-    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, IconName,
-    IgnoreBaseline, ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton, RadioGroup,
-    RangeSlider, Rating, RichText, Row, SegmentedButton, ShaderMask, Slider, Stack, Stepper,
-    Switch, TabBar, Table, Text, TextField, TextSpan, Theme, TimePicker, Variant,
+    ColorFiltered, Column, Container, DateTimePicker, DropdownButton, Flex, Icons, IgnoreBaseline,
+    ImageFiltered, Justify, LineChart, Pagination, PopupMenuButton, RadioGroup, RangeSlider,
+    Rating, RichText, Row, SegmentedButton, ShaderMask, Slider, Stack, Stepper, Switch, TabBar,
+    Table, Text, TextField, TextSpan, Theme, TimePicker, Variant,
 };
 
 fn golden(name: &str) -> String {
@@ -689,7 +689,7 @@ fn table_header_icons_matches_golden() {
     let table = Table::<()>::new(2)
         .width(260.0)
         .header(&["Name", "Rating"])
-        .header_icons(&[Some(IconName::Menu), Some(IconName::Star)])
+        .header_icons(&[Some(Icons::Menu), Some(Icons::Star)])
         .sorted(1, false)
         .row(&["Ada", "5"])
         .row(&["Bob", "3"]);
@@ -2237,7 +2237,7 @@ fn password_eye_matches_golden() {
         .width(280.0)
         .label("Password")
         .obscure(true)
-        .suffix_icon(IconName::Eye)
+        .suffix_icon(Icons::Eye)
         .on_suffix(());
     let root: Container<()> = Container::new().padding(20.0).child(field);
     let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
@@ -2259,7 +2259,7 @@ fn textinput_clear_matches_golden() {
     let field = TextField::<()>::new("Buy milk")
         .width(280.0)
         .label("New task")
-        .suffix_icon(IconName::Close)
+        .suffix_icon(Icons::Close)
         .on_suffix(());
     let root: Container<()> = Container::new().padding(20.0).child(field);
     let Some(snapshot) = render_widget(&root, 340, 110, &theme) else {
@@ -2527,7 +2527,7 @@ fn autocomplete_scroll_matches_golden() {
 /// on the left and a suffix icon on the right. Reproduces its golden.
 #[test]
 fn password_field_matches_golden() {
-    use frus_widgets::IconName;
+    use frus_widgets::Icons;
 
     let theme = Theme::dark();
     let root: Container<()> = Container::new().padding(20.0).child(
@@ -2535,8 +2535,8 @@ fn password_field_matches_golden() {
             .width(280.0)
             .label("Password")
             .obscure(true)
-            .prefix_icon(IconName::Circle)
-            .suffix_icon(IconName::Check)
+            .prefix_icon(Icons::Circle)
+            .suffix_icon(Icons::Check)
             .helper("Tap the eye to reveal"),
     );
     let Some(snapshot) = render_widget(&root, 340, 130, &theme) else {

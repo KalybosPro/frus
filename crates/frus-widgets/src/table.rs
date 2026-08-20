@@ -13,7 +13,7 @@ use frus_core::{Color, Insets, Path, Point, Rect, Scene};
 use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::flex::Flex;
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::{Key, KeyResponse, Status};
 use crate::list::ListView;
 use crate::scroll::{Axis, SingleChildScrollView};
@@ -95,7 +95,7 @@ struct Cell<Msg> {
     /// reader. `None` on a header.
     row: Option<usize>,
     /// **Leading** icon (headers only): painted before the label (icon + text).
-    icon: Option<IconName>,
+    icon: Option<Icons>,
     /// The header's sort indicator: `Some(true)` = ▲, `Some(false)` = ▼.
     sort: Option<bool>,
     message: Option<Msg>,
@@ -293,7 +293,7 @@ impl<Msg: Clone> Widget<Msg> for CheckCell<Msg> {
             // The tick: the filled Check icon, centred in the box.
             let scale = (BOX - 4.0) / 24.0;
             let inset = (BOX - 24.0 * scale) * 0.5;
-            let path = IconName::Check
+            let path = Icons::Check
                 .path()
                 .scaled(scale)
                 .translated(bx + inset, by + inset);
@@ -564,7 +564,7 @@ pub struct Table<Msg> {
     columns: usize,
     headers: Vec<String>,
     /// Leading icon per header column (icon + label). Missing = none.
-    header_icons: Vec<Option<IconName>>,
+    header_icons: Vec<Option<Icons>>,
     /// A **fully widget** header (per column): it replaces the text header row. Empty = the
     /// ordinary text header. Automatic sorting/reordering does not apply to these headers —
     /// the application wires the behaviour into its own widgets.
@@ -657,7 +657,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
     /// Gives header columns a **leading icon** (icon + label): `None` leaves the column
     /// without one. The header stays **sortable** and **reorderable** just like a text
     /// header (the icon is purely decorative).
-    pub fn header_icons(mut self, icons: &[Option<IconName>]) -> Self {
+    pub fn header_icons(mut self, icons: &[Option<Icons>]) -> Self {
         self.header_icons = icons.to_vec();
         self.rebuild();
         self
@@ -1627,7 +1627,7 @@ mod tests {
         let name_x = |icons: bool| {
             let mut t = Table::<Msg>::new(2).width(240.0).header(&["Name", "Score"]);
             if icons {
-                t = t.header_icons(&[Some(IconName::Star), None]);
+                t = t.header_icons(&[Some(Icons::Star), None]);
             }
             let ui = build_ui(
                 &t,

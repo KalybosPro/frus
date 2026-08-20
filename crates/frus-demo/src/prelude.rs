@@ -24,7 +24,7 @@ pub(crate) use frus_widgets::{
     Card, CarouselView, CellFn, Checkbox, Chip, CircleAvatar, Color, ColorPicker, Container,
     CustomPaint, DataTable, DatePicker, Dismissible, Divider, DragTarget, Draggable,
     DropdownButton, ErrorSummary, Expanded, ExpansionTile, FabLocation, Flex, FontWeight, GridView,
-    Hero, Icon, IconButton, IconName, Image, ImageData, ImageHandle, Insets, Justify, Kanban, Kbd,
+    Hero, Icon, IconButton, Icons, Image, ImageData, ImageHandle, Insets, Justify, Kanban, Kbd,
     LayoutBuilder, LineChart, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar,
     Navigator, Orientation, OverlayPortal, PageView, Pagination, Placement, RadioGroup, Rating,
     Rect, RefreshIndicator, RichText, SafeArea, Scaffold, ScaffoldMessenger, ScrollPhysics,

@@ -11,7 +11,7 @@ use std::cell::{OnceCell, RefCell};
 use frus_core::{Color, Insets, Rect, Scene};
 use frus_layout::{FlexDirection, Style};
 
-use crate::icons::IconName;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -209,9 +209,9 @@ impl<Msg: Clone + 'static> ExpansionTile<Msg> {
         }
         .unwrap_or(theme.scheme.on_surface_variant);
         let name = if self.open {
-            IconName::ChevronDown
+            Icons::ChevronDown
         } else {
-            IconName::ChevronRight
+            Icons::ChevronRight
         };
         Some(Box::new(Icon::new(name).size(CHEVRON).color(color)) as Box<dyn Widget<Msg>>)
     }
