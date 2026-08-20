@@ -254,7 +254,7 @@ impl<Msg> Widget<Msg> for RichText {
         frus_text::baseline_of_runs(&self.runs(Color::WHITE, 1.0))
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         if !self.wrap && !self.fills() {
             return None;
         }

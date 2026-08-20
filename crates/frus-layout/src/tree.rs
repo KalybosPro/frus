@@ -15,7 +15,11 @@ pub type NodeId = taffy::NodeId;
 /// width and height (`None` = unconstrained) and returns the content's size. Taffy
 /// calls it during layout, including for **intrinsic** sizes (min-content gives a
 /// width of `Some(0.0)`, max-content gives `None`).
-pub type MeasureFn = Box<dyn Fn(Option<f32>, Option<f32>) -> Size>;
+/// The lifetime is what lets a measurement **borrow**: a text's closure owns everything
+/// it needs and is `'static`, but a [`crate::Layout`] built for a widget tree can hold a
+/// closure that borrows the tree, which is how a box whose content is built from the
+/// space offered gets measured at all.
+pub type MeasureFn<'a> = Box<dyn Fn(Option<f32>, Option<f32>) -> Size + 'a>;
 
 /// The edge a box's content ran past.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,13 +52,13 @@ pub struct Overflowing {
 
 /// A layout tree. `T` is user data attached to the nodes — a colour, say — handed
 /// back with each computed rectangle.
-pub struct Layout<T> {
+pub struct Layout<'a, T> {
     tree: TaffyTree<T>,
     /// Constrained measurements, one per "measured" leaf.
-    measures: HashMap<NodeId, MeasureFn>,
+    measures: HashMap<NodeId, MeasureFn<'a>>,
 }
 
-impl<T> Layout<T> {
+impl<'a, T> Layout<'a, T> {
     /// Creates an empty tree.
     pub fn new() -> Self {
         Self {
@@ -72,7 +76,7 @@ impl<T> Layout<T> {
 
     /// Adds a **measured** leaf: its size comes from `measure`, given the space
     /// offered, rather than from a dimension fixed in the style.
-    pub fn measured_leaf(&mut self, style: Style, data: T, measure: MeasureFn) -> NodeId {
+    pub fn measured_leaf(&mut self, style: Style, data: T, measure: MeasureFn<'a>) -> NodeId {
         let node = self.leaf(style, data);
         self.measures.insert(node, measure);
         node
@@ -362,6 +366,18 @@ impl<T> Layout<T> {
     ///
     /// taffy expresses positions relative to the parent; here we accumulate the
     /// offsets to get absolute coordinates that can be rendered directly.
+    /// The size a node came out at, after a `compute*`.
+    ///
+    /// [`Layout::absolute_rects`] answers the same question for a whole subtree and
+    /// allocates one entry per node to do it; this is for the one caller that wants a
+    /// single box back — a measurement asking how big the thing it just laid out is.
+    pub fn size_of(&self, node: NodeId) -> Size {
+        self.tree
+            .layout(node)
+            .map(|l| Size::new(l.size.width, l.size.height))
+            .unwrap_or(Size::new(0.0, 0.0))
+    }
+
     pub fn absolute_rects(&self, root: NodeId) -> Vec<(Rect, Option<&T>)> {
         let mut out = Vec::new();
         self.collect(root, 0.0, 0.0, &mut out);
@@ -441,12 +457,12 @@ impl<T> Layout<T> {
         }
     }
 
-    fn collect<'a>(
-        &'a self,
+    fn collect<'s>(
+        &'s self,
         node: NodeId,
         offset_x: f32,
         offset_y: f32,
-        out: &mut Vec<(Rect, Option<&'a T>)>,
+        out: &mut Vec<(Rect, Option<&'s T>)>,
     ) {
         let layout = self.tree.layout(node).expect("the node's layout");
         let x = offset_x + layout.location.x;
@@ -463,7 +479,7 @@ impl<T> Layout<T> {
     }
 }
 
-impl<T> Default for Layout<T> {
+impl<T> Default for Layout<'_, T> {
     fn default() -> Self {
         Self::new()
     }
@@ -475,7 +491,7 @@ mod tests {
     /// A row that does not fit says so, on the side it ran past and by how much.
     #[test]
     fn a_row_too_small_for_its_children_reports_it() {
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
         let a = layout.leaf(
             Style {
                 width: Dimension::Length(80.0),
@@ -511,7 +527,7 @@ mod tests {
     /// Padding is part of the box the children have to fit inside.
     #[test]
     fn padding_counts_as_room_taken() {
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
         let child = layout.leaf(
             Style {
                 width: Dimension::Length(100.0),
@@ -539,7 +555,7 @@ mod tests {
     /// which fractional text widths do constantly.
     #[test]
     fn a_row_that_fits_is_silent() {
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
         let a = layout.leaf(
             Style {
                 width: Dimension::Length(50.2),
@@ -573,7 +589,7 @@ mod tests {
 
     #[test]
     fn flex_row_computes_absolute_positions() {
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
 
         // Child A: fixed width 120. Child B: flex_grow 1, filling the rest.
         let a = layout.leaf(
@@ -623,7 +639,7 @@ mod tests {
 
     #[test]
     fn flex_wrap_moves_overflowing_child_to_next_line() {
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
 
         // Three 80px children in a 200px container: 80+80 fit on the first line, and
         // the third (240 > 200) wraps to the next.
@@ -668,12 +684,12 @@ mod tests {
     fn measured_leaf_wraps_to_the_offered_width() {
         // Simulates a 250px text that wraps: given a width W, it occupies min(W, 250)
         // across and grows in height when it wraps.
-        let measure: crate::MeasureFn = Box::new(|w, _| {
+        let measure: crate::MeasureFn<'_> = Box::new(|w, _| {
             let w = w.unwrap_or(250.0).min(250.0);
             let lines = (250.0 / w).ceil();
             Size::new(w, lines * 20.0)
         });
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
         let text = layout.measured_leaf(Style::default(), (), measure);
         let root = layout.container(
             Style {
@@ -702,12 +718,12 @@ mod tests {
     /// height must still be the one that goes with the width it ends up at.
     #[test]
     fn a_centred_measured_leaf_reports_the_height_of_the_width_it_got() {
-        let measure: crate::MeasureFn = Box::new(|w, _| {
+        let measure: crate::MeasureFn<'_> = Box::new(|w, _| {
             let w = w.unwrap_or(250.0).min(250.0);
             let lines = (250.0 / w).ceil();
             Size::new(w, lines * 20.0)
         });
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
         let text = layout.measured_leaf(Style::default(), (), measure);
         let root = layout.container(
             Style {
@@ -733,7 +749,7 @@ mod tests {
 
     #[test]
     fn justify_center_centers_child() {
-        let mut layout: Layout<()> = Layout::new();
+        let mut layout: Layout<'_, ()> = Layout::new();
         let child = layout.leaf(
             Style {
                 width: Dimension::Length(100.0),

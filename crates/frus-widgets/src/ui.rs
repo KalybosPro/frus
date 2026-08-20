@@ -1013,12 +1013,12 @@ pub(crate) fn effective_style<Msg>(
 /// Builds the main layout tree (a scrollable is a **leaf**). `id`/`runtime` are what inject
 /// the animated size through [`effective_style`], following the walk's identity scheme
 /// (`child_id`) **exactly**.
-pub(crate) fn build_layout<Msg>(
-    widget: &dyn Widget<Msg>,
+pub(crate) fn build_layout<'a, Msg>(
+    widget: &'a dyn Widget<Msg>,
     id: WidgetId,
-    runtime: &Runtime,
+    runtime: &'a Runtime,
     theme: &Theme,
-    layout: &mut Layout<BaselineData>,
+    layout: &mut Layout<'a, BaselineData>,
 ) -> NodeId {
     let (node, fills) = build_layout_scoped(widget, id, runtime, theme, layout, true);
     // A root that wants to fill has no parent to fill: the flex machinery below needs one
@@ -1120,12 +1120,12 @@ pub(crate) type BaselineData = Option<f32>;
 /// The body of [`build_layout`], carrying whether baselines are still being collected.
 /// An [`crate::IgnoreBaseline`] turns them off for its subtree — the widgets inside still
 /// have baselines, and the point is that nothing above may see them.
-fn build_layout_scoped<Msg>(
-    widget: &dyn Widget<Msg>,
+fn build_layout_scoped<'a, Msg>(
+    widget: &'a dyn Widget<Msg>,
     id: WidgetId,
-    runtime: &Runtime,
+    runtime: &'a Runtime,
     theme: &Theme,
-    layout: &mut Layout<BaselineData>,
+    layout: &mut Layout<'a, BaselineData>,
     baselines: bool,
 ) -> (NodeId, Fills) {
     // A themed subtree lays out under **its** theme, not the frame's: a theme reaches
@@ -1224,6 +1224,51 @@ fn build_layout_scoped<Msg>(
             Fills::default(),
         );
     }
+    // A `LayoutBuilder` **is measured**: it builds its content from the space offered and
+    // is then as big as what it built, which is the reference's
+    // `size = constraints.constrain(child.size)`. It cannot be a plain leaf, because a
+    // leaf answers before it has been asked and there is nothing to answer with until the
+    // box is known; and it cannot be a container, because its child does not exist yet.
+    //
+    // Taffy calls the closure during the computation with the space actually available —
+    // the same moment the reference runs its layout callback — and the closure builds the
+    // subtree, lays it out in a `Layout` of its own, and hands back the size. An axis the
+    // style pins is still the style's: taffy does not ask about a dimension it already
+    // knows, so `LayoutBuilder::height(200.0)` behaves exactly as it did.
+    if let Some(build) = widget.layout_builder() {
+        let style = effective_style(widget, id, runtime, theme);
+        // `Theme` is `Copy`, and it has to be **owned**: a themed subtree's theme is a
+        // local in this function, so it cannot be borrowed for as long as the closure
+        // lives. The runtime and the widget are borrowed, which is the whole reason
+        // `Layout` carries a lifetime.
+        let theme = *theme;
+        let cid = id.child(0);
+        let measure: frus_layout::MeasureFn<'a> = Box::new(move |w, h| {
+            // What taffy offers. `None` is an *intrinsic* question — how big would you
+            // be with no limit, or with none at all — and there is no honest answer to
+            // it here: finding out means running the application's callback
+            // speculatively. The reference refuses these outright (`computeDryLayout`
+            // asserts); we build at the offered numbers, substituting zero for what is
+            // not offered, and leave the unoffered axis free in the nested computation
+            // so the content's own size comes back.
+            let offered = Size::new(w.unwrap_or(0.0), h.unwrap_or(0.0));
+            let child = build(offered);
+            let mut inner: Layout<BaselineData> = Layout::new();
+            let node = build_layout(child.as_ref(), cid, runtime, &theme, &mut inner);
+            inner.compute_scroll(
+                node,
+                offered.width,
+                offered.height,
+                w.is_none(),
+                h.is_none(),
+            );
+            inner.size_of(node)
+        });
+        return (
+            layout.measured_leaf(style, own_baseline, measure),
+            Fills::own(widget),
+        );
+    }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
     // lists and stacks: their content is laid out separately (independent layers / screens /
     // items, or a child laid out at its natural size).
@@ -1233,7 +1278,6 @@ fn build_layout_scoped<Msg>(
         || widget.navigator().is_some()
         || widget.virtual_list().is_some()
         || widget.page_view().is_some()
-        || widget.layout_builder().is_some()
         || widget.stack()
     {
         // Nothing bubbles out of these: what is inside is laid out somewhere else, to

@@ -8,12 +8,28 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 354 so far, each documenting the objective, the alternatives
+> record — one per step, 355 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **A `LayoutBuilder` is as big as what it built** (J355). The reference sizes it to its
+  child — `size = constraints.constrain(child.size)` — while ours was a layout leaf whose
+  size came from its style, so one dropped into a column with nothing set laid out 0 px
+  tall and its own documentation told you to go and find a height for it. It is a
+  **measured** leaf now: the layout engine calls back during the computation with the
+  space actually available, which is the same moment the reference runs its layout
+  callback, and the closure builds the subtree, lays it out and returns its size. An axis
+  the style pins is still the style's, so every existing use behaves identically and all
+  91 goldens are unchanged.
+
+  It cost a lifetime on `Layout` (a measurement that calls back into the widget layer has
+  to borrow the tree, and `MeasureFn` was `'static`) and a documented hole in the relayout
+  cache: a closure has no fingerprint, so a root holding one is recomputed every frame
+  rather than risk a stale box. It also unblocks the responsive grid delegate left open by
+  J353.
 
 - **An Android application opens in its own colours** (J352). Android paints the window
   from the moment it opens it, long before the first frame exists, and the platform theme's

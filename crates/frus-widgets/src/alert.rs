@@ -90,7 +90,7 @@ impl<Msg> Widget<Msg> for Alert {
         Style::default()
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         let text = self.text.clone();
         let title = self.title.clone();
         Some(Box::new(move |max_width, _| {

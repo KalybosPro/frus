@@ -111,15 +111,23 @@ impl LayoutCache {
         c: Constraints,
     ) -> (Vec<Rect>, Vec<Overflowing>) {
         self.touched.insert(key);
-        let signature = layout_signature(root, key, runtime, theme);
-        if let Some(entry) = self.entries.get(&key) {
-            if entry.signature == signature && entry.constraints == c {
-                self.hits += 1;
-                return (entry.rects.clone(), entry.overflows.clone());
+        let (signature, volatile) = signature_of(root, key, runtime, theme);
+        if !volatile {
+            if let Some(entry) = self.entries.get(&key) {
+                if entry.signature == signature && entry.constraints == c {
+                    self.hits += 1;
+                    return (entry.rects.clone(), entry.overflows.clone());
+                }
             }
         }
         self.misses += 1;
         let (rects, overflows) = compute_rects(root, key, runtime, theme, c);
+        if volatile {
+            // Nothing is stored either: an entry that can never be trusted would only
+            // sit there being evicted and re-made.
+            self.entries.remove(&key);
+            return (rects, overflows);
+        }
         self.entries.insert(
             key,
             Entry {
@@ -175,19 +183,28 @@ fn compute_rects<Msg>(
     (rects, layout.overflows(node))
 }
 
-/// A 64-bit fingerprint of a subtree's **layout**: styles + structure, following
-/// **exactly** the branching of [`build_layout`] (scrollable/navigator/list/stack
-/// = a leaf; portal = the anchor alone). Colors, texts and messages are excluded
-/// (they only affect painting).
-pub(crate) fn layout_signature<Msg>(
+/// A 64-bit fingerprint of a subtree's **layout** — styles + structure, following
+/// **exactly** the branching of [`build_layout`] (scrollable/navigator/list/stack = a
+/// leaf; portal = the anchor alone), with colours, texts and messages excluded because
+/// they only affect painting — and whether that fingerprint can be **trusted between
+/// frames**.
+///
+/// A `LayoutBuilder`'s box is the size of what its closure built, and a closure cannot be
+/// fingerprinted: two frames whose styles and structure are identical can still want
+/// different geometry, because the application changed what it builds. So a root holding
+/// one is marked *volatile* and recomputed every frame — the cache's contract is that a
+/// hit is **bit-for-bit** what the full computation would have produced, and the only
+/// honest way to keep that here is to take the miss.
+fn signature_of<Msg>(
     root: &dyn Widget<Msg>,
     id: WidgetId,
     runtime: &Runtime,
     theme: &crate::theme::Theme,
-) -> u64 {
+) -> (u64, bool) {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    hash_node(root, id, runtime, theme, &mut hasher);
-    hasher.finish()
+    let mut volatile = false;
+    hash_node(root, id, runtime, theme, &mut hasher, &mut volatile);
+    (hasher.finish(), volatile)
 }
 
 fn hash_node<Msg, H: Hasher>(
@@ -196,6 +213,7 @@ fn hash_node<Msg, H: Hasher>(
     runtime: &Runtime,
     theme: &crate::theme::Theme,
     hasher: &mut H,
+    volatile: &mut bool,
 ) {
     // A themed subtree, exactly as `build_layout` sees it: its styles are resolved
     // against its own theme, so the fingerprint is taken against that one too. A
@@ -225,6 +243,7 @@ fn hash_node<Msg, H: Hasher>(
                 runtime,
                 theme,
                 hasher,
+                volatile,
             );
         }
         return;
@@ -236,18 +255,32 @@ fn hash_node<Msg, H: Hasher>(
         || widget.virtual_list().is_some()
         || widget.page_view().is_some()
         || widget.overflow_box().is_some()
-        || widget.layout_builder().is_some()
         || widget.stack()
     {
         1u8.hash(hasher);
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         return;
     }
+    // A `LayoutBuilder` hashes like a leaf and poisons the entry: its style is all there
+    // is to hash, and since milestone 355 its style is no longer all there is to its box.
+    if widget.layout_builder().is_some() {
+        1u8.hash(hasher);
+        effective_style(widget, id, runtime, theme).layout_hash(hasher);
+        *volatile = true;
+        return;
+    }
     if widget.overlay().is_some() {
         2u8.hash(hasher);
         effective_style(widget, id, runtime, theme).layout_hash(hasher);
         let anchor = widget.children()[0].as_ref();
-        hash_node(anchor, child_id(id, 0, anchor), runtime, theme, hasher);
+        hash_node(
+            anchor,
+            child_id(id, 0, anchor),
+            runtime,
+            theme,
+            hasher,
+            volatile,
+        );
         return;
     }
     let children = widget.children();
@@ -273,6 +306,7 @@ fn hash_node<Msg, H: Hasher>(
             runtime,
             theme,
             hasher,
+            volatile,
         );
     }
 }
@@ -283,12 +317,13 @@ mod tests {
     use crate::{Container, Flex};
 
     fn sig<Msg>(w: &dyn Widget<Msg>) -> u64 {
-        layout_signature(
+        signature_of(
             w,
             WidgetId::ROOT,
             &Runtime::default(),
             &crate::theme::Theme::default(),
         )
+        .0
     }
 
     #[test]

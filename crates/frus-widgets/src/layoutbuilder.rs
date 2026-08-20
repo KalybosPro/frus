@@ -6,10 +6,28 @@
 //! it has **no retained state**: hover and clicks work, but persistent keyboard focus
 //! and deferred overlays do not.
 //!
-//! The sizing contract: `LayoutBuilder` is a **layout leaf**, so its own size comes
-//! from its style, as a box's does, and not from its content. On the cross axis of a
-//! `Stretch` parent the width is already the parent's; set the height, or `flex`, to
-//! give it a usable box.
+//! The sizing contract: **as big as what it built**, on any axis its style leaves open.
+//! That is the reference's rule — `size = constraints.constrain(child.size)` — and it is
+//! what lets a `LayoutBuilder` be dropped into a column without having to guess a height
+//! for it first.
+//!
+//! It works because the widget is a **measured** leaf rather than a plain one: the
+//! layout engine calls back during the computation, with the space actually available,
+//! at the same point the reference runs its layout callback. The closure builds the
+//! subtree, lays it out in a tree of its own, and returns its size.
+//!
+//! Three consequences worth knowing:
+//!
+//! - **A pinned axis stays pinned.** `width`, `height` and `flex` still win, because a
+//!   dimension the style already gives is one the engine never asks about.
+//! - **The closure runs more than once a frame** — once for the measurement, once for
+//!   the paint, and again for each intrinsic question the engine asks. It must therefore
+//!   be cheap and free of side effects, which it must be anyway: it is called with no
+//!   retained state.
+//! - **A subtree holding one is not layout-cached.** The relayout cache reuses geometry
+//!   when a fingerprint of the styles and the structure has not moved, and a closure has
+//!   no fingerprint: two frames that look identical to it can still want different
+//!   boxes. So the root is recomputed every frame rather than risk a stale one.
 
 use frus_core::{Rect, Scene, Size};
 use frus_layout::{Dimension, Style};
@@ -110,6 +128,117 @@ mod tests {
         );
         // The factory receives the LayoutBuilder's box, not the window's.
         assert_eq!(seen.get(), Size::new(320.0, 48.0));
+    }
+
+    /// The reference's rule: with no height of its own, the box is as tall as what the
+    /// closure built. Before milestone 355 this laid out 0 px tall and the widget's own
+    /// documentation told you to go and find a number for it.
+    #[test]
+    fn it_is_as_big_as_what_it_built() {
+        let lb = LayoutBuilder::<()>::new(|_| {
+            Container::<()>::new()
+                .height(60.0)
+                .color(Color::rgb(1.0, 0.0, 0.0))
+        });
+        let root = crate::Flex::<()>::column()
+            .width(200.0)
+            .height(400.0)
+            .child(lb);
+        let ui = build_ui(
+            &root,
+            Size::new(200.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let painted = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the built content is painted");
+        assert_eq!(
+            painted.height, 60.0,
+            "the box is its content's: {painted:?}"
+        );
+    }
+
+    /// A sibling after it is pushed down by what it built — which is the point: the box
+    /// is real, not a zero-height hole the rest of the column lays out through.
+    #[test]
+    fn what_it_built_pushes_its_siblings_down() {
+        let column = crate::Flex::<()>::column()
+            .width(200.0)
+            .height(400.0)
+            .child(LayoutBuilder::<()>::new(|_| {
+                Container::<()>::new().height(60.0)
+            }))
+            .child(
+                Container::<()>::new()
+                    .height(20.0)
+                    .color(Color::rgb(0.0, 1.0, 0.0)),
+            );
+        let ui = build_ui(
+            &column,
+            Size::new(200.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let sibling = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.g > 0.9 && color.r < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the sibling is painted");
+        assert_eq!(sibling.y, 60.0, "it starts below the built content");
+    }
+
+    /// An axis the style pins is still the style's: the engine never asks about a
+    /// dimension it already knows, so every existing `height(...)` behaves as it did.
+    #[test]
+    fn a_pinned_axis_is_still_the_style_s() {
+        let lb = LayoutBuilder::<()>::new(|_| {
+            Container::<()>::new()
+                .height(60.0)
+                .color(Color::rgb(1.0, 0.0, 0.0))
+        })
+        .height(120.0);
+        let root = crate::Flex::<()>::column()
+            .width(200.0)
+            .height(400.0)
+            .child(lb)
+            .child(
+                Container::<()>::new()
+                    .height(20.0)
+                    .color(Color::rgb(0.0, 1.0, 0.0)),
+            );
+        let ui = build_ui(
+            &root,
+            Size::new(200.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let sibling = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.g > 0.9 && color.r < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("the sibling is painted");
+        assert_eq!(sibling.y, 120.0, "the style's 120, not the content's 60");
     }
 
     #[test]

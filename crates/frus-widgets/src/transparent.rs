@@ -486,7 +486,7 @@ macro_rules! forward_transparent {
                 self.inner.navigator()
             }
 
-            fn measure(&self) -> Option<frus_layout::MeasureFn> {
+            fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
                 self.inner.measure()
             }
 

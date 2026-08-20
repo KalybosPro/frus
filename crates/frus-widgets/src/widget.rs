@@ -835,7 +835,7 @@ pub trait Widget<Msg> {
     /// offered (a paragraph that wraps…), returns the closure wired into taffy.
     /// `None` = size fixed by `style()`. Contract: must be `Some` **if and only if**
     /// [`Widget::measure_key`] is.
-    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         None
     }
 
@@ -1165,7 +1165,7 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()
     }
-    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         (**self).measure()
     }
     fn measure_key(&self) -> Option<u64> {

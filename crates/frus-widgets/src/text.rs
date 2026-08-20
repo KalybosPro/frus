@@ -447,7 +447,7 @@ impl<Msg> Widget<Msg> for Text {
         ))
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         if !self.wrap && !self.fills() {
             return None;
         }

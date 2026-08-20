@@ -409,7 +409,7 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn> {
+    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         self.inner.as_ref().and_then(|w| w.measure())
     }
 
