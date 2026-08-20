@@ -38,6 +38,11 @@ pub(crate) enum Kind {
     Image,
     Path,
     Text,
+    /// A composited group. It is not drawn by a content pipeline at all — the
+    /// compositor draws it from the texture it was rendered into — but it has to be
+    /// **ordered** with everything else, which is what it is doing here. A layer batch
+    /// always holds exactly one member: two groups never share a draw call.
+    Layer,
 }
 
 /// A run of primitives drawn by one pipeline, in one call. `members` are indices into
@@ -92,8 +97,7 @@ fn path_bounds(path: &Path) -> Rect {
     Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
-/// What a primitive covers, and which pipeline draws it — or `None` for the kinds this
-/// planner does not order (text, and layers, which are composited separately).
+/// What a primitive covers, and which pipeline draws it.
 fn footprint(primitive: &Primitive) -> Option<(Kind, Rect)> {
     match primitive {
         // Exactly its rectangle. A shadow's `blur` softens the edge *inside* the quad
@@ -123,8 +127,53 @@ fn footprint(primitive: &Primitive) -> Option<(Kind, Rect)> {
         Primitive::Text { bounds, clip, .. } | Primitive::RichText { bounds, clip, .. } => {
             Some((Kind::Text, bounds.intersect(*clip)))
         }
-        // A layer is rendered into its own texture and composited afterwards.
-        Primitive::Layer { .. } => None,
+        // A layer is rendered into its own texture and composited afterwards — which
+        // for a long time meant *after everything*, so a group that had been covered
+        // came back on top. It covers what its own contents cover, bounded by its clip
+        // and moved by its transform, and it is ordered against the rest like anything
+        // else.
+        Primitive::Layer {
+            primitives,
+            clip,
+            transform,
+            ..
+        } => {
+            let mut inner: Option<Rect> = None;
+            for p in primitives {
+                if let Some((_, bounds)) = footprint(p) {
+                    inner = Some(match inner {
+                        Some(u) => u.union(bounds),
+                        None => bounds,
+                    });
+                }
+            }
+            // An empty group covers nothing and still has to be ordered somewhere; its
+            // clip is the honest answer, and an empty one is cheap either way.
+            let bounds = inner.unwrap_or(*clip);
+            let bounds = match transform {
+                // The four corners through the matrix, then their box. A rotation's
+                // box is bigger than the rectangle it came from, which is the safe
+                // direction: over-estimating a footprint costs a draw call, and
+                // under-estimating it loses a pixel.
+                Some(t) => {
+                    let (x0, y0) = (bounds.x, bounds.y);
+                    let (x1, y1) = (bounds.x + bounds.width, bounds.y + bounds.height);
+                    let corners = [
+                        t.affine.apply(frus_core::Point::new(x0, y0)),
+                        t.affine.apply(frus_core::Point::new(x1, y0)),
+                        t.affine.apply(frus_core::Point::new(x0, y1)),
+                        t.affine.apply(frus_core::Point::new(x1, y1)),
+                    ];
+                    let min_x = corners.iter().fold(f32::MAX, |m, p| m.min(p.x));
+                    let min_y = corners.iter().fold(f32::MAX, |m, p| m.min(p.y));
+                    let max_x = corners.iter().fold(f32::MIN, |m, p| m.max(p.x));
+                    let max_y = corners.iter().fold(f32::MIN, |m, p| m.max(p.y));
+                    Rect::new(min_x, min_y, max_x - min_x, max_y - min_y)
+                }
+                None => bounds,
+            };
+            Some((Kind::Layer, bounds.intersect(*clip)))
+        }
     }
 }
 
@@ -201,7 +250,14 @@ pub(crate) fn plan(scene: &Scene) -> Vec<Batch> {
     for level in &levels {
         let first = batches.len();
         for &(index, kind, bounds) in &level.members {
-            match batches[first..].iter_mut().find(|b| b.kind == kind) {
+            // A layer is one draw of its own: it is composited from its own texture,
+            // and two of them on the same level still have to keep their scene order.
+            let existing = if kind == Kind::Layer {
+                None
+            } else {
+                batches[first..].iter_mut().find(|b| b.kind == kind)
+            };
+            match existing {
                 Some(batch) => {
                     batch.members.push(index);
                     batch.bounds = batch.bounds.union(bounds);

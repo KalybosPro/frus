@@ -8,10 +8,21 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 349 so far, each documenting the objective, the alternatives
+> record — one per step, 350 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A layer is drawn where the scene put it** (J350). A group opacity, a fade, a rotation
+  or a non-rectangular clip is rendered flat into its own texture and composited — and
+  every one of them was composited after *all* of the frame's content, so a group that
+  something had covered came back on top of it. Found on a device: the demo's translucent
+  square, belonging to the home screen, painted over the Kanban board that had replaced
+  it. Layers are ordered by the batch planner now, like everything else, and the render
+  pass interleaves composite draws with content draws. Nested layers inside a group's own
+  pre-pass had the same bug and the same fix.
 
 ### Changed
 

@@ -189,6 +189,9 @@ struct LayerComposite {
 struct BackdropDraw {
     /// Its index in the composite draw list. Everything before it is what it filters.
     at: usize,
+    /// The scene index of the layer it belongs to, which is how the frame is cut: the
+    /// copy is taken just before the **batch** that draws that layer.
+    scene: usize,
     filter: ImageFilter,
     /// `true` for [`frus_core::BlendMode::Src`]: the filtered copy **replaces** what
     /// it was copied from rather than being painted over it.
@@ -197,9 +200,12 @@ struct BackdropDraw {
     key: Option<u64>,
 }
 
-/// This frame's content draws, prepared once and replayed by whichever pass draws
-/// them. Only the first pass of a frame does: the content is painted once, and the
-/// passes after it exist only to interleave backdrops between the layers.
+/// This frame's draws, prepared once and replayed by whichever pass draws them.
+///
+/// The batches are the **whole** order of the frame, layers included: a layer is one
+/// batch of its own, holding the scene index of the group, and `layer_draws` says which
+/// composite draws that batch issues — two when the layer takes a backdrop (the filtered
+/// copy, then the layer over it), one otherwise.
 struct ContentPlan<'a> {
     batches: &'a [batch::Batch],
     rect_ranges: &'a [std::ops::Range<u32>],
@@ -207,6 +213,11 @@ struct ContentPlan<'a> {
     path_ranges: &'a [std::ops::Range<u32>],
     decoration_ranges: &'a [std::ops::Range<u32>],
     decoration_base: u32,
+    /// Scene index of a layer → the composite draws that put it on the screen.
+    layer_draws: &'a HashMap<usize, std::ops::Range<usize>>,
+    /// How many text batches precede each batch, so a pass over a *range* of batches
+    /// still hands the text painter the right renderer.
+    text_slots: &'a [usize],
 }
 
 /// A layer texture **kept across frames** — a repaint boundary on the GPU side —
@@ -810,8 +821,12 @@ impl Painters {
         // copy of what is underneath, and then the layer itself over it.
         let mut draws: Vec<LayerComposite> = Vec::new();
         let mut backdrops: Vec<BackdropDraw> = Vec::new();
+        // Which composite draws each layer issues, by its index in the scene. The batch
+        // planner orders layers among the content, and this is how a layer batch finds
+        // the draws that belong to it.
+        let mut layer_draws: HashMap<usize, std::ops::Range<usize>> = HashMap::new();
         let mut layer_index = 0usize;
-        for primitive in scene.primitives() {
+        for (scene_index, primitive) in scene.primitives().iter().enumerate() {
             if let Primitive::Layer {
                 primitives,
                 opacity,
@@ -836,12 +851,14 @@ impl Painters {
                     device, queue, format, view, *opacity, *clip, clip_shape, transform, filter, w,
                     h,
                 );
+                let first_draw = draws.len();
                 // The backdrop goes **first**: it is a picture of what was already
                 // there, and the layer is painted over it. It borrows the layer's clip
                 // and shape, which is the region it applies to.
                 if let Some(backdrop) = filter.backdrop {
                     backdrops.push(BackdropDraw {
                         at: draws.len(),
+                        scene: scene_index,
                         filter: backdrop.filter,
                         replace: backdrop.blend == frus_core::BlendMode::Src,
                         key: backdrop.key,
@@ -861,6 +878,7 @@ impl Painters {
                     });
                 }
                 draws.push(entry);
+                layer_draws.insert(scene_index, first_draw..draws.len());
                 layer_index += 1;
             }
         }
@@ -881,6 +899,16 @@ impl Painters {
                 .prepare_frame(device, queue, scene, &decorations, &batches);
         let image_ranges = self.image.prepare_frame(device, queue, scene, &batches);
         let path_ranges = self.path.prepare_frame(device, queue, scene, &batches);
+        // The text painter keeps one renderer per text batch, in order; a pass drawing
+        // batches `a..b` needs to know how many of them came before `a`.
+        let mut text_slots = Vec::with_capacity(batches.len());
+        let mut slots = 0usize;
+        for batch in &batches {
+            text_slots.push(slots);
+            if batch.kind == batch::Kind::Text {
+                slots += 1;
+            }
+        }
         let content = ContentPlan {
             batches: &batches,
             rect_ranges: &rect_ranges,
@@ -888,6 +916,8 @@ impl Painters {
             path_ranges: &path_ranges,
             decoration_ranges: &decoration_ranges,
             decoration_base: decoration_base.start,
+            layer_draws: &layer_draws,
+            text_slots: &text_slots,
         };
 
         // With MSAA we paint into the multisampled texture then resolve; without it
@@ -909,8 +939,8 @@ impl Painters {
                 msaa_view.as_ref(),
                 target,
                 load,
-                Some(&content),
-                0..draws.len(),
+                &content,
+                0..batches.len(),
                 None,
             );
             queue.submit(std::iter::once(encoder.finish()));
@@ -929,6 +959,15 @@ impl Painters {
         // first of them and every other one reads the same texture. That is what
         // turns a list of frosted rows from one full-surface blur per row into one.
         let mut shared: HashMap<u64, wgpu::Texture> = HashMap::new();
+        // The frame is cut at the **batch** that draws the backdrop's layer, because
+        // that is where "what is already painted" ends now that layers are ordered
+        // among the content rather than after it.
+        let cut_at = |scene: usize| {
+            batches
+                .iter()
+                .position(|b| b.kind == batch::Kind::Layer && b.members.first() == Some(&scene))
+                .unwrap_or(batches.len())
+        };
         let mut cursor = 0usize;
         let mut first = true;
         // Every segment after the first **starts** with a backdrop — that is what ends
@@ -944,8 +983,8 @@ impl Painters {
                     msaa_view.as_ref(),
                     &stage,
                     if first { load } else { wgpu::LoadOp::Load },
-                    first.then_some(&content),
-                    cursor..backdrop.at,
+                    &content,
+                    cursor..cut_at(backdrop.scene),
                     replace_at,
                 );
                 // Submitted here and not at the end: the filter below reads the stage,
@@ -986,7 +1025,7 @@ impl Painters {
                 }
             };
             self.composite.rebind(device, backdrop.at, &view);
-            cursor = backdrop.at;
+            cursor = cut_at(backdrop.scene);
             replace_at = backdrop.replace.then_some(backdrop.at);
         }
 
@@ -998,8 +1037,8 @@ impl Painters {
             msaa_view.as_ref(),
             &stage,
             wgpu::LoadOp::Load,
-            None,
-            cursor..draws.len(),
+            &content,
+            cursor..batches.len(),
             replace_at,
         );
         // And the staged frame onto the target it was always meant for.
@@ -1070,17 +1109,28 @@ impl Painters {
     // A pass is its attachment, its load, and what to put in it; the arguments are the
     // pass.
     #[allow(clippy::too_many_arguments)]
+    /// One render pass over a **range of batches**, in order.
+    ///
+    /// The order is the whole point. A layer is composited from a texture of its own,
+    /// and for a long time every layer was composited after all of the content — so a
+    /// group that something had covered came back on top of it. A device found it as the
+    /// home screen's translucent square painted over the Kanban board (milestone 349).
+    /// The batches now hold the layers too, in the order they must be drawn, and this
+    /// walks them: content pipelines and composite draws interleaved.
     fn pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         msaa_view: Option<&wgpu::TextureView>,
         target: &wgpu::TextureView,
         load: wgpu::LoadOp<wgpu::Color>,
-        content: Option<&ContentPlan>,
-        layers: std::ops::Range<usize>,
+        content: &ContentPlan,
+        batches: std::ops::Range<usize>,
         replace_at: Option<usize>,
     ) {
-        if content.is_none() && layers.is_empty() {
+        // An empty range still has to run when the pass is the one that clears: a frame
+        // with nothing in it is a frame of the clear colour, not a frame of whatever was
+        // in the buffer before.
+        if batches.is_empty() && !matches!(load, wgpu::LoadOp::Clear(_)) {
             return;
         }
         let (view, resolve_target) = match msaa_view {
@@ -1101,29 +1151,35 @@ impl Painters {
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-        if let Some(content) = content {
-            let mut slot = 0;
-            for (i, batch) in content.batches.iter().enumerate() {
-                match batch.kind {
-                    batch::Kind::Rect => self.rect.draw(&mut pass, content.rect_ranges[i].clone()),
-                    batch::Kind::Image => {
-                        self.image.draw(&mut pass, content.image_ranges[i].clone())
-                    }
-                    batch::Kind::Path => self.path.draw(&mut pass, content.path_ranges[i].clone()),
-                    batch::Kind::Text => {
-                        // The underlines first — they are rectangles, and they belong
-                        // beneath the glyphs they decorate rather than in a batch of
-                        // their own.
-                        let base = content.decoration_base;
-                        let d = &content.decoration_ranges[i];
-                        self.rect.draw(&mut pass, base + d.start..base + d.end);
-                        self.text.draw(&mut pass, slot);
-                        slot += 1;
+        for i in batches {
+            let batch = &content.batches[i];
+            match batch.kind {
+                batch::Kind::Rect => self.rect.draw(&mut pass, content.rect_ranges[i].clone()),
+                batch::Kind::Image => self.image.draw(&mut pass, content.image_ranges[i].clone()),
+                batch::Kind::Path => self.path.draw(&mut pass, content.path_ranges[i].clone()),
+                batch::Kind::Text => {
+                    // The underlines first — they are rectangles, and they belong
+                    // beneath the glyphs they decorate rather than in a batch of
+                    // their own.
+                    let base = content.decoration_base;
+                    let d = &content.decoration_ranges[i];
+                    self.rect.draw(&mut pass, base + d.start..base + d.end);
+                    self.text.draw(&mut pass, content.text_slots[i]);
+                }
+                batch::Kind::Layer => {
+                    // One member, always: the scene index of the group. Its draws are
+                    // the layer itself, preceded by its backdrop when it takes one.
+                    if let Some(range) = batch
+                        .members
+                        .first()
+                        .and_then(|scene| content.layer_draws.get(scene))
+                    {
+                        self.composite
+                            .draw_range(&mut pass, range.clone(), replace_at);
                     }
                 }
             }
         }
-        self.composite.draw_range(&mut pass, layers, replace_at);
     }
 
     /// The staging texture a frame with backdrops is built in, created on demand and
@@ -1238,8 +1294,7 @@ impl Painters {
     }
 
     /// Renders a group of primitives into a full-surface texture with a transparent
-    /// background, for later compositing. **Nested** layers are not re-composited at
-    /// this level, an accepted limitation.
+    /// background, for later compositing.
     fn render_group(
         &mut self,
         device: &wgpu::Device,
@@ -1261,7 +1316,11 @@ impl Painters {
         // every level prepares, records and **submits** before returning: the deepest
         // group is on the queue before its parent writes a single instance.
         let mut nested: Vec<LayerComposite> = Vec::new();
-        for primitive in primitives {
+        // Which nested composite belongs to which primitive, so the pass below can put
+        // it back in scene order among this group's own drawing rather than after all
+        // of it — the same ordering the top-level frame does.
+        let mut nested_of: HashMap<usize, usize> = HashMap::new();
+        for (scene_index, primitive) in primitives.iter().enumerate() {
             if let Primitive::Layer {
                 primitives: inner,
                 opacity,
@@ -1283,6 +1342,7 @@ impl Painters {
                     device, queue, format, view, *opacity, *clip, clip_shape, transform, filter, w,
                     h,
                 );
+                nested_of.insert(scene_index, nested.len());
                 nested.push(entry);
             }
         }
@@ -1361,10 +1421,14 @@ impl Painters {
                         self.text.draw(&mut pass, slot);
                         slot += 1;
                     }
+                    // A nested layer, in its place among this group's own drawing.
+                    batch::Kind::Layer => {
+                        if let Some(&n) = batch.members.first().and_then(|s| nested_of.get(s)) {
+                            self.composite.draw_range(&mut pass, n..n + 1, None);
+                        }
+                    }
                 }
             }
-            // The nested layers over this group's own primitives, as at the top level.
-            self.composite.draw_range(&mut pass, 0..nested.len(), None);
         }
         queue.submit(std::iter::once(encoder.finish()));
         texture
