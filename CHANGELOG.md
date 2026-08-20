@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 369 so far, each documenting the objective, the alternatives
+> record — one per step, 370 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -73,6 +73,35 @@ any release may break.
   it describe what was true when they were written.
 
 ### Added
+
+- **A checkbox that can answer "some of them"** (J370). `Checkbox` had two answers; the
+  reference's has three, and the third is the one a real list needs — a "select all"
+  above five rows of which three are ticked. Drawn unticked that header says *nothing here
+  is selected*, which is false; ticked, *everything is*, which is also false. There is no
+  honest two-state answer, so the control has a third: the reference calls it `tristate`,
+  the platform's accessibility vocabulary calls it `mixed`, and both mean the same thing.
+
+  `Checkbox::maybe(Option<bool>)` is that control, `None` being partly on, and a click
+  cycles off → on → partly on → off, which is the reference's order. It needed a
+  second callback: `on_toggle` takes `Fn(bool) -> Msg` and there is no value of `bool`
+  that means partly, so `on_change` takes `Fn(Option<bool>) -> Msg` and wins when both are
+  given. A tristate box wired only to the old one is **not** left silent — it reports the
+  two answers that type can carry, with partly-on reading as on, which is what a click on
+  it moves away from; emitting nothing would be a widget that looks live and is not.
+
+  Both **on** and **partly on** fill the box and only the mark differs, which is the
+  reference's drawing and the right one: the filled surface is what says *this is not
+  simply off*, and the mark says which of the two it is. The tick stays a `✓` glyph,
+  which is what it has always been; the partly-on mark is **drawn** — a bar, two numbers
+  on the box the border already uses — for the reason milestone 368 gave about the
+  expansion tile's arrow: a glyph is a font's opinion and can be missing outright.
+
+  `frus_core::Toggled` gained `Mixed` and the shell maps it to AccessKit's, so a screen
+  reader is told `mixed` rather than handed a lie in one of the two directions;
+  `Semantics::maybe_toggled` takes the `Option<bool>` whole. Left: the reference
+  **animates** between the tick and the bar, the tick retracting into it and back — a
+  `CustomPaint` and a curve rather than a new concept, and it wants its own step alongside
+  the switch's thumb.
 
 - **An expansion tile that is a tile** (J368). `ExpansionTile`'s whole surface was
   `new(title, open, on_toggle)` and `content(widget)`. No leading widget, no subtitle, no

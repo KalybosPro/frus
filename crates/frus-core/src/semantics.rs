@@ -51,6 +51,12 @@ pub enum Toggled {
     False,
     /// Checked.
     True,
+    /// **Partly** checked: some of what this stands for is on and some is not.
+    ///
+    /// It is a third answer rather than a second no. A "select all" that reads
+    /// *unchecked* while three of its five rows are ticked is telling a reader
+    /// something false, and the platform's own vocabulary has the word for it.
+    Mixed,
 }
 
 /// A widget's **resolved** semantic annotation, for accessibility.
@@ -96,6 +102,17 @@ impl Semantics {
     /// Marks the checked state.
     pub fn toggled(mut self, on: bool) -> Self {
         self.toggled = if on { Toggled::True } else { Toggled::False };
+        self
+    }
+
+    /// Marks it on, off, or **partly** on — `None` being the third answer, not a
+    /// missing one.
+    pub fn maybe_toggled(mut self, on: Option<bool>) -> Self {
+        self.toggled = match on {
+            Some(true) => Toggled::True,
+            Some(false) => Toggled::False,
+            None => Toggled::Mixed,
+        };
         self
     }
 

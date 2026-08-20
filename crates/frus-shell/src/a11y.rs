@@ -72,6 +72,7 @@ fn to_ak_node(rect: Rect, sem: &Semantics) -> Node {
         Toggled::None => {}
         Toggled::False => node.set_toggled(AkToggled::False),
         Toggled::True => node.set_toggled(AkToggled::True),
+        Toggled::Mixed => node.set_toggled(AkToggled::Mixed),
     }
     if let Some((min, value, max)) = sem.range {
         node.set_numeric_value(value as f64);

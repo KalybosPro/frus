@@ -9,11 +9,17 @@ use crate::theme::Theme;
 use crate::widget::Widget;
 
 const BOX: f32 = 20.0;
+/// The partly-ticked bar: its inset from either side of the box, and its thickness.
+const MIXED_INSET: f32 = 4.0;
+const MIXED_THICKNESS: f32 = 2.0;
 const GAP: f32 = 10.0;
 
 /// A checkbox, with an optional label.
 pub struct Checkbox<Msg> {
-    checked: bool,
+    /// On, off, or **partly** on; see [`Checkbox::maybe`].
+    value: Option<bool>,
+    /// Whether a click may land on the partly-on answer.
+    tristate: bool,
     label: Option<String>,
     size: f32,
     enabled: bool,
@@ -24,13 +30,15 @@ pub struct Checkbox<Msg> {
     radius: Option<f32>,
     label_color: Option<Color>,
     on_toggle: Option<Box<dyn Fn(bool) -> Msg>>,
+    on_change: Option<Box<dyn Fn(Option<bool>) -> Msg>>,
 }
 
 impl<Msg> Checkbox<Msg> {
     /// Creates a checkbox whose checked state is supplied.
     pub fn new(checked: bool) -> Self {
         Self {
-            checked,
+            value: Some(checked),
+            tristate: false,
             label: None,
             size: 18.0,
             enabled: true,
@@ -41,7 +49,37 @@ impl<Msg> Checkbox<Msg> {
             radius: None,
             label_color: None,
             on_toggle: None,
+            on_change: None,
         }
+    }
+
+    /// A checkbox with **three** answers: on, off, and partly on.
+    ///
+    /// `None` is the third, and it is an answer rather than a missing one. A "select
+    /// all" above five rows of which three are ticked is not unchecked — saying so tells
+    /// the reader something false, and a screen reader is told `mixed` for the same
+    /// reason.
+    ///
+    /// A click cycles off → on → partly on → off, which is the reference's order. Pair it
+    /// with [`on_change`](Checkbox::on_change), since [`on_toggle`](Checkbox::on_toggle)
+    /// has no way to say the third answer.
+    ///
+    /// ```
+    /// # use frus_widgets::Checkbox;
+    /// # #[derive(Clone)] enum Msg { All(Option<bool>) }
+    /// # let (done, total) = (3usize, 5usize);
+    /// let all = match done {
+    ///     0 => Some(false),
+    ///     n if n == total => Some(true),
+    ///     _ => None,
+    /// };
+    /// Checkbox::maybe(all).label("Select all").on_change(Msg::All);
+    /// ```
+    pub fn maybe(value: Option<bool>) -> Self {
+        let mut checkbox = Self::new(false);
+        checkbox.value = value;
+        checkbox.tristate = true;
+        checkbox
     }
 
     /// The box's fill when it is **ticked**; the theme's `primary` otherwise.
@@ -112,6 +150,34 @@ impl<Msg> Checkbox<Msg> {
         self
     }
 
+    /// A closure producing a message from the new state, **including** the partly-on
+    /// one. What [`Checkbox::maybe`] wants; it wins over
+    /// [`on_toggle`](Checkbox::on_toggle) when both are given.
+    pub fn on_change(mut self, on_change: impl Fn(Option<bool>) -> Msg + 'static) -> Self {
+        self.on_change = Some(Box::new(on_change));
+        self
+    }
+
+    /// Is the box filled? Both **on** and **partly on** are: the mark differs, the
+    /// surface under it does not, which is what says "this is not simply off".
+    fn filled(&self) -> bool {
+        self.value != Some(false)
+    }
+
+    /// The state a click moves to. Three-way it is the reference's cycle; otherwise the
+    /// old one, unchanged.
+    fn next(&self) -> Option<bool> {
+        if self.tristate {
+            match self.value {
+                Some(false) => Some(true),
+                Some(true) => None,
+                None => Some(false),
+            }
+        } else {
+            Some(self.value != Some(true))
+        }
+    }
+
     fn label_width(&self) -> f32 {
         match &self.label {
             Some(text) => GAP + frus_text::measure(text, self.size).width,
@@ -139,7 +205,7 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         let box_y = bounds.y + (bounds.height - BOX) * 0.5;
         let box_rect = Rect::new(bounds.x, box_y, BOX, BOX);
 
-        if self.checked {
+        if self.filled() {
             // Disabled and ticked: the box flattens to `on_surface` at 38 % and the tick
             // punches through in `surface`. A translucent tick on a translucent box would
             // land within a few percent of it and vanish.
@@ -162,12 +228,31 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
                 0.0,
                 Color::TRANSPARENT,
             );
-            scene.text(
-                Point::new(box_rect.x + 3.0, box_rect.y + 1.0),
-                "✓".to_string(),
-                self.size,
-                tick.fade(o),
-            );
+            match self.value {
+                // Ticked.
+                Some(_) => scene.text(
+                    Point::new(box_rect.x + 3.0, box_rect.y + 1.0),
+                    "✓".to_string(),
+                    self.size,
+                    tick.fade(o),
+                ),
+                // Partly ticked: a bar, and a **drawn** one rather than a dash of text.
+                // The tick above is a glyph and pays for it — a font's own width and
+                // weight — but the reference draws this mark, and a bar is two numbers
+                // rather than a code point some font may not carry.
+                None => scene.draw_rect(
+                    Rect::new(
+                        box_rect.x + MIXED_INSET,
+                        box_rect.y + (BOX - MIXED_THICKNESS) * 0.5,
+                        BOX - MIXED_INSET * 2.0,
+                        MIXED_THICKNESS,
+                    ),
+                    tick.fade(o),
+                    MIXED_THICKNESS * 0.5,
+                    0.0,
+                    Color::TRANSPARENT,
+                ),
+            }
         } else {
             // Unticked, the outline *is* the control — the mark rather than a container —
             // so it takes the content opacity, as the reference's does.
@@ -222,7 +307,16 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         if !self.enabled {
             return None;
         }
-        self.on_toggle.as_ref().map(|make| make(!self.checked))
+        let next = self.next();
+        if let Some(make) = self.on_change.as_ref() {
+            return Some(make(next));
+        }
+        // `on_toggle` cannot say the third answer, so a tristate box wired only to it
+        // reports the two it can: partly on reads as on, which is what a click on it
+        // moves away from.
+        self.on_toggle
+            .as_ref()
+            .map(|make| make(next.unwrap_or(true)))
     }
 
     fn focusable(&self) -> bool {
@@ -232,7 +326,7 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
     fn semantics(&self) -> Option<frus_core::Semantics> {
         // Still ticked or not, still announced: a reader who cannot change the answer is
         // still owed it.
-        let mut s = frus_core::Semantics::new(frus_core::Role::CheckBox).toggled(self.checked);
+        let mut s = frus_core::Semantics::new(frus_core::Role::CheckBox).maybe_toggled(self.value);
         s = if self.enabled {
             s.clickable()
         } else {
@@ -252,6 +346,7 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Set(bool),
+        Maybe(Option<bool>),
     }
 
     #[test]
@@ -375,6 +470,128 @@ mod tests {
                 "and the box it is inside is not: {box_fill:?}"
             );
         }
+    }
+
+    /// The third answer is an answer, and the cycle is the reference's.
+    ///
+    /// A "select all" above five rows of which three are ticked is not unchecked. Drawn
+    /// that way it says *nothing here is selected*, which is false; drawn ticked it says
+    /// *everything is*, which is also false. So the control has a third state, and a
+    /// click walks off → on → partly on → off.
+    #[test]
+    fn a_tristate_box_cycles_through_the_third_answer() {
+        let seen = |value| Widget::on_click(&Checkbox::maybe(value).on_change(Msg::Maybe));
+        assert_eq!(seen(Some(false)), Some(Msg::Maybe(Some(true))));
+        assert_eq!(seen(Some(true)), Some(Msg::Maybe(None)));
+        assert_eq!(seen(None), Some(Msg::Maybe(Some(false))));
+    }
+
+    /// A two-state box is untouched by any of it: `new` is not `maybe`, so the cycle it
+    /// walks is still the old one and `on_toggle` still says what it always said.
+    #[test]
+    fn a_two_state_box_never_reaches_the_third() {
+        assert_eq!(
+            Widget::on_click(&Checkbox::new(true).on_change(Msg::Maybe)),
+            Some(Msg::Maybe(Some(false))),
+            "no `None` in the middle"
+        );
+    }
+
+    /// `on_toggle` takes a `bool` and there is no value of `bool` that means *partly*, so
+    /// a tristate box wired only to it reports the two answers that type can carry —
+    /// partly-on reading as on, which is what a click on it moves away from. Making the
+    /// case emit nothing would be a widget that looks live and is not.
+    #[test]
+    fn a_tristate_box_on_the_old_callback_is_not_left_silent() {
+        assert_eq!(
+            Widget::on_click(&Checkbox::maybe(None).on_toggle(Msg::Set)),
+            Some(Msg::Set(false)),
+            "partly on moves to off, and `bool` can say that"
+        );
+        assert_eq!(
+            Widget::on_click(&Checkbox::maybe(Some(true)).on_toggle(Msg::Set)),
+            Some(Msg::Set(true)),
+            "on moves to partly on, which reads as on"
+        );
+    }
+
+    /// `on_change` wins when both are given: it is the one that can say all three.
+    #[test]
+    fn the_three_state_callback_wins_over_the_two_state_one() {
+        let both = Checkbox::maybe(Some(true))
+            .on_toggle(|_| Msg::Set(false))
+            .on_change(Msg::Maybe);
+        assert_eq!(Widget::on_click(&both), Some(Msg::Maybe(None)));
+    }
+
+    /// The screen reader is told `mixed` rather than handed a lie in one of the two
+    /// directions.
+    #[test]
+    fn partly_ticked_is_announced_as_mixed() {
+        let announced = |value| {
+            Widget::<Msg>::semantics(&Checkbox::<Msg>::maybe(value))
+                .expect("announced")
+                .toggled
+        };
+        assert_eq!(announced(None), frus_core::Toggled::Mixed);
+        assert_eq!(announced(Some(true)), frus_core::Toggled::True);
+        assert_eq!(announced(Some(false)), frus_core::Toggled::False);
+    }
+
+    /// Both **on** and **partly on** fill the box; only the mark differs. The filled
+    /// surface is what says *this is not simply off*, and the mark says which of the two
+    /// it is — which is the reference's drawing.
+    #[test]
+    fn both_answers_that_are_not_off_fill_the_box() {
+        let theme = Theme::default();
+        let painted = |value| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &Checkbox::<Msg>::maybe(value),
+                Rect::new(0.0, 0.0, 20.0, 20.0),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &theme,
+                &mut scene,
+            );
+            scene.primitives().to_vec()
+        };
+        let filled = |primitives: &[frus_core::Primitive]| {
+            primitives.iter().any(|p| {
+                matches!(p, frus_core::Primitive::Rect { color, .. } if *color == theme.primary)
+            })
+        };
+        assert!(filled(&painted(Some(true))), "ticked fills");
+        assert!(filled(&painted(None)), "partly ticked fills too");
+        assert!(!filled(&painted(Some(false))), "off does not");
+    }
+
+    /// The partly-on mark is **drawn** rather than a glyph — a bar, two numbers — so no
+    /// font gets to decide whether it exists. The tick above it is text and pays for it;
+    /// there was no reason to add a second one.
+    #[test]
+    fn the_partly_ticked_mark_is_drawn_and_the_tick_is_not() {
+        let has_text = |value| {
+            let mut scene = Scene::new();
+            Widget::<Msg>::paint(
+                &Checkbox::<Msg>::maybe(value),
+                Rect::new(0.0, 0.0, 20.0, 20.0),
+                Status {
+                    opacity: 1.0,
+                    ..Default::default()
+                },
+                &Theme::default(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .any(|p| matches!(p, frus_core::Primitive::Text { .. }))
+        };
+        assert!(has_text(Some(true)), "the tick is a glyph");
+        assert!(!has_text(None), "the bar is not");
     }
 }
 
