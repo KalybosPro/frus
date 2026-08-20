@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 363 so far, each documenting the objective, the alternatives
+> record — one per step, 364 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,27 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A slider over a range, in steps, saying where it is** (J364). `Slider::range()`,
+  `divisions()`, `value_label()`, and a keyboard. Its whole surface was `new`, `width`,
+  `on_change` and `enabled`: a `0.0..=1.0` control, so every caller with a real range — a
+  price from 20 to 200, a font size from 8 to 72 — divided on the way in and multiplied on
+  the way out, in two places that only agreed by luck. Nothing in the framework knew what
+  the number meant, so the accessibility node reported a **percentage of a range the
+  reader was never told**. It hands over the caller's units now, on all three sides:
+  `on_change`, `Semantics::range`, and the tooltip.
+
+  It was also not a keyboard control at all — no `focusable`, no `on_key`, so Tab passed
+  it by and the arrows did nothing, on the one widget arrows are the obvious way to move.
+  Its own `RangeThumb`, in the same file, has had both for milestones. An arrow moves one
+  division, or 5 % of the travel when there is no division, which falls out for free once
+  a step is a fraction rather than a number of units.
+
+  Two things are held rather than rejected: a backwards range is sorted (an empty travel
+  is a worse answer than the obvious one), and a value outside the travel is clamped, so
+  an app rebuilding its view from state it is midway through editing does not panic. Left:
+  `onChangeStart`/`onChangeEnd`, which need drag-edge hooks the widget trait does not
+  have.
 
 - **Room around what scrolls** (J363). `Scroll::padding()` and `List::padding()`, the
   last item on milestone 357's audit list and the one every scroll view in the reference

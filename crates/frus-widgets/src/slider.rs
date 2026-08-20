@@ -1,4 +1,4 @@
-//! [`Slider`]: a `0.0..=1.0` value slider, **controlled** and draggable.
+//! [`Slider`]: a value slider over a range, **controlled** and draggable.
 
 use std::rc::Rc;
 
@@ -22,23 +22,64 @@ const H: f32 = 24.0;
 const TRACK_H: f32 = 6.0;
 const THUMB: f32 = 18.0;
 
-/// A linear slider (a normalised `0..=1` value).
+/// A linear slider over `min..=max`, **controlled** and draggable.
 pub struct Slider<Msg> {
     value: f32,
+    min: f32,
+    max: f32,
     width: f32,
+    divisions: Option<usize>,
+    /// The **value tooltip** formatter: a bubble above the thumb, on hover or focus.
+    label: Option<Rc<dyn Fn(f32) -> String>>,
     enabled: bool,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
 }
 
 impl<Msg> Slider<Msg> {
-    /// Creates a slider at the given value (clamped to `0..=1`).
+    /// Creates a slider at the given value, over `0.0..=1.0` until
+    /// [`range`](Slider::range) says otherwise.
     pub fn new(value: f32) -> Self {
         Self {
-            value: value.clamp(0.0, 1.0),
+            value,
+            min: 0.0,
+            max: 1.0,
             width: 220.0,
+            divisions: None,
+            label: None,
             enabled: true,
             on_change: None,
         }
+    }
+
+    /// The travel this slider covers; `0.0..=1.0` by default.
+    ///
+    /// Everything the application sees is in **these** units — the value it is given,
+    /// the value a step lands on, what a reader is told — rather than a fraction it
+    /// would have to convert back on both sides of every message. The two arguments are
+    /// sorted, so a range written backwards is not a silent empty one.
+    ///
+    /// The value is held inside the travel rather than rejected: a caller that lowers
+    /// the ceiling under a value it already had gets the ceiling, not a panic.
+    pub fn range(mut self, min: f32, max: f32) -> Self {
+        self.min = min.min(max);
+        self.max = min.max(max);
+        self
+    }
+
+    /// Splits the travel into `n` **steps**: the value snaps to `min + k·(max−min)/n`,
+    /// and an arrow key moves by one of them. Without this call the travel is continuous
+    /// and an arrow moves by 5 %.
+    pub fn divisions(mut self, n: usize) -> Self {
+        self.divisions = Some(n.max(1));
+        self
+    }
+
+    /// Shows a **value tooltip** above the thumb, formatted by `label(value)` — a
+    /// percentage, a price, a duration. It appears on hover or focus and reserves the
+    /// room above the track, so a slider that has one is taller than one that does not.
+    pub fn value_label(mut self, label: impl Fn(f32) -> String + 'static) -> Self {
+        self.label = Some(Rc::new(label));
+        self
     }
 
     /// Width, in logical pixels.
@@ -63,13 +104,61 @@ impl<Msg> Slider<Msg> {
         self.enabled = enabled;
         self
     }
+
+    /// The value, held inside the travel.
+    fn held(&self) -> f32 {
+        self.value.clamp(self.min, self.max)
+    }
+
+    /// Where the thumb sits along the track, `0..=1`. An empty range pins it at the
+    /// start rather than dividing by nothing.
+    fn fraction(&self) -> f32 {
+        let span = self.max - self.min;
+        if span <= 0.0 {
+            0.0
+        } else {
+            ((self.held() - self.min) / span).clamp(0.0, 1.0)
+        }
+    }
+
+    /// Snaps a fraction to the nearest step, if there are steps.
+    fn snap(&self, fraction: f32) -> f32 {
+        match self.divisions {
+            Some(n) if n > 0 => (fraction * n as f32).round() / n as f32,
+            _ => fraction,
+        }
+    }
+
+    /// The value a fraction along the track stands for.
+    fn at(&self, fraction: f32) -> f32 {
+        self.min + self.snap(fraction.clamp(0.0, 1.0)) * (self.max - self.min)
+    }
+
+    /// One arrow's step, as a fraction of the travel: a division if there are
+    /// divisions, otherwise [`KEY_STEP`].
+    fn key_step(&self) -> f32 {
+        match self.divisions {
+            Some(n) if n > 0 => 1.0 / n as f32,
+            _ => KEY_STEP,
+        }
+    }
+
+    /// The height the control asks for: the track, plus the tooltip's zone above it
+    /// when there is a tooltip to show.
+    fn content_h(&self) -> f32 {
+        if self.label.is_some() {
+            H + TIP_H + TIP_GAP
+        } else {
+            H
+        }
+    }
 }
 
 impl<Msg> Widget<Msg> for Slider<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
-            height: Dimension::Length(H),
+            height: Dimension::Length(self.content_h()),
             ..Default::default()
         }
     }
@@ -80,7 +169,10 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        let track_y = bounds.y + (H - TRACK_H) * 0.5;
+        // The track lives in the **lower** `H` band: anything above it is the tooltip's
+        // reserved zone, which is empty unless there is a tooltip.
+        let track_top = bounds.y + bounds.height - H;
+        let track_y = track_top + (H - TRACK_H) * 0.5;
         // A slider splits cleanly along the framework's one disabled rule: the part of the
         // track still to travel is a **container** (12 %), the part already travelled and
         // the thumb are **content** on it (38 %). That is the reference's own split too.
@@ -110,7 +202,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             Color::TRANSPARENT,
         );
         // The travelled part.
-        let filled = bounds.width * self.value;
+        let filled = bounds.width * self.fraction();
         scene.draw_rect(
             Rect::new(bounds.x, track_y, filled, TRACK_H),
             filled_color.fade(o),
@@ -121,12 +213,30 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         // The thumb.
         let cx = bounds.x + filled;
         scene.draw_rect(
-            Rect::new(cx - THUMB * 0.5, bounds.y + (H - THUMB) * 0.5, THUMB, THUMB),
+            Rect::new(
+                cx - THUMB * 0.5,
+                track_top + (H - THUMB) * 0.5,
+                THUMB,
+                THUMB,
+            ),
             thumb.fade(o),
             THUMB * 0.5,
             2.0,
             ring.fade(o),
         );
+
+        // The tooltip, in the zone reserved above the track. A disabled slider shows
+        // none: it is a hint about a value being changed, and this one is not.
+        if let Some(label) = self.label.as_ref().filter(|_| self.enabled) {
+            let reveal = if status.focused {
+                o
+            } else {
+                status.hover_progress * o
+            };
+            if reveal > 0.01 {
+                paint_tip(cx, bounds.y, label(self.held()), theme, reveal, scene);
+            }
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -136,10 +246,20 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
     fn semantics(&self) -> Option<frus_core::Semantics> {
         // The value survives: a reader who cannot move the slider is still owed where it
         // sits, which is the whole of what a slider says.
-        let pct = (self.value * 100.0).round();
+        // In the caller's units, and said the caller's way when it gave a formatter:
+        // "42 €" is what is on screen, and a percentage of an unstated range is not an
+        // answer to "where is this set".
+        let held = self.held();
+        let spoken = match self.label.as_ref() {
+            Some(label) => label(held),
+            None if self.min == 0.0 && self.max == 1.0 => {
+                format!("{}%", (held * 100.0).round())
+            }
+            None => format!("{held}"),
+        };
         let semantics = frus_core::Semantics::new(frus_core::Role::Slider)
-            .value(format!("{pct}%"))
-            .range(0.0, self.value, 1.0);
+            .value(spoken)
+            .range(self.min, held, self.max);
         Some(if self.enabled {
             semantics
         } else {
@@ -151,15 +271,36 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         self.enabled
     }
 
+    fn focusable(&self) -> bool {
+        self.enabled && self.on_change.is_some()
+    }
+
+    fn on_key(&self, key: &Key) -> KeyResponse<Msg> {
+        // A disabled slider cannot be focused, so this should be unreachable — but a key
+        // arriving from a stale focus must not move a value the caller has frozen.
+        if !self.enabled {
+            return KeyResponse::Ignored;
+        }
+        // Arrows: one step. Home/End: the two ends, which the clamp in `at` reaches
+        // without either bound having to be named here.
+        let delta = match key {
+            Key::Left { .. } => -self.key_step(),
+            Key::Right { .. } => self.key_step(),
+            Key::Home { .. } => -2.0,
+            Key::End { .. } => 2.0,
+            _ => return KeyResponse::Ignored,
+        };
+        let moved = self.at(self.fraction() + delta);
+        KeyResponse::Handled(self.on_change.as_ref().map(|make| make(moved)))
+    }
+
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         // `draggable` already says no, but a drag in flight when the caller disables the
         // slider must not land either.
         if !self.enabled {
             return None;
         }
-        self.on_change
-            .as_ref()
-            .map(|make| make(fraction.clamp(0.0, 1.0)))
+        self.on_change.as_ref().map(|make| make(self.at(fraction)))
     }
 }
 
@@ -865,5 +1006,208 @@ mod tests {
                 "the rail is the quieter of the two"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+    use crate::interaction::{Key, KeyResponse};
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Value(f32),
+    }
+
+    fn value_of(msg: Option<Msg>) -> f32 {
+        match msg {
+            Some(Msg::Value(v)) => v,
+            other => panic!("expected a value, got {other:?}"),
+        }
+    }
+
+    /// The application is handed **its own** units, not a fraction it has to convert.
+    #[test]
+    fn a_drag_lands_in_the_caller_s_units() {
+        let slider = Slider::new(20.0).range(20.0, 200.0).on_change(Msg::Value);
+        assert_eq!(value_of(Widget::on_drag(&slider, 0.0)), 20.0);
+        assert_eq!(value_of(Widget::on_drag(&slider, 0.5)), 110.0);
+        assert_eq!(value_of(Widget::on_drag(&slider, 1.0)), 200.0);
+        // Past the end of the track is the end of the range, not past it.
+        assert_eq!(value_of(Widget::on_drag(&slider, 1.4)), 200.0);
+    }
+
+    /// A range written backwards is sorted rather than left empty.
+    #[test]
+    fn a_backwards_range_is_taken_the_way_round_it_makes_sense() {
+        let slider = Slider::new(0.0).range(200.0, 20.0).on_change(Msg::Value);
+        assert_eq!(value_of(Widget::on_drag(&slider, 0.0)), 20.0);
+        assert_eq!(value_of(Widget::on_drag(&slider, 1.0)), 200.0);
+    }
+
+    /// A value outside the travel is held inside it, not rejected: a caller that lowers
+    /// the ceiling under a value it already had gets the ceiling.
+    #[test]
+    fn a_value_outside_the_travel_is_held_inside_it() {
+        let low = Slider::<Msg>::new(-5.0).range(0.0, 10.0);
+        assert_eq!(low.fraction(), 0.0);
+        let high = Slider::<Msg>::new(40.0).range(0.0, 10.0);
+        assert_eq!(high.fraction(), 1.0);
+    }
+
+    /// Steps land on the divisions, in the caller's units.
+    #[test]
+    fn divisions_snap_the_value() {
+        let slider = Slider::new(0.0)
+            .range(0.0, 100.0)
+            .divisions(4)
+            .on_change(Msg::Value);
+        assert_eq!(value_of(Widget::on_drag(&slider, 0.30)), 25.0);
+        assert_eq!(value_of(Widget::on_drag(&slider, 0.40)), 50.0);
+        assert_eq!(value_of(Widget::on_drag(&slider, 0.99)), 100.0);
+    }
+
+    /// An arrow moves one division when there are divisions, 5 % of the travel when
+    /// there are not — and neither runs off either end.
+    #[test]
+    fn the_arrows_move_by_a_step() {
+        let free = Slider::new(50.0).range(0.0, 100.0).on_change(Msg::Value);
+        let step = |s: &Slider<Msg>, key: Key| match Widget::on_key(s, &key) {
+            KeyResponse::Handled(msg) => value_of(msg),
+            other => panic!("expected the key to be taken, got {other:?}"),
+        };
+        assert_eq!(
+            step(
+                &free,
+                Key::Right {
+                    shift: false,
+                    word: false
+                }
+            ),
+            55.0
+        );
+        assert_eq!(
+            step(
+                &free,
+                Key::Left {
+                    shift: false,
+                    word: false
+                }
+            ),
+            45.0
+        );
+
+        let stepped = Slider::new(50.0)
+            .range(0.0, 100.0)
+            .divisions(4)
+            .on_change(Msg::Value);
+        assert_eq!(
+            step(
+                &stepped,
+                Key::Right {
+                    shift: false,
+                    word: false
+                }
+            ),
+            75.0
+        );
+
+        let at_end = Slider::new(100.0).range(0.0, 100.0).on_change(Msg::Value);
+        assert_eq!(
+            step(
+                &at_end,
+                Key::Right {
+                    shift: false,
+                    word: false
+                }
+            ),
+            100.0
+        );
+        assert_eq!(
+            step(
+                &at_end,
+                Key::Home {
+                    shift: false,
+                    doc: false
+                }
+            ),
+            0.0
+        );
+        assert_eq!(
+            step(
+                &at_end,
+                Key::End {
+                    shift: false,
+                    doc: false
+                }
+            ),
+            100.0
+        );
+    }
+
+    /// It is a keyboard control now — but only when there is somebody to tell.
+    #[test]
+    fn it_takes_the_focus_only_when_it_can_answer() {
+        assert!(!Widget::<Msg>::focusable(&Slider::<Msg>::new(0.5)));
+        assert!(Widget::focusable(&Slider::new(0.5).on_change(Msg::Value)));
+        assert!(!Widget::focusable(
+            &Slider::new(0.5).on_change(Msg::Value).enabled(false)
+        ));
+    }
+
+    /// A frozen slider answers no key, even one arriving from a stale focus.
+    #[test]
+    fn a_frozen_slider_answers_no_key() {
+        let slider = Slider::new(0.5).on_change(Msg::Value).enabled(false);
+        assert!(matches!(
+            Widget::on_key(
+                &slider,
+                &Key::Right {
+                    shift: false,
+                    word: false
+                }
+            ),
+            KeyResponse::Ignored
+        ));
+    }
+
+    /// A reader is told where it is set, in the units on screen.
+    #[test]
+    fn a_reader_is_told_the_real_value() {
+        let plain = Slider::<Msg>::new(0.25);
+        let s = Widget::<Msg>::semantics(&plain).expect("a slider says where it is");
+        assert_eq!(
+            s.value.as_deref(),
+            Some("25%"),
+            "a bare 0..1 reads as a share"
+        );
+
+        let ranged = Slider::<Msg>::new(110.0).range(20.0, 200.0);
+        let s = Widget::<Msg>::semantics(&ranged).expect("a slider says where it is");
+        assert_eq!(s.range, Some((20.0, 110.0, 200.0)));
+
+        let priced = Slider::<Msg>::new(110.0)
+            .range(20.0, 200.0)
+            .value_label(|v| format!("{v} EUR"));
+        let s = Widget::<Msg>::semantics(&priced).expect("a slider says where it is");
+        assert_eq!(
+            s.value.as_deref(),
+            Some("110 EUR"),
+            "said the caller's way when it gave a formatter"
+        );
+    }
+
+    /// A tooltip reserves the room above the track rather than sitting on it.
+    #[test]
+    fn a_tooltip_makes_the_control_taller() {
+        let bare = Widget::<Msg>::style(&Slider::<Msg>::new(0.5)).height;
+        let tipped =
+            Widget::<Msg>::style(&Slider::<Msg>::new(0.5).value_label(|v| format!("{v}"))).height;
+        assert_eq!(bare, frus_layout::Dimension::Length(H));
+        assert_eq!(
+            tipped,
+            frus_layout::Dimension::Length(H + TIP_H + TIP_GAP),
+            "the tooltip's zone is above the track, not over it"
+        );
     }
 }
