@@ -49,6 +49,7 @@ pub struct Scroll<Msg> {
     /// Edge and fling behaviour, when this area wants one of its own; `None`
     /// follows the application, which follows the platform.
     physics: Option<ScrollPhysics>,
+    reverse: bool,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -63,6 +64,7 @@ impl<Msg> Scroll<Msg> {
             flex_grow: 0.0,
             axis: Axis::Vertical,
             physics: None,
+            reverse: false,
             content: Vec::new(),
         }
     }
@@ -70,6 +72,24 @@ impl<Msg> Scroll<Msg> {
     /// Chooses the scrolling axis or axes; vertical by default.
     pub fn axis(mut self, axis: Axis) -> Self {
         self.axis = axis;
+        self
+    }
+
+    /// Scrolls **from the far end**: the content is anchored to the bottom of a
+    /// vertical viewport (the right of a horizontal one) and the area starts there.
+    ///
+    /// It is what a conversation wants. Two things follow from it that nothing else
+    /// gives you:
+    ///
+    /// - content **shorter** than the viewport sits at the bottom rather than the top;
+    /// - the area **stays** at the end when content arrives, because offsets are
+    ///   measured from the end. A view resting at the newest message goes on resting
+    ///   there, however many messages are appended.
+    ///
+    /// Nothing changes for the user's hand: a finger pushes the content the way it
+    /// moves, in either direction, and the scrollbar's thumb rests where the content is.
+    pub fn reverse(mut self) -> Self {
+        self.reverse = true;
         self
     }
 
@@ -165,5 +185,146 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
 
     fn scroll_physics(&self) -> Option<ScrollPhysics> {
         self.physics
+    }
+
+    fn scroll_reverse(&self) -> bool {
+        self.reverse
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{build_ui, Container, Runtime, Size};
+    use frus_core::{Color, Primitive};
+
+    const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    /// A scroll 100 tall holding `content_h` of content, at `offset`; returns the
+    /// rectangle of the marker drawn at the very end of that content.
+    fn last_mark(scroll: Scroll<()>, offset: f32) -> Rect {
+        let mut runtime = Runtime::default();
+        let ui = build_ui(
+            &scroll,
+            Size::new(100.0, 100.0),
+            &runtime,
+            &Theme::default(),
+        );
+        let id = ui.scroll_regions()[0].id;
+        runtime.scroll.insert(id, (0.0, offset));
+        let ui = build_ui(
+            &scroll,
+            Size::new(100.0, 100.0),
+            &runtime,
+            &Theme::default(),
+        );
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { color, rect, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .next_back()
+            .expect("the marker is painted")
+    }
+
+    /// A column of `n` 40 px rows, the last one marked.
+    fn content(n: usize) -> Container<()> {
+        let mut column = crate::Flex::<()>::column();
+        for i in 0..n {
+            let colour = if i + 1 == n {
+                MARK
+            } else {
+                Color::rgb(0.0, 0.0, 1.0)
+            };
+            column = column.child(Container::<()>::new().height(40.0).color(colour));
+        }
+        Container::<()>::new().child(column)
+    }
+
+    /// Content shorter than the viewport sits at the **top** normally and at the
+    /// **bottom** reversed — the first of the two things reversing is for.
+    #[test]
+    fn short_content_sits_at_the_end_when_reversed() {
+        let plain = Scroll::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .child(content(1));
+        assert_eq!(last_mark(plain, 0.0).y, 0.0, "at the top");
+
+        let reversed = Scroll::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .reverse()
+            .child(content(1));
+        let r = last_mark(reversed, 0.0);
+        assert_eq!(r.y + r.height, 100.0, "against the bottom: {r:?}");
+    }
+
+    /// Offset 0 is the **end** of the content when reversed, and it stays the end
+    /// however much content there is — which is what keeps a conversation resting on
+    /// its newest message as messages arrive.
+    #[test]
+    fn offset_zero_is_the_end_and_stays_there() {
+        for rows in [4, 10, 40] {
+            let reversed = Scroll::<()>::new()
+                .width(100.0)
+                .height(100.0)
+                .reverse()
+                .child(content(rows));
+            let r = last_mark(reversed, 0.0);
+            assert_eq!(
+                r.y + r.height,
+                100.0,
+                "{rows} rows, still resting at the end: {r:?}"
+            );
+        }
+    }
+
+    /// Scrolling away from zero walks **back** through the content, which is up the
+    /// screen for the newest-last layout a reversed view has.
+    #[test]
+    fn a_positive_offset_moves_back_through_the_content() {
+        let scroll = || {
+            Scroll::<()>::new()
+                .width(100.0)
+                .height(100.0)
+                .reverse()
+                .child(content(10))
+        };
+        let at_rest = last_mark(scroll(), 0.0);
+        let scrolled = last_mark(scroll(), 60.0);
+        assert_eq!(
+            scrolled.y - at_rest.y,
+            60.0,
+            "the end has moved down and out of view"
+        );
+    }
+
+    /// The one thing that is *not* reversed: what the user's hand does. A push in a
+    /// direction moves the content that way in both, and only the arithmetic between
+    /// the push and the number changes sign.
+    #[test]
+    fn a_push_moves_the_content_the_way_it_pushes() {
+        let region = |reverse: bool| {
+            let mut s = Scroll::<()>::new().width(100.0).height(100.0);
+            if reverse {
+                s = s.reverse();
+            }
+            let s = s.child(content(10));
+            let ui = build_ui(
+                &s,
+                Size::new(100.0, 100.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scroll_regions()[0]
+        };
+        // A finger pushing the content **down** by 10 px.
+        assert_eq!(region(false).offset_delta((0.0, 10.0)).1, -10.0);
+        assert_eq!(region(true).offset_delta((0.0, 10.0)).1, 10.0);
+        // Opposite numbers, and in both cases "the content went down": one counts from
+        // the top and the other from the bottom.
     }
 }

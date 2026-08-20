@@ -1392,6 +1392,8 @@ mod tests {
             physics: None,
             refresh: None,
             page: None,
+            reverse_x: false,
+            reverse_y: false,
         }
     }
 
@@ -1410,6 +1412,8 @@ mod tests {
                 requested,
                 horizontal: true,
             }),
+            reverse_x: false,
+            reverse_y: false,
         }
     }
 

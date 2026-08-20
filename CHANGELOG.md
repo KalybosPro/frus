@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 358 so far, each documenting the objective, the alternatives
+> record — one per step, 359 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,19 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A scroll that runs from the far end** (J359). `Scroll::reverse()`: content shorter
+  than the viewport sits at the bottom, and — the point — the view **stays** at the end
+  when content arrives, because offsets are counted from the end an axis starts at. A
+  conversation resting at offset 0 is resting at its newest message however many arrive.
+  Nothing changes for the user's hand: a finger pushes the content the way it moves, and
+  the thumb rests where the content is.
+
+  The sign change lives in **one** function, `Scrollable::offset_delta`, called by all
+  five places a screen delta becomes an offset (wheel, drag, release fling, on two axes)
+  — a minus sign at each would have been five chances to be wrong in a way only a device
+  shows, and this one is unit-testable. `Scrollable::content_origin` does the same for the
+  paint. New: `Widget::scroll_reverse`, `Scrollable::reverse_x`/`reverse_y`.
 
 - **An image knows how big it is** (J358). `Image::new` required a width *and* a height,
   which meant a picture could not be shown by anyone who did not already know its pixel

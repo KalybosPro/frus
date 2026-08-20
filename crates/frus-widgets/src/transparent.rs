@@ -449,6 +449,10 @@ macro_rules! forward_transparent {
                 self.inner.stack_loose()
             }
 
+            fn scroll_reverse(&self) -> bool {
+                self.inner.scroll_reverse()
+            }
+
             fn tile_shape(&self) -> Option<f32> {
                 self.inner.tile_shape()
             }

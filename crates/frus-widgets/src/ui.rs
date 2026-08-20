@@ -48,6 +48,10 @@ pub struct Scrollbar {
     pub thumb_len: f32,
     /// Offset maximal correspondant.
     pub max: f32,
+    /// The offsets of a **reversed** axis run the other way along the track: offset 0
+    /// is the far end, so the thumb rests there and a drag towards the start raises the
+    /// number. See [`Scrollable::reverse_y`].
+    pub reverse: bool,
 }
 
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
@@ -74,6 +78,23 @@ pub struct Scrollable {
     /// Set when this area rests **only on pages** ([`crate::PageView`]): the release
     /// springs to a page boundary instead of flinging.
     pub page: Option<PageSnap>,
+    /// Whether the horizontal axis is **reversed** — offset 0 is the right-hand end of
+    /// the content rather than the left.
+    pub reverse_x: bool,
+    /// Whether the vertical axis is **reversed** — offset 0 is the **bottom** of the
+    /// content rather than the top.
+    ///
+    /// Offsets are measured from the end an axis starts at, which is what makes a
+    /// reversed list stay where it is when content arrives: a conversation resting at
+    /// offset 0 is resting at the newest message, and the newest message is wherever the
+    /// end now happens to be. Measuring from the top instead would leave the view
+    /// drifting away from the end every time something was appended, which is the one
+    /// thing this exists to prevent.
+    ///
+    /// Everything the *user* does is unchanged by it. A finger pushes the content the
+    /// way it moves, in either direction; only the arithmetic between that push and the
+    /// number changes sign, in one place.
+    pub reverse_y: bool,
 }
 
 impl Scrollable {
@@ -109,6 +130,48 @@ impl Scrollable {
     /// The vertical axis as the physics sees it, at `offset`.
     pub fn metrics_y(&self, offset: f32) -> ScrollMetrics {
         ScrollMetrics::new(offset, self.max_y, self.viewport.height)
+    }
+
+    /// Turns a **screen** delta — how far the content was pushed, in pixels — into the
+    /// change it makes to this area's offsets.
+    ///
+    /// Two sign changes, and both have a reason. The content moves *opposite* the
+    /// number: dragging down reveals what is above, which is a smaller offset. And a
+    /// reversed axis counts from the other end, so the same drag raises it instead.
+    ///
+    /// One function rather than a minus sign at each of the five places a delta becomes
+    /// an offset — the wheel, the drag, the release fling, and both axes of each — so
+    /// that a reversed scroll is right in all of them or in none.
+    pub fn offset_delta(&self, screen: (f32, f32)) -> (f32, f32) {
+        (
+            if self.reverse_x { screen.0 } else { -screen.0 },
+            if self.reverse_y { screen.1 } else { -screen.1 },
+        )
+    }
+
+    /// Where the content's leading edge sits, relative to the viewport's, at `offset`.
+    ///
+    /// Normally minus the offset. On a reversed axis the content is anchored to the far
+    /// end, so offset 0 puts the content's *end* against the viewport's — which is also
+    /// the answer for content too short to scroll, where it sits at the bottom of the
+    /// box rather than the top.
+    pub fn content_origin(&self, offset: (f32, f32), content: Size) -> (f32, f32) {
+        let axis = |reverse: bool, offset: f32, viewport: f32, content: f32| {
+            if reverse {
+                viewport - content + offset
+            } else {
+                -offset
+            }
+        };
+        (
+            axis(self.reverse_x, offset.0, self.viewport.width, content.width),
+            axis(
+                self.reverse_y,
+                offset.1,
+                self.viewport.height,
+                content.height,
+            ),
+        )
     }
 }
 
@@ -2509,6 +2572,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             physics: widget.scroll_physics(),
                             refresh: self.refresh_host,
                             page: None,
+                            reverse_x: false,
+                            reverse_y: false,
                         });
                         let offset_y = self
                             .runtime
@@ -2517,7 +2582,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             .map(|s| s.1)
                             .unwrap_or(0.0)
                             .clamp(0.0, max_y);
-                        self.add_scrollbar(id, vp, true, offset_y, max_y);
+                        self.add_scrollbar(id, vp, true, offset_y, max_y, false);
                     }
                 }
             }
@@ -2714,6 +2779,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
             let (offset_x, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+            // `reverse` applies to the axis this scrolls along; a two-dimensional scroll
+            // takes it on the vertical, which is the one a reversed view is ever about.
+            let reverse = if widget.scroll_reverse() {
+                (axis.free_x() && !axis.free_y(), axis.free_y())
+            } else {
+                (false, false)
+            };
 
             let content_rects = self.cached_rects(
                 child_id(id, 0, content),
@@ -2740,9 +2812,26 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
                 page: None,
+                reverse_x: reverse.0,
+                reverse_y: reverse.1,
             });
 
-            let content_translation = (viewport.x - offset_x, viewport.y - offset_y);
+            let origin = Scrollable {
+                id,
+                viewport,
+                max_x,
+                max_y,
+                physics: None,
+                refresh: None,
+                page: None,
+                reverse_x: reverse.0,
+                reverse_y: reverse.1,
+            }
+            .content_origin(
+                (offset_x, offset_y),
+                Size::new(content_size.width, content_size.height),
+            );
+            let content_translation = (viewport.x + origin.0, viewport.y + origin.1);
             let mut content_index = 0;
             self.walk(
                 content,
@@ -2758,10 +2847,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max_y > 0.0 {
-                self.add_scrollbar(id, viewport, true, offset_y, max_y);
+                self.add_scrollbar(id, viewport, true, offset_y, max_y, reverse.1);
             }
             if max_x > 0.0 {
-                self.add_scrollbar(id, viewport, false, offset_x, max_x);
+                self.add_scrollbar(id, viewport, false, offset_x, max_x, reverse.0);
             }
         } else if let Some(vlist) = widget.virtual_list() {
             // A virtualised list: only build/lay out/paint the visible window.
@@ -2778,6 +2867,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
                 page: None,
+                reverse_x: false,
+                reverse_y: false,
             });
 
             if vlist.item_height > 0.0 && vlist.count > 0 {
@@ -2819,7 +2910,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max_y > 0.0 {
-                self.add_scrollbar(id, viewport, true, offset_y, max_y);
+                self.add_scrollbar(id, viewport, true, offset_y, max_y, false);
             }
         } else if let Some(pages) = widget.page_view() {
             // A paged view: like a virtualised list turned on its side, and with the
@@ -2859,6 +2950,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
                 page: Some(snap),
+                reverse_x: false,
+                reverse_y: false,
             });
 
             if pages.count > 0 {
@@ -3598,6 +3691,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
         vertical: bool,
         offset: f32,
         max: f32,
+        reverse: bool,
     ) {
         let (track_start, track_len, content_len) = if vertical {
             (viewport.y, viewport.height, viewport.height + max)
@@ -3608,12 +3702,11 @@ impl<Msg: Clone> Builder<'_, Msg> {
             .max(MIN_THUMB)
             .min(track_len);
         let travel = track_len - thumb_len;
-        let thumb_pos = track_start
-            + if max > 0.0 {
-                offset / max * travel
-            } else {
-                0.0
-            };
+        // Along a reversed axis the numbers run the other way, so the thumb does too:
+        // offset 0 is the far end, and that is where it rests.
+        let fraction = if max > 0.0 { offset / max } else { 0.0 };
+        let fraction = if reverse { 1.0 - fraction } else { fraction };
+        let thumb_pos = track_start + fraction * travel;
 
         let (track, thumb) = if vertical {
             let x = viewport.x + viewport.width - BAR_SIZE;
@@ -3647,6 +3740,7 @@ impl<Msg: Clone> Builder<'_, Msg> {
             track_start,
             track_len,
             thumb_len,
+            reverse,
             max,
         });
     }

@@ -747,6 +747,13 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// Whether this scrollable runs **from the far end** ([`crate::Scroll::reverse`]):
+    /// the content is anchored to the end of the viewport and offsets are counted from
+    /// there. Meaningless unless [`Widget::scroll_content`] is `Some`.
+    fn scroll_reverse(&self) -> bool {
+        false
+    }
+
     /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
     /// the distance from the top of this box at which that baseline should land.
     /// `None` = not a baseline box.
@@ -1155,6 +1162,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn stack_loose(&self) -> bool {
         (**self).stack_loose()
+    }
+    fn scroll_reverse(&self) -> bool {
+        (**self).scroll_reverse()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

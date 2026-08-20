@@ -224,6 +224,9 @@ enum Drag {
         track_len: f32,
         thumb_len: f32,
         max: f32,
+        /// Whether this axis numbers its offsets from the far end, in which case the
+        /// thumb's position along the track reads backwards.
+        reverse: bool,
     },
     /// A text selection inside a field, with its bounds, for placement.
     TextSelect {
@@ -1472,8 +1475,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // momentum of the last gesture.
                     self.runtime.stop_scroll_fling(id);
                     let current = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+                    // A screen delta into offsets: the content moves opposite the number,
+                    // and a reversed axis counts from the other end. One function, so a
+                    // reversed area is right at every one of the places this happens.
+                    let (ddx, ddy) = area.offset_delta((dx, dy));
                     let target = self.runtime.scroll_target.entry(id).or_insert(current);
-                    let (wanted_x, wanted_y) = (target.0 - dx, target.1 - dy);
+                    let (wanted_x, wanted_y) = (target.0 + ddx, target.1 + ddy);
                     target.0 = wanted_x.clamp(-over, area.max_x + over);
                     target.1 = wanted_y.clamp(-over, area.max_y + over);
                     let refused = (wanted_x - target.0, wanted_y - target.1);
@@ -2111,6 +2118,7 @@ impl<A: Application> App<A> {
                 track_len: bar.track_len,
                 thumb_len: bar.thumb_len,
                 max: bar.max,
+                reverse: bar.reverse,
             });
             self.request_redraw();
             return;
@@ -2498,10 +2506,16 @@ impl<A: Application> App<A> {
             // was not allowed to go.
             let estimate = self.gesture_estimate();
             let velocity = self.fling_velocity(estimate);
+            // Through the same conversion the drag went through, so the release carries
+            // on the way the finger was going — on a reversed axis too.
+            let velocity = match self.ui.as_ref().and_then(|u| u.scroll_region(*id)) {
+                Some(area) => area.offset_delta(velocity),
+                None => (-velocity.0, -velocity.1),
+            };
             // The momentum carried in from an interrupted fling is masked with the rest:
             // a gesture held to one axis must not launch along the other on the strength
             // of what the *previous* one was doing.
-            let launch = (-velocity.0 + carried.0, -velocity.1 + carried.1);
+            let launch = (velocity.0 + carried.0, velocity.1 + carried.1);
             self.fling(
                 *id,
                 match axis {
@@ -2774,6 +2788,7 @@ impl<A: Application> App<A> {
                 track_len,
                 thumb_len,
                 max,
+                reverse,
             } => {
                 let along = if *vertical {
                     self.cursor.y
@@ -2782,7 +2797,11 @@ impl<A: Application> App<A> {
                 };
                 let travel = (*track_len - *thumb_len).max(1.0);
                 let thumb_start = (along - *grab).clamp(*track_start, *track_start + travel);
-                let offset = ((thumb_start - *track_start) / travel * *max).clamp(0.0, *max);
+                let fraction = (thumb_start - *track_start) / travel;
+                // A reversed axis numbers its offsets from the far end, so the thumb's
+                // position along the track reads backwards.
+                let fraction = if *reverse { 1.0 - fraction } else { fraction };
+                let offset = (fraction * *max).clamp(0.0, *max);
                 let entry = self.runtime.scroll.entry(*id).or_insert((0.0, 0.0));
                 if *vertical {
                     entry.1 = offset;
@@ -2983,8 +3002,9 @@ impl<A: Application> App<A> {
                     };
                     let (nx, ny, refused) = match area {
                         Some(area) => {
-                            let (nx, rx) = axis(area.metrics_x(cur.0), -dx);
-                            let (ny, ry) = axis(area.metrics_y(cur.1), -dy);
+                            let (ddx, ddy) = area.offset_delta((dx, dy));
+                            let (nx, rx) = axis(area.metrics_x(cur.0), ddx);
+                            let (ny, ry) = axis(area.metrics_y(cur.1), ddy);
                             (nx, ny, Some((area, rx, ry)))
                         }
                         None => (cur.0 - dx, cur.1 - dy, None),
@@ -3932,6 +3952,8 @@ mod tests {
             physics: None,
             refresh: None,
             page: None,
+            reverse_x: false,
+            reverse_y: false,
         }
     }
 
