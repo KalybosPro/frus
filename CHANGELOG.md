@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 353 so far, each documenting the objective, the alternatives
+> record — one per step, 354 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -55,6 +55,15 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **`Flexible` by name** (J354). The loose fit has existed since milestone 334 as
+  `Expanded::new(child).loose()`, but the reference calls the widget `Flexible` and makes
+  `Expanded` its tight subclass, so an application ported from it types a name that was
+  not here. `Flexible` and `FlexFit` now are, with the reference's defaults on both — an
+  `Expanded` is tight, a `Flexible` is loose — and `Flexible::fit(FlexFit::Tight)` takes
+  the fit as a value. The two build the **same box**: the three properties that make a
+  flex item live in one place, not two, and the tests assert the same row built both ways
+  lays out identically.
 
 - **A grid's tiles can have a shape** (J353). `Grid::aspect(ratio)` gives every cell the
   same `width / height` — `1.0` for a square board, at any width, since the height follows

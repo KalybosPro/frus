@@ -5,7 +5,7 @@
 use std::hash::Hash;
 
 use crate::button::Button;
-use crate::expanded::Expanded;
+use crate::expanded::{Expanded, Flexible};
 use crate::flex::Flex;
 use crate::keyed::Keyed;
 use crate::text::Text;
@@ -28,9 +28,9 @@ pub fn expanded<Msg>(child: impl Widget<Msg> + 'static) -> Expanded<Msg> {
 }
 
 /// Shorthand: a child that takes **at most** the room its siblings left, and less if it
-/// wants less. `flexible(child)` = `Expanded::new(child).loose()`.
-pub fn flexible<Msg>(child: impl Widget<Msg> + 'static) -> Expanded<Msg> {
-    Expanded::new(child).loose()
+/// wants less. `flexible(child)` = `Flexible::new(child)`.
+pub fn flexible<Msg>(child: impl Widget<Msg> + 'static) -> Flexible<Msg> {
+    Flexible::new(child)
 }
 
 /// Shorthand: a button with its click message.

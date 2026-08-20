@@ -180,7 +180,7 @@ pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
 pub use drawer::{Drawer, DRAWER_WIDTH};
 pub use dropdown::Dropdown;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
-pub use expanded::Expanded;
+pub use expanded::{Expanded, FlexFit, Flexible};
 pub use filters::{BackdropFilter, BackdropGroup, ColorFiltered, ImageFiltered, ShaderMask};
 pub use fittedbox::FittedBox;
 pub use flex::{Flex, Wrap};
