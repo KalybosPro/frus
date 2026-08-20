@@ -2728,10 +2728,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     let item = (vlist.build)(i);
                     let top = viewport.y + i as f32 * vlist.item_height - offset_y;
 
+                    // **Filled**, not merely constrained: a list hands its children a
+                    // box rather than asking them how big they would like to be. The
+                    // reference gives a list's children a *tight* cross-axis extent, and
+                    // for a fixed-extent list a tight main-axis one too — which is
+                    // exactly the pair of numbers here.
+                    //
+                    // Constrained-but-not-filled, a row whose width nobody set hugged
+                    // its own text: a list of coloured rows painted a column of chips
+                    // down the left instead of rows across the list. Found on a device
+                    // in milestone 349.
                     let item_rects = self.cached_rects(
                         id.child(i),
                         item.as_ref(),
-                        Constraints::definite(Size::new(viewport.width, vlist.item_height)),
+                        Constraints::filled(Size::new(viewport.width, vlist.item_height)),
                     );
 
                     let mut item_index = 0;

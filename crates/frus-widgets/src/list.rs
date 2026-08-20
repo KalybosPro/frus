@@ -158,6 +158,42 @@ mod tests {
         );
     }
 
+    /// An item that sets no width **fills the list**, as the reference's does: a list
+    /// hands its children a box rather than asking them how big they would like to be.
+    ///
+    /// Asked instead, a row hugs whatever is in it, and a list of coloured rows paints a
+    /// column of chips down the left rather than rows across the list. A device showed
+    /// exactly that in milestone 349.
+    #[test]
+    fn an_item_is_handed_the_list_s_width() {
+        let list = List::<()>::new(20, 40.0, |i| {
+            Container::<()>::new()
+                .height(40.0)
+                .color(Color::rgb(1.0, 0.0, 0.0))
+                .child(crate::Text::new(format!("Row {i}")))
+        })
+        .width(200.0)
+        .height(200.0);
+        let ui = build_ui(
+            &list,
+            Size::new(200.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let row = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if color.r > 0.9 && color.g < 0.1 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("a row is painted");
+        assert_eq!(row.width, 200.0, "the row is as wide as the list: {row:?}");
+    }
+
     #[test]
     fn scroll_max_covers_full_content() {
         let list = List::<()>::new(100, 40.0, |_i| Container::<()>::new().height(40.0))

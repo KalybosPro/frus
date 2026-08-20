@@ -8,12 +8,18 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 350 so far, each documenting the objective, the alternatives
+> record — one per step, 351 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **A list hands its children a box** (J351). The reference gives a list's children a
+  tight cross-axis extent, and a fixed-extent list a tight main-axis one too; ours merely
+  *constrained* them, so an item that set no width hugged its content — a list of coloured
+  rows painted a column of chips down the left instead of rows across the list. Found on a
+  device on the journal screen: rows 79 px wide in a 363 px list.
 
 - **A layer is drawn where the scene put it** (J350). A group opacity, a fade, a rotation
   or a non-rectangular clip is rendered flat into its own texture and composited — and
