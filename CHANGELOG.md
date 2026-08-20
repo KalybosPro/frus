@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 364 so far, each documenting the objective, the alternatives
+> record — one per step, 365 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,27 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **The selection controls, themed and overridable** (J365). `Switch`, `Checkbox`,
+  `RadioGroup` and `Slider` had **no way at all** to change a colour — not a builder, not
+  a theme entry. Whatever the scheme's `primary` was, that is what they were, so an
+  application whose brand colour is not its accent could not have a green checkbox. That
+  breaches this project's own standing rule (themed defaults fine, hardcoded-only never),
+  and `WidgetThemes` had carried eleven widgets before these four were brought in.
+
+  Four theme structs and one builder per colour, resolved the way everything since `Chip`
+  resolves: instance → `theme.widgets.<widget>` → the scheme's role. The defaults are what
+  was painted before, and the goldens are the proof.
+
+  Three things the resolution forced. A **partial** override must not tear a control in
+  half: a caller who names one outline colour means the outline, so the pointer state
+  falls back to the resting override before the scheme — otherwise a green checkbox turned
+  grey the moment a finger came near it. A switch interpolates between two **resolved
+  ends**, not two resolved colours, or recolouring the track would leave the animation
+  running through the old one. And a `RadioGroup`, the only one of the four that builds
+  its children in advance, hands the *unset* colours down so each option resolves against
+  the theme it is painted under — a group inside a `Themed` subtree takes that subtree's
+  palette.
 
 - **A slider over a range, in steps, saying where it is** (J364). `Slider::range()`,
   `divisions()`, `value_label()`, and a keyboard. Its whole surface was `new`, `width`,

@@ -32,7 +32,48 @@ pub struct Slider<Msg> {
     /// The **value tooltip** formatter: a bubble above the thumb, on hover or focus.
     label: Option<Rc<dyn Fn(f32) -> String>>,
     enabled: bool,
+    colors: SliderColors,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
+}
+
+/// What a slider was told about its own colours; unset entries fall through to the theme
+/// and then the scheme, resolved where they are painted rather than where they are built.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct SliderColors {
+    pub active_track: Option<Color>,
+    pub inactive_track: Option<Color>,
+    pub thumb: Option<Color>,
+    pub thumb_border: Option<Color>,
+}
+
+impl SliderColors {
+    /// The four colours a live slider paints with: rail, travelled, thumb, ring.
+    fn resolve(&self, theme: &Theme) -> (Color, Color, Color, Color) {
+        // The rail is a filled track, not an edge, so its default is a **container**
+        // rather than an outline -- and the reference names which one: the secondary
+        // container, the role that carries a live-but-quiet fill and stays clear of the
+        // 12 % a disabled rail lands on.
+        let rail = self
+            .inactive_track
+            .or(theme.widgets.slider.inactive_track_color)
+            .unwrap_or(theme.scheme.secondary_container);
+        let filled = self
+            .active_track
+            .or(theme.widgets.slider.active_track_color)
+            .unwrap_or(theme.primary);
+        let thumb = self
+            .thumb
+            .or(theme.widgets.slider.thumb_color)
+            .unwrap_or(Color::WHITE);
+        // The ring follows the travelled track unless it is named: they are the same
+        // colour in the default scheme, and a caller who recolours the track and not the
+        // ring means the accent, not a hairline left behind in the old one.
+        let ring = self
+            .thumb_border
+            .or(theme.widgets.slider.thumb_border_color)
+            .unwrap_or(filled);
+        (rail, filled, thumb, ring)
+    }
 }
 
 impl<Msg> Slider<Msg> {
@@ -47,8 +88,35 @@ impl<Msg> Slider<Msg> {
             divisions: None,
             label: None,
             enabled: true,
+            colors: SliderColors::default(),
             on_change: None,
         }
+    }
+
+    /// The travelled part of the track; the theme's `primary` otherwise. The thumb's
+    /// ring follows it unless [`thumb_border_color`](Slider::thumb_border_color) says
+    /// otherwise.
+    pub fn active_color(mut self, color: Color) -> Self {
+        self.colors.active_track = Some(color);
+        self
+    }
+
+    /// The part of the track still to travel.
+    pub fn inactive_color(mut self, color: Color) -> Self {
+        self.colors.inactive_track = Some(color);
+        self
+    }
+
+    /// The thumb's fill; white otherwise.
+    pub fn thumb_color(mut self, color: Color) -> Self {
+        self.colors.thumb = Some(color);
+        self
+    }
+
+    /// The ring around the thumb; the travelled track's colour otherwise.
+    pub fn thumb_border_color(mut self, color: Color) -> Self {
+        self.colors.thumb_border = Some(color);
+        self
     }
 
     /// The travel this slider covers; `0.0..=1.0` by default.
@@ -177,18 +245,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         // track still to travel is a **container** (12 %), the part already travelled and
         // the thumb are **content** on it (38 %). That is the reference's own split too.
         let (rail, filled_color, thumb, ring) = if self.enabled {
-            // The rail is a filled track, not an edge, so it takes a container rather
-            // than `outline` — and the reference names *which* container: the
-            // **secondary** one, not a surface tone. A surface container sits by
-            // definition a few tones from the surface it lies on, which is the same
-            // place the 12 % disabled rail lands; the secondary container is the role
-            // that carries a live-but-quiet fill and stays clear of it.
-            (
-                theme.scheme.secondary_container,
-                theme.primary,
-                Color::WHITE,
-                theme.primary,
-            )
+            self.colors.resolve(theme)
         } else {
             let dead = disabled_content(theme);
             (disabled_container(theme), dead, dead, dead)
@@ -1208,6 +1265,96 @@ mod range_tests {
             tipped,
             frus_layout::Dimension::Length(H + TIP_H + TIP_GAP),
             "the tooltip's zone is above the track, not over it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::*;
+    use frus_core::Primitive;
+
+    const BRAND: Color = Color::rgb(0.0, 0.6, 0.3);
+    const RAIL: Color = Color::rgb(0.9, 0.9, 0.2);
+
+    /// (rail, travelled, thumb, ring) as painted.
+    fn painted(slider: &Slider<()>, theme: &Theme) -> (Color, Color, Color, Color) {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            slider,
+            Rect::new(0.0, 0.0, 220.0, H),
+            Status {
+                opacity: 1.0,
+                ..Default::default()
+            },
+            theme,
+            &mut scene,
+        );
+        let rects: Vec<(Color, Color)> = scene
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect {
+                    color,
+                    border_color,
+                    ..
+                } => Some((*color, *border_color)),
+                _ => None,
+            })
+            .collect();
+        (rects[0].0, rects[1].0, rects[2].0, rects[2].1)
+    }
+
+    /// Nothing said: what it always painted.
+    #[test]
+    fn the_defaults_are_what_they_were() {
+        let theme = Theme::default();
+        let (rail, filled, thumb, ring) = painted(&Slider::<()>::new(0.5), &theme);
+        assert_eq!(rail, theme.scheme.secondary_container);
+        assert_eq!(filled, theme.primary);
+        assert_eq!(thumb, Color::WHITE);
+        assert_eq!(ring, theme.primary);
+    }
+
+    /// The ring follows the travelled track unless it is named: they are one colour in
+    /// the default scheme, and a caller who recolours the track means the accent.
+    #[test]
+    fn the_ring_follows_the_track_it_was_not_told_about() {
+        let theme = Theme::default();
+        let (_, filled, _, ring) = painted(&Slider::<()>::new(0.5).active_color(BRAND), &theme);
+        assert_eq!((filled, ring), (BRAND, BRAND));
+        let (_, _, _, named) = painted(
+            &Slider::<()>::new(0.5)
+                .active_color(BRAND)
+                .thumb_border_color(RAIL),
+            &theme,
+        );
+        assert_eq!(named, RAIL, "unless it is named");
+    }
+
+    /// The two halves of the track are separate.
+    #[test]
+    fn each_half_of_the_track_takes_its_own_colour() {
+        let theme = Theme::default();
+        let (rail, filled, thumb, _) = painted(
+            &Slider::<()>::new(0.5)
+                .active_color(BRAND)
+                .inactive_color(RAIL)
+                .thumb_color(RAIL),
+            &theme,
+        );
+        assert_eq!((rail, filled, thumb), (RAIL, BRAND, RAIL));
+    }
+
+    /// The theme answers when the instance does not, and loses when it does.
+    #[test]
+    fn the_theme_answers_and_the_instance_overrules_it() {
+        let mut theme = Theme::default();
+        theme.widgets.slider.active_track_color = Some(RAIL);
+        assert_eq!(painted(&Slider::<()>::new(0.5), &theme).1, RAIL);
+        assert_eq!(
+            painted(&Slider::<()>::new(0.5).active_color(BRAND), &theme).1,
+            BRAND
         );
     }
 }

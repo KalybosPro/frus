@@ -36,14 +36,81 @@ pub struct WidgetThemes {
     pub app_bar: AppBarTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
+    pub checkbox: CheckboxTheme,
     pub chip: ChipTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
+    pub radio: RadioTheme,
     pub segmented: SegmentedTheme,
+    pub slider: SliderTheme,
+    pub switch: SwitchTheme,
     pub tabs: TabsTheme,
     pub text_input: TextInputTheme,
+}
+
+/// Defaults for [`Checkbox`](crate::Checkbox).
+///
+/// A checkbox is two controls wearing one name: ticked it is a **filled box** with a
+/// mark punched through it, unticked it is an **outline** and nothing else. The colours
+/// do not carry over between the two, which is why they are named apart rather than as
+/// one "active"/"inactive" pair.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CheckboxTheme {
+    /// The box's fill, ticked.
+    pub fill_color: Option<Color>,
+    /// The tick drawn on that fill.
+    pub check_color: Option<Color>,
+    /// The outline, unticked and at rest.
+    pub border_color: Option<Color>,
+    /// The outline under a pointer, a finger or focus. The reference resolves this side
+    /// per state, and an outline that did not answer would look inert.
+    pub active_border_color: Option<Color>,
+    /// The box's corner radius.
+    pub radius: Option<f32>,
+    /// The label beside it.
+    pub label_color: Option<Color>,
+}
+
+/// Defaults for [`RadioGroup`](crate::RadioGroup).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RadioTheme {
+    /// The ring and the dot of the chosen option.
+    pub selected_color: Option<Color>,
+    /// The ring of an option that is not chosen, at rest.
+    pub border_color: Option<Color>,
+    /// That ring under a pointer, a finger or focus.
+    pub active_border_color: Option<Color>,
+    /// The labels.
+    pub label_color: Option<Color>,
+}
+
+/// Defaults for [`Slider`](crate::Slider) and [`RangeSlider`](crate::RangeSlider).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SliderTheme {
+    /// The travelled part of the track.
+    pub active_track_color: Option<Color>,
+    /// The part still to travel.
+    pub inactive_track_color: Option<Color>,
+    /// The thumb's fill.
+    pub thumb_color: Option<Color>,
+    /// The ring around the thumb.
+    pub thumb_border_color: Option<Color>,
+}
+
+/// Defaults for [`Switch`](crate::Switch).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SwitchTheme {
+    /// The track, on.
+    pub track_color: Option<Color>,
+    /// The track, off.
+    pub inactive_track_color: Option<Color>,
+    /// The thumb, on.
+    pub thumb_color: Option<Color>,
+    /// The thumb, off. Unset it follows the on colour, which is what the reference does
+    /// and what a switch looks like: one thumb sliding, not two.
+    pub inactive_thumb_color: Option<Color>,
 }
 
 /// Defaults for [`AppBar`](crate::AppBar).
