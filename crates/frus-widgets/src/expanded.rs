@@ -67,10 +67,10 @@ impl<Msg> Expanded<Msg> {
     /// its whole share, loose starts it at its content and only lets it *give way* when
     /// the share is smaller than that.
     ///
-    /// One caveat the reference does not have: flexbox shares a deficit in proportion to
-    /// basis, so a fixed sibling gives up its share too unless it says
-    /// [`Container::no_shrink`](crate::Container::no_shrink). The reference's inflexible
-    /// children are never squeezed at all, so it gets that for nothing.
+    /// It had a caveat the reference does not until milestone 349: flexbox shares a
+    /// deficit in proportion to basis, so a fixed sibling used to give up its share too
+    /// unless it said so. Inflexible children are never squeezed now, here as there, and
+    /// the deficit lands where it was aimed.
     pub fn loose(mut self) -> Self {
         self.loose = true;
         self
@@ -186,18 +186,22 @@ mod tests {
         assert_eq!(widths[0], 160.0, "the label takes exactly what is left");
     }
 
-    /// Without the wrapper, the same row is the bug: the label refuses to shrink to its
-    /// share and the button pays for it.
+    /// Without the wrapper, the same row **overflows** — which is the reference's answer
+    /// and, since milestone 349, this one's. The button keeps its 40 px, the label keeps
+    /// its whole width, and the row wears a striped band saying by how much it did not
+    /// fit. That is the improvement: the defect used to be silent, and it took three
+    /// milestones and a device report to find the button crushed to 13 px.
     #[test]
-    fn without_it_the_button_is_the_one_that_shrinks() {
+    fn without_it_the_row_overflows_instead_of_crushing_the_button() {
         let long = "a task label far longer than the row it has to live in";
         let row = Flex::row()
             .child(Text::new(long).size(18.0))
             .child(Container::<()>::new().width(40.0).height(40.0));
         let widths = widths(row, 200.0);
+        assert_eq!(widths[1], 40.0, "the button keeps its width");
         assert!(
-            widths[1] < 40.0,
-            "the button should be crushed here — that is the defect: {widths:?}"
+            widths[0] > 160.0,
+            "and the label keeps its own, so the row runs over: {widths:?}"
         );
     }
 
@@ -241,10 +245,10 @@ mod tests {
             .child(Container::<()>::new().width(40.0).height(20.0));
         assert_eq!(widths(loose, 200.0)[0], 40.0, "at most its share, not more");
 
-        // Not enough room: it gives way. The sibling has to say `no_shrink` for the
-        // whole deficit to land here — flexbox shares a deficit in proportion to basis,
-        // and a wrapper cannot speak for its siblings. The reference gets this for free
-        // because its inflexible children are never squeezed at all; ours is one call.
+        // Not enough room: it gives way, and the whole deficit lands here because the
+        // sibling is inflexible and inflexible children are not squeezed (milestone 349).
+        // It used to take a `no_shrink()` on the sibling — flexbox shares a deficit in
+        // proportion to basis, and a wrapper cannot speak for its siblings.
         let squeezed = Flex::row()
             .child(
                 Expanded::new(
@@ -254,7 +258,7 @@ mod tests {
                 )
                 .loose(),
             )
-            .child(Container::<()>::new().width(40.0).height(20.0).no_shrink());
+            .child(Container::<()>::new().width(40.0).height(20.0));
         let widths = widths(squeezed, 200.0);
         assert_eq!(widths[1], 40.0, "the fixed sibling keeps its width");
         assert_eq!(widths[0], 160.0, "and the loose one takes what is left");

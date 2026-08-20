@@ -562,9 +562,8 @@ mod tests {
     ///
     /// It also tells the layout it may be given less than it asked for (`min_width: 0`),
     /// which is half of what a row needs to keep its trailing widget intact. The other
-    /// half — a trailing widget that refuses to shrink — is not expressible yet: there is
-    /// no `flex_shrink` in `frus_layout::Style`, so a deficit is always shared out in
-    /// proportion to base size. See the roadmap; milestone 333 measured it.
+    /// half arrived in milestone 349: a widget that did not ask to give way is not
+    /// squeezed, so the trailing button keeps its width without saying anything.
     #[test]
     fn an_ellipsising_text_is_cut_to_its_box() {
         let long = "A task name that is really rather long indeed and keeps going";

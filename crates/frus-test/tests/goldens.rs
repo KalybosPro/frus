@@ -2994,9 +2994,12 @@ fn text_alignment_and_overflow_match_their_golden() {
     let theme = Theme::dark();
     let long = "one two three four five six seven eight nine ten eleven twelve thirteen";
     let body = TextStyle::new(12.0);
+    // 122, not 120: the four blocks and their gaps need 106 inside 8 px of padding, and
+    // the last one used to be squeezed by a pixel to make it fit. Nothing is squeezed now
+    // (milestone 349), so a fixture one pixel short wears a band and says so.
     let root: Container<()> = Container::new()
         .width(200.0)
-        .height(120.0)
+        .height(122.0)
         .padding(8.0)
         .child(
             Flex::column()
@@ -3025,7 +3028,7 @@ fn text_alignment_and_overflow_match_their_golden() {
                         .overflow(TextOverflow::Fade),
                 ),
         );
-    let Some(snapshot) = render_widget(&root, 200, 120, &theme) else {
+    let Some(snapshot) = render_widget(&root, 200, 122, &theme) else {
         eprintln!("no GPU adapter available: test skipped");
         return;
     };

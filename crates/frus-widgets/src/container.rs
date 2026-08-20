@@ -72,7 +72,7 @@ impl<Msg> Container<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
-            flex_shrink: 1.0,
+            flex_shrink: 0.0,
             padding: Insets::ZERO,
             margin: Insets::ZERO,
             radius: BorderRadius::ZERO,
@@ -139,16 +139,21 @@ impl<Msg> Container<Msg> {
         self
     }
 
-    /// Refuses to give up room when a row does not fit: `no_shrink()` is
-    /// `shrink(0.0)`, and it is what fixed chrome wants — an icon button at the end of a
-    /// row keeps its width however long the label beside it grows. The default is
-    /// `1.0`, flexbox's, where every child absorbs its share of the deficit.
+    /// How much of a row's deficit this box absorbs. The default is `0.0` — the
+    /// reference's rule, where an inflexible child is never squeezed and a row that does
+    /// not fit overflows and says so.
+    ///
+    /// `shrink(1.0)` asks for flexbox's behaviour instead: give way rather than let the
+    /// row run over. It is the right answer for a box whose size is a preference rather
+    /// than a requirement, and the wrong one for fixed chrome — an icon button at the end
+    /// of a row should keep its width however long the label beside it grows.
     pub fn shrink(mut self, shrink: f32) -> Self {
         self.flex_shrink = shrink;
         self
     }
 
-    /// This box never shrinks; the deficit goes to its siblings. See [`Self::shrink`].
+    /// This box never shrinks — the default said out loud, kept because a layout that
+    /// depends on it reads better for saying so. See [`Self::shrink`].
     pub fn no_shrink(self) -> Self {
         self.shrink(0.0)
     }
@@ -488,12 +493,15 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
 mod tests {
     use super::*;
 
-    /// The other half of [`crate::Expanded`]: when a row is over budget even so, a box
-    /// can refuse to pay for it. Without this the deficit is shared in proportion to
-    /// base size, and the smallest fixed thing in the row — an icon button — is
-    /// squashed along with everything else (milestone 333 found one at 13 px of 40).
+    /// A box in an over-budget row **keeps its width** — the reference's rule, and the
+    /// default since milestone 349. Flexbox's default was the opposite, and the smallest
+    /// fixed thing in the row paid for the whole deficit: milestone 333 found an icon
+    /// button at 13 px of 40, drawn off the card and out of the hit registry.
+    ///
+    /// `shrink(1.0)` asks for flexbox's behaviour back, for a box that would rather give
+    /// way than let the row overflow.
     #[test]
-    fn a_box_that_refuses_to_shrink_keeps_its_width() {
+    fn a_box_in_an_over_budget_row_keeps_its_width() {
         use crate::interaction::WidgetId;
         use crate::runtime::Runtime;
         use crate::theme::Theme;
@@ -514,24 +522,22 @@ mod tests {
                 .collect()
         };
 
-        // 120 px of children in 100 px of row.
-        let sharing = Flex::row()
+        // 120 px of children in 100 px of row. Nobody was asked to give way, so nobody
+        // does, and the row overflows — which is now visible, striped and labelled.
+        let row = Flex::row()
             .child(Container::<()>::new().width(80.0).height(20.0))
             .child(Container::<()>::new().width(40.0).height(20.0));
-        let shared = widths(&sharing);
-        assert!(
-            shared[1] < 40.0,
-            "the default is flexbox's: everyone pays ({shared:?})"
+        assert_eq!(
+            widths(&row),
+            vec![80.0, 40.0],
+            "an inflexible child is never squeezed"
         );
 
-        let refusing = Flex::row()
-            .child(Container::<()>::new().width(80.0).height(20.0))
-            .child(Container::<()>::new().width(40.0).height(20.0).no_shrink());
-        assert_eq!(
-            widths(&refusing),
-            vec![60.0, 40.0],
-            "the whole deficit goes to the child that did not refuse"
-        );
+        // Unless it says so, and then the whole deficit is its own.
+        let giving_way = Flex::row()
+            .child(Container::<()>::new().width(80.0).height(20.0).shrink(1.0))
+            .child(Container::<()>::new().width(40.0).height(20.0));
+        assert_eq!(widths(&giving_way), vec![60.0, 40.0]);
     }
 
     /// A `Container` with a group opacity < 1 has its painted subtree wrapped in a

@@ -22,7 +22,11 @@ pub(crate) fn journal_screen(
             .child(text(format!("Row {}", i + 1)).size(16.0))
     })
     .width((width - 48.0).max(200.0))
-    .height((height - 152.0).max(160.0));
+    // 56 for the bar, 24 + 24 for the padding, 40 for the header row and 12 for the gap
+    // under it. It said 152 until milestone 349, and the four missing pixels were being
+    // paid for by the list quietly giving way — which is exactly the kind of arithmetic
+    // slip that no longer hides.
+    .height((height - 156.0).max(160.0));
     // Unset, the list follows the platform. The toggle overrides it, which is the
     // point of the demonstration: fling to an end and feel the difference.
     if app.journal_bounces {
@@ -45,8 +49,11 @@ pub(crate) fn journal_screen(
     };
     let content = column![
         row![
-            text(label).size(14.0).color(theme.muted),
-            spacer(),
+            // Expanding rather than a `spacer()` after it: it does the same pushing when
+            // there is room, and when there is not — a phone is 25 px short of this
+            // header — it is the one that gives way, with an ellipsis, instead of the
+            // row running past the screen.
+            Expanded::new(text(label).size(14.0).color(theme.muted).ellipsis()),
             text(reloads).size(14.0).color(theme.muted),
             button("Switch", Msg::ToggleScrollPhysics).variant(Variant::Outlined),
         ]

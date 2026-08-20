@@ -21,7 +21,7 @@ use frus_test::render_widget;
 use frus_widgets::{
     text, Alert, Align, AppBar, AspectRatio, Badge, BottomAppBar, BottomBar, BottomSheet,
     Breadcrumb, Card, Carousel, Checkbox, ClipOval, ClipPath, ClipRRect, Collapsible, ColorPicker,
-    ConstrainedBox, Container, CustomPaint, Divider, FittedBox, Flex, FontWeight,
+    ConstrainedBox, Container, CustomPaint, Divider, Expanded, FittedBox, Flex, FontWeight,
     FractionallySizedBox, Grid, Icon, IconName, Image, Intrinsic, Kbd, List, NavBar, NavRail,
     Offstage, Opacity, OverflowBox, Placement, Popover, Portal, ProgressBar, RadioGroup, RichText,
     RotatedBox, SafeArea, Scroll, SegmentedControl, SizedBox, Skeleton, Spinner, Stack, Stepper,
@@ -469,7 +469,11 @@ fn a_carousel_and_two_panes() {
             .gap(12.0)
             .child(carousel)
             .child(Divider::new())
-            .child(panes),
+            // Expanded, because a `TwoPane` asks for the **whole** of its parent's height
+            // (a percentage) and here it is sharing that parent with two other things. It
+            // used to be squeezed back into what was left; nothing is squeezed now
+            // (milestone 349), so the pane has to be told to take the remainder instead.
+            .child(Expanded::new(panes)),
     );
     check("carousel_and_two_pane", 320, 220, &root);
 }

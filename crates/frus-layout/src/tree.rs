@@ -135,6 +135,29 @@ impl<T> Layout<T> {
         self.tree.set_style(node, style).expect("setting a style");
     }
 
+    /// Lets a node **give way** along its parent's main axis, after it has been built.
+    ///
+    /// The default is not to: the reference hands an inflexible child of a row or a
+    /// column an *unbounded* main axis, so it is never squeezed and a line that does not
+    /// fit overflows and says so. Flexbox's default is the opposite — every item absorbs
+    /// its share of a deficit — and a framework that quietly crushes a button rather than
+    /// reporting a layout that does not fit is a framework whose bugs are invisible.
+    ///
+    /// The exception is a box with **one** child, which is not dividing a line: it is
+    /// handing its own constraints down, and the reference bounds a lone child by them.
+    /// Only a node that has not asked for something else is touched. Growing is not
+    /// asking for something else: a lone child that fills its parent is still bounded by
+    /// it, and one that both grows and refuses to give way is a box that can only get
+    /// bigger than the thing holding it.
+    pub fn allow_shrink(&mut self, node: NodeId) {
+        let mut style = self.tree.style(node).expect("a node we made").clone();
+        if style.flex_shrink != 0.0 {
+            return;
+        }
+        style.flex_shrink = 1.0;
+        self.tree.set_style(node, style).expect("setting a style");
+    }
+
     /// Sets a node's **minimum width**, after it has been built.
     ///
     /// It is what stops a leaf being squeezed along a row, and only a row can say so: the

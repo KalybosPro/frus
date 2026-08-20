@@ -206,9 +206,15 @@ impl Default for Style {
             max_width: Dimension::Auto,
             max_height: Dimension::Auto,
             flex_grow: 0.0,
-            // The flexbox default, kept: every item absorbs its share of a deficit
-            // unless it says otherwise.
-            flex_shrink: 1.0,
+            // **Not** flexbox's default of 1. The reference hands an inflexible child of
+            // a row or a column an unbounded main axis: it is never squeezed, and a line
+            // that does not fit overflows and says so. Flexbox would quietly take the
+            // deficit out of every child in proportion, which is how a 40 px button came
+            // to be laid out at 13 and drawn off the card (milestone 333) — silently,
+            // for three milestones. A box gives way when it says it will, and the walk
+            // grants it to a **lone** child, which is not dividing a line up but being
+            // handed its parent's constraints.
+            flex_shrink: 0.0,
             flex_basis: Dimension::Auto,
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,

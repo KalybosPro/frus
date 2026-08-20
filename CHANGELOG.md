@@ -8,10 +8,27 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 348 so far, each documenting the objective, the alternatives
+> record — one per step, 349 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **An inflexible child of a row or a column is no longer squeezed** (J349).
+  `flex_shrink` defaults to `0.0` — the reference's rule, where a child that did not ask
+  to give way keeps the size it asked for and a line that does not fit overflows and says
+  so. Flexbox's default of 1 is what let a 40 px delete button be laid out at 13 and drawn
+  off the card, silently, for three milestones. `shrink(1.0)` asks for the old behaviour.
+
+  The exception is a box with a **single** child, which is handing its own constraints
+  down rather than dividing a line up: the walk grants it the right to give way. That is
+  the same exception the fill request (J342) and the main-axis floor (J344) both make.
+
+  It exposed six real layouts that were one to twenty-five pixels short and had been
+  paying for it by quietly crushing something: a card footer that now wraps, a journal
+  header that now ellipsises, an arithmetic slip of four pixels, a text fixture, a
+  navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
 

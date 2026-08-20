@@ -305,7 +305,12 @@ pub(crate) fn todo_screen(
         clear,
     ]
     .align(Align::Center)
-    .gap(8.0);
+    .gap(8.0)
+    // Three buttons and a summary need about 365 px; a phone's card is 323. Nobody is
+    // squeezed any more (milestone 349), so the row would run past the card and say so.
+    // Wrapping is the answer the reference gives too: the line that does not fit becomes
+    // two lines.
+    .wrap();
 
     // The completion progress bar (done / total).
     let progress =

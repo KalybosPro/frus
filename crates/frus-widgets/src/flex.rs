@@ -40,7 +40,7 @@ impl<Msg> Flex<Msg> {
             width: Dimension::Auto,
             height: Dimension::Auto,
             flex_grow: 0.0,
-            flex_shrink: 1.0,
+            flex_shrink: 0.0,
             justify: Justify::Start,
             align: Align::Stretch,
             padding: Insets::ZERO,
@@ -68,16 +68,21 @@ impl<Msg> Flex<Msg> {
         self
     }
 
-    /// Refuses to give up room when a row does not fit: `no_shrink()` is
-    /// `shrink(0.0)`, and it is what fixed chrome wants — an icon button at the end of a
-    /// row keeps its width however long the label beside it grows. The default is
-    /// `1.0`, flexbox's, where every child absorbs its share of the deficit.
+    /// How much of a row's deficit this box absorbs. The default is `0.0` — the
+    /// reference's rule, where an inflexible child is never squeezed and a row that does
+    /// not fit overflows and says so.
+    ///
+    /// `shrink(1.0)` asks for flexbox's behaviour instead: give way rather than let the
+    /// row run over. It is the right answer for a box whose size is a preference rather
+    /// than a requirement, and the wrong one for fixed chrome — an icon button at the end
+    /// of a row should keep its width however long the label beside it grows.
     pub fn shrink(mut self, shrink: f32) -> Self {
         self.flex_shrink = shrink;
         self
     }
 
-    /// This box never shrinks; the deficit goes to its siblings. See [`Self::shrink`].
+    /// This box never shrinks — the default said out loud, kept because a layout that
+    /// depends on it reads better for saying so. See [`Self::shrink`].
     pub fn no_shrink(self) -> Self {
         self.shrink(0.0)
     }

@@ -400,22 +400,25 @@ fn the_nav_scaffold_both_ways() {
                     .child(text("Body").size(15.0)),
             )
     };
+    // 198, not 190: a rail of three destinations is 198 tall, and it used to be squeezed
+    // into 190. Nothing is squeezed now (milestone 349) — a rail taller than its window
+    // overflows, wears a band and says so, which is what the reference does too.
     let root: Flex<()> = Flex::row()
         .gap(10.0)
         .child(
             Container::new()
                 .width(150.0)
-                .height(190.0)
+                .height(198.0)
                 .child(scaffold(SizeClass::Compact)),
         )
         .child(
             Container::new()
                 .width(180.0)
-                .height(190.0)
+                .height(198.0)
                 .child(scaffold(SizeClass::Expanded)),
         );
 
-    let mut stage = Stage::new(350, 200);
+    let mut stage = Stage::new(350, 208);
     stage.settle(&root);
     accept("nav_scaffold_both_ways", stage.render(&root));
 }

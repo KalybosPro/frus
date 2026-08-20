@@ -1318,6 +1318,22 @@ fn build_layout_scoped<Msg>(
                 layout.fill_parent(*node, horizontal, parallel);
             }
         }
+        // A **lone** child gives way; several do not.
+        //
+        // The reference hands an inflexible child of a row or a column an unbounded main
+        // axis: it is never squeezed, and a line that does not fit overflows and says so.
+        // That is the default here now, because a framework that quietly crushes a button
+        // instead of reporting a layout that does not fit is one whose bugs are invisible
+        // — milestone 333 spent three milestones on exactly that crushed button.
+        //
+        // But a box with one child is not dividing a line up: it is handing its own
+        // constraints down, and the reference bounds a lone child by them. The same
+        // exception the fill request and the floor below both make, for the same reason.
+        if alone {
+            for node in &child_ids {
+                layout.allow_shrink(*node);
+            }
+        }
         // A child that refuses to be squeezed along the row. Only a row of **several**
         // children may say so. Across a column the same floor would refuse a width the
         // column was handing it, which is how a paragraph is told how wide to be; and a
@@ -3834,14 +3850,19 @@ mod tests {
     #[test]
     fn an_overflow_paints_a_band_on_the_edge_it_ran_past() {
         use crate::{Container, Flex};
+        // Two children, because a row with one is not dividing a line up — it hands its
+        // constraints down, and a lone child is bounded by them rather than overflowing.
         let row = |child_width: f32| {
-            let root: Flex<()> = Flex::row().width(100.0).height(40.0).child(
-                Container::new()
-                    .width(child_width)
-                    .height(20.0)
-                    .no_shrink()
-                    .color(Color::WHITE),
-            );
+            let root: Flex<()> = Flex::row()
+                .width(100.0)
+                .height(40.0)
+                .child(
+                    Container::new()
+                        .width(child_width)
+                        .height(20.0)
+                        .color(Color::WHITE),
+                )
+                .child(Container::new().width(20.0).height(20.0));
             let rt = crate::runtime::Runtime::default();
             build_ui(
                 &root,
@@ -3878,6 +3899,7 @@ mod tests {
         assert!((band.width - 10.0).abs() < 0.5, "a tenth of it: {band:?}");
 
         let fits = row(40.0);
+        assert!(fits.overflows().is_empty(), "the fixture has to fit");
         assert!(fits.overflows().is_empty());
         assert_eq!(stripes(&fits), 0, "nothing to mark");
     }
@@ -3888,13 +3910,16 @@ mod tests {
     #[test]
     fn a_band_writes_which_edge_overflowed_and_by_how_much() {
         use crate::{Container, Flex};
-        let root: Flex<()> = Flex::row().width(100.0).height(40.0).child(
-            Container::new()
-                .width(300.0)
-                .height(20.0)
-                .no_shrink()
-                .color(Color::WHITE),
-        );
+        let root: Flex<()> = Flex::row()
+            .width(100.0)
+            .height(40.0)
+            .child(
+                Container::new()
+                    .width(300.0)
+                    .height(20.0)
+                    .color(Color::WHITE),
+            )
+            .child(Container::new().width(20.0).height(20.0));
         let ui = build_ui(
             &root,
             Size::new(200.0, 100.0),
@@ -3914,7 +3939,7 @@ mod tests {
         let mut found = Vec::new();
         labels(ui.scene().primitives(), &mut found);
         assert!(
-            found.iter().any(|t| t == "RIGHT OVERFLOWED BY 200 PIXELS"),
+            found.iter().any(|t| t == "RIGHT OVERFLOWED BY 220 PIXELS"),
             "the sentence, in the reference's words: {found:?}"
         );
     }
