@@ -1495,7 +1495,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         if refused.abs() < 1e-3 {
                             continue;
                         }
-                        let edge = frus_widgets::edge_for(vertical, refused);
+                        let edge = area.refused_edge(vertical, refused);
                         let (offset, cross) =
                             frus_widgets::glow_cross_axis(area.viewport, edge, cursor);
                         self.runtime
@@ -3026,8 +3026,10 @@ impl<A: Application> App<A> {
                             if refused.abs() < 1e-3 {
                                 continue;
                             }
-                            let edge = frus_widgets::edge_for(vertical, refused);
-                            if area.refresh.is_some() && edge == frus_widgets::GlowEdge::Top {
+                            let edge = area.refused_edge(vertical, refused);
+                            // The refresh area takes the edge the axis **starts** at,
+                            // which is the bottom of a reversed one.
+                            if area.refresh.is_some() && edge == area.start_edge(vertical) {
                                 continue;
                             }
                             let (offset, cross) =

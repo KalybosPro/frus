@@ -149,6 +149,26 @@ impl Scrollable {
         )
     }
 
+    /// The edge a refusal happened at, given the refused movement **in offset space**.
+    ///
+    /// A negative refusal means the content was pulled towards the axis's start, and
+    /// where that is on screen is exactly what reversing changes: the start of a
+    /// reversed vertical axis is the **bottom**. Without this the glow would flash at
+    /// the far end of a conversation the moment it refused to go further back.
+    pub fn refused_edge(&self, vertical: bool, refused: f32) -> crate::overscroll::GlowEdge {
+        let reversed = if vertical {
+            self.reverse_y
+        } else {
+            self.reverse_x
+        };
+        crate::overscroll::edge_for(vertical, if reversed { -refused } else { refused })
+    }
+
+    /// The edge an axis **starts** at, which is where a pull-to-refresh listens.
+    pub fn start_edge(&self, vertical: bool) -> crate::overscroll::GlowEdge {
+        self.refused_edge(vertical, -1.0)
+    }
+
     /// Where the content's leading edge sits, relative to the viewport's, at `offset`.
     ///
     /// Normally minus the offset. On a reversed axis the content is anchored to the far

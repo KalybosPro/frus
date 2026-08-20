@@ -27,6 +27,8 @@ pub struct Container<Msg> {
     /// The **outer** margin (around the box, outside the decoration).
     margin: Insets,
     radius: BorderRadius,
+    /// Clip the child to this box's rounded rectangle.
+    clip: bool,
     border_width: f32,
     border_color: Color,
     color: Option<Color>,
@@ -76,6 +78,7 @@ impl<Msg> Container<Msg> {
             padding: Insets::ZERO,
             margin: Insets::ZERO,
             radius: BorderRadius::ZERO,
+            clip: false,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             color: None,
@@ -188,6 +191,20 @@ impl<Msg> Container<Msg> {
     /// via [`BorderRadius`] (`.radius(BorderRadius::top(12.0))`).
     pub fn radius(mut self, radius: impl Into<BorderRadius>) -> Self {
         self.radius = radius.into();
+        self
+    }
+
+    /// **Clips** the child to this box, corners included.
+    ///
+    /// Off by default, as in the reference: a decoration is painted *behind* a child
+    /// and does not confine it, so a box with rounded corners leaves an image inside it
+    /// square unless it is asked. Asking costs a compositing layer, which is why neither
+    /// framework does it for you.
+    ///
+    /// [`crate::ClipRRect`] is the same thing without the decoration, and is what to
+    /// reach for when there is no box to decorate.
+    pub fn clip(mut self) -> Self {
+        self.clip = true;
         self
     }
 
@@ -419,6 +436,11 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
                 .map(|(dx, dy, blur, c)| BoxShadow::new(dx, dy, blur, c)),
         };
         decoration.paint_into(scene, bounds, status.opacity);
+    }
+
+    fn clip_shape(&self) -> Option<frus_core::ClipShape> {
+        self.clip
+            .then(|| frus_core::ClipShape::RRect(self.radius.clamped()))
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -972,5 +994,60 @@ mod tests {
             .padding(4.0)
             .border(2.0, Color::TRANSPARENT);
         assert_eq!(Widget::style(&invisible).padding, Insets::uniform(4.0));
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+    use crate::{build_ui, Runtime, Size};
+    use frus_core::Primitive;
+
+    fn layers(root: &Container<()>) -> Vec<frus_core::ClipShape> {
+        let ui = build_ui(
+            root,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Layer { clip_shape, .. } => Some(clip_shape.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Off by default, as in the reference: a decoration is painted behind a child and
+    /// does not confine it.
+    #[test]
+    fn a_rounded_box_does_not_clip_unless_asked() {
+        let plain = Container::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .radius(12.0)
+            .color(Color::rgb(1.0, 0.0, 0.0))
+            .child(Container::<()>::new().width(100.0).height(100.0));
+        assert!(layers(&plain).is_empty(), "no compositing layer");
+    }
+
+    /// Asked, it wraps its child in a layer clipped to its own corners.
+    #[test]
+    fn clip_confines_the_child_to_the_corners() {
+        let clipped = Container::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .radius(12.0)
+            .clip()
+            .color(Color::rgb(1.0, 0.0, 0.0))
+            .child(Container::<()>::new().width(100.0).height(100.0));
+        let shapes = layers(&clipped);
+        assert_eq!(shapes.len(), 1);
+        match &shapes[0] {
+            frus_core::ClipShape::RRect(r) => assert_eq!(r.top_left, 12.0),
+            other => panic!("a rounded rectangle, not {other:?}"),
+        }
     }
 }

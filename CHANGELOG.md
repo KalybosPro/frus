@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 360 so far, each documenting the objective, the alternatives
+> record — one per step, 361 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,22 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **The edge an axis starts at** (J361). A reversed area glowed at the **top** when it
+  refused to go further back, and pull-to-refresh above one still listened at the top:
+  both read the sign of a refused delta in *offset* space and assumed offset zero was the
+  top of the screen, which reversing is precisely the act of denying.
+  `Scrollable::refused_edge` makes that assumption explicit and corrects it in one place,
+  with `Scrollable::start_edge` for the widget that wants the edge an axis *begins* at
+  rather than the one a refusal happened at. The refresh guard now reads "the edge this
+  axis starts at" instead of naming the top — which is what it always meant.
+
+- **A box that confines what it holds** (J361). `Container::clip()`: the container's own
+  radius becomes the clip its child is held to, so a box with rounded corners no longer
+  leaves a photograph inside it square. Off by default, as in the reference, because it
+  costs a compositing layer — wrapping the child in a `ClipRRect` remains the idiom when
+  the corners belong to the child rather than to the box. Still missing:
+  `foregroundDecoration`, which wants a paint-after-children hook the walk does not have.
 
 - **A list that counts from the bottom** (J360). `List::reverse()`: item 0 at the bottom,
   item 1 above it, resting there. The other half of a conversation view — a scroll can

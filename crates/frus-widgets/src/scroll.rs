@@ -302,6 +302,34 @@ mod tests {
         );
     }
 
+    /// The end of the content is the end of the *axis*, so a refusal there glows at the
+    /// bottom of a reversed area rather than the top — where a conversation's oldest
+    /// message is, and where the user is actually pressing.
+    #[test]
+    fn the_glow_follows_the_axis_and_not_the_screen() {
+        use frus_core::Rect as R;
+        let area = |reverse: bool| crate::Scrollable {
+            id: crate::WidgetId::ROOT,
+            viewport: R::new(0.0, 0.0, 100.0, 100.0),
+            max_x: 0.0,
+            max_y: 300.0,
+            physics: None,
+            refresh: None,
+            page: None,
+            reverse_x: false,
+            reverse_y: reverse,
+        };
+        // A refusal towards the axis's start (a negative offset).
+        assert_eq!(area(false).refused_edge(true, -1.0), crate::GlowEdge::Top);
+        assert_eq!(
+            area(true).refused_edge(true, -1.0),
+            crate::GlowEdge::Bottom,
+            "the start of a reversed axis is the bottom of the screen"
+        );
+        // And a pull-to-refresh listens at whichever of the two that is.
+        assert_eq!(area(true).start_edge(true), crate::GlowEdge::Bottom);
+    }
+
     /// The one thing that is *not* reversed: what the user's hand does. A push in a
     /// direction moves the content that way in both, and only the arithmetic between
     /// the push and the number changes sign.
