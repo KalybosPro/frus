@@ -6,8 +6,9 @@
 //! dedicated layer; uploading lives in `frus-gpu`, which caches the texture by
 //! [`ImageData::id`].
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{Alignment, Rect, Size};
 
@@ -86,6 +87,57 @@ impl Eq for ImageData {}
 /// A **shared** image handle: cheap to clone (reference counted), and stored as-is
 /// inside a [`crate::Primitive::Image`].
 pub type ImageHandle = Arc<ImageData>;
+
+/// The process-wide store of images already turned into pixels, keyed by where their
+/// bytes live.
+///
+/// Decoding a PNG is not free and a view is rebuilt every frame, so an image resolved
+/// in `view` must be resolved **once** rather than sixty times a second. That is what
+/// this is for, and it is a process-wide store for the same reason the font registry is
+/// one: the same asset shown on three screens is one image, not three.
+///
+/// A failure is cached too. A file that is not a PNG will not become one on the next
+/// frame, and retrying the decode every frame would turn one broken asset into a
+/// permanent cost.
+static CACHE: Mutex<Option<HashMap<usize, Result<ImageHandle, String>>>> = Mutex::new(None);
+
+/// Resolves `bytes` to pixels **once**, returning the same handle on every later call.
+///
+/// The key is the **address** of the slice rather than its contents. That is exact for
+/// what this is for — `include_bytes!` gives a `&'static [u8]` whose address is fixed
+/// for the life of the process, and two distinct assets are two distinct statics — and
+/// it costs a pointer comparison, where hashing the bytes would cost re-reading the
+/// whole file on every frame that shows it.
+///
+/// The `'static` bound is what makes that sound: bytes that can be freed could have
+/// their address reused by something else, and the cache would hand back the wrong
+/// picture. An application holding runtime bytes decodes them itself and keeps the
+/// [`ImageHandle`].
+///
+/// `load` runs only on the first call for a given slice, and its failure is remembered.
+pub fn cached(
+    bytes: &'static [u8],
+    load: impl FnOnce(&[u8]) -> Result<ImageData, String>,
+) -> Result<ImageHandle, String> {
+    let key = bytes.as_ptr() as usize;
+    let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = guard.get_or_insert_with(HashMap::new);
+    if let Some(found) = cache.get(&key) {
+        return found.clone();
+    }
+    let resolved = load(bytes).map(ImageData::into_handle);
+    cache.insert(key, resolved.clone());
+    resolved
+}
+
+/// Empties the store. For tests that want a decode to happen again; an application has
+/// no reason to call it, since the entries are one per embedded asset and bounded by
+/// how many the binary carries.
+pub fn forget_cached_images() {
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = None;
+    }
+}
 
 /// How an image is fitted into its destination box — the same set of modes as the
 /// CSS `object-fit` property.

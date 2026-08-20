@@ -344,7 +344,7 @@ pub(crate) fn todo_screen(
             .child(Icon::new(Icons::Heart))
             .child(Icon::new(Icons::Menu))
             .child(Icon::new(Icons::ChevronRight))
-            .child(Image::new(demo_image()).size(72.0, 48.0).fit(BoxFit::Cover))
+            .child(demo_logo().size(72.0, 48.0).fit(BoxFit::Cover))
             // A group-opacity layer (milestone 92): two overlapping squares, composited as one →
             // the overlap does not darken (no double-blending of the alpha).
             .child(CustomPaint::new(72.0, 48.0, |scene, bounds, theme| {

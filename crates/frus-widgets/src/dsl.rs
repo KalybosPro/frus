@@ -65,6 +65,29 @@ macro_rules! column {
     };
 }
 
+/// An image **embedded from a file**, by path. `asset!("../assets/logo.png")` is
+/// `Image::memory(include_bytes!("../assets/logo.png"))`, and like every `include_*!`
+/// the path is relative to the **file that writes it**.
+///
+/// ```ignore
+/// asset!("../assets/logo.png").width(96.0).semantic_label("frus")
+/// ```
+///
+/// The bytes go into the binary at compile time, so there is no file to find at run
+/// time, no path to get wrong on another machine, and no asset manifest to keep in step
+/// with the source. That is what Rust gives here that a language without
+/// `include_bytes!` has to build an asset bundle to get.
+///
+/// The result is a plain [`Image`](crate::Image) and stays chainable. It is decoded once
+/// per process; see [`Image::memory`](crate::Image::memory) for the store behind it and
+/// for what a file that will not decode does.
+#[macro_export]
+macro_rules! asset {
+    ($path:literal) => {
+        $crate::Image::memory(include_bytes!($path))
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

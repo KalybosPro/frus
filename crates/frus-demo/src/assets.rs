@@ -1,19 +1,21 @@
-//! The images the demo embeds, decoded once and shared for the whole process.
+//! The images the demo embeds.
 
 use crate::prelude::*;
+use frus_widgets::asset;
 
-/// The demo logo, **decoded** from an embedded PNG (milestone 91) and shared across the whole
-/// process through a `OnceLock` — decoded once, then cached by identity on the renderer's
-/// side. Falls back to a generated gradient if the decoding fails (robustness).
-pub(crate) fn demo_image() -> ImageHandle {
-    use std::sync::OnceLock;
-    static IMG: OnceLock<ImageHandle> = OnceLock::new();
-    IMG.get_or_init(|| {
-        frus_image::decode(include_bytes!("../assets/logo.png"))
-            .map(ImageData::into_handle)
-            .unwrap_or_else(|_| fallback_gradient())
-    })
-    .clone()
+/// The demo logo, embedded from a PNG and decoded once for the whole process.
+///
+/// This used to be a `OnceLock`, an explicit `frus_image::decode`, a `map` and an
+/// `unwrap_or_else` — five lines of caching the demo had to write because the framework
+/// would not. Milestone 372 moved that behind [`asset!`], and the fallback below is now
+/// what it says it is: the picture shown when the file will not decode, chosen by this
+/// application rather than by the widget.
+pub(crate) fn demo_logo() -> Image {
+    let logo = asset!("../assets/logo.png");
+    match logo.error() {
+        None => logo,
+        Some(_) => Image::new(fallback_gradient()),
+    }
 }
 
 /// A generated 64×64 gradient — the fallback when decoding the PNG fails.

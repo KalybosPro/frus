@@ -20,6 +20,9 @@ license.workspace = true
 net = ["frus-shell/net"]
 json = ["frus-shell/json"]
 default = ["frus-shell/default", "frus-widgets/default", "frus-text/default"]
+# Decoding embedded PNG/JPEG: `Image::memory` and `asset!`. Part of `default`;
+# dropping it leaves both reporting a missing decoder rather than panicking.
+images = ["frus-widgets/images"]
 bundled-sans = ["frus-shell/bundled-sans", "frus-widgets/bundled-sans", "frus-text/bundled-sans"]
 bundled-italic = ["frus-shell/bundled-italic", "frus-widgets/bundled-italic", "frus-text/bundled-italic"]
 bundled-mono = ["frus-shell/bundled-mono", "frus-widgets/bundled-mono", "frus-text/bundled-mono"]

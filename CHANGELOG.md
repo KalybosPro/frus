@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 371 so far, each documenting the objective, the alternatives
+> record — one per step, 372 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -73,6 +73,39 @@ any release may break.
   it describe what was true when they were written.
 
 ### Added
+
+- **An image an application can actually load** (J372). `Image::new` took decoded pixels
+  the caller already held, and it was the only constructor there was — so the framework
+  answered the second question about images and left the first one, *how do I show my
+  logo*, entirely to the application. The demo's own answer was a `OnceLock`, an explicit
+  `frus_image::decode`, a `map`, an `unwrap_or_else` and a decoder dependency it had to
+  add itself. When the framework's own demo has to write the caching, the piece is missing.
+
+  `asset!("../assets/logo.png")` is that piece, over `Image::memory(bytes)` underneath. A
+  **macro** is the honest shape rather than a shortcut: the reference needs an asset
+  bundle — a manifest, a directory convention, a runtime loader — because its language
+  cannot put a file into the program at compile time, and Rust can. `include_bytes!` takes
+  a literal path resolved against the file that writes it, which is `Image.asset`'s
+  ergonomics and more: nothing to find at run time, no path to get wrong on another
+  machine, no manifest to keep in step.
+
+  `frus_core::cached` decodes **once per process**, keyed by the slice's **address**
+  rather than its contents — exact for `include_bytes!`, whose bytes are fixed for the
+  life of the process, and a pointer comparison where hashing would cost re-reading the
+  file on every frame that shows it. The `'static` bound is what makes that sound: bytes
+  that can be freed could have their address reused, and the cache would hand back the
+  wrong picture.
+
+  A failure is a **value** and is cached too. `Image::error()` says why, the widget paints
+  nothing, and a broken image takes no room unless it was given some — anything the
+  caller did say is honoured, which keeps a page from jumping over one bad asset. There is
+  no `errorBuilder` yet, deliberately: `Image` is not generic over the message type, and
+  making it so to hold a replacement widget is a change worth making on purpose. The demo
+  now `match`es on `error()` and supplies its own fallback, which reads as what it is.
+
+  Decoding arrives as the droppable `images` feature, on by default. `frus-widgets` still
+  does not force the decoder's dependency tree on anyone, and dropping the feature reports
+  a missing decoder rather than panicking — the rule the bundled fonts already follow.
 
 - **An image nobody could hear** (J371). `frus_core::Role::Image` had been in the
   accessibility vocabulary a long time and `frus-shell` mapped it to the platform's;

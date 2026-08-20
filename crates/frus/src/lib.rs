@@ -36,7 +36,7 @@ pub use frus_shell::{anyhow, log};
 // Macros: a glob (`frus_widgets::*`) does **not** re-export `#[macro_export]` macros, so we
 // name them explicitly — hence `frus::main!`, `frus::column!`, `frus::row!`.
 pub use frus_shell::main;
-pub use frus_widgets::{column, row};
+pub use frus_widgets::{asset, column, row};
 
 // Fonts: registering the application's own faces, and naming the families text
 // resolves to. An application that ships its own can drop the bundled ones through

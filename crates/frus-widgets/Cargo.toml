@@ -9,7 +9,11 @@ license.workspace = true
 # application can drop the faces it does not ship through the facade alone:
 #   frus = { version = "0.1", default-features = false, features = ["bundled-sans"] }
 [features]
-default = ["frus-text/default"]
+default = ["frus-text/default", "images"]
+# Decoding embedded PNG/JPEG bytes, for `Image::memory` and `asset!`. On by default and
+# droppable: without it those two report a missing decoder rather than panicking, exactly
+# as dropping a bundled font leaves text to fall back rather than crash.
+images = ["dep:frus-image"]
 bundled-sans = ["frus-text/bundled-sans"]
 bundled-italic = ["frus-text/bundled-italic"]
 bundled-mono = ["frus-text/bundled-mono"]
@@ -17,5 +21,10 @@ bundled-arabic = ["frus-text/bundled-arabic"]
 
 [dependencies]
 frus-core = { path = "../frus-core" }
+frus-image = { path = "../frus-image", optional = true }
 frus-layout = { path = "../frus-layout" }
 frus-text = { path = "../frus-text", default-features = false }
+
+[dev-dependencies]
+# Encoding a tiny PNG in-test, so the image tests carry no binary fixture.
+png = "0.17"

@@ -19,9 +19,24 @@ use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// Turns file bytes into pixels, through whichever decoder this build carries.
+#[cfg(feature = "images")]
+fn decode(bytes: &[u8]) -> Result<frus_core::ImageData, String> {
+    frus_image::decode(bytes).map_err(|e| e.message().to_string())
+}
+
+/// Without the `images` feature there is no decoder, and saying so is the whole job.
+/// It must not panic: an application that dropped the feature deliberately, or a test
+/// binary built with `--no-default-features`, is not a broken program.
+#[cfg(not(feature = "images"))]
+fn decode(_bytes: &[u8]) -> Result<frus_core::ImageData, String> {
+    Err("no image decoder: this build dropped the `images` feature".to_string())
+}
+
 /// An image, fitted by `fit` into whatever box it ends up with.
 pub struct Image {
-    image: ImageHandle,
+    /// The pixels, or why there are none. See [`Image::memory`].
+    source: Result<ImageHandle, String>,
     width: Option<f32>,
     height: Option<f32>,
     fit: BoxFit,
@@ -39,8 +54,46 @@ pub struct Image {
 impl Image {
     /// An image at **its own size**, fitted with [`BoxFit::Contain`] by default.
     pub fn new(image: ImageHandle) -> Self {
+        Self::from_source(Ok(image))
+    }
+
+    /// An image **decoded from embedded bytes** — what `include_bytes!` gives, and the
+    /// answer to "how do I just show my logo".
+    ///
+    /// ```ignore
+    /// Image::memory(include_bytes!("../assets/logo.png")).width(96.0)
+    /// ```
+    ///
+    /// The bytes are decoded **once per process**, not once per frame. A view is rebuilt
+    /// every frame and decoding a PNG is not free, so the result is kept in a shared
+    /// store keyed by where the bytes live — see [`frus_core::cached`] for why an
+    /// address is the right key and why the `'static` bound is what makes it sound.
+    ///
+    /// **Failure paints nothing.** A file that is not an image does not become one on the
+    /// next frame, so the failure is remembered rather than retried, and the widget
+    /// occupies whatever box it was given without drawing into it. That is the
+    /// reference's behaviour for an image with no error widget supplied, and
+    /// [`Image::error`] is how an application asks what went wrong.
+    ///
+    /// Needs the `images` feature, which is on by default. Without it this reports a
+    /// missing decoder rather than panicking — the same rule the bundled fonts follow.
+    pub fn memory(bytes: &'static [u8]) -> Self {
+        Self::from_source(frus_core::cached(bytes, decode))
+    }
+
+    /// Why there are no pixels, if there are none.
+    ///
+    /// An application that wants to put something else in the gap — a placeholder, a
+    /// message, a retry — asks here and builds it itself. That is a `match` in the view
+    /// rather than a closure the widget stores, which is the honest shape while the
+    /// pixels are something the application already holds.
+    pub fn error(&self) -> Option<&str> {
+        self.source.as_ref().err().map(String::as_str)
+    }
+
+    fn from_source(source: Result<ImageHandle, String>) -> Self {
         Self {
-            image,
+            source,
             width: None,
             height: None,
             fit: BoxFit::Contain,
@@ -146,7 +199,19 @@ impl Image {
 
     /// The box this asks for, given the bitmap's own size.
     fn box_style(&self) -> Style {
-        let natural = self.image.size();
+        // Nothing decoded: there is no natural size to fall back on, so an image given
+        // no measurements takes no room at all. Anything the caller *did* say is still
+        // honoured, which is what keeps a layout from jumping when one asset is broken.
+        let Ok(image) = self.source.as_ref() else {
+            return Style {
+                width: self.width.map_or(Dimension::Length(0.0), Dimension::Length),
+                height: self
+                    .height
+                    .map_or(Dimension::Length(0.0), Dimension::Length),
+                ..Default::default()
+            };
+        };
+        let natural = image.size();
         let ratio = if natural.height > 0.0 {
             natural.width / natural.height
         } else {
@@ -193,8 +258,13 @@ impl<Msg> Widget<Msg> for Image {
         // picture rather than a run of text: a portrait aligned to the top of its
         // crop wants the top of its crop in every language. Mirroring is the separate,
         // opt-in question below, which is how the reference splits it too.
+        // Nothing decoded, nothing drawn: the box stays empty rather than showing a
+        // stand-in nobody asked for. `Image::error` is how an application finds out.
+        let Ok(image) = self.source.as_ref() else {
+            return;
+        };
         let align = self.alignment.resolve(frus_core::TextDirection::Ltr);
-        let (dst, mut uv) = self.fit.apply_aligned(self.image.size(), bounds, align);
+        let (dst, mut uv) = self.fit.apply_aligned(image.size(), bounds, align);
         // A mirror costs nothing but a sign. The shader reads
         // `uv.xy + unit_pos * uv.zw` with `unit_pos` running 0..1, so a **negative**
         // width walks the same span backwards — which is the reference's "scaling
@@ -207,7 +277,7 @@ impl<Msg> Widget<Msg> for Image {
             .tint
             .unwrap_or(Color::WHITE)
             .fade(status.opacity * self.opacity);
-        scene.draw_image(&self.image, dst, uv, tint);
+        scene.draw_image(image, dst, uv, tint);
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
@@ -515,5 +585,104 @@ mod tests {
             vec![Some("Ada Lovelace".to_string())],
             "the labelled one is announced and the decoration is not"
         );
+    }
+
+    /// A 2x2 PNG, encoded at run time so the test carries no binary fixture.
+    ///
+    /// Leaked deliberately: [`frus_core::cached`] keys on the address of `'static`
+    /// bytes, and this is how a test gets some. One 90-odd byte leak per test process is
+    /// the price of exercising the real path rather than a stand-in.
+    #[cfg(feature = "images")]
+    fn png() -> &'static [u8] {
+        let mut out = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut out, 2, 2);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("header");
+            writer.write_image_data(&[255u8; 16]).expect("pixels");
+        }
+        Vec::leak(out)
+    }
+
+    /// The question an application asks first: how do I show my logo. One call, and the
+    /// pixels come out the far side at the size the file says.
+    #[cfg(feature = "images")]
+    #[test]
+    fn embedded_bytes_become_pixels() {
+        let image = Image::memory(png());
+        assert_eq!(image.error(), None, "a valid PNG decodes");
+        let style = Widget::<()>::style(&image);
+        assert_eq!(
+            style.width,
+            Dimension::Length(2.0),
+            "at the file's own size"
+        );
+    }
+
+    /// **Once** per process, not once per frame.
+    ///
+    /// This is the whole reason the store exists: a view is rebuilt sixty times a second
+    /// and decoding a PNG is not free. The two handles being the same `Arc` is the proof
+    /// — a second decode would produce a second `ImageData` with a different identity.
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_same_bytes_are_decoded_once() {
+        let bytes = png();
+        let first = Image::memory(bytes);
+        let second = Image::memory(bytes);
+        let (a, b) = (
+            first.source.as_ref().expect("decoded"),
+            second.source.as_ref().expect("decoded"),
+        );
+        assert_eq!(a.id(), b.id(), "one decode, one image, shared");
+        assert!(
+            std::sync::Arc::ptr_eq(a, b),
+            "and literally the same handle"
+        );
+    }
+
+    /// Bytes that are not an image: the widget says so and paints nothing, rather than
+    /// panicking or drawing a stand-in nobody asked for.
+    #[test]
+    fn bytes_that_are_not_an_image_report_it_and_draw_nothing() {
+        static NOT_AN_IMAGE: &[u8] = b"this is not a PNG";
+        let broken = Image::memory(NOT_AN_IMAGE);
+        assert!(broken.error().is_some(), "it says what went wrong");
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &broken,
+            Rect::new(0.0, 0.0, 40.0, 40.0),
+            Status::default(),
+            &Theme::default(),
+            &mut scene,
+        );
+        assert!(scene.primitives().is_empty(), "and draws nothing at all");
+    }
+
+    /// A broken image takes **no room** unless it was given some. There is no natural
+    /// size to fall back on, and anything the caller did say is still honoured — which
+    /// is what keeps a page from jumping because one asset is bad.
+    #[test]
+    fn a_broken_image_takes_the_room_it_was_given_and_no_more() {
+        static NOT_AN_IMAGE: &[u8] = b"nor is this";
+        let bare = Widget::<()>::style(&Image::memory(NOT_AN_IMAGE));
+        assert_eq!(bare.width, Dimension::Length(0.0));
+        assert_eq!(bare.height, Dimension::Length(0.0));
+        let sized = Widget::<()>::style(&Image::memory(NOT_AN_IMAGE).size(64.0, 48.0));
+        assert_eq!(sized.width, Dimension::Length(64.0));
+        assert_eq!(sized.height, Dimension::Length(48.0));
+    }
+
+    /// The failure is remembered too. A file that is not a PNG will not become one on
+    /// the next frame, and retrying every frame would turn one broken asset into a
+    /// permanent cost.
+    #[test]
+    fn a_failure_is_remembered_rather_than_retried() {
+        static NOT_AN_IMAGE: &[u8] = b"still not a PNG";
+        let first = Image::memory(NOT_AN_IMAGE).error().map(str::to_string);
+        let second = Image::memory(NOT_AN_IMAGE).error().map(str::to_string);
+        assert!(first.is_some());
+        assert_eq!(first, second);
     }
 }
