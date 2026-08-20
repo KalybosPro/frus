@@ -162,6 +162,11 @@ pub struct TextInput<Msg> {
     /// A **dense** field: the same shape, less room around the content. What a table's
     /// inline cell editor wants, and what a form does not.
     dense: bool,
+    /// The most characters the field will hold; see [`TextInput::max_length`].
+    max_length: Option<usize>,
+    /// A field whose value can be read, selected and copied but not changed; see
+    /// [`TextInput::read_only`].
+    read_only: bool,
     /// Per-call overrides; everything unset falls to the theme, then the framework.
     style: TextInputStyle,
 }
@@ -251,6 +256,8 @@ impl<Msg> TextInput<Msg> {
             variant: TextInputVariant::Outlined,
             enabled: true,
             dense: false,
+            max_length: None,
+            read_only: false,
             style: TextInputStyle::default(),
         }
     }
@@ -519,6 +526,37 @@ impl<Msg> TextInput<Msg> {
         self
     }
 
+    /// The most characters the field will hold.
+    ///
+    /// It is **enforced**, as the reference's default is: a keystroke past the limit does
+    /// not reach the value, and neither does the tail of a paste that would cross it —
+    /// the part that fits still lands, because dropping a whole paste for being one
+    /// character too long loses work the user can see they had.
+    ///
+    /// It also puts a counter — `5/10` — at the end of the line below the box, where the
+    /// reference puts one, and reserves that line even when there is no helper text to
+    /// share it with.
+    ///
+    /// The limit is in **characters**, not bytes: "é" is one, and a name in an alphabet
+    /// that is not Latin is counted the way its writer would count it.
+    pub fn max_length(mut self, max: usize) -> Self {
+        self.max_length = Some(max);
+        self
+    }
+
+    /// A field whose value can be read, selected and copied — but not changed.
+    ///
+    /// It is **not** [`enabled(false)`](TextInput::enabled), and the difference matters.
+    /// A disabled field is greyed out and inert: out of the tab order, no caret, nothing
+    /// to select. A read-only one looks and behaves like any other field except that
+    /// typing does nothing — you can focus it, move the caret through it, select a
+    /// reference number and copy it. That is what an identifier the application generated
+    /// wants, and greying it out would suggest it is unavailable rather than fixed.
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
+    }
+
     /// Closure producing a message from the field's new value.
     pub fn on_input(mut self, on_input: impl Fn(String) -> Msg + 'static) -> Self {
         self.on_input = Some(Box::new(on_input));
@@ -593,9 +631,15 @@ impl<Msg> TextInput<Msg> {
         }
     }
 
+    /// The counter shown at the end of the line below the box, when there is a limit.
+    fn counter(&self) -> Option<String> {
+        self.max_length
+            .map(|max| format!("{}/{}", self.value.chars().count(), max))
+    }
+
     /// Height reserved for the helper/error line below the box (0 if there is none).
     fn sub_block(&self) -> f32 {
-        if self.error.is_some() || self.helper.is_some() {
+        if self.error.is_some() || self.helper.is_some() || self.max_length.is_some() {
             frus_text::line_height(FIELD_SUB_SIZE) + FIELD_GAP
         } else {
             0.0
@@ -703,6 +747,22 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 sub.clone(),
                 FIELD_SUB_SIZE,
                 color.fade(o),
+            );
+        }
+        // The counter shares that line, pushed to its far end — the reference's place for
+        // it, and the one that leaves the helper text where it was. It takes the helper's
+        // colour rather than the error's even while an error is showing: it is a fact
+        // about length, not a second complaint.
+        if let Some(counter) = self.counter() {
+            let width = frus_text::measure(&counter, FIELD_SUB_SIZE).width;
+            scene.text(
+                Point::new(
+                    bounds.x + bounds.width - width,
+                    field.y + field.height + FIELD_GAP,
+                ),
+                counter,
+                FIELD_SUB_SIZE,
+                s.helper_color.unwrap().fade(o),
             );
         }
 
@@ -1072,6 +1132,32 @@ impl<Msg: Clone> Widget<Msg> for TextInput<Msg> {
                 edit.cursor = cursor;
                 edit.anchor = anchor;
                 return self.on_submit.clone();
+            }
+        }
+
+        // Read-only: everything that only **moves** has already happened -- the caret,
+        // the selection, the word jumps -- and is kept. What is refused is the change,
+        // which is the whole of the difference between this and a disabled field, where
+        // there is no caret to move in the first place.
+        if self.read_only && changed {
+            return None;
+        }
+
+        // The limit, enforced the way the reference enforces it: what fits lands and the
+        // rest does not. Dropping a whole paste for being one character too long would
+        // lose work the user can see they had, and refusing the keystroke that crosses
+        // the limit is the same rule seen one character at a time.
+        //
+        // A value the **caller** supplied over the limit is left alone: it is the
+        // application's state, not something typed, and silently shortening it would be
+        // editing a value nobody edited. The counter shows it over.
+        if changed {
+            if let Some(max) = self.max_length {
+                if chars.len() > max {
+                    chars.truncate(max);
+                    cursor = cursor.min(max);
+                    anchor = anchor.map(|a| a.min(max));
+                }
             }
         }
 
@@ -2309,5 +2395,157 @@ mod tests {
         // Any index inside a word yields that word's bounds; separators are excluded.
         assert_eq!(inp.word_at(2), Some((0, 5))); // "hello"
         assert_eq!(inp.word_at(13), Some((12, 17))); // "world"
+    }
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    use crate::runtime::Edit;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Changed(String),
+    }
+
+    fn field(value: &str) -> TextInput<Msg> {
+        TextInput::new(value).on_input(Msg::Changed)
+    }
+
+    /// Types `text` at the end of the field's value and returns what came back.
+    fn typed(field: &TextInput<Msg>, text: &str) -> (Option<Msg>, Edit) {
+        let end = field.value.chars().count();
+        let mut edit = Edit {
+            cursor: end,
+            anchor: None,
+            ..Default::default()
+        };
+        let msg = Widget::on_edit(field, &mut edit, &Key::Text(text.to_string()));
+        (msg, edit)
+    }
+
+    fn value_of(msg: Option<Msg>) -> Option<String> {
+        msg.map(|Msg::Changed(v)| v)
+    }
+
+    /// A keystroke past the limit does not reach the value.
+    #[test]
+    fn a_keystroke_past_the_limit_goes_nowhere() {
+        let full = field("abcde").max_length(5);
+        assert_eq!(value_of(typed(&full, "f").0), Some("abcde".into()));
+        let room = field("abcd").max_length(5);
+        assert_eq!(value_of(typed(&room, "e").0), Some("abcde".into()));
+    }
+
+    /// A paste that crosses the limit lands the part that fits rather than being dropped
+    /// whole: losing work the user can see they had is the worse of the two answers.
+    #[test]
+    fn a_paste_that_crosses_the_limit_lands_what_fits() {
+        let f = field("ab").max_length(5);
+        let (msg, edit) = typed(&f, "cdefgh");
+        assert_eq!(value_of(msg), Some("abcde".into()));
+        assert_eq!(edit.cursor, 5, "the caret comes to rest at the end");
+    }
+
+    /// The limit is in **characters**, not bytes.
+    #[test]
+    fn the_limit_counts_characters_not_bytes() {
+        let f = field("").max_length(3);
+        assert_eq!(value_of(typed(&f, "éàü").0), Some("éàü".into()));
+        let full = field("éàü").max_length(3);
+        assert_eq!(value_of(typed(&full, "e").0), Some("éàü".into()));
+    }
+
+    /// A value the caller supplied over the limit is left alone — it is the application's
+    /// state, not something typed — and the counter says so.
+    #[test]
+    fn a_value_the_caller_set_over_the_limit_is_left_alone() {
+        let over = field("abcdefg").max_length(5);
+        assert_eq!(over.counter().as_deref(), Some("7/5"));
+        assert_eq!(over.value, "abcdefg");
+    }
+
+    /// The counter reserves the line below the box even with no helper to share it with.
+    #[test]
+    fn the_counter_reserves_the_line_it_sits_on() {
+        assert_eq!(
+            field("ab").sub_block(),
+            0.0,
+            "nothing to say, no room taken"
+        );
+        assert!(field("ab").max_length(5).sub_block() > 0.0);
+        assert_eq!(field("ab").max_length(5).counter().as_deref(), Some("2/5"));
+    }
+
+    /// Read-only refuses the **change** and keeps everything that only moves.
+    #[test]
+    fn read_only_refuses_the_change_and_keeps_the_caret() {
+        let f = field("hello").read_only();
+        assert_eq!(typed(&f, "x").0, None, "typing goes nowhere");
+
+        let mut edit = Edit {
+            cursor: 5,
+            anchor: None,
+            ..Default::default()
+        };
+        assert_eq!(
+            Widget::on_edit(
+                &f,
+                &mut edit,
+                &Key::Left {
+                    shift: false,
+                    word: false
+                }
+            ),
+            None
+        );
+        assert_eq!(edit.cursor, 4, "but the caret still moves");
+
+        let mut edit = Edit {
+            cursor: 5,
+            anchor: None,
+            ..Default::default()
+        };
+        Widget::on_edit(
+            &f,
+            &mut edit,
+            &Key::Home {
+                shift: true,
+                doc: false,
+            },
+        );
+        assert_eq!(
+            (edit.cursor, edit.anchor),
+            (0, Some(5)),
+            "and a selection can still be made, so it can be copied"
+        );
+    }
+
+    /// Backspace is a change, so it is refused too — and leaves the caret alone.
+    #[test]
+    fn read_only_refuses_a_deletion() {
+        let f = field("hello").read_only();
+        let mut edit = Edit {
+            cursor: 5,
+            anchor: None,
+            ..Default::default()
+        };
+        assert_eq!(Widget::on_edit(&f, &mut edit, &Key::Backspace), None);
+        assert_eq!(edit.cursor, 5);
+    }
+
+    /// It is not a disabled field: it keeps its caret and its place in the tab order.
+    #[test]
+    fn read_only_is_not_disabled() {
+        let read = field("REF-4417").read_only();
+        assert!(Widget::<Msg>::focusable(&read), "still in the tab order");
+        assert!(
+            Widget::<Msg>::cursor_at(&read, 20.0, 10.0, 200.0, 0).is_some(),
+            "and it still takes a caret, so a reference can be selected and copied"
+        );
+
+        let dead = field("REF-4417").enabled(false);
+        assert!(!Widget::<Msg>::focusable(&dead));
+        assert!(Widget::<Msg>::cursor_at(&dead, 20.0, 10.0, 200.0, 0).is_none());
     }
 }

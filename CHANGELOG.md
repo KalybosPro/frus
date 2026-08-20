@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 365 so far, each documenting the objective, the alternatives
+> record — one per step, 366 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,22 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A field with a limit, and one that is read but not written** (J366).
+  `TextInput::max_length()` and `TextInput::read_only()`. The limit is **enforced**, as
+  the reference's default is, and enforced one character at a time: a keystroke past it
+  goes nowhere, and a paste that crosses it lands the part that fits — dropping a whole
+  paste for being one character too long loses work the user can see they had. It counts
+  **characters**, not bytes, and puts a `5/10` counter at the end of the line below the
+  box, reserving that line even with no helper text to share it with. A value the *caller*
+  supplied over the limit is left alone: it is the application's state, not something
+  typed, and the counter shows it over.
+
+  `read_only` is not `enabled(false)`, and the difference is the point. A disabled field
+  is greyed out and inert — out of the tab order, no caret, nothing to select. A read-only
+  one behaves like any other field except that typing does nothing: everything that only
+  *moves* still happens, so a generated reference number can be focused, selected and
+  copied. Greying it out would have said unavailable where the truth is fixed.
 
 - **The selection controls, themed and overridable** (J365). `Switch`, `Checkbox`,
   `RadioGroup` and `Slider` had **no way at all** to change a colour — not a builder, not
