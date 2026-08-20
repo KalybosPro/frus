@@ -649,6 +649,25 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// A decoration painted **over this widget's children** rather than behind them:
+    /// the reference's `foregroundDecoration`.
+    ///
+    /// It is the one place in the walk where a widget paints after its own subtree,
+    /// and it exists because there is no other way to say it. A border over a
+    /// photograph, a wash across a tile that is disabled, a sheen over a card — every
+    /// one of them is a decoration whose whole point is that the content does not
+    /// cover it, and behind the content is exactly where [`Widget::paint`] puts one.
+    ///
+    /// The box is this widget's own, the same one `paint` is given. Inside any layer
+    /// this widget asks for: an opacity group fades it with everything else, a
+    /// transform carries it, and a shape clip holds it to the shape — which for a
+    /// decoration wearing that same radius changes nothing.
+    ///
+    /// `None` is the default, and costs the walk one `Option` check per node.
+    fn foreground(&self, _theme: &Theme) -> Option<frus_core::BoxDecoration> {
+        None
+    }
+
     /// The **pixel effects** this widget applies to its whole subtree: a blur, a
     /// colour transform, a mask, or a filter over what is painted underneath. The
     /// paint walk drains the subtree into a composited layer and hands the filter to
@@ -1171,6 +1190,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn ink(&self, theme: &Theme) -> Option<crate::ink::InkStyle> {
         (**self).ink(theme)
+    }
+    fn foreground(&self, theme: &Theme) -> Option<frus_core::BoxDecoration> {
+        (**self).foreground(theme)
     }
     fn barrier(&self) -> Option<crate::barrier::Barrier> {
         (**self).barrier()

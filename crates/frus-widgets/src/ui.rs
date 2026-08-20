@@ -2455,12 +2455,33 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         rects: &[Rect],
         index: &mut usize,
     ) {
-        let Some(theme) = widget.theme_override(&self.theme) else {
-            return self.walk_node_themed(widget, id, translation, clip, rects, index);
-        };
-        let outer = std::mem::replace(&mut self.theme, *theme);
+        // The box this node is about to be given, read **before** the walk consumes the
+        // index: a decoration painted over the children needs it once they are done, and
+        // by then `*index` has moved past the whole subtree.
+        let over = rects
+            .get(*index)
+            .copied()
+            .map(|r| r.translate(translation.0, translation.1));
+        let outer = widget
+            .theme_override(&self.theme)
+            .map(|theme| std::mem::replace(&mut self.theme, *theme));
         self.walk_node_themed(widget, id, translation, clip, rects, index);
-        self.theme = outer;
+        // Over its own children: the reference's `foregroundDecoration`, and the only
+        // point in the walk where a widget paints after its subtree. Still under this
+        // node's own theme, since it is this node's decoration.
+        if let Some(bounds) = over {
+            if let Some(decoration) = widget.foreground(&self.theme) {
+                let status = self.full_status(widget, id);
+                self.scene.set_clip(clip);
+                self.scene.set_owner(id.as_u64());
+                self.scene.set_bounds(bounds);
+                decoration.paint_into(&mut self.scene, bounds, status.opacity);
+                self.scene.set_clip(clip);
+            }
+        }
+        if let Some(outer) = outer {
+            self.theme = outer;
+        }
     }
 
     /// The walk proper, with the theme already in place — split out so that no early

@@ -29,6 +29,9 @@ pub struct Container<Msg> {
     radius: BorderRadius,
     /// Clip the child to this box's rounded rectangle.
     clip: bool,
+    /// A decoration painted **over** the child rather than behind it; see
+    /// [`Container::foreground`].
+    foreground: Option<BoxDecoration>,
     border_width: f32,
     border_color: Color,
     color: Option<Color>,
@@ -79,6 +82,7 @@ impl<Msg> Container<Msg> {
             margin: Insets::ZERO,
             radius: BorderRadius::ZERO,
             clip: false,
+            foreground: None,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             color: None,
@@ -347,6 +351,38 @@ impl<Msg> Container<Msg> {
     /// overrides the corresponding setting; the radius is always adopted. The
     /// animations (color, radius…) still apply on top. (A shadow's `spread` is not
     /// kept — the container's shadow model has none.)
+    /// A decoration painted **over the child** rather than behind it — the reference's
+    /// `foregroundDecoration`.
+    ///
+    /// [`Container::decoration`] and every part it is made of go *behind* the content,
+    /// which is what a background is for and no use at all when the point is that the
+    /// content does not cover it: an outline over a photograph, a wash across a tile
+    /// that is out of stock, a sheen over a card. There is no other way to say it short
+    /// of a [`crate::Stack`].
+    ///
+    /// It is painted on the container's own box, the same one the background uses, and
+    /// it is inside anything the container asks for — an opacity fades it with
+    /// everything else, [`Container::clip`] holds it to the corners.
+    ///
+    /// One convenience the reference does not have: a foreground that names **no**
+    /// radius takes the container's, since a square outline over a rounded box is
+    /// almost always a mistake rather than a request. Set one explicitly — including
+    /// [`frus_core::BorderRadius::ZERO`] — to say otherwise.
+    ///
+    /// ```
+    /// # use frus_widgets::Container;
+    /// # use frus_core::{Border, BoxDecoration, Color};
+    /// # let photo = Container::<()>::new();
+    /// Container::<()>::new()
+    ///     .radius(12.0)
+    ///     .child(photo)
+    ///     .foreground(BoxDecoration::default().border(Border::new(1.0, Color::rgba(0.0, 0.0, 0.0, 0.2))));
+    /// ```
+    pub fn foreground(mut self, decoration: BoxDecoration) -> Self {
+        self.foreground = Some(decoration);
+        self
+    }
+
     pub fn decoration(mut self, decoration: BoxDecoration) -> Self {
         if let Some(color) = decoration.color {
             self.color = Some(color);
@@ -441,6 +477,16 @@ impl<Msg: Clone> Widget<Msg> for Container<Msg> {
     fn clip_shape(&self) -> Option<frus_core::ClipShape> {
         self.clip
             .then(|| frus_core::ClipShape::RRect(self.radius.clamped()))
+    }
+
+    fn foreground(&self, _theme: &Theme) -> Option<BoxDecoration> {
+        self.foreground.map(|decoration| {
+            if decoration.radius == frus_core::BorderRadius::ZERO {
+                decoration.radius(self.radius)
+            } else {
+                decoration
+            }
+        })
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -1049,5 +1095,124 @@ mod clip_tests {
             frus_core::ClipShape::RRect(r) => assert_eq!(r.top_left, 12.0),
             other => panic!("a rounded rectangle, not {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod foreground_tests {
+    use super::*;
+    use crate::{build_ui, Runtime, Size};
+    use frus_core::{Primitive, Scene};
+
+    const BACK: Color = Color::rgb(1.0, 0.0, 0.0);
+    const CHILD: Color = Color::rgb(0.0, 1.0, 0.0);
+    const OVER: Color = Color::rgb(0.0, 0.0, 1.0);
+
+    fn scene(root: &Container<()>) -> Scene {
+        build_ui(
+            root,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        )
+        .scene()
+        .clone()
+    }
+
+    /// The order the three coloured boxes came out in, by their colour.
+    fn order(root: &Container<()>) -> Vec<Color> {
+        scene(root)
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { color, .. } if *color == BACK || *color == CHILD => Some(*color),
+                Primitive::Rect {
+                    border_color,
+                    border_width,
+                    ..
+                } if *border_width > 0.0 && *border_color == OVER => Some(OVER),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn card() -> Container<()> {
+        Container::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .color(BACK)
+            .child(
+                Container::<()>::new()
+                    .width(100.0)
+                    .height(100.0)
+                    .color(CHILD),
+            )
+    }
+
+    /// Nothing is painted over a child unless a foreground asks for it.
+    #[test]
+    fn nothing_paints_over_the_child_by_default() {
+        assert_eq!(order(&card()), vec![BACK, CHILD]);
+    }
+
+    /// The whole point: after the child, not before it. A background could not say this.
+    #[test]
+    fn a_foreground_paints_after_the_child() {
+        let card = card().foreground(BoxDecoration::default().border(Border::new(2.0, OVER)));
+        assert_eq!(order(&card), vec![BACK, CHILD, OVER]);
+    }
+
+    /// It uses the container's own box, the same one the background does.
+    #[test]
+    fn it_covers_the_container_s_own_box() {
+        let card = card()
+            .padding(10.0)
+            .foreground(BoxDecoration::default().border(Border::new(2.0, OVER)));
+        let over = scene(&card)
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect {
+                    border_color,
+                    border_width,
+                    rect,
+                    ..
+                } if *border_width > 0.0 && *border_color == OVER => Some(*rect),
+                _ => None,
+            })
+            .expect("the foreground is painted");
+        assert_eq!((over.width, over.height), (100.0, 100.0));
+    }
+
+    /// A foreground that names no radius takes the container's: a square outline over a
+    /// rounded box is a mistake far more often than a request.
+    #[test]
+    fn a_silent_foreground_wears_the_container_s_corners() {
+        let card = card()
+            .radius(12.0)
+            .foreground(BoxDecoration::default().border(Border::new(2.0, OVER)));
+        assert_eq!(
+            Widget::<()>::foreground(&card, &Theme::default())
+                .unwrap()
+                .radius,
+            BorderRadius::uniform(12.0),
+            "resolved against the container on the way out"
+        );
+    }
+
+    /// Said explicitly, the foreground's own radius stands.
+    #[test]
+    fn an_explicit_radius_is_left_alone() {
+        let card = card().radius(12.0).foreground(
+            BoxDecoration::default()
+                .border(Border::new(2.0, OVER))
+                .radius(4.0),
+        );
+        assert_eq!(
+            Widget::<()>::foreground(&card, &Theme::default())
+                .unwrap()
+                .radius,
+            BorderRadius::uniform(4.0)
+        );
     }
 }

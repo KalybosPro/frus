@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 361 so far, each documenting the objective, the alternatives
+> record — one per step, 362 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,21 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **A decoration painted over the child** (J362). `Container::foreground()`: the last
+  thing milestone 357's depth audit named on `Container`, and the one it said had no
+  workaround. A background goes behind the content, which is useless when the whole point
+  is that the content does not cover it — an outline over a photograph, a wash across a
+  tile that is out of stock, a hairline over a card. The only way to say it was a `Stack`
+  with a second layer the size of the first, built twice and kept in step by hand.
+
+  `Widget::foreground` is the one place in the walk where a widget paints after its own
+  subtree. It is data rather than a second `paint` because a general paint-over would need
+  a second hook to stay cheap — the walk cannot know whether a body is empty — and a
+  decoration is what the feature means. It sits in `walk_node`, which puts it inside the
+  opacity group, transform and clip the container asks for, under its own theme override,
+  and inside the repaint-boundary capture. A foreground naming no radius takes the
+  container's, which the reference makes you write twice.
 
 - **The edge an axis starts at** (J361). A reversed area glowed at the **top** when it
   refused to go further back, and pull-to-refresh above one still listened at the top:

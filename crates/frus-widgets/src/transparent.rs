@@ -103,6 +103,13 @@ macro_rules! forward_transparent {
                 self.inner.ink(theme)
             }
 
+            fn foreground(
+                &self,
+                theme: &$crate::theme::Theme,
+            ) -> Option<frus_core::BoxDecoration> {
+                self.inner.foreground(theme)
+            }
+
             fn on_click(&self) -> Option<Msg> {
                 self.inner.on_click()
             }
