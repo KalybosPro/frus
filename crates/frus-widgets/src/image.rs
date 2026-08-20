@@ -28,6 +28,12 @@ pub struct Image {
     tint: Option<Color>,
     opacity: f32,
     alignment: AlignmentGeometry,
+    /// What a screen reader is told this picture is; see [`Image::semantic_label`].
+    semantic_label: Option<String>,
+    /// Whether to leave it out of the tree a screen reader walks.
+    exclude_from_semantics: bool,
+    /// Whether the picture is **mirrored** in a right-to-left reading direction.
+    match_text_direction: bool,
 }
 
 impl Image {
@@ -41,6 +47,9 @@ impl Image {
             tint: None,
             opacity: 1.0,
             alignment: AlignmentGeometry::Physical(Alignment::CENTER),
+            semantic_label: None,
+            exclude_from_semantics: false,
+            match_text_direction: false,
         }
     }
 
@@ -95,6 +104,46 @@ impl Image {
         self
     }
 
+    /// What a screen reader says instead of the picture.
+    ///
+    /// A picture with no label is a picture nobody reading by ear can see, and until
+    /// this existed **every** image in every application was one: the vocabulary had
+    /// [`frus_core::Role::Image`] in it and nothing ever emitted it.
+    ///
+    /// Say what the picture *is*, not that it is a picture — a reader is already told
+    /// the role. If it carries no meaning of its own, do not label it: reach for
+    /// [`exclude_from_semantics`](Image::exclude_from_semantics) instead.
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
+    }
+
+    /// Leaves the image out of the tree a screen reader walks.
+    ///
+    /// The right answer for **decoration** — a divider, a texture, a shape behind a
+    /// heading. Announcing those interrupts a reader with something that was never
+    /// meant to be read, and an empty label would still announce the role. This is the
+    /// reference's `excludeFromSemantics`, and like it, it wins over any label given.
+    pub fn exclude_from_semantics(mut self, exclude: bool) -> Self {
+        self.exclude_from_semantics = exclude;
+        self
+    }
+
+    /// Mirrors the image horizontally when the reading direction is right-to-left.
+    ///
+    /// **Off** by default, which is the reference's default and the right one: an image
+    /// is a picture rather than a run of text, and a photograph of a person does not
+    /// want to be flipped because the interface is in Arabic. It is a per-image
+    /// decision, so it is a per-image switch.
+    ///
+    /// Turn it on for a picture that **points**: an arrow meaning *forward*, a
+    /// speech bubble with a tail, a hand indicating the next step. Those follow the
+    /// direction the reader's eye travels, and in RTL that is the other way round.
+    pub fn match_text_direction(mut self, match_direction: bool) -> Self {
+        self.match_text_direction = match_direction;
+        self
+    }
+
     /// The box this asks for, given the bitmap's own size.
     fn box_style(&self) -> Style {
         let natural = self.image.size();
@@ -139,17 +188,37 @@ impl<Msg> Widget<Msg> for Image {
         &[]
     }
 
-    fn paint(&self, bounds: Rect, status: Status, _theme: &Theme, scene: &mut Scene) {
-        // Physical, not directional-aware here: `paint` is not told the reading
-        // direction, and an image is a picture rather than a run of text — a portrait
-        // does not want its crop mirrored because the interface is in Arabic.
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // The **alignment** stays physical whatever the direction. An image is a
+        // picture rather than a run of text: a portrait aligned to the top of its
+        // crop wants the top of its crop in every language. Mirroring is the separate,
+        // opt-in question below, which is how the reference splits it too.
         let align = self.alignment.resolve(frus_core::TextDirection::Ltr);
-        let (dst, uv) = self.fit.apply_aligned(self.image.size(), bounds, align);
+        let (dst, mut uv) = self.fit.apply_aligned(self.image.size(), bounds, align);
+        // A mirror costs nothing but a sign. The shader reads
+        // `uv.xy + unit_pos * uv.zw` with `unit_pos` running 0..1, so a **negative**
+        // width walks the same span backwards — which is the reference's "scaling
+        // factor of -1 in the horizontal direction", without a transform, a layer, or
+        // a second copy of the pixels.
+        if self.match_text_direction && theme.direction == frus_core::TextDirection::Rtl {
+            uv = Rect::new(uv.x + uv.width, uv.y, -uv.width, uv.height);
+        }
         let tint = self
             .tint
             .unwrap_or(Color::WHITE)
             .fade(status.opacity * self.opacity);
         scene.draw_image(&self.image, dst, uv, tint);
+    }
+
+    fn semantics(&self) -> Option<frus_core::Semantics> {
+        if self.exclude_from_semantics {
+            return None;
+        }
+        let mut semantics = frus_core::Semantics::new(frus_core::Role::Image);
+        if let Some(label) = self.semantic_label.as_deref() {
+            semantics = semantics.label(label);
+        }
+        Some(semantics)
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -277,14 +346,14 @@ mod tests {
     }
 
     fn paint(image: Image, bounds: Rect) -> Primitive {
+        paint_in(image, bounds, &Theme::default())
+    }
+
+    /// The same, under a theme of the caller's choosing — which is how the reading
+    /// direction reaches `paint`.
+    fn paint_in(image: Image, bounds: Rect, theme: &Theme) -> Primitive {
         let mut scene = Scene::new();
-        Widget::<()>::paint(
-            &image,
-            bounds,
-            Status::default(),
-            &Theme::default(),
-            &mut scene,
-        );
+        Widget::<()>::paint(&image, bounds, Status::default(), theme, &mut scene);
         scene.primitives()[0].clone()
     }
 
@@ -327,5 +396,124 @@ mod tests {
         let style = Widget::<()>::style(&image);
         assert_eq!(style.width, Dimension::Length(64.0));
         assert_eq!(style.height, Dimension::Length(48.0));
+    }
+
+    /// The hole this milestone came for. `Role::Image` was in the vocabulary and mapped
+    /// to the platform's, and **nothing in the framework ever emitted it** — so every
+    /// picture in every application was silent to a screen reader.
+    #[test]
+    fn a_labelled_image_is_announced() {
+        let semantics = Widget::<()>::semantics(&Image::new(handle(4, 4)).semantic_label("Ada"))
+            .expect("an image is announced");
+        assert_eq!(semantics.role, frus_core::Role::Image);
+        assert_eq!(semantics.label.as_deref(), Some("Ada"));
+    }
+
+    /// Unlabelled, it still says *there is a picture here*. A reader who meets it knows
+    /// something is there and can move past it; leaving it out entirely would be the
+    /// application's decision, not the widget's default.
+    #[test]
+    fn an_unlabelled_image_still_announces_the_role() {
+        let semantics =
+            Widget::<()>::semantics(&Image::new(handle(4, 4))).expect("still announced");
+        assert_eq!(semantics.role, frus_core::Role::Image);
+        assert_eq!(semantics.label, None);
+    }
+
+    /// Decoration is excluded outright, and the exclusion wins over a label — the
+    /// reference's rule, and the only one that is not ambiguous when both are given.
+    #[test]
+    fn decoration_is_left_out_of_the_tree_a_reader_walks() {
+        let decoration = Image::new(handle(4, 4))
+            .semantic_label("a texture")
+            .exclude_from_semantics(true);
+        assert!(Widget::<()>::semantics(&decoration).is_none());
+    }
+
+    /// The sub-region an image samples, as painted.
+    fn sampled(image: Image, theme: &Theme) -> Rect {
+        match paint_in(image, Rect::new(0.0, 0.0, 40.0, 40.0), theme) {
+            Primitive::Image { uv, .. } => uv,
+            _ => panic!("expected an image"),
+        }
+    }
+
+    /// A picture that **points** is mirrored in a right-to-left reading direction, which
+    /// the reference describes as a scaling factor of -1 horizontally. Here it is a sign
+    /// on the sampled width: the shader reads `uv.xy + unit_pos * uv.zw`, so a negative
+    /// width walks the same span backwards — no transform, no layer, no second copy of
+    /// the pixels.
+    #[test]
+    fn a_directional_image_is_mirrored_in_rtl() {
+        let forward = sampled(Image::new(handle(8, 4)), &Theme::default());
+        let mirrored = sampled(
+            Image::new(handle(8, 4)).match_text_direction(true),
+            &Theme::default().rtl(),
+        );
+        assert_eq!(
+            mirrored.width, -forward.width,
+            "the span is walked backwards"
+        );
+        assert_eq!(
+            mirrored.x,
+            forward.x + forward.width,
+            "and it starts at the far edge"
+        );
+        // The vertical span is untouched: this is a mirror, not a rotation.
+        assert_eq!((mirrored.y, mirrored.height), (forward.y, forward.height));
+    }
+
+    /// It is **opt-in**, and off it stays off in both directions. A photograph of a
+    /// person does not want to be flipped because the interface is in Arabic, which is
+    /// why the reference makes this a per-image switch rather than a global rule.
+    #[test]
+    fn an_ordinary_image_is_not_mirrored_by_the_reading_direction() {
+        let plain = Image::new(handle(8, 4));
+        assert_eq!(
+            sampled(plain, &Theme::default().rtl()),
+            sampled(Image::new(handle(8, 4)), &Theme::default()),
+        );
+    }
+
+    /// And the switch alone does nothing: it is the direction that mirrors, not the flag.
+    #[test]
+    fn a_directional_image_is_left_alone_in_ltr() {
+        assert_eq!(
+            sampled(
+                Image::new(handle(8, 4)).match_text_direction(true),
+                &Theme::default()
+            ),
+            sampled(Image::new(handle(8, 4)), &Theme::default()),
+        );
+    }
+
+    /// And it reaches the tree, not just the hook.
+    ///
+    /// A trait method nobody calls is the shape of bug this project has already been
+    /// bitten by — a hook that answers correctly while the walk never asks it, green
+    /// unit tests over a feature that does nothing. So this drives `build_ui` and reads
+    /// what the walk actually collected.
+    #[test]
+    fn the_walk_collects_the_image_and_skips_the_decoration() {
+        let tree = crate::Flex::<()>::column()
+            .child(Image::new(handle(8, 8)).semantic_label("Ada Lovelace"))
+            .child(Image::new(handle(8, 8)).exclude_from_semantics(true));
+        let ui = crate::build_ui(
+            &tree,
+            crate::Size::new(200.0, 200.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        let images: Vec<_> = ui
+            .semantics()
+            .iter()
+            .filter(|(_, _, s)| s.role == frus_core::Role::Image)
+            .map(|(_, _, s)| s.label.clone())
+            .collect();
+        assert_eq!(
+            images,
+            vec![Some("Ada Lovelace".to_string())],
+            "the labelled one is announced and the decoration is not"
+        );
     }
 }

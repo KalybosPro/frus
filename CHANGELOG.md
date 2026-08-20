@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 370 so far, each documenting the objective, the alternatives
+> record — one per step, 371 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -73,6 +73,38 @@ any release may break.
   it describe what was true when they were written.
 
 ### Added
+
+- **An image nobody could hear** (J371). `frus_core::Role::Image` had been in the
+  accessibility vocabulary a long time and `frus-shell` mapped it to the platform's;
+  **nothing in the framework ever emitted it**. Every picture in every application — a
+  photograph, a chart, a logo, an avatar in a list of people — was silent to a screen
+  reader, which met a gap where the content was and was told nothing at all, not even that
+  something was there. It went unnoticed because a `Role` nobody constructs compiles
+  perfectly and no test asks for it.
+
+  `Image::semantic_label` is what a reader is told instead of the picture. Unlabelled, it
+  still announces its **role**, which is a decision rather than a fallback: a reader who
+  meets it learns something is there and can move past it. Being left out entirely is the
+  application's call, and `exclude_from_semantics` is how decoration says so — winning
+  over any label given, which is the reference's rule and the only unambiguous one.
+
+  The test drives `build_ui` and reads what the walk **collected**, rather than calling
+  `semantics()` and believing it: a hook nobody calls is a shape of bug this project has
+  been bitten by before.
+
+  `match_text_direction` is the reference's opt-in mirror for a picture that **points** —
+  an arrow, a speech bubble with a tail. Off by default there and here, because a
+  photograph of a person does not want flipping because the interface is in Arabic. The
+  reference calls it "a scaling factor of -1 in the horizontal direction"; here it is a
+  **sign**, since the shader reads `uv.xy + unit_pos * uv.zw` and a negative width walks
+  the same span backwards. No transform, no layer, and nothing in `frus-gpu` changed. The
+  alignment stays physical either way: those are separate questions on purpose.
+
+  Left: `repeat` and `filter_quality` share one piece of work — a sampler chosen per
+  draw, where there is one hardcoded `ClampToEdge`/`Linear` today. The asynchronous
+  builders are a **design difference** rather than a gap: `ImageHandle` is an
+  `Arc<ImageData>`, decoded pixels the application already holds, so there is no load in
+  flight for the widget to report on.
 
 - **A checkbox that can answer "some of them"** (J370). `Checkbox` had two answers; the
   reference's has three, and the third is the one a real list needs — a "select all"
