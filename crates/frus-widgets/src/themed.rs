@@ -83,6 +83,11 @@ crate::transparent::forward_transparent!(Themed {
         self.inner.key()
     }
 
+    /// Forwarded: a theme is not a place.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+
     /// The one thing a `Themed` does not delegate: the theme it exists to impose.
     ///
     /// It still asks its child, because a transparent wrapper **is** its child: two

@@ -729,6 +729,24 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// If this is a layer **pinned** against its [`crate::Stack`]'s edges
+    /// ([`crate::Positioned`]), what it pins. `None` = an ordinary layer, sized and
+    /// placed by the stack's own fit and alignment.
+    ///
+    /// Read by the stack rather than written into a style: an offset from an edge is not
+    /// something the layout engine's box model has a field for, and the number it
+    /// resolves to depends on how big the stack came out.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        None
+    }
+
+    /// Whether this stack sizes its unpinned layers **loosely** — asking each what it
+    /// would like to be — rather than handing each of them the whole box.
+    /// See [`crate::StackFit`]. Meaningless unless [`Widget::stack`] is true.
+    fn stack_loose(&self) -> bool {
+        false
+    }
+
     /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
     /// the distance from the top of this box at which that baseline should land.
     /// `None` = not a baseline box.
@@ -1131,6 +1149,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn tile_shape(&self) -> Option<f32> {
         (**self).tile_shape()
+    }
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        (**self).positioned()
+    }
+    fn stack_loose(&self) -> bool {
+        (**self).stack_loose()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

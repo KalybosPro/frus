@@ -39,6 +39,11 @@ crate::transparent::forward_transparent!(Keyed {
         Some(self.key)
     }
 
+    /// Forwarded: a key is not a place — `Keyed(Positioned(…))` must keep its pins.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+
     /// And the one it does — a key says nothing about a theme.
     fn theme_override(
         &self,

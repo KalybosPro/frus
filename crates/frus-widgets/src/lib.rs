@@ -85,6 +85,7 @@ mod physics;
 mod placeholder;
 mod popover;
 mod portal;
+mod positioned;
 mod progressbar;
 mod radio;
 mod rating;
@@ -230,6 +231,7 @@ pub use physics::{
 pub use placeholder::{Placeholder, PLACEHOLDER_COLOR, PLACEHOLDER_FALLBACK, PLACEHOLDER_STROKE};
 pub use popover::Popover;
 pub use portal::{Placement, Portal};
+pub use positioned::{Positioned, Positioning};
 pub use progressbar::ProgressBar;
 pub use radio::RadioGroup;
 pub use rating::Rating;
@@ -257,7 +259,7 @@ pub use shortcuts::{
 pub use skeleton::Skeleton;
 pub use slider::{RangeSlider, Slider};
 pub use spinner::Spinner;
-pub use stack::Stack;
+pub use stack::{Stack, StackFit};
 pub use stepper::Stepper;
 pub use steps::Steps;
 pub use switch::Switch;

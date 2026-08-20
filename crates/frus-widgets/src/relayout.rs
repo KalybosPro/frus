@@ -39,6 +39,10 @@ pub(crate) struct Constraints {
     /// the root becomes the available size. For content that is *given* its box —
     /// a page of a [`crate::PageView`] — rather than asked how big it wants to be.
     pub fill: bool,
+    /// **Force** the constrained axes rather than merely fill them: a size the content
+    /// chose for itself is overruled. What a stack layer pinned to two opposite edges
+    /// asks for — see [`frus_layout::Layout::compute_tight`].
+    pub tight: bool,
 }
 
 impl Constraints {
@@ -50,6 +54,7 @@ impl Constraints {
             free_x: false,
             free_y: false,
             fill: false,
+            tight: false,
         }
     }
 
@@ -69,6 +74,20 @@ impl Constraints {
             free_x,
             free_y,
             fill: false,
+            tight: false,
+        }
+    }
+
+    /// A box the content is **forced** into on the axes that were given, with the others
+    /// left free so the content's own size comes back on them.
+    pub fn pinned(w: Option<f32>, h: Option<f32>, available: Size) -> Self {
+        Self {
+            w: w.unwrap_or(available.width),
+            h: h.unwrap_or(available.height),
+            free_x: w.is_none(),
+            free_y: h.is_none(),
+            fill: false,
+            tight: true,
         }
     }
 }
@@ -170,7 +189,9 @@ fn compute_rects<Msg>(
     let node = build_layout(root, key, runtime, theme, &mut layout);
     // `compute_scroll(_, _, false, false)` is equivalent to `compute` (both axes
     // `Definite`): a single path covers both cases.
-    if c.fill {
+    if c.tight {
+        layout.compute_tight(node, c.w, c.h, c.free_x, c.free_y);
+    } else if c.fill {
         layout.compute_filled(node, c.w, c.h);
     } else {
         layout.compute_scroll(node, c.w, c.h, c.free_x, c.free_y);

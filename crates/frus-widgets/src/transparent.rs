@@ -24,10 +24,12 @@
 //! });
 //! ```
 //!
-//! The type must have an `inner: Box<dyn Widget<Msg>>` field. The two hooks above are the
-//! ones a transparent wrapper can have a reason to claim, so the macro leaves **both** to
-//! the caller: whichever one this wrapper is not for is then visibly forwarded rather than
-//! quietly defaulted.
+//! The type must have an `inner: Box<dyn Widget<Msg>>` field. The hooks above are the
+//! ones a transparent wrapper can have a reason to claim, so the macro leaves them **all**
+//! to the caller: whichever one this wrapper is not for is then visibly forwarded rather
+//! than quietly defaulted. [`crate::Widget::positioned`] is the third — a
+//! [`crate::Positioned`] claims it, and a wrapper that forgot to forward it would make
+//! `Keyed(Positioned(…))` silently lose its place in the stack.
 //!
 //! ## The third hook: `restyle`
 //!
@@ -443,6 +445,10 @@ macro_rules! forward_transparent {
                 self.inner.main_axis_floor()
             }
 
+            fn stack_loose(&self) -> bool {
+                self.inner.stack_loose()
+            }
+
             fn tile_shape(&self) -> Option<f32> {
                 self.inner.tile_shape()
             }
@@ -623,7 +629,12 @@ mod tests {
                 continue;
             }
             checked += 1;
-            for hook in ["fn key(", "fn theme_override(", "fn restyle("] {
+            for hook in [
+                "fn key(",
+                "fn theme_override(",
+                "fn restyle(",
+                "fn positioned(",
+            ] {
                 assert!(src.contains(hook), "{file} says nothing about `{hook}`");
             }
         }

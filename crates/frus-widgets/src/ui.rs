@@ -20,6 +20,7 @@ use crate::interaction::{Status, WidgetId};
 use crate::pageview::PageSnap;
 use crate::physics::{ScrollMetrics, ScrollPhysics};
 use crate::portal::Placement;
+use crate::positioned::Positioning;
 use crate::refresh::Refreshable;
 use crate::relayout::Constraints;
 use crate::runtime::Runtime;
@@ -3024,23 +3025,97 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 self.wants_animation = true;
             }
         } else if widget.stack() {
-            // A stack: each layer fills the box, rendered in order.
+            // A stack: the layers are rendered in order, bottom first.
             let bounds = draw_rect;
             let layer_clip = clip.intersect(bounds);
+            let loose = widget.stack_loose();
+            // Where a layer smaller than the stack sits. Resolved once, against the
+            // reading direction, so a start-anchored badge follows the script.
+            let align = widget
+                .alignment_geometry()
+                .unwrap_or(frus_core::AlignmentGeometry::Physical(
+                    frus_core::Alignment::TOP_LEFT,
+                ))
+                .resolve(if self.rtl() {
+                    frus_core::TextDirection::Rtl
+                } else {
+                    frus_core::TextDirection::Ltr
+                });
             for (i, layer) in widget.children().iter().enumerate() {
-                // A layer is **given** the box, not asked what size it would like: that
-                // is what a stack means. An unsized layer that hugged its content would
-                // collapse to nothing — invisibly, since a stack draws no box of its own.
-                let layer_rects = self.cached_rects(
-                    child_id(id, i, layer.as_ref()),
-                    layer.as_ref(),
-                    Constraints::filled(Size::new(bounds.width, bounds.height)),
-                );
+                let cid = child_id(id, i, layer.as_ref());
+                // What this layer asks for on each axis: a pinned pair gives a number, a
+                // lone pin plus an explicit extent gives one, and neither leaves the axis
+                // to the layer itself — or, under `Expand`, to the stack.
+                let pins = layer.positioned();
+                let (want_w, want_h) = match pins {
+                    Some(p) => (
+                        p.resolved_width(bounds.width),
+                        p.resolved_height(bounds.height),
+                    ),
+                    None if loose => (None, None),
+                    // The historical behaviour, and still the default: a layer is
+                    // **given** the box rather than asked what size it would like. An
+                    // unsized layer that hugged its content would collapse to nothing —
+                    // invisibly, since a stack draws no box of its own.
+                    None => (Some(bounds.width), Some(bounds.height)),
+                };
+                // A pinned layer is **forced** into what its edges say: two opposite
+                // pins are not a suggestion, and a width of its own is a contradiction
+                // rather than a second opinion. An unpinned layer under `Expand` is
+                // merely handed the box, which leaves a layer that chose a size alone —
+                // that is what a badge sitting in a filled stack has always relied on.
+                // An axis nobody pinned is left free, so the layer's own size comes back.
+                let layer_rects = if pins.is_some() {
+                    self.cached_rects(
+                        cid,
+                        layer.as_ref(),
+                        Constraints::pinned(want_w, want_h, Size::new(bounds.width, bounds.height)),
+                    )
+                } else {
+                    match (want_w, want_h) {
+                        (Some(w), Some(h)) => self.cached_rects(
+                            cid,
+                            layer.as_ref(),
+                            Constraints::filled(Size::new(w, h)),
+                        ),
+                        _ => self.cached_rects(
+                            cid,
+                            layer.as_ref(),
+                            Constraints::scroll(bounds.width, bounds.height, true, true),
+                        ),
+                    }
+                };
+                let own = layer_rects
+                    .first()
+                    .copied()
+                    .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
+                let (dx, dy) = match pins {
+                    Some(p) => (
+                        Positioning::place(
+                            p.left,
+                            p.right,
+                            bounds.width,
+                            own.width,
+                            align.fraction_x(),
+                        ),
+                        Positioning::place(
+                            p.top,
+                            p.bottom,
+                            bounds.height,
+                            own.height,
+                            align.fraction_y(),
+                        ),
+                    ),
+                    None => (
+                        (bounds.width - own.width).max(0.0) * align.fraction_x(),
+                        (bounds.height - own.height).max(0.0) * align.fraction_y(),
+                    ),
+                };
                 let mut layer_index = 0;
                 self.walk(
                     layer.as_ref(),
-                    child_id(id, i, layer.as_ref()),
-                    (bounds.x, bounds.y),
+                    cid,
+                    (bounds.x + dx, bounds.y + dy),
                     layer_clip,
                     &layer_rects,
                     &mut layer_index,
@@ -3117,7 +3192,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
         // Fractional alignment: it targets a single child. taffy laid the child out at the
         // top left (Start/Start) at its natural size; it is then slid by `free × fraction`.
-        if let (Some(geo), 1) = (widget.alignment_geometry(), children.len()) {
+        // A **stack** answers this question too, and means something else by it: where a
+        // layer smaller than the box sits, which the stack branch applies per layer. It
+        // must not also be applied to the stack itself, or a stack with exactly one layer
+        // would shift twice.
+        if let (Some(geo), 1, false) = (widget.alignment_geometry(), children.len(), widget.stack())
+        {
             // Resolves the alignment (physical or directional) against the reading direction;
             // `resolve` produces a physical `Alignment` that the rest (with its RTL correction)
             // handles uniformly.

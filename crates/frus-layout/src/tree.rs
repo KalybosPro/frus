@@ -267,6 +267,35 @@ impl<'a, T> Layout<'a, T> {
         self.compute(root, Size::new(width, height));
     }
 
+    /// Computes the layout of content **forced** into a box on the axes that are not
+    /// free: the node's own width or height is overruled rather than merely bounded.
+    ///
+    /// The difference from [`Layout::compute_filled`] is who wins when the content has
+    /// already chosen. Filling defers to it — an explicit size is a size the caller
+    /// asked for — while this overrules it, which is what a stack layer pinned to two
+    /// opposite edges means: the edges say how wide it is, and a width of its own is not
+    /// a second opinion but a contradiction.
+    pub fn compute_tight(
+        &mut self,
+        root: NodeId,
+        width: f32,
+        height: f32,
+        free_x: bool,
+        free_y: bool,
+    ) {
+        if let Ok(current) = self.tree.style(root) {
+            let mut style = current.clone();
+            if !free_x {
+                style.size.width = taffy::Dimension::Length(width);
+            }
+            if !free_y {
+                style.size.height = taffy::Dimension::Length(height);
+            }
+            let _ = self.tree.set_style(root, style);
+        }
+        self.compute_scroll(root, width, height, free_x, free_y);
+    }
+
     /// Computes the layout of scrollable content: each axis is either constrained
     /// to the viewport or **free**, in which case the content takes its natural
     /// size, according to `free_x` and `free_y`.

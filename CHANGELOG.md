@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 356 so far, each documenting the objective, the alternatives
+> record — one per step, 357 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,22 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **`Positioned`, and a `Stack` that can place a layer** (J357). A badge on a corner, a
+  caption over an image, a bar across the bottom of a photo: all of them are a stack with
+  one layer pinned somewhere, and none of them could be written — `Stack`'s whole surface
+  was `new/width/height/flex/layer`. `Positioned` pins any of the four edges, and what is
+  pinned decides the layer's size as well as its place, as in the reference. `StackFit`
+  and `Stack::alignment` cover the rest of the reference's surface; the default fit stays
+  `Expand` where the reference's is loose, deliberately and with the reason written where
+  the choice is made. New: `Widget::positioned`, `Widget::stack_loose`,
+  `Layout::compute_tight` — a box the content is *forced* into, next to the ones it is
+  asked about and handed.
+
+  Found by auditing the reference's constructor parameters against our builder methods,
+  now that the widget catalogue counted in J336 is closed and what is left is depth. The
+  audit also points at `Scroll` (no `padding`, no `reverse`) and `Image` (no
+  `width`/`height`/`alignment`/`repeat`).
 
 - **A grid can work its column count out from a tile width** (J356). `Grid::extent(160.0,
   n, |i| tile(i))` is the reference's other grid delegate: as many equal columns as it

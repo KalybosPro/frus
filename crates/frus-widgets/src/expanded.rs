@@ -215,6 +215,11 @@ crate::transparent::forward_transparent!(Flexible {
         self.inner.key()
     }
 
+    /// Forwarded: a box is not a place.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
+    }
+
     /// Forwarded too: a box is not a palette.
     fn theme_override(
         &self,
@@ -230,6 +235,11 @@ crate::transparent::forward_transparent!(Expanded {
     /// position in the list.
     fn key(&self) -> Option<u64> {
         self.inner.key()
+    }
+
+    /// Forwarded: a box is not a place.
+    fn positioned(&self) -> Option<crate::positioned::Positioning> {
+        self.inner.positioned()
     }
 
     /// Forwarded too: a box is not a palette.
