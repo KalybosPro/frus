@@ -8,7 +8,7 @@
 //! not exist off screen) — perfect for display (logs, tables, long lists), and
 //! still clickable and hoverable while visible.
 
-use frus_core::{Rect, Scene};
+use frus_core::{Insets, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -35,6 +35,8 @@ pub struct List<Msg> {
     flex_grow: f32,
     physics: Option<ScrollPhysics>,
     reverse: bool,
+    /// Room around the items, inside the viewport; see [`List::padding`].
+    padding: Insets,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
 }
 
@@ -54,6 +56,7 @@ impl<Msg> List<Msg> {
             flex_grow: 0.0,
             physics: None,
             reverse: false,
+            padding: Insets::ZERO,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
         }
     }
@@ -68,6 +71,37 @@ impl<Msg> List<Msg> {
     /// renumbered.
     pub fn reverse(mut self) -> Self {
         self.reverse = true;
+        self
+    }
+
+    /// Insets the content, **inside** the viewport: the padding scrolls with what it
+    /// surrounds rather than shrinking the window onto it.
+    ///
+    /// That is the whole distinction, and it is the reference's: a scroll area padded at
+    /// the bottom has that room *at the end of its content*, reachable only by scrolling
+    /// to it, which is what a floating button hovering over the last row needs. Room
+    /// taken out of the viewport instead would sit there permanently and the last row
+    /// would still slide under the button.
+    ///
+    /// Along the cross axis it simply insets the content, which stays the width of the
+    /// viewport less the two sides.
+    ///
+    /// A **reversed** list keeps the sides where they look: the bottom inset is at the
+    /// bottom, which is also the end the items start from, so it is the one the first
+    /// item clears.
+    ///
+    /// ```
+    /// # use frus_widgets::{Container, List};
+    /// List::<()>::new(200, 56.0, |_| Container::<()>::new()).padding(16.0);
+    /// ```
+    pub fn padding(mut self, padding: f32) -> Self {
+        self.padding = Insets::uniform(padding);
+        self
+    }
+
+    /// The same, one side at a time.
+    pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        self.padding = Insets::new(top, right, bottom, left);
         self
     }
 
@@ -131,6 +165,10 @@ impl<Msg> Widget<Msg> for List<Msg> {
 
     fn scroll_reverse(&self) -> bool {
         self.reverse
+    }
+
+    fn scroll_padding(&self) -> Insets {
+        self.padding
     }
 }
 
@@ -354,5 +392,104 @@ mod tests {
             .filter(|p| matches!(p, Primitive::Rect { .. }))
             .count();
         assert!(rects > 0);
+    }
+}
+
+#[cfg(test)]
+mod padding_tests {
+    use super::*;
+    use crate::{build_ui, Container, Runtime, Size};
+    use frus_core::{Color, Primitive};
+
+    const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    /// The rectangles the list painted for its items, in the order they came out.
+    fn items(list: &List<()>, size: Size) -> Vec<Rect> {
+        build_ui(list, size, &Runtime::default(), &Theme::default())
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn list(count: usize) -> List<()> {
+        List::<()>::new(count, 40.0, |_| {
+            Container::<()>::new().height(40.0).color(MARK)
+        })
+        .width(100.0)
+        .height(200.0)
+    }
+
+    /// The leading inset pushes item 0 in, and the sides inset every item.
+    #[test]
+    fn the_first_item_clears_the_leading_inset() {
+        let plain = items(&list(5), Size::new(100.0, 200.0));
+        assert_eq!((plain[0].y, plain[0].x, plain[0].width), (0.0, 0.0, 100.0));
+
+        let padded = items(
+            &list(5).padding_each(12.0, 8.0, 24.0, 8.0),
+            Size::new(100.0, 200.0),
+        );
+        assert_eq!(padded[0].y, 12.0, "item 0 starts after the top inset");
+        assert_eq!(padded[0].x, 8.0, "and inside the left one");
+        assert_eq!(padded[0].width, 84.0, "the sides come off the width");
+        assert_eq!(padded[1].y, 52.0, "the pitch is unchanged");
+    }
+
+    /// The room is **inside** the viewport and scrolls with the items, so it is added to
+    /// what there is to scroll rather than taken out of the window.
+    #[test]
+    fn the_far_inset_is_reachable_rather_than_lost() {
+        let bare = build_ui(
+            &list(5),
+            Size::new(100.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        // 5 x 40 = 200 of content in a 200 viewport: nothing to scroll.
+        assert_eq!(bare.scroll_regions()[0].max_y, 0.0);
+
+        let padded = build_ui(
+            &list(5).padding_each(12.0, 0.0, 24.0, 0.0),
+            Size::new(100.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert_eq!(
+            padded.scroll_regions()[0].max_y,
+            36.0,
+            "both insets joined the content"
+        );
+    }
+
+    /// A reversed list starts at the bottom, so the **bottom** inset is the one item 0
+    /// clears — and it is still at the bottom, where it looks.
+    #[test]
+    fn a_reversed_list_clears_its_bottom_inset() {
+        let padded = items(
+            &list(3).reverse().padding_each(12.0, 0.0, 24.0, 0.0),
+            Size::new(100.0, 200.0),
+        );
+        let first = padded
+            .iter()
+            .copied()
+            .max_by(|a, b| a.y.total_cmp(&b.y))
+            .expect("item 0 is painted");
+        assert_eq!(
+            first.y + first.height,
+            176.0,
+            "the bottom of item 0 sits one bottom inset above the viewport's"
+        );
+    }
+
+    /// The window is still only what fits: a leading inset moves it, it does not widen it.
+    #[test]
+    fn the_padding_does_not_widen_the_window() {
+        let built = items(&list(5000).padding(16.0), Size::new(100.0, 200.0));
+        assert!(built.len() <= 8, "only the visible items: {}", built.len());
     }
 }

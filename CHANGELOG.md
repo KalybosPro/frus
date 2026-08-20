@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 362 so far, each documenting the objective, the alternatives
+> record — one per step, 363 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,22 @@ any release may break.
   navigation rail and a two-pane that meant `Expanded`.
 
 ### Added
+
+- **Room around what scrolls** (J363). `Scroll::padding()` and `List::padding()`, the
+  last item on milestone 357's audit list and the one every scroll view in the reference
+  takes. The room is **inside** the viewport and scrolls with the content, which is the
+  only reading that is any use: a list padded 88 at the bottom has that room at the end of
+  its content, reached by scrolling to it, so the last row clears a floating button —
+  where room taken out of the window would sit there permanently and the last row would
+  still slide underneath. Along the cross axis it simply insets the content.
+
+  One hook, `Widget::scroll_padding`, read by both the scroll branch and the virtualised
+  list — which could not have wrapped its items in a padded box even if we had wanted to,
+  since there is no box holding them. A reversed list clears its **bottom** inset first,
+  because that is the end its items start from and it is still where it looks; that is
+  `lead = if reverse { pad.bottom } else { pad.top }` and nothing else, and it is the
+  reference's answer too — `SliverPadding` resolves before and after in the axis's own
+  direction, which for a reversed vertical list runs upwards.
 
 - **A decoration painted over the child** (J362). `Container::foreground()`: the last
   thing milestone 357's depth audit named on `Container`, and the one it said had no

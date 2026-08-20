@@ -4,7 +4,7 @@
 //! the driver, then clipped to the viewport and translated by the scroll offset, which
 //! the runtime retains, keyed by identity.
 
-use frus_core::{Rect, Scene};
+use frus_core::{Insets, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
@@ -50,6 +50,8 @@ pub struct Scroll<Msg> {
     /// follows the application, which follows the platform.
     physics: Option<ScrollPhysics>,
     reverse: bool,
+    /// Room around the content, inside the viewport; see [`Scroll::padding`].
+    padding: Insets,
     content: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -65,6 +67,7 @@ impl<Msg> Scroll<Msg> {
             axis: Axis::Vertical,
             physics: None,
             reverse: false,
+            padding: Insets::ZERO,
             content: Vec::new(),
         }
     }
@@ -120,6 +123,34 @@ impl<Msg> Scroll<Msg> {
     /// Flex growth factor along the parent's main axis.
     pub fn flex(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
+        self
+    }
+
+    /// Insets the content, **inside** the viewport: the padding scrolls with what it
+    /// surrounds rather than shrinking the window onto it.
+    ///
+    /// That is the whole distinction, and it is the reference's: a scroll area padded at
+    /// the bottom has that room *at the end of its content*, reachable only by scrolling
+    /// to it, which is what a floating button hovering over the last row needs. Room
+    /// taken out of the viewport instead would sit there permanently and the last row
+    /// would still slide under the button.
+    ///
+    /// Along the cross axis it simply insets the content, which stays the width of the
+    /// viewport less the two sides.
+    ///
+    /// ```
+    /// # use frus_widgets::Scroll;
+    /// # let feed = frus_widgets::Container::<()>::new();
+    /// Scroll::<()>::new().padding_each(0.0, 16.0, 88.0, 16.0).child(feed);
+    /// ```
+    pub fn padding(mut self, padding: f32) -> Self {
+        self.padding = Insets::uniform(padding);
+        self
+    }
+
+    /// The same, one side at a time.
+    pub fn padding_each(mut self, top: f32, right: f32, bottom: f32, left: f32) -> Self {
+        self.padding = Insets::new(top, right, bottom, left);
         self
     }
 
@@ -189,6 +220,10 @@ impl<Msg: Clone> Widget<Msg> for Scroll<Msg> {
 
     fn scroll_reverse(&self) -> bool {
         self.reverse
+    }
+
+    fn scroll_padding(&self) -> Insets {
+        self.padding
     }
 }
 
@@ -354,5 +389,88 @@ mod tests {
         assert_eq!(region(true).offset_delta((0.0, 10.0)).1, 10.0);
         // Opposite numbers, and in both cases "the content went down": one counts from
         // the top and the other from the bottom.
+    }
+}
+
+#[cfg(test)]
+mod padding_tests {
+    use super::*;
+    use crate::{build_ui, Container, Runtime, Size};
+    use frus_core::{Color, Primitive};
+
+    const MARK: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    /// The box the content painted.
+    fn content_rect(scroll: &Scroll<()>) -> Rect {
+        build_ui(
+            scroll,
+            Size::new(100.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        )
+        .scene()
+        .primitives()
+        .iter()
+        .find_map(|p| match p {
+            Primitive::Rect { rect, color, .. } if *color == MARK => Some(*rect),
+            _ => None,
+        })
+        .expect("the content is painted")
+    }
+
+    fn area(height: f32) -> Scroll<()> {
+        Scroll::<()>::new()
+            .width(100.0)
+            .height(100.0)
+            .child(Container::<()>::new().height(height).color(MARK))
+    }
+
+    /// The leading insets move the content in; the sides come off its width, which is
+    /// otherwise the viewport's.
+    #[test]
+    fn the_content_starts_inside_the_insets() {
+        let bare = content_rect(&area(50.0));
+        assert_eq!((bare.x, bare.y, bare.width), (0.0, 0.0, 100.0));
+
+        let padded = content_rect(&area(50.0).padding_each(12.0, 8.0, 24.0, 8.0));
+        assert_eq!((padded.x, padded.y), (8.0, 12.0));
+        assert_eq!(padded.width, 84.0, "the sides come off the content");
+    }
+
+    /// The room is inside the viewport and scrolls with the content: it joins what there
+    /// is to scroll rather than being taken out of the window.
+    #[test]
+    fn the_far_inset_is_reachable_rather_than_lost() {
+        let region = |scroll: &Scroll<()>| {
+            build_ui(
+                scroll,
+                Size::new(100.0, 100.0),
+                &Runtime::default(),
+                &Theme::default(),
+            )
+            .scroll_regions()[0]
+                .max_y
+        };
+        assert_eq!(
+            region(&area(100.0)),
+            0.0,
+            "exactly fills: nothing to scroll"
+        );
+        assert_eq!(
+            region(&area(100.0).padding_each(12.0, 0.0, 24.0, 0.0)),
+            36.0,
+            "both insets joined the content"
+        );
+    }
+
+    /// A reversed area rests at the end, and the end is one bottom inset up.
+    #[test]
+    fn a_reversed_area_rests_above_its_bottom_inset() {
+        let padded = content_rect(&area(50.0).reverse().padding_each(12.0, 0.0, 24.0, 0.0));
+        assert_eq!(
+            padded.y + padded.height,
+            76.0,
+            "the content ends one bottom inset above the viewport's edge"
+        );
     }
 }

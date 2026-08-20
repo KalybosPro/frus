@@ -773,6 +773,16 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// The insets a scrollable area puts **around its content**, inside the viewport.
+    ///
+    /// The padding scrolls with the content rather than shrinking the window onto it,
+    /// which is the reference's `SliverPadding` and the only reading that is any use:
+    /// room at the end of a list is reachable by scrolling to it, room taken out of the
+    /// viewport is not. Read by both the scroll branch and the virtualised list.
+    fn scroll_padding(&self) -> frus_core::Insets {
+        frus_core::Insets::ZERO
+    }
+
     /// If the widget positions its child **by the child's baseline** ([`crate::Baseline`]),
     /// the distance from the top of this box at which that baseline should land.
     /// `None` = not a baseline box.
@@ -1184,6 +1194,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scroll_reverse(&self) -> bool {
         (**self).scroll_reverse()
+    }
+    fn scroll_padding(&self) -> frus_core::Insets {
+        (**self).scroll_padding()
     }
     fn backdrop_group(&self) -> bool {
         (**self).backdrop_group()

@@ -2828,12 +2828,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 (false, false)
             };
 
+            // The padding is **inside** the viewport and scrolls with the content:
+            // room at the end of a feed is reachable by scrolling to it, room taken out
+            // of the window would sit there for ever. The reference's `SliverPadding`.
+            let pad = widget.scroll_padding();
             let content_rects = self.cached_rects(
                 child_id(id, 0, content),
                 content,
                 Constraints::scroll(
-                    viewport.width,
-                    viewport.height,
+                    (viewport.width - pad.left - pad.right).max(0.0),
+                    (viewport.height - pad.top - pad.bottom).max(0.0),
                     axis.free_x(),
                     axis.free_y(),
                 ),
@@ -2843,8 +2847,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 .first()
                 .copied()
                 .unwrap_or(Rect::new(0.0, 0.0, 0.0, 0.0));
-            let max_x = (content_size.width - viewport.width).max(0.0);
-            let max_y = (content_size.height - viewport.height).max(0.0);
+            // What scrolls is the content **and** its room, which is what makes the far
+            // inset reachable rather than decorative.
+            let scrolled = Size::new(
+                content_size.width + pad.left + pad.right,
+                content_size.height + pad.top + pad.bottom,
+            );
+            let max_x = (scrolled.width - viewport.width).max(0.0);
+            let max_y = (scrolled.height - viewport.height).max(0.0);
             self.scrollables.push(Scrollable {
                 id,
                 viewport,
@@ -2868,11 +2878,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 reverse_x: reverse.0,
                 reverse_y: reverse.1,
             }
-            .content_origin(
-                (offset_x, offset_y),
-                Size::new(content_size.width, content_size.height),
+            .content_origin((offset_x, offset_y), scrolled);
+            let content_translation = (
+                viewport.x + origin.0 + pad.left,
+                viewport.y + origin.1 + pad.top,
             );
-            let content_translation = (viewport.x + origin.0, viewport.y + origin.1);
             let mut content_index = 0;
             self.walk(
                 content,
@@ -2898,9 +2908,14 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
             let (_, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
-            let content_h = vlist.count as f32 * vlist.item_height;
-            let max_y = (content_h - viewport.height).max(0.0);
             let reverse = widget.scroll_reverse();
+            // Room around the items, inside the viewport and scrolling with them. The
+            // **leading** inset is the one at the end the items start from, so a
+            // reversed list clears its bottom first and both keep their sides.
+            let pad = widget.scroll_padding();
+            let lead = if reverse { pad.bottom } else { pad.top };
+            let content_h = pad.top + pad.bottom + vlist.count as f32 * vlist.item_height;
+            let max_y = (content_h - viewport.height).max(0.0);
             self.scrollables.push(Scrollable {
                 id,
                 viewport,
@@ -2918,15 +2933,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 // coincidence: a reversed list counts its indices from the end, and a
                 // reversed offset counts its pixels from the end, so index and offset
                 // agree about which way is forward. Only where an item lands differs.
-                let first = (offset_y / vlist.item_height).floor().max(0.0) as usize;
-                let last = (((offset_y + viewport.height) / vlist.item_height).ceil() as usize)
+                let first = ((offset_y - lead) / vlist.item_height).floor().max(0.0) as usize;
+                let last = ((((offset_y + viewport.height - lead) / vlist.item_height).ceil())
+                    .max(0.0) as usize)
                     .min(vlist.count);
                 for i in first..last {
                     let item = (vlist.build)(i);
                     let top = if reverse {
-                        viewport.y + viewport.height - (i + 1) as f32 * vlist.item_height + offset_y
+                        viewport.y + viewport.height - lead - (i + 1) as f32 * vlist.item_height
+                            + offset_y
                     } else {
-                        viewport.y + i as f32 * vlist.item_height - offset_y
+                        viewport.y + lead + i as f32 * vlist.item_height - offset_y
                     };
 
                     // **Filled**, not merely constrained: a list hands its children a
@@ -2942,14 +2959,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     let item_rects = self.cached_rects(
                         id.child(i),
                         item.as_ref(),
-                        Constraints::filled(Size::new(viewport.width, vlist.item_height)),
+                        Constraints::filled(Size::new(
+                            (viewport.width - pad.left - pad.right).max(0.0),
+                            vlist.item_height,
+                        )),
                     );
 
                     let mut item_index = 0;
                     self.render_item(
                         item.as_ref(),
                         id.child(i),
-                        (viewport.x, top),
+                        (viewport.x + pad.left, top),
                         content_clip,
                         &item_rects,
                         &mut item_index,

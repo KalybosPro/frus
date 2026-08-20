@@ -460,6 +460,10 @@ macro_rules! forward_transparent {
                 self.inner.scroll_reverse()
             }
 
+            fn scroll_padding(&self) -> frus_core::Insets {
+                self.inner.scroll_padding()
+            }
+
             fn tile_shape(&self) -> Option<f32> {
                 self.inner.tile_shape()
             }
