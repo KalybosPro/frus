@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 382 so far, each documenting the objective, the alternatives
+> record — one per step, 383 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,37 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Fixed
+
+- **The fetched-image store never let anything go** (J383). It was a map that only ever
+  grew: every distinct URL an application showed stayed in it, **decoded**, for the life
+  of the process. A `Ready` entry holds the whole bitmap — a 1000×1000 picture is four
+  megabytes — so a feed of five hundred of them is two gigabytes the process never gives
+  back, and on a phone that is not slow but dead. Milestone 374 shipped the store and
+  recorded the gap in its own notes; this closes it.
+
+  `DEFAULT_IMAGE_CACHE_BYTES` is 100 MB, the reference's figure, and `set_image_cache_budget`
+  takes another — `0` keeps nothing nobody is holding, which is a fair answer for a device
+  with almost no memory. The sweep runs when a fetch **lands**, the one moment the store
+  grows, so the cost is paid once per picture that arrives rather than once per frame per
+  picture on screen.
+
+  **Two entries are never dropped**, and both exclusions are the difference between a cache
+  and a bug. A `Loading` one is in flight: dropping it cancels nothing — nothing here can
+  — it only forgets a request was made, so the next frame starts a second, `images_in_flight`
+  falls to zero, and the redraw loop keeping frames coming until the picture arrived stops.
+  The picture then lands in a store nobody looks at again. And one whose handle is held
+  **elsewhere** is on screen: dropping it is not unsafe, since the `Arc` keeps the pixels
+  alive for whoever holds them, but the next `view` finds nothing, asks again, and the image
+  flickers through a placeholder on its way back to where it already was.
+  `Arc::strong_count == 1` is how that is asked. When everything left is one or the other the
+  sweep **stops** rather than spinning: over budget is the right answer there.
+
+  Recency is a monotonic counter, not a timestamp. `frus-core` compiles for the Web, where
+  `Instant::now` is not a thing; a counter needs no platform time source, cannot go backwards
+  when a clock is corrected, and *least recently used* only ever asks which of two numbers is
+  smaller.
 
 ### Added
 

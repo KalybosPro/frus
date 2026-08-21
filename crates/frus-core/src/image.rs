@@ -7,7 +7,7 @@
 //! [`ImageData::id`].
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::{Alignment, Rect, Size};
@@ -160,8 +160,120 @@ pub enum Fetched {
 /// a plain `fn` needs no allocation, no lifetime and no `Sync` wrapper to store.
 pub type ImageFetcher = fn(&str, Box<dyn FnOnce(Result<Vec<u8>, String>) + Send + 'static>);
 
+impl Fetched {
+    /// The decoded pixels this state is holding on to, in bytes.
+    ///
+    /// `Loading` holds nothing yet and `Failed` holds a sentence; only `Ready` is
+    /// heavy, and it is as heavy as the picture is big.
+    fn bytes(&self) -> usize {
+        match self {
+            Fetched::Ready(handle) => handle.rgba.len(),
+            _ => 0,
+        }
+    }
+}
+
+/// A store entry: the state, plus **when it was last asked for**.
+struct Entry {
+    state: Fetched,
+    /// A tick from [`CLOCK`], not a wall time.
+    used: u64,
+}
+
+/// The default ceiling on decoded network images held in memory: the reference's own
+/// figure.
+///
+/// It is a **default**, not a rule — see [`set_image_cache_budget`]. A phone with a
+/// modest heap wants less; a desktop tool showing one enormous photograph may want more
+/// than one picture's worth.
+pub const DEFAULT_IMAGE_CACHE_BYTES: usize = 100 * 1024 * 1024;
+
+/// The ceiling on the total decoded size of `Ready` entries.
+static BUDGET: AtomicUsize = AtomicUsize::new(DEFAULT_IMAGE_CACHE_BYTES);
+
+/// A monotonic tick, bumped every time an image is asked for, and the store's whole
+/// notion of *recently*.
+///
+/// A counter rather than a clock. It needs no platform time source — `frus-core`
+/// compiles for the Web, where `Instant::now` is not a thing — it cannot go backwards
+/// when a machine's clock is corrected, and *least recently used* only ever asks which
+/// of two numbers is smaller. A wall time would answer the same question with more
+/// machinery and one more way to be wrong.
+static CLOCK: AtomicU64 = AtomicU64::new(0);
+
 static FETCHER: Mutex<Option<ImageFetcher>> = Mutex::new(None);
-static FETCHED: Mutex<Option<HashMap<String, Fetched>>> = Mutex::new(None);
+static FETCHED: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
+
+/// Sets the ceiling on decoded network images held in memory, in bytes.
+///
+/// `0` keeps nothing that nobody is holding: every image is dropped the moment it
+/// leaves the screen and fetched again when it comes back. That is a legitimate answer
+/// for a device with almost no memory, and a bad one for anything else.
+pub fn set_image_cache_budget(bytes: usize) {
+    BUDGET.store(bytes, Ordering::Relaxed);
+    let mut guard = FETCHED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(store) = guard.as_mut() {
+        evict_over_budget(store, bytes);
+    }
+}
+
+/// The ceiling currently in force.
+pub fn image_cache_budget() -> usize {
+    BUDGET.load(Ordering::Relaxed)
+}
+
+/// The decoded bytes the store is currently holding.
+pub fn image_cache_bytes() -> usize {
+    FETCHED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map_or(0, |store| store.values().map(|e| e.state.bytes()).sum())
+}
+
+/// Drops least-recently-used images until the store is inside its budget.
+///
+/// **Two entries are never dropped**, and both exclusions are the difference between a
+/// cache and a bug:
+///
+/// - a `Loading` one is *in flight*. Dropping it does not cancel the request — nothing
+///   here can — it only forgets that one was made, so the next frame starts a second,
+///   and [`images_in_flight`] falls to zero, and the redraw loop that was keeping the
+///   frame alive until the picture arrived stops. The picture then lands in a store
+///   nobody will look at again until something else forces a frame.
+/// - one whose handle is held **elsewhere** is on screen, or in a scene about to be
+///   drawn. Dropping that is not unsafe — the `Arc` keeps the pixels alive for whoever
+///   holds them — but the next `view` finds nothing, asks again, and the image flickers
+///   through a placeholder on its way back to exactly where it was. A store that evicts
+///   what is visible is a store that fetches the same picture for ever.
+///
+/// `Arc::strong_count == 1` is how the second is asked: one reference, and it is this
+/// store's own.
+///
+/// The budget is a **parameter** rather than a read of [`BUDGET`] inside. The rule is
+/// worth testing on its own — which of two pictures goes first, and which two never do
+/// — and a function that reached for a process-wide value would make those tests race
+/// each other for it.
+fn evict_over_budget(store: &mut HashMap<String, Entry>, budget: usize) {
+    let mut held: usize = store.values().map(|e| e.state.bytes()).sum();
+    while held > budget {
+        let victim = store
+            .iter()
+            .filter(|(_, entry)| match &entry.state {
+                Fetched::Ready(handle) => Arc::strong_count(handle) == 1,
+                _ => false,
+            })
+            .min_by_key(|(_, entry)| entry.used)
+            .map(|(url, _)| url.clone());
+        // Nothing left that can go: every remaining picture is either in flight or on
+        // screen. Over budget is the right answer here — the alternative is dropping
+        // something that is being looked at.
+        let Some(url) = victim else { return };
+        if let Some(entry) = store.remove(&url) {
+            held -= entry.state.bytes();
+        }
+    }
+}
 
 /// Names the thing that gets bytes over the network.
 ///
@@ -192,17 +304,34 @@ pub fn set_image_fetcher(fetcher: ImageFetcher) {
 pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fetched {
     let mut guard = FETCHED.lock().unwrap_or_else(|e| e.into_inner());
     let store = guard.get_or_insert_with(HashMap::new);
-    if let Some(known) = store.get(url) {
-        return known.clone();
+    let now = CLOCK.fetch_add(1, Ordering::Relaxed);
+    if let Some(known) = store.get_mut(url) {
+        // Asked for is used: a picture on a screen nobody has scrolled away from is
+        // asked for on every frame, which is exactly what keeps it out of the way of
+        // the eviction sweep.
+        known.used = now;
+        return known.state.clone();
     }
     let Some(fetcher) = *FETCHER.lock().unwrap_or_else(|e| e.into_inner()) else {
         // No fetcher: a build without the network, or a host that never named one.
         // Saying so is an answer; hanging on `Loading` for ever is not.
         let failed = Fetched::Failed("no image fetcher registered".to_string());
-        store.insert(url.to_string(), failed.clone());
+        store.insert(
+            url.to_string(),
+            Entry {
+                state: failed.clone(),
+                used: now,
+            },
+        );
         return failed;
     };
-    store.insert(url.to_string(), Fetched::Loading);
+    store.insert(
+        url.to_string(),
+        Entry {
+            state: Fetched::Loading,
+            used: now,
+        },
+    );
     // The lock goes **before** the call. A fetcher is free to answer on this thread —
     // a cache hit in a host client, a test double — and its callback locks the same
     // store, which would be a deadlock against a guard still held here.
@@ -220,7 +349,18 @@ pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fet
                 Err(why) => Fetched::Failed(why),
             };
             if let Ok(mut guard) = FETCHED.lock() {
-                guard.get_or_insert_with(HashMap::new).insert(key, outcome);
+                let store = guard.get_or_insert_with(HashMap::new);
+                store.insert(
+                    key,
+                    Entry {
+                        state: outcome,
+                        used: CLOCK.fetch_add(1, Ordering::Relaxed),
+                    },
+                );
+                // The one moment the store grows. Sweeping here rather than on every
+                // ask means the cost is paid once per picture that arrives, not once
+                // per frame per picture on screen.
+                evict_over_budget(store, BUDGET.load(Ordering::Relaxed));
             }
         }),
     );
@@ -249,7 +389,7 @@ pub fn images_in_flight() -> usize {
         .map_or(0, |store| {
             store
                 .values()
-                .filter(|state| matches!(state, Fetched::Loading))
+                .filter(|entry| matches!(entry.state, Fetched::Loading))
                 .count()
         })
 }
@@ -368,6 +508,125 @@ impl BoxFit {
                 (s, s)
             }
         }
+    }
+}
+
+/// The eviction sweep, driven directly rather than through a fetcher.
+///
+/// A network image needs a socket, a runtime and a shell; the rule being checked here
+/// needs none of them, and a test that stood up all three to prove that the older of two
+/// pictures goes first would be checking the shell.
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    /// A picture of `mb` megabytes, ready and held only by the store.
+    fn ready(mb: usize) -> Fetched {
+        let side = 512u32;
+        let bytes = (side * side * 4) as usize;
+        let count = mb * 1024 * 1024 / bytes;
+        let rgba = vec![0u8; bytes * count.max(1)];
+        Fetched::Ready(
+            ImageData::from_rgba(side, (side as usize * count.max(1)) as u32, rgba).into_handle(),
+        )
+    }
+
+    fn store_of(entries: Vec<(&str, Fetched, u64)>) -> HashMap<String, Entry> {
+        entries
+            .into_iter()
+            .map(|(url, state, used)| (url.to_string(), Entry { state, used }))
+            .collect()
+    }
+
+    fn held(store: &HashMap<String, Entry>) -> usize {
+        store.values().map(|e| e.state.bytes()).sum()
+    }
+
+    /// Only `Ready` weighs anything: a request in flight holds no pixels yet, and a
+    /// failure holds a sentence.
+    #[test]
+    fn only_a_ready_image_weighs_anything() {
+        assert_eq!(Fetched::Loading.bytes(), 0);
+        assert_eq!(Fetched::Failed("gone".into()).bytes(), 0);
+        assert!(ready(4).bytes() >= 4 * 1024 * 1024);
+    }
+
+    /// Over the budget, the **least recently asked for** goes first.
+    #[test]
+    fn the_oldest_unheld_picture_goes_first() {
+        let mut store = store_of(vec![
+            ("old", ready(4), 1),
+            ("middling", ready(4), 5),
+            ("fresh", ready(4), 9),
+        ]);
+        evict_over_budget(&mut store, 9 * 1024 * 1024);
+        assert!(!store.contains_key("old"), "the oldest goes");
+        assert!(store.contains_key("fresh"), "the freshest stays");
+        assert!(held(&store) <= 9 * 1024 * 1024);
+    }
+
+    /// **A picture in flight is never dropped.** Dropping it cancels nothing — nothing
+    /// here can — it only forgets the request was made, so the next frame starts a
+    /// second one *and* `images_in_flight` falls to zero, stopping the redraw loop that
+    /// was keeping the frame alive until the picture arrived.
+    #[test]
+    fn a_picture_in_flight_is_never_dropped() {
+        let mut store = store_of(vec![
+            ("arriving", Fetched::Loading, 0),
+            ("big", ready(8), 1),
+        ]);
+        evict_over_budget(&mut store, 0);
+        assert!(store.contains_key("arriving"), "still in flight");
+        assert!(!store.contains_key("big"), "the pixels go");
+    }
+
+    /// **A picture somebody else is holding is never dropped.** It is on screen. Losing
+    /// it is not unsafe — the `Arc` keeps the pixels alive for whoever holds them —
+    /// but the next `view` would find nothing, ask again, and the image would flicker
+    /// through a placeholder on its way back to exactly where it was.
+    #[test]
+    fn a_picture_on_screen_is_never_dropped() {
+        let onscreen = ready(8);
+        // What a scene holding the image looks like from here: a second reference.
+        let Fetched::Ready(handle) = &onscreen else {
+            panic!("ready")
+        };
+        let _in_a_scene = handle.clone();
+
+        let mut store = store_of(vec![("visible", onscreen, 0), ("stale", ready(8), 1)]);
+        evict_over_budget(&mut store, 0);
+        assert!(store.contains_key("visible"), "held elsewhere: it stays");
+        assert!(!store.contains_key("stale"), "held only here: it goes");
+    }
+
+    /// When **everything** left is in flight or on screen, the sweep stops rather than
+    /// spinning. Over budget is the right answer there: the alternative is dropping
+    /// something being looked at.
+    #[test]
+    fn a_store_that_cannot_shrink_stops_rather_than_spins() {
+        let onscreen = ready(8);
+        let Fetched::Ready(handle) = &onscreen else {
+            panic!("ready")
+        };
+        let _in_a_scene = handle.clone();
+
+        let mut store = store_of(vec![
+            ("visible", onscreen, 0),
+            ("arriving", Fetched::Loading, 1),
+        ]);
+        evict_over_budget(&mut store, 0);
+        assert_eq!(store.len(), 2, "nothing could go, and nothing hung");
+    }
+
+    /// The default is the reference\'s figure, and it is a **default**: a caller can set
+    /// its own, including nothing at all.
+    #[test]
+    fn the_budget_is_the_callers() {
+        assert_eq!(DEFAULT_IMAGE_CACHE_BYTES, 100 * 1024 * 1024);
+        let before = image_cache_budget();
+        set_image_cache_budget(7);
+        assert_eq!(image_cache_budget(), 7);
+        set_image_cache_budget(before);
     }
 }
 
