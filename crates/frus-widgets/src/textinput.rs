@@ -10,6 +10,7 @@ use frus_text::TextLayout;
 
 use crate::disabled::DISABLED_CONTENT_OPACITY;
 use crate::icons::Icons;
+use crate::ime::{Ime, KeyboardType, TextInputAction};
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::theme::Theme;
@@ -142,6 +143,11 @@ pub struct TextField<Msg> {
     /// Masks the value (a password field): every character is rendered as
     /// [`OBSCURE_CHAR`]. Editing acts on the real value; only the display changes.
     obscure: bool,
+    /// Which keys the software keyboard offers; `None` = worked out from the field
+    /// (a masked field is a secret, a multi-line one takes newlines).
+    keyboard: Option<KeyboardType>,
+    /// What its action key does; `None` = likewise.
+    action: Option<TextInputAction>,
     /// Decorative icon on the left inside the box.
     prefix: Option<Icons>,
     /// Decorative icon on the right inside the box.
@@ -248,6 +254,8 @@ impl<Msg> TextField<Msg> {
             helper: None,
             error: None,
             obscure: false,
+            keyboard: None,
+            action: None,
             prefix: None,
             suffix: None,
             suffix_action: None,
@@ -452,9 +460,56 @@ impl<Msg> TextField<Msg> {
 
     /// Masks the value (a password field): every character becomes a dot. Editing
     /// stays normal; only the display is masked.
+    ///
+    /// It also changes what the **software keyboard** is told, unless
+    /// [`keyboard_type`](Self::keyboard_type) says otherwise: a masked field is a
+    /// [`Password`](KeyboardType::Password), which is what stops the keyboard learning
+    /// what is typed into it. The dots are drawn by us and tell the keyboard nothing.
     pub fn obscure(mut self, obscure: bool) -> Self {
         self.obscure = obscure;
         self
+    }
+
+    /// Which keys the software keyboard should offer — a phone keypad, an email
+    /// address, a number.
+    ///
+    /// Untold, it is worked out from the field: a masked field is a secret, a
+    /// multi-line one takes newlines, and anything else is ordinary text.
+    pub fn keyboard_type(mut self, keyboard: KeyboardType) -> Self {
+        self.keyboard = Some(keyboard);
+        self
+    }
+
+    /// What the keyboard's action key does, and what it says — *Next* in a form,
+    /// *Search* over a query, *Send* on a message.
+    ///
+    /// Untold, a multi-line field takes a newline and every other field says *Done*.
+    pub fn action(mut self, action: TextInputAction) -> Self {
+        self.action = Some(action);
+        self
+    }
+
+    /// The keyboard this field asks for, once the defaults have had their say.
+    fn ime_options(&self) -> Ime {
+        let keyboard = self.keyboard.unwrap_or({
+            // The order matters and only one way round makes sense: a masked field is
+            // a secret first and a text field second, and a multi-line secret is not a
+            // thing anybody types.
+            if self.obscure {
+                KeyboardType::Password
+            } else if self.multiline {
+                KeyboardType::Multiline
+            } else {
+                KeyboardType::Text
+            }
+        });
+        let action = self.action.unwrap_or(match keyboard {
+            // A field that takes several lines needs the key to *insert* one. Saying
+            // *Done* there is a keyboard that cannot type what the field is for.
+            KeyboardType::Multiline => TextInputAction::Newline,
+            _ => TextInputAction::Done,
+        });
+        Ime { keyboard, action }
     }
 
     /// Decorative icon on the left inside the field.
@@ -1172,6 +1227,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         }
     }
 
+    fn ime(&self) -> Ime {
+        self.ime_options()
+    }
+
     fn cursor_at(
         &self,
         local_x: f32,
@@ -1881,6 +1940,84 @@ mod tests {
             composing: None,
         };
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
+    }
+
+    /// A plain field asks for the plain keyboard, which is what every field used to
+    /// get whether it suited or not.
+    #[test]
+    fn a_plain_field_asks_for_the_plain_keyboard() {
+        let field: TextField<()> = TextField::new("hello");
+        assert_eq!(
+            Widget::<()>::ime(&field),
+            Ime {
+                keyboard: KeyboardType::Text,
+                action: TextInputAction::Done,
+            }
+        );
+    }
+
+    /// **A masked field is a secret, and the dots cannot say so.** `obscure` draws
+    /// dots on our side; the keyboard, told nothing, treated the field as ordinary
+    /// prose — learning the password into its personal dictionary and offering it
+    /// back as a suggestion later, on whatever screen came next.
+    #[test]
+    fn an_obscured_field_tells_the_keyboard_it_is_a_secret() {
+        let field: TextField<()> = TextField::new("hunter2").obscure(true);
+        let ime = Widget::<()>::ime(&field);
+        assert_eq!(ime.keyboard, KeyboardType::Password);
+        assert!(ime.keyboard.is_secret());
+        // TYPE_TEXT_VARIATION_PASSWORD, which is what stops the learning.
+        assert_eq!(ime.keyboard.android_input_type() & 0x0000_0ff0, 0x80);
+    }
+
+    /// A field that takes several lines needs the action key to **insert** one.
+    /// *Done* there is a keyboard that cannot type what the field is for.
+    #[test]
+    fn a_multiline_field_takes_a_newline_key() {
+        let field: TextField<()> = TextField::new("a note").multiline();
+        let ime = Widget::<()>::ime(&field);
+        assert_eq!(ime.keyboard, KeyboardType::Multiline);
+        assert_eq!(ime.action, TextInputAction::Newline);
+        // `rows` implies multiline, so it implies the same keyboard.
+        let rowed: TextField<()> = TextField::new("a note").rows(4);
+        assert_eq!(Widget::<()>::ime(&rowed).keyboard, KeyboardType::Multiline);
+    }
+
+    /// What the caller says beats what the field guessed — both halves, separately.
+    #[test]
+    fn what_the_caller_says_wins() {
+        let field: TextField<()> = TextField::new("")
+            .obscure(true)
+            .keyboard_type(KeyboardType::VisiblePassword);
+        assert_eq!(
+            Widget::<()>::ime(&field).keyboard,
+            KeyboardType::VisiblePassword
+        );
+
+        // A search box asks for Search without ceasing to be a text field.
+        let query: TextField<()> = TextField::new("").action(TextInputAction::Search);
+        let ime = Widget::<()>::ime(&query);
+        assert_eq!(ime.keyboard, KeyboardType::Text);
+        assert_eq!(ime.action, TextInputAction::Search);
+
+        // And a multi-line field can still be told to say Done.
+        let note: TextField<()> = TextField::new("").multiline().action(TextInputAction::Done);
+        assert_eq!(Widget::<()>::ime(&note).action, TextInputAction::Done);
+    }
+
+    /// A field that says what it is gets the keyboard for it — a keypad for a phone
+    /// number, an `@` for an address.
+    #[test]
+    fn a_typed_field_gets_the_keyboard_for_it() {
+        let phone: TextField<()> = TextField::new("").keyboard_type(KeyboardType::Phone);
+        // TYPE_CLASS_PHONE
+        assert_eq!(Widget::<()>::ime(&phone).keyboard.android_input_type(), 3);
+
+        let email: TextField<()> = TextField::new("").keyboard_type(KeyboardType::Email);
+        let bits = Widget::<()>::ime(&email).keyboard.android_input_type();
+        // TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_EMAIL_ADDRESS, and no capitalisation:
+        // `Someone@` is an address that does not work.
+        assert_eq!(bits, 1 | 0x20);
     }
 
     #[test]

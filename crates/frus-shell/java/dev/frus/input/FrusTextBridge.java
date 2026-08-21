@@ -40,6 +40,17 @@ public final class FrusTextBridge extends View {
 
     private static FrusTextBridge instance;
 
+    /**
+     * What the focused field wants of the keyboard, set by the native side on every
+     * startInput. The two values are computed in Rust and applied here unchanged:
+     * this file is a pipe, not a policy, so that a new keyboard type never needs a
+     * new dex.
+     */
+    private static int inputType =
+            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
+
+    private static int imeOptions = EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+
     /** Adds the bridge view to the activity, once and once only. */
     public static void install(final Activity activity) {
         activity.runOnUiThread(new Runnable() {
@@ -53,14 +64,24 @@ public final class FrusTextBridge extends View {
         });
     }
 
-    /** A native text field takes focus: the bridge view captures the IME. */
-    public static void startInput(final Activity activity) {
+    /**
+     * A native text field takes focus: the bridge view captures the IME.
+     *
+     * <p>{@code type} and {@code options} are Android's own InputType and imeOptions
+     * bit fields, already assembled on the native side. restartInput below is what
+     * makes them take effect for a field focused after another one: without it the
+     * IME keeps the EditorInfo it was given first, and every field after the first
+     * would inherit the first field's keyboard.
+     */
+    public static void startInput(final Activity activity, final int type, final int options) {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
                 if (instance == null) {
                     return;
                 }
+                inputType = type;
+                imeOptions = options;
                 instance.requestFocus();
                 InputMethodManager imm =
                         (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -99,11 +120,12 @@ public final class FrusTextBridge extends View {
 
     @Override
     public InputConnection onCreateInputConnection(EditorInfo out) {
-        // Free text WITH composition and suggestions turned on, the context being
-        // supplied by the get*Cursor natives: this is what lights up the
-        // composition underline and the IME's proposals.
-        out.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
-        out.imeOptions = EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_FULLSCREEN;
+        // Whatever the focused field asked for. Composition and suggestions stay on
+        // for the types that want them, the context being supplied by the get*Cursor
+        // natives: this is what lights up the composition underline and the IME's
+        // proposals -- and what a password type deliberately turns off.
+        out.inputType = inputType;
+        out.imeOptions = imeOptions;
         return new Connection(this);
     }
 

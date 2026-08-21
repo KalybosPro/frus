@@ -303,6 +303,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.scroll_physics())
     }
 
+    fn ime(&self) -> crate::ime::Ime {
+        self.inner.as_ref().map(|w| w.ime()).unwrap_or_default()
+    }
+
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         self.inner.as_ref().and_then(|w| w.overlay())
     }

@@ -570,7 +570,7 @@ impl<A: Application> App<A> {
                         if let Some(id) = self.runtime.input.focused {
                             self.push_ime_context(id);
                         }
-                        crate::android_ime::start_input();
+                        crate::android_ime::start_input(self.focused_ime());
                     } else {
                         crate::android_ime::clear_editor_state();
                         crate::android_ime::stop_input();
@@ -585,6 +585,26 @@ impl<A: Application> App<A> {
                 }
             }
         }
+    }
+
+    /// What keyboard the **focused field** asks for.
+    ///
+    /// Found the same way the caret is — the focused id, resolved against the last
+    /// tree built — so the two answers cannot disagree about which field is being
+    /// typed into. A focus that resolves to nothing falls back to ordinary text, which
+    /// is what every field got before this was asked at all.
+    #[cfg(android)]
+    fn focused_ime(&self) -> frus_widgets::Ime {
+        self.runtime
+            .input
+            .focused
+            .and_then(|id| {
+                self.tree
+                    .as_ref()
+                    .and_then(|tree| find_widget(tree.as_ref(), id))
+            })
+            .map(|widget| widget.ime())
+            .unwrap_or_default()
     }
 
     /// Notifies the app of a lifecycle **change**; never the same state twice in a row.
@@ -612,7 +632,7 @@ impl<A: Application> App<A> {
                 if let Some(id) = self.runtime.input.focused {
                     self.push_ime_context(id);
                 }
-                crate::android_ime::start_input();
+                crate::android_ime::start_input(self.focused_ime());
             } else if let Some(app) = &self.android_app {
                 app.show_soft_input(true);
             }

@@ -462,6 +462,19 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// What the **software keyboard** should be, when this widget is the focused
+    /// editable one.
+    ///
+    /// Only ever asked of the field that has focus — the platform layer finds it the
+    /// same way it finds the caret — so a widget that is not editable never has to
+    /// answer, and the default is the ordinary text keyboard with a *Done* key.
+    ///
+    /// See [`crate::ime`] for what the two halves mean and why the mapping to the
+    /// platform's numbers is tested rather than trusted.
+    fn ime(&self) -> crate::ime::Ime {
+        crate::ime::Ime::default()
+    }
+
     /// If the widget is a portal, returns its floating content and its placement.
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         None
@@ -1128,6 +1141,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
         (**self).scroll_physics()
+    }
+    fn ime(&self) -> crate::ime::Ime {
+        (**self).ime()
     }
     fn overlay(&self) -> Option<(&dyn Widget<Msg>, Placement)> {
         (**self).overlay()

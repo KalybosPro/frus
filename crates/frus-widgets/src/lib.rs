@@ -61,6 +61,8 @@ mod icon;
 mod iconbutton;
 mod icons;
 mod image;
+/// The software keyboard's vocabulary: which keys, and what the action key does.
+pub mod ime;
 mod ink;
 mod inspector;
 mod interaction;
@@ -200,6 +202,7 @@ pub use iconbutton::{
 };
 pub use icons::Icons;
 pub use image::{Image, State as ImageState};
+pub use ime::{Ime, KeyboardType, TextInputAction};
 pub use ink::{InkStyle, InkWell, Ripples};
 pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
 pub use interaction::{Cursor, InputState, Interaction, Key, KeyResponse, Status, WidgetId};

@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 379 so far, each documenting the objective, the alternatives
+> record — one per step, 380 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,41 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A keyboard that knows what it is typing into** (J380). The Android input bridge set
+  the same `EditorInfo` for every field in every application — sentence-cased prose and
+  a *Done* key — because that was the only thing on offer. A phone-number field opened a
+  full QWERTY keyboard; an email field had no `@` within reach and had its first letter
+  capitalised, which is an address that does not work; every field in a five-field form
+  said *Done* where the next thing to do was go to the next field; and a field taking
+  several lines had a key that ended the editing instead of adding a line.
+
+  `KeyboardType` says which keys, `TextInputAction` says what the action key does, and
+  together they are `Ime`, which the new `Widget::ime` hook hands over when a field takes
+  focus — found the same way the caret is, so the two cannot disagree about which field
+  is being typed into. `TextField` gains `keyboard_type` and `action`.
+
+  Untold, a field works it out from what it already is: a masked field is a `Password`, a
+  multi-line one is `Multiline` with a `Newline` key, and everything else is the text
+  keyboard with *Done* — exactly what was hardcoded, so nothing that says nothing
+  changes.
+
+  **The numbers are computed in Rust**, not chosen in Java, and the mapping is not behind
+  `cfg(android)`: a mapping only exercised on a device is a mapping nobody checks, and the
+  bridge's dex is checked in, so a Java file that only copies two integers onto the
+  `EditorInfo` never has to be rebuilt for a keyboard type nobody has thought of yet.
+  Eight tests run over it on every platform.
+
+### Fixed
+
+- **A password field told the keyboard it was ordinary prose** (J380). `obscure` draws
+  dots on our side and says nothing to the IME, so an Android keyboard treated a password
+  as sentence-cased text: **learning it into its personal dictionary and offering it back
+  as a suggestion later**, on whatever screen came next. The masking was never the part
+  that protected anything — `TYPE_TEXT_VARIATION_PASSWORD` is, and an obscured field now
+  carries it unless the caller names another type.
 
 ### Added
 

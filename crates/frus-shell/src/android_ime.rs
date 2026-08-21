@@ -214,9 +214,39 @@ pub(crate) fn installed() -> bool {
     BRIDGE.get().is_some()
 }
 
-/// Native focus enters a text field: the bridge view captures the IME.
-pub(crate) fn start_input() {
-    call_bridge("startInput");
+/// Native focus enters a text field: the bridge view captures the IME, told what
+/// kind of field it is.
+///
+/// The two numbers are computed on this side rather than chosen on the Java one, and
+/// that is the point: the bridge's dex is **checked in**, so rebuilding it needs the
+/// Android SDK. A Java file that only ever sets two integers on the `EditorInfo` never
+/// has to be rebuilt again for a keyboard type we have not thought of yet.
+pub(crate) fn start_input(ime: frus_widgets::Ime) {
+    let Some(bridge) = BRIDGE.get() else {
+        return;
+    };
+    let input_type = ime.keyboard.android_input_type();
+    let ime_options = ime.action.android_ime_options();
+    let result = bridge
+        .vm
+        .attach_current_thread_permanently()
+        .and_then(|mut env| {
+            let class: &JClass = bridge.class.as_obj().into();
+            env.call_static_method(
+                class,
+                "startInput",
+                "(Landroid/app/Activity;II)V",
+                &[
+                    JValue::Object(bridge.activity.as_obj()),
+                    JValue::Int(input_type),
+                    JValue::Int(ime_options),
+                ],
+            )
+            .map(|_| ())
+        });
+    if let Err(err) = result {
+        log::warn!("input bridge: startInput failed ({err})");
+    }
 }
 
 /// Native focus leaves the text fields, and the IME closes.

@@ -354,6 +354,10 @@ macro_rules! forward_transparent {
                 self.inner.scroll_physics()
             }
 
+            fn ime(&self) -> $crate::ime::Ime {
+                self.inner.ime()
+            }
+
             fn overlay(
                 &self,
             ) -> Option<(&dyn $crate::widget::Widget<Msg>, $crate::portal::Placement)> {
