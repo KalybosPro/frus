@@ -139,6 +139,129 @@ pub fn forget_cached_images() {
     }
 }
 
+/// What is known about an image that has to be **fetched** before it can be shown.
+///
+/// Three states rather than two, because "not here yet" and "will never be here" are
+/// different answers and an interface shows them differently: one is a placeholder, the
+/// other is a message.
+#[derive(Clone, Debug)]
+pub enum Fetched {
+    /// In flight. Ask again on a later frame.
+    Loading,
+    /// Here.
+    Ready(ImageHandle),
+    /// It will not arrive, and this is why.
+    Failed(String),
+}
+
+/// Hands the bytes at `url` to the callback, once, from wherever suits the platform.
+///
+/// A **function pointer** and not a closure: this is registered once for the process, and
+/// a plain `fn` needs no allocation, no lifetime and no `Sync` wrapper to store.
+pub type ImageFetcher = fn(&str, Box<dyn FnOnce(Result<Vec<u8>, String>) + Send + 'static>);
+
+static FETCHER: Mutex<Option<ImageFetcher>> = Mutex::new(None);
+static FETCHED: Mutex<Option<HashMap<String, Fetched>>> = Mutex::new(None);
+
+/// Names the thing that gets bytes over the network.
+///
+/// The widget layer cannot do this itself and should not: it has no runtime, no socket
+/// and no dependency on the shell — the dependency runs the other way. So the shell,
+/// which has all three, says how, and the widget layer only asks. It is the shape the
+/// image **decoder** took a step earlier, for the same reason.
+///
+/// An application using the framework's own shell never calls this: the shell registers
+/// its `fetch_bytes` on the way up. One embedding frus in a host that already has an HTTP
+/// client can point this at that client instead.
+pub fn set_image_fetcher(fetcher: ImageFetcher) {
+    if let Ok(mut guard) = FETCHER.lock() {
+        *guard = Some(fetcher);
+    }
+}
+
+/// What is known about the image at `url`, starting the fetch if this is the first ask.
+///
+/// Called from a view, which runs every frame: the **first** call starts the work and
+/// says `Loading`, and every later one is a lookup. That is what makes it safe to write
+/// in a `view` at all — a fetch per frame would be sixty requests a second for one
+/// picture.
+///
+/// A failure is remembered like any other, and for the same reason as milestone 372's:
+/// a URL that 404s will 404 again, and retrying every frame turns one bad link into a
+/// permanent load on somebody's server.
+pub fn fetched(url: &str, decode: fn(&[u8]) -> Result<ImageData, String>) -> Fetched {
+    let mut guard = FETCHED.lock().unwrap_or_else(|e| e.into_inner());
+    let store = guard.get_or_insert_with(HashMap::new);
+    if let Some(known) = store.get(url) {
+        return known.clone();
+    }
+    let Some(fetcher) = *FETCHER.lock().unwrap_or_else(|e| e.into_inner()) else {
+        // No fetcher: a build without the network, or a host that never named one.
+        // Saying so is an answer; hanging on `Loading` for ever is not.
+        let failed = Fetched::Failed("no image fetcher registered".to_string());
+        store.insert(url.to_string(), failed.clone());
+        return failed;
+    };
+    store.insert(url.to_string(), Fetched::Loading);
+    // The lock goes **before** the call. A fetcher is free to answer on this thread —
+    // a cache hit in a host client, a test double — and its callback locks the same
+    // store, which would be a deadlock against a guard still held here.
+    drop(guard);
+
+    let key = url.to_string();
+    fetcher(
+        url,
+        Box::new(move |result| {
+            let outcome = match result {
+                Ok(bytes) => match decode(&bytes) {
+                    Ok(data) => Fetched::Ready(data.into_handle()),
+                    Err(why) => Fetched::Failed(why),
+                },
+                Err(why) => Fetched::Failed(why),
+            };
+            if let Ok(mut guard) = FETCHED.lock() {
+                guard.get_or_insert_with(HashMap::new).insert(key, outcome);
+            }
+        }),
+    );
+    Fetched::Loading
+}
+
+/// How many images are in flight right now.
+///
+/// The interface has to keep drawing while any of them are, or the frame that would show
+/// the picture never happens. A count rather than a flag on the widget, because the
+/// application may well have taken the image **out** of the tree while it loads — that
+/// is what showing a placeholder means — and the work is still going on.
+///
+/// Counted off the store rather than kept in a separate tally beside it. A tally is a
+/// second copy of the same fact and the two can disagree: incremented here and
+/// decremented in a callback, it survives a [`forget_fetched_images`] that empties the
+/// store, and it can be decremented below zero by a callback that arrives after one.
+/// Either way the interface is left redrawing for ever over work that finished. The
+/// store already knows — the entries that say `Loading` **are** the ones in flight —
+/// and there are only ever as many entries as the application has network images.
+pub fn images_in_flight() -> usize {
+    FETCHED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map_or(0, |store| {
+            store
+                .values()
+                .filter(|state| matches!(state, Fetched::Loading))
+                .count()
+        })
+}
+
+/// Forgets every fetched image and every remembered failure. For tests; see
+/// [`forget_cached_images`].
+pub fn forget_fetched_images() {
+    if let Ok(mut guard) = FETCHED.lock() {
+        *guard = None;
+    }
+}
+
 /// How an image is fitted into its destination box — the same set of modes as the
 /// CSS `object-fit` property.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

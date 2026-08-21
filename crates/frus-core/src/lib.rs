@@ -36,7 +36,10 @@ pub use geometry::{
     Rect, Size, TextDirection, WindowInsets,
 };
 pub use hct::{Hct, TonalPalette};
-pub use image::{cached, forget_cached_images, BoxFit, ImageData, ImageHandle};
+pub use image::{
+    cached, fetched, forget_cached_images, forget_fetched_images, images_in_flight,
+    set_image_fetcher, BoxFit, Fetched, ImageData, ImageFetcher, ImageHandle,
+};
 pub use path::{Path, PathVerb, Stroke};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};

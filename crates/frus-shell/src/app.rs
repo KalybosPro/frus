@@ -452,6 +452,12 @@ pub struct App<A: Application> {
 impl<A: Application> App<A> {
     /// Creates the driver around an application and its message channel.
     pub fn new(app: A, proxy: EventLoopProxy<A::Message>) -> Self {
+        // The widget layer knows how to *want* an image over the network and has no way
+        // to get one: no runtime, no socket, and no dependency on this crate, since the
+        // dependency runs the other way. So the shell says how, on the way up, and the
+        // widget layer only asks. Same shape as the image decoder a step earlier.
+        #[cfg(feature = "net")]
+        frus_widgets::set_image_fetcher(fetch_image_bytes);
         Self {
             app,
             proxy,
@@ -3866,6 +3872,43 @@ fn claim_area(
         })
         .or_else(|| chain.iter().find(|a| a.id == under))
         .copied()
+}
+
+/// Gets the bytes at `url` and hands them to `deliver`, once.
+///
+/// Registered as the process's [`frus_widgets::ImageFetcher`] when the shell is built with
+/// `net`. It spawns and forgets: nothing here waits for the answer, and the store the
+/// callback writes into is what a later frame reads.
+///
+/// The two spawns are the two the rest of this file uses for every other effect — the
+/// shared executor natively, the browser on the Web.
+///
+/// It carries a **deadline**, and that is not politeness. An image still in flight keeps
+/// the interface redrawing — that is how the frame showing it ever happens — so a
+/// request that never answers would leave the application repainting at full rate for
+/// ever, on somebody's battery. A request without an answer has to become one with a
+/// failure.
+#[cfg(feature = "net")]
+fn fetch_image_bytes(
+    url: &str,
+    deliver: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send + 'static>,
+) {
+    /// Long enough for a photograph on a slow connection, short enough that a dead
+    /// server does not pin a screen redrawing until the user closes the application.
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+    let url = url.to_string();
+    let run = async move {
+        let result = crate::net::Request::get(url)
+            .timeout(DEADLINE)
+            .send_bytes()
+            .await;
+        deliver(result.map_err(|e| e.to_string()));
+    };
+    #[cfg(not(web))]
+    crate::runtime::spawn(run).detach();
+    #[cfg(web)]
+    wasm_bindgen_futures::spawn_local(run);
 }
 
 #[cfg(test)]

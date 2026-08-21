@@ -3949,7 +3949,14 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         interactives: builder.interactives,
         refreshes: builder.refreshes,
         dismissables: builder.dismissables,
-        wants_animation: builder.wants_animation,
+        // An image is still on its way: keep drawing, or the frame that would show it
+        // never happens.
+        //
+        // A **count**, asked once here, and not a flag on the widget. Showing a
+        // placeholder means taking the image out of the tree, and the fetch is still
+        // going on when the widget that started it is gone -- so a hook the walk reads
+        // off `Image` would go quiet at exactly the moment it is needed.
+        wants_animation: builder.wants_animation || frus_core::images_in_flight() > 0,
         semantics: builder.semantics,
         overflows: builder.overflows.into_inner(),
         scopes: builder.scopes,

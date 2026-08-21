@@ -199,7 +199,7 @@ pub use iconbutton::{
     ICON_BUTTON_SIZE,
 };
 pub use icons::Icons;
-pub use image::Image;
+pub use image::{Image, State as ImageState};
 pub use ink::{InkStyle, InkWell, Ripples};
 pub use inspector::{dump_tree, node_at, paint_overlay as paint_inspector_overlay, InspectorNode};
 pub use interaction::{Cursor, InputState, Interaction, Key, KeyResponse, Status, WidgetId};
@@ -318,4 +318,9 @@ pub use frus_core::{
 // `frus_core::Status`, an animation's progress, is renamed so it does not shadow the
 // interaction `Status`, which is paint state: hover, press, focus and so on.
 pub use frus_core::Status as AnimationStatus;
+
+/// The image stores and the two things a host has to name: a decoder is chosen by the
+/// `images` feature, and the **fetcher** is registered by whoever has a network. See
+/// [`Image::network`].
+pub use frus_core::{images_in_flight, set_image_fetcher, ImageFetcher};
 pub use frus_layout::{Align, FlexDirection, Justify, Overflowing, Side};

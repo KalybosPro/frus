@@ -33,10 +33,32 @@ fn decode(_bytes: &[u8]) -> Result<frus_core::ImageData, String> {
     Err("no image decoder: this build dropped the `images` feature".to_string())
 }
 
+/// Where an [`Image`]'s pixels are: here, on their way, or never coming.
+///
+/// Three and not two, because *not here yet* and *will never be here* are different
+/// answers and an interface shows them differently — one is a placeholder, the other is
+/// a message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State<'a> {
+    /// The pixels are here.
+    Ready,
+    /// In flight; a later frame will have them. Only [`Image::network`] reports this.
+    Loading,
+    /// They will not arrive, and this is why.
+    Failed(&'a str),
+}
+
+/// The same three, owning what they carry.
+enum Source {
+    Ready(ImageHandle),
+    Loading,
+    Failed(String),
+}
+
 /// An image, fitted by `fit` into whatever box it ends up with.
 pub struct Image {
-    /// The pixels, or why there are none. See [`Image::memory`].
-    source: Result<ImageHandle, String>,
+    /// The pixels, why there are none, or that they are still on their way.
+    source: Source,
     width: Option<f32>,
     height: Option<f32>,
     fit: BoxFit,
@@ -54,7 +76,7 @@ pub struct Image {
 impl Image {
     /// An image at **its own size**, fitted with [`BoxFit::Contain`] by default.
     pub fn new(image: ImageHandle) -> Self {
-        Self::from_source(Ok(image))
+        Self::from_source(Source::Ready(image))
     }
 
     /// An image **decoded from embedded bytes** — what `include_bytes!` gives, and the
@@ -78,7 +100,63 @@ impl Image {
     /// Needs the `images` feature, which is on by default. Without it this reports a
     /// missing decoder rather than panicking — the same rule the bundled fonts follow.
     pub fn memory(bytes: &'static [u8]) -> Self {
-        Self::from_source(frus_core::cached(bytes, decode))
+        Self::from_source(match frus_core::cached(bytes, decode) {
+            Ok(handle) => Source::Ready(handle),
+            Err(why) => Source::Failed(why),
+        })
+    }
+
+    /// An image **fetched over the network**, decoded and shown when it arrives.
+    ///
+    /// ```ignore
+    /// Image::network("https://example.com/ada.png").width(240.0)
+    /// ```
+    ///
+    /// The **first** frame that asks starts the request and reports [`State::Loading`];
+    /// every later frame is a lookup. That is what makes this safe to write in a view,
+    /// which runs sixty times a second — a fetch per frame would be sixty requests for
+    /// one picture. The interface keeps drawing while anything is in flight, so the
+    /// frame that shows the picture does happen without the application arranging it.
+    ///
+    /// There is no `loading` or `error` **slot** here, and that is the framework's model
+    /// rather than a gap. A view is a function of state, and this state is readable:
+    /// [`Image::state`] answers, and the application writes the `match` it would have
+    /// written anyway.
+    ///
+    /// ```ignore
+    /// let photo = Image::network(&url);
+    /// match photo.state() {
+    ///     State::Loading => CircularProgressIndicator::new().boxed(),
+    ///     State::Failed(why) => text(why).boxed(),
+    ///     State::Ready => photo.width(240.0).boxed(),
+    /// }
+    /// ```
+    ///
+    /// A closure stored in the widget would say the same thing in a place the
+    /// application cannot see it, and would need the widget to carry the message type
+    /// for the sake of a branch the view can already take.
+    ///
+    /// Needs a registered fetcher — [`frus_core::set_image_fetcher`] — which the shell
+    /// installs on the way up when built with the `net` feature. Without one this fails
+    /// with a message saying so, rather than waiting for ever.
+    pub fn network(url: impl AsRef<str>) -> Self {
+        Self::from_source(match frus_core::fetched(url.as_ref(), decode) {
+            frus_core::Fetched::Loading => Source::Loading,
+            frus_core::Fetched::Ready(handle) => Source::Ready(handle),
+            frus_core::Fetched::Failed(why) => Source::Failed(why),
+        })
+    }
+
+    /// Where this image has got to: here, on its way, or never coming.
+    ///
+    /// An embedded image is only ever [`State::Ready`] or [`State::Failed`] — there is
+    /// nothing to wait for. [`Image::network`] is the one that can be loading.
+    pub fn state(&self) -> State<'_> {
+        match &self.source {
+            Source::Ready(_) => State::Ready,
+            Source::Loading => State::Loading,
+            Source::Failed(why) => State::Failed(why),
+        }
     }
 
     /// Why there are no pixels, if there are none.
@@ -87,11 +165,17 @@ impl Image {
     /// message, a retry — asks here and builds it itself. That is a `match` in the view
     /// rather than a closure the widget stores, which is the honest shape while the
     /// pixels are something the application already holds.
+    ///
+    /// An image still **loading** has no error: it has not failed, it has not arrived.
+    /// [`Image::state`] is the one that tells the three apart.
     pub fn error(&self) -> Option<&str> {
-        self.source.as_ref().err().map(String::as_str)
+        match &self.source {
+            Source::Failed(why) => Some(why),
+            _ => None,
+        }
     }
 
-    fn from_source(source: Result<ImageHandle, String>) -> Self {
+    fn from_source(source: Source) -> Self {
         Self {
             source,
             width: None,
@@ -202,7 +286,7 @@ impl Image {
         // Nothing decoded: there is no natural size to fall back on, so an image given
         // no measurements takes no room at all. Anything the caller *did* say is still
         // honoured, which is what keeps a layout from jumping when one asset is broken.
-        let Ok(image) = self.source.as_ref() else {
+        let Source::Ready(image) = &self.source else {
             return Style {
                 width: self.width.map_or(Dimension::Length(0.0), Dimension::Length),
                 height: self
@@ -260,7 +344,7 @@ impl<Msg> Widget<Msg> for Image {
         // opt-in question below, which is how the reference splits it too.
         // Nothing decoded, nothing drawn: the box stays empty rather than showing a
         // stand-in nobody asked for. `Image::error` is how an application finds out.
-        let Ok(image) = self.source.as_ref() else {
+        let Source::Ready(image) = &self.source else {
             return;
         };
         let align = self.alignment.resolve(frus_core::TextDirection::Ltr);
@@ -631,10 +715,12 @@ mod tests {
         let bytes = png();
         let first = Image::memory(bytes);
         let second = Image::memory(bytes);
-        let (a, b) = (
-            first.source.as_ref().expect("decoded"),
-            second.source.as_ref().expect("decoded"),
-        );
+        let handle = |image: &Image| match &image.source {
+            Source::Ready(handle) => handle.clone(),
+            _ => panic!("decoded"),
+        };
+        let (a, b) = (handle(&first), handle(&second));
+        let (a, b) = (&a, &b);
         assert_eq!(a.id(), b.id(), "one decode, one image, shared");
         assert!(
             std::sync::Arc::ptr_eq(a, b),
@@ -684,5 +770,104 @@ mod tests {
         let second = Image::memory(NOT_AN_IMAGE).error().map(str::to_string);
         assert!(first.is_some());
         assert_eq!(first, second);
+    }
+
+    /// The network path, with the network standing in for itself.
+    ///
+    /// These share one process-wide store and one registered fetcher, so they run under
+    /// a lock rather than in parallel: two of them racing would see each other's URLs
+    /// and each other's fetcher. That is a property of the thing being tested — it is
+    /// deliberately global — rather than a weakness of the tests.
+    #[cfg(feature = "images")]
+    mod network {
+        use super::*;
+        use std::sync::{Mutex, MutexGuard, OnceLock};
+
+        fn serialised() -> MutexGuard<'static, ()> {
+            static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+            let lock = LOCK.get_or_init(|| Mutex::new(()));
+            let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            frus_core::forget_fetched_images();
+            guard
+        }
+
+        /// A fetcher that answers **on the spot**, with a PNG.
+        ///
+        /// Synchronous on purpose: it is the harder case for the store, since the
+        /// callback runs while `fetched` is still inside the call that started it. If
+        /// the lock were still held there, this would deadlock rather than fail.
+        fn instant_png(_url: &str, deliver: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>) {
+            deliver(Ok(png().to_vec()));
+        }
+
+        /// A fetcher that answers on the spot with a failure.
+        fn instant_failure(_url: &str, deliver: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>) {
+            deliver(Err("404".to_string()));
+        }
+
+        /// One that never answers at all — a request still in flight.
+        fn never(_url: &str, _deliver: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>) {}
+
+        #[test]
+        fn a_fetched_image_arrives_and_is_shown() {
+            let _guard = serialised();
+            frus_core::set_image_fetcher(instant_png);
+            // The first ask started the work; this fetcher had already finished by the
+            // time it returned, so the second ask has the pixels.
+            let _ = Image::network("https://example.com/a.png");
+            let arrived = Image::network("https://example.com/a.png");
+            assert_eq!(arrived.state(), State::Ready);
+            assert_eq!(Widget::<()>::style(&arrived).width, Dimension::Length(2.0));
+        }
+
+        #[test]
+        fn a_request_still_in_flight_reads_as_loading_and_keeps_the_frames_coming() {
+            let _guard = serialised();
+            frus_core::set_image_fetcher(never);
+            let waiting = Image::network("https://example.com/slow.png");
+            assert_eq!(waiting.state(), State::Loading);
+            assert_eq!(waiting.error(), None, "loading has not failed");
+            // The interface must keep drawing, or the frame that would show the picture
+            // never happens.
+            assert!(frus_core::images_in_flight() > 0);
+        }
+
+        #[test]
+        fn a_request_that_fails_says_why_rather_than_waiting_for_ever() {
+            let _guard = serialised();
+            frus_core::set_image_fetcher(instant_failure);
+            let _ = Image::network("https://example.com/gone.png");
+            let dead = Image::network("https://example.com/gone.png");
+            assert_eq!(dead.state(), State::Failed("404"));
+            assert_eq!(dead.error(), Some("404"));
+        }
+
+        /// **Once**, however many frames ask. A view runs sixty times a second, and a
+        /// fetch per frame would be sixty requests for one picture.
+        #[test]
+        fn a_view_asking_every_frame_fetches_once() {
+            let _guard = serialised();
+            static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            fn counted(_url: &str, deliver: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>) {
+                CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                deliver(Ok(png().to_vec()));
+            }
+            CALLS.store(0, std::sync::atomic::Ordering::Relaxed);
+            frus_core::set_image_fetcher(counted);
+            for _ in 0..60 {
+                let _ = Image::network("https://example.com/once.png");
+            }
+            assert_eq!(CALLS.load(std::sync::atomic::Ordering::Relaxed), 1);
+        }
+
+        /// And nothing is left in flight once it has landed, so the interface settles
+        /// back to drawing only when something changes.
+        #[test]
+        fn the_count_falls_back_to_zero_when_the_work_is_done() {
+            let _guard = serialised();
+            frus_core::set_image_fetcher(instant_png);
+            let _ = Image::network("https://example.com/settle.png");
+            assert_eq!(frus_core::images_in_flight(), 0);
+        }
     }
 }

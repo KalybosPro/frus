@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 373 so far, each documenting the objective, the alternatives
+> record — one per step, 374 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,52 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **An image from somewhere else** (J374). `Image::network(url)` — the last of the
+  reference's four image sources, and the one that needed the two steps before it: bytes
+  over HTTP from milestone 373, and a process-wide store from 372.
+
+  `frus-widgets` has no runtime, no socket and no dependency on `frus-shell` — the
+  dependency runs the other way — so the shell **registers** a fetcher on the way up and
+  the widget layer only asks. The shape the decoder took a step earlier, for the same
+  reason: the layer that knows *how* is not the layer that knows *when*. A host with its
+  own HTTP client points `set_image_fetcher` at that instead.
+
+  A view runs sixty times a second, so the first call starts the work and reports
+  `Loading` while every later one is a lookup — without that, one picture is sixty
+  requests a second. `Image::state()` answers `Ready`, `Loading` or `Failed(why)`: three,
+  because *not here yet* and *will never be here* are shown differently, one a placeholder
+  and one a message.
+
+  There is deliberately **no** `loading` or `error` slot. The reference needs them because
+  its load happens inside a stateful widget the application cannot see into; here the
+  state is readable and the application writes the `match` it would have written anyway. A
+  closure stored in the widget would say the same thing where the application cannot see
+  it, and would force `Image` to carry the message type for a branch the view can already
+  take. That is this framework's model rather than a gap in it.
+
+  An image in flight keeps the interface drawing, or the frame that would show it never
+  happens — counted once when the interface is built, not read off the widget, because
+  showing a placeholder means taking the image *out* of the tree while the fetch goes on.
+
+### Fixed
+
+- **A tally beside the store can lie** (J374). The in-flight count began as an
+  `AtomicUsize` incremented at the start of a fetch and decremented in its callback — a
+  second copy of a fact the store already held, and the two can disagree. It survives a
+  `forget_fetched_images` that empties the store, and a callback arriving after one
+  decrements it below zero and wraps. Either way the interface is left redrawing for ever
+  over work that finished. Counting the entries that say `Loading` cannot drift, because
+  there is nothing to drift from.
+
+- **A hung request would pin the screen redrawing** (J374). In flight means redrawing, so
+  a dead server would leave an application repainting at full rate until someone closed it
+  — on a phone, on a battery. The shell's image fetcher carries a 30-second deadline:
+  long enough for a photograph on a slow connection, short enough that a hung socket
+  becomes a failure the interface can show and settle from. A request without an answer
+  has to become one with a failure.
 
 ### Added
 
