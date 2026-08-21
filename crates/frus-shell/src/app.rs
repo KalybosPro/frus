@@ -2157,6 +2157,11 @@ impl<A: Application> App<A> {
                 rect,
                 last_x: self.cursor.x,
             });
+            // The bracket opens **before** the first value: an application that means
+            // to hold the expensive work until the finger lifts has to know the finger
+            // went down first, and a press that jumps the value straight away would
+            // otherwise deliver the change before the start.
+            self.dispatch_drag_edge(id, rect, Edge::Start);
             // A zero delta on press: only a slider, which takes a fraction, jumps.
             self.apply_widget_drag(id, rect, 0.0);
             self.request_redraw();
@@ -2389,6 +2394,12 @@ impl<A: Application> App<A> {
         // A touch scroll, a pan or a swipe that never moved is a plain tap: we let it
         // follow the ordinary click path below.
         let was_tap = gesture_was_a_tap(ended.as_ref());
+        // The bracket closes. A press that never moved still gets its end: it changed
+        // the value once, and a caller that defers its expensive work until the release
+        // would otherwise never be told the release happened.
+        if let Some(Drag::Widget { id, rect, .. }) = ended {
+            self.dispatch_drag_edge(id, rect, Edge::End);
+        }
         // Reordering: on the drop, the target column is the reorderable header under
         // the pointer, and we route the grabbed header's `on_reorder(from, to)`.
         if let Some(Drag::Reorder {
@@ -3539,12 +3550,29 @@ impl<A: Application> App<A> {
         vertical && rect.height > 0.0 && self.cursor.y > rect.y + rect.height * 0.5
     }
 
+    /// Sends a value drag's **start** or **end** to the widget being dragged.
+    ///
+    /// The fraction is worked out the same way [`apply_widget_drag`](Self::apply_widget_drag)
+    /// works it out, from the same rectangle: an end that disagreed with the last
+    /// `on_drag` about where the pointer finished would be a slider that settles
+    /// somewhere its own final message never mentioned.
+    fn dispatch_drag_edge(&mut self, id: WidgetId, rect: frus_widgets::Rect, edge: Edge) {
+        let fraction = drag_fraction(rect, self.cursor.x);
+        let message = self
+            .tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .and_then(|widget| match edge {
+                Edge::Start => widget.on_drag_start(fraction),
+                Edge::End => widget.on_drag_end(fraction),
+            });
+        if let Some(message) = message {
+            self.dispatch(message);
+        }
+    }
+
     fn apply_widget_drag(&mut self, id: WidgetId, rect: frus_widgets::Rect, dx: f32) {
-        let fraction = if rect.width > 0.0 {
-            ((self.cursor.x - rect.x) / rect.width).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
+        let fraction = drag_fraction(rect, self.cursor.x);
         // An accumulating handle, taking a delta, first; otherwise a slider's absolute
         // fraction.
         let message = self
@@ -3729,6 +3757,25 @@ impl<A: Application> App<A> {
         if let Some(text) = text {
             self.clipboard.set_text(text);
         }
+    }
+}
+
+/// Which end of a value drag is being announced.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Edge {
+    Start,
+    End,
+}
+
+/// Where along `rect` the pointer sits, as a 0..=1 fraction.
+///
+/// One function, used by the start, every move and the end alike: three copies of this
+/// arithmetic would agree on every slider until one of them did not.
+fn drag_fraction(rect: frus_widgets::Rect, x: f32) -> f32 {
+    if rect.width > 0.0 {
+        ((x - rect.x) / rect.width).clamp(0.0, 1.0)
+    } else {
+        0.0
     }
 }
 

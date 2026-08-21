@@ -257,6 +257,14 @@ macro_rules! forward_transparent {
                 self.inner.on_drag(fraction)
             }
 
+            fn on_drag_start(&self, fraction: f32) -> Option<Msg> {
+                self.inner.on_drag_start(fraction)
+            }
+
+            fn on_drag_end(&self, fraction: f32) -> Option<Msg> {
+                self.inner.on_drag_end(fraction)
+            }
+
             fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
                 self.inner.on_drag_delta(dx)
             }

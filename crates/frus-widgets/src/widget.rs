@@ -294,6 +294,30 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Message produced when a value drag **begins** — on the press, before the
+    /// first [`on_drag`](Self::on_drag).
+    ///
+    /// With [`on_drag_end`](Self::on_drag_end) it brackets the stream: `on_drag` fires
+    /// on every pixel of the movement, and an application that saves to disk, seeks a
+    /// video or asks the network on each of those does it sixty times a second. The
+    /// bracket is what lets it do the cheap thing while the finger is down and the
+    /// expensive one when it lifts — and without an end there is no moment at which
+    /// to do it at all.
+    ///
+    /// Not to be confused with [`on_dropped`](Self::on_dropped), which belongs to
+    /// drag-and-**drop**: that one moves a thing, this one changes a number.
+    fn on_drag_start(&self, _fraction: f32) -> Option<Msg> {
+        None
+    }
+
+    /// Message produced when a value drag **ends** — on the release, with the
+    /// fraction the pointer finished on.
+    ///
+    /// See [`on_drag_start`](Self::on_drag_start).
+    fn on_drag_end(&self, _fraction: f32) -> Option<Msg> {
+        None
+    }
+
     /// Message produced by a horizontal drag expressed as a **delta**: `dx` is the
     /// movement (logical px) since the last event. For handles that **accumulate**
     /// (column resizing), unlike [`on_drag`](Self::on_drag) (an absolute fraction,
@@ -1066,6 +1090,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_drag(&self, fraction: f32) -> Option<Msg> {
         (**self).on_drag(fraction)
+    }
+    fn on_drag_start(&self, fraction: f32) -> Option<Msg> {
+        (**self).on_drag_start(fraction)
+    }
+    fn on_drag_end(&self, fraction: f32) -> Option<Msg> {
+        (**self).on_drag_end(fraction)
     }
     fn on_drag_delta(&self, dx: f32) -> Option<Msg> {
         (**self).on_drag_delta(dx)

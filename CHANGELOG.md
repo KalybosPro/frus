@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 380 so far, each documenting the objective, the alternatives
+> record — one per step, 381 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,37 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A drag with a beginning and an end** (J381). A `Slider` sent `on_change` and nothing
+  else — on every pixel of the movement, sixty times a second while the finger is down,
+  which is correct and is also the only thing the application ever heard. So an
+  application that seeks a video, writes a setting to disk, re-renders a preview or asks
+  the network did **all of it** sixty times a second, or did none of it: there was no
+  other moment to choose, because nothing told anyone the drag had stopped.
+
+  Not a slider problem. `Widget::draggable` is a framework-level contract and it had
+  exactly one hook, `on_drag(fraction)`; every value-dragging widget was in the same
+  position. `on_drag_start` and `on_drag_end` now bracket it, opened by the shell where
+  it begins a widget drag and closed where it takes it back.
+
+  The start goes out **before** the first value — a press on a track jumps the value at
+  once, and a start arriving afterwards would hand over a change before saying one was
+  coming. The end goes out even when the press never moved: a tap on a track is still a
+  change, and a caller deferring its work to the release would wait forever for a release
+  nobody mentioned.
+
+  `Slider` gains `on_change_start` and `on_change_end`, `RangeSlider` the same pair in
+  `(low, high)`. Both speak in the **caller's units**: a slider set to `range(0.0, 100.0)`
+  is owed a hundred at each end as well as in the stream, and a bracket in fractions
+  inside a signature that looks symmetrical would be a trap that type-checks. The
+  divisions apply at the ends too — a start landing between two stops would name a value
+  the stream itself can never produce.
+
+  Not to be confused with `on_dropped`, which belongs to drag-and-**drop**: that one moves
+  a thing and reports whether a target took it, this one changes a number and reports
+  where it settled.
 
 ### Added
 

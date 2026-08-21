@@ -34,6 +34,10 @@ pub struct Slider<Msg> {
     enabled: bool,
     colors: SliderColors,
     on_change: Option<Box<dyn Fn(f32) -> Msg>>,
+    /// Sent once when a drag begins, before the first `on_change`.
+    on_change_start: Option<Box<dyn Fn(f32) -> Msg>>,
+    /// Sent once when it ends, after the last one.
+    on_change_end: Option<Box<dyn Fn(f32) -> Msg>>,
 }
 
 /// What a slider was told about its own colours; unset entries fall through to the theme
@@ -90,6 +94,8 @@ impl<Msg> Slider<Msg> {
             enabled: true,
             colors: SliderColors::default(),
             on_change: None,
+            on_change_start: None,
+            on_change_end: None,
         }
     }
 
@@ -159,6 +165,29 @@ impl<Msg> Slider<Msg> {
     /// A closure producing a message from the new value (`0..=1`).
     pub fn on_change(mut self, on_change: impl Fn(f32) -> Msg + 'static) -> Self {
         self.on_change = Some(Box::new(on_change));
+        self
+    }
+
+    /// Sent **once**, when a drag begins — before the first
+    /// [`on_change`](Self::on_change), with the value the press landed on.
+    ///
+    /// With [`on_change_end`](Self::on_change_end) it brackets the stream.
+    /// `on_change` fires on every pixel of the movement, so an application that seeks a
+    /// video, writes a setting to disk or asks the network on each of them does it
+    /// sixty times a second; the bracket is what lets it show a preview while the
+    /// finger is down and commit when it lifts.
+    pub fn on_change_start(mut self, on_start: impl Fn(f32) -> Msg + 'static) -> Self {
+        self.on_change_start = Some(Box::new(on_start));
+        self
+    }
+
+    /// Sent **once**, when the drag ends — after the last
+    /// [`on_change`](Self::on_change), with the value it settled on.
+    ///
+    /// A press that never moved still gets one: it changed the value, and a caller
+    /// waiting for the release would otherwise never be told it happened.
+    pub fn on_change_end(mut self, on_end: impl Fn(f32) -> Msg + 'static) -> Self {
+        self.on_change_end = Some(Box::new(on_end));
         self
     }
 
@@ -358,6 +387,27 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             return None;
         }
         self.on_change.as_ref().map(|make| make(self.at(fraction)))
+    }
+
+    fn on_drag_start(&self, fraction: f32) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
+        // The **value**, not the fraction: a caller who asked for a range of 0..=100 is
+        // owed a hundred here too, and a bracket in different units from the stream it
+        // brackets would be a trap inside a signature that looks symmetrical.
+        self.on_change_start
+            .as_ref()
+            .map(|make| make(self.at(fraction)))
+    }
+
+    fn on_drag_end(&self, fraction: f32) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
+        self.on_change_end
+            .as_ref()
+            .map(|make| make(self.at(fraction)))
     }
 }
 
@@ -566,6 +616,10 @@ pub struct RangeSlider<Msg> {
     label: Option<Rc<dyn Fn(f32) -> String>>,
     enabled: bool,
     on_change: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
+    /// Sent once when a drag begins, before the first `on_change`.
+    on_change_start: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
+    /// Sent once when it ends, after the last one.
+    on_change_end: Option<Rc<dyn Fn(f32, f32) -> Msg>>,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
 
@@ -582,6 +636,8 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
             label: None,
             enabled: true,
             on_change: None,
+            on_change_start: None,
+            on_change_end: None,
             children: Vec::new(),
         };
         slider.rebuild();
@@ -626,6 +682,40 @@ impl<Msg: Clone + 'static> RangeSlider<Msg> {
         self.label = Some(Rc::new(label));
         self.rebuild();
         self
+    }
+
+    /// Sent **once**, when a drag begins — before the first
+    /// [`on_change`](Self::on_change), with the interval as it stands.
+    ///
+    /// See [`Slider::on_change_start`] for why the bracket earns its place.
+    pub fn on_change_start(mut self, on_start: impl Fn(f32, f32) -> Msg + 'static) -> Self {
+        self.on_change_start = Some(Rc::new(on_start));
+        self
+    }
+
+    /// Sent **once**, when the drag ends — after the last
+    /// [`on_change`](Self::on_change), with the interval it settled on.
+    pub fn on_change_end(mut self, on_end: impl Fn(f32, f32) -> Msg + 'static) -> Self {
+        self.on_change_end = Some(Rc::new(on_end));
+        self
+    }
+
+    /// The interval a drag reaching `fraction` would leave behind — the nearest thumb
+    /// moved to it, the other one where it was.
+    ///
+    /// Shared by the drag and both its ends so that the three cannot disagree about
+    /// which thumb the pointer was nearest.
+    fn interval_at(&self, fraction: f32) -> (f32, f32) {
+        let f = self.snap(fraction.clamp(0.0, 1.0));
+        if f <= self.low {
+            (f, self.high)
+        } else if f >= self.high {
+            (self.low, f)
+        } else if f - self.low <= self.high - f {
+            (f, self.high)
+        } else {
+            (self.low, f)
+        }
     }
 
     /// (Re)builds the row of thumbs set at the `low`/`high` positions.
@@ -699,7 +789,7 @@ impl<Msg> RangeSlider<Msg> {
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Length(self.width),
@@ -771,18 +861,25 @@ impl<Msg: Clone> Widget<Msg> for RangeSlider<Msg> {
         if !self.enabled {
             return None;
         }
-        let f = self.snap(fraction.clamp(0.0, 1.0));
         // The nearest thumb, bounded by the other, with no crossing.
-        let (low, high) = if f <= self.low {
-            (f, self.high)
-        } else if f >= self.high {
-            (self.low, f)
-        } else if f - self.low <= self.high - f {
-            (f, self.high)
-        } else {
-            (self.low, f)
-        };
+        let (low, high) = self.interval_at(fraction);
         self.on_change.as_ref().map(|make| make(low, high))
+    }
+
+    fn on_drag_start(&self, fraction: f32) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
+        let (low, high) = self.interval_at(fraction);
+        self.on_change_start.as_ref().map(|make| make(low, high))
+    }
+
+    fn on_drag_end(&self, fraction: f32) -> Option<Msg> {
+        if !self.enabled {
+            return None;
+        }
+        let (low, high) = self.interval_at(fraction);
+        self.on_change_end.as_ref().map(|make| make(low, high))
     }
 }
 
@@ -793,7 +890,86 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Value(f32),
+        Start(f32),
+        End(f32),
         Range(f32, f32),
+        RangeStart(f32, f32),
+        RangeEnd(f32, f32),
+    }
+
+    /// A slider that was never asked for the bracket sends nothing at either end.
+    /// The stream is what it always was.
+    #[test]
+    fn a_slider_that_was_not_asked_sends_no_bracket() {
+        let slider = Slider::new(0.0).on_change(Msg::Value);
+        assert_eq!(Widget::on_drag_start(&slider, 0.5), None);
+        assert_eq!(Widget::on_drag_end(&slider, 0.5), None);
+    }
+
+    /// **The bracket is in the same units as the stream it brackets.** A caller who
+    /// asked for `0..=100` gets a hundred from `on_change`, and would be owed one at
+    /// each end too — a start in fractions inside a signature that looks symmetrical
+    /// is a trap.
+    #[test]
+    fn the_bracket_speaks_in_values_not_fractions() {
+        let slider = Slider::new(0.0)
+            .range(0.0, 100.0)
+            .on_change(Msg::Value)
+            .on_change_start(Msg::Start)
+            .on_change_end(Msg::End);
+        assert_eq!(Widget::on_drag_start(&slider, 0.25), Some(Msg::Start(25.0)));
+        assert_eq!(Widget::on_drag(&slider, 0.25), Some(Msg::Value(25.0)));
+        assert_eq!(Widget::on_drag_end(&slider, 0.75), Some(Msg::End(75.0)));
+    }
+
+    /// The divisions apply at the ends too: a start or an end landing between two
+    /// stops would name a value the stream can never produce.
+    #[test]
+    fn the_bracket_snaps_like_the_stream() {
+        let slider = Slider::new(0.0)
+            .divisions(4)
+            .on_change(Msg::Value)
+            .on_change_start(Msg::Start)
+            .on_change_end(Msg::End);
+        // 0.3 lies between the 0.25 and 0.5 stops, nearer the first.
+        assert_eq!(Widget::on_drag(&slider, 0.3), Some(Msg::Value(0.25)));
+        assert_eq!(Widget::on_drag_start(&slider, 0.3), Some(Msg::Start(0.25)));
+        assert_eq!(Widget::on_drag_end(&slider, 0.3), Some(Msg::End(0.25)));
+    }
+
+    /// A disabled slider is inert at **every** end. A drag in flight when the caller
+    /// freezes the value must not land its release either.
+    #[test]
+    fn a_disabled_slider_brackets_nothing() {
+        let slider = Slider::new(0.0)
+            .enabled(false)
+            .on_change(Msg::Value)
+            .on_change_start(Msg::Start)
+            .on_change_end(Msg::End);
+        assert_eq!(Widget::on_drag_start(&slider, 0.5), None);
+        assert_eq!(Widget::on_drag(&slider, 0.5), None);
+        assert_eq!(Widget::on_drag_end(&slider, 0.5), None);
+    }
+
+    /// A range slider brackets the **interval**, and all three agree about which thumb
+    /// the pointer was nearest — they ask the same function.
+    #[test]
+    fn a_range_slider_brackets_the_interval() {
+        let range = RangeSlider::new(0.2, 0.8)
+            .on_change(Msg::Range)
+            .on_change_start(Msg::RangeStart)
+            .on_change_end(Msg::RangeEnd);
+        // 0.3 is nearer the low thumb, so the low one moves and the high one stays.
+        assert_eq!(
+            Widget::on_drag_start(&range, 0.3),
+            Some(Msg::RangeStart(0.3, 0.8))
+        );
+        assert_eq!(Widget::on_drag(&range, 0.3), Some(Msg::Range(0.3, 0.8)));
+        // 0.9 is past the high thumb, so that one moves instead.
+        assert_eq!(
+            Widget::on_drag_end(&range, 0.9),
+            Some(Msg::RangeEnd(0.2, 0.9))
+        );
     }
 
     #[test]
