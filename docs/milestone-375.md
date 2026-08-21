@@ -68,10 +68,18 @@ not move is the failure worth guarding against** — every other assertion would
 
 ## Left
 
-`GridView` still does not scroll at all. It is a plain container, so a grid of more than a
-screenful simply overflows; and milestone 367 renamed it *from* `Grid` *to* `GridView`,
-which made its name promise something it does not do. That is the next step, and it is
-mine to undo.
-
 `itemExtentBuilder` and `prototypeItem` — a list whose items are not all the same size —
 are a different mechanism, not a parameter: the window can no longer be found by division.
+
+## A correction
+
+This note first said that `GridView` *does not scroll at all*. That was written from
+reading its builders, not from running it, and it is wrong. Put inside a
+`SingleChildScrollView`, a grid scrolls correctly: thirty tiles of 60 px in a 200 px window
+report `max_y = 400`, and scrolling by 120 moves the first tile to `y = -120`.
+
+What is actually missing is narrower and worth stating accurately. `GridView` does not
+scroll **by itself** — the reference's is a `ScrollView` subclass, so `GridView(...)`
+scrolls where ours needs wrapping — and it does not **virtualise**: all thirty tiles are
+built and painted when twelve are visible, and thirty is the number a test used, not the
+number a photo grid has.
