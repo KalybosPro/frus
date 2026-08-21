@@ -8,10 +8,38 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 387 so far, each documenting the objective, the alternatives
+> record — one per step, 388 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A tab that can show as well as say** (J388). `TabBar` took a string per tab and drew
+  it; a navigation bar wants an icon over the word and a compact one wants the icon alone,
+  and neither was reachable. Three builders now: `tab`, `icon_tab`, `icon_only_tab`.
+
+  **One tall tab makes the whole row tall.** The reference has two heights — 46 for an
+  ordinary tab, 72 for one stacking an icon over a label — and they are heights of the
+  *row*: tabs of two heights in one bar would put their labels on two different lines,
+  with the indicator ruling under whichever happened to be lower. The question is asked
+  once, of the whole row, and recorded on `TabStyle`, which the bar and every tab already
+  share precisely so a measurement cannot be answered two ways. An icon **on its own**
+  does not raise the row, which is the reference's rule and what a compact bar wants.
+
+  **An icon-only tab still has to have a name.** `icon_only_tab` takes a label it does not
+  draw. The reference leaves such a tab nameless and expects the caller to wrap it in
+  something that names it, which is a hole with a lid: it works when somebody remembers.
+  Asking for the word where the tab is declared costs a parameter and cannot be forgotten.
+
+  `content_width` is one function again: a tab's text, its icon, or whichever is **wider**
+  when it has both, since the two are stacked rather than side by side. The tab's own
+  width comes from it and so does the primary indicator's — the file already carried the
+  warning that a tab measured one way and an indicator measured another agree on every
+  label until they do not, and the failure is an underline creeping away from its tab. The
+  two are painted as **one block**, centred once, because two separately centred pieces
+  drift apart as the text's height changes and the labels of neighbouring tabs would stop
+  sharing a line.
 
 ### Fixed
 

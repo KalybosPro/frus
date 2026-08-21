@@ -270,8 +270,8 @@ pub use steps::Steps;
 pub use switch::Switch;
 pub use table::Table;
 pub use tabs::{
-    TabBar, TabBarVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_INDICATOR_PRIMARY,
-    TAB_INDICATOR_SECONDARY, TAB_LABEL_PADDING,
+    TabBar, TabBarVariant, TAB_DIVIDER_HEIGHT, TAB_HEIGHT, TAB_ICON_GAP, TAB_ICON_HEIGHT,
+    TAB_ICON_SIZE, TAB_INDICATOR_PRIMARY, TAB_INDICATOR_SECONDARY, TAB_LABEL_PADDING,
 };
 pub use text::Text;
 pub use textinput::{

@@ -14,12 +14,21 @@ use frus_core::{BorderRadius, Color, Point, Rect, Scene, TextStyle};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::disabled::disabled_content;
+use crate::icons::Icons;
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
 /// The height of the tabs themselves, indicator excluded.
 pub const TAB_HEIGHT: f32 = 46.0;
+/// The height of the tabs when **any** of them stacks an icon over a label. The
+/// reference's second figure, and it applies to the whole row: tabs of two heights in
+/// one bar would put their labels on two different lines.
+pub const TAB_ICON_HEIGHT: f32 = 72.0;
+/// The side of a tab's icon.
+pub const TAB_ICON_SIZE: f32 = 24.0;
+/// The room between a tab's icon and the label under it.
+pub const TAB_ICON_GAP: f32 = 2.0;
 /// The room on either side of a label.
 pub const TAB_LABEL_PADDING: f32 = 16.0;
 /// The thickness of a **primary** bar's indicator, which is also its corner radius.
@@ -43,6 +52,38 @@ pub enum TabBarVariant {
     Secondary,
 }
 
+/// One tab's content: what it says, what it shows, and which of the two is drawn.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct TabSpec {
+    /// The tab's text — drawn when `show_label`, and what a screen reader is told
+    /// either way.
+    pub label: String,
+    /// The icon above the label, if any.
+    pub icon: Option<Icons>,
+    /// Whether the label is **drawn**. False for an icon-only tab, whose label is still
+    /// its name as far as anything that cannot see is concerned. The reference leaves an
+    /// icon-only tab nameless and expects the caller to wrap it; asking for the word up
+    /// front costs nothing and cannot be forgotten.
+    pub show_label: bool,
+}
+
+impl TabSpec {
+    /// A tab that shows its text.
+    fn text(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            icon: None,
+            show_label: true,
+        }
+    }
+
+    /// Does this tab stack an icon **over** a label? The question the row's height turns
+    /// on: an icon on its own sits in an ordinary tab.
+    fn stacked(&self) -> bool {
+        self.icon.is_some() && self.show_label && !self.label.is_empty()
+    }
+}
+
 /// Everything about a tab bar's appearance, each part `None` until someone says otherwise.
 ///
 /// Held by the bar and by each tab, so that both measure the indicator the same way — the
@@ -60,6 +101,10 @@ pub(crate) struct TabStyle {
     pub divider_height: Option<f32>,
     pub label_padding: Option<f32>,
     pub tab_height: Option<f32>,
+    /// Does any tab in this bar stack an icon over a label? Not an override but a fact
+    /// about the row, recorded here because the bar and every tab must measure the same
+    /// height and this is the one thing both already hold.
+    pub tall: bool,
 }
 
 impl TabStyle {
@@ -128,7 +173,10 @@ impl TabStyle {
     fn tab_height(&self, theme: &Theme) -> f32 {
         self.tab_height
             .or(theme.widgets.tab_bar.tab_height)
-            .unwrap_or(TAB_HEIGHT)
+            .unwrap_or(match self.tall {
+                true => TAB_ICON_HEIGHT,
+                false => TAB_HEIGHT,
+            })
     }
 
     /// The **whole bar**'s height: the tabs, plus the indicator sitting under them.
@@ -146,10 +194,29 @@ impl TabStyle {
     /// an indicator that measured it another would agree on every label until they did
     /// not, and the failure would be an underline creeping away from its tab as the bar
     /// filled up.
-    fn scrolled_tab_width(&self, theme: &Theme, label: &str) -> f32 {
-        let style = self.label_style(theme);
-        let measured = frus_text::measure_styled(label, style.size, style.weight, style.italic);
-        measured.width + 2.0 * self.label_padding(theme)
+    fn scrolled_tab_width(&self, theme: &Theme, spec: &TabSpec) -> f32 {
+        self.content_width(theme, spec) + 2.0 * self.label_padding(theme)
+    }
+
+    /// How wide a tab's **content** is: its text, its icon, or whichever of the two is
+    /// wider when it has both, since they are stacked rather than side by side.
+    ///
+    /// One function, and both the tab's width and the indicator's come from it. A tab
+    /// measured one way and an indicator measured another would agree on every label
+    /// until they did not.
+    fn content_width(&self, theme: &Theme, spec: &TabSpec) -> f32 {
+        let text = match spec.show_label && !spec.label.is_empty() {
+            true => {
+                let style = self.label_style(theme);
+                frus_text::measure_styled(&spec.label, style.size, style.weight, style.italic).width
+            }
+            false => 0.0,
+        };
+        let icon = match spec.icon {
+            Some(_) => TAB_ICON_SIZE,
+            None => 0.0,
+        };
+        text.max(icon)
     }
 
     /// Where each tab starts and how wide it is, in the bar's own coordinates.
@@ -160,35 +227,32 @@ impl TabStyle {
     fn tab_spans(
         &self,
         theme: &Theme,
-        labels: &[String],
+        tabs: &[TabSpec],
         width: f32,
         scrolls: bool,
     ) -> Vec<(f32, f32)> {
         if !scrolls {
-            let each = width / labels.len().max(1) as f32;
-            return (0..labels.len()).map(|i| (i as f32 * each, each)).collect();
+            let each = width / tabs.len().max(1) as f32;
+            return (0..tabs.len()).map(|i| (i as f32 * each, each)).collect();
         }
-        let mut spans = Vec::with_capacity(labels.len());
+        let mut spans = Vec::with_capacity(tabs.len());
         let mut x = 0.0;
-        for label in labels {
-            let w = self.scrolled_tab_width(theme, label);
+        for spec in tabs {
+            let w = self.scrolled_tab_width(theme, spec);
             spans.push((x, w));
             x += w;
         }
         spans
     }
 
-    fn indicator_width(&self, theme: &Theme, label: &str, tab_width: f32) -> f32 {
+    fn indicator_width(&self, theme: &Theme, spec: &TabSpec, tab_width: f32) -> f32 {
         match self.variant(theme) {
             TabBarVariant::Secondary => tab_width,
             TabBarVariant::Primary => {
-                let style = self.label_style(theme);
-                let measured =
-                    frus_text::measure_styled(label, style.size, style.weight, style.italic);
-                // Never past the label's own room: an indicator running into the next tab's
-                // would point at two labels at once.
+                // Never past the content's own room: an indicator running into the next
+                // tab's would point at two labels at once.
                 let room = (tab_width - 2.0 * self.label_padding(theme)).max(0.0);
-                measured.width.min(room)
+                self.content_width(theme, spec).min(room)
             }
         }
     }
@@ -196,7 +260,7 @@ impl TabStyle {
 
 /// One tab: a label, a tap, and the ink a tap leaves.
 struct Tab<Msg> {
-    label: String,
+    spec: TabSpec,
     selected: bool,
     style: TabStyle,
     /// The bar's availability, handed down to every tab.
@@ -234,7 +298,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         // engine to measure. Stating it also makes the tab and the indicator agree by
         // construction, since both ask the same function.
         Style {
-            width: Dimension::Length(self.style.scrolled_tab_width(theme, &self.label)),
+            width: Dimension::Length(self.style.scrolled_tab_width(theme, &self.spec)),
             flex_grow: 0.0,
             flex_shrink: 0.0,
             padding: frus_core::Insets::new(0.0, pad, 0.0, pad),
@@ -259,25 +323,48 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         } else {
             self.style.unselected_label_color(theme)
         };
-        let measured = frus_text::measure_styled(
-            &self.label,
-            label_style.size,
-            label_style.weight,
-            label_style.italic,
-        );
+        let shows_label = self.spec.show_label && !self.spec.label.is_empty();
+        let measured = match shows_label {
+            true => frus_text::measure_styled(
+                &self.spec.label,
+                label_style.size,
+                label_style.weight,
+                label_style.italic,
+            ),
+            false => frus_core::Size::new(0.0, 0.0),
+        };
         // Centred across the tab, and centred in the **tabs' own** height rather than the
         // bar's: the indicator's weight belongs to the bar, not to the row of labels, so
         // counting it here would push every label a pixel and a half down.
         let height = self.style.tab_height(theme);
-        scene.text_styled(
-            Point::new(
-                bounds.x + (bounds.width - measured.width) / 2.0,
-                bounds.y + (height - measured.height) / 2.0,
-            ),
-            self.label.clone(),
-            &label_style,
-            color.fade(o),
-        );
+        // Icon over label, as one block, centred as one block. Measuring the two
+        // separately and centring each would leave the pair looking untidy in a row
+        // where one tab has an icon and its neighbour does not.
+        let icon_block = match self.spec.icon {
+            Some(_) if shows_label => TAB_ICON_SIZE + TAB_ICON_GAP,
+            Some(_) => TAB_ICON_SIZE,
+            None => 0.0,
+        };
+        let block = icon_block + measured.height * f32::from(u8::from(shows_label));
+        let top = bounds.y + (height - block) / 2.0;
+        if let Some(icon) = self.spec.icon {
+            // The 24x24 grid, unscaled, centred across the tab.
+            let path = icon
+                .path()
+                .translated(bounds.x + (bounds.width - TAB_ICON_SIZE) / 2.0, top);
+            scene.fill_path(&path, color.fade(o));
+        }
+        if shows_label {
+            scene.text_styled(
+                Point::new(
+                    bounds.x + (bounds.width - measured.width) / 2.0,
+                    top + icon_block,
+                ),
+                self.spec.label.clone(),
+                &label_style,
+                color.fade(o),
+            );
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -311,7 +398,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         // Which tab is showing survives: a reader who cannot switch is still owed where
         // they are.
         let semantics = frus_core::Semantics::new(frus_core::Role::Tab)
-            .label(self.label.clone())
+            .label(self.spec.label.clone())
             .toggled(self.selected);
         Some(if self.enabled {
             semantics.clickable()
@@ -325,7 +412,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
 /// slides from one to the next.
 struct TabStrip<Msg> {
     selected: usize,
-    labels: Vec<String>,
+    tabs: Vec<TabSpec>,
     style: TabStyle,
     /// Whether the bar scrolls: it decides both the strip's width and where the
     /// indicator goes.
@@ -367,7 +454,7 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let count = self.labels.len();
+        let count = self.tabs.len();
         if count == 0 || bounds.width <= 0.0 {
             return;
         }
@@ -389,7 +476,7 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
         // between a short label and a long one grows on the way.
         let spans = self
             .style
-            .tab_spans(theme, &self.labels, bounds.width, self.scrolls);
+            .tab_spans(theme, &self.tabs, bounds.width, self.scrolls);
         let last = (count - 1) as f32;
         let value = status.value.clamp(0.0, last);
         let (low, high) = (value.floor(), value.ceil());
@@ -398,9 +485,7 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
             let i = index as usize;
             let (start, tab_width) = spans[i];
             let centre = bounds.x + start + tab_width / 2.0;
-            let width = self
-                .style
-                .indicator_width(theme, &self.labels[i], tab_width);
+            let width = self.style.indicator_width(theme, &self.tabs[i], tab_width);
             (centre, width)
         };
         let (centre_low, width_low) = span(low);
@@ -455,7 +540,7 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
         if !self.scrolls {
             return None;
         }
-        let spans = self.style.tab_spans(theme, &self.labels, size.width, true);
+        let spans = self.style.tab_spans(theme, &self.tabs, size.width, true);
         let &(x, width) = spans.get(self.selected)?;
         Some(crate::ui::KeepVisible {
             key: self.selected as u64,
@@ -469,7 +554,7 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
 pub struct TabBar<Msg> {
     selected: usize,
     on_select: Box<dyn Fn(usize) -> Msg>,
-    labels: Vec<String>,
+    tabs: Vec<TabSpec>,
     enabled: bool,
     style: TabStyle,
     /// Whether the bar scrolls rather than sharing its width; see [`TabBar::scrollable`].
@@ -484,7 +569,7 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
         let mut tabs = Self {
             selected,
             on_select: Box::new(on_select),
-            labels: Vec::new(),
+            tabs: Vec::new(),
             enabled: true,
             style: TabStyle::default(),
             scrollable: false,
@@ -497,8 +582,58 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// Adds a tab, a label plus content. The content is realised only when it belongs
     /// to the selected tab.
     pub fn tab(mut self, label: impl Into<String>, content: impl Widget<Msg> + 'static) -> Self {
-        let index = self.labels.len();
-        self.labels.push(label.into());
+        self.push(TabSpec::text(label), content);
+        self
+    }
+
+    /// Adds a tab with an **icon over its label**.
+    ///
+    /// The whole row grows to [`TAB_ICON_HEIGHT`] as soon as one tab does this, because
+    /// tabs of two heights in one bar would put their labels on two different lines.
+    pub fn icon_tab(
+        mut self,
+        icon: Icons,
+        label: impl Into<String>,
+        content: impl Widget<Msg> + 'static,
+    ) -> Self {
+        self.push(
+            TabSpec {
+                label: label.into(),
+                icon: Some(icon),
+                show_label: true,
+            },
+            content,
+        );
+        self
+    }
+
+    /// Adds a tab showing **only** an icon, in a row of the ordinary height.
+    ///
+    /// The label is not drawn, and it is not optional: it is what a screen reader says,
+    /// and a tab nobody can name is a tab nobody can use. The reference leaves an
+    /// icon-only tab nameless and expects the caller to wrap it in something that names
+    /// it; asking for the word here costs nothing and cannot be forgotten.
+    pub fn icon_only_tab(
+        mut self,
+        icon: Icons,
+        label: impl Into<String>,
+        content: impl Widget<Msg> + 'static,
+    ) -> Self {
+        self.push(
+            TabSpec {
+                label: label.into(),
+                icon: Some(icon),
+                show_label: false,
+            },
+            content,
+        );
+        self
+    }
+
+    /// Adds `spec` to the row, keeping `content` only when it is the selected tab's.
+    fn push(&mut self, spec: TabSpec, content: impl Widget<Msg> + 'static) {
+        let index = self.tabs.len();
+        self.tabs.push(spec);
         self.rebuild_bar();
         if index == self.selected {
             if self.children.len() > 1 {
@@ -507,7 +642,6 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
                 self.children.push(Box::new(content));
             }
         }
-        self
     }
 
     /// Whether the bar can be switched. Disabled every tab is **inert** - no press, no
@@ -618,13 +752,16 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// `tab(…)` would otherwise be written into a bar that had already been built — the
     /// order of a builder chain is not something a caller should have to think about.
     fn rebuild_bar(&mut self) {
+        // One tall tab makes the whole row tall. Recorded on the style, which the bar and
+        // every tab already share, so the height cannot be answered two ways.
+        self.style.tall = self.tabs.iter().any(TabSpec::stacked);
         let tabs: Vec<Box<dyn Widget<Msg>>> = self
-            .labels
+            .tabs
             .iter()
             .enumerate()
-            .map(|(i, label)| {
+            .map(|(i, spec)| {
                 Box::new(Tab {
-                    label: label.clone(),
+                    spec: spec.clone(),
                     selected: i == self.selected,
                     style: self.style,
                     enabled: self.enabled,
@@ -635,7 +772,7 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
             .collect();
         let strip = TabStrip {
             selected: self.selected,
-            labels: self.labels.clone(),
+            tabs: self.tabs.clone(),
             style: self.style,
             enabled: self.enabled,
             scrolls: self.scrollable,
@@ -714,6 +851,7 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::icons::Icons;
     use crate::runtime::Runtime;
     use crate::ui::build_ui;
     use crate::Text;
@@ -821,6 +959,155 @@ mod tests {
             "nothing pulls it back"
         );
         assert_eq!(runtime.scroll[&id], (500.0, 0.0));
+    }
+
+    /// The bar's own height, as the hairline it draws across its foot reveals it.
+    fn drawn_bar_height(tabs: TabBar<Msg>) -> f32 {
+        let root = crate::flex::Flex::column()
+            .width(400.0)
+            .height(300.0)
+            .child(tabs);
+        let mut runtime = Runtime::default();
+        runtime.advance_values::<Msg>(&root, 0.0);
+        build_ui(&root, Size::new(400.0, 300.0), &runtime, &Theme::default())
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                // The hairline: the bar's full width, one pixel tall.
+                Primitive::Rect { rect, .. } if rect.width > 399.0 && rect.height < 2.0 => {
+                    Some(rect.y + rect.height)
+                }
+                _ => None,
+            })
+            .next()
+            .expect("the hairline is drawn")
+    }
+
+    /// What the frame drew for a bar: the paths (icons) and the texts (labels).
+    fn drawn(tabs: TabBar<Msg>) -> (usize, Vec<String>) {
+        let root = crate::flex::Flex::column()
+            .width(400.0)
+            .height(300.0)
+            .child(tabs);
+        let mut runtime = Runtime::default();
+        runtime.advance_values::<Msg>(&root, 0.0);
+        let ui = build_ui(&root, Size::new(400.0, 300.0), &runtime, &Theme::default());
+        let mut paths = 0;
+        let mut texts = Vec::new();
+        for p in ui.scene().primitives() {
+            match p {
+                Primitive::Path { .. } => paths += 1,
+                Primitive::Text { text, .. } => texts.push(text.clone()),
+                _ => {}
+            }
+        }
+        (paths, texts)
+    }
+
+    /// An icon over a label draws both, and the row grows to the taller measurement.
+    #[test]
+    fn an_icon_tab_draws_its_icon_and_its_label() {
+        let tabs = TabBar::new(0, Msg::Select)
+            .icon_tab(Icons::Star, "Home", Text::new("panel"))
+            .icon_tab(Icons::Heart, "Search", Text::new("panel"));
+        let (paths, texts) = drawn(tabs);
+        assert_eq!(paths, 2, "one icon per tab");
+        assert!(texts.contains(&"Home".to_string()));
+        assert!(texts.contains(&"Search".to_string()));
+    }
+
+    /// One tall tab makes the **whole row** tall. Two heights in one bar would put the
+    /// labels on two different lines.
+    #[test]
+    fn one_icon_tab_raises_the_whole_row() {
+        let plain = TabBar::new(0, Msg::Select)
+            .tab("One", Text::new("panel"))
+            .tab("Two", Text::new("panel"));
+        let mixed = TabBar::new(0, Msg::Select)
+            .tab("One", Text::new("panel"))
+            .icon_tab(Icons::Heart, "Two", Text::new("panel"));
+        let short = drawn_bar_height(plain);
+        let tall = drawn_bar_height(mixed);
+        assert!(
+            (short - (TAB_HEIGHT + TAB_INDICATOR_PRIMARY)).abs() < 0.5,
+            "{short}"
+        );
+        assert!(
+            (tall - (TAB_ICON_HEIGHT + TAB_INDICATOR_PRIMARY)).abs() < 0.5,
+            "{tall}"
+        );
+    }
+
+    /// An icon **on its own** stays in an ordinary row, and its label is not drawn """ + D + u"""
+    /// but it is still what a reader is told.
+    #[test]
+    fn an_icon_only_tab_is_short_and_still_named() {
+        let tabs = TabBar::new(0, Msg::Select)
+            .icon_only_tab(Icons::Star, "Home", Text::new("panel"))
+            .icon_only_tab(Icons::Heart, "Search", Text::new("panel"));
+        let (paths, texts) = drawn(tabs);
+        assert_eq!(paths, 2, "the icons");
+        assert!(!texts.contains(&"Home".to_string()), "no label is drawn");
+
+        let short = drawn_bar_height(TabBar::new(0, Msg::Select).icon_only_tab(
+            Icons::Star,
+            "Home",
+            Text::new("panel"),
+        ));
+        assert!(
+            (short - (TAB_HEIGHT + TAB_INDICATOR_PRIMARY)).abs() < 0.5,
+            "{short}"
+        );
+
+        // The word survives where it matters.
+        let root = crate::flex::Flex::column()
+            .width(400.0)
+            .height(300.0)
+            .child(TabBar::new(0, Msg::Select).icon_only_tab(
+                Icons::Star,
+                "Home",
+                Text::new("panel"),
+            ));
+        let ui = build_ui(
+            &root,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert!(
+            ui.semantics()
+                .iter()
+                .any(|(_, _, s)| s.label.as_deref() == Some("Home")),
+            "the icon-only tab still has a name"
+        );
+    }
+
+    /// A scrolling bar measures an icon tab by whichever of its two parts is wider,
+    /// since they are stacked rather than side by side.
+    #[test]
+    fn a_stacked_tab_is_as_wide_as_its_widest_part() {
+        let style = TabStyle::default();
+        let theme = Theme::default();
+        let narrow = TabSpec {
+            label: "Hi".into(),
+            icon: Some(Icons::Star),
+            show_label: true,
+        };
+        // "Hi" is narrower than a 24 px icon, so the icon decides.
+        assert_eq!(
+            style.scrolled_tab_width(&theme, &narrow),
+            TAB_ICON_SIZE + 2.0 * TAB_LABEL_PADDING
+        );
+        // A long label decides instead.
+        let wide = TabSpec {
+            label: "Notifications".into(),
+            icon: Some(Icons::Star),
+            show_label: true,
+        };
+        assert!(
+            style.scrolled_tab_width(&theme, &wide) > style.scrolled_tab_width(&theme, &narrow)
+        );
     }
 
     fn three(selected: usize) -> TabBar<Msg> {
@@ -1215,8 +1502,8 @@ mod scrollable_tests {
     fn a_long_label_gets_a_wide_tab() {
         let theme = Theme::default();
         let style = TabStyle::default();
-        let narrow = style.scrolled_tab_width(&theme, "Bin");
-        let wide = style.scrolled_tab_width(&theme, "Archived");
+        let narrow = style.scrolled_tab_width(&theme, &TabSpec::text("Bin"));
+        let wide = style.scrolled_tab_width(&theme, &TabSpec::text("Archived"));
         assert!(wide > narrow, "{wide} should exceed {narrow}");
     }
 
@@ -1230,7 +1517,7 @@ mod scrollable_tests {
     fn the_indicator_sits_over_the_tab_it_marks() {
         let theme = Theme::default();
         let style = TabStyle::default();
-        let labels: Vec<String> = LABELS.iter().map(|s| s.to_string()).collect();
+        let labels: Vec<TabSpec> = LABELS.iter().map(|s| TabSpec::text(*s)).collect();
         let spans = style.tab_spans(&theme, &labels, 360.0, true);
 
         let mut expected = 0.0;
@@ -1250,7 +1537,7 @@ mod scrollable_tests {
     /// Not scrollable, the spans are still equal parts -- the old rule, untouched.
     #[test]
     fn an_ordinary_bar_still_divides_its_width_evenly() {
-        let labels: Vec<String> = LABELS.iter().map(|s| s.to_string()).collect();
+        let labels: Vec<TabSpec> = LABELS.iter().map(|s| TabSpec::text(*s)).collect();
         let spans = TabStyle::default().tab_spans(&Theme::default(), &labels, 800.0, false);
         assert_eq!(spans[0], (0.0, 100.0));
         assert_eq!(spans[7], (700.0, 100.0));
