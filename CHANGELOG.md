@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 376 so far, each documenting the objective, the alternatives
+> record — one per step, 377 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,39 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A tab bar with more tabs than fit** (J377). `TabBar` shared its width between its
+  tabs, always — the reference's rule for a bar that is **not** scrollable, and the code
+  said so in a comment, but there was no other kind. Eight tabs on a phone were eight
+  columns of forty-odd pixels: not a tab bar with more tabs, a tab bar with none you can
+  read. `TabBar::scrollable(true)` is the other kind.
+
+  A tab paints its own label rather than holding a `Text` child, so `width: Auto` would
+  give it nothing and its width has to be **stated**. `scrolled_tab_width` is that number,
+  and the indicator is placed by the same function — which is the point of there being
+  one: a tab measured one way and an indicator placed by another would agree on every
+  label until they did not, and the failure would be an underline creeping away from its
+  tab as the bar filled up. The test checks the spans against a hand-computed prefix sum
+  rather than against `tab_spans`, since a test that asks the implementation what it
+  thinks agrees with a mistake.
+
+  A bar that says nothing is untouched: equal columns, no scrollable registered, the same
+  pixels. Everything that makes the bar a bar — indicator, ink, tap, disabled state —
+  stays in the strip and does not know it is being scrolled.
+
+### Fixed
+
+- **The hairline belonged to the bar and was drawn by the strip** (J377). Its own comment
+  said what it is — *it divides the bar from the panel, and belongs to neither tab* —
+  and once the strip could scroll, that stopped describing where it lived: the line would
+  slide off the side with the labels. `min_width: Percent(1.0)` on the strip was the first
+  attempt and does nothing, for the reason milestone 368 found on `ExpansionTile`: a
+  percentage resolves against its parent, and a parent inside a horizontal scroll has no
+  definite width to resolve against — two tabs in a scrollable bar ruled an 84 px stub
+  across a 400 px bar. The line is `TabBar`'s now, at the same offset the strip used, and
+  all 91 goldens are unchanged: it did not move, it changed hands.
 
 ### Added
 

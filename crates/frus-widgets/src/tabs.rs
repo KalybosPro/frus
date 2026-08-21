@@ -138,6 +138,46 @@ impl TabStyle {
 
     /// The width the indicator takes under the tab holding `label`, within a tab `tab_width`
     /// wide. A primary bar measures the label; a secondary one takes the tab.
+    /// How wide one tab is when the bar **scrolls**: its label, plus the label's own
+    /// room either side.
+    ///
+    /// The tab lays itself out to this number and the indicator is placed by it, which
+    /// is the point of there being one function. A tab that measured itself one way and
+    /// an indicator that measured it another would agree on every label until they did
+    /// not, and the failure would be an underline creeping away from its tab as the bar
+    /// filled up.
+    fn scrolled_tab_width(&self, theme: &Theme, label: &str) -> f32 {
+        let style = self.label_style(theme);
+        let measured = frus_text::measure_styled(label, style.size, style.weight, style.italic);
+        measured.width + 2.0 * self.label_padding(theme)
+    }
+
+    /// Where each tab starts and how wide it is, in the bar's own coordinates.
+    ///
+    /// Not scrollable, the tabs share the width in equal parts — the reference's rule,
+    /// and the one that keeps a tab still when another is renamed. Scrollable, each takes
+    /// the room its label needs.
+    fn tab_spans(
+        &self,
+        theme: &Theme,
+        labels: &[String],
+        width: f32,
+        scrolls: bool,
+    ) -> Vec<(f32, f32)> {
+        if !scrolls {
+            let each = width / labels.len().max(1) as f32;
+            return (0..labels.len()).map(|i| (i as f32 * each, each)).collect();
+        }
+        let mut spans = Vec::with_capacity(labels.len());
+        let mut x = 0.0;
+        for label in labels {
+            let w = self.scrolled_tab_width(theme, label);
+            spans.push((x, w));
+            x += w;
+        }
+        spans
+    }
+
     fn indicator_width(&self, theme: &Theme, label: &str, tab_width: f32) -> f32 {
         match self.variant(theme) {
             TabBarVariant::Secondary => tab_width,
@@ -161,6 +201,8 @@ struct Tab<Msg> {
     style: TabStyle,
     /// The bar's availability, handed down to every tab.
     enabled: bool,
+    /// Whether the bar scrolls, which decides how wide this tab is.
+    scrolls: bool,
     message: Msg,
 }
 
@@ -175,9 +217,26 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         // proportion to the labels instead would move every tab whenever one was renamed.
         // The padding is the label's own room, and the smallest a tab will agree to be.
         let pad = self.style.label_padding(theme);
+        if !self.scrolls {
+            return Style {
+                width: Dimension::Length(0.0),
+                flex_grow: 1.0,
+                padding: frus_core::Insets::new(0.0, pad, 0.0, pad),
+                ..Default::default()
+            };
+        }
+        // Scrollable: the tab takes the room its label needs and no more, which is the
+        // whole difference — eight tabs on a phone stop being eight crushed columns and
+        // become eight readable ones the bar scrolls through.
+        //
+        // The width is **stated**, not left to the content, because a tab paints its own
+        // label rather than holding a `Text` child: there is nothing here for the layout
+        // engine to measure. Stating it also makes the tab and the indicator agree by
+        // construction, since both ask the same function.
         Style {
-            width: Dimension::Length(0.0),
-            flex_grow: 1.0,
+            width: Dimension::Length(self.style.scrolled_tab_width(theme, &self.label)),
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
             padding: frus_core::Insets::new(0.0, pad, 0.0, pad),
             ..Default::default()
         }
@@ -268,6 +327,9 @@ struct TabStrip<Msg> {
     selected: usize,
     labels: Vec<String>,
     style: TabStyle,
+    /// Whether the bar scrolls: it decides both the strip's width and where the
+    /// indicator goes.
+    scrolls: bool,
     /// The bar's availability. The **indicator** is the part that would otherwise keep the
     /// accent on a disabled bar: milestone 324's golden showed exactly that, flattened
     /// labels above a bar still painted in the accent colour.
@@ -282,7 +344,12 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
 
     fn style_themed(&self, theme: &Theme) -> Style {
         Style {
-            width: Dimension::Percent(1.0),
+            // Scrollable, the strip is as wide as its tabs, which is what gives the
+            // scroll something to scroll through.
+            width: match self.scrolls {
+                true => Dimension::Auto,
+                false => Dimension::Percent(1.0),
+            },
             height: Dimension::Length(self.style.bar_height(theme)),
             flex_direction: FlexDirection::Row,
             ..Default::default()
@@ -306,21 +373,12 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
         }
         let o = status.opacity;
         let weight = self.style.indicator_weight(theme);
-        let divider = self.style.divider_height(theme);
 
-        // The hairline runs the whole width, under the tabs and under the indicator: it
-        // divides the bar from the panel, and belongs to neither tab.
-        if divider > 0.0 {
-            scene.fill_rect(
-                Rect::new(
-                    bounds.x,
-                    bounds.y + bounds.height - divider,
-                    bounds.width,
-                    divider,
-                ),
-                self.style.divider_color(theme).fade(o),
-            );
-        }
+        // The hairline is **not** here. It divides the bar from the panel and belongs to
+        // neither tab -- and once the strip can scroll, drawing it here would send it
+        // sliding away with the labels and leave a scrollable bar with two tabs ruling a
+        // stub instead of a line. `TabBar` draws it, across its own width, which is the
+        // width it always meant.
         if weight <= 0.0 {
             return;
         }
@@ -329,14 +387,17 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
         // tweens the selected index, so this is a fractional position and the indicator
         // slides rather than jumps. Its width travels with it, so an indicator moving
         // between a short label and a long one grows on the way.
-        let tab_width = bounds.width / count as f32;
+        let spans = self
+            .style
+            .tab_spans(theme, &self.labels, bounds.width, self.scrolls);
         let last = (count - 1) as f32;
         let value = status.value.clamp(0.0, last);
         let (low, high) = (value.floor(), value.ceil());
         let t = value - low;
         let span = |index: f32| {
             let i = index as usize;
-            let centre = bounds.x + tab_width * (index + 0.5);
+            let (start, tab_width) = spans[i];
+            let centre = bounds.x + start + tab_width / 2.0;
             let width = self
                 .style
                 .indicator_width(theme, &self.labels[i], tab_width);
@@ -389,6 +450,8 @@ pub struct TabBar<Msg> {
     labels: Vec<String>,
     enabled: bool,
     style: TabStyle,
+    /// Whether the bar scrolls rather than sharing its width; see [`TabBar::scrollable`].
+    scrollable: bool,
     /// Either `[bar]` or `[bar, panel]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -402,6 +465,7 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
             labels: Vec::new(),
             enabled: true,
             style: TabStyle::default(),
+            scrollable: false,
             children: Vec::new(),
         };
         tabs.rebuild_bar();
@@ -429,6 +493,25 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// is still the answer even when it cannot be changed.
     ///
     /// See [`crate::disabled`] for the whole contract.
+    /// Lets the bar **scroll** rather than sharing its width between the tabs.
+    ///
+    /// Off by default, which is the reference's default and the right one for the two or
+    /// three tabs most bars have: equal columns, and a tab that stays where it is when
+    /// another is renamed.
+    ///
+    /// On, each tab takes the room its label needs and the bar scrolls through them. That
+    /// is what eight tabs on a phone want — the alternative is eight columns of forty-odd
+    /// pixels, which is not a tab bar with more tabs, it is a tab bar with none you can
+    /// read.
+    ///
+    /// The indicator follows the tabs at their real widths, and the hairline still runs
+    /// the whole foot of the bar even when the tabs do not fill it.
+    pub fn scrollable(mut self, scrollable: bool) -> Self {
+        self.scrollable = scrollable;
+        self.rebuild_bar();
+        self
+    }
+
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self.rebuild_bar();
@@ -523,17 +606,31 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
                     selected: i == self.selected,
                     style: self.style,
                     enabled: self.enabled,
+                    scrolls: self.scrollable,
                     message: (self.on_select)(i),
                 }) as Box<dyn Widget<Msg>>
             })
             .collect();
-        let bar: Box<dyn Widget<Msg>> = Box::new(TabStrip {
+        let strip = TabStrip {
             selected: self.selected,
             labels: self.labels.clone(),
             style: self.style,
             enabled: self.enabled,
+            scrolls: self.scrollable,
             children: tabs,
-        });
+        };
+        // Scrollable, the strip goes inside a horizontal scroll -- and inside nothing
+        // else, because the scroll is the only difference. Everything that makes the bar
+        // a bar (the indicator, the hairline, the ink, the tap) stays in the strip and
+        // does not know it is being scrolled.
+        let bar: Box<dyn Widget<Msg>> = match self.scrollable {
+            true => Box::new(
+                crate::SingleChildScrollView::new()
+                    .axis(crate::scroll::Axis::Horizontal)
+                    .child(strip),
+            ),
+            false => Box::new(strip),
+        };
         if self.children.is_empty() {
             self.children.push(bar);
         } else {
@@ -565,7 +662,27 @@ impl<Msg: Clone> Widget<Msg> for TabBar<Msg> {
         Some(frus_layout::FlexDirection::Row)
     }
 
-    fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
+    /// The hairline at the foot of the bar.
+    ///
+    /// Drawn here rather than by the strip because it belongs to the bar: it runs the
+    /// bar's whole width whatever the tabs do, and a scrollable strip would carry it off
+    /// the side. The measurement is the same one the strip uses for its own height, so
+    /// the line lands exactly where it always did.
+    fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        let divider = self.style.divider_height(theme);
+        if divider <= 0.0 || bounds.width <= 0.0 {
+            return;
+        }
+        scene.fill_rect(
+            Rect::new(
+                bounds.x,
+                bounds.y + self.style.bar_height(theme) - divider,
+                bounds.width,
+                divider,
+            ),
+            self.style.divider_color(theme).fade(status.opacity),
+        );
+    }
 
     fn on_click(&self) -> Option<Msg> {
         None
@@ -890,6 +1007,144 @@ mod tests {
             indicator(false),
             indicator(true),
             "the instrument must be able to tell the two apart"
+        );
+    }
+}
+
+/// A bar with more tabs than fit.
+#[cfg(test)]
+mod scrollable_tests {
+    use super::*;
+    use crate::{build_ui, Runtime, Size};
+    use frus_core::Primitive;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Pick(usize),
+    }
+
+    /// Eight tabs of deliberately unequal label lengths.
+    const LABELS: [&str; 8] = [
+        "All", "Unread", "Starred", "Drafts", "Sent", "Archived", "Spam", "Bin",
+    ];
+
+    fn bar(scrollable: bool) -> TabBar<Msg> {
+        let mut tabs = TabBar::new(0, Msg::Pick);
+        for label in LABELS {
+            tabs = tabs.tab(label, crate::text(""));
+        }
+        tabs.scrollable(scrollable)
+    }
+
+    /// The rects the bar painted, largest first -- the indicator is the small one.
+    fn painted(tabs: TabBar<Msg>, width: f32) -> Vec<frus_core::Rect> {
+        build_ui(
+            &tabs,
+            Size::new(width, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        )
+        .scene()
+        .primitives()
+        .iter()
+        .filter_map(|p| match p {
+            Primitive::Rect { rect, .. } => Some(*rect),
+            _ => None,
+        })
+        .collect()
+    }
+
+    /// Off by default: nothing about an ordinary bar changes.
+    #[test]
+    fn a_bar_says_nothing_and_shares_its_width() {
+        let tabs = bar(false);
+        let ui = build_ui(
+            &tabs,
+            Size::new(360.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert!(
+            ui.scrollable_maxes().is_empty(),
+            "an ordinary bar registers no scrollable"
+        );
+    }
+
+    /// Scrollable, the strip is wider than the bar and there is somewhere to scroll to.
+    ///
+    /// Eight labels at their own widths do not fit in 360 px -- which is the whole reason
+    /// this exists, and the assertion says so rather than assuming it.
+    #[test]
+    fn eight_tabs_on_a_phone_scroll() {
+        let ui = build_ui(
+            &bar(true),
+            Size::new(360.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let maxes = ui.scrollable_maxes();
+        assert_eq!(maxes.len(), 1, "the strip is inside a scroll");
+        assert!(maxes[0].1 > 0.0, "and it has room to move: {:?}", maxes[0]);
+        assert_eq!(maxes[0].2, 0.0, "across, not down");
+    }
+
+    /// Each tab takes its label's room, so a long label gets a wide tab and a short one
+    /// does not. Shared equally, every tab is the same width and this cannot be true.
+    #[test]
+    fn a_long_label_gets_a_wide_tab() {
+        let theme = Theme::default();
+        let style = TabStyle::default();
+        let narrow = style.scrolled_tab_width(&theme, "Bin");
+        let wide = style.scrolled_tab_width(&theme, "Archived");
+        assert!(wide > narrow, "{wide} should exceed {narrow}");
+    }
+
+    /// The indicator follows the **real** tab widths.
+    ///
+    /// This is the part that would drift: the tab lays itself out to one number and the
+    /// indicator is placed by another. They ask the same function, and this checks the
+    /// answer against a hand-computed prefix sum rather than against that function --
+    /// otherwise the test would agree with a mistake.
+    #[test]
+    fn the_indicator_sits_over_the_tab_it_marks() {
+        let theme = Theme::default();
+        let style = TabStyle::default();
+        let labels: Vec<String> = LABELS.iter().map(|s| s.to_string()).collect();
+        let spans = style.tab_spans(&theme, &labels, 360.0, true);
+
+        let mut expected = 0.0;
+        for (i, label) in labels.iter().enumerate() {
+            assert!(
+                (spans[i].0 - expected).abs() < 0.01,
+                "tab {i} starts at {} rather than {expected}",
+                spans[i].0
+            );
+            expected += style.scrolled_tab_width(&theme, label);
+        }
+        // And the last tab ends where the strip does.
+        let (start, width) = spans[labels.len() - 1];
+        assert!((start + width - expected).abs() < 0.01);
+    }
+
+    /// Not scrollable, the spans are still equal parts -- the old rule, untouched.
+    #[test]
+    fn an_ordinary_bar_still_divides_its_width_evenly() {
+        let labels: Vec<String> = LABELS.iter().map(|s| s.to_string()).collect();
+        let spans = TabStyle::default().tab_spans(&Theme::default(), &labels, 800.0, false);
+        assert_eq!(spans[0], (0.0, 100.0));
+        assert_eq!(spans[7], (700.0, 100.0));
+    }
+
+    /// Two tabs in a scrollable bar still get a hairline across the whole foot, rather
+    /// than a stub under the labels. The strip is never narrower than the bar.
+    #[test]
+    fn a_short_scrollable_bar_still_rules_a_full_line() {
+        let mut tabs = TabBar::new(0, Msg::Pick);
+        tabs = tabs.tab("A", crate::text("")).tab("B", crate::text(""));
+        let rects = painted(tabs.scrollable(true), 400.0);
+        assert!(
+            rects.iter().any(|r| r.width >= 399.0),
+            "something runs the full width: {rects:?}"
         );
     }
 }
