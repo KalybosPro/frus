@@ -4,7 +4,7 @@
 //! The value is controlled; the **caret / selection** are edit state retained at
 //! runtime ([`Edit`]), keyed by widget identity.
 
-use frus_core::{FontWeight, Point, Rect, Scene, TextStyle};
+use frus_core::{FontWeight, Point, Rect, Scene, TextAlign, TextStyle};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
@@ -143,6 +143,9 @@ pub struct TextField<Msg> {
     /// Masks the value (a password field): every character is rendered as
     /// [`OBSCURE_CHAR`]. Editing acts on the real value; only the display changes.
     obscure: bool,
+    /// Where the text sits inside the field. Single-line only; see
+    /// [`TextField::text_align`].
+    text_align: TextAlign,
     /// Which keys the software keyboard offers; `None` = worked out from the field
     /// (a masked field is a secret, a multi-line one takes newlines).
     keyboard: Option<KeyboardType>,
@@ -254,6 +257,7 @@ impl<Msg> TextField<Msg> {
             helper: None,
             error: None,
             obscure: false,
+            text_align: TextAlign::Start,
             keyboard: None,
             action: None,
             prefix: None,
@@ -468,6 +472,61 @@ impl<Msg> TextField<Msg> {
     pub fn obscure(mut self, obscure: bool) -> Self {
         self.obscure = obscure;
         self
+    }
+
+    /// Where the text sits inside the field: an amount to the right, a code centred.
+    ///
+    /// [`Start`](TextAlign::Start) — the default — follows the reading direction, so a
+    /// field is left-aligned in English and right-aligned in Arabic.
+    /// [`Left`](TextAlign::Left) and [`Right`](TextAlign::Right) do not: a column of
+    /// figures wants the same edge whatever the prose around it is doing.
+    ///
+    /// **Single-line fields only.** A multi-line one stays at the start, and that is a
+    /// boundary rather than an oversight: aligning wrapped text means moving each line
+    /// by its own width, and the caret and the click would then have to be told about
+    /// an offset that differs line by line. That belongs inside the text layout, where
+    /// the caret and the hit test already live, and not in a widget nudging a block
+    /// sideways behind their backs.
+    pub fn text_align(mut self, align: TextAlign) -> Self {
+        self.text_align = align;
+        self
+    }
+
+    /// How far the alignment pushes the text inside its content box.
+    ///
+    /// Zero unless the text is **narrower** than the box: there is nothing to
+    /// distribute otherwise, and a right-aligned line longer than its field would be
+    /// shoved off the left edge — the one edge whose text must stay put, since that
+    /// is where reading starts and where the horizontal scroll brings the caret back to.
+    ///
+    /// One function, used by the paint, the caret and the hit test alike. Three copies
+    /// of it would agree on every field until one of them did not, and the failure
+    /// would be a click landing several characters from where it was aimed.
+    ///
+    /// It takes **no direction**, and that is deliberate rather than forgotten.
+    /// [`Widget::cursor_at`] is handed a rectangle and nothing else — no theme, so no
+    /// reading direction — so a push that depended on one could be applied by the paint
+    /// and not by the click. Every field in a right-to-left application would then take
+    /// its caret several characters from the tap, including every field that never asked
+    /// to be aligned at all. A push both sides can compute is worth more than one that is
+    /// right in a place the other cannot reach.
+    ///
+    /// So `Start` is the left edge here and `End` the right. Following the reading
+    /// direction is the **text layout's** job, one layer down, where the caret and the
+    /// hit test already live and cannot disagree with the glyphs.
+    fn align_offset(&self, content_w: f32, text_w: f32) -> f32 {
+        if self.multiline {
+            return 0.0;
+        }
+        let slack = (content_w - text_w).max(0.0);
+        match self.text_align {
+            // Justification stretches the spaces between words, which a single line of
+            // input has no business doing: it would move the glyphs under the caret
+            // every time a space was typed.
+            TextAlign::Start | TextAlign::Left | TextAlign::Justify => 0.0,
+            TextAlign::End | TextAlign::Right => slack,
+            TextAlign::Center => slack / 2.0,
+        }
     }
 
     /// Which keys the software keyboard should offer — a phone keypad, an email
@@ -948,6 +1007,10 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             None
         };
         let layout = self.layout(wrap);
+        // The alignment's push, worked out once and used by the placeholder, the text,
+        // the selection, the underline and the caret — every one of which is drawn from
+        // `text_x` below.
+        let align = self.align_offset(content_w, layout.size().width);
 
         // Hint (placeholder): displayed when the field is empty. If there is a label as
         // well, the hint only reveals itself (fading in) once the label has floated —
@@ -956,8 +1019,12 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             if let Some(placeholder) = &self.placeholder {
                 let ph_alpha = if self.label.is_some() { o * fp } else { o };
                 if ph_alpha > 0.01 {
+                    // The placeholder sits where the text will: a centred field whose
+                    // hint hugs the left edge jumps the moment the first key lands.
+                    let hint_w = frus_text::measure(placeholder, self.size).width;
+                    let hint_align = self.align_offset(content_w, hint_w);
                     scene.text(
-                        Point::new(content_x, text_y),
+                        Point::new(content_x + hint_align, text_y),
                         placeholder.clone(),
                         self.size,
                         theme.muted.fade(ph_alpha),
@@ -975,7 +1042,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         } else {
             0.0
         };
-        let text_x = content_x - scroll;
+        let text_x = content_x + align - scroll;
         // **Retained** vertical scroll (wheel/scrollbar, caret-following by the shell);
         // clamped to how far the content overflows the box.
         let vscroll = if self.multiline {
@@ -1259,9 +1326,14 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
             None
         });
         let scroll = (layout.caret_rect(scroll_cursor).x - content_w).max(0.0);
+        // The same push the paint applied, from the same function. Without it a click on
+        // centred or right-aligned text lands wherever the glyphs *would* have been
+        // against the left edge, which is a caret appearing several characters from the
+        // tap.
+        let align = self.align_offset(content_w, layout.size().width);
         // `local_*` are relative to the **widget's** top-left corner (label included):
         // the label band and the padding are removed to land inside the text.
-        let target_x = local_x - left + scroll;
+        let target_x = local_x - left - align + scroll;
         let target_y = local_y - self.label_block() - self.text_top();
         Some(layout.hit_test(Point::new(target_x, target_y)))
     }
@@ -1940,6 +2012,134 @@ mod tests {
             composing: None,
         };
         assert_eq!(inp.on_edit(&mut edit, &Key::Enter), None);
+    }
+
+    /// Where the text was actually drawn: the x of the field's own text primitive.
+    fn drawn_text_x(field: &TextField<()>, width: f32) -> f32 {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            field,
+            Rect::new(0.0, 0.0, width, 56.0),
+            Status {
+                focused: false,
+                ..Default::default()
+            },
+            &Theme::default(),
+            &mut scene,
+        );
+        scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Text { position, text, .. } if text == "42" => {
+                    Some(position.x)
+                }
+                _ => None,
+            })
+            .expect("the value is drawn")
+    }
+
+    /// A field says nothing, and the text starts where it always did.
+    #[test]
+    fn a_field_that_says_nothing_starts_at_the_left() {
+        let plain: TextField<()> = TextField::new("42");
+        let started: TextField<()> = TextField::new("42").text_align(TextAlign::Start);
+        assert_eq!(drawn_text_x(&plain, 300.0), drawn_text_x(&started, 300.0));
+    }
+
+    /// Centred and right-aligned text moves, and moves the right way round.
+    #[test]
+    fn the_text_sits_where_it_was_told_to() {
+        let left = drawn_text_x(&TextField::<()>::new("42"), 300.0);
+        let centre = drawn_text_x(
+            &TextField::<()>::new("42").text_align(TextAlign::Center),
+            300.0,
+        );
+        let right = drawn_text_x(
+            &TextField::<()>::new("42").text_align(TextAlign::Right),
+            300.0,
+        );
+        assert!(left < centre, "centred is further right than left-aligned");
+        assert!(centre < right, "right-aligned is further right again");
+        // Centred is halfway: the two gaps either side match.
+        assert!(
+            ((centre - left) - (right - centre)).abs() < 0.5,
+            "halfway: {left} {centre} {right}"
+        );
+    }
+
+    /// **The click has to agree with the paint.** A caret placed from the unaligned
+    /// geometry would appear several characters from the tap, and it is the kind of
+    /// wrongness nobody reports precisely — it just feels broken.
+    #[test]
+    fn a_click_lands_where_the_glyphs_are() {
+        let width = 300.0;
+        for align in [TextAlign::Left, TextAlign::Center, TextAlign::Right] {
+            let field: TextField<()> = TextField::new("42").text_align(align);
+            let x = drawn_text_x(&field, width);
+            // A tap a hair to the left of the first glyph belongs before it\u2026
+            let before = Widget::<()>::cursor_at(&field, x - 1.0, 20.0, width, 0);
+            assert_eq!(before, Some(0), "{align:?}: before the first character");
+            // \u2026and one past the last glyph belongs after it.
+            let text_w = frus_text::measure("42", field.size).width;
+            let after = Widget::<()>::cursor_at(&field, x + text_w + 1.0, 20.0, width, 0);
+            assert_eq!(after, Some(2), "{align:?}: after the last character");
+        }
+    }
+
+    /// Nothing to distribute, nothing to push. A line wider than its field keeps its
+    /// left edge, which is where reading starts and where the horizontal scroll brings
+    /// the caret back to.
+    #[test]
+    fn text_wider_than_the_field_is_not_pushed_off_it() {
+        let long: TextField<()> = TextField::new("42").text_align(TextAlign::Right);
+        // A box far too narrow for the value: the slack is negative, so the push is nil.
+        assert_eq!(long.align_offset(4.0, 40.0), 0.0);
+        assert_eq!(long.align_offset(40.0, 40.0), 0.0);
+    }
+
+    /// A multi-line field stays at the start. Aligning wrapped text means moving each
+    /// line by its own width, which the caret and the click would have to be told about
+    /// line by line — that belongs inside the text layout, not in a widget nudging a
+    /// block sideways behind their backs.
+    #[test]
+    fn a_multiline_field_is_not_aligned() {
+        let note: TextField<()> = TextField::new("42")
+            .multiline()
+            .text_align(TextAlign::Center);
+        assert_eq!(note.align_offset(300.0, 40.0), 0.0);
+        // The same field on one line would have moved.
+        let one_line: TextField<()> = TextField::new("42").text_align(TextAlign::Center);
+        assert_eq!(one_line.align_offset(300.0, 40.0), 130.0);
+    }
+
+    /// The placeholder sits where the text will. A centred field whose hint hugs the
+    /// left edge jumps the moment the first key lands.
+    #[test]
+    fn the_placeholder_is_aligned_like_the_value() {
+        let hint_x = |align: TextAlign| {
+            let field: TextField<()> = TextField::new("").placeholder("Amount").text_align(align);
+            let mut scene = Scene::new();
+            Widget::<()>::paint(
+                &field,
+                Rect::new(0.0, 0.0, 300.0, 56.0),
+                Status::default(),
+                &Theme::default(),
+                &mut scene,
+            );
+            scene
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { position, text, .. } if text == "Amount" => {
+                        Some(position.x)
+                    }
+                    _ => None,
+                })
+                .expect("the hint is drawn")
+        };
+        assert!(hint_x(TextAlign::Right) > hint_x(TextAlign::Center));
+        assert!(hint_x(TextAlign::Center) > hint_x(TextAlign::Left));
     }
 
     /// A plain field asks for the plain keyboard, which is what every field used to

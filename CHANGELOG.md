@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 383 so far, each documenting the objective, the alternatives
+> record — one per step, 384 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -102,6 +102,41 @@ any release may break.
   `Instant::now` is not a thing; a counter needs no platform time source, cannot go backwards
   when a clock is corrected, and *least recently used* only ever asks which of two numbers is
   smaller.
+
+### Added
+
+- **A field whose text can sit somewhere else** (J384). `TextField` drew its value from
+  the left edge of the content box and had no other option. An amount field wants its
+  figures on the right, where the decimal points line up down a column; a code field wants
+  them centred. `text_align` is the builder.
+
+  The offset is zero unless the text is **narrower** than the box: a right-aligned line
+  longer than its field would otherwise be shoved off the left edge, the one edge whose
+  text must stay put, since that is where reading starts and where the horizontal scroll
+  brings the caret back to.
+
+  **One function, or the click stops matching the glyphs.** The paint draws the selection,
+  the text, the underline and the caret from a single origin; the hit test rebuilds the
+  same geometry from scratch. A caret placed from unaligned geometry on centred text
+  appears several characters from the tap — the kind of wrongness nobody reports
+  precisely, because it does not look like a bug, it looks like the field is broken. There
+  is one `align_offset` and both call it, and a test taps a hair before the first glyph and
+  a hair after the last, for every alignment.
+
+  It takes **no reading direction**, and that is the decision rather than an oversight. The
+  first version resolved `Start` and `End` against the theme — but `cursor_at` is handed
+  a rectangle and nothing else, so the paint could apply that push and the click could not,
+  which would have put the caret several characters from the tap in **every field of every
+  right-to-left application**, including every field that never asked to be aligned. A push
+  both sides can compute is worth more than one that is right in a place the other cannot
+  reach; following the reading direction belongs to the text layout, where the caret and
+  the hit test already live.
+
+  The placeholder moves with it, since a centred field whose hint hugs the left edge jumps
+  the moment the first key lands. **Single-line only**: aligning wrapped text means moving
+  each line by its own width, and the caret and the click would have to be told about an
+  offset that differs line by line — that belongs inside the text layout, not in a widget
+  nudging a block sideways behind their backs.
 
 ### Added
 
