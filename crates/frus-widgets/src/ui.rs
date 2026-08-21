@@ -95,6 +95,8 @@ pub struct Scrollable {
     /// way it moves, in either direction; only the arithmetic between that push and the
     /// number changes sign, in one place.
     pub reverse_y: bool,
+    /// What the content asked to be kept in view, in the frame's coordinates.
+    pub keep_visible: Option<KeepVisible>,
     /// The scroll region this one sits **inside**, when there is one.
     ///
     /// Scroll areas nest — a sideways strip inside a page that scrolls down — and
@@ -225,6 +227,39 @@ impl Scrollable {
         (next, self.offset_delta(applied))
     }
 
+    /// The offset that puts `target` in the **middle** of this viewport, and how far the
+    /// content moves to get there.
+    ///
+    /// The same pair as [`Scrollable::reveal`], and the same clamp """ + D + u""" which is what makes
+    /// the first item of a row rest at the start rather than half off it. A target
+    /// bigger than the viewport centres too, which leaves it hanging over both edges,
+    /// and that is the honest answer: there is no offset that shows all of it.
+    pub fn centre(&self, target: Rect, current: (f32, f32)) -> ((f32, f32), (f32, f32)) {
+        let wanted = (
+            (self.viewport.x + self.viewport.width / 2.0) - (target.x + target.width / 2.0),
+            (self.viewport.y + self.viewport.height / 2.0) - (target.y + target.height / 2.0),
+        );
+        let delta = self.offset_delta(wanted);
+        let next = (
+            (current.0 + delta.0).clamp(0.0, self.max_x),
+            (current.1 + delta.1).clamp(0.0, self.max_y),
+        );
+        let applied = (next.0 - current.0, next.1 - current.1);
+        (next, self.offset_delta(applied))
+    }
+
+    /// The offset that brings `keep` into view under its own policy, and how far the
+    /// content moves from **rest** to get there.
+    ///
+    /// Absolute, because [`KeepVisible::rect`] is recorded at rest: the base is offset
+    /// zero, not wherever the region currently is.
+    pub fn keep_offset(&self, keep: KeepVisible) -> ((f32, f32), (f32, f32)) {
+        match keep.centre {
+            true => self.centre(keep.rect, (0.0, 0.0)),
+            false => self.reveal(keep.rect, (0.0, 0.0)),
+        }
+    }
+
     /// Where the content's leading edge sits, relative to the viewport's, at `offset`.
     ///
     /// Normally minus the offset. On a reversed axis the content is anchored to the far
@@ -249,6 +284,36 @@ impl Scrollable {
             ),
         )
     }
+}
+
+/// A box a scroll region has been asked to **keep in view**, and which box it is.
+///
+/// A tab bar wider than its window is what this is for. Declared by the content through
+/// [`Widget::keep_visible`], carried on the region so it survives a repaint boundary
+/// like everything else about the region, and acted on by
+/// [`crate::Runtime::sync_visible`].
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct KeepVisible {
+    /// Which box this is. The region acts when this **changes** and not otherwise: the
+    /// box moves as the region scrolls, so a region chasing the box itself would pin
+    /// the content in place and no finger could move it.
+    pub key: u64,
+    /// The box: in the declaring widget's own coordinates when it comes back from
+    /// [`Widget::keep_visible`], and in the frame's — **as it would sit at offset zero**
+    /// — when it reaches the region.
+    ///
+    /// At rest rather than where it is actually drawn, and that is the whole reason the
+    /// answer can be trusted. A box recorded where it is drawn is a box whose position
+    /// already contains the current offset, so the offset that would centre it can only
+    /// be worked out **relative** to wherever the region happens to be — and on the
+    /// first frame, before anything has been retained, there is no wherever to be
+    /// relative to. Recorded at rest, the answer is absolute: the same number on the
+    /// first frame and the hundredth.
+    pub rect: Rect,
+    /// Put it in the **middle** of the window rather than merely inside it. What a tab
+    /// bar wants: a selected tab flush against the edge reads as the end of the row.
+    /// Clamped either way, so the first tab still rests at the start.
+    pub centre: bool,
 }
 
 /// Direction of arrow-key focus navigation.
@@ -2748,6 +2813,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             reverse_x: false,
                             reverse_y: false,
                             host: self.scroll_host,
+                            keep_visible: None,
                         });
                         let offset_y = self
                             .runtime
@@ -2952,7 +3018,6 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let axis = widget.scroll_axis();
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
-            let (offset_x, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
             // `reverse` applies to the axis this scrolls along; a two-dimensional scroll
             // takes it on the vertical, which is the one a reversed view is ever about.
             let reverse = if widget.scroll_reverse() {
@@ -2988,6 +3053,59 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             );
             let max_x = (scrolled.width - viewport.width).max(0.0);
             let max_y = (scrolled.height - viewport.height).max(0.0);
+
+            // The geometry without the identity: enough to ask where the content sits at
+            // an offset, and what offset would put a box where it is wanted.
+            let frame = Scrollable {
+                id,
+                viewport,
+                max_x,
+                max_y,
+                physics: None,
+                refresh: None,
+                page: None,
+                reverse_x: reverse.0,
+                reverse_y: reverse.1,
+                host: None,
+                keep_visible: None,
+            };
+            // What the content asks to be kept in view — a tab bar's selected tab — in
+            // the content's own coordinates, which is the only frame it can speak in.
+            let asked = content.keep_visible(
+                Size::new(content_size.width, content_size.height),
+                &self.theme,
+            );
+            // Where that box would sit if nobody had scrolled: the frame's coordinates,
+            // with the offset taken out. See [`KeepVisible::rect`] for why it is stored
+            // this way rather than where it is drawn.
+            let keep = asked.map(|keep| {
+                let rest = frame.content_origin((0.0, 0.0), scrolled);
+                KeepVisible {
+                    rect: keep.rect.translate(
+                        viewport.x + rest.0 + pad.left,
+                        viewport.y + rest.1 + pad.top,
+                    ),
+                    ..keep
+                }
+            });
+            let (offset_x, offset_y) = match self.runtime.scroll.get(&id).copied() {
+                Some(offset) => offset,
+                // Never scrolled, and something inside wants to be seen: **open** there
+                // rather than sliding across a frame later. A tab bar restored on its
+                // eighth tab should show the eighth tab, not show the first and then
+                // travel. The same answer a paged view gives its initial page, and the
+                // runtime retains the offset on that first frame so it stays.
+                None => match keep {
+                    Some(keep) => frame.keep_offset(keep).0,
+                    None => (0.0, 0.0),
+                },
+            };
+
+            let origin = frame.content_origin((offset_x, offset_y), scrolled);
+            let content_translation = (
+                viewport.x + origin.0 + pad.left,
+                viewport.y + origin.1 + pad.top,
+            );
             self.scrollables.push(Scrollable {
                 id,
                 viewport,
@@ -2999,25 +3117,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 reverse_x: reverse.0,
                 reverse_y: reverse.1,
                 host: self.scroll_host,
+                keep_visible: keep,
             });
-
-            let origin = Scrollable {
-                id,
-                viewport,
-                max_x,
-                max_y,
-                physics: None,
-                refresh: None,
-                page: None,
-                reverse_x: reverse.0,
-                reverse_y: reverse.1,
-                host: None,
-            }
-            .content_origin((offset_x, offset_y), scrolled);
-            let content_translation = (
-                viewport.x + origin.0 + pad.left,
-                viewport.y + origin.1 + pad.top,
-            );
             let mut content_index = 0;
             let outer = self.scroll_host.replace(id);
             self.walk(
@@ -3085,6 +3186,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 reverse_x: across && reverse,
                 reverse_y: !across && reverse,
                 host: self.scroll_host,
+                keep_visible: None,
             });
 
             let outer = self.scroll_host.replace(id);
@@ -3197,6 +3299,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 reverse_x: snap.horizontal && reverse,
                 reverse_y: !snap.horizontal && reverse,
                 host: self.scroll_host,
+                keep_visible: None,
             });
 
             let outer = self.scroll_host.replace(id);
@@ -5029,6 +5132,7 @@ mod tests {
             reverse_x: false,
             reverse_y: false,
             host: None,
+            keep_visible: None,
         };
         // Inside: nothing.
         assert_eq!(
@@ -5075,6 +5179,7 @@ mod tests {
             reverse_x: false,
             reverse_y: true,
             host: None,
+            keep_visible: None,
         };
         // A box below the window: the content must move **up** by 60 either way. On a
         // reversed axis a rising offset pushes the content down (`content_origin` is
@@ -5083,6 +5188,42 @@ mod tests {
         let (offset, shift) = area.reveal(Rect::new(0.0, 140.0, 50.0, 20.0), (0.0, 100.0));
         assert_eq!(shift, (0.0, -60.0));
         assert_eq!(offset, (0.0, 40.0));
+    }
+
+    /// Centring puts the box in the middle of the window, and the clamp is what keeps
+    /// the first and last items of a row where they belong rather than half off it.
+    #[test]
+    fn centring_is_clamped_to_the_travel() {
+        let area = Scrollable {
+            id: WidgetId::ROOT,
+            viewport: Rect::new(0.0, 0.0, 300.0, 50.0),
+            max_x: 700.0,
+            max_y: 0.0,
+            physics: None,
+            refresh: None,
+            page: None,
+            reverse_x: false,
+            reverse_y: false,
+            host: None,
+            keep_visible: None,
+        };
+        // A box at 400..500 has its middle at 450; the window's is at 150.
+        assert_eq!(
+            area.centre(Rect::new(400.0, 0.0, 100.0, 50.0), (0.0, 0.0))
+                .0,
+            (300.0, 0.0)
+        );
+        // The first item cannot be centred without scrolling backwards, so it stays.
+        assert_eq!(
+            area.centre(Rect::new(0.0, 0.0, 100.0, 50.0), (0.0, 0.0)).0,
+            (0.0, 0.0)
+        );
+        // Nor the last past the end of the travel.
+        assert_eq!(
+            area.centre(Rect::new(900.0, 0.0, 100.0, 50.0), (0.0, 0.0))
+                .0,
+            (700.0, 0.0)
+        );
     }
 
     #[test]

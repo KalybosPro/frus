@@ -482,6 +482,14 @@ macro_rules! forward_transparent {
                 self.inner.scroll_reverse()
             }
 
+            fn keep_visible(
+                &self,
+                size: $crate::Size,
+                theme: &$crate::theme::Theme,
+            ) -> Option<$crate::ui::KeepVisible> {
+                self.inner.keep_visible(size, theme)
+            }
+
             fn scroll_padding(&self) -> frus_core::Insets {
                 self.inner.scroll_padding()
             }

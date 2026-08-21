@@ -311,6 +311,16 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.scroll_physics())
     }
 
+    fn keep_visible(
+        &self,
+        size: frus_core::Size,
+        theme: &crate::theme::Theme,
+    ) -> Option<crate::ui::KeepVisible> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.keep_visible(size, theme))
+    }
+
     fn ime(&self) -> crate::ime::Ime {
         self.inner.as_ref().map(|w| w.ime()).unwrap_or_default()
     }

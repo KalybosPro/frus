@@ -340,6 +340,11 @@ pub struct Runtime {
     /// would leave the offset unswipeable. Absent = never seen, so the next request
     /// is the initial page and arrives without an animation.
     pub page_requested: HashMap<WidgetId, usize>,
+    /// The box each scroll region was last asked to **keep in view**, by the key the
+    /// content named it with, so that the request is acted on when it *changes* rather
+    /// than re-asserted every frame — which would pin the content and leave it
+    /// undraggable. Absent = never seen, and the walk has already opened there.
+    pub kept_visible: HashMap<WidgetId, u64>,
     /// The page each paged view was last **reported as showing**, so that
     /// `on_page_changed` fires on a change and not on every frame of the motion.
     pub page_shown: HashMap<WidgetId, usize>,
@@ -1076,6 +1081,49 @@ impl Runtime {
         }
     }
 
+    /// Brings each region's **kept** box into view when it has changed.
+    ///
+    /// A tab bar wider than its window is what this is for: the application selects the
+    /// eighth tab and the bar is still showing the first three, with nothing to say the
+    /// selection went anywhere.
+    ///
+    /// Acted on **when the key changes**, never re-asserted. The box moves as the region
+    /// scrolls, so a region that chased the box itself would pin the strip in place and
+    /// no finger could move it """ + D + u""" the same trap [`Runtime::sync_pages`] avoids, and the
+    /// same answer.
+    ///
+    /// The **first** sighting arrives without an animation — a bar restored on its
+    /// eighth tab wants to be on the eighth tab, not to watch it slide there — and the
+    /// walk has already drawn that first frame at the same offset, so the jump is
+    /// invisible. It is retained here all the same: without it the region would have no
+    /// offset of its own, and the frame after would find nothing to keep it there.
+    pub fn sync_visible(&mut self, regions: &[Scrollable]) {
+        for area in regions {
+            let Some(keep) = area.keep_visible else {
+                continue;
+            };
+            let previous = self.kept_visible.insert(area.id, keep.key);
+            if previous == Some(keep.key) {
+                continue;
+            }
+            let (offset, _) = area.keep_offset(keep);
+            match previous {
+                // Never seen: this is where the region opens.
+                None => {
+                    self.scroll.insert(area.id, offset);
+                    self.scroll_target.remove(&area.id);
+                    self.scroll_velocity.remove(&area.id);
+                }
+                // A change: glide, and let go of anything already moving the offset,
+                // since the selection has just overruled it.
+                Some(_) => {
+                    self.scroll_ballistic.remove(&area.id);
+                    self.scroll_target.insert(area.id, offset);
+                }
+            }
+        }
+    }
+
     /// The paged views whose page **on screen** has just changed, and the page each
     /// now shows.
     ///
@@ -1400,6 +1448,7 @@ mod tests {
             reverse_x: false,
             reverse_y: false,
             host: None,
+            keep_visible: None,
         }
     }
 
@@ -1422,6 +1471,7 @@ mod tests {
             reverse_x: false,
             reverse_y: false,
             host: None,
+            keep_visible: None,
         }
     }
 

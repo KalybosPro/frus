@@ -1765,6 +1765,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // it. Done before the springs are stepped, so the request is honoured
                 // in the frame it arrives rather than the one after.
                 self.runtime.sync_pages(&scroll_regions);
+                // And a bar whose selected item has moved out of its window slides back
+                // to it. Same moment, same reason: the request is honoured in the frame
+                // it arrives rather than the one after.
+                self.runtime.sync_visible(&scroll_regions);
 
                 let animating = self.runtime.advance(dt)
                     | self.runtime.advance_leaving(dt)
@@ -4094,6 +4098,7 @@ mod tests {
             reverse_x: false,
             reverse_y: false,
             host: None,
+            keep_visible: None,
         }
     }
 

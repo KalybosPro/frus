@@ -354,6 +354,7 @@ mod tests {
             reverse_x: false,
             reverse_y: reverse,
             host: None,
+            keep_visible: None,
         };
         // A refusal towards the axis's start (a negative offset).
         assert_eq!(area(false).refused_edge(true, -1.0), crate::GlowEdge::Top);

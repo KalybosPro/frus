@@ -441,6 +441,28 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
     fn on_click(&self) -> Option<Msg> {
         None
     }
+
+    /// The selected tab, so a bar wider than its window slides to it.
+    ///
+    /// Only when the bar **scrolls**. A bar that shares its width has every tab on
+    /// screen already, and the region it would ask does not exist.
+    ///
+    /// Centred rather than merely brought in, which is the reference's behaviour and the
+    /// readable one: a selected tab flush against the edge reads as the end of the row
+    /// when it is only the edge of the window. The clamp keeps the first and last tabs
+    /// where they belong.
+    fn keep_visible(&self, size: frus_core::Size, theme: &Theme) -> Option<crate::ui::KeepVisible> {
+        if !self.scrolls {
+            return None;
+        }
+        let spans = self.style.tab_spans(theme, &self.labels, size.width, true);
+        let &(x, width) = spans.get(self.selected)?;
+        Some(crate::ui::KeepVisible {
+            key: self.selected as u64,
+            rect: Rect::new(x, 0.0, width, size.height),
+            centre: true,
+        })
+    }
 }
 
 /// A tabbed view: the bar, and the selected tab's panel under it.
@@ -700,6 +722,105 @@ mod tests {
     #[derive(Clone, Debug, PartialEq)]
     enum Msg {
         Select(usize),
+    }
+
+    /// Ten tabs in a 300 px window: far more than fits, which is what `scrollable` is
+    /// for and where the selected tab can go missing.
+    fn wide(selected: usize) -> TabBar<Msg> {
+        let mut tabs = TabBar::new(selected, Msg::Select).scrollable(true);
+        for i in 0..10 {
+            tabs = tabs.tab(format!("Section {i}"), Text::new("panel"));
+        }
+        tabs
+    }
+
+    fn frame(tabs: TabBar<Msg>, runtime: &Runtime) -> crate::Ui<Msg> {
+        build_ui(&tabs, Size::new(300.0, 400.0), runtime, &Theme::default())
+    }
+
+    /// Where a label was drawn, or `None` if it was not.
+    fn label_x(ui: &crate::Ui<Msg>, label: &str) -> Option<f32> {
+        ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Text { position, text, .. } if text == label => Some(position.x),
+            _ => None,
+        })
+    }
+
+    /// A bar wider than its window **opens** on the selected tab. Before this, an
+    /// application restored on its ninth tab showed the first three and nothing said
+    /// where the selection had gone.
+    #[test]
+    fn a_scrolling_bar_opens_on_its_selected_tab() {
+        let runtime = Runtime::default();
+        let ui = frame(wide(8), &runtime);
+        let area = ui.scroll_regions()[0];
+        let keep = area
+            .keep_visible
+            .expect("the bar keeps its selected tab in view");
+        assert_eq!(keep.key, 8);
+        assert!(keep.centre, "centred, as the reference's bar is");
+
+        // And it is really on screen: the ninth label is drawn inside the window.
+        let x = label_x(&ui, "Section 8").expect("the selected tab is drawn");
+        assert!(x > 0.0 && x < 300.0, "Section 8 drawn at {x}");
+        // The first one is off the leading edge, which is the point.
+        assert!(label_x(&ui, "Section 0").is_none_or(|x| x < 0.0));
+    }
+
+    /// A bar that shares its width has every tab on screen already, and asks for
+    /// nothing: there is no region to ask.
+    #[test]
+    fn a_bar_that_shares_its_width_asks_for_nothing() {
+        let runtime = Runtime::default();
+        let mut tabs = TabBar::new(8, Msg::Select);
+        for i in 0..10 {
+            tabs = tabs.tab(format!("Section {i}"), Text::new("panel"));
+        }
+        assert!(frame(tabs, &runtime).scroll_regions().is_empty());
+    }
+
+    /// Changing the selection **glides**: a target, not a jump, so the bar reads as one
+    /// movement rather than a cut.
+    #[test]
+    fn changing_the_tab_slides_the_bar() {
+        let mut runtime = Runtime::default();
+        let regions = frame(wide(0), &runtime).scroll_regions().to_vec();
+        let id = regions[0].id;
+        // The first sighting is where the bar opens, and it opens on tab 0, at the start.
+        runtime.sync_visible(&regions);
+        assert_eq!(runtime.scroll[&id], (0.0, 0.0));
+        assert!(!runtime.scroll_target.contains_key(&id));
+
+        let regions = frame(wide(8), &runtime).scroll_regions().to_vec();
+        runtime.sync_visible(&regions);
+        let target = runtime.scroll_target[&id];
+        assert!(
+            target.0 > 100.0,
+            "glides across to the ninth tab: {target:?}"
+        );
+        assert_eq!(runtime.scroll[&id], (0.0, 0.0), "a target, not a jump");
+    }
+
+    /// The same selection twice does not pull the bar back: the reader is allowed to
+    /// look at the other tabs. A region chasing the box every frame would pin the strip
+    /// in place and no finger could move it.
+    #[test]
+    fn the_same_tab_twice_does_not_fight_the_finger() {
+        let mut runtime = Runtime::default();
+        let regions = frame(wide(3), &runtime).scroll_regions().to_vec();
+        let id = regions[0].id;
+        runtime.sync_visible(&regions);
+        runtime.scroll_target.remove(&id);
+
+        // The reader drags the bar somewhere else.
+        runtime.scroll.insert(id, (500.0, 0.0));
+        let regions = frame(wide(3), &runtime).scroll_regions().to_vec();
+        runtime.sync_visible(&regions);
+        assert!(
+            !runtime.scroll_target.contains_key(&id),
+            "nothing pulls it back"
+        );
+        assert_eq!(runtime.scroll[&id], (500.0, 0.0));
     }
 
     fn three(selected: usize) -> TabBar<Msg> {

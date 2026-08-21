@@ -818,6 +818,25 @@ pub trait Widget<Msg> {
         false
     }
 
+    /// The box this widget asks the scroll region around it to **keep in view**, in its
+    /// own coordinates, with a key naming which box it is.
+    ///
+    /// A tab bar wider than its window is what this is for: the eighth tab is off the
+    /// side, and nothing about selecting it would otherwise bring it back. The reference
+    /// scrolls its bar to the selected tab, and so does this.
+    ///
+    /// The **key** is what makes the region act on a change rather than on every frame.
+    /// The box moves as the region scrolls, so a region that chased it would pin the
+    /// content in place and no finger could move it; the key changes only when the widget
+    /// means a different box.
+    ///
+    /// `centre` asks for the box in the middle of the window rather than merely inside
+    /// it — what a tab bar wants, since a selected tab flush against the edge looks like
+    /// the end of the row. Clamped either way, so the first tab stays at the start.
+    fn keep_visible(&self, _size: Size, _theme: &Theme) -> Option<crate::ui::KeepVisible> {
+        None
+    }
+
     /// Whether this scrollable runs **from the far end** ([`crate::SingleChildScrollView::reverse`]):
     /// the content is anchored to the end of the viewport and offsets are counted from
     /// there. Meaningless unless [`Widget::scroll_content`] is `Some`.
@@ -1258,6 +1277,10 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn scroll_reverse(&self) -> bool {
         (**self).scroll_reverse()
+    }
+
+    fn keep_visible(&self, size: Size, theme: &Theme) -> Option<crate::ui::KeepVisible> {
+        (**self).keep_visible(size, theme)
     }
     fn scroll_padding(&self) -> frus_core::Insets {
         (**self).scroll_padding()

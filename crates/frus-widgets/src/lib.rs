@@ -293,7 +293,7 @@ pub use tree::Tree;
 pub use twopane::TwoPane;
 pub use ui::{
     build_ui, build_ui_inspected, collect_ids, find_by_key, find_path, find_widget, subtree_ids,
-    FocusDirection, Focusable, Scrollable, Scrollbar, Ui,
+    FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, FilterContext, ReorderAxis, Widget};
 pub use widgettheme::{

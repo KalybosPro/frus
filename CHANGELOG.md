@@ -8,10 +8,48 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 386 so far, each documenting the objective, the alternatives
+> record — one per step, 387 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A scrolling tab bar never moved to the selected tab** (J387). Eight tabs on a phone
+  stop being eight crushed columns when the bar scrolls, which milestone 345 made
+  possible — but selecting the ninth tab from anywhere other than a tap on the tab
+  itself left the bar showing the first three. The panel below changed; the bar did not,
+  and nothing said where the selection had gone.
+
+  `Widget::keep_visible` is how a widget asks the scroll region around it to keep a box
+  in view, and it returns a **key** with the box. The key is the whole mechanism: the box
+  moves as the region scrolls, so a region that chased the box itself would pin the
+  content in place and no finger could move it. `Runtime::sync_visible` acts when the key
+  changes, the same shape `sync_pages` already had, and a test pins it — the reader
+  drags the bar elsewhere, the selection has not changed, nothing pulls it back.
+
+  The box reaches the region **as it would sit at offset zero**, and that was a bug
+  before it was a decision. Recorded where it is drawn, its position already contains the
+  current offset, so the offset that would centre it can only be worked out relative to
+  wherever the region is — and on the first frame there is no wherever: the walk had
+  already placed the strip on the selected tab, the box came back centred, the arithmetic
+  answered "nothing to do", and the offset was never retained, so the frame after put the
+  bar back at the start. At rest, the answer is the same number on the first frame and
+  the hundredth.
+
+### Added
+
+- **`Scrollable::centre`, beside `reveal`** (J387). Two policies, and the widget that asks
+  says which it means. A tab bar centres — the reference's behaviour, and the readable
+  one, since a selected tab flush against the window's edge reads as the end of the row
+  when it is only the edge of the window — while keyboard traversal keeps the
+  least-movement rule, because a form that re-centred on every Tab would be motion nobody
+  asked for. The clamp keeps both honest: the first tab cannot be centred without
+  scrolling backwards, so it stays at the start.
+
+  The request rides **on** `Scrollable` rather than in a registry of its own, which would
+  have needed a slot in `BoundaryData`, in `Snapshot` and at each capture and replay site,
+  and a repaint boundary caching a tab bar would have dropped it on every hit.
 
 ### Fixed
 
