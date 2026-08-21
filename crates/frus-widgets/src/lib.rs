@@ -294,8 +294,8 @@ pub use ui::{
 };
 pub use widget::{CellFn, FilterContext, ReorderAxis, Widget};
 pub use widgettheme::{
-    AppBarTheme, CardTheme, DividerTheme, DrawerTheme, InkTheme, TabBarTheme, TextFieldTheme,
-    WidgetThemes,
+    AppBarTheme, BadgeTheme, CardTheme, DividerTheme, DrawerTheme, InkTheme, TabBarTheme,
+    TextFieldTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

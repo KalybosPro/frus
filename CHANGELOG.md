@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 377 so far, each documenting the objective, the alternatives
+> record — one per step, 378 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,38 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A badge that is more than one colour** (J378). `Badge` had **one** builder:
+  `Badge::new(text)`. No colour, no text colour, no size, no padding, no type — a pill in
+  `primary`, a label at a hardcoded 13 px, and no entry in `WidgetThemes`, so neither the
+  caller nor the theme could change any of it. The same breach milestone 368 found on
+  `ExpansionTile`, hidden in the shortest file in the catalogue.
+
+  It gains `background_color`, `text_color`, `text_style`, `small_size`, `large_size`,
+  `padding` and `label_visible`, plus a `BadgeTheme`, resolved instance → theme → the
+  scheme's role like everything since `Chip`.
+
+  **A dot is a shape, not an empty label.** The reference draws two badges: a pill carrying
+  a number, and a dot without one — and a dot is what most notification marks are, since
+  *something happened* is the whole message. Ours could not draw one at all. `Badge::dot()`
+  is it, and `label_visible(false)` falls back to it rather than to an empty pill, which is
+  what a count of zero wants.
+
+  A one-character badge is never narrower than it is tall: a lone digit in a wide pill
+  reads as a mistake, and the reference rounds a single character to a circle for the same
+  reason. The floor is a minimum, not a size — `1024` still widens it. And a count is
+  announced to a screen reader where a dot is not, since a dot has nothing to say beyond
+  the mark itself.
+
+### Changed
+
+- **A badge's untold fill is the scheme's `error`** (J378), where it was `primary`. A badge
+  is an **alert**, not an accent: it says *look here*, and painting it the same colour as
+  every selected tab and pressed button makes it one more thing in the accent colour. This
+  changes the default appearance, and it is a correction rather than a preference — the
+  previous colour was not a decision, it was the first role to hand.
 
 ### Added
 

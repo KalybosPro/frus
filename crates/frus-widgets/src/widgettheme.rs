@@ -34,6 +34,7 @@ use crate::card::CardVariant;
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WidgetThemes {
     pub app_bar: AppBarTheme,
+    pub badge: BadgeTheme,
     pub button: ButtonTheme,
     pub card: CardTheme,
     pub checkbox: CheckboxTheme,
@@ -48,6 +49,28 @@ pub struct WidgetThemes {
     pub switch: SwitchTheme,
     pub tab_bar: TabBarTheme,
     pub text_field: TextFieldTheme,
+}
+
+/// Defaults for [`Badge`](crate::Badge).
+///
+/// A badge is an **alert** rather than an accent, which is why its untold fill is the
+/// scheme's `error` and not its `primary`. The two sizes are the reference's: `small_size`
+/// is the diameter of a badge with no label, `large_size` the height of one that carries
+/// a count.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BadgeTheme {
+    /// The pill's fill.
+    pub background_color: Option<Color>,
+    /// The label's colour on that fill.
+    pub text_color: Option<Color>,
+    /// The label's type.
+    pub text_style: Option<TextStyle>,
+    /// The diameter of a badge with no label.
+    pub small_size: Option<f32>,
+    /// The height of a badge that carries one.
+    pub large_size: Option<f32>,
+    /// The label's room either side.
+    pub padding: Option<f32>,
 }
 
 /// Defaults for [`Checkbox`](crate::Checkbox).
