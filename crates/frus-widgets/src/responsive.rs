@@ -202,8 +202,8 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().is_some_and(|w| w.continuous())
     }
 
-    fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
-        self.inner.as_ref().and_then(|w| w.virtual_list())
+    fn virtual_list(&self, viewport: frus_core::Size) -> Option<crate::list::VirtualList<'_, Msg>> {
+        self.inner.as_ref().and_then(|w| w.virtual_list(viewport))
     }
 
     fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {

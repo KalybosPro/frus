@@ -28,6 +28,7 @@ use frus_layout::{Dimension, Style};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
+use frus_layout::Align;
 
 /// A cell factory: the widget at an index, boxed. Shared rather than owned because the
 /// composition below has to outlive the borrow that reads it.
@@ -36,6 +37,8 @@ type CellAt<Msg> = Rc<dyn Fn(usize) -> Box<dyn Widget<Msg>>>;
 /// The `size → widget` composition a late-building grid hands the walk: given the box it
 /// was allotted, the grid it puts its cells in.
 type Composed<Msg> = Box<dyn Fn(Size) -> Box<dyn Widget<Msg>>>;
+/// Builds the widget for one **row** of a windowed grid.
+type RowAt<Msg> = Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>;
 
 /// Where a grid's cells come from: given, or built once the width is known.
 enum Cells<Msg> {
@@ -46,6 +49,13 @@ enum Cells<Msg> {
     /// grid is actually given ([`GridView::extent`]).
     Built {
         max: f32,
+        count: usize,
+        build: CellAt<Msg>,
+    },
+    /// Built from an index like `Built`, but only the **visible rows**
+    /// ([`GridView::builder`]).
+    Windowed {
+        columns: usize,
         count: usize,
         build: CellAt<Msg>,
     },
@@ -67,6 +77,9 @@ pub struct GridView<Msg> {
     /// use: the builder methods may still be changing the spacing and the shape when the
     /// grid is constructed, so it cannot be composed before it is asked for.
     composed: OnceCell<Composed<Msg>>,
+    /// The `row → widget` closure a windowed grid hands the list machinery, composed on
+    /// first use for the same reason as `composed` above.
+    rows: OnceCell<RowAt<Msg>>,
 }
 
 impl<Msg> GridView<Msg> {
@@ -84,6 +97,7 @@ impl<Msg> GridView<Msg> {
             flex_grow: 0.0,
             cells: Cells::Given(Vec::new()),
             composed: OnceCell::new(),
+            rows: OnceCell::new(),
         }
     }
 
@@ -135,6 +149,64 @@ impl<Msg> GridView<Msg> {
                 build: Rc::new(move |i| Box::new(build(i)) as Box<dyn Widget<Msg>>),
             },
             composed: OnceCell::new(),
+            rows: OnceCell::new(),
+        }
+    }
+
+    /// A grid of `count` tiles in `columns` columns, of which only the **visible rows**
+    /// are built, laid out and painted.
+    ///
+    /// The form a photo grid wants. [`GridView::new`] and [`GridView::extent`] both build
+    /// every cell every frame — fine for a dozen swatches, and the wrong shape entirely
+    /// for two thousand photographs, which is the same argument milestone 375 made about
+    /// lists and which does not stop being true because the cells are in rows.
+    ///
+    /// ```ignore
+    /// GridView::builder(3, photos.len(), |i| photo_tile(&photos[i]))
+    ///     .aspect(1.0)
+    ///     .gap(8.0)
+    ///     .flex(1.0)
+    /// ```
+    ///
+    /// **A virtualised grid is a list of rows**, and that is how this is built: the row
+    /// height comes out of the tile shape and the width the grid was given, and from
+    /// there it is a [`crate::ListView`] whose item is a row of cells. Nothing new
+    /// windows, measures or scrolls — it is the list's machinery, which is why a
+    /// windowed grid scrolls, flings, reverses and shows a scrollbar without any of that
+    /// being written a second time.
+    ///
+    /// The shape of a tile is [`GridView::aspect`] or [`GridView::tile_height`], as in
+    /// the other two forms. With neither, tiles are **square**: the window is found by
+    /// division and division needs a number, so there has to be a default, and a square
+    /// is the one a grid of photographs means when it says nothing.
+    ///
+    /// The caveats of building late apply, and here they are the list's: cells have **no
+    /// retained state**, since a cell that does not exist off screen cannot keep any.
+    /// Clicks and hover work; persistent keyboard focus and deferred overlays do not. A
+    /// grid of images or buttons is right; a grid of text fields wants
+    /// [`GridView::new`].
+    pub fn builder<W: Widget<Msg> + 'static>(
+        columns: usize,
+        count: usize,
+        build: impl Fn(usize) -> W + 'static,
+    ) -> Self {
+        Self {
+            columns: columns.max(1),
+            gap: 0.0,
+            row_gap: None,
+            column_gap: None,
+            aspect: None,
+            tile_height: None,
+            width: Dimension::Auto,
+            height: Dimension::Auto,
+            flex_grow: 0.0,
+            cells: Cells::Windowed {
+                columns: columns.max(1),
+                count,
+                build: Rc::new(move |i| Box::new(build(i)) as Box<dyn Widget<Msg>>),
+            },
+            composed: OnceCell::new(),
+            rows: OnceCell::new(),
         }
     }
 
@@ -222,12 +294,12 @@ impl<Msg> GridView<Msg> {
     }
 }
 
-impl<Msg: 'static> Widget<Msg> for GridView<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
     fn style(&self) -> Style {
         // A grid that builds late is a **leaf** to the layout: its cells live in a tree
         // of their own, laid out inside the box this style asks for. Declaring the grid
         // properties here as well would make the engine place children it does not have.
-        if matches!(self.cells, Cells::Built { .. }) {
+        if matches!(self.cells, Cells::Built { .. } | Cells::Windowed { .. }) {
             return Style {
                 width: self.width,
                 height: self.height,
@@ -252,7 +324,9 @@ impl<Msg: 'static> Widget<Msg> for GridView<Msg> {
         // An exact height is an exact height: a ratio on top of it would be asking for
         // two heights at once, and the reference resolves the same clash the same way.
         // A grid that builds late says neither: the grid it builds says both.
-        if self.tile_height.is_some() || matches!(self.cells, Cells::Built { .. }) {
+        if self.tile_height.is_some()
+            || matches!(self.cells, Cells::Built { .. } | Cells::Windowed { .. })
+        {
             return None;
         }
         self.aspect
@@ -289,10 +363,75 @@ impl<Msg: 'static> Widget<Msg> for GridView<Msg> {
         }))
     }
 
+    fn virtual_list(&self, viewport: Size) -> Option<crate::list::VirtualList<'_, Msg>> {
+        let Cells::Windowed {
+            columns,
+            count,
+            build,
+        } = &self.cells
+        else {
+            return None;
+        };
+        let (columns, count) = (*columns, *count);
+        let across = self.column_gap.unwrap_or(self.gap);
+        let down = self.row_gap.unwrap_or(self.gap);
+        // What one tile gets across, once the gaps between the columns are taken out.
+        // The same arithmetic the layout engine would do -- done here because the row
+        // height comes from it, and the **window** comes from the row height. That is
+        // the whole reason this hook is handed the box it was given: a grid cannot say
+        // how many rows fit until it knows how wide its columns came out.
+        let tile_w = ((viewport.width - across * columns.saturating_sub(1) as f32)
+            / columns as f32)
+            .max(0.0);
+        let tile_h = self.tile_height.unwrap_or_else(|| match self.aspect {
+            Some(ratio) if ratio > 0.0 => tile_w / ratio,
+            _ => tile_w,
+        });
+
+        // The row factory needs the column count, the spacing and the cells -- none of
+        // which depend on the width -- so it is composed **once**. The row height does
+        // depend on the width, and it is not in here: it is the item extent above, and
+        // the gap below the row is the row's own bottom padding, which is what keeps
+        // the two apart. A factory that had to know the height would have to be rebuilt
+        // on every resize, and a `OnceCell` cannot be.
+        let rows = self.rows.get_or_init(|| {
+            let cells = build.clone();
+            Box::new(move |row: usize| {
+                let mut strip = crate::Flex::row()
+                    .align(Align::Stretch)
+                    .gap(across)
+                    .padding_each(0.0, 0.0, down, 0.0);
+                for column in 0..columns {
+                    let index = row * columns + column;
+                    // The last row can be short. Its tiles keep the width every other
+                    // row's have -- a half-full row of double-width photographs is not
+                    // what "three columns" meant -- so the missing ones are empties
+                    // that take their share and draw nothing.
+                    strip = match index < count {
+                        true => strip.child(crate::Expanded::new(cells(index))),
+                        false => strip.child(crate::Expanded::new(crate::Flex::<Msg>::row())),
+                    };
+                }
+                Box::new(strip) as Box<dyn Widget<Msg>>
+            })
+        });
+
+        Some(crate::list::VirtualList {
+            count: count.div_ceil(columns.max(1)),
+            item_extent: tile_h + down,
+            axis: crate::scroll::Axis::Vertical,
+            build: &**rows,
+        })
+    }
+
+    fn scroll_physics(&self) -> Option<crate::physics::ScrollPhysics> {
+        None
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         match &self.cells {
             Cells::Given(cells) => cells,
-            Cells::Built { .. } => &[],
+            Cells::Built { .. } | Cells::Windowed { .. } => &[],
         }
     }
 
@@ -611,5 +750,162 @@ mod tests {
         assert_eq!(cells[1].x - (cells[0].x + cells[0].width), 4.0);
         // Down: a 30 px row, then 20 px of gap.
         assert_eq!(cells[2].y - (cells[0].y + cells[0].height), 20.0);
+    }
+}
+
+/// The windowed form: a grid that builds only the rows you can see.
+#[cfg(test)]
+mod windowed_tests {
+    use super::*;
+    use crate::{build_ui, Container, Runtime};
+    use frus_core::{Color, Primitive, Rect};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    const TILE: Color = Color::rgb(1.0, 0.0, 0.0);
+
+    /// The tiles painted, and which indices the factory was asked for.
+    fn painted(grid: GridView<()>, size: Size, runtime: &Runtime) -> Vec<Rect> {
+        build_ui(&grid, size, runtime, &Theme::default())
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == TILE => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A grid of `count` square tiles, 3 across, in a 300x200 box.
+    fn grid_of(count: usize, asked: Rc<RefCell<Vec<usize>>>) -> GridView<()> {
+        GridView::<()>::builder(3, count, move |i| {
+            asked.borrow_mut().push(i);
+            Container::<()>::new().color(TILE)
+        })
+        .width(300.0)
+        .height(200.0)
+    }
+
+    /// The point of the whole thing: two thousand tiles, and the factory is asked for
+    /// the handful that show. `GridView::new` and `GridView::extent` both build every
+    /// cell every frame, which is the shape this form exists to avoid.
+    #[test]
+    fn only_the_visible_rows_are_built() {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let grid = grid_of(2000, asked.clone());
+        let _ = painted(grid, Size::new(300.0, 200.0), &Runtime::default());
+        let count = asked.borrow().len();
+        assert!(
+            count > 0 && count <= 12,
+            "asked for {count} of 2000 tiles; a 300x200 box at 100px square holds nine"
+        );
+        assert_eq!(asked.borrow()[0], 0, "and it starts at the beginning");
+    }
+
+    /// Square by default, three across a 300 wide box: 100 each, and the second row a
+    /// hundred down.
+    #[test]
+    fn tiles_are_square_and_rows_follow_them() {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let tiles = painted(
+            grid_of(9, asked),
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+        );
+        assert_eq!((tiles[0].x, tiles[0].y), (0.0, 0.0));
+        assert_eq!((tiles[0].width, tiles[0].height), (100.0, 100.0));
+        assert_eq!(tiles[1].x, 100.0, "the second is beside the first");
+        assert_eq!(tiles[3].y, 100.0, "and the fourth is on the next row");
+    }
+
+    /// `aspect` reshapes the row, because the row height is *derived* from the tile
+    /// shape and the width the grid was given -- which is why this form composes once
+    /// the width is known rather than at construction.
+    #[test]
+    fn the_aspect_ratio_sets_the_row_height() {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let tiles = painted(
+            grid_of(6, asked).aspect(2.0),
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+        );
+        assert_eq!(tiles[0].height, 50.0, "twice as wide as tall");
+        assert_eq!(tiles[3].y, 50.0, "so the rows are half as far apart");
+    }
+
+    /// The gap goes **between** the tiles across, and below the row down. Getting the
+    /// second one wrong is invisible in a single row and wrong in every grid.
+    #[test]
+    fn the_gap_separates_columns_and_rows() {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let tiles = painted(
+            grid_of(6, asked).gap(10.0),
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+        );
+        // Three tiles and two 10px gaps across 300 leaves 280/3 each.
+        let tile_w = 280.0 / 3.0;
+        assert!((tiles[0].width - tile_w).abs() < 0.5, "{}", tiles[0].width);
+        assert!((tiles[1].x - (tile_w + 10.0)).abs() < 0.5, "{}", tiles[1].x);
+        assert!(
+            (tiles[3].y - (tiles[0].height + 10.0)).abs() < 0.5,
+            "the row below clears the gap: {}",
+            tiles[3].y
+        );
+    }
+
+    /// A short last row keeps its columns. Four tiles across three columns is a full row
+    /// and one lonely tile -- and that tile is a third of the width, not the whole of it,
+    /// because "three columns" did not stop meaning three.
+    #[test]
+    fn a_short_last_row_keeps_the_column_width() {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let tiles = painted(
+            grid_of(4, asked),
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+        );
+        assert_eq!(
+            tiles.len(),
+            4,
+            "four tiles, not four plus two empties drawn"
+        );
+        assert_eq!(tiles[3].width, 100.0, "the lonely one keeps its column");
+        assert_eq!(tiles[3].x, 0.0, "at the start of its row");
+    }
+
+    /// And it **scrolls**, without a line of scrolling being written here: a windowed
+    /// grid is a list of rows, so it is the list that windows, measures and moves.
+    #[test]
+    fn it_scrolls_like_the_list_it_is_made_of() {
+        let asked = Rc::new(RefCell::new(Vec::new()));
+        let ui = build_ui(
+            &grid_of(30, asked.clone()),
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        // Ten rows of 100 is 1000, in a 200 box.
+        let maxes = ui.scrollable_maxes();
+        assert_eq!(maxes.len(), 1, "one scrollable, and it is the grid");
+        assert_eq!(maxes[0].2, 800.0);
+
+        let mut scrolled = Runtime::default();
+        scrolled
+            .scroll
+            .insert(crate::interaction::WidgetId::ROOT, (0.0, 250.0));
+        asked.borrow_mut().clear();
+        let tiles = painted(
+            grid_of(30, asked.clone()),
+            Size::new(300.0, 200.0),
+            &scrolled,
+        );
+        assert_eq!(tiles[0].y, -50.0, "row 2 starts 50px above the window");
+        assert_eq!(
+            asked.borrow()[0],
+            6,
+            "and the rows before it were never built"
+        );
     }
 }

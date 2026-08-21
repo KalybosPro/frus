@@ -285,8 +285,11 @@ macro_rules! forward_transparent {
                 self.inner.scroll_content()
             }
 
-            fn virtual_list(&self) -> Option<$crate::list::VirtualList<'_, Msg>> {
-                self.inner.virtual_list()
+            fn virtual_list(
+                &self,
+                viewport: frus_core::Size,
+            ) -> Option<$crate::list::VirtualList<'_, Msg>> {
+                self.inner.virtual_list(viewport)
             }
 
             fn page_view(&self) -> Option<$crate::pageview::PagedView<'_, Msg>> {

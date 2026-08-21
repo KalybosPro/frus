@@ -182,7 +182,7 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
         None
     }
 
-    fn virtual_list(&self) -> Option<VirtualList<'_, Msg>> {
+    fn virtual_list(&self, _viewport: frus_core::Size) -> Option<VirtualList<'_, Msg>> {
         Some(VirtualList {
             count: self.count,
             item_extent: self.item_extent,

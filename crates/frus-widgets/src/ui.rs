@@ -314,7 +314,9 @@ fn plain_subtree_len<Msg>(widget: &dyn Widget<Msg>) -> Option<usize> {
         || widget.fitted().is_some()
         || widget.rotated_quarter_turns().is_some()
         || widget.navigator().is_some()
-        || widget.virtual_list().is_some()
+        // Only *whether*, never *what*: these two ask if the widget windows its
+        // children at all, and a size it will not read is the honest argument.
+        || widget.virtual_list(Size::ZERO).is_some()
         || widget.page_view().is_some()
         || widget.overflow_box().is_some()
         || widget.layout_builder().is_some()
@@ -1366,7 +1368,7 @@ fn build_layout_scoped<'a, Msg>(
         || widget.interactive().is_some()
         || widget.fitted().is_some()
         || widget.navigator().is_some()
-        || widget.virtual_list().is_some()
+        || widget.virtual_list(Size::ZERO).is_some()
         || widget.page_view().is_some()
         || widget.stack()
     {
@@ -2909,7 +2911,9 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             if max_x > 0.0 {
                 self.add_scrollbar(id, viewport, false, offset_x, max_x, reverse.0);
             }
-        } else if let Some(vlist) = widget.virtual_list() {
+        } else if let Some(vlist) =
+            widget.virtual_list(Size::new(draw_rect.width, draw_rect.height))
+        {
             // A virtualised list: only build/lay out/paint the visible window.
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);

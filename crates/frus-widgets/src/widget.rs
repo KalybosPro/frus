@@ -412,7 +412,10 @@ pub trait Widget<Msg> {
 
     /// If the widget is a **virtualised list**, returns its description (item count,
     /// height, factory). Only the visible items are built.
-    fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
+    fn virtual_list(
+        &self,
+        _viewport: frus_core::Size,
+    ) -> Option<crate::list::VirtualList<'_, Msg>> {
         None
     }
 
@@ -1066,8 +1069,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         (**self).scroll_content()
     }
-    fn virtual_list(&self) -> Option<crate::list::VirtualList<'_, Msg>> {
-        (**self).virtual_list()
+    fn virtual_list(&self, viewport: frus_core::Size) -> Option<crate::list::VirtualList<'_, Msg>> {
+        (**self).virtual_list(viewport)
     }
     fn page_view(&self) -> Option<crate::pageview::PagedView<'_, Msg>> {
         (**self).page_view()

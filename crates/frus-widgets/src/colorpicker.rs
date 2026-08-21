@@ -93,7 +93,7 @@ impl<Msg: Clone + 'static> ColorPicker<Msg> {
 // `Msg: 'static` follows the grid this picker *is*: a `GridView` can build its cells late
 // (`GridView::extent`), and a closure that hands back a boxed widget needs the message type
 // to outlive it. Every application's message enum does.
-impl<Msg: 'static> Widget<Msg> for ColorPicker<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for ColorPicker<Msg> {
     fn style(&self) -> Style {
         Widget::<Msg>::style(&self.grid)
     }

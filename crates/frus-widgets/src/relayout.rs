@@ -273,7 +273,9 @@ fn hash_node<Msg, H: Hasher>(
         || widget.interactive().is_some()
         || widget.fitted().is_some()
         || widget.navigator().is_some()
-        || widget.virtual_list().is_some()
+        // Only *whether*, never *what*: this asks if the widget windows its
+        // children at all, and a size it will not read is the honest argument.
+        || widget.virtual_list(frus_core::Size::ZERO).is_some()
         || widget.page_view().is_some()
         || widget.overflow_box().is_some()
         || widget.stack()

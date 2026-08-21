@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 375 so far, each documenting the objective, the alternatives
+> record — one per step, 376 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,45 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A grid that builds what you can see** (J376). `GridView` had two forms and both built
+  **every** cell every frame — fine for a dozen colour swatches, wrong for two thousand
+  photographs, which is the argument milestone 375 had just made about lists and which does
+  not stop being true because the cells are arranged in rows.
+  `GridView::builder(columns, count, build)` is the third form.
+
+  **A windowed grid is a list of rows**, and that is the implementation rather than an
+  analogy: the grid reports a `VirtualList` whose item is a row of cells, so nothing new
+  windows, measures or scrolls. Its scrolling test asserts on `scrollable_maxes` and on
+  where a tile lands after a scroll, and neither the grid nor this milestone contains any
+  scrolling code.
+
+  `virtual_list` takes the **viewport** now. The row height comes from the tile shape and
+  the width the grid was given, and the window comes from the row height — so a grid
+  cannot say how many rows fit until it knows how wide its columns came out. Two call sites
+  ask only *whether* a widget windows its children and pass `Size::ZERO` with a comment
+  saying so, since a size that will not be read is the honest argument.
+
+  The row factory is composed **once** and captures the column count, the spacing and the
+  cells — none of which depend on the width. The row height deliberately is not in it: it
+  is the item extent, recomputed every call, and the gap below a row is the row's own
+  bottom padding. A factory that knew the height would be wrong the moment the window was
+  resized, and a `OnceCell` cannot be rebuilt.
+
+  Three decisions in the arithmetic: tiles are **square** when neither `aspect` nor
+  `tile_height` is given, because division needs a number and a square is what a photo grid
+  means when it says nothing; a **short last row keeps its columns**, since "three columns"
+  did not stop meaning three on the last row; and the **gap goes below the row**, because
+  the list hands its item the whole extent and a row that stretched would eat the spacing.
+
+### Changed
+
+- **`GridView`'s `Widget` implementation asks for `Msg: Clone`** (J376), and `ColorPicker`
+  with it, since it holds one. It breaks nothing: `build_ui` has always required
+  `Msg: Clone`, so the looser bound described a widget that compiled and could never be
+  shown.
 
 ### Added
 
