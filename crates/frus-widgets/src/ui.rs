@@ -2913,43 +2913,66 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // A virtualised list: only build/lay out/paint the visible window.
             let viewport = draw_rect;
             let content_clip = clip.intersect(viewport);
-            let (_, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+            let (offset_x, offset_y) = self.runtime.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
             let reverse = widget.scroll_reverse();
+            // Down the screen or across it. A list virtualises along **one** axis, which
+            // is what lets it place item `n` without building the ones before it, so
+            // `Axis::Both` has no meaning here and reads as vertical.
+            let across = matches!(vlist.axis, crate::scroll::Axis::Horizontal);
             // Room around the items, inside the viewport and scrolling with them. The
             // **leading** inset is the one at the end the items start from, so a
-            // reversed list clears its bottom first and both keep their sides.
+            // reversed list clears the far end first and both keep their sides.
             let pad = widget.scroll_padding();
-            let lead = if reverse { pad.bottom } else { pad.top };
-            let content_h = pad.top + pad.bottom + vlist.count as f32 * vlist.item_height;
-            let max_y = (content_h - viewport.height).max(0.0);
+            let (lead, trail, cross_near, cross_far) = match (across, reverse) {
+                (true, false) => (pad.left, pad.right, pad.top, pad.bottom),
+                (true, true) => (pad.right, pad.left, pad.top, pad.bottom),
+                (false, false) => (pad.top, pad.bottom, pad.left, pad.right),
+                (false, true) => (pad.bottom, pad.top, pad.left, pad.right),
+            };
+            // From here down it is a main axis and a cross axis, and only the two
+            // branches at the end have to know which is which. The alternative was a
+            // second copy of the window arithmetic below, which is where a reversed
+            // list gets its signs right -- and a fix applied to one copy and not the
+            // other is exactly how the two would drift apart.
+            let (extent, cross_extent) = match across {
+                true => (viewport.width, viewport.height),
+                false => (viewport.height, viewport.width),
+            };
+            let offset = if across { offset_x } else { offset_y };
+            let content = lead + trail + vlist.count as f32 * vlist.item_extent;
+            let max = (content - extent).max(0.0);
             self.scrollables.push(Scrollable {
                 id,
                 viewport,
-                max_x: 0.0,
-                max_y,
+                max_x: if across { max } else { 0.0 },
+                max_y: if across { 0.0 } else { max },
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
                 page: None,
-                reverse_x: false,
-                reverse_y: reverse,
+                reverse_x: across && reverse,
+                reverse_y: !across && reverse,
             });
 
-            if vlist.item_height > 0.0 && vlist.count > 0 {
+            if vlist.item_extent > 0.0 && vlist.count > 0 {
                 // The **window** is the same arithmetic either way, and that is not a
                 // coincidence: a reversed list counts its indices from the end, and a
                 // reversed offset counts its pixels from the end, so index and offset
                 // agree about which way is forward. Only where an item lands differs.
-                let first = ((offset_y - lead) / vlist.item_height).floor().max(0.0) as usize;
-                let last = ((((offset_y + viewport.height - lead) / vlist.item_height).ceil())
-                    .max(0.0) as usize)
+                let first = ((offset - lead) / vlist.item_extent).floor().max(0.0) as usize;
+                let last = ((((offset + extent - lead) / vlist.item_extent).ceil()).max(0.0)
+                    as usize)
                     .min(vlist.count);
+                let origin = if across { viewport.x } else { viewport.y };
                 for i in first..last {
                     let item = (vlist.build)(i);
-                    let top = if reverse {
-                        viewport.y + viewport.height - lead - (i + 1) as f32 * vlist.item_height
-                            + offset_y
+                    let along = if reverse {
+                        origin + extent - lead - (i + 1) as f32 * vlist.item_extent + offset
                     } else {
-                        viewport.y + lead + i as f32 * vlist.item_height - offset_y
+                        origin + lead + i as f32 * vlist.item_extent - offset
+                    };
+                    let (x, y) = match across {
+                        true => (along, viewport.y + cross_near),
+                        false => (viewport.x + cross_near, along),
                     };
 
                     // **Filled**, not merely constrained: a list hands its children a
@@ -2962,20 +2985,21 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     // its own text: a list of coloured rows painted a column of chips
                     // down the left instead of rows across the list. Found on a device
                     // in milestone 349.
+                    let free_cross = (cross_extent - cross_near - cross_far).max(0.0);
                     let item_rects = self.cached_rects(
                         id.child(i),
                         item.as_ref(),
-                        Constraints::filled(Size::new(
-                            (viewport.width - pad.left - pad.right).max(0.0),
-                            vlist.item_height,
-                        )),
+                        Constraints::filled(match across {
+                            true => Size::new(vlist.item_extent, free_cross),
+                            false => Size::new(free_cross, vlist.item_extent),
+                        }),
                     );
 
                     let mut item_index = 0;
                     self.render_item(
                         item.as_ref(),
                         id.child(i),
-                        (viewport.x + pad.left, top),
+                        (x, y),
                         content_clip,
                         &item_rects,
                         &mut item_index,
@@ -2985,8 +3009,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
 
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
-            if max_y > 0.0 {
-                self.add_scrollbar(id, viewport, true, offset_y, max_y, false);
+            if max > 0.0 {
+                self.add_scrollbar(id, viewport, !across, offset, max, reverse);
             }
         } else if let Some(pages) = widget.page_view() {
             // A paged view: like a virtualised list turned on its side, and with the

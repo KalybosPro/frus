@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 374 so far, each documenting the objective, the alternatives
+> record — one per step, 375 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -73,6 +73,39 @@ any release may break.
   it describe what was true when they were written.
 
 ### Added
+
+- **A list that runs the other way** (J375). `ListView` scrolled down the screen and only
+  down the screen, so a row of cards, a strip of thumbnails or a shelf of covers was not
+  possible — and each of them is this same list turned on its side. `ListView::axis`
+  says which way.
+
+  A horizontal row could already be built as a `Flex::row` inside a
+  `SingleChildScrollView`, and that builds **every** child every frame. Fine for six
+  chips, wrong for two hundred covers — and two hundred covers is exactly what a shelf
+  is. The whole reason `ListView` exists is that the per-frame cost should follow what is
+  visible rather than what exists, and that does not become less true when the axis
+  changes.
+
+  The walk's virtual-list branch was seventy lines of `offset_y`, `item_height` and `top`;
+  it is a **main** axis and a **cross** axis now, with two `match` at the end that know
+  which is which. A second copy of the branch would have read more plainly and is how the
+  two would drift: the window arithmetic is where a reversed list gets its signs right,
+  and milestone 361 already had to correct that arithmetic once. `item_height` is
+  `item_extent`, since a field called `item_height` on a horizontal list is the same kind
+  of lie milestones 367 and 369 went round correcting.
+
+  Padding follows the axis — the leading inset is the one at the end the items start
+  from, so `left` leads across and `top`/`bottom` become cross insets — and so does
+  `reverse`. The cross axis is handed over **whole**, as milestone 351 established: a card
+  whose height nobody set is as tall as the shelf rather than hugging its contents.
+  `Axis::Both` reads as vertical, because a list virtualises along one axis and that is
+  what lets it place item `n` without building the ones before it.
+
+  Scrolling came free — the same `Scrollable` every other scrolling surface registers,
+  with `max_x` where `max_y` used to be — and is tested anyway: seven of the eight new
+  tests are layout at rest, and the eighth drives the offset and watches the window move,
+  because a shelf that lays out correctly and does not move is the failure every other
+  assertion would miss.
 
 - **An image from somewhere else** (J374). `Image::network(url)` — the last of the
   reference's four image sources, and the one that needed the two steps before it: bytes
