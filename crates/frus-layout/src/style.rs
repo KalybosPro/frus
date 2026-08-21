@@ -100,6 +100,44 @@ impl Justify {
     }
 }
 
+/// How a wrapping container's **lines** are distributed on the cross axis.
+///
+/// Not the same question as [`Align`], which places each child *within* its line. This
+/// one places the lines themselves, and it only has an answer when there is more than
+/// one — that is, when the container wraps and has cross-axis room to spare.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AlignContent {
+    /// The lines fill the cross axis between them. Flexbox's default, and ours.
+    #[default]
+    Stretch,
+    /// Packed at the near edge, keeping their own heights.
+    Start,
+    /// Packed at the middle.
+    Center,
+    /// Packed at the far edge.
+    End,
+    /// The first and last lines touch the edges, the room shared between them.
+    SpaceBetween,
+    /// Equal space around each line: the outer gaps are half the inner ones.
+    SpaceAround,
+    /// Equal space everywhere, the outer gaps included.
+    SpaceEvenly,
+}
+
+impl AlignContent {
+    fn to_taffy(self) -> taffy::AlignContent {
+        match self {
+            AlignContent::Stretch => taffy::AlignContent::Stretch,
+            AlignContent::Start => taffy::AlignContent::FlexStart,
+            AlignContent::Center => taffy::AlignContent::Center,
+            AlignContent::End => taffy::AlignContent::FlexEnd,
+            AlignContent::SpaceBetween => taffy::AlignContent::SpaceBetween,
+            AlignContent::SpaceAround => taffy::AlignContent::SpaceAround,
+            AlignContent::SpaceEvenly => taffy::AlignContent::SpaceEvenly,
+        }
+    }
+}
+
 /// How children are aligned on the **cross** axis.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
@@ -171,6 +209,11 @@ pub struct Style {
     pub justify: Justify,
     /// Alignment on the cross axis, for a container: what it does to its children.
     pub align: Align,
+    /// How a **wrapping** container's lines are distributed on the cross axis.
+    ///
+    /// Silent unless the container wraps *and* has cross-axis room to spare, since one
+    /// line has nowhere to go.
+    pub align_content: AlignContent,
     /// This item's **own** cross-axis alignment, overriding whatever its parent asked
     /// for. `None` — the default — means "do as the others do".
     ///
@@ -229,6 +272,7 @@ impl Default for Style {
             flex_basis: Dimension::Auto,
             flex_direction: FlexDirection::Row,
             justify: Justify::Start,
+            align_content: AlignContent::default(),
             align: Align::Stretch,
             align_self: None,
             padding: Insets::ZERO,
@@ -276,6 +320,7 @@ impl Style {
         dim(self.flex_basis, hasher);
         (self.flex_direction as u8).hash(hasher);
         (self.justify as u8).hash(hasher);
+        (self.align_content as u8).hash(hasher);
         (self.align as u8).hash(hasher);
         match self.align_self {
             None => 0u8.hash(hasher),
@@ -331,6 +376,7 @@ impl Style {
                 taffy::FlexWrap::NoWrap
             },
             justify_content: Some(self.justify.to_taffy()),
+            align_content: Some(self.align_content.to_taffy()),
             align_items: Some(self.align.to_taffy()),
             align_self: self.align_self.map(Align::to_taffy),
             padding: taffy::Rect {

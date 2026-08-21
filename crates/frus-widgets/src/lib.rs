@@ -326,4 +326,4 @@ pub use frus_core::Status as AnimationStatus;
 /// `images` feature, and the **fetcher** is registered by whoever has a network. See
 /// [`Image::network`].
 pub use frus_core::{images_in_flight, set_image_fetcher, ImageFetcher};
-pub use frus_layout::{Align, FlexDirection, Justify, Overflowing, Side};
+pub use frus_layout::{Align, AlignContent, FlexDirection, Justify, Overflowing, Side};

@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 381 so far, each documenting the objective, the alternatives
+> record — one per step, 382 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,34 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A wrap where the lines are a decision too** (J382). `Wrap` had one spacing: `gap`
+  went into both axes, so eight pixels between the chips on a line meant eight between
+  the lines. That is the wrong shape often enough to be worth two numbers — a wrap of
+  chips usually wants them close side by side and further apart line to line, because the
+  eye reads a line as a unit and the vertical break is what tells it where one ends.
+
+  `Flex::run_gap` is the second number, the reference's `runSpacing` to `gap`'s `spacing`.
+  Untold, the lines are still spaced by `gap`, so nothing that says nothing changes.
+
+  **Which axis the runs stack on is not a constant.** `Style` already had `row_gap` and
+  `column_gap` for the grid, so writing `run_gap` into `row_gap` was the obvious move and
+  would have been wrong for every wrapping **column**, whose lines stack sideways — and
+  worse than wrong, it would have worked perfectly on every wrapping row anybody happened
+  to test. It follows the direction instead.
+
+  **And the lines had no alignment at all.** `align` places each child within its line;
+  nothing placed the lines. `Style` had no `align_content`, so a wrapping container with
+  cross-axis room to spare always got flexbox's default — the lines stretch to fill it
+  — and no caller could say otherwise. `AlignContent` is the new enum and
+  `Flex::align_lines` the builder, with `Stretch` still the default so no existing layout
+  moves.
+
+  The tests measure the **laid-out rectangles** rather than reading the field back off the
+  style: a field set and never reaching the layout engine is the failure worth catching,
+  and a test that asks the style what the style says will never catch it.
 
 ### Added
 

@@ -2,7 +2,7 @@
 //! distribution (justify) and alignment (align).
 
 use frus_core::{Insets, Rect, Scene};
-use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
+use frus_layout::{Align, AlignContent, Dimension, FlexDirection, Justify, Style};
 
 use crate::interaction::Status;
 use crate::theme::Theme;
@@ -19,6 +19,10 @@ pub struct Flex<Msg> {
     align: Align,
     padding: Insets,
     gap: f32,
+    /// Spacing **between the lines** of a wrapping container; `None` = `gap`.
+    run_gap: Option<f32>,
+    /// How those lines are distributed across the container.
+    align_content: AlignContent,
     wrap: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -45,6 +49,8 @@ impl<Msg> Flex<Msg> {
             align: Align::Stretch,
             padding: Insets::ZERO,
             gap: 0.0,
+            run_gap: None,
+            align_content: AlignContent::default(),
             wrap: false,
             children: Vec::new(),
         }
@@ -117,6 +123,31 @@ impl<Msg> Flex<Msg> {
         self
     }
 
+    /// Spacing **between the lines** of a wrapping container, where it differs from
+    /// [`gap`](Self::gap) — the reference's `runSpacing` to `gap`'s `spacing`.
+    ///
+    /// One number for both is the wrong shape often enough to be worth two: a wrap of
+    /// chips usually wants them close side by side and further apart line to line,
+    /// because the eye reads a line as a unit and needs the break to see where it ends.
+    ///
+    /// Untold, the lines are spaced by `gap`, so nothing that says nothing changes.
+    /// Silent on a container that does not wrap, which has only one line.
+    pub fn run_gap(mut self, gap: f32) -> Self {
+        self.run_gap = Some(gap);
+        self
+    }
+
+    /// How the **lines** of a wrapping container are distributed across it — the
+    /// reference's `runAlignment`.
+    ///
+    /// Not [`align`](Self::align), which places each child within its line. This places
+    /// the lines themselves, and it has an answer only when there is cross-axis room to
+    /// spare: three lines in a box exactly three lines tall sit where they sit.
+    pub fn align_lines(mut self, align: AlignContent) -> Self {
+        self.align_content = align;
+        self
+    }
+
     /// Turns **wrapping** on: children that overflow the main axis move to a new
     /// line, a responsive reflow. See also [`Wrap`] as a named entry point.
     pub fn wrap(mut self) -> Self {
@@ -152,6 +183,21 @@ impl<Msg: Clone> Widget<Msg> for Flex<Msg> {
             margin: Insets::ZERO,
             aspect_ratio: None,
             gap: self.gap,
+            // `run_gap` is spacing **between lines**, and which CSS axis that is
+            // depends on which way the container runs: the lines of a wrapping *row*
+            // stack downwards, the lines of a wrapping *column* stack sideways. Writing
+            // it straight into `row_gap` would silently do the wrong thing to half the
+            // wraps in the framework — and, worse, the right thing to the other half,
+            // so it would look correct wherever anyone happened to check.
+            row_gap: match self.direction {
+                FlexDirection::Row | FlexDirection::RowReverse => self.run_gap,
+                _ => None,
+            },
+            column_gap: match self.direction {
+                FlexDirection::Column | FlexDirection::ColumnReverse => self.run_gap,
+                _ => None,
+            },
+            align_content: self.align_content,
             flex_wrap: self.wrap,
             grid_columns: None,
             ..Default::default()
@@ -189,6 +235,105 @@ impl Wrap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::{build_ui, Container, Runtime, Size};
+    use frus_core::Color;
+
+    /// Four fixed boxes that wrap two per line in a 210-wide window.
+    fn wrapped(flex: Flex<()>) -> Vec<Rect> {
+        let boxes = (0..4).fold(flex, |f, _| {
+            f.child(
+                Container::<()>::new()
+                    .width(100.0)
+                    .height(20.0)
+                    .color(Color::WHITE),
+            )
+        });
+        let ui = build_ui(
+            &boxes,
+            Size::new(210.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } if rect.width == 100.0 => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The **lines** of a wrap can be spaced apart from the items on them — the
+    /// reference\'s `runSpacing` beside its `spacing`. This is measured from the laid-out
+    /// rectangles rather than read back off the style, because a field set and never
+    /// reaching the layout engine is exactly the failure worth catching.
+    #[test]
+    fn a_wraps_lines_take_their_own_spacing() {
+        let together = wrapped(Wrap::new::<()>().gap(4.0));
+        assert_eq!(together.len(), 4, "two lines of two");
+        // Line two starts one box height plus the gap below line one.
+        assert_eq!(together[2].y - together[0].y, 24.0);
+
+        let apart = wrapped(Wrap::new::<()>().gap(4.0).run_gap(30.0));
+        assert_eq!(apart[2].y - apart[0].y, 50.0, "the lines, not the items");
+        // The items on a line keep the plain gap.
+        assert_eq!(apart[1].x - apart[0].x, 104.0);
+    }
+
+    /// **Which axis the runs stack on depends on which way the container runs.** The
+    /// lines of a wrapping *row* stack downwards; the lines of a wrapping *column*
+    /// stack sideways. Writing `run_gap` straight into `row_gap` would be right for
+    /// half the wraps in the framework and silently wrong for the other half.
+    #[test]
+    fn the_run_gap_follows_the_direction() {
+        let row = Widget::<()>::style(&Flex::<()>::row().wrap().run_gap(30.0));
+        assert_eq!(row.row_gap, Some(30.0), "a row\'s lines stack downwards");
+        assert_eq!(row.column_gap, None);
+
+        let column = Widget::<()>::style(&Flex::<()>::column().wrap().run_gap(30.0));
+        assert_eq!(column.column_gap, Some(30.0), "a column\'s stack sideways");
+        assert_eq!(column.row_gap, None);
+    }
+
+    /// The lines can be packed rather than stretched. Flexbox stretches them by
+    /// default, which is what we keep — so a wrap that says nothing is unchanged.
+    #[test]
+    fn a_wraps_lines_can_be_packed() {
+        // The height is the point: a wrap sizes to its content, and lines with no
+        // cross-axis room to spare sit where they sit whatever they are told. This is
+        // what the first draft of the test got wrong — both alignments came out at
+        // y = 0 and the feature looked broken when the container was.
+        let tall = || Wrap::new::<()>().gap(4.0).height(300.0);
+        let stretched = wrapped(tall());
+        let packed = wrapped(tall().align_lines(AlignContent::End));
+        // Stretched, the two lines share the 300; packed at the far edge they sit at
+        // the bottom of it.
+        assert_eq!(stretched[0].y, 0.0);
+        assert!(
+            packed[0].y > 200.0,
+            "packed at the end, got {}",
+            packed[0].y
+        );
+        // And they keep their own height rather than filling the room between them.
+        assert_eq!(packed[2].y - packed[0].y, 24.0);
+        assert!(
+            stretched[2].y - stretched[0].y > 24.0,
+            "stretched, the lines spread: {}",
+            stretched[2].y - stretched[0].y
+        );
+    }
+
+    /// A container that says nothing is untouched: no run gap, lines stretched, the
+    /// same rectangles.
+    #[test]
+    fn a_wrap_that_says_nothing_is_what_it_was() {
+        let style = Widget::<()>::style(&Wrap::new::<()>().gap(8.0));
+        assert_eq!(style.row_gap, None);
+        assert_eq!(style.column_gap, None);
+        assert_eq!(style.align_content, AlignContent::Stretch);
+    }
 
     #[test]
     fn wrap_sets_flex_wrap_in_style() {
