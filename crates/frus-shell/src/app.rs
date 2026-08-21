@@ -1162,6 +1162,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         .and_then(|ui| ui.focus_next(self.runtime.input.focused, forward));
                     if next.is_some() {
                         self.runtime.input.focused = next;
+                        self.reveal_focus();
                         self.request_redraw();
                     }
                     return;
@@ -1274,6 +1275,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                             .and_then(|ui| ui.focus_directional(focused, direction))
                         {
                             self.runtime.input.focused = Some(next);
+                            self.reveal_focus();
                             self.request_redraw();
                         }
                         return;
@@ -3719,6 +3721,31 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Brings the focused widget **into view**, gliding every scroll region around it.
+    ///
+    /// Called wherever the keyboard moves the focus, and nowhere else. A click already
+    /// landed on something the eye could see, and a focus restored because an overlay
+    /// closed should put the page back where the reader left it, not chase whatever the
+    /// restoration happened to pick.
+    ///
+    /// The glide is a **target**, not a jump: the same easing a scrollbar drag or a page
+    /// request uses, so Tab through a form reads as one movement rather than a series of
+    /// cuts. Anything already moving the offset is let go of """ + D + u""" the keyboard has just
+    /// overruled it.
+    fn reveal_focus(&mut self) {
+        let Some(id) = self.runtime.input.focused else {
+            return;
+        };
+        let Some(moves) = self.ui.as_ref().map(|ui| ui.reveal(id, &self.runtime)) else {
+            return;
+        };
+        for (area, offset) in moves {
+            self.runtime.scroll_ballistic.remove(&area);
+            self.runtime.scroll_velocity.remove(&area);
+            self.runtime.scroll_target.insert(area, offset);
+        }
+    }
+
     /// Makes a multi-line field's retained scroll **follow the caret**: adjusts
     /// `runtime.scroll[id]` just enough to keep the caret visible, the way an editor
     /// re-centres as you type. A no-op for a field that does not scroll.
@@ -4066,6 +4093,7 @@ mod tests {
             page: None,
             reverse_x: false,
             reverse_y: false,
+            host: None,
         }
     }
 

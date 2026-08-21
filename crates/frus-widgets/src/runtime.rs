@@ -1399,6 +1399,7 @@ mod tests {
             page: None,
             reverse_x: false,
             reverse_y: false,
+            host: None,
         }
     }
 
@@ -1420,6 +1421,7 @@ mod tests {
             }),
             reverse_x: false,
             reverse_y: false,
+            host: None,
         }
     }
 

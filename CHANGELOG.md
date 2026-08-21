@@ -8,10 +8,55 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 385 so far, each documenting the objective, the alternatives
+> record — one per step, 386 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **Tab could not reach what was scrolled out of sight** (J386). A form taller than its
+  window had most of its fields **unreachable from the keyboard** — not hard to reach,
+  unreachable: the walk registered a focus stop inside the same guard as the click
+  targets, `visible.width > 0.0 && visible.height > 0.0`, so Tab walked the two and a
+  half fields on screen and wrapped round to the first.
+
+  That guard is right for a **click** — a tap on empty space must not land on something
+  scrolled away under it — and wrong for focus, which the reference keeps whether or not
+  any pixels of it are showing. The focus registration moved out of it, and only the
+  focus registration.
+
+  Not *always*, though. A widget clipped away by something that does **not** scroll
+  cannot be brought into view by anything, so focus would land where the eye can never
+  follow. The condition is about rescue rather than visibility: a stop counts when it is
+  visible, or when a scroll region encloses it and could reveal it. `scroll_host` is
+  threaded through the walk the way `refresh_host` already was.
+
+  `Focusable` carries **two** boxes now, because they are two questions: `rect`, clipped,
+  which the click test uses; and `bounds`, unclipped, which is where the widget actually
+  is. Keeping only the clipped one puts an off-screen stop in the top-left corner as far
+  as arrow navigation is concerned; keeping only the unclipped one lets a click on empty
+  space focus whatever is scrolled underneath.
+
+### Added
+
+- **A view that follows the focus** (J386). `Scrollable::reveal` gives the offset that
+  brings a box into the viewport and how far the content moves to get there — the
+  **least** movement that does it, since centring would make Tab through a form scroll on
+  every stop, including the ones already in the middle of the window. A target too big for
+  the viewport gets its leading edge, which falls out of asking about the near edge first
+  rather than being a case of its own. The reversed axis is not a second branch:
+  `offset_delta` already turns a movement of the content into a movement of the offset and
+  is its own inverse, so the same function turns the offset that was allowed back into the
+  movement it bought.
+
+  Regions nest — a sideways strip inside a page that scrolls down — and identities here
+  are hashes that carry no ancestry, so each region records its own `host` during the walk
+  and `Ui::reveal` follows the chain outwards, telling each one where the target **ended
+  up** rather than where it started. The shell calls it only where the keyboard moves the
+  focus: a click already landed on something the reader could see, and a focus restored
+  because an overlay closed should put the page back where it was left. It sets a scroll
+  **target**, so the view glides rather than cuts.
 
 ### Fixed
 

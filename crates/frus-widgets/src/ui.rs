@@ -95,6 +95,12 @@ pub struct Scrollable {
     /// way it moves, in either direction; only the arithmetic between that push and the
     /// number changes sign, in one place.
     pub reverse_y: bool,
+    /// The scroll region this one sits **inside**, when there is one.
+    ///
+    /// Scroll areas nest — a sideways strip inside a page that scrolls down — and
+    /// bringing something into view means moving every one of them, from the nearest
+    /// outwards. Identities are hashes and carry no ancestry, so the walk records it.
+    pub host: Option<WidgetId>,
 }
 
 impl Scrollable {
@@ -167,6 +173,56 @@ impl Scrollable {
     /// The edge an axis **starts** at, which is where a pull-to-refresh listens.
     pub fn start_edge(&self, vertical: bool) -> crate::overscroll::GlowEdge {
         self.refused_edge(vertical, -1.0)
+    }
+
+    /// The offset that brings `target` fully inside this viewport, and how far the
+    /// content moves to get there.
+    ///
+    /// The **least** movement that does it: a box already in view does not budge, one
+    /// off the near edge comes to that edge and no further. Centring it instead would
+    /// make Tab through a form scroll on every stop, which is motion nobody asked for.
+    ///
+    /// A target **too big** for the viewport gets its leading edge aligned, which falls
+    /// out of asking about that edge first: a tall field half off the top comes down to
+    /// the top rather than up to the bottom, because its start is what you read.
+    ///
+    /// Both halves are returned because they are not the same number. The offset is
+    /// clamped to what this region can actually do, and an outer region has to be told
+    /// how far the target really moved — not how far it was asked to.
+    pub fn reveal(&self, target: Rect, current: (f32, f32)) -> ((f32, f32), (f32, f32)) {
+        let shift = |lo: f32, hi: f32, near: f32, far: f32| {
+            if near < lo {
+                lo - near
+            } else if far > hi {
+                hi - far
+            } else {
+                0.0
+            }
+        };
+        let wanted = (
+            shift(
+                self.viewport.x,
+                self.viewport.x + self.viewport.width,
+                target.x,
+                target.x + target.width,
+            ),
+            shift(
+                self.viewport.y,
+                self.viewport.y + self.viewport.height,
+                target.y,
+                target.y + target.height,
+            ),
+        );
+        // `offset_delta` turns a movement of the content into a movement of the offset,
+        // and it is its own inverse — it negates or it does not — so the same function
+        // turns the offset that was allowed back into the content movement it buys.
+        let delta = self.offset_delta(wanted);
+        let next = (
+            (current.0 + delta.0).clamp(0.0, self.max_x),
+            (current.1 + delta.1).clamp(0.0, self.max_y),
+        );
+        let applied = (next.0 - current.0, next.1 - current.1);
+        (next, self.offset_delta(applied))
     }
 
     /// Where the content's leading edge sits, relative to the viewport's, at `offset`.
@@ -379,8 +435,17 @@ struct Scope<Msg> {
 pub struct Focusable {
     /// The widget's identity.
     pub id: WidgetId,
-    /// Its visible box this frame.
+    /// Its **visible** box this frame: the box it was given, clipped by whatever
+    /// encloses it. Empty when it is scrolled out of sight, which is what a click test
+    /// wants — a tap on empty space must not land on something nobody can see.
     pub rect: Rect,
+    /// Its box this frame, **unclipped**. What the geometry is really about: where the
+    /// widget is, whether or not any of it is on screen. Arrow navigation places
+    /// candidates by this, and [`Ui::reveal`] works out what to scroll from it.
+    pub bounds: Rect,
+    /// The nearest enclosing scroll region, when there is one. What could bring this
+    /// stop into view, and the first link of the chain [`Ui::reveal`] walks.
+    pub scroll: Option<WidgetId>,
     /// Focusable by a click, but **passed over by Tab** — the reference's
     /// `ExcludeFocusTraversal`. The two are separate questions.
     pub skip: bool,
@@ -787,6 +852,42 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .find(|area| area.id == id)
             .map(|area| area.viewport)
+    }
+
+    /// The scroll offsets that would bring `id` **into view**, nearest region first.
+    ///
+    /// Empty when it is already in view, when the frame does not contain it, or when
+    /// nothing around it scrolls. Nobody has to check first: an empty answer is the
+    /// answer that nothing needs to move.
+    ///
+    /// Nested regions are walked from the inside out, and each is told where the target
+    /// **ended up** rather than where it started. A sideways strip inside a page that
+    /// scrolls down moves the target across, and the page then decides how far down it
+    /// still is; asking both about the original box would have them fight over the same
+    /// pixels and land somewhere neither wanted.
+    pub fn reveal(&self, id: WidgetId, runtime: &crate::Runtime) -> Vec<(WidgetId, (f32, f32))> {
+        let Some(stop) = self.focusables.iter().find(|f| f.id == id) else {
+            return Vec::new();
+        };
+        let mut target = stop.bounds;
+        let mut host = stop.scroll;
+        let mut moves = Vec::new();
+        // Regions nest a handful deep at most. The bound is a backstop against a chain
+        // that loops, which cannot happen and would hang the frame if it did.
+        for _ in 0..16 {
+            let Some(hid) = host else { break };
+            let Some(area) = self.scrollables.iter().find(|area| area.id == hid) else {
+                break;
+            };
+            let current = runtime.scroll.get(&hid).copied().unwrap_or((0.0, 0.0));
+            let (offset, shift) = area.reveal(target, current);
+            if shift.0 != 0.0 || shift.1 != 0.0 {
+                target = target.translate(shift.0, shift.1);
+                moves.push((hid, offset));
+            }
+            host = area.host;
+        }
+        moves
     }
 
     /// Every scrollable area of the frame — geometry, bounds and physics — which is
@@ -1668,6 +1769,11 @@ struct Builder<'a, Msg> {
     /// its physics refuses. Saved and restored around the subtree, so sibling areas do
     /// not inherit one another's.
     refresh_host: Option<WidgetId>,
+    /// The scroll region currently being walked, if any: the nearest one enclosing
+    /// whatever the walk is looking at. Focus stops record it so the shell can reveal
+    /// them, and nested regions record one another. Saved and restored around the
+    /// subtree, like [`Builder::refresh_host`].
+    scroll_host: Option<WidgetId>,
     /// Which screen of a route transition the walk is inside (`0` = leaving, `1` =
     /// entering); `None` outside one. Recorded on each hero so the two sides of a
     /// flight are told apart rather than guessed from paint order.
@@ -2075,6 +2181,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if matrix.is_axis_aligned() {
             for f in &mut self.focusables[base.focusables..] {
                 f.rect = matrix.apply_rect(f.rect);
+                f.bounds = matrix.apply_rect(f.bounds);
             }
             for area in &mut self.scrollables[base.scrollables..] {
                 area.viewport = matrix.apply_rect(area.viewport);
@@ -2562,6 +2669,29 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
 
         let visible = draw_rect.intersect(clip);
+        // A focus stop clipped entirely away by a **scroll** is still a focus stop.
+        // Tab has to reach the field below the fold — the shell brings it into view
+        // when it lands there — and registering only what the eye can see is how a long
+        // form came to have half its fields unreachable from the keyboard. Clipped away
+        // by anything else it is gone: nothing could reveal it, so focus would land
+        // where the eye cannot follow.
+        //
+        // Only the focus registry does this. A click still needs the visible box, or a
+        // tap on empty space would land on something scrolled out of sight.
+        if widget.focusable()
+            && !self.focus_excluded
+            && (self.scroll_host.is_some() || (visible.width > 0.0 && visible.height > 0.0))
+        {
+            self.focusables.push(Focusable {
+                id,
+                rect: visible,
+                bounds: draw_rect,
+                scroll: self.scroll_host,
+                skip: self.focus_skipped || widget.focus_skip_traversal(),
+                order: widget.focus_order().or(self.focus_order),
+                group: self.focus_group,
+            });
+        }
         if visible.width > 0.0 && visible.height > 0.0 {
             if let Some(msg) = widget.on_click() {
                 self.hits.push(Hit {
@@ -2577,15 +2707,6 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     rect: visible,
                     msg: Some(msg),
                     xform: None,
-                });
-            }
-            if widget.focusable() && !self.focus_excluded {
-                self.focusables.push(Focusable {
-                    id,
-                    rect: visible,
-                    skip: self.focus_skipped || widget.focus_skip_traversal(),
-                    order: widget.focus_order().or(self.focus_order),
-                    group: self.focus_group,
                 });
             }
             if widget.draggable() {
@@ -2626,6 +2747,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             page: None,
                             reverse_x: false,
                             reverse_y: false,
+                            host: self.scroll_host,
                         });
                         let offset_y = self
                             .runtime
@@ -2876,6 +2998,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 page: None,
                 reverse_x: reverse.0,
                 reverse_y: reverse.1,
+                host: self.scroll_host,
             });
 
             let origin = Scrollable {
@@ -2888,6 +3011,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 page: None,
                 reverse_x: reverse.0,
                 reverse_y: reverse.1,
+                host: None,
             }
             .content_origin((offset_x, offset_y), scrolled);
             let content_translation = (
@@ -2895,6 +3019,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 viewport.y + origin.1 + pad.top,
             );
             let mut content_index = 0;
+            let outer = self.scroll_host.replace(id);
             self.walk(
                 content,
                 child_id(id, 0, content),
@@ -2903,6 +3028,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 &content_rects,
                 &mut content_index,
             );
+            self.scroll_host = outer;
 
             // The overscroll glow, then the scrollbars, over the content (not
             // clipped by it).
@@ -2958,8 +3084,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 page: None,
                 reverse_x: across && reverse,
                 reverse_y: !across && reverse,
+                host: self.scroll_host,
             });
 
+            let outer = self.scroll_host.replace(id);
             if vlist.item_extent > 0.0 && vlist.count > 0 {
                 // The **window** is the same arithmetic either way, and that is not a
                 // coincidence: a reversed list counts its indices from the end, and a
@@ -3014,6 +3142,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 }
             }
 
+            self.scroll_host = outer;
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
             if max > 0.0 {
@@ -3067,8 +3196,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 page: Some(snap),
                 reverse_x: snap.horizontal && reverse,
                 reverse_y: !snap.horizontal && reverse,
+                host: self.scroll_host,
             });
 
+            let outer = self.scroll_host.replace(id);
             if pages.count > 0 {
                 // The window is the same arithmetic whichever end index 0 is at: a
                 // reversed view counts its indices from the far end and a reversed
@@ -3117,6 +3248,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 }
             }
 
+            self.scroll_host = outer;
             self.scene.set_clip(clip);
             self.add_overscroll_glow(id, viewport);
         } else if let Some(overflow) = widget.overflow_box() {
@@ -3555,6 +3687,29 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         self.draw_focus_ring(draw_rect, &status, widget);
 
         let visible = draw_rect.intersect(clip);
+        // A focus stop clipped entirely away by a **scroll** is still a focus stop.
+        // Tab has to reach the field below the fold — the shell brings it into view
+        // when it lands there — and registering only what the eye can see is how a long
+        // form came to have half its fields unreachable from the keyboard. Clipped away
+        // by anything else it is gone: nothing could reveal it, so focus would land
+        // where the eye cannot follow.
+        //
+        // Only the focus registry does this. A click still needs the visible box, or a
+        // tap on empty space would land on something scrolled out of sight.
+        if widget.focusable()
+            && !self.focus_excluded
+            && (self.scroll_host.is_some() || (visible.width > 0.0 && visible.height > 0.0))
+        {
+            self.focusables.push(Focusable {
+                id,
+                rect: visible,
+                bounds: draw_rect,
+                scroll: self.scroll_host,
+                skip: self.focus_skipped || widget.focus_skip_traversal(),
+                order: widget.focus_order().or(self.focus_order),
+                group: self.focus_group,
+            });
+        }
         if visible.width > 0.0 && visible.height > 0.0 {
             if let Some(msg) = widget.on_click() {
                 self.hits.push(Hit {
@@ -3570,15 +3725,6 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     rect: visible,
                     msg: Some(msg),
                     xform: None,
-                });
-            }
-            if widget.focusable() && !self.focus_excluded {
-                self.focusables.push(Focusable {
-                    id,
-                    rect: visible,
-                    skip: self.focus_skipped || widget.focus_skip_traversal(),
-                    order: widget.focus_order().or(self.focus_order),
-                    group: self.focus_group,
                 });
             }
             if widget.draggable() {
@@ -3934,6 +4080,7 @@ fn build_ui_impl<'a, Msg: Clone + 'static>(
         inspector: inspect.then(Vec::new),
         depth: 0,
         refresh_host: None,
+        scroll_host: None,
         hero_screen: None,
         heroes: Vec::new(),
         refreshes: Vec::new(),
@@ -4751,6 +4898,191 @@ mod tests {
         assert_eq!(Widget::<Msg>::cursor_at(&button, 10.0, 5.0, 200.0, 0), None);
         let input = TextField::<Msg>::new("hi").on_input(Msg::Edited);
         assert!(Widget::<Msg>::cursor_at(&input, 10.0, 5.0, 200.0, 0).is_some());
+    }
+
+    /// A form taller than its window: six buttons of 60 px in a 150 px scroll.
+    fn long_form() -> SingleChildScrollView<Msg> {
+        let mut column = Flex::<Msg>::column();
+        for i in 0..6 {
+            column = column.child(
+                Button::new(format!("field {i}"))
+                    .on_press(Msg::A)
+                    .height(60.0),
+            );
+        }
+        SingleChildScrollView::new()
+            .width(200.0)
+            .height(150.0)
+            .child(column)
+    }
+
+    fn form_ui(runtime: &Runtime) -> Ui<Msg> {
+        build_ui(
+            &long_form(),
+            Size::new(200.0, 150.0),
+            runtime,
+            &Theme::default(),
+        )
+    }
+
+    /// **Every** field is a focus stop, not only the two and a half on screen.
+    ///
+    /// Registering what the eye can see is how a long form came to have most of its
+    /// fields unreachable from the keyboard: Tab walked the visible ones and wrapped.
+    #[test]
+    fn tab_reaches_the_fields_below_the_fold() {
+        let ui = form_ui(&Runtime::default());
+        assert_eq!(ui.focusables.len(), 6, "all six, not the visible ones");
+        // And the traversal is in tree order, so Tab walks down the form.
+        let ids: Vec<_> = ui.focusables.iter().map(|f| f.id).collect();
+        assert_eq!(ui.focus_next(Some(ids[2]), true), Some(ids[3]));
+    }
+
+    /// A stop clipped away by a scroll keeps its **real** box, and an empty visible one.
+    /// The two are different questions and the registry answers both.
+    #[test]
+    fn a_stop_out_of_sight_keeps_its_geometry() {
+        let ui = form_ui(&Runtime::default());
+        let fifth = ui.focusables[5];
+        assert!((fifth.bounds.y - 300.0).abs() < 0.5, "{:?}", fifth.bounds);
+        assert_eq!(fifth.rect.height, 0.0, "none of it is on screen");
+        assert!(fifth.scroll.is_some(), "something around it scrolls");
+    }
+
+    /// A click still lands only on what can be seen. The unclipped box of a field
+    /// scrolled out of sight overlaps the window, and a tap there must not focus it.
+    #[test]
+    fn a_click_still_only_reaches_what_is_visible() {
+        let ui = form_ui(&Runtime::default());
+        // The second field, in the middle of its own visible box.
+        let second = ui.focusables[1];
+        let inside = Point::new(
+            second.rect.x + second.rect.width / 2.0,
+            second.rect.y + second.rect.height / 2.0,
+        );
+        assert_eq!(ui.focus_hit(inside).map(|(id, _)| id), Some(second.id));
+        // The sixth field's **real** box overlaps nothing on screen, and a tap where it
+        // would be if the form were not scrolled hits nothing at all.
+        let sixth = ui.focusables[5];
+        let past = Point::new(
+            sixth.bounds.x + sixth.bounds.width / 2.0,
+            sixth.bounds.y + sixth.bounds.height / 2.0,
+        );
+        assert!(past.y > 150.0, "past the fold: {past:?}");
+        assert_eq!(ui.focus_hit(past), None);
+    }
+
+    /// Focus lands below the fold and the view follows: the least movement that brings
+    /// the field's foot to the window's.
+    #[test]
+    fn revealing_a_stop_below_the_fold_scrolls_to_it() {
+        let runtime = Runtime::default();
+        let ui = form_ui(&runtime);
+        let area = ui.scroll_regions()[0];
+        let fifth = ui.focusables[5].id;
+        let moves = ui.reveal(fifth, &runtime);
+        // Field 5 sits at 300..360 and the window is 150 tall: its foot reaches the
+        // window's foot at 360 - 150 = 210.
+        assert_eq!(moves, vec![(area.id, (0.0, 210.0))]);
+    }
+
+    /// Already in view, nothing moves """ + D + u""" the answer is the empty list rather than a
+    /// zero, so no caller has to ask twice.
+    #[test]
+    fn revealing_something_already_in_view_moves_nothing() {
+        let runtime = Runtime::default();
+        let ui = form_ui(&runtime);
+        assert!(ui.reveal(ui.focusables[0].id, &runtime).is_empty());
+        assert!(ui.reveal(ui.focusables[1].id, &runtime).is_empty());
+        // And a stop the frame does not contain at all is not an error.
+        assert!(ui.reveal(WidgetId::from_u64(7), &runtime).is_empty());
+    }
+
+    /// Coming back **up** the form scrolls the other way, and only as far as it must.
+    #[test]
+    fn revealing_a_stop_above_the_fold_scrolls_back() {
+        let mut runtime = Runtime::default();
+        let area_id = form_ui(&runtime).scroll_regions()[0].id;
+        runtime.scroll.insert(area_id, (0.0, 210.0));
+        let ui = form_ui(&runtime);
+        let first = ui.focusables[0].id;
+        // Field 0 sits at 0..60: its head reaches the window's head at offset 0.
+        assert_eq!(ui.reveal(first, &runtime), vec![(area_id, (0.0, 0.0))]);
+        // At offset 210 the window shows 210..360, so field 4 (240..300) is wholly in
+        // it and does not move. Field 3 (180..240) hangs over the top edge and would.
+        assert!(ui.reveal(ui.focusables[4].id, &runtime).is_empty());
+        assert!(!ui.reveal(ui.focusables[3].id, &runtime).is_empty());
+    }
+
+    /// The arithmetic on its own: the least movement, the leading edge for anything too
+    /// big to fit, and the clamp at the ends of the travel.
+    #[test]
+    fn the_reveal_moves_as_little_as_it_can() {
+        let area = Scrollable {
+            id: WidgetId::ROOT,
+            viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
+            max_x: 0.0,
+            max_y: 400.0,
+            physics: None,
+            refresh: None,
+            page: None,
+            reverse_x: false,
+            reverse_y: false,
+            host: None,
+        };
+        // Inside: nothing.
+        assert_eq!(
+            area.reveal(Rect::new(0.0, 10.0, 50.0, 20.0), (0.0, 0.0)).1,
+            (0.0, 0.0)
+        );
+        // Below: its foot comes to the window's foot, and no further.
+        assert_eq!(
+            area.reveal(Rect::new(0.0, 140.0, 50.0, 20.0), (0.0, 0.0)).0,
+            (0.0, 60.0)
+        );
+        // Above: its head comes to the window's head.
+        assert_eq!(
+            area.reveal(Rect::new(0.0, -30.0, 50.0, 20.0), (0.0, 50.0))
+                .0,
+            (0.0, 20.0)
+        );
+        // Taller than the window: the **start** edge wins, because that is what is read.
+        assert_eq!(
+            area.reveal(Rect::new(0.0, -10.0, 50.0, 300.0), (0.0, 40.0))
+                .0,
+            (0.0, 30.0)
+        );
+        // And the travel is a wall: an offset past the end is not asked for.
+        assert_eq!(
+            area.reveal(Rect::new(0.0, 900.0, 50.0, 20.0), (0.0, 0.0)).0,
+            (0.0, 400.0)
+        );
+    }
+
+    /// A reversed axis numbers its offsets from the far end, so the same movement of the
+    /// content is the opposite movement of the offset. One function knows that, and the
+    /// reveal asks it rather than keeping a second opinion.
+    #[test]
+    fn the_reveal_follows_a_reversed_axis() {
+        let area = Scrollable {
+            id: WidgetId::ROOT,
+            viewport: Rect::new(0.0, 0.0, 100.0, 100.0),
+            max_x: 0.0,
+            max_y: 400.0,
+            physics: None,
+            refresh: None,
+            page: None,
+            reverse_x: false,
+            reverse_y: true,
+            host: None,
+        };
+        // A box below the window: the content must move **up** by 60 either way. On a
+        // reversed axis a rising offset pushes the content down (`content_origin` is
+        // `viewport - content + offset` there), so the offset comes **down** by 60 to do
+        // what a plain axis would need it to go up by.
+        let (offset, shift) = area.reveal(Rect::new(0.0, 140.0, 50.0, 20.0), (0.0, 100.0));
+        assert_eq!(shift, (0.0, -60.0));
+        assert_eq!(offset, (0.0, 40.0));
     }
 
     #[test]
