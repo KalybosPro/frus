@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 378 so far, each documenting the objective, the alternatives
+> record — one per step, 379 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -71,6 +71,56 @@ any release may break.
   no longer identifier, both of which 367 had to unpick by hand. The historical record
   keeps the old name — milestone notes and the CHANGELOG and ROADMAP entries that used
   it describe what was true when they were written.
+
+### Added
+
+- **A drawer nobody could recolour** (J379). `DrawerTheme` had exactly one field,
+  `width`. Everything else the panel painted was written into `paint` and stayed there:
+  the fill was the theme's surface, the hairline was `outline_variant` at 1 px, the
+  corners were square, and the scrim behind a modal drawer was the `scrim` role at a fixed
+  half opacity, painted centrally in the walk where no drawer could reach it. The same
+  breach milestone 368 found on `ExpansionTile` and 378 on `Badge` — and the first of
+  the three where the hardcoding was hiding a bug.
+
+  It gains `background_color`, `border_color`, `border_width`, `radius`, `elevation` and
+  `scrim_color`, each resolved instance → theme → the scheme's role, plus the same six
+  on `DrawerTheme`.
+
+  **The shape.** The inner edge — the one facing the content — is rounded by
+  `DRAWER_RADIUS`, and the outer one stays square against the window, which is what the
+  reference's own shape resolves to. `BorderRadius` could not express it: there was `top`
+  and `bottom` for the horizontal edges and nothing for the vertical pair, so `left` and
+  `right` complete the set.
+
+  `elevation` casts its shadow **sideways**, along the inner edge. A drawer is as tall as
+  the window, and a shadow dropped below it falls outside the window and is never seen.
+
+  `overlay_scrim(&theme)` is the new `Widget` hook behind `scrim_color`. It takes the
+  theme rather than nothing, because a drawer's untold scrim is a `DrawerTheme` entry and
+  a hook without one could only ever read the instance. The alpha is the caller's — a
+  scrim is the one colour whose *transparency* is the point — so an opaque value hides
+  the body entirely and `Color::TRANSPARENT` is an overlay that darkens nothing. The
+  progress still multiplies it, so the fade stays with the slide.
+
+### Fixed
+
+- **A drawer ruled its hairline down the window's own edge in Arabic** (J379). The panel
+  drew on the side it was *asked* for — `border_left` came straight from
+  `Drawer::right`, the **logical** side — but a leading drawer is on the left of the
+  screen in English and on the **right** in Arabic, since the walk mirrors the whole frame
+  and the modal placement flips with it. So in RTL the panel landed against the right edge
+  of the window and ruled its line down that same edge, leaving the edge that actually
+  faces the content bare. The screen side is worked out in `paint` now, from the direction
+  in force; the rounding needed the identical answer, which is why the bug was worth
+  finding before the shape went in rather than after.
+
+- **A `Drawer` builder called after `body()` did nothing, silently** (J379). `body()`
+  finalised the drawer, wrapping the panel there and then, so anything set afterwards
+  changed a field that was never read again — `width` had carried this since it was
+  added, and the six builders above would each have inherited it. The two pieces the
+  caller hands over sit in `Cell`s now and the tree is assembled once, the first time the
+  walk asks for the children. Order stops mattering, which is what every other widget in
+  the catalogue already promised.
 
 ### Added
 

@@ -364,6 +364,13 @@ macro_rules! forward_transparent {
                 self.inner.overlay_dismiss()
             }
 
+            fn overlay_scrim(
+                &self,
+                theme: &$crate::theme::Theme,
+            ) -> Option<frus_core::Color> {
+                self.inner.overlay_scrim(theme)
+            }
+
             fn overlay_traps_focus(&self) -> bool {
                 self.inner.overlay_traps_focus()
             }

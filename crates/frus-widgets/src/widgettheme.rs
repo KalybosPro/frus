@@ -274,10 +274,28 @@ pub struct DividerTheme {
 }
 
 /// Defaults for [`Drawer`](crate::Drawer).
+///
+/// The rounding is on the **inner** edge only — the one that meets the content — and
+/// the outer edge stays square against the window it is docked to, which is what the
+/// reference's own shape resolves to. Which edge that is follows the direction: the
+/// panel does not know which side of the screen it landed on until it paints.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DrawerTheme {
     /// The panel's width.
     pub width: Option<f32>,
+    /// The panel's fill.
+    pub background_color: Option<Color>,
+    /// The hairline on the panel's inner edge.
+    pub border_color: Option<Color>,
+    /// That hairline's thickness; `0.0` removes it.
+    pub border_width: Option<f32>,
+    /// The rounding of the **inner** edge's two corners — the edge that meets the
+    /// content. The outer one stays square against the window.
+    pub radius: Option<f32>,
+    /// How far off the surface the panel sits. `0.0` casts no shadow.
+    pub elevation: Option<f32>,
+    /// The scrim behind a modal panel, **alpha included**.
+    pub scrim_color: Option<Color>,
 }
 
 /// Defaults for [`SegmentedButton`](crate::SegmentedButton).

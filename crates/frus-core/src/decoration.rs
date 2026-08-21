@@ -55,6 +55,31 @@ impl BorderRadius {
         }
     }
 
+    /// Only the **left** corners rounded.
+    pub const fn left(radius: f32) -> Self {
+        Self {
+            top_left: radius,
+            top_right: 0.0,
+            bottom_right: 0.0,
+            bottom_left: radius,
+        }
+    }
+
+    /// Only the **right** corners rounded.
+    ///
+    /// With [`left`](Self::left) this completes the set: a shape rounded on one
+    /// **vertical** edge is what a side panel wants — square where it meets the window,
+    /// round where it meets the content — and until now only the horizontal pair
+    /// ([`top`](Self::top), [`bottom`](Self::bottom)) existed.
+    pub const fn right(radius: f32) -> Self {
+        Self {
+            top_left: 0.0,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: 0.0,
+        }
+    }
+
     /// Radii **clamped at zero** — a negative radius is meaningless when painting.
     pub fn clamped(self) -> Self {
         Self {

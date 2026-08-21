@@ -472,6 +472,18 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// The colour of the scrim behind this widget's **modal** overlay, when it wants one
+    /// in particular. `None` — the usual answer — leaves it to the scheme's `scrim`
+    /// role at the framework's own opacity.
+    ///
+    /// The alpha is the caller's: a scrim is the one colour whose *transparency* is the
+    /// whole point, so a fully opaque value here means an opaque scrim, and
+    /// [`Color::TRANSPARENT`](frus_core::Color::TRANSPARENT) means none at all — an
+    /// overlay that darkens nothing, which the reference reaches by the same route.
+    fn overlay_scrim(&self, _theme: &crate::theme::Theme) -> Option<frus_core::Color> {
+        None
+    }
+
     /// If `true`, this widget's **anchored** overlay (a menu…) **traps focus**: Tab and the
     /// arrow keys cycle within its focusables while it is open (the keyboard pattern of menus).
     /// Modal (scrimmed) overlays already trap by default; a tooltip or an autocomplete list
@@ -1122,6 +1134,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn overlay_dismiss(&self) -> Option<Msg> {
         (**self).overlay_dismiss()
+    }
+    fn overlay_scrim(&self, theme: &crate::theme::Theme) -> Option<frus_core::Color> {
+        (**self).overlay_scrim(theme)
     }
     fn overlay_traps_focus(&self) -> bool {
         (**self).overlay_traps_focus()

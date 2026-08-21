@@ -311,6 +311,10 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.overlay_dismiss())
     }
 
+    fn overlay_scrim(&self, theme: &Theme) -> Option<frus_core::Color> {
+        self.inner.as_ref().and_then(|w| w.overlay_scrim(theme))
+    }
+
     fn anim_target(&self) -> Option<f32> {
         self.inner.as_ref().and_then(|w| w.anim_target())
     }

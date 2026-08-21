@@ -180,7 +180,7 @@ pub use dismiss::{
 };
 pub use divider::{Divider, DIVIDER_SPACE, DIVIDER_THICKNESS};
 pub use dragdrop::{DragSource, DragTarget, Draggable, DropZone};
-pub use drawer::{Drawer, DRAWER_WIDTH};
+pub use drawer::{Drawer, DRAWER_RADIUS, DRAWER_WIDTH};
 pub use dropdown::DropdownButton;
 pub use dsl::{button, expanded, flexible, keyed, spacer, text};
 pub use expanded::{Expanded, FlexFit, Flexible};

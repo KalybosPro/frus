@@ -1588,14 +1588,16 @@ pub(crate) fn natural_size<Msg>(
 }
 
 /// A deferred overlay: `(content, id, the anchor's bounds, placement, dismissal,
-/// progress 0..=1, whether it takes the pointer, the theme it was declared under)`. The
-/// progress animates the appearance — a drawer sliding in, a scrim fading — and is
-/// `1.0` for overlays that are not animated.
+/// progress 0..=1, whether it takes the pointer, the scrim's colour, the theme it was
+/// declared under)`. The progress animates the appearance — a drawer sliding in, a
+/// scrim fading — and is `1.0` for overlays that are not animated.
 ///
 /// The **theme travels with it** because an overlay is painted long after the walk has
 /// left the node that declared it: a dialog opened from inside a [`crate::Themed`]
 /// subtree would otherwise come out in the root's theme, which is the surprise the
-/// reference had to grow a whole mechanism to avoid.
+/// reference had to grow a whole mechanism to avoid. The scrim's colour travels for the
+/// same reason — by the time it is painted, the widget that asked for it is long
+/// behind.
 type Overlay<'a, Msg> = (
     &'a dyn Widget<Msg>,
     WidgetId,
@@ -1604,6 +1606,7 @@ type Overlay<'a, Msg> = (
     Option<Msg>,
     f32,
     bool,
+    Option<frus_core::Color>,
     Theme,
 );
 
@@ -3348,6 +3351,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     widget.overlay_dismiss(),
                     progress,
                     widget.overlay_traps_focus(),
+                    widget.overlay_scrim(&self.theme),
                     self.theme,
                 ));
             }
@@ -3620,7 +3624,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// everything (their clickable areas win). May spawn further overlays (nested portals).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement, dismiss, progress, traps, theme)) =
+        while let Some((content, oid, anchor, placement, dismiss, progress, traps, scrim, theme)) =
             self.overlays.pop()
         {
             // The theme this overlay was declared under, for the whole of its layout and
@@ -3730,12 +3734,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 placement,
                 Placement::Center | Placement::Left | Placement::Right | Placement::Bottom
             ) {
-                // The scrim behind the modal / the drawer (the `scrim` role), modulated by the
-                // progress (a fade synchronised with the slide).
+                // The scrim behind the modal / the drawer, modulated by the progress (a fade
+                // synchronised with the slide). The colour is the overlay's own when it asked
+                // for one — alpha included, since a scrim's transparency *is* the colour —
+                // and the `scrim` role at half opacity otherwise.
+                let base = scrim.unwrap_or_else(|| self.theme.scheme.scrim.with_alpha(0.5));
                 self.scene.set_owner(0);
                 self.scene.set_clip(window);
                 self.scene
-                    .fill_rect(window, self.theme.scheme.scrim.with_alpha(0.5 * progress));
+                    .fill_rect(window, base.with_alpha(base.a * progress));
             }
 
             // Dismissal on a click **outside** the content (a modal, a menu…): a full-screen

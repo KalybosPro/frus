@@ -17,8 +17,28 @@
 //!     .panel(nav_list)   // the drawer's content
 //!     .body(main_screen) // the background content (always visible)
 //! ```
+//!
+//! Everything it paints is a **default**, not a rule: the fill, the hairline on the
+//! inner edge and its thickness, the rounding of that edge, how far off the surface the
+//! panel sits, and the scrim behind a modal one — each resolved instance, then
+//! [`DrawerTheme`](crate::widgettheme::DrawerTheme), then the scheme's role.
+//!
+//! ```ignore
+//! Drawer::new(open)
+//!     .background_color(theme.scheme.surface_container)
+//!     .border_width(0.0)          // told apart by colour, not by a rule
+//!     .elevation(2.0)             // …or by a shadow along its inner edge
+//!     .radius(0.0)                // …or squared off entirely
+//!     .scrim_color(Color::TRANSPARENT) // an overlay that darkens nothing
+//! ```
+//!
+//! Which edge is the *inner* one is decided when the panel paints, not when it is
+//! built: a leading drawer sits on the left of the screen in English and on the right in
+//! Arabic, and the rounding and the hairline follow it across.
 
-use frus_core::{Rect, Scene};
+use std::cell::{Cell, OnceCell};
+
+use frus_core::{BorderRadius, Color, Rect, Scene, TextDirection};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::flex::Flex;
@@ -33,14 +53,39 @@ use crate::widget::Widget;
 /// It is a default, not a constraint: see [`Drawer::width`].
 pub const DRAWER_WIDTH: f32 = 304.0;
 
-/// The drawer's inner panel: full height, a themed background, a hairline on the
-/// **inner** edge (right for a left drawer, left for a right drawer).
+/// The rounding of the panel's **inner** edge — the reference's figure, and the shape
+/// its own source calls *shown in the spec*. The outer edge stays square: a panel docked
+/// against the window rounds the corners that face the content, not the ones that face
+/// nothing.
+///
+/// A default, not a constraint: see [`Drawer::radius`].
+pub const DRAWER_RADIUS: f32 = 16.0;
+
+/// The drawer's inner panel: full height, a themed background, and its **inner** edge
+/// rounded and ruled — the edge that faces the content.
+///
+/// Which edge that is, the panel does not know until it paints. `end` says which side it
+/// was docked to in **logical** terms (leading or trailing), and the direction in force
+/// turns that into a side of the screen: a leading drawer is on the left in LTR and on
+/// the right in RTL, and its inner edge follows.
 struct DrawerPanel<Msg> {
     children: Vec<Box<dyn Widget<Msg>>>,
-    /// Draws the hairline on the left edge (a drawer docked to the right).
-    border_left: bool,
+    /// Docked to the **trailing** edge ([`Drawer::right`]) rather than the leading one.
+    end: bool,
     /// The panel's width; `None` = the theme's, then [`DRAWER_WIDTH`].
     width: Option<f32>,
+    style: PanelStyle,
+}
+
+/// Everything the panel paints that a caller can name, gathered so [`Drawer`]'s builders
+/// have one place to put it. Every field is `None` for *ask the theme, then the default*.
+#[derive(Clone, Copy, Default)]
+struct PanelStyle {
+    background_color: Option<Color>,
+    border_color: Option<Color>,
+    border_width: Option<f32>,
+    radius: Option<f32>,
+    elevation: Option<f32>,
 }
 
 impl<Msg> DrawerPanel<Msg> {
@@ -49,6 +94,27 @@ impl<Msg> DrawerPanel<Msg> {
         self.width
             .or_else(|| theme.and_then(|t| t.widgets.drawer.width))
             .unwrap_or(DRAWER_WIDTH)
+    }
+
+    /// Whether the panel has landed on the **right** of the screen.
+    ///
+    /// The trailing edge is the right one in LTR and the left one in RTL, and a panel
+    /// that guessed would rule its hairline down the window's own edge in Arabic.
+    fn docked_right(&self, theme: &Theme) -> bool {
+        self.end != (theme.direction == TextDirection::Rtl)
+    }
+
+    /// The rounding, on the two corners of the inner edge only.
+    fn radius(&self, theme: &Theme) -> BorderRadius {
+        let r = self
+            .style
+            .radius
+            .or(theme.widgets.drawer.radius)
+            .unwrap_or(DRAWER_RADIUS);
+        match self.docked_right(theme) {
+            true => BorderRadius::left(r),
+            false => BorderRadius::right(r),
+        }
     }
 }
 
@@ -82,17 +148,69 @@ impl<Msg: Clone> Widget<Msg> for DrawerPanel<Msg> {
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
-        // The drawer's opaque surface + a thin hairline on the inner edge.
-        scene.fill_rect(bounds, theme.surface.fade(o));
-        let x = if self.border_left {
-            bounds.x
-        } else {
-            bounds.x + bounds.width - 1.0
-        };
-        scene.fill_rect(
-            Rect::new(x, bounds.y, 1.0, bounds.height),
-            theme.scheme.outline_variant.fade(o),
-        );
+        let radius = self.radius(theme);
+        let right = self.docked_right(theme);
+        let depth = self
+            .style
+            .elevation
+            .or(theme.widgets.drawer.elevation)
+            .unwrap_or(0.0);
+
+        // The shadow, when the caller has lifted the panel off the surface at all. The
+        // drop is **sideways** rather than down: a panel is lifted along its inner edge,
+        // and a shadow cast below a full-height panel falls outside the window entirely.
+        if depth > 0.0 {
+            let blur = depth * 4.0 + 8.0;
+            let sideways = if right { -depth } else { depth } * 2.0;
+            scene.shadow(
+                Rect::new(
+                    bounds.x + sideways - blur,
+                    bounds.y - blur,
+                    bounds.width + 2.0 * blur,
+                    bounds.height + 2.0 * blur,
+                ),
+                theme.scheme.shadow.with_alpha(0.30).fade(o),
+                radius.inflate(blur),
+                blur,
+            );
+        }
+
+        let fill = self
+            .style
+            .background_color
+            .or(theme.widgets.drawer.background_color)
+            .unwrap_or(theme.surface);
+        scene.draw_rect(bounds, fill.fade(o), radius, 0.0, Color::TRANSPARENT);
+
+        // The hairline on the inner edge, drawn as its own sliver rather than as a border
+        // round the whole shape: the other three edges are flush against the window, and a
+        // rule down them would be a line against nothing. It stops short of the corners
+        // for the same reason — a straight sliver crossing a rounded corner sticks out
+        // past the shape it is meant to edge.
+        let thickness = self
+            .style
+            .border_width
+            .or(theme.widgets.drawer.border_width)
+            .unwrap_or(1.0);
+        if thickness > 0.0 {
+            let color = self
+                .style
+                .border_color
+                .or(theme.widgets.drawer.border_color)
+                .unwrap_or(theme.scheme.outline_variant);
+            let x = match right {
+                true => bounds.x,
+                false => bounds.x + bounds.width - thickness,
+            };
+            let inset = radius
+                .top_left
+                .max(radius.top_right)
+                .min(bounds.height / 2.0);
+            scene.fill_rect(
+                Rect::new(x, bounds.y + inset, thickness, bounds.height - 2.0 * inset),
+                color.fade(o),
+            );
+        }
     }
 
     fn on_click(&self) -> Option<Msg> {
@@ -107,13 +225,26 @@ pub struct Drawer<Msg> {
     permanent: bool,
     on_dismiss: Option<Msg>,
     /// The drawer's content, supplied by the caller (before `DrawerPanel` wrapping).
-    panel_content: Option<Box<dyn Widget<Msg>>>,
-    /// The modal panel (non-permanent mode), wrapped, ready for the overlay.
-    modal_panel: Option<Box<dyn Widget<Msg>>>,
+    panel_content: Cell<Option<Box<dyn Widget<Msg>>>>,
+    /// The background content, likewise.
+    body_content: Cell<Option<Box<dyn Widget<Msg>>>>,
     /// The panel's width; `None` = [`DRAWER_WIDTH`].
     width: Option<f32>,
+    /// Everything else the panel paints; each `None` = the theme's, then the default.
+    style: PanelStyle,
+    /// The scrim's colour behind a modal panel, alpha included; `None` = the scheme's.
+    scrim_color: Option<Color>,
+    /// The assembled tree, built once, the first time the walk asks for it.
+    assembled: OnceCell<Assembled<Msg>>,
+}
+
+/// What the two pieces the caller handed over become, once every builder has had its
+/// say: the row (or the lone body) in the flow, and the panel that floats.
+struct Assembled<Msg> {
     /// Children in the flow: `[body]` (modal) or `[panel, body]` (permanent).
     children: Vec<Box<dyn Widget<Msg>>>,
+    /// The modal panel (non-permanent mode), wrapped, ready for the overlay.
+    modal_panel: Option<Box<dyn Widget<Msg>>>,
 }
 
 impl<Msg: Clone + 'static> Drawer<Msg> {
@@ -124,10 +255,12 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
             right: false,
             permanent: false,
             on_dismiss: None,
-            panel_content: None,
-            modal_panel: None,
+            panel_content: Cell::new(None),
+            body_content: Cell::new(None),
             width: None,
-            children: Vec::new(),
+            style: PanelStyle::default(),
+            scrim_color: None,
+            assembled: OnceCell::new(),
         }
     }
 
@@ -138,6 +271,56 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
     /// a drawer takes when nobody says otherwise, and nothing more than that.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Some(width);
+        self
+    }
+
+    /// The panel's fill. Defaults to the theme's `drawer.background_color`, then to the
+    /// theme's surface.
+    pub fn background_color(mut self, color: Color) -> Self {
+        self.style.background_color = Some(color);
+        self
+    }
+
+    /// The hairline on the panel's **inner** edge — the one facing the content.
+    pub fn border_color(mut self, color: Color) -> Self {
+        self.style.border_color = Some(color);
+        self
+    }
+
+    /// That hairline's thickness. `0.0` removes it, which is what a drawer told apart
+    /// from its body by colour or by a shadow wants.
+    pub fn border_width(mut self, width: f32) -> Self {
+        self.style.border_width = Some(width);
+        self
+    }
+
+    /// The rounding of the inner edge's two corners; the outer edge stays square against
+    /// the window. Defaults to [`DRAWER_RADIUS`], and `0.0` squares it off.
+    ///
+    /// Which edge is the inner one is decided **at paint time** from the direction in
+    /// force, not here: a leading drawer sits on the left of the screen in English and on
+    /// the right in Arabic, and the rounding follows it across.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.style.radius = Some(radius);
+        self
+    }
+
+    /// How far off the surface the panel sits. `0.0` — the default — casts no shadow.
+    ///
+    /// The drop is sideways, along the inner edge: a shadow cast below a panel as tall as
+    /// the window falls outside it and is never seen.
+    pub fn elevation(mut self, elevation: f32) -> Self {
+        self.style.elevation = Some(elevation);
+        self
+    }
+
+    /// The scrim behind a **modal** panel, **alpha included** — a scrim's transparency
+    /// is the colour, so an opaque value here hides the body entirely and
+    /// [`Color::TRANSPARENT`] darkens nothing at all.
+    ///
+    /// Ignored by a permanent drawer, which has no scrim to colour.
+    pub fn scrim_color(mut self, color: Color) -> Self {
+        self.scrim_color = Some(color);
         self
     }
 
@@ -161,39 +344,67 @@ impl<Msg: Clone + 'static> Drawer<Msg> {
     }
 
     /// Sets the **drawer's content**, usually the navigation.
-    pub fn panel(mut self, content: impl Widget<Msg> + 'static) -> Self {
-        self.panel_content = Some(Box::new(content));
+    pub fn panel(self, content: impl Widget<Msg> + 'static) -> Self {
+        self.panel_content.set(Some(Box::new(content)));
         self
     }
 
-    /// Sets the **background body** (always visible) and finalises the drawer.
-    pub fn body(mut self, body: impl Widget<Msg> + 'static) -> Self {
-        let panel = self.panel_content.take().map(|content| {
-            Box::new(DrawerPanel {
-                children: vec![content],
-                border_left: self.right,
-                width: self.width,
-            }) as Box<dyn Widget<Msg>>
-        });
-
-        if self.permanent {
-            // Docked in the flow: a `[panel, body]` row (or the reverse on the right).
-            let body_pane: Box<dyn Widget<Msg>> = Box::new(Flex::column().flex(1.0).child(body));
-            self.children = match panel {
-                Some(panel) if self.right => vec![body_pane, panel],
-                Some(panel) => vec![panel, body_pane],
-                None => vec![body_pane],
-            };
-        } else {
-            // Modal: only the body is in the flow; the panel goes to the overlay.
-            self.modal_panel = panel;
-            self.children = vec![Box::new(body)];
-        }
+    /// Sets the **background body**: the content that stays visible behind a modal
+    /// panel, or beside a docked one.
+    ///
+    /// It used to *finalise* the drawer, wrapping the panel there and then — which
+    /// quietly made every builder called after it a no-op, since the panel it would have
+    /// changed already existed. The assembly now happens the first time the walk asks
+    /// for the children, so the builders can come in any order.
+    pub fn body(self, body: impl Widget<Msg> + 'static) -> Self {
+        self.body_content.set(Some(Box::new(body)));
         self
+    }
+
+    /// The tree, assembled on first use from the two pieces the caller handed over.
+    fn assembled(&self) -> &Assembled<Msg> {
+        self.assembled.get_or_init(|| {
+            let panel = self.panel_content.take().map(|content| {
+                Box::new(DrawerPanel {
+                    children: vec![content],
+                    end: self.right,
+                    width: self.width,
+                    style: self.style,
+                }) as Box<dyn Widget<Msg>>
+            });
+            let Some(body) = self.body_content.take() else {
+                // A drawer with no body: the panel alone, docked or floating. Nothing to
+                // put in the flow, and nothing to fill the window with either.
+                return Assembled {
+                    children: Vec::new(),
+                    modal_panel: panel.filter(|_| !self.permanent),
+                };
+            };
+
+            if self.permanent {
+                // Docked in the flow: a `[panel, body]` row (or the reverse on the right).
+                let body_pane: Box<dyn Widget<Msg>> =
+                    Box::new(Flex::column().flex(1.0).child_boxed(body));
+                Assembled {
+                    children: match panel {
+                        Some(panel) if self.right => vec![body_pane, panel],
+                        Some(panel) => vec![panel, body_pane],
+                        None => vec![body_pane],
+                    },
+                    modal_panel: None,
+                }
+            } else {
+                // Modal: only the body is in the flow; the panel goes to the overlay.
+                Assembled {
+                    children: vec![body],
+                    modal_panel: panel,
+                }
+            }
+        })
     }
 }
 
-impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for Drawer<Msg> {
     fn style(&self) -> Style {
         Style {
             width: Dimension::Percent(1.0),
@@ -210,7 +421,7 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &self.children
+        &self.assembled().children
     }
 
     fn paint(&self, _bounds: Rect, _status: Status, _theme: &Theme, _scene: &mut Scene) {}
@@ -227,11 +438,18 @@ impl<Msg: Clone> Widget<Msg> for Drawer<Msg> {
         } else {
             Placement::Left
         };
-        self.modal_panel.as_ref().map(|p| (p.as_ref(), placement))
+        self.assembled()
+            .modal_panel
+            .as_ref()
+            .map(|p| (p.as_ref(), placement))
     }
 
     fn overlay_dismiss(&self) -> Option<Msg> {
         self.on_dismiss.clone()
+    }
+
+    fn overlay_scrim(&self, theme: &Theme) -> Option<Color> {
+        self.scrim_color.or(theme.widgets.drawer.scrim_color)
     }
 
     fn anim_target(&self) -> Option<f32> {
@@ -446,5 +664,287 @@ mod tests {
                 if (rect.width - DRAWER_WIDTH).abs() < 1.0 && (rect.x + rect.width - 900.0).abs() < 1.0)
         });
         assert!(on_right, "the panel must be docked on the right");
+    }
+
+    /// The panel's rectangle: the full-height one as wide as the drawer.
+    fn panel_rect(drawer: &dyn Widget<Msg>, theme: &Theme) -> frus_core::Primitive {
+        let ui = build_ui(drawer, Size::new(900.0, 400.0), &Runtime::default(), theme);
+        ui.scene()
+            .primitives()
+            .iter()
+            .find(|p| {
+                matches!(p, frus_core::Primitive::Rect { rect, radius, blur, .. }
+                    if (rect.height - 400.0).abs() < 1.0
+                        && *blur == 0.0
+                        && *radius != frus_core::BorderRadius::ZERO)
+            })
+            .cloned()
+            .expect("the panel is a full-height rounded rectangle")
+    }
+
+    /// The inner edge is rounded and the outer one is square. A panel docked against the
+    /// window rounds the corners that face the content; rounding the pair against the
+    /// window edge would cut two notches out of the screen.
+    #[test]
+    fn the_inner_edge_is_rounded_and_the_outer_one_is_not() {
+        let theme = Theme::default();
+        let leading = Drawer::new(false)
+            .permanent(true)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let frus_core::Primitive::Rect { radius, .. } = panel_rect(&leading, &theme) else {
+            panic!("a rectangle");
+        };
+        assert_eq!(radius, frus_core::BorderRadius::right(DRAWER_RADIUS));
+        assert_eq!(DRAWER_RADIUS, 16.0, "the reference's figure");
+
+        let trailing = Drawer::new(false)
+            .permanent(true)
+            .right()
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let frus_core::Primitive::Rect { radius, .. } = panel_rect(&trailing, &theme) else {
+            panic!("a rectangle");
+        };
+        assert_eq!(radius, frus_core::BorderRadius::left(DRAWER_RADIUS));
+    }
+
+    /// **The bug this milestone found.** A leading drawer is on the left in English and
+    /// on the **right** in Arabic — the walk mirrors the whole frame — so its inner
+    /// edge changes sides with it. The panel used to rule its hairline and round its
+    /// corners from `right`, the side it was *asked* for, and in RTL that put both down
+    /// the window's own edge.
+    #[test]
+    fn the_inner_edge_follows_the_direction_rather_than_the_side_it_was_asked_for() {
+        let rtl = Theme::default().rtl();
+        let leading = Drawer::new(false)
+            .permanent(true)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let frus_core::Primitive::Rect { rect, radius, .. } = panel_rect(&leading, &rtl) else {
+            panic!("a rectangle");
+        };
+        // Mirrored: a leading panel sits against the *right* of the window…
+        assert!(
+            (rect.x + rect.width - 900.0).abs() < 1.0,
+            "a leading panel is on the right in RTL, got x={}",
+            rect.x
+        );
+        // …so the edge facing the content is its left one.
+        assert_eq!(radius, frus_core::BorderRadius::left(DRAWER_RADIUS));
+
+        // And the hairline is on that same edge, not on the window's.
+        let ui = build_ui(&leading, Size::new(900.0, 400.0), &Runtime::default(), &rtl);
+        let hairline = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, .. } if rect.width <= 1.5 => Some(rect.x),
+                _ => None,
+            })
+            .expect("a hairline");
+        assert!(
+            (hairline - rect.x).abs() < 1.5,
+            "the hairline belongs on the inner edge (x≈{}), got {hairline}",
+            rect.x
+        );
+    }
+
+    /// The colours resolve **instance, then theme, then the scheme's role**.
+    #[test]
+    fn the_panels_colours_are_the_instances_then_the_themes() {
+        let mut theme = Theme::default();
+        let fill = |drawer: &dyn Widget<Msg>, theme: &Theme| match panel_rect(drawer, theme) {
+            frus_core::Primitive::Rect { color, .. } => color,
+            _ => unreachable!(),
+        };
+        let plain = || {
+            Drawer::new(false)
+                .permanent(true)
+                .panel(Text::new("menu"))
+                .body(Container::<Msg>::new())
+        };
+        assert_eq!(fill(&plain(), &theme), theme.surface, "the theme's surface");
+
+        theme.widgets.drawer.background_color = Some(Color::rgb(0.0, 1.0, 0.0));
+        assert_eq!(
+            fill(&plain(), &theme),
+            Color::rgb(0.0, 1.0, 0.0),
+            "the theme"
+        );
+
+        // Deliberately *after* `body()`: see `a_builder_after_body_is_not_a_no_op`.
+        let own = plain().background_color(Color::rgb(0.0, 0.0, 1.0));
+        assert_eq!(
+            fill(&own, &theme),
+            Color::rgb(0.0, 0.0, 1.0),
+            "the instance wins"
+        );
+    }
+
+    /// A hairline of nothing is no hairline: a drawer told apart from its body by colour
+    /// or by a shadow does not want a rule as well.
+    #[test]
+    fn a_zero_border_removes_the_hairline() {
+        let bare = Drawer::new(false)
+            .permanent(true)
+            .border_width(0.0)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let ui = build_ui(
+            &bare,
+            Size::new(900.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let slivers = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter(|p| matches!(p, frus_core::Primitive::Rect { rect, .. } if rect.width <= 1.5))
+            .count();
+        assert_eq!(slivers, 0, "no rule at all");
+    }
+
+    /// The scrim is the drawer's to colour — alpha included, since a scrim's
+    /// transparency *is* the colour.
+    #[test]
+    fn the_scrim_is_the_drawers_to_colour() {
+        let window = |theme: &Theme, drawer: &dyn Widget<Msg>| {
+            let ui = build_ui(drawer, Size::new(500.0, 400.0), &Runtime::default(), theme);
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Rect { rect, color, .. } if rect.width >= 500.0 => {
+                        Some(*color)
+                    }
+                    _ => None,
+                })
+                .expect("the scrim covers the window")
+        };
+        let theme = Theme::default();
+        let plain = Drawer::new(true)
+            .on_dismiss(Msg::Close)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(window(&theme, &plain), theme.scheme.scrim.with_alpha(0.5));
+
+        let own = Drawer::new(true)
+            .on_dismiss(Msg::Close)
+            .scrim_color(Color::rgba(1.0, 0.0, 0.0, 0.25))
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(window(&theme, &own), Color::rgba(1.0, 0.0, 0.0, 0.25));
+
+        // Transparent is an answer: an overlay that darkens nothing.
+        let clear = Drawer::new(true)
+            .on_dismiss(Msg::Close)
+            .scrim_color(Color::TRANSPARENT)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert_eq!(window(&theme, &clear).a, 0.0);
+    }
+
+    /// The scrim fades **with the slide**: at half the animation it is half painted,
+    /// whatever colour it was given.
+    #[test]
+    fn the_scrim_fades_with_the_slide() {
+        let drawer = Drawer::new(true)
+            .on_dismiss(Msg::Close)
+            .scrim_color(Color::rgba(0.0, 0.0, 0.0, 0.8))
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let mut rt = Runtime::default();
+        rt.set_value(crate::WidgetId::ROOT, 0.5);
+        let ui = build_ui(&drawer, Size::new(500.0, 400.0), &rt, &Theme::default());
+        let alpha = ui
+            .scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if rect.width >= 500.0 => {
+                    Some(color.a)
+                }
+                _ => None,
+            })
+            .expect("a scrim");
+        let expected = 0.8 * crate::spring_ease(0.5);
+        assert!(
+            (alpha - expected).abs() < 0.02,
+            "expected ≈ {expected}, got {alpha}"
+        );
+    }
+
+    /// Elevation casts a shadow **sideways**, along the inner edge: one dropped below a
+    /// panel as tall as the window falls outside it and is never seen.
+    #[test]
+    fn elevation_casts_the_shadow_along_the_inner_edge() {
+        let shadows = |drawer: &dyn Widget<Msg>| {
+            let ui = build_ui(
+                drawer,
+                Size::new(900.0, 400.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    frus_core::Primitive::Rect { rect, blur, .. } if *blur > 0.0 => Some(rect.x),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let flat = Drawer::new(false)
+            .permanent(true)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        assert!(shadows(&flat).is_empty(), "no shadow by default");
+
+        let lifted = Drawer::new(false)
+            .permanent(true)
+            .elevation(3.0)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let cast = shadows(&lifted);
+        assert_eq!(cast.len(), 1, "one shadow");
+        // A leading panel is lifted towards the content: the shadow's envelope starts to
+        // the right of the panel's own left edge, offset by the depth.
+        let blur = 3.0 * 4.0 + 8.0;
+        assert!(
+            (cast[0] - (6.0 - blur)).abs() < 0.5,
+            "expected ≈ {}, got {}",
+            6.0 - blur,
+            cast[0]
+        );
+    }
+
+    /// **The second bug this milestone found.** `body()` used to finalise the drawer,
+    /// wrapping the panel there and then — so a builder that came after it changed a
+    /// field nobody would read again, and did nothing at all without saying so. Written
+    /// in the order a caller reaches for, the panel is 96 px wide and blue either way.
+    #[test]
+    fn a_builder_after_body_is_not_a_no_op() {
+        let theme = Theme::default();
+        let measured = |drawer: &dyn Widget<Msg>| match panel_rect(drawer, &theme) {
+            frus_core::Primitive::Rect { rect, color, .. } => (rect.width, color),
+            _ => unreachable!(),
+        };
+        let before = Drawer::new(false)
+            .permanent(true)
+            .width(96.0)
+            .background_color(Color::rgb(0.0, 0.0, 1.0))
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new());
+        let after = Drawer::new(false)
+            .permanent(true)
+            .panel(Text::new("menu"))
+            .body(Container::<Msg>::new())
+            .width(96.0)
+            .background_color(Color::rgb(0.0, 0.0, 1.0));
+        assert_eq!(measured(&before), measured(&after));
+        assert_eq!(measured(&after), (96.0, Color::rgb(0.0, 0.0, 1.0)));
     }
 }
