@@ -36,6 +36,13 @@ pub struct PageSnap {
     pub requested: usize,
     /// Does the view page sideways?
     pub horizontal: bool,
+    /// Does a release come to rest **on** a page?
+    ///
+    /// False and the region flings like any other scroll, which is what a
+    /// free-running carousel wants. The rest of the paged machinery stays: the
+    /// page a reader would name is still reported, and a requested page still
+    /// glides. Only the release changes. See [`PageView::page_snapping`].
+    pub snapping: bool,
 }
 
 impl PageSnap {
@@ -64,6 +71,11 @@ pub struct PagedView<'a, Msg> {
     pub viewport_fraction: f32,
     /// The page asked for by the application.
     pub requested: usize,
+    /// Room at both ends, so a page narrower than the viewport rests centred in
+    /// it; see [`PageView::pad_ends`].
+    pub pad_ends: bool,
+    /// Does a release come to rest on a page? See [`PageView::page_snapping`].
+    pub snapping: bool,
     /// Builds one page per index.
     pub build: &'a dyn Fn(usize) -> Box<dyn Widget<Msg>>,
 }
@@ -82,7 +94,24 @@ impl<Msg> PagedView<'_, Msg> {
             count: self.count,
             requested: self.requested,
             horizontal,
+            snapping: self.snapping,
         }
+    }
+
+    /// The room at each end of the content, in logical pixels.
+    ///
+    /// Zero at the default fraction of one, where a page already fills the
+    /// viewport and there is nothing to centre.
+    pub fn end_padding(&self, viewport: Rect) -> f32 {
+        if !self.pad_ends {
+            return 0.0;
+        }
+        let snap = self.snap(viewport);
+        let along = match snap.horizontal {
+            true => viewport.width,
+            false => viewport.height,
+        };
+        ((along - snap.extent) / 2.0).max(0.0)
     }
 }
 
@@ -92,6 +121,12 @@ pub struct PageView<Msg> {
     axis: Axis,
     viewport_fraction: f32,
     requested: usize,
+    /// Room at both ends; see [`PageView::pad_ends`].
+    pad_ends: bool,
+    /// Does a release rest on a page? See [`PageView::page_snapping`].
+    snapping: bool,
+    /// Does page 0 sit at the end the axis finishes at? See [`PageView::reverse`].
+    reverse: bool,
     width: Dimension,
     height: Dimension,
     /// Was the width **set** explicitly? In flex mode an unset dimension on the
@@ -120,6 +155,9 @@ impl<Msg> PageView<Msg> {
             axis: Axis::Horizontal,
             viewport_fraction: 1.0,
             requested: 0,
+            pad_ends: true,
+            snapping: true,
+            reverse: false,
             width: Dimension::Auto,
             height: Dimension::Length(200.0),
             width_explicit: false,
@@ -146,6 +184,51 @@ impl<Msg> PageView<Msg> {
     /// the pages are measured *and* snapped by, so the two cannot disagree.
     pub fn viewport_fraction(mut self, fraction: f32) -> Self {
         self.viewport_fraction = fraction.max(0.05);
+        self
+    }
+
+    /// Whether there is room at **both ends** of the content, so that the first and
+    /// last pages come to rest centred in the viewport. On by default, and nil at the
+    /// default [`viewport_fraction`](PageView::viewport_fraction) of one, where a page
+    /// already fills the viewport and there is nothing to centre.
+    ///
+    /// It is not only a matter of looks. Without it the travel stops with the last
+    /// page's trailing edge on the viewport's, which for a carousel is **short of
+    /// where the last page rests**: nine pages at 0.8 of a 300 px viewport give 1620 px
+    /// of travel and the ninth page rests at 1728. It would never quite arrive, and a
+    /// snap towards it would be pulled back by the edge every time.
+    ///
+    /// Padded, the travel is exactly `extent × (count - 1)`, which is the last
+    /// page's own resting offset. Every page is reachable and the arithmetic says so.
+    ///
+    /// Turn it off for a carousel that starts flush against its leading edge, with the
+    /// following pages peeking in from the other side.
+    pub fn pad_ends(mut self, pad: bool) -> Self {
+        self.pad_ends = pad;
+        self
+    }
+
+    /// Whether a release comes to rest **on** a page. On by default — it is what
+    /// makes this a page view rather than a scroll.
+    ///
+    /// Off, the region flings like any other scrollable and stops wherever the
+    /// physics leaves it, which is what a free-running carousel wants. Everything else
+    /// stays: [`on_page_changed`](PageView::on_page_changed) still reports the page a
+    /// reader would name, and [`page`](PageView::page) still glides across to what the
+    /// application asks for. Only the release changes.
+    pub fn page_snapping(mut self, snapping: bool) -> Self {
+        self.snapping = snapping;
+        self
+    }
+
+    /// Pages **from the far end**: page 0 sits at the edge the axis finishes at — the
+    /// right of a horizontal view, the bottom of a vertical one — page 1 before it,
+    /// and the view opens there.
+    ///
+    /// The same idea as [`crate::ListView::reverse`]: not a mirrored picture, but a
+    /// different answer to *which end is index 0*.
+    pub fn reverse(mut self) -> Self {
+        self.reverse = true;
         self
     }
 
@@ -240,6 +323,8 @@ impl<Msg> Widget<Msg> for PageView<Msg> {
             axis: self.axis,
             viewport_fraction: self.viewport_fraction,
             requested: self.requested,
+            pad_ends: self.pad_ends,
+            snapping: self.snapping,
             build: &*self.build,
         })
     }
@@ -250,6 +335,10 @@ impl<Msg> Widget<Msg> for PageView<Msg> {
 
     fn scroll_axis(&self) -> Axis {
         self.axis
+    }
+
+    fn scroll_reverse(&self) -> bool {
+        self.reverse
     }
 
     fn scroll_physics(&self) -> Option<ScrollPhysics> {
@@ -328,8 +417,10 @@ mod tests {
             .expect("a scroll region");
         let snap = area.page.expect("a paged region");
         assert_eq!(snap.extent, 240.0);
-        // The travel stops with the last page's right edge on the viewport's.
-        assert_eq!(area.max_x, 50.0 * 240.0 - 300.0);
+        // Padded ends: the travel is exactly the last page's resting offset, so the
+        // fiftieth page can be reached. Unpadded it would stop 60 px short of it.
+        assert_eq!(area.max_x, 49.0 * 240.0);
+        assert_eq!(snap.offset_of(49), area.max_x);
     }
 
     #[test]
@@ -372,6 +463,134 @@ mod tests {
         assert!(left.abs() < 0.5, "page 1 drawn at {left}");
     }
 
+    /// Where the pages were actually drawn, in build order.
+    fn page_lefts(ui: &crate::Ui<()>) -> Vec<f32> {
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, .. } if rect.width > 100.0 => Some(rect.x),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A carousel opens with its first page **centred**, not jammed against the
+    /// leading edge. Half the slack either side, which is what the room at the ends
+    /// is for.
+    #[test]
+    fn a_carousel_rests_its_first_page_in_the_middle() {
+        let runtime = Runtime::default();
+        let ui = ui_of(view(Rc::new(Cell::new(0))).viewport_fraction(0.8), &runtime);
+        // 300 px viewport, 240 px page: 60 px of slack, 30 either side.
+        let lefts = page_lefts(&ui);
+        assert!((lefts[0] - 30.0).abs() < 0.5, "page 0 drawn at {lefts:?}");
+        assert!((lefts[1] - 270.0).abs() < 0.5, "page 1 drawn at {lefts:?}");
+    }
+
+    /// Without the room at the ends the first page starts flush and the following
+    /// ones peek in from the other side — and the travel is 60 px shorter, which is
+    /// 60 px short of where the last page rests.
+    #[test]
+    fn unpadded_ends_start_flush_and_stop_early() {
+        let runtime = Runtime::default();
+        let ui = ui_of(
+            view(Rc::new(Cell::new(0)))
+                .viewport_fraction(0.8)
+                .pad_ends(false),
+            &runtime,
+        );
+        assert!(page_lefts(&ui)[0].abs() < 0.5);
+        let area = ui.scroll_regions()[0];
+        assert_eq!(area.max_x, 50.0 * 240.0 - 300.0);
+        // The last page's resting offset is past the end of the travel: it can be
+        // snapped at but never reached, which is why the ends are padded by default.
+        let snap = area.page.expect("a paged region");
+        assert!(snap.offset_of(49) > area.max_x);
+    }
+
+    /// A reversed view puts page 0 at the end the axis finishes at.
+    #[test]
+    fn a_reversed_view_starts_at_the_far_end() {
+        let runtime = Runtime::default();
+        let ui = ui_of(
+            view(Rc::new(Cell::new(0)))
+                .viewport_fraction(0.8)
+                .pad_ends(false)
+                .reverse(),
+            &runtime,
+        );
+        // 300 px viewport, 240 px page: page 0's right edge is the viewport's.
+        let lefts = page_lefts(&ui);
+        assert!((lefts[0] - 60.0).abs() < 0.5, "page 0 drawn at {lefts:?}");
+        // Page 1 is before it, off the leading edge.
+        assert!(lefts[1] < lefts[0], "page 1 drawn at {lefts:?}");
+        let area = ui.scroll_regions()[0];
+        assert!(area.reverse_x, "the region says which way its offsets run");
+        assert!(!area.reverse_y);
+        // The travel is unchanged: only which end index 0 is at has moved.
+        assert_eq!(area.max_x, 50.0 * 240.0 - 300.0);
+    }
+
+    /// Snapping off, a release is an ordinary fling: a view left between two pages
+    /// with no speed behind it **stays** there.
+    #[test]
+    fn a_view_that_does_not_snap_is_released_like_a_scroll() {
+        let id = crate::interaction::WidgetId::ROOT;
+        let physics = ScrollPhysics::Clamping;
+        let mut runtime = Runtime::default();
+
+        let free = {
+            let ui = ui_of(view(Rc::new(Cell::new(0))).page_snapping(false), &runtime);
+            ui.scroll_regions()[0]
+        };
+        let snapping = {
+            let ui = ui_of(view(Rc::new(Cell::new(0))), &runtime);
+            ui.scroll_regions()[0]
+        };
+        assert!(!free.page.expect("still a paged region").snapping);
+
+        // A fifth of a page along, released without a throw.
+        runtime.scroll.insert(id, (60.0, 0.0));
+        assert!(
+            !runtime.fling_scroll(free, physics, (0.0, 0.0)),
+            "nothing to do: it is in range and going nowhere"
+        );
+        assert_eq!(runtime.scroll[&id], (60.0, 0.0));
+        // The same release on a snapping view springs back to page 0.
+        assert!(runtime.fling_scroll(snapping, physics, (0.0, 0.0)));
+    }
+
+    /// Everything but the release stays: the page a reader would name is still
+    /// reported, and the page the application asks for is still honoured.
+    #[test]
+    fn a_view_that_does_not_snap_still_knows_its_pages() {
+        let id = crate::interaction::WidgetId::ROOT;
+        let mut runtime = Runtime::default();
+        let area = {
+            let ui = ui_of(view(Rc::new(Cell::new(0))).page_snapping(false), &runtime);
+            ui.scroll_regions()[0]
+        };
+        assert!(
+            runtime.page_changes(&[area]).is_empty(),
+            "opening is not a change"
+        );
+        runtime.scroll.insert(id, (300.0, 0.0));
+        assert_eq!(runtime.page_changes(&[area]), vec![(id, 1)]);
+
+        // And a request still moves it: first sighting, so straight there.
+        let mut fresh = Runtime::default();
+        let asked = {
+            let ui = ui_of(
+                view(Rc::new(Cell::new(0))).page_snapping(false).page(3),
+                &fresh,
+            );
+            ui.scroll_regions()[0]
+        };
+        fresh.sync_pages(&[asked]);
+        assert_eq!(fresh.scroll[&id], (900.0, 0.0));
+    }
+
     /// The whole loop, as the shell drives it: build, drag, release, settle.
     ///
     /// Everything below the shell's pointer plumbing is exercised here — the extent
@@ -411,6 +630,7 @@ mod tests {
             count: 3,
             requested: 0,
             horizontal: true,
+            snapping: true,
         };
         assert_eq!(snap.page_at(0.0), 0);
         assert_eq!(snap.page_at(149.0), 0);

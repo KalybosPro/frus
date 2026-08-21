@@ -979,7 +979,12 @@ impl Runtime {
         // only says which one. The raw velocity is passed on rather than the
         // fling-filtered one, because the question a page view asks of a release is
         // "which way did it go", to which 60 px/s is as clear an answer as 2000.
-        if let Some(snap) = area.page {
+        //
+        // Unless it has been told not to snap, in which case it is a scrollable that
+        // happens to know where its pages are: it still reports them and still glides
+        // to the one it is asked for, and only the release falls through to the
+        // ordinary fling below.
+        if let Some(snap) = area.page.filter(|snap| snap.snapping) {
             let (metrics, velocity) = if snap.horizontal {
                 (area.metrics_x(current.0), velocity.0)
             } else {
@@ -1407,6 +1412,7 @@ mod tests {
             physics: None,
             refresh: None,
             page: Some(crate::PageSnap {
+                snapping: true,
                 extent: 300.0,
                 count: 3,
                 requested,

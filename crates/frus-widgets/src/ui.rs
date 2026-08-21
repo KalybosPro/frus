@@ -3031,7 +3031,15 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             } else {
                 (viewport.height, viewport.width)
             };
-            let total = pages.count as f32 * snap.extent;
+            let reverse = widget.scroll_reverse();
+            // Room at both ends, so a page narrower than the viewport comes to rest
+            // **centred** in it rather than jammed against the leading edge — and so
+            // the last one can be reached at all: unpadded, the travel stops with the
+            // last page's trailing edge on the viewport's, which is short of where that
+            // page rests. Padded, the total works out to `extent × (count - 1)`,
+            // the last page's own offset, exactly.
+            let pad = pages.end_padding(viewport);
+            let total = pages.count as f32 * snap.extent + 2.0 * pad;
             let max = (total - viewport_along).max(0.0);
             // With no retained offset this is the view's **first** frame, and it opens
             // on the page it was asked for. Reading the initial page here rather than
@@ -3057,18 +3065,26 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 physics: widget.scroll_physics(),
                 refresh: self.refresh_host,
                 page: Some(snap),
-                reverse_x: false,
-                reverse_y: false,
+                reverse_x: snap.horizontal && reverse,
+                reverse_y: !snap.horizontal && reverse,
             });
 
             if pages.count > 0 {
-                let first = (along / snap.extent).floor().max(0.0) as usize;
-                let last = (((along + viewport_along) / snap.extent).ceil() as usize)
+                // The window is the same arithmetic whichever end index 0 is at: a
+                // reversed view counts its indices from the far end and a reversed
+                // offset counts its pixels from the same one, so the two agree about
+                // which way forward is. Only where a page **lands** differs.
+                let first = ((along - pad) / snap.extent).floor().max(0.0) as usize;
+                let last = ((((along + viewport_along - pad) / snap.extent).ceil()).max(0.0)
+                    as usize)
                     .min(pages.count)
                     .max(first + 1);
                 for index in first..last.min(pages.count) {
                     let page = (pages.build)(index);
-                    let start = index as f32 * snap.extent - along;
+                    let start = match reverse {
+                        true => viewport_along - pad - (index + 1) as f32 * snap.extent + along,
+                        false => pad + index as f32 * snap.extent - along,
+                    };
                     let (size, origin) = if snap.horizontal {
                         (
                             Size::new(snap.extent, page_across),

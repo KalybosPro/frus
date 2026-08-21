@@ -8,10 +8,47 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 384 so far, each documenting the objective, the alternatives
+> record — one per step, 385 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A carousel could not reach its last page** (J385). Set `viewport_fraction` below one
+  and the neighbouring pages show at the edges — but ours opened with page 0 flush
+  against the leading edge, all the slack on the other side, and the reference centres it.
+  Centring is not decoration here. Fifty pages at 0.8 of a 300 px viewport are 240 px each,
+  so page 49 rests at 11 760; unpadded, the content is 12 000 and the travel stops at
+  11 700. **Sixty pixels short of where the last page rests**: the snap would aim at it,
+  the edge would refuse, and the spring would pull it back — every time, for ever, on the
+  last page of every carousel.
+
+  With `(viewport - extent) / 2` at each end the travel works out to `extent × (count - 1)`
+  exactly, which *is* the last page's resting offset. The test asserts both sides:
+  padded, `offset_of(49) == max_x`; unpadded, `offset_of(49) > max_x`. `pad_ends(false)`
+  keeps the flush version for a carousel that wants it, and at the default fraction of one
+  the padding is nil, so nothing that existed before this moves.
+
+### Added
+
+- **A page view that runs the other way, and one that need not snap** (J385).
+  `PageView::reverse` puts page 0 at the end the axis finishes at, the same question
+  `ListView::reverse` answers: not a mirrored picture, but which end an *index* is. The
+  window arithmetic is untouched — a reversed view counts its indices from the far end
+  and a reversed offset counts its pixels from the same one, so the two agree about which
+  way forward is, and only where a page lands differs. The region carries `reverse_x` /
+  `reverse_y` now instead of two hardcoded `false`s, so the drag, the overscroll glow and
+  the scroll-to-offset all read the axis the same way round.
+
+  `page_snapping(false)` is a scrollable that happens to know where its pages are. The
+  easy version drops the `PageSnap` from the region, and that would take the pages with
+  it: `on_page_changed` goes quiet and `page(3)` stops working, because both read the snap
+  to know what a page even is. So the flag rides **on** the snap and exactly one place
+  reads it, the release. A test pins the difference there and nowhere else — the same
+  view left a fifth of a page along with no speed behind it stays put when snapping is
+  off and springs back to page 0 when it is on — and a second walks the rest and finds
+  it unchanged.
 
 ### Fixed
 
