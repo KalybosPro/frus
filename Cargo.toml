@@ -20,7 +20,7 @@ lyon = "1"
 # Image decoding (PNG/JPEG). The format list is kept short to lighten the dependency tree.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 arboard = "3"
-pollster = "0.3"
+pollster = "1.0"
 bytemuck = { version = "1", features = ["derive"] }
 anyhow = "1"
 env_logger = "0.11"
