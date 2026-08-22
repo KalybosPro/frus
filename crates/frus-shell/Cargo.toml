@@ -102,6 +102,6 @@ web-sys = { version = "0.3", features = [
 # land in logcat.
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
-android_logger = "0.14"
+android_logger = "0.15"
 # The input bridge (InputConnection): loading the bundled dex plus its natives.
 jni = "0.21"
