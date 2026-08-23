@@ -348,6 +348,8 @@ pub struct TabBarTheme {
     pub label_padding: Option<f32>,
     /// The tabs' height, the indicator excluded.
     pub tab_height: Option<f32>,
+    /// Where the tabs sit when they do not fill the bar.
+    pub alignment: Option<crate::tabs::TabAlignment>,
 }
 
 /// Defaults for [`IconButton`](crate::IconButton).

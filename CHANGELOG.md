@@ -8,10 +8,44 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 389 so far, each documenting the objective, the alternatives
+> record — one per step, 390 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **Where the tabs sit in a bar with room to spare** (J390). Two tabs in a window meant
+  for six were two tabs three hundred pixels wide with their labels marooned in the
+  middle of a lot of nothing, and that was the only answer the bar had.
+  `TabAlignment::{Auto, Start, StartOffset, Fill, Center}`, on the widget or on
+  `TabBarTheme`.
+
+  `Auto` is the reference's `isScrollable ? start : fill` said out loud, so the default is
+  expressible rather than merely being what happens when nobody speaks.
+
+  **The reference throws; this does not.** `fill` on a scrollable bar and `start` on one
+  that is not are assertion failures there, and a layout that throws is a crash on
+  somebody's phone for a combination with an obvious reading. Fill on a scrolling bar
+  reads as `Start`, sharing a width being the opposite of exceeding it; and `Start` on a
+  bar that shares its width does exactly what it says — natural-width tabs packed at the
+  leading edge, which the reference forbids for reasons that are its own history.
+
+  **`Center` works on a bar that does not scroll and reads as `Start` on one that does,
+  and that was measured rather than assumed.** A centred strip takes the bar's whole width
+  so there is something to centre in; inside a horizontal scroll there is no such thing,
+  since the strip is measured by its own tabs — that being what gives the scroll something
+  to scroll through — so `Percent(1.0)` resolves against an indefinite parent and the strip
+  comes out exactly as wide as the tabs, with nothing left over. Milestone 368's and 377's
+  trap, paid for a third time. The test asserts the two alignments give **identical**
+  output on a scrolling bar and that the same bar without the scroll does centre, so the
+  boundary is pinned rather than described.
+
+  The alignment is resolved **against the theme at layout time**, not once at build time:
+  the first version asked `Theme::default()` in `rebuild_bar`, which would have read an
+  application's `TabBarTheme::alignment` for the strip's box and ignored it for the tabs'
+  widths — a row laid out under one rule with an indicator drawn under another. A test
+  asserts the indicator moved by exactly as much as the label it marks.
 
 ### Added
 

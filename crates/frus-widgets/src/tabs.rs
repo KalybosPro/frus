@@ -31,6 +31,8 @@ pub const TAB_ICON_SIZE: f32 = 24.0;
 pub const TAB_ICON_GAP: f32 = 2.0;
 /// The room on either side of a label.
 pub const TAB_LABEL_PADDING: f32 = 16.0;
+/// The inset [`TabAlignment::StartOffset`] leaves before the first tab.
+pub const TAB_START_OFFSET: f32 = 52.0;
 /// The thickness of a **primary** bar's indicator, which is also its corner radius.
 pub const TAB_INDICATOR_PRIMARY: f32 = 3.0;
 /// The thickness of a **secondary** bar's indicator.
@@ -50,6 +52,68 @@ pub enum TabBarVariant {
     Primary,
     /// Tab-wide indicator, square.
     Secondary,
+}
+
+/// Where the tabs sit in a bar with room to spare.
+///
+/// The question only arises when the tabs do not already fill the bar — which is either
+/// because they were told not to share it, or because there are two of them in a window
+/// meant for six.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum TabAlignment {
+    /// Whatever the bar's mode implies: [`Fill`](Self::Fill) when it shares its width,
+    /// [`Start`](Self::Start) when it scrolls. The default, and the reference's.
+    #[default]
+    Auto,
+    /// Each tab as wide as it needs, packed against the leading edge.
+    Start,
+    /// The same, after an inset of [`TAB_START_OFFSET`].
+    StartOffset,
+    /// The tabs share the bar's width in equal parts.
+    ///
+    /// Meaningless on a bar that **scrolls**, since sharing a width is the opposite of
+    /// exceeding it, and it reads as [`Start`](Self::Start) there. The reference throws
+    /// instead; a layout that throws is a crash on somebody's phone for a combination
+    /// that has an obvious reading.
+    Fill,
+    /// Each tab as wide as it needs, the row centred in the bar.
+    ///
+    /// For a bar that does **not** scroll. Centring needs something definite to centre
+    /// in, and the content of a scroll region has no definite width across the axis it
+    /// scrolls along — the strip is measured by its own tabs, so a percentage of its
+    /// parent resolves against nothing and it comes out exactly as wide as the tabs it
+    /// holds, with no room left over to share. So it reads as [`Start`](Self::Start)
+    /// there.
+    ///
+    /// The two are not really alternatives anyway: a bar whose tabs might overflow wants
+    /// `Start` and a scroll, and a bar whose tabs certainly fit wants `Center` and no
+    /// scroll at all.
+    Center,
+}
+
+impl TabAlignment {
+    /// What this means for a bar that does or does not scroll.
+    ///
+    /// The reference forbids [`Start`](Self::Start) and [`StartOffset`](Self::StartOffset)
+    /// on a bar that shares its width, for reasons that are its own history rather than
+    /// anything about the layout — packing natural-width tabs against the leading edge of
+    /// a bar that does not scroll is a perfectly ordinary thing to want, and it is what
+    /// they do here.
+    fn resolved(self, scrolls: bool) -> Self {
+        match (self, scrolls) {
+            (Self::Auto, true) | (Self::Fill, true) | (Self::Center, true) => Self::Start,
+            (Self::Auto, false) => Self::Fill,
+            (other, _) => other,
+        }
+    }
+
+    /// The inset before the first tab.
+    fn lead(self) -> f32 {
+        match self {
+            Self::StartOffset => TAB_START_OFFSET,
+            _ => 0.0,
+        }
+    }
 }
 
 /// One tab's content: what it says, what it shows, and which of the two is drawn.
@@ -101,6 +165,8 @@ pub(crate) struct TabStyle {
     pub divider_height: Option<f32>,
     pub label_padding: Option<f32>,
     pub tab_height: Option<f32>,
+    /// Where the tabs sit when they do not fill the bar; see [`TabBar::alignment`].
+    pub alignment: Option<TabAlignment>,
     /// Does any tab in this bar stack an icon over a label? Not an override but a fact
     /// about the row, recorded here because the bar and every tab must measure the same
     /// height and this is the one thing both already hold.
@@ -170,6 +236,14 @@ impl TabStyle {
             .unwrap_or(TAB_LABEL_PADDING)
     }
 
+    /// Where the tabs sit, resolved against what the bar does.
+    fn alignment(&self, theme: &Theme, scrolls: bool) -> TabAlignment {
+        self.alignment
+            .or(theme.widgets.tab_bar.alignment)
+            .unwrap_or_default()
+            .resolved(scrolls)
+    }
+
     fn tab_height(&self, theme: &Theme) -> f32 {
         self.tab_height
             .or(theme.widgets.tab_bar.tab_height)
@@ -229,16 +303,28 @@ impl TabStyle {
         theme: &Theme,
         tabs: &[TabSpec],
         width: f32,
-        scrolls: bool,
+        alignment: TabAlignment,
     ) -> Vec<(f32, f32)> {
-        if !scrolls {
+        if alignment == TabAlignment::Fill {
             let each = width / tabs.len().max(1) as f32;
             return (0..tabs.len()).map(|i| (i as f32 * each, each)).collect();
         }
+        let widths: Vec<f32> = tabs
+            .iter()
+            .map(|spec| self.scrolled_tab_width(theme, spec))
+            .collect();
+        // Centred, the row's own leading inset is half of whatever is left over — and
+        // nothing when there is nothing left over, which is the case that matters: a
+        // scrolling bar's strip is as wide as its tabs, so the two agree at zero rather
+        // than the indicator drifting off by half an overflow.
+        let lead = match alignment {
+            TabAlignment::Center => (width - widths.iter().sum::<f32>()) / 2.0,
+            other => other.lead(),
+        }
+        .max(0.0);
         let mut spans = Vec::with_capacity(tabs.len());
-        let mut x = 0.0;
-        for spec in tabs {
-            let w = self.scrolled_tab_width(theme, spec);
+        let mut x = lead;
+        for w in widths {
             spans.push((x, w));
             x += w;
         }
@@ -265,7 +351,8 @@ struct Tab<Msg> {
     style: TabStyle,
     /// The bar's availability, handed down to every tab.
     enabled: bool,
-    /// Whether the bar scrolls, which decides how wide this tab is.
+    /// Whether the bar scrolls. Half of the question "does this tab share the bar's
+    /// width"; the other half is the [`TabAlignment`], which only the theme can settle.
     scrolls: bool,
     message: Msg,
 }
@@ -281,7 +368,10 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         // proportion to the labels instead would move every tab whenever one was renamed.
         // The padding is the label's own room, and the smallest a tab will agree to be.
         let pad = self.style.label_padding(theme);
-        if !self.scrolls {
+        // Asked of the **theme**, here rather than once at build time: an application
+        // that sets the alignment on its theme sets it for tabs that were built before
+        // the theme was ever consulted.
+        if self.style.alignment(theme, self.scrolls) == TabAlignment::Fill {
             return Style {
                 width: Dimension::Length(0.0),
                 flex_grow: 1.0,
@@ -289,7 +379,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
                 ..Default::default()
             };
         }
-        // Scrollable: the tab takes the room its label needs and no more, which is the
+        // Otherwise the tab takes the room its content needs and no more, which is the
         // whole difference — eight tabs on a phone stop being eight crushed columns and
         // become eight readable ones the bar scrolls through.
         //
@@ -430,15 +520,25 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
     }
 
     fn style_themed(&self, theme: &Theme) -> Style {
+        // Centring needs something to centre **in**: the strip takes the bar's whole
+        // width, and the row is placed inside it. Only reachable on a bar that does not
+        // scroll, for exactly that reason — see [`TabAlignment::Center`].
+        let alignment = self.style.alignment(theme, self.scrolls);
+        let centred = alignment == TabAlignment::Center;
         Style {
             // Scrollable, the strip is as wide as its tabs, which is what gives the
             // scroll something to scroll through.
-            width: match self.scrolls {
+            width: match self.scrolls && !centred {
                 true => Dimension::Auto,
                 false => Dimension::Percent(1.0),
             },
             height: Dimension::Length(self.style.bar_height(theme)),
             flex_direction: FlexDirection::Row,
+            justify: match centred {
+                true => frus_layout::Justify::Center,
+                false => frus_layout::Justify::Start,
+            },
+            padding: frus_core::Insets::new(0.0, 0.0, 0.0, alignment.lead()),
             ..Default::default()
         }
     }
@@ -474,9 +574,12 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
         // tweens the selected index, so this is a fractional position and the indicator
         // slides rather than jumps. Its width travels with it, so an indicator moving
         // between a short label and a long one grows on the way.
-        let spans = self
-            .style
-            .tab_spans(theme, &self.tabs, bounds.width, self.scrolls);
+        let spans = self.style.tab_spans(
+            theme,
+            &self.tabs,
+            bounds.width,
+            self.style.alignment(theme, self.scrolls),
+        );
         let last = (count - 1) as f32;
         let value = status.value.clamp(0.0, last);
         let (low, high) = (value.floor(), value.ceil());
@@ -540,7 +643,12 @@ impl<Msg: Clone> Widget<Msg> for TabStrip<Msg> {
         if !self.scrolls {
             return None;
         }
-        let spans = self.style.tab_spans(theme, &self.tabs, size.width, true);
+        let spans = self.style.tab_spans(
+            theme,
+            &self.tabs,
+            size.width,
+            self.style.alignment(theme, self.scrolls),
+        );
         let &(x, width) = spans.get(self.selected)?;
         Some(crate::ui::KeepVisible {
             key: self.selected as u64,
@@ -664,6 +772,16 @@ impl<Msg: Clone + 'static> TabBar<Msg> {
     /// the whole foot of the bar even when the tabs do not fill it.
     pub fn scrollable(mut self, scrollable: bool) -> Self {
         self.scrollable = scrollable;
+        self.rebuild_bar();
+        self
+    }
+
+    /// Where the tabs sit when they do not fill the bar.
+    ///
+    /// [`Auto`](TabAlignment::Auto) — the default — is what the bar's mode implies:
+    /// shared width when it does not scroll, packed at the leading edge when it does.
+    pub fn alignment(mut self, alignment: TabAlignment) -> Self {
+        self.style.alignment = Some(alignment);
         self.rebuild_bar();
         self
     }
@@ -1110,6 +1228,160 @@ mod tests {
         );
     }
 
+    /// Where each tab's label was actually drawn, left to right.
+    fn label_xs(tabs: TabBar<Msg>, width: f32) -> Vec<f32> {
+        let root = crate::flex::Flex::column()
+            .width(width)
+            .height(300.0)
+            .child(tabs);
+        let mut runtime = Runtime::default();
+        runtime.advance_values::<Msg>(&root, 0.0);
+        let ui = build_ui(&root, Size::new(width, 300.0), &runtime, &Theme::default());
+        // The tabs' own labels, and not the panel's text, which is empty and sits at
+        // the origin: a stray zero at the head of the list would make every comparison
+        // below quietly about the wrong thing.
+        let mut xs: Vec<f32> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Text { position, text, .. } if text == "One" || text == "Two" => {
+                    Some(position.x)
+                }
+                _ => None,
+            })
+            .collect();
+        xs.sort_by(f32::total_cmp);
+        xs
+    }
+
+    fn two(alignment: TabAlignment, scrolls: bool) -> TabBar<Msg> {
+        TabBar::new(0, Msg::Select)
+            .scrollable(scrolls)
+            .alignment(alignment)
+            .tab("One", crate::text(""))
+            .tab("Two", crate::text(""))
+    }
+
+    /// The default is the bar's mode, said out loud: shared width when it does not
+    /// scroll, packed at the leading edge when it does.
+    #[test]
+    fn auto_is_whatever_the_bar_already_did() {
+        assert_eq!(TabAlignment::Auto.resolved(false), TabAlignment::Fill);
+        assert_eq!(TabAlignment::Auto.resolved(true), TabAlignment::Start);
+        // And filling a bar that scrolls is a contradiction, so it reads as `Start`
+        // rather than throwing the way the reference does.
+        assert_eq!(TabAlignment::Fill.resolved(true), TabAlignment::Start);
+        // The rest mean what they say either way.
+        assert_eq!(TabAlignment::Center.resolved(false), TabAlignment::Center);
+        assert_eq!(TabAlignment::Center.resolved(true), TabAlignment::Start);
+        assert_eq!(TabAlignment::Start.resolved(false), TabAlignment::Start);
+    }
+
+    /// Two tabs in a wide bar: filled they sit in the middle of their halves, started
+    /// they hug the leading edge, centred they sit together in the middle.
+    #[test]
+    fn the_tabs_go_where_they_were_told() {
+        let filled = label_xs(two(TabAlignment::Fill, false), 600.0);
+        let started = label_xs(two(TabAlignment::Start, false), 600.0);
+        let centred = label_xs(two(TabAlignment::Center, false), 600.0);
+
+        // Filled, each tab is 300 wide, so the labels are nowhere near each other.
+        assert!(filled[1] - filled[0] > 250.0, "{filled:?}");
+        // Started, they are as wide as their words and sit at the leading edge.
+        assert!((started[0] - TAB_LABEL_PADDING).abs() < 1.0, "{started:?}");
+        assert!(started[1] - started[0] < 120.0, "{started:?}");
+        // Centred, the pair keeps its spacing and moves right as a block.
+        let gap = |xs: &[f32]| xs[1] - xs[0];
+        assert!((gap(&centred) - gap(&started)).abs() < 1.0, "{centred:?}");
+        assert!(centred[0] > started[0] + 100.0, "{centred:?}");
+        // And the block really is centred: as much room after it as before it.
+        let width: f32 = (0..2)
+            .map(|i| {
+                TabStyle::default().scrolled_tab_width(
+                    &Theme::default(),
+                    &TabSpec::text(if i == 0 { "One" } else { "Two" }),
+                )
+            })
+            .sum();
+        assert!(
+            (centred[0] - TAB_LABEL_PADDING - (600.0 - width) / 2.0).abs() < 1.0,
+            "{centred:?}"
+        );
+    }
+
+    /// The offset is an inset before the first tab and nothing else: the second tab
+    /// moves by exactly the same amount.
+    #[test]
+    fn the_start_offset_moves_the_whole_row() {
+        let started = label_xs(two(TabAlignment::Start, false), 600.0);
+        let offset = label_xs(two(TabAlignment::StartOffset, false), 600.0);
+        for (a, b) in started.iter().zip(&offset) {
+            assert!(
+                (b - a - TAB_START_OFFSET).abs() < 1.0,
+                "{started:?} {offset:?}"
+            );
+        }
+    }
+
+    /// A **scrolling** bar cannot centre, and says so by reading as `Start` rather than
+    /// by pretending.
+    ///
+    /// Centring wants something definite to centre in, and the content of a scroll has
+    /// no definite width across the axis it scrolls along: the strip is measured by its
+    /// own tabs, so a percentage of its parent resolves against nothing and it comes out
+    /// exactly as wide as the tabs, with nothing left over to share. Measured here
+    /// rather than assumed — this is the trap of milestones 368 and 377, and the third
+    /// time it has been paid for.
+    #[test]
+    fn a_scrolling_bar_cannot_centre_and_does_not_pretend() {
+        let started = label_xs(two(TabAlignment::Start, true), 600.0);
+        let centred = label_xs(two(TabAlignment::Center, true), 600.0);
+        assert_eq!(started, centred);
+        assert!((started[0] - TAB_LABEL_PADDING).abs() < 1.0, "{started:?}");
+        // Without the scroll, the same bar centres.
+        let still = label_xs(two(TabAlignment::Center, false), 600.0);
+        assert!(still[0] > started[0] + 100.0, "{still:?}");
+    }
+
+    /// The indicator follows, because it reads the same spans the tabs are laid out to.
+    /// This is the part that would drift.
+    #[test]
+    fn the_indicator_follows_the_alignment() {
+        let indicator = |alignment: TabAlignment| {
+            let root = crate::flex::Flex::column()
+                .width(600.0)
+                .height(300.0)
+                .child(two(alignment, false));
+            let mut runtime = Runtime::default();
+            runtime.advance_values::<Msg>(&root, 0.0);
+            build_ui(&root, Size::new(600.0, 300.0), &runtime, &Theme::default())
+                .scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    // The indicator: as thick as a primary bar's, not the hairline.
+                    Primitive::Rect { rect, .. }
+                        if (rect.height - TAB_INDICATOR_PRIMARY).abs() < 0.5 =>
+                    {
+                        Some(rect.x + rect.width / 2.0)
+                    }
+                    _ => None,
+                })
+                .next()
+                .expect("an indicator")
+        };
+        let started = indicator(TabAlignment::Start);
+        let centred = indicator(TabAlignment::Center);
+        let labels_started = label_xs(two(TabAlignment::Start, false), 600.0);
+        let labels_centred = label_xs(two(TabAlignment::Center, false), 600.0);
+        // The indicator moved by exactly as much as the label it marks.
+        assert!(
+            ((centred - started) - (labels_centred[0] - labels_started[0])).abs() < 1.0,
+            "{started} {centred}"
+        );
+    }
+
     fn three(selected: usize) -> TabBar<Msg> {
         TabBar::new(selected, Msg::Select)
             .tab("One", Text::new("panel one"))
@@ -1518,7 +1790,7 @@ mod scrollable_tests {
         let theme = Theme::default();
         let style = TabStyle::default();
         let labels: Vec<TabSpec> = LABELS.iter().map(|s| TabSpec::text(*s)).collect();
-        let spans = style.tab_spans(&theme, &labels, 360.0, true);
+        let spans = style.tab_spans(&theme, &labels, 360.0, TabAlignment::Start);
 
         let mut expected = 0.0;
         for (i, label) in labels.iter().enumerate() {
@@ -1538,7 +1810,8 @@ mod scrollable_tests {
     #[test]
     fn an_ordinary_bar_still_divides_its_width_evenly() {
         let labels: Vec<TabSpec> = LABELS.iter().map(|s| TabSpec::text(*s)).collect();
-        let spans = TabStyle::default().tab_spans(&Theme::default(), &labels, 800.0, false);
+        let spans =
+            TabStyle::default().tab_spans(&Theme::default(), &labels, 800.0, TabAlignment::Fill);
         assert_eq!(spans[0], (0.0, 100.0));
         assert_eq!(spans[7], (700.0, 100.0));
     }
