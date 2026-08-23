@@ -8,10 +8,45 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 388 so far, each documenting the objective, the alternatives
+> record — one per step, 389 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **What a field lets through, and what the keyboard offers** (J389). A quantity field
+  took letters, a code field took lower case, and a field that refused everything but
+  digits still opened a full QWERTY keyboard, because nothing connected the two.
+  `input_filter`, `digits_only`, `capitalization`.
+
+  `input_filter` is `Fn(char) -> Option<char>`: `None` drops the character, `Some(c)` puts
+  `c` in instead of what was typed. **One character at a time, and that is the decision.**
+  The reference's `inputFormatters` reshape the whole value after every keystroke, which
+  buys grouping — spaces every four digits of a card number — and costs a caret, since
+  the formatter has to say where the cursor went and getting it wrong puts the cursor in
+  the middle of a group the reader never touched. A filter working one character at a time
+  cannot group and cannot lose the caret either: a dropped character never arrives and a
+  substituted one takes exactly the place of the one typed. That covers digits-only,
+  letters-only, no-spaces and forced case, which is nearly every field that filters at all.
+
+  A **refused keystroke is not an edit**. The insertion arm used to mark the value changed
+  unconditionally, which with a filter would emit `on_input` with the value already there
+  and rebuild the tree for a key that did nothing. A selection counts even when what
+  replaces it is empty — the reference filters the value *after* the replacement, so the
+  selection really is gone — and a bare refused keystroke does not. The caller's own value
+  is never filtered: it is the application's state, the same rule `max_length` follows.
+
+  `digits_only()` also names `KeyboardType::Number`, but only when no keyboard was named,
+  so the two builders can be written in either order.
+
+  `Capitalization::{Auto, None, Sentences, Words, Characters}` **replaces** the keyboard
+  type's own capitalisation rather than adding to it — two capitalisation bits at once is
+  a keyboard being told two things — and `Auto`, the default, leaves it alone, so every
+  existing type answers exactly what it always did. Only a text class capitalises: `0x1000`
+  is *signed* on a number class, so asking a phone field for capitals would quietly turn on
+  a minus key. The composition moved to `Ime::android_input_type`, being a question about
+  the pair; the checked-in dex still takes two integers and needs no rebuild.
 
 ### Added
 

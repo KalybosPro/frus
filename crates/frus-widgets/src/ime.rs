@@ -87,6 +87,44 @@ pub enum TextInputAction {
     Unspecified,
 }
 
+/// Which letters the software keyboard capitalises on its own.
+///
+/// A hint, not a rule: it is what the **keyboard** does to what it sends, and a reader
+/// who turns it off still types what they meant to. A field that must hold capitals
+/// wants [`TextField::input_filter`](crate::TextField::input_filter) as well, which
+/// works whatever the keyboard does and works on a desktop, where there is no keyboard
+/// to hint to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Capitalization {
+    /// Whatever the keyboard type already implies — sentences for ordinary text, words
+    /// for a name or an address, nothing for an email address. The default, and right
+    /// nearly always, since the type is the better description of the two.
+    #[default]
+    Auto,
+    /// Nothing. The reader capitalises what they mean to capitalise.
+    None,
+    /// The first letter of each sentence.
+    Sentences,
+    /// The first letter of each word.
+    Words,
+    /// Every letter.
+    Characters,
+}
+
+impl Capitalization {
+    /// The Android `InputType` bit for this, or zero for none.
+    const fn flag(self) -> i32 {
+        use input_type as t;
+        match self {
+            // `Auto` never reaches here; see [`Ime::android_input_type`].
+            Self::Auto | Self::None => 0,
+            Self::Sentences => t::TEXT_FLAG_CAP_SENTENCES,
+            Self::Words => t::TEXT_FLAG_CAP_WORDS,
+            Self::Characters => t::TEXT_FLAG_CAP_CHARACTERS,
+        }
+    }
+}
+
 /// The pair the platform is told when a field takes focus.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Ime {
@@ -94,6 +132,8 @@ pub struct Ime {
     pub keyboard: KeyboardType,
     /// What the action key does.
     pub action: TextInputAction,
+    /// Which letters the keyboard capitalises by itself.
+    pub capitalization: Capitalization,
 }
 
 impl Ime {
@@ -102,6 +142,34 @@ impl Ime {
         Self {
             keyboard,
             action: TextInputAction::Done,
+            capitalization: Capitalization::Auto,
+        }
+    }
+
+    /// The same, capitalising differently from what the type implies.
+    pub const fn capitalization(mut self, capitalization: Capitalization) -> Self {
+        self.capitalization = capitalization;
+        self
+    }
+
+    /// The Android `InputType` bit field for this field: the type's, with the
+    /// capitalisation overruled where one was asked for.
+    ///
+    /// Only a **text** class capitalises. A number pad has no letters to capitalise and
+    /// the same bits mean other things there (`0x1000` is *signed* on a number class),
+    /// so asking a phone field for capitals would quietly turn on a minus key.
+    ///
+    /// [`Capitalization::Auto`] leaves the type's own bits alone, which is why the
+    /// existing types keep answering exactly what they always did.
+    pub const fn android_input_type(self) -> i32 {
+        use input_type as t;
+        let base = self.keyboard.android_input_type();
+        if base & t::CLASS_MASK != t::CLASS_TEXT {
+            return base;
+        }
+        match self.capitalization {
+            Capitalization::Auto => base,
+            other => (base & !t::CAP_MASK) | other.flag(),
         }
     }
 
@@ -123,8 +191,14 @@ mod input_type {
     pub const CLASS_PHONE: i32 = 0x0000_0003;
     pub const CLASS_DATETIME: i32 = 0x0000_0004;
 
+    pub const CLASS_MASK: i32 = 0x0000_000f;
+
+    pub const TEXT_FLAG_CAP_CHARACTERS: i32 = 0x0000_1000;
     pub const TEXT_FLAG_CAP_SENTENCES: i32 = 0x0000_4000;
     pub const TEXT_FLAG_CAP_WORDS: i32 = 0x0000_2000;
+    /// Every capitalisation bit, so that asking for one can clear the others.
+    pub const CAP_MASK: i32 =
+        TEXT_FLAG_CAP_CHARACTERS | TEXT_FLAG_CAP_SENTENCES | TEXT_FLAG_CAP_WORDS;
     pub const TEXT_FLAG_MULTI_LINE: i32 = 0x0002_0000;
 
     pub const TEXT_VARIATION_URI: i32 = 0x0000_0010;
@@ -230,6 +304,73 @@ mod tests {
         assert_eq!(ime.keyboard.android_input_type(), 1 | 0x4000);
         // IME_ACTION_DONE | IME_FLAG_NO_FULLSCREEN
         assert_eq!(ime.action.android_ime_options(), 6 | 0x0200_0000);
+    }
+
+    /// Asking for a capitalisation **replaces** the type's own rather than adding to it:
+    /// two capitalisation bits at once is a keyboard being told two things.
+    #[test]
+    fn a_capitalisation_replaces_the_types_own() {
+        const CAP_MASK: i32 = 0x0000_7000;
+        let bits = |c: Capitalization| Ime::new(KeyboardType::Text).capitalization(c);
+        // Ordinary text capitalises sentences by itself.
+        assert_eq!(
+            Ime::new(KeyboardType::Text).android_input_type() & CAP_MASK,
+            0x0000_4000
+        );
+        assert_eq!(
+            bits(Capitalization::Words).android_input_type() & CAP_MASK,
+            0x0000_2000
+        );
+        assert_eq!(
+            bits(Capitalization::Characters).android_input_type() & CAP_MASK,
+            0x0000_1000
+        );
+        assert_eq!(
+            bits(Capitalization::None).android_input_type() & CAP_MASK,
+            0
+        );
+        // And the rest of the field is untouched: still a text class.
+        assert_eq!(bits(Capitalization::None).android_input_type() & 0xf, 1);
+    }
+
+    /// `Auto` is the absence of an opinion, so every type answers exactly what it always
+    /// did """ + D + u""" a name still capitalises words, an email address still capitalises nothing.
+    #[test]
+    fn auto_leaves_every_type_as_it_was() {
+        for keyboard in [
+            KeyboardType::Text,
+            KeyboardType::Multiline,
+            KeyboardType::Name,
+            KeyboardType::Email,
+            KeyboardType::Password,
+            KeyboardType::Number,
+            KeyboardType::Phone,
+        ] {
+            assert_eq!(
+                Ime::new(keyboard).android_input_type(),
+                keyboard.android_input_type(),
+                "{keyboard:?}"
+            );
+        }
+    }
+
+    /// Only a text class capitalises. `0x1000` is *signed* on a number class, so asking
+    /// a keypad for capitals would quietly turn on a minus key.
+    #[test]
+    fn a_keypad_is_never_told_to_capitalise() {
+        for keyboard in [
+            KeyboardType::Number,
+            KeyboardType::Decimal,
+            KeyboardType::Phone,
+            KeyboardType::DateTime,
+        ] {
+            let asked = Ime::new(keyboard).capitalization(Capitalization::Characters);
+            assert_eq!(
+                asked.android_input_type(),
+                keyboard.android_input_type(),
+                "{keyboard:?}"
+            );
+        }
     }
 
     /// Each type carries its own class. A phone field on a text class is a QWERTY

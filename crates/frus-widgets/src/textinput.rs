@@ -10,7 +10,7 @@ use frus_text::TextLayout;
 
 use crate::disabled::DISABLED_CONTENT_OPACITY;
 use crate::icons::Icons;
-use crate::ime::{Ime, KeyboardType, TextInputAction};
+use crate::ime::{Capitalization, Ime, KeyboardType, TextInputAction};
 use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::theme::Theme;
@@ -173,6 +173,12 @@ pub struct TextField<Msg> {
     dense: bool,
     /// The most characters the field will hold; see [`TextField::max_length`].
     max_length: Option<usize>,
+    /// What a typed character becomes before it reaches the value; see
+    /// [`TextField::input_filter`].
+    input_filter: Option<Box<dyn Fn(char) -> Option<char>>>,
+    /// Which letters the software keyboard capitalises; see
+    /// [`TextField::capitalization`].
+    capitalization: Capitalization,
     /// A field whose value can be read, selected and copied but not changed; see
     /// [`TextField::read_only`].
     read_only: bool,
@@ -269,6 +275,8 @@ impl<Msg> TextField<Msg> {
             enabled: true,
             dense: false,
             max_length: None,
+            input_filter: None,
+            capitalization: Capitalization::Auto,
             read_only: false,
             style: TextFieldStyle::default(),
         }
@@ -568,7 +576,11 @@ impl<Msg> TextField<Msg> {
             KeyboardType::Multiline => TextInputAction::Newline,
             _ => TextInputAction::Done,
         });
-        Ime { keyboard, action }
+        Ime {
+            keyboard,
+            action,
+            capitalization: self.capitalization,
+        }
     }
 
     /// Decorative icon on the left inside the field.
@@ -655,6 +667,57 @@ impl<Msg> TextField<Msg> {
     /// that is not Latin is counted the way its writer would count it.
     pub fn max_length(mut self, max: usize) -> Self {
         self.max_length = Some(max);
+        self
+    }
+
+    /// What each typed character becomes before it reaches the value: `None` drops it,
+    /// `Some(c)` puts `c` in instead of what was typed.
+    ///
+    /// The reference's `inputFormatters` reshape the **whole value** after every
+    /// keystroke, which buys grouping (spaces every four digits of a card number) and
+    /// costs a caret: the formatter has to say where it went, and getting that wrong
+    /// puts the cursor in the middle of a group the reader did not touch. A filter that
+    /// works one character at a time cannot group, and cannot lose the caret either
+    /// — a dropped character simply never arrives, and a substituted one takes the same
+    /// place. That covers digits-only, letters-only, no-spaces and forced case, which is
+    /// nearly every field that filters at all.
+    ///
+    /// It applies to what is **typed or pasted**, and a paste keeps whatever it can
+    /// rather than being refused whole — the same rule
+    /// [`max_length`](TextField::max_length) follows, for the same reason.
+    ///
+    /// A value the **caller** supplied is left alone: it is the application's state, not
+    /// something typed, and rewriting it would be editing a value nobody edited.
+    ///
+    /// ```ignore
+    /// TextField::new(&app.code).input_filter(|c| c.to_uppercase().next())
+    /// TextField::new(&app.tag).input_filter(|c| (!c.is_whitespace()).then_some(c))
+    /// ```
+    pub fn input_filter(mut self, filter: impl Fn(char) -> Option<char> + 'static) -> Self {
+        self.input_filter = Some(Box::new(filter));
+        self
+    }
+
+    /// Digits, and nothing else.
+    ///
+    /// It also asks for a **number keypad**, unless one was named already: a field that
+    /// refuses everything but digits and then opens a QWERTY keyboard is a field whose
+    /// keys mostly do nothing. Naming a keyboard before or after this leaves that
+    /// choice standing, so the two builders can be written in either order.
+    pub fn digits_only(mut self) -> Self {
+        self.input_filter = Some(Box::new(|c| c.is_ascii_digit().then_some(c)));
+        self.keyboard = self.keyboard.or(Some(KeyboardType::Number));
+        self
+    }
+
+    /// Which letters the software keyboard capitalises by itself.
+    ///
+    /// A **hint**: it is what the keyboard does to what it sends, and a reader who turns
+    /// it off still types what they meant to. A field that must hold capitals wants
+    /// [`input_filter`](TextField::input_filter) as well, which works whatever the
+    /// keyboard does and works on a desktop, where there is no keyboard to hint to.
+    pub fn capitalization(mut self, capitalization: Capitalization) -> Self {
+        self.capitalization = capitalization;
         self
     }
 
@@ -1176,16 +1239,28 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
 
         match key {
             Key::Text(text) => {
-                if let Some((s, e)) = selection {
-                    chars.drain(s..e);
-                    cursor = s;
+                // The filter, one character at a time: a rejected one never arrives and
+                // a substituted one takes the same place, so the caret arithmetic below
+                // is the arithmetic it always was.
+                let inserted: Vec<char> = match &self.input_filter {
+                    Some(filter) => text.chars().filter_map(filter).collect(),
+                    None => text.chars().collect(),
+                };
+                // Nothing typed and nothing selected is nothing done: emitting the value
+                // unchanged would rebuild the tree for a keystroke that was refused.
+                // A selection **is** something done, even when what replaces it is
+                // empty, since the reference filters the value after the replacement.
+                if selection.is_some() || !inserted.is_empty() {
+                    if let Some((s, e)) = selection {
+                        chars.drain(s..e);
+                        cursor = s;
+                    }
+                    let n = inserted.len();
+                    chars.splice(cursor..cursor, inserted);
+                    cursor += n;
+                    anchor = None;
+                    changed = true;
                 }
-                let inserted: Vec<char> = text.chars().collect();
-                let n = inserted.len();
-                chars.splice(cursor..cursor, inserted);
-                cursor += n;
-                anchor = None;
-                changed = true;
             }
             Key::Backspace => {
                 if let Some((s, e)) = selection {
@@ -2142,6 +2217,101 @@ mod tests {
         assert!(hint_x(TextAlign::Center) > hint_x(TextAlign::Left));
     }
 
+    /// A filtered field drops what it will not take, and keeps the rest of a paste.
+    #[test]
+    fn a_filter_drops_what_it_will_not_take() {
+        let field: TextField<String> = TextField::new("").digits_only().on_input(|v| v);
+        let mut edit = Edit::default();
+        // A paste of a formatted number: the digits land, the spaces and dashes do not.
+        let out = Widget::on_edit(&field, &mut edit, &Key::Text("12 34-56".into()));
+        assert_eq!(out.as_deref(), Some("123456"));
+        assert_eq!(edit.cursor, 6, "the caret is past what actually arrived");
+    }
+
+    /// A refused keystroke is not an edit: emitting the value unchanged would rebuild
+    /// the tree for a key that did nothing.
+    #[test]
+    fn a_refused_keystroke_says_nothing() {
+        let field: TextField<String> = TextField::new("42").digits_only().on_input(|v| v);
+        let mut edit = Edit {
+            cursor: 2,
+            ..Default::default()
+        };
+        assert_eq!(
+            Widget::on_edit(&field, &mut edit, &Key::Text("x".into())),
+            None
+        );
+        assert_eq!(edit.cursor, 2, "and the caret has not moved");
+    }
+
+    /// A **selection** replaced by nothing is still an edit: the selection is gone.
+    #[test]
+    fn a_refused_keystroke_over_a_selection_still_clears_it() {
+        let field: TextField<String> = TextField::new("1234").digits_only().on_input(|v| v);
+        let mut edit = Edit {
+            cursor: 3,
+            anchor: Some(1),
+            ..Default::default()
+        };
+        let out = Widget::on_edit(&field, &mut edit, &Key::Text("x".into()));
+        assert_eq!(out.as_deref(), Some("14"));
+        assert_eq!(edit.cursor, 1);
+    }
+
+    /// A filter can **substitute** as well as drop, and the caret arithmetic is the same
+    /// because a substituted character takes the place of the one typed.
+    #[test]
+    fn a_filter_can_substitute() {
+        let field: TextField<String> = TextField::new("")
+            .input_filter(|c| c.to_uppercase().next())
+            .on_input(|v| v);
+        let mut edit = Edit::default();
+        let out = Widget::on_edit(&field, &mut edit, &Key::Text("ab".into()));
+        assert_eq!(out.as_deref(), Some("AB"));
+        assert_eq!(edit.cursor, 2);
+    }
+
+    /// A value the **caller** supplied is left alone: it is the application's state, not
+    /// something typed.
+    #[test]
+    fn a_filter_does_not_rewrite_what_the_caller_gave() {
+        let field: TextField<String> = TextField::new("a1b2").digits_only().on_input(|v| v);
+        let mut edit = Edit {
+            cursor: 4,
+            ..Default::default()
+        };
+        let out = Widget::on_edit(&field, &mut edit, &Key::Text("3".into()));
+        assert_eq!(
+            out.as_deref(),
+            Some("a1b23"),
+            "only the keystroke is filtered"
+        );
+    }
+
+    /// Digits ask for a keypad, and a keyboard named either side of it stands.
+    #[test]
+    fn digits_only_asks_for_a_keypad_without_overruling_one() {
+        let plain: TextField<()> = TextField::new("").digits_only();
+        assert_eq!(Widget::<()>::ime(&plain).keyboard, KeyboardType::Number);
+        let before: TextField<()> = TextField::new("")
+            .keyboard_type(KeyboardType::Phone)
+            .digits_only();
+        assert_eq!(Widget::<()>::ime(&before).keyboard, KeyboardType::Phone);
+        let after: TextField<()> = TextField::new("")
+            .digits_only()
+            .keyboard_type(KeyboardType::Phone);
+        assert_eq!(Widget::<()>::ime(&after).keyboard, KeyboardType::Phone);
+    }
+
+    /// The capitalisation reaches the keyboard the field asks for.
+    #[test]
+    fn the_capitalisation_travels_with_the_field() {
+        let field: TextField<()> = TextField::new("").capitalization(Capitalization::Characters);
+        let ime = Widget::<()>::ime(&field);
+        assert_eq!(ime.capitalization, Capitalization::Characters);
+        assert_eq!(ime.android_input_type() & 0x0000_7000, 0x0000_1000);
+    }
+
     /// A plain field asks for the plain keyboard, which is what every field used to
     /// get whether it suited or not.
     #[test]
@@ -2152,6 +2322,7 @@ mod tests {
             Ime {
                 keyboard: KeyboardType::Text,
                 action: TextInputAction::Done,
+                capitalization: Capitalization::Auto,
             }
         );
     }

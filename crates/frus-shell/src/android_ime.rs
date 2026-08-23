@@ -225,7 +225,7 @@ pub(crate) fn start_input(ime: frus_widgets::Ime) {
     let Some(bridge) = BRIDGE.get() else {
         return;
     };
-    let input_type = ime.keyboard.android_input_type();
+    let input_type = ime.android_input_type();
     let ime_options = ime.action.android_ime_options();
     let result = bridge
         .vm
