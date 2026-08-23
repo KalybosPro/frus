@@ -141,11 +141,25 @@ pub struct MediaQuery {
     /// The application's own zoom factor on top of the system scale (see
     /// `Application::density`). `1.0` is neutral.
     pub density: f32,
-    /// Permanently occupied edges: system bars, the notch, the gesture handle.
+    /// Occupied edges **still worth avoiding**: the intrusions, less whatever
+    /// [`view_insets`](Self::view_insets) already covers.
+    ///
+    /// Zero at the bottom while the keyboard is up, because the navigation bar it hides
+    /// is not an edge anything needs to stay clear of any more. This is what a
+    /// [`crate::SafeArea`] pads by, and it is why a screen does not keep a strip of
+    /// nothing between its content and the keys.
     pub padding: Insets,
     /// Transiently occupied edges — in practice the soft keyboard, at the bottom.
     /// Measured from the window edge, so it already includes whatever bar it covers.
     pub view_insets: Insets,
+    /// The intrusions **ignoring** anything transient: what the notch and the bars take
+    /// whether or not the keyboard is over them.
+    ///
+    /// The one that does not move when the keyboard opens. A layout with a flexible
+    /// child would otherwise shift the moment the padding under it went to zero, which
+    /// is a whole screen twitching because somebody tapped a field — see
+    /// [`crate::SafeArea::maintain_bottom_view_padding`].
+    pub view_padding: Insets,
 }
 
 impl MediaQuery {
@@ -160,6 +174,7 @@ impl MediaQuery {
         density: 1.0,
         padding: Insets::ZERO,
         view_insets: Insets::ZERO,
+        view_padding: Insets::ZERO,
     };
 
     /// A description of a bare surface of `size`, with no insets — the desktop case,
@@ -187,6 +202,7 @@ impl MediaQuery {
     pub fn with_insets(mut self, insets: WindowInsets) -> Self {
         self.padding = insets.padding;
         self.view_insets = insets.view_insets;
+        self.view_padding = insets.view_padding;
         self
     }
 
@@ -197,6 +213,7 @@ impl MediaQuery {
         WindowInsets {
             padding: self.padding,
             view_insets: self.view_insets,
+            view_padding: self.view_padding,
         }
         .safe()
     }
@@ -216,6 +233,16 @@ impl MediaQuery {
     /// descendants, so they do not inset for the same notch a second time.
     pub fn remove_padding(mut self, edges: Edges) -> Self {
         let consumed = edges.select(self.padding);
+        // The **view** padding loses the same amount, floored at zero. Without this a
+        // descendant asking for the intrusion that does not move would be told about
+        // one its parent has already dealt with, and would inset for the notch twice
+        // on the one path that was meant to be immune to the keyboard.
+        self.view_padding = Insets::new(
+            (self.view_padding.top - consumed.top).max(0.0),
+            (self.view_padding.right - consumed.right).max(0.0),
+            (self.view_padding.bottom - consumed.bottom).max(0.0),
+            (self.view_padding.left - consumed.left).max(0.0),
+        );
         self.padding = Insets::new(
             self.padding.top - consumed.top,
             self.padding.right - consumed.right,
@@ -229,6 +256,15 @@ impl MediaQuery {
     /// zeroed — the keyboard equivalent of [`remove_padding`](Self::remove_padding).
     pub fn remove_view_insets(mut self, edges: Edges) -> Self {
         let consumed = edges.select(self.view_insets);
+        // Same reasoning as [`remove_padding`](Self::remove_padding): a keyboard a
+        // parent has already made room for is not one its children should hear about,
+        // through either inset.
+        self.view_padding = Insets::new(
+            (self.view_padding.top - consumed.top).max(0.0),
+            (self.view_padding.right - consumed.right).max(0.0),
+            (self.view_padding.bottom - consumed.bottom).max(0.0),
+            (self.view_padding.left - consumed.left).max(0.0),
+        );
         self.view_insets = Insets::new(
             self.view_insets.top - consumed.top,
             self.view_insets.right - consumed.right,
@@ -283,10 +319,7 @@ mod tests {
     fn phone() -> MediaQuery {
         MediaQuery::new(Size::new(360.0, 780.0))
             .with_device_pixel_ratio(3.0)
-            .with_insets(WindowInsets {
-                padding: Insets::new(28.0, 0.0, 16.0, 0.0),
-                view_insets: Insets::ZERO,
-            })
+            .with_insets(WindowInsets::bars(Insets::new(28.0, 0.0, 16.0, 0.0)))
     }
 
     #[test]
@@ -336,13 +369,56 @@ mod tests {
 
     #[test]
     fn the_keyboard_and_the_navigation_bar_do_not_stack() {
-        let mq = phone().with_insets(WindowInsets {
-            padding: Insets::new(28.0, 0.0, 16.0, 0.0),
-            // The keyboard is measured from the window edge, bar included.
-            view_insets: Insets::new(0.0, 0.0, 320.0, 0.0),
-        });
+        // Derived the way the shell derives it: a 16 px bar, then 320 px of occlusion
+        // measured from the window edge. Hand-writing the three insets would let a test
+        // describe a surface no platform can report.
+        let mq = phone().with_insets(WindowInsets::from_baseline(
+            Insets::new(28.0, 0.0, 16.0, 0.0),
+            Insets::new(28.0, 0.0, 320.0, 0.0),
+        ));
         assert_eq!(mq.safe().bottom, 320.0, "not 336");
         assert_eq!(mq.safe().top, 28.0);
+    }
+
+    /// The three insets, and what each is for.
+    ///
+    /// `view_padding` is the bar whether or not anything covers it; `view_insets` is the
+    /// occlusion from the window edge; `padding` is what is **left** to avoid, which is
+    /// nothing at the bottom once the keyboard is over the bar. Padding a screen by the
+    /// bar as well would leave a strip of nothing above the keys.
+    #[test]
+    fn the_padding_is_what_the_keyboard_has_not_already_covered() {
+        let bar = Insets::new(28.0, 0.0, 16.0, 0.0);
+        let shut = phone().with_insets(WindowInsets::bars(bar));
+        assert_eq!(shut.padding.bottom, 16.0);
+        assert_eq!(shut.view_padding.bottom, 16.0);
+        assert_eq!(shut.view_insets.bottom, 0.0);
+
+        let open = phone().with_insets(WindowInsets::from_baseline(
+            bar,
+            Insets::new(28.0, 0.0, 320.0, 0.0),
+        ));
+        assert_eq!(
+            open.padding.bottom, 0.0,
+            "the bar is covered, so nothing avoids it"
+        );
+        assert_eq!(open.view_padding.bottom, 16.0, "the bar has not moved");
+        assert_eq!(open.view_insets.bottom, 320.0);
+        // The top is untouched by any of it: a notch is a notch.
+        assert_eq!(open.padding.top, 28.0);
+        assert_eq!(open.view_padding.top, 28.0);
+    }
+
+    /// Consuming the padding consumes as much of the **view** padding, or a widget
+    /// inside a safe area would inset for the notch a second time on the one path that
+    /// was meant to be immune to the keyboard.
+    #[test]
+    fn consuming_the_padding_consumes_the_view_padding_with_it() {
+        let mq = phone()
+            .with_insets(WindowInsets::bars(Insets::new(28.0, 0.0, 16.0, 0.0)))
+            .remove_padding(Edges::ALL);
+        assert_eq!(mq.padding, Insets::ZERO);
+        assert_eq!(mq.view_padding, Insets::ZERO);
     }
 
     #[test]

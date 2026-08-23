@@ -373,10 +373,24 @@ impl From<AlignmentDirectional> for AlignmentGeometry {
 /// [`WindowInsets::safe`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowInsets {
-    /// Permanent system areas (bars, notch).
+    /// Permanent system areas (bars, notch) **that are still worth avoiding**: the
+    /// intrusions, less whatever [`view_insets`](Self::view_insets) already covers.
+    ///
+    /// Zero at the bottom while the keyboard is up, because the navigation bar it
+    /// hides is not an edge anything needs to stay clear of any more. Padding a screen
+    /// by it as well would leave a strip of nothing between the content and the
+    /// keyboard.
     pub padding: Insets,
     /// Transient areas (the soft keyboard); in practice only the bottom moves.
+    ///
+    /// Measured from the window edge, so it already includes whatever bar it covers.
     pub view_insets: Insets,
+    /// The intrusions **ignoring** anything transient: what the notch and the bars take
+    /// whether or not the keyboard is over them.
+    ///
+    /// The one that does not move when the keyboard opens, which is why a layout that
+    /// must not shift reads this rather than [`padding`](Self::padding).
+    pub view_padding: Insets,
 }
 
 impl WindowInsets {
@@ -384,7 +398,23 @@ impl WindowInsets {
     pub const ZERO: Self = Self {
         padding: Insets::ZERO,
         view_insets: Insets::ZERO,
+        view_padding: Insets::ZERO,
     };
+
+    /// The intrusions of a surface with nothing transient over them: the bars and the
+    /// notch, and no keyboard.
+    ///
+    /// Here so that nobody has to assemble the three by hand and get them disagreeing.
+    /// `padding` and `view_padding` are the same thing while there is no keyboard, and
+    /// a hand-written literal that says otherwise describes a surface no platform can
+    /// report.
+    pub const fn bars(intrusions: Insets) -> Self {
+        Self {
+            padding: intrusions,
+            view_insets: Insets::ZERO,
+            view_padding: intrusions,
+        }
+    }
 
     /// The total area to avoid: the per-side **maximum** of the two kinds. The
     /// keyboard covers the navigation bar, so they are not added together.
@@ -404,21 +434,41 @@ impl WindowInsets {
     /// correct.
     pub fn from_baseline(baseline: Insets, current: Insets) -> WindowInsets {
         let keyboard = (current.bottom - baseline.bottom).max(0.0);
+        // The intrusions with the keyboard taken back out: `current.bottom - keyboard`
+        // is the baseline's bottom by construction, and the other three sides do not
+        // move with a keyboard.
+        let view_padding = Insets::new(
+            current.top,
+            current.right,
+            current.bottom - keyboard,
+            current.left,
+        );
+        let view_insets = Insets::new(
+            0.0,
+            0.0,
+            if keyboard > 0.0 { current.bottom } else { 0.0 },
+            0.0,
+        );
         WindowInsets {
-            padding: Insets::new(
-                current.top,
-                current.right,
-                current.bottom - keyboard,
-                current.left,
-            ),
-            view_insets: Insets::new(
-                0.0,
-                0.0,
-                if keyboard > 0.0 { current.bottom } else { 0.0 },
-                0.0,
-            ),
+            padding: subtract(view_padding, view_insets),
+            view_insets,
+            view_padding,
         }
     }
+}
+
+/// `a` less `b`, side by side, never below zero.
+///
+/// What makes the padding the *remaining* intrusion rather than the whole one: a
+/// navigation bar under an open keyboard is covered, so nothing has to avoid it, and
+/// counting it twice would leave a strip of nothing above the keys.
+fn subtract(a: Insets, b: Insets) -> Insets {
+    Insets::new(
+        (a.top - b.top).max(0.0),
+        (a.right - b.right).max(0.0),
+        (a.bottom - b.bottom).max(0.0),
+        (a.left - b.left).max(0.0),
+    )
 }
 
 impl Default for WindowInsets {
@@ -627,17 +677,24 @@ mod tests {
         // Keyboard-free reference: the top and bottom system bars.
         let baseline = Insets::new(84.0, 0.0, 45.0, 0.0);
 
-        // Keyboard closed: everything is static padding, nothing transient.
+        // Keyboard closed: everything is static padding, nothing transient, and the
+        // intrusion that does not move is the same as the one that does.
         let closed = WindowInsets::from_baseline(baseline, baseline);
         assert_eq!(closed.padding, baseline);
+        assert_eq!(closed.view_padding, baseline);
         assert_eq!(closed.view_insets, Insets::ZERO);
         assert_eq!(closed.safe(), baseline);
 
         // Keyboard open (bottom excess of 300): `view_insets.bottom` measures the
         // total occlusion from the edge (345, bar included).
         let open = WindowInsets::from_baseline(baseline, Insets::new(84.0, 0.0, 345.0, 0.0));
-        assert_eq!(open.padding, baseline);
         assert_eq!(open.view_insets, Insets::new(0.0, 0.0, 345.0, 0.0));
+        // The bar has not moved, so `view_padding` still reports it — while `padding`
+        // reports what is **left** to avoid, which at the bottom is nothing at all. The
+        // keyboard is over the bar; padding by both would leave a strip of nothing
+        // between the content and the keys.
+        assert_eq!(open.view_padding, baseline);
+        assert_eq!(open.padding, Insets::new(84.0, 0.0, 0.0, 0.0));
         // The safe area is the per-side max — the keyboard covers the bar.
         assert_eq!(open.safe(), Insets::new(84.0, 0.0, 345.0, 0.0));
 
@@ -645,6 +702,7 @@ mod tests {
         let hidden = WindowInsets::from_baseline(baseline, Insets::new(84.0, 0.0, 10.0, 0.0));
         assert_eq!(hidden.view_insets, Insets::ZERO);
         assert_eq!(hidden.padding.bottom, 10.0);
+        assert_eq!(hidden.view_padding.bottom, 10.0);
     }
 
     #[test]

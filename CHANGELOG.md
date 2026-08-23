@@ -8,10 +8,43 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 390 so far, each documenting the objective, the alternatives
+> record — one per step, 391 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Fixed
+
+- **A strip of nothing above the keyboard** (J391). The reference describes a screen's
+  intrusions with **three** numbers; we had two, and derived them wrongly. `padding` is
+  `view_padding` less `view_insets`, floored per side — what is **left** to avoid. Ours
+  reported the navigation bar's height at the bottom even while the keyboard covered it,
+  so a `SafeArea` reserved room for a bar nobody could see.
+
+  `view_padding` — the intrusion that does **not** move when the keyboard opens — was not
+  merely missing: the shell was already computing it and throwing it away, since the
+  inset baseline it keeps per physical size to tell a keyboard from a bar *is* the
+  keyboard-free intrusion. `from_baseline` returns all three now.
+
+  It matters for the case `padding` is wrong for. A screen with a flexible child grows by
+  exactly the bar's height the moment a field is tapped and shrinks again when the
+  keyboard closes — a whole layout twitching because somebody started typing.
+  `SafeArea::maintain_bottom_view_padding` pads by the intrusion that does not move, and
+  a `Scaffold` that **declines** to resize now reads `view_padding` too: declining says
+  the keyboard is an overlay, so the geometry it wants is the keyboard-free one, and
+  reading `padding` there would drop the bottom bar and the floating button onto the
+  window's edge the moment a field was tapped.
+
+  `remove_padding` and `remove_view_insets` both take the same amount off `view_padding`,
+  as the reference's do: a descendant asking for the intrusion that does not move would
+  otherwise be told about one its parent had already dealt with.
+
+  `WindowInsets::bars` exists because five tests hand-built `{ padding, view_insets }`
+  literals, and under the corrected rule `padding.bottom = 16` beside
+  `view_insets.bottom = 320` is a state no platform can report — a test asserting against
+  it asserts against nothing. The keyboard cases go through `from_baseline` now, the same
+  function the shell uses. That is how the wrong `padding` survived: the test that should
+  have caught it was asserting the bug.
 
 ### Added
 

@@ -143,16 +143,13 @@ fn on_insets_updates_safe_area() {
     let mut app = TodoApp::default();
     assert_eq!(app.insets, Insets::ZERO);
     // The system bars alone.
-    app.on_insets(WindowInsets {
-        padding: Insets::new(84.0, 0.0, 45.0, 0.0),
-        view_insets: Insets::ZERO,
-    });
+    app.on_insets(WindowInsets::bars(Insets::new(84.0, 0.0, 45.0, 0.0)));
     assert_eq!(app.insets, Insets::new(84.0, 0.0, 45.0, 0.0));
     // An open keyboard: the bottom safe area follows the keyboard (avoidance).
-    app.on_insets(WindowInsets {
-        padding: Insets::new(84.0, 0.0, 45.0, 0.0),
-        view_insets: Insets::new(0.0, 0.0, 345.0, 0.0),
-    });
+    app.on_insets(WindowInsets::from_baseline(
+        Insets::new(84.0, 0.0, 45.0, 0.0),
+        Insets::new(84.0, 0.0, 345.0, 0.0),
+    ));
     assert_eq!(app.insets, Insets::new(84.0, 0.0, 345.0, 0.0));
     // The view builds without panicking with non-zero insets (the wrapping path).
     let theme = Theme::dark();

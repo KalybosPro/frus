@@ -35,6 +35,9 @@ pub struct SafeArea<Msg> {
     edges: Edges,
     minimum: Insets,
     keyboard: bool,
+    /// Pad the bottom by the intrusion that does **not** move; see
+    /// [`SafeArea::maintain_bottom_view_padding`].
+    maintain_bottom: bool,
     children: Vec<Box<dyn Widget<Msg>>>,
     /// The padding this widget resolved when it was constructed. Kept rather than
     /// recomputed in `style`, because `style` is also called from the layout cache,
@@ -49,6 +52,7 @@ impl<Msg> SafeArea<Msg> {
             edges: Edges::ALL,
             minimum: Insets::ZERO,
             keyboard: false,
+            maintain_bottom: false,
             children: vec![Box::new(child)],
             resolved: Insets::ZERO,
         };
@@ -82,6 +86,10 @@ impl<Msg> SafeArea<Msg> {
             edges,
             minimum,
             keyboard,
+            // Off here, and [`SafeArea::maintain_bottom_view_padding`] still works on
+            // the result: it changes how much this widget pads, not what the child was
+            // told had been consumed, and those are different questions.
+            maintain_bottom: false,
             children: Vec::new(),
             resolved: Insets::ZERO,
         };
@@ -113,6 +121,24 @@ impl<Msg> SafeArea<Msg> {
         self
     }
 
+    /// Keeps the bottom padding the keyboard would otherwise consume.
+    ///
+    /// The bottom padding goes to **zero** while the keyboard is up: the navigation bar
+    /// it hides is not an edge anything needs to stay clear of, and that is the right
+    /// answer nearly always. It is the wrong one for a screen holding a flexible child,
+    /// which would then grow by exactly that bar's height the moment a field was tapped
+    /// and shrink again when the keyboard closed — a whole layout twitching because
+    /// somebody started typing.
+    ///
+    /// On, the bottom is padded by [`MediaQuery::view_padding`] instead, which does not
+    /// move. The content sits behind the keyboard rather than above it, which is what it
+    /// was already doing.
+    pub fn maintain_bottom_view_padding(mut self) -> Self {
+        self.maintain_bottom = true;
+        self.resolved = self.resolve();
+        self
+    }
+
     /// Also avoids the **soft keyboard**, not just the permanent bars.
     ///
     /// Off by default, and deliberately: a screen whose content scrolls wants the
@@ -128,7 +154,10 @@ impl<Msg> SafeArea<Msg> {
     /// `minimum`.
     fn resolve(&self) -> Insets {
         let mq = MediaQuery::of();
-        let occupied = if self.keyboard { mq.safe() } else { mq.padding };
+        let mut occupied = if self.keyboard { mq.safe() } else { mq.padding };
+        if self.maintain_bottom {
+            occupied.bottom = mq.view_padding.bottom;
+        }
         let selected = self.edges.select(occupied);
         Insets::new(
             selected.top.max(self.minimum.top),
@@ -173,10 +202,8 @@ mod tests {
     use frus_core::{Size, WindowInsets};
 
     fn phone() -> MediaQuery {
-        MediaQuery::new(Size::new(360.0, 780.0)).with_insets(WindowInsets {
-            padding: Insets::new(28.0, 0.0, 16.0, 0.0),
-            view_insets: Insets::ZERO,
-        })
+        MediaQuery::new(Size::new(360.0, 780.0))
+            .with_insets(WindowInsets::bars(Insets::new(28.0, 0.0, 16.0, 0.0)))
     }
 
     #[test]
@@ -214,18 +241,46 @@ mod tests {
         assert_eq!(area.padding().left, 20.0, "nothing occupied, so the floor");
     }
 
+    fn with_keyboard() -> MediaQuery {
+        phone().with_insets(WindowInsets::from_baseline(
+            Insets::new(28.0, 0.0, 16.0, 0.0),
+            Insets::new(28.0, 0.0, 320.0, 0.0),
+        ))
+    }
+
     #[test]
     fn the_keyboard_is_avoided_only_when_asked() {
-        let with_keyboard = phone().with_insets(WindowInsets {
-            padding: Insets::new(28.0, 0.0, 16.0, 0.0),
-            view_insets: Insets::new(0.0, 0.0, 320.0, 0.0),
-        });
+        let with_keyboard = with_keyboard();
+        // **Zero**, not sixteen. The navigation bar is under the keyboard, so there is
+        // nothing left at the bottom to stay clear of, and padding by it as well would
+        // leave a strip of nothing between the content and the keys.
         let ignoring = with_keyboard.scope(|| SafeArea::<()>::new(Container::new()));
-        assert_eq!(ignoring.padding().bottom, 16.0);
+        assert_eq!(ignoring.padding().bottom, 0.0);
 
         let avoiding =
             with_keyboard.scope(|| SafeArea::<()>::new(Container::new()).avoid_keyboard());
         assert_eq!(avoiding.padding().bottom, 320.0);
+    }
+
+    /// The bottom padding going to zero is right for nearly every screen and wrong for
+    /// one holding a flexible child, which would grow by the bar's height the moment a
+    /// field was tapped and shrink again when the keyboard closed. Asked to, the safe
+    /// area keeps the intrusion that does not move.
+    #[test]
+    fn the_bottom_can_be_kept_still_while_the_keyboard_comes_and_goes() {
+        let shut =
+            phone().scope(|| SafeArea::<()>::new(Container::new()).maintain_bottom_view_padding());
+        let open = with_keyboard()
+            .scope(|| SafeArea::<()>::new(Container::new()).maintain_bottom_view_padding());
+        assert_eq!(shut.padding().bottom, 16.0);
+        assert_eq!(
+            open.padding().bottom,
+            16.0,
+            "the same, keyboard or no keyboard"
+        );
+        // And it is the *view* padding it keeps, not the keyboard: the content still
+        // sits behind the keys rather than being lifted above them.
+        assert!(open.padding().bottom < 320.0);
     }
 
     #[test]

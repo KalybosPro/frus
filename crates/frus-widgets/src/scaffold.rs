@@ -136,6 +136,8 @@ pub struct Scaffold<Msg> {
     height: f32,
     insets: Insets,
     view_insets: Insets,
+    /// The intrusions ignoring the keyboard; see [`Scaffold::window_insets`].
+    view_padding: Insets,
     resize_to_avoid_bottom_inset: bool,
     extend_body: bool,
     extend_body_behind_app_bar: bool,
@@ -168,6 +170,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             height,
             insets: Insets::ZERO,
             view_insets: Insets::ZERO,
+            view_padding: Insets::ZERO,
             resize_to_avoid_bottom_inset: true,
             extend_body: false,
             extend_body_behind_app_bar: false,
@@ -210,6 +213,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     pub fn window_insets(mut self, insets: WindowInsets) -> Self {
         self.insets = insets.padding;
         self.view_insets = insets.view_insets;
+        self.view_padding = insets.view_padding;
         self
     }
 
@@ -428,6 +432,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             persistent_footer_alignment,
             bottom_sheet,
             view_insets,
+            view_padding,
             resize_to_avoid_bottom_inset,
             extend_body,
             extend_body_behind_app_bar,
@@ -519,10 +524,17 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // How far the bottom-most slot is held off the edge. The keyboard is the only
         // inset a screen may decline: `view_insets.bottom` measures the occlusion from
         // the window edge, bar included, so the two combine with `max` and never add up.
+        // Declining, the screen has said the keyboard is an **overlay** — so the
+        // geometry it wants is the keyboard-free one. `insets.bottom` is zero while the
+        // keyboard covers the navigation bar (the bar being covered, nothing has to
+        // avoid it), and reading it here would drop the bottom bar and the floating
+        // button onto the window's edge the moment a field was tapped, then lift them
+        // back when the keyboard closed. `view_padding` is the intrusion that does not
+        // move, which is exactly what "ignore the keyboard" means.
         let bottom_clear = if resize_to_avoid_bottom_inset {
             insets.bottom.max(view_insets.bottom)
         } else {
-            insets.bottom
+            view_padding.bottom
         };
 
         // The body: given the room the bars leave, with the side insets applied to its
@@ -859,10 +871,10 @@ mod tests {
     /// The window insets of a phone with a keyboard up: bars top and bottom, and the
     /// keyboard occluding 300 px from the window's edge.
     fn keyboard_up() -> WindowInsets {
-        WindowInsets {
-            padding: Insets::new(40.0, 0.0, 30.0, 0.0),
-            view_insets: Insets::new(0.0, 0.0, 300.0, 0.0),
-        }
+        WindowInsets::from_baseline(
+            Insets::new(40.0, 0.0, 30.0, 0.0),
+            Insets::new(40.0, 0.0, 300.0, 0.0),
+        )
     }
 
     /// The body is lifted clear of the keyboard — and only if it is asked to be.
