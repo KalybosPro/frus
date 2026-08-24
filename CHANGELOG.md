@@ -8,12 +8,30 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 395 so far, each documenting the objective, the alternatives
+> record — one per step, 396 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **`Icon` takes its colour and its size from the theme** (J396). `WidgetThemes::icon` —
+  the reference's `IconTheme`, which is an *inherited* widget there for the reason this is
+  scoped here. `Icon` read `theme.on_surface` and nothing else, so recolouring the glyphs in
+  a subtree meant changing the foreground colour and recolouring the words beside them. Both
+  resolve as everything else does, `caller ?? theme ?? the framework`, and the **size** goes
+  through `style_themed` rather than only `paint`, so a bar that makes its glyphs smaller
+  has them take less room instead of the same room with a smaller drawing in it.
+
+- **`AppBar::flexible_space`, `icon_theme` and `actions_icon_theme`** (J396).
+  `flexible_space` is a widget stacked **behind** the toolbar, filling the bar's box — an
+  image or a gradient the title sits on, and what makes a collapsing header possible at all.
+  A layer, not a slot: a 400 px child on a 64 px bar does not move the title by half a
+  pixel. `icon_theme` reaches every glyph in the bar, delivered as a theme for the subtree
+  (`Themed::tweak`) rather than as an argument — the only thing that reaches an icon nested
+  inside a button the bar was handed already assembled, which is exactly why the reference's
+  `IconTheme` is inherited. `actions_icon_theme` lets the actions part company with the
+  leading slot: a back arrow in the foreground colour beside actions in a muted one.
 
 - **Material 3's surface tint, in the core** (J395). `Color::surface_tint` and
   `surface_tint_opacity`. Material 3 does not show height with a shadow but by moving the

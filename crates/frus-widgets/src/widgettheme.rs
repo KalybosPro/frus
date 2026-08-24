@@ -41,6 +41,7 @@ pub struct WidgetThemes {
     pub chip: ChipTheme,
     pub divider: DividerTheme,
     pub drawer: DrawerTheme,
+    pub icon: IconTheme,
     pub icon_button: IconButtonTheme,
     pub ink: InkTheme,
     pub radio: RadioTheme,
@@ -134,6 +135,22 @@ pub struct SwitchTheme {
     /// The thumb, off. Unset it follows the on colour, which is what the reference does
     /// and what a switch looks like: one thumb sliding, not two.
     pub inactive_thumb_color: Option<Color>,
+}
+
+/// Defaults for [`Icon`](crate::Icon) — the reference's `IconTheme`, which is an
+/// **inherited** widget there for the same reason this is scoped here: an app bar, a
+/// list tile or a button bar wants every glyph inside it one colour without recolouring
+/// the words beside them.
+///
+/// `Themed::tweak` is how a subtree sets it, and that is exactly how
+/// [`AppBar::icon_theme`](crate::AppBar::icon_theme) delivers its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct IconTheme {
+    /// The glyph's colour. Unset, the scheme's `on_surface` — an icon is text's peer,
+    /// not a decoration.
+    pub color: Option<Color>,
+    /// The square's side, in logical pixels. Unset, 24: the grid the icons are drawn on.
+    pub size: Option<f32>,
 }
 
 /// Defaults for [`AppBar`](crate::AppBar).

@@ -35,6 +35,7 @@ use crate::menu::PopupMenuButton;
 use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
+use crate::widgettheme::IconTheme;
 
 /// Does this platform centre an application bar's title by default?
 ///
@@ -137,6 +138,9 @@ pub struct AppBar<Msg> {
     toolbar_opacity: f32,
     bottom_opacity: f32,
     actions_padding: Option<f32>,
+    flexible_space: Option<Box<dyn Widget<Msg>>>,
+    icon_theme: Option<IconTheme>,
+    actions_icon_theme: Option<IconTheme>,
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
@@ -180,6 +184,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             toolbar_opacity: 1.0,
             bottom_opacity: 1.0,
             actions_padding: None,
+            flexible_space: None,
+            icon_theme: None,
+            actions_icon_theme: None,
         }
     }
 
@@ -388,6 +395,46 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self.actions_padding = Some(padding);
         self
     }
+    /// A widget stacked **behind** the toolbar and the [`bottom`](Self::bottom), filling
+    /// the bar's whole box.
+    ///
+    /// The reference's `flexibleSpace`, and it is what makes a collapsing header possible
+    /// at all: an image, a gradient, a photograph that the title sits on. The bar's height
+    /// is unchanged — this is a layer, not a slot — so the space is exactly as tall as
+    /// the bar however tall the widget would rather be.
+    ///
+    /// The bar's own background is drawn first and this over it, so a translucent surface
+    /// still tints what is behind, and a caller who wants only the image says
+    /// [`force_material_transparency`](Self::force_material_transparency).
+    pub fn flexible_space(mut self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.flexible_space = Some(Box::new(widget));
+        self
+    }
+
+    /// The colour and the size of the **glyphs in the bar** — the reference's `iconTheme`.
+    ///
+    /// It reaches every icon in the leading slot and, unless
+    /// [`actions_icon_theme`](Self::actions_icon_theme) says otherwise, in the actions
+    /// too. It is delivered as a theme for that subtree rather than as an argument to
+    /// each widget, so it reaches an icon nested inside a button the bar never sees —
+    /// which is what the reference's inherited `IconTheme` does and why it is one.
+    ///
+    /// An icon that names its own colour still wins: `caller ?? this ?? the scheme`.
+    pub fn icon_theme(mut self, icons: IconTheme) -> Self {
+        self.icon_theme = Some(icons);
+        self
+    }
+
+    /// The same, for the **actions** alone — the reference's `actionsIconTheme`.
+    ///
+    /// Unset, the actions follow [`icon_theme`](Self::icon_theme). Set, they part company
+    /// with the leading slot, which is the case it exists for: a back arrow in the
+    /// foreground colour beside actions in a muted one.
+    pub fn actions_icon_theme(mut self, icons: IconTheme) -> Self {
+        self.actions_icon_theme = Some(icons);
+        self
+    }
+
     /// The width an action button would take for this label.
     fn action_width(label: &str, size: f32) -> f32 {
         frus_text::measure(label, size).width + BTN_PAD_X * 2.0
@@ -453,6 +500,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             toolbar_opacity,
             bottom_opacity,
             actions_padding,
+            flexible_space,
+            icon_theme,
+            actions_icon_theme,
         } = self;
 
         // `caller ?? theme ?? platform`. The platform is the last word rather than the
@@ -557,9 +607,30 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // What is left for the title, once the actions have taken theirs.
         let title_room = (width - fixed - actions_w).max(TITLE_MIN.min(natural_title));
 
+        // An icon theme is delivered as a **theme for the subtree**, not as an argument
+        // to each widget: that is the only way it reaches a glyph nested inside a button
+        // the bar never sees. The reference's `IconTheme` is an inherited widget for the
+        // same reason.
+        let dress = |widget: Box<dyn Widget<Msg>>, icons: Option<IconTheme>| match icons {
+            Some(icons) => Box::new(crate::Themed::tweak(
+                move |t| {
+                    if let Some(color) = icons.color {
+                        t.widgets.icon.color = Some(color);
+                        t.widgets.icon_button.icon_color = Some(color);
+                    }
+                    if let Some(size) = icons.size {
+                        t.widgets.icon.size = Some(size);
+                        t.widgets.icon_button.icon_size = Some(size);
+                    }
+                },
+                widget,
+            )) as Box<dyn Widget<Msg>>,
+            None => widget,
+        };
+
         let mut row = Flex::row().align(Align::Center).gap(gap);
         if let Some(leading) = leading {
-            row = row.child(leading);
+            row = row.child_boxed(dress(leading, icon_theme));
             if title_spacing > gap {
                 row = row.child(Container::new().width(title_spacing - gap));
             }
@@ -631,9 +702,13 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 }
             }
         }
+        // Unset, the actions follow the bar's icon theme; set, they part company with
+        // the leading slot — a back arrow in the foreground colour beside actions in a
+        // muted one, which is the case the reference's `actionsIconTheme` exists for.
+        let group = dress(Box::new(group), actions_icon_theme.or(icon_theme));
         row = match actions_padding {
             Some(pad) => row.child(Container::new().padding(pad).child(group)),
-            None => row.child(group),
+            None => row.child_boxed(group),
         };
 
         // The toolbar proper: the row, with its horizontal margin and any imposed
@@ -706,6 +781,14 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         if let Some(shape) = shape.or(t.shape) {
             chrome = chrome.radius(shape).clip();
         }
+        // **Behind the toolbar, filling the bar's box.** A layer, not a slot: the bar is
+        // exactly as tall as it was, however tall the widget would rather be. The bar's
+        // own surface is painted by `chrome` underneath, so a translucent flexible space
+        // still tints what the surface put there.
+        let content: Box<dyn Widget<Msg>> = match flexible_space {
+            Some(space) => Box::new(crate::Stack::new().layer(space).layer(content)),
+            None => content,
+        };
         Box::new(chrome.child(content))
     }
 }
@@ -864,6 +947,122 @@ mod tests {
             .build();
         assert_eq!(surface(square.as_ref(), W).expect("square").1, 0.0);
         assert_eq!(surface(rounded.as_ref(), W).expect("rounded").1, 18.0);
+    }
+
+    /// Every path the bar paints, layers included.
+    fn glyph_colors(bar: &dyn Widget<Msg>, width: f32) -> Vec<Color> {
+        fn walk(primitives: &[crate::Primitive], out: &mut Vec<Color>) {
+            for p in primitives {
+                match p {
+                    crate::Primitive::Path {
+                        fill: Some(color), ..
+                    } => out.push(*color),
+                    crate::Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let ui = build_ui(
+            bar,
+            Size::new(width, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let mut out = Vec::new();
+        walk(ui.scene().primitives(), &mut out);
+        out
+    }
+
+    /// **The bar's icon theme reaches a glyph it never sees.**
+    ///
+    /// The reference's `IconTheme` is an *inherited* widget, and that is the whole point:
+    /// an app bar cannot restyle an icon nested inside a button it was handed. Delivering
+    /// the colour as a theme for the subtree is what reaches it. The check is a leading
+    /// slot holding a plain `Icon`, recoloured without the bar touching the widget.
+    #[test]
+    fn the_bars_icon_theme_reaches_a_glyph_it_never_sees() {
+        const W: f32 = 400.0;
+        let wanted = Color::rgb(0.9, 0.2, 0.4);
+        let plain = AppBar::<Msg>::new("Title")
+            .width(W)
+            .leading(crate::Icon::new(crate::Icons::Star))
+            .build();
+        let themed = AppBar::<Msg>::new("Title")
+            .width(W)
+            .leading(crate::Icon::new(crate::Icons::Star))
+            .icon_theme(crate::widgettheme::IconTheme {
+                color: Some(wanted),
+                size: None,
+            })
+            .build();
+        assert!(
+            !glyph_colors(plain.as_ref(), W).contains(&wanted),
+            "the plain bar should not already be that colour"
+        );
+        assert!(
+            glyph_colors(themed.as_ref(), W).contains(&wanted),
+            "the icon theme never reached the glyph"
+        );
+    }
+
+    /// **The actions may part company with the leading slot** — the reference's
+    /// `actionsIconTheme`, for a back arrow in the foreground colour beside actions in a
+    /// muted one. Unset, they follow the bar's own.
+    #[test]
+    fn the_actions_may_wear_their_own_icon_theme() {
+        const W: f32 = 600.0;
+        let lead = Color::rgb(0.1, 0.8, 0.2);
+        let acts = Color::rgb(0.2, 0.1, 0.9);
+        let bar = AppBar::<Msg>::new("Title")
+            .width(W)
+            .leading(crate::Icon::new(crate::Icons::Star))
+            .action_widget(crate::Icon::new(crate::Icons::Heart))
+            .icon_theme(crate::widgettheme::IconTheme {
+                color: Some(lead),
+                size: None,
+            })
+            .actions_icon_theme(crate::widgettheme::IconTheme {
+                color: Some(acts),
+                size: None,
+            })
+            .build();
+        let colors = glyph_colors(bar.as_ref(), W);
+        assert!(colors.contains(&lead), "the leading glyph kept its colour");
+        assert!(colors.contains(&acts), "the action glyph took its own");
+    }
+
+    /// **The flexible space is a layer, not a slot**: it fills the bar's box and leaves
+    /// its height alone, however tall the widget would rather be.
+    #[test]
+    fn the_flexible_space_does_not_make_the_bar_taller() {
+        const W: f32 = 400.0;
+        let height = |with_space: bool| {
+            let mut bar = AppBar::<Msg>::new("Title").width(W);
+            if with_space {
+                bar = bar.flexible_space(Container::new().height(400.0));
+            }
+            let built = bar.build();
+            let ui = build_ui(
+                built.as_ref(),
+                Size::new(W, 800.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    crate::Primitive::Text { position, .. } => Some(position.y),
+                    _ => None,
+                })
+                .fold(0.0_f32, f32::max)
+        };
+        // The title sits where it sat: a 400 px flexible space did not push it down.
+        assert!(
+            (height(true) - height(false)).abs() < 0.5,
+            "the flexible space moved the title by {}",
+            height(true) - height(false)
+        );
     }
 
     /// Counts the buttons (rectangles with a shadow), excluding floating menu items.

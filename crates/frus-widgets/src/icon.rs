@@ -17,40 +17,61 @@ const GRID: f32 = 24.0;
 /// and the theme's foreground colour (`on_surface`).
 pub struct Icon {
     name: Icons,
-    size: f32,
+    /// `None` = whatever the theme says, else the 24 px grid the paths are drawn on.
+    size: Option<f32>,
     color: Option<Color>,
 }
 
 impl Icon {
-    /// A `24` px icon, in the theme's colour.
+    /// An icon in the theme's colour and at the theme's size — 24 px unless a theme
+    /// says otherwise.
     pub fn new(name: Icons) -> Self {
         Self {
             name,
-            size: GRID,
+            size: None,
             color: None,
         }
     }
 
-    /// Sets the size, that is, the square's side, in logical pixels.
+    /// Sets the size, that is, the square's side, in logical pixels. Outranks the theme.
     pub fn size(mut self, size: f32) -> Self {
-        self.size = size;
+        self.size = Some(size);
         self
     }
 
-    /// Forces the colour; the theme's `on_surface` otherwise.
+    /// Forces the colour; the theme's otherwise, and `on_surface` if it says nothing.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
+    }
+
+    /// The box a given side asks for.
+    fn sized(&self, side: f32) -> Style {
+        Style {
+            width: Dimension::Length(side),
+            height: Dimension::Length(side),
+            ..Default::default()
+        }
+    }
+
+    /// The side actually drawn: `caller ?? theme ?? the grid`.
+    fn resolved_size(&self, theme: Option<&Theme>) -> f32 {
+        self.size
+            .or_else(|| theme.and_then(|t| t.widgets.icon.size))
+            .unwrap_or(GRID)
     }
 }
 
 impl<Msg> Widget<Msg> for Icon {
     fn style(&self) -> Style {
-        Style {
-            width: Dimension::Length(self.size),
-            height: Dimension::Length(self.size),
-            ..Default::default()
-        }
+        self.sized(self.resolved_size(None))
+    }
+
+    /// The theme has a say in the **size**, not only the colour, so an app bar can make
+    /// its glyphs smaller and have them take less room rather than the same room with a
+    /// smaller drawing in it.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.sized(self.resolved_size(Some(theme)))
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -58,11 +79,16 @@ impl<Msg> Widget<Msg> for Icon {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let color = self.color.unwrap_or(theme.on_surface).fade(status.opacity);
+        let color = self
+            .color
+            .or(theme.widgets.icon.color)
+            .unwrap_or(theme.on_surface)
+            .fade(status.opacity);
+        let size = self.resolved_size(Some(theme));
         // The 24×24 grid scaled to the real size, centred in the box.
-        let scale = self.size / GRID;
-        let ox = bounds.x + (bounds.width - self.size) * 0.5;
-        let oy = bounds.y + (bounds.height - self.size) * 0.5;
+        let scale = size / GRID;
+        let ox = bounds.x + (bounds.width - size) * 0.5;
+        let oy = bounds.y + (bounds.height - size) * 0.5;
         let path = self.name.path().scaled(scale).translated(ox, oy);
         scene.fill_path(&path, color);
     }
