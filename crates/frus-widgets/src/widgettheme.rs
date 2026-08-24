@@ -23,9 +23,7 @@
 //! beside `style`. A theme that could only reach paint would be able to recolour a
 //! divider but not make one thin, which is the setting an application actually wants.
 
-use frus_core::{
-    BorderRadius, Color, FontWeight, TextAlign, TextDecoration, TextOverflow, TextStyle,
-};
+use frus_core::{BorderRadius, Color, TextAlign, TextOverflow, TextStyle};
 
 use crate::card::CardVariant;
 
@@ -146,33 +144,21 @@ pub struct SwitchTheme {
 /// reaching into each one, including the ones it never sees because a caller passed them
 /// in already assembled.
 ///
-/// Every field is an `Option`, and the merge is **field by field**: a subtree that sets
-/// a colour and nothing else leaves the sizes alone. That is the reference's rule too —
-/// its `TextStyle.merge` copies over only the fields the other style answered — and it
-/// is the whole reason this is a struct of options rather than a [`TextStyle`], whose
-/// size and weight cannot say "unset".
+/// It is the reference's shape exactly: a [`TextStyle`] plus the four questions that are
+/// about the **box** rather than the type. It carried its own copy of every typographic
+/// field until `TextStyle` learned to say *unset*; now the style is just a style.
 ///
 /// A [`Text`](crate::Text) resolves `what the caller said ?? what this says ?? what the
-/// framework ships`, and **a default the caller did not choose does not count as having
-/// said something**: `Text::new("x")` is 16 px because nobody picked a size, so an
-/// inherited 20 wins; `Text::new("x").size(16.0)` picked one, and keeps it.
+/// framework ships`, field by field, and **a default the caller did not choose does not
+/// count as having said something** — which is what an `Option` per field means and what
+/// `TextStyle::new(16.0)` could not express.
 ///
-/// `Themed::tweak` is how a subtree sets it, and that is exactly how
+/// [`DefaultTextStyle::around`] wraps a subtree with one, and that is how
 /// [`AppBar::toolbar_text_style`](crate::AppBar::toolbar_text_style) delivers its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DefaultTextStyle {
-    /// Font size, in logical pixels.
-    pub size: Option<f32>,
-    /// Weight.
-    pub weight: Option<FontWeight>,
-    /// Italic.
-    pub italic: Option<bool>,
-    /// The glyphs' colour. Unset, the scheme's `on_surface`.
-    pub color: Option<Color>,
-    /// Underline, strikethrough, and so on.
-    pub decoration: Option<TextDecoration>,
-    /// The decoration's colour. Unset, the text's own.
-    pub decoration_color: Option<Color>,
+    /// The type: size, weight, slant, colour, decoration — each answered or left open.
+    pub style: TextStyle,
     /// Where the lines sit inside the box.
     pub align: Option<TextAlign>,
     /// Whether the text wraps at the width it is given.
@@ -186,79 +172,53 @@ pub struct DefaultTextStyle {
 impl DefaultTextStyle {
     /// Nothing said at all — what a theme carries until something sets a field.
     pub const NONE: Self = Self {
-        size: None,
-        weight: None,
-        italic: None,
-        color: None,
-        decoration: None,
-        decoration_color: None,
+        style: TextStyle::NONE,
         align: None,
         soft_wrap: None,
         overflow: None,
         max_lines: None,
     };
 
-    /// The typography half of a whole [`TextStyle`], as **answers**: a `TextStyle` names a
-    /// size, a weight and a slant outright, so all three count as said.
-    ///
-    /// Its colour and decoration carry their own "unset" already — an `Option`, and
-    /// `TextDecoration::NONE` — and are passed through as they are, so a bare
-    /// `TextStyle::new(20.0)` hands down a size and does not silently strip an inherited
-    /// colour.
-    pub fn from_text_style(style: TextStyle) -> Self {
+    /// A handover of type and nothing else.
+    pub const fn from_text_style(style: TextStyle) -> Self {
         Self {
-            size: Some(style.size),
-            weight: Some(style.weight),
-            italic: Some(style.italic),
-            color: style.color,
-            decoration: (style.decoration != TextDecoration::NONE).then_some(style.decoration),
-            decoration_color: style.decoration_color,
+            style,
             ..Self::NONE
         }
     }
 
+    /// This style with `over`'s answers laid on top, **field by field**: where `over` said
+    /// nothing, this one's answer survives.
+    ///
+    /// The operation an inherited style needs at every level it passes through — two
+    /// nested subtrees each setting one field must leave a text wearing both.
+    #[must_use]
+    pub fn merge(self, over: Self) -> Self {
+        Self {
+            style: self.style.merge(over.style),
+            align: over.align.or(self.align),
+            soft_wrap: over.soft_wrap.or(self.soft_wrap),
+            overflow: over.overflow.or(self.overflow),
+            max_lines: over.max_lines.or(self.max_lines),
+        }
+    }
+
     /// Wraps `child` so that every [`Text`](crate::Text) in its subtree wears this style
-    /// where it has not answered for itself — the reference's `DefaultTextStyle` widget,
-    /// and the whole point of the struct being options.
+    /// where it has not answered for itself — the reference's `DefaultTextStyle` widget.
     ///
     /// **Merged onto** whatever an enclosing subtree already handed down rather than
     /// replacing it, so two nested wrappers each setting one field leave a text wearing
     /// both:
     ///
     /// ```ignore
-    /// DefaultTextStyle {
-    ///     color: Some(muted),
-    ///     ..DefaultTextStyle::NONE
-    /// }
-    /// .around(a_column_of_labels)
+    /// DefaultTextStyle::from_text_style(TextStyle::NONE.color(muted))
+    ///     .around(a_column_of_labels)
     /// ```
     pub fn around<Msg: 'static>(
         self,
         child: impl crate::Widget<Msg> + 'static,
     ) -> crate::Themed<Msg> {
         crate::Themed::tweak(move |t| t.widgets.text = t.widgets.text.merge(self), child)
-    }
-
-    /// This style with `over`'s answers laid on top, **field by field**: where `over` said
-    /// nothing, this one's answer survives.
-    ///
-    /// The reference's `TextStyle.merge`, and the operation an inherited style needs at
-    /// every level it passes through — two nested subtrees each setting one field must
-    /// leave a text wearing both.
-    #[must_use]
-    pub fn merge(self, over: Self) -> Self {
-        Self {
-            size: over.size.or(self.size),
-            weight: over.weight.or(self.weight),
-            italic: over.italic.or(self.italic),
-            color: over.color.or(self.color),
-            decoration: over.decoration.or(self.decoration),
-            decoration_color: over.decoration_color.or(self.decoration_color),
-            align: over.align.or(self.align),
-            soft_wrap: over.soft_wrap.or(self.soft_wrap),
-            overflow: over.overflow.or(self.overflow),
-            max_lines: over.max_lines.or(self.max_lines),
-        }
     }
 }
 

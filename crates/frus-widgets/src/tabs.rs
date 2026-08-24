@@ -282,7 +282,7 @@ impl TabStyle {
         let text = match spec.show_label && !spec.label.is_empty() {
             true => {
                 let style = self.label_style(theme);
-                frus_text::measure_styled(&spec.label, style.size, style.weight, style.italic).width
+                frus_text::measure_style(&spec.label, style).width
             }
             false => 0.0,
         };
@@ -415,12 +415,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         };
         let shows_label = self.spec.show_label && !self.spec.label.is_empty();
         let measured = match shows_label {
-            true => frus_text::measure_styled(
-                &self.spec.label,
-                label_style.size,
-                label_style.weight,
-                label_style.italic,
-            ),
+            true => frus_text::measure_style(&self.spec.label, label_style),
             false => frus_core::Size::new(0.0, 0.0),
         };
         // Centred across the tab, and centred in the **tabs' own** height rather than the
@@ -451,7 +446,7 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
                     top + icon_block,
                 ),
                 self.spec.label.clone(),
-                &label_style,
+                &label_style.resolved(),
                 color.fade(o),
             );
         }

@@ -177,7 +177,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
                         bounds.y + PAD + frus_text::line_height(TITLE_SIZE) + 4.0,
                     ),
                     self.text.clone(),
-                    &body_style,
+                    &body_style.resolved(),
                     theme.muted.fade(o),
                     wrap_w,
                 );
@@ -186,7 +186,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
                 scene.text_wrapped(
                     Point::new(text_x, bounds.y + PAD),
                     self.text.clone(),
-                    &body_style,
+                    &body_style.resolved(),
                     theme.on_surface.fade(o),
                     wrap_w,
                 );

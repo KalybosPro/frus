@@ -400,7 +400,7 @@ impl<Msg: Clone + 'static> Chip<Msg> {
 
     fn label_size(&self, theme: &Theme) -> frus_core::Size {
         let style = self.style.label_style(theme);
-        frus_text::measure_styled(&self.label, style.size, style.weight, style.italic)
+        frus_text::measure_style(&self.label, style)
     }
 }
 
@@ -498,7 +498,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
                 bounds.y + (bounds.height - measured.height) * 0.5,
             ),
             self.label.clone(),
-            &label_style,
+            &label_style.resolved(),
             label_color.fade(o),
         );
     }

@@ -9,7 +9,7 @@
 
 use crate::{
     Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
-    ShaderMask, Size, Stroke, TextAlign, TextDecoration, TextRun, TextStyle,
+    ResolvedTextStyle, ShaderMask, Size, Stroke, TextAlign, TextDecoration, TextRun,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -1379,14 +1379,18 @@ impl Scene {
         });
     }
 
-    /// Adds a styled line of text — size, weight and italics from the [`TextStyle`].
-    /// `color` is the **resolved** colour: the style's optional `color` has already
-    /// been settled by the caller, usually against the theme.
+    /// Adds a styled line of text — size, weight and italics from the
+    /// [`ResolvedTextStyle`].
+    ///
+    /// It takes a **resolved** style and not a [`TextStyle`](crate::TextStyle) because
+    /// this is the bottom of the chain: a shaper needs a number and there is nobody left
+    /// below to ask one of. `color` is settled the same way, by the caller, usually
+    /// against the theme — which is the one answer this crate cannot work out for itself.
     pub fn text_styled(
         &mut self,
         position: Point,
         text: impl Into<String>,
-        style: &TextStyle,
+        style: &ResolvedTextStyle,
         color: Color,
     ) {
         self.primitives.push(Primitive::Text {
@@ -1413,7 +1417,7 @@ impl Scene {
         &mut self,
         position: Point,
         text: impl Into<String>,
-        style: &TextStyle,
+        style: &ResolvedTextStyle,
         color: Color,
         max_width: f32,
     ) {
@@ -1446,7 +1450,7 @@ impl Scene {
         &mut self,
         position: Point,
         text: impl Into<String>,
-        style: &TextStyle,
+        style: &ResolvedTextStyle,
         color: Color,
         block: TextBlock,
     ) {

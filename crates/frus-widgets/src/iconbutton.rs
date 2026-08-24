@@ -313,14 +313,19 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
             }
             Content::Glyph(text) => {
                 let style = TextStyle::new(size);
-                let measured = frus_text::measure_styled(text, size, style.weight, style.italic);
+                let measured = frus_text::measure_styled(
+                    text,
+                    size,
+                    style.resolved().weight,
+                    style.resolved().italic,
+                );
                 scene.text_styled(
                     Point::new(
                         bounds.x + (bounds.width - measured.width) / 2.0,
                         bounds.y + (bounds.height - measured.height) / 2.0,
                     ),
                     text.clone(),
-                    &style,
+                    &style.resolved(),
                     glyph.fade(o),
                 );
             }

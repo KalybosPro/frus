@@ -149,7 +149,7 @@ impl<Msg> Button<Msg> {
     /// Font size — sugar for [`Button::label_style`] with the label step resized.
     pub fn size(mut self, size: f32) -> Self {
         let mut style = self.label_style.unwrap_or(TextStyle::new(size));
-        style.size = size;
+        style.size = Some(size);
         self.label_style = Some(style);
         self
     }
@@ -312,8 +312,7 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
 
     fn style_themed(&self, theme: &Theme) -> Style {
         let style = self.label_style_of(theme);
-        let measured =
-            frus_text::measure_styled(&self.label, style.size, style.weight, style.italic);
+        let measured = frus_text::measure_style(&self.label, style);
         let width = (measured.width + self.padding_of(theme) * 2.0).max(self.min_width_of(theme));
         Style {
             width: Dimension::Length(width.ceil()),
@@ -377,15 +376,14 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         // Centred, both ways: a label pinned to the padding drifts off centre the moment
         // the button is given a width of its own.
         let style = self.label_style_of(theme);
-        let measured =
-            frus_text::measure_styled(&self.label, style.size, style.weight, style.italic);
+        let measured = frus_text::measure_style(&self.label, style);
         scene.text_styled(
             Point::new(
                 bounds.x + (bounds.width - measured.width) / 2.0,
                 bounds.y + (bounds.height - measured.height) / 2.0,
             ),
             self.label.clone(),
-            &style,
+            &style.resolved(),
             on_color.fade(o),
         );
     }

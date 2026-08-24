@@ -523,7 +523,7 @@ mod tests {
             scene.text_styled(
                 Point::new(4.0, 4.0),
                 "Hello",
-                &TextStyle::new(40.0),
+                &TextStyle::new(40.0).resolved(),
                 Color::WHITE,
             );
             scene
@@ -533,7 +533,7 @@ mod tests {
             scene.text_styled(
                 Point::new(4.0, 4.0),
                 "Hello",
-                &TextStyle::new(40.0).underline(),
+                &TextStyle::new(40.0).underline().resolved(),
                 Color::WHITE,
             );
             scene

@@ -137,7 +137,7 @@ impl Badge {
         self.text_style
             .or(theme.widgets.badge.text_style)
             .unwrap_or(TextStyle {
-                size: 11.0,
+                size: Some(11.0),
                 ..theme.text.label_small
             })
     }
@@ -167,7 +167,7 @@ impl Badge {
             return (d, d);
         };
         let style = self.label_style(theme);
-        let measured = frus_text::measure_styled(text, style.size, style.weight, style.italic);
+        let measured = frus_text::measure_style(text, style);
         let height = self.pill_height(theme);
         // Never narrower than it is tall: a single digit in a wide pill reads as a
         // mistake, and the reference rounds a one-character badge to a circle for the
@@ -210,7 +210,7 @@ impl<Msg> Widget<Msg> for Badge {
             return;
         };
         let style = self.label_style(theme);
-        let measured = frus_text::measure_styled(text, style.size, style.weight, style.italic);
+        let measured = frus_text::measure_style(text, style);
         // Centred both ways rather than placed from the corner: the pill is as wide as
         // its label needs *or* as wide as it is tall, whichever is more, so a one-digit
         // badge has room to spare and a corner offset would sit it off to one side.
@@ -220,7 +220,7 @@ impl<Msg> Widget<Msg> for Badge {
                 bounds.y + (bounds.height - measured.height) / 2.0,
             ),
             text.to_string(),
-            &style,
+            &style.resolved(),
             self.ink(theme).fade(o),
         );
     }

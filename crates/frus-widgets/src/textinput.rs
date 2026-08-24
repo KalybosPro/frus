@@ -1153,7 +1153,7 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
                 Some(max_w) => scene.text_wrapped(
                     pos,
                     self.display(),
-                    &TextStyle::new(self.size),
+                    &TextStyle::new(self.size).resolved(),
                     color,
                     max_w,
                 ),

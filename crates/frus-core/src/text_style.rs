@@ -128,51 +128,94 @@ impl TextDecoration {
     }
 }
 
-/// The typographic attributes of a single line of text.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The font size a text ends up at when nothing anywhere in the chain named one.
+pub const DEFAULT_TEXT_SIZE: f32 = 16.0;
+
+/// The typographic attributes of a single line of text — **every field optional**.
+///
+/// `None` is not a missing value but an answer: *this style does not say*. That is what
+/// makes a style inheritable field by field, and it is the reference's shape — every field
+/// of its `TextStyle` is nullable for exactly this reason.
+///
+/// It matters more than it looks. `TextStyle::new(20.0)` says a size and **nothing else**,
+/// so a text wearing it still takes its weight from whatever subtree it is in. Before this
+/// was optional, a style named all three at once and *size 20, inherit the weight* was
+/// simply not expressible.
+///
+/// Ask [`TextStyle::resolved`] for the concrete numbers to measure and draw with.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TextStyle {
+    /// Font size, in logical pixels. Unset, [`DEFAULT_TEXT_SIZE`].
+    pub size: Option<f32>,
+    /// Weight. Unset, [`FontWeight::Regular`].
+    pub weight: Option<FontWeight>,
+    /// Italic. Unset, upright.
+    pub italic: Option<bool>,
+    /// Colour. Unset, the widget resolves it against the theme at paint.
+    pub color: Option<Color>,
+    /// Decoration lines (underline, strikethrough, and so on). Unset, none — and set to
+    /// [`TextDecoration::NONE`] is a **different** answer, being how a caller takes an
+    /// underline back off a run of words a subtree underlined.
+    pub decoration: Option<TextDecoration>,
+    /// Decoration colour; unset, the text's own.
+    pub decoration_color: Option<Color>,
+}
+
+/// A [`TextStyle`] with every question answered: what to measure with, and what to draw.
+///
+/// The colour stays optional, and deliberately. Size, weight and slant have a *framework*
+/// default that is right everywhere; a colour's last word belongs to the theme, which this
+/// type cannot see. A widget resolves it at paint against `on_surface`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ResolvedTextStyle {
     /// Font size, in logical pixels.
     pub size: f32,
     /// Weight.
     pub weight: FontWeight,
     /// Italic.
     pub italic: bool,
-    /// Explicit colour; `None` means inherited, resolved by the widget at paint.
+    /// Explicit colour; `None` means the widget resolves it against the theme.
     pub color: Option<Color>,
-    /// Decoration lines (underline, strikethrough, and so on).
+    /// Decoration lines.
     pub decoration: TextDecoration,
     /// Decoration colour; `None` means the text's own colour.
     pub decoration_color: Option<Color>,
 }
 
 impl TextStyle {
-    /// A style of size `size`, regular weight, inherited colour.
+    /// A style that says **nothing at all** — every field inherited.
+    pub const NONE: Self = Self {
+        size: None,
+        weight: None,
+        italic: None,
+        color: None,
+        decoration: None,
+        decoration_color: None,
+    };
+
+    /// A style that names a `size` and nothing else.
     pub const fn new(size: f32) -> Self {
         Self {
-            size,
-            weight: FontWeight::Regular,
-            italic: false,
-            color: None,
-            decoration: TextDecoration::NONE,
-            decoration_color: None,
+            size: Some(size),
+            ..Self::NONE
         }
     }
 
     /// Sets the weight.
     pub const fn weight(mut self, weight: FontWeight) -> Self {
-        self.weight = weight;
+        self.weight = Some(weight);
         self
     }
 
     /// Switches to italic.
     pub const fn italic(mut self) -> Self {
-        self.italic = true;
+        self.italic = Some(true);
         self
     }
 
     /// Sets the size.
     pub const fn size(mut self, size: f32) -> Self {
-        self.size = size;
+        self.size = Some(size);
         self
     }
 
@@ -184,19 +227,28 @@ impl TextStyle {
 
     /// Sets the decoration lines.
     pub const fn decoration(mut self, decoration: TextDecoration) -> Self {
-        self.decoration = decoration;
+        self.decoration = Some(decoration);
         self
     }
 
-    /// Adds an underline, combining with any other decoration.
+    /// Adds an underline, combining with any other decoration **this style** already
+    /// carries — never with an inherited one, which this style cannot see.
     pub const fn underline(mut self) -> Self {
-        self.decoration = self.decoration.combine(TextDecoration::UNDERLINE);
+        let current = match self.decoration {
+            Some(d) => d,
+            None => TextDecoration::NONE,
+        };
+        self.decoration = Some(current.combine(TextDecoration::UNDERLINE));
         self
     }
 
-    /// Adds a strikethrough, combining with any other decoration.
+    /// Adds a strikethrough, combining with any other decoration this style carries.
     pub const fn strikethrough(mut self) -> Self {
-        self.decoration = self.decoration.combine(TextDecoration::STRIKETHROUGH);
+        let current = match self.decoration {
+            Some(d) => d,
+            None => TextDecoration::NONE,
+        };
+        self.decoration = Some(current.combine(TextDecoration::STRIKETHROUGH));
         self
     }
 
@@ -206,43 +258,55 @@ impl TextStyle {
         self
     }
 
-    /// **Merges** `over` on top of `self`: `over`'s typographic attributes win,
-    /// and its colour **inherits** from `self` when absent (`None`). This is the
-    /// cascade: span style > default style > theme.
+    /// **Merges** `over` on top of `self`, **field by field**: where `over` said nothing,
+    /// this one's answer survives.
+    ///
+    /// The cascade, and it is one operation now rather than three. Until every field could
+    /// say "unset" this codebase carried the same idea three times — a private `Overrides`
+    /// struct for rich-text spans, a `Chosen` record of booleans beside a `Text`'s style,
+    /// and half of the widgets' `DefaultTextStyle` — because a whole-style merge could only
+    /// replace the typography wholesale and each caller needed the other behaviour.
+    #[must_use]
     pub fn merge(self, over: TextStyle) -> TextStyle {
         TextStyle {
-            size: over.size,
-            weight: over.weight,
-            italic: over.italic,
+            size: over.size.or(self.size),
+            weight: over.weight.or(self.weight),
+            italic: over.italic.or(self.italic),
             color: over.color.or(self.color),
-            decoration: over.decoration,
+            decoration: over.decoration.or(self.decoration),
             decoration_color: over.decoration_color.or(self.decoration_color),
+        }
+    }
+
+    /// Every question answered: the framework's own default wherever nothing in the chain
+    /// said anything.
+    ///
+    /// This is where the chain **stops**. Above it a style may leave a field open for a
+    /// subtree or a theme to answer; below it a shaper needs a number, and there is nobody
+    /// left to ask.
+    pub fn resolved(self) -> ResolvedTextStyle {
+        ResolvedTextStyle {
+            size: self.size.unwrap_or(DEFAULT_TEXT_SIZE),
+            weight: self.weight.unwrap_or(FontWeight::Regular),
+            italic: self.italic.unwrap_or(false),
+            color: self.color,
+            decoration: self.decoration.unwrap_or(TextDecoration::NONE),
+            decoration_color: self.decoration_color,
         }
     }
 }
 
-/// **Partial** style overrides — every absent field inherits from the parent.
-/// Internal: it is assembled through [`TextSpan`]'s builders.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct Overrides {
-    size: Option<f32>,
-    weight: Option<FontWeight>,
-    italic: Option<bool>,
-    color: Option<Color>,
-    decoration: Option<TextDecoration>,
-    decoration_color: Option<Color>,
-}
-
-impl Overrides {
-    /// Applies the overrides on top of an inherited, **resolved** style.
-    fn apply(self, base: TextStyle) -> TextStyle {
+impl ResolvedTextStyle {
+    /// Back to a style that answers everything it was asked — for handing a resolved style
+    /// on to something that takes a [`TextStyle`].
+    pub const fn to_style(self) -> TextStyle {
         TextStyle {
-            size: self.size.unwrap_or(base.size),
-            weight: self.weight.unwrap_or(base.weight),
-            italic: self.italic.unwrap_or(base.italic),
-            color: self.color.or(base.color),
-            decoration: self.decoration.unwrap_or(base.decoration),
-            decoration_color: self.decoration_color.or(base.decoration_color),
+            size: Some(self.size),
+            weight: Some(self.weight),
+            italic: Some(self.italic),
+            color: self.color,
+            decoration: Some(self.decoration),
+            decoration_color: self.decoration_color,
         }
     }
 }
@@ -263,7 +327,7 @@ impl Overrides {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TextSpan {
     text: String,
-    overrides: Overrides,
+    overrides: TextStyle,
     children: Vec<TextSpan>,
 }
 
@@ -272,7 +336,7 @@ impl TextSpan {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            overrides: Overrides::default(),
+            overrides: TextStyle::NONE,
             children: Vec::new(),
         }
     }
@@ -310,15 +374,13 @@ impl TextSpan {
     /// Underlines this subtree. It combines with the decoration already set on
     /// this node, but not with the parent's.
     pub fn underline(mut self) -> Self {
-        let current = self.overrides.decoration.unwrap_or(TextDecoration::NONE);
-        self.overrides.decoration = Some(current.combine(TextDecoration::UNDERLINE));
+        self.overrides = self.overrides.underline();
         self
     }
 
     /// Strikes through this subtree.
     pub fn strikethrough(mut self) -> Self {
-        let current = self.overrides.decoration.unwrap_or(TextDecoration::NONE);
-        self.overrides.decoration = Some(current.combine(TextDecoration::STRIKETHROUGH));
+        self.overrides = self.overrides.strikethrough();
         self
     }
 
@@ -334,17 +396,14 @@ impl TextSpan {
         self
     }
 
-    /// Applies a complete [`TextStyle`] as an override; its colour only overrides
-    /// when it is actually specified.
+    /// Applies a whole [`TextStyle`] as this subtree's override, **replacing** whatever
+    /// this span had said before.
+    ///
+    /// It used to force every typographic field to *answered*, because a `TextStyle` could
+    /// not say otherwise. It no longer has to: a style naming only a size now overrides
+    /// only the size, and the weight goes on being inherited from the parent span.
     pub fn style(mut self, style: TextStyle) -> Self {
-        self.overrides = Overrides {
-            size: Some(style.size),
-            weight: Some(style.weight),
-            italic: Some(style.italic),
-            color: style.color,
-            decoration: Some(style.decoration),
-            decoration_color: style.decoration_color,
-        };
+        self.overrides = style;
         self
     }
 
@@ -357,7 +416,7 @@ impl TextSpan {
     /// Flattens the tree into **resolved runs** `(text, style)`, in reading order,
     /// cascading the overrides down from `base`, the paragraph's default style.
     /// Nodes with no text of their own produce no empty run.
-    pub fn flatten(&self, base: TextStyle) -> Vec<(String, TextStyle)> {
+    pub fn flatten(&self, base: TextStyle) -> Vec<(String, ResolvedTextStyle)> {
         let mut runs = Vec::new();
         self.collect(base, &mut runs);
         runs
@@ -379,11 +438,14 @@ impl TextSpan {
         }
     }
 
-    fn collect(&self, inherited: TextStyle, out: &mut Vec<(String, TextStyle)>) {
-        let effective = self.overrides.apply(inherited);
+    fn collect(&self, inherited: TextStyle, out: &mut Vec<(String, ResolvedTextStyle)>) {
+        let effective = inherited.merge(self.overrides);
         if !self.text.is_empty() {
-            out.push((self.text.clone(), effective));
+            out.push((self.text.clone(), effective.resolved()));
         }
+        // The children inherit the **unresolved** style, not the run's numbers. Handing
+        // them the resolved one would turn every framework default into an answer, and a
+        // child that wanted to inherit a weight nobody had named would find one waiting.
         for child in &self.children {
             child.collect(effective, out);
         }
@@ -418,10 +480,46 @@ mod tests {
     #[test]
     fn builders_compose() {
         let s = TextStyle::new(20.0).weight(FontWeight::Bold).italic();
-        assert_eq!(s.size, 20.0);
-        assert_eq!(s.weight, FontWeight::Bold);
-        assert!(s.italic);
+        assert_eq!(s.size, Some(20.0));
+        assert_eq!(s.weight, Some(FontWeight::Bold));
+        assert_eq!(s.italic, Some(true));
         assert_eq!(s.color, None);
+    }
+
+    /// **A style can name one thing and leave the rest open**, which is the whole reason
+    /// the fields are optional.
+    ///
+    /// `TextStyle::new(20.0)` used to answer a size, a weight *and* a slant, because the
+    /// type had nowhere to put "unset" — so *size 20, inherit the weight* was not
+    /// expressible, however the caller wrote it. The reference writes it
+    /// `TextStyle(fontSize: 20)`, and now so do we.
+    #[test]
+    fn a_style_may_name_one_thing_and_leave_the_rest_open() {
+        let only_size = TextStyle::new(20.0);
+        assert_eq!(only_size.size, Some(20.0));
+        assert_eq!(only_size.weight, None, "and says nothing about the weight");
+
+        let inherited = TextStyle::NONE.weight(FontWeight::Bold).merge(only_size);
+        assert_eq!(inherited.size, Some(20.0), "the size it named");
+        assert_eq!(
+            inherited.weight,
+            Some(FontWeight::Bold),
+            "the weight it did not"
+        );
+    }
+
+    /// The chain **stops** somewhere: a shaper needs a number and there is nobody left to
+    /// ask. Everything unanswered lands on the framework's own default.
+    #[test]
+    fn a_style_that_says_nothing_resolves_to_the_frameworks_own() {
+        let r = TextStyle::NONE.resolved();
+        assert_eq!(r.size, DEFAULT_TEXT_SIZE);
+        assert_eq!(r.weight, FontWeight::Regular);
+        assert!(!r.italic);
+        assert_eq!(r.decoration, TextDecoration::NONE);
+        // The colour is the one thing left open, its last word belonging to a theme this
+        // type cannot see.
+        assert_eq!(r.color, None);
     }
 
     #[test]
@@ -430,8 +528,8 @@ mod tests {
         // `over` changes size and weight but specifies no colour.
         let over = TextStyle::new(24.0).weight(FontWeight::Bold);
         let merged = base.merge(over);
-        assert_eq!(merged.size, 24.0);
-        assert_eq!(merged.weight, FontWeight::Bold);
+        assert_eq!(merged.size, Some(24.0));
+        assert_eq!(merged.weight, Some(FontWeight::Bold));
         assert_eq!(merged.color, Some(Color::WHITE), "colour inherited");
 
         // When `over` does specify a colour, it wins.
@@ -492,7 +590,7 @@ mod tests {
     #[test]
     fn decorations_combine_and_cascade() {
         // Combining: underline plus strikethrough on the same style.
-        let s = TextStyle::new(16.0).underline().strikethrough();
+        let s = TextStyle::new(16.0).underline().strikethrough().resolved();
         assert!(s.decoration.underline && s.decoration.strikethrough);
         assert!(!s.decoration.overline);
         assert!(!TextDecoration::UNDERLINE.is_none());
@@ -524,9 +622,14 @@ mod tests {
         let base = TextStyle::new(16.0)
             .underline()
             .decoration_color(Color::BLACK);
-        let merged = base.merge(TextStyle::new(20.0).strikethrough());
+        let merged = base.merge(TextStyle::new(20.0).strikethrough()).resolved();
         assert!(merged.decoration.strikethrough && !merged.decoration.underline);
         assert_eq!(merged.decoration_color, Some(Color::BLACK));
+
+        // And a style that names **no** decoration leaves the parent's alone, where it
+        // used to erase it: `over.decoration` was a value the type could not withhold.
+        let quiet = base.merge(TextStyle::new(20.0)).resolved();
+        assert!(quiet.decoration.underline, "the underline survived");
     }
 
     #[test]

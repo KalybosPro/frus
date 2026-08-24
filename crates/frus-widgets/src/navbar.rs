@@ -93,14 +93,13 @@ impl<Msg: Clone> Widget<Msg> for NavigationBar<Msg> {
         // (medium weight by default — a bar title is a "title", not body text;
         // the style's color is inherited from the theme when absent).
         let style = self.title_style;
-        let measured =
-            frus_text::measure_styled(&self.title, style.size, style.weight, style.italic);
+        let measured = frus_text::measure_style(&self.title, style);
         let tx = bounds.x + (bounds.width - measured.width) * 0.5;
         let ty = bounds.y + (bounds.height - measured.height) * 0.5;
         scene.text_styled(
             Point::new(tx, ty),
             self.title.clone(),
-            &style,
+            &style.resolved(),
             style.color.unwrap_or(theme.on_surface).fade(o),
         );
     }

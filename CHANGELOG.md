@@ -8,12 +8,49 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 401 so far, each documenting the objective, the alternatives
+> record — one per step, 402 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+### Changed
+
+- **Every field of `TextStyle` is an `Option`** (J402) — BREAKING, and the point of it is
+  what it makes *sayable*. `TextStyle::new(20.0)` used to name a size **and** a weight
+  **and** a slant, because the type had no way to withhold them; *size 20, inherit the
+  weight* could not be written however anybody wrote it. The reference writes it
+  `TextStyle(fontSize: 20)` and always could.
+
+  Three workarounds collapsed into one operation: a private `Overrides` struct for
+  rich-text spans, milestone 400's `Chosen` record of eight booleans beside a `Text`'s
+  style, and half of `DefaultTextStyle`. `TextStyle::merge` is field-by-field now instead
+  of replacing the typography wholesale, which is why all three existed.
+
+  Two behaviour changes fell out, both in the right direction. `TextSpan::style(s)` no
+  longer forces every field to *answered*. And a merge no longer erases a decoration
+  nobody replaced — merging a plain style over an underlined one used to silently remove
+  the underline.
+
+  The whole routine suite passed on the first run after the conversion and all 91 goldens
+  are unchanged: `TextStyle::new(20.0)` still resolves to the same three numbers, it just
+  no longer claims all three.
+
+- **`ResolvedTextStyle`** (J402) is where the chain stops — concrete `size`, `weight`,
+  `italic` and `decoration`, and the type `Scene::text_styled`/`text_wrapped`/`text_block`
+  take now. A shaper needs a number; the type system enforces what a convention used to.
+  The colour stays optional even here, its last word belonging to a theme `frus-core`
+  cannot see.
+
+- **`DefaultTextStyle` holds a `TextStyle`** (J402) plus the four questions about the box
+  rather than the type (`align`, `soft_wrap`, `overflow`, `max_lines`) — the reference's
+  shape exactly, now that the style can carry its own "unset".
+
 ### Added
+
+- **`frus_text::measure_style(text, style)`** and **`measure_resolved`** (J402), replacing
+  the three-argument `measure_styled(text, size, weight, italic)` at most call sites.
+  Three arguments is three chances to pass a size from one style and a weight from
+  another, which draws text the layout never measured.
 
 - **A `Semantics` widget** (J401) — states a role, a name or a state for a child that
   cannot state it for itself, the reference's widget of that name. Every widget in the

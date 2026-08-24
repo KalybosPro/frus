@@ -132,8 +132,9 @@ pub fn paint_overlay(
     );
     let title_style = TextStyle::new(13.0).weight(frus_core::FontWeight::Bold);
     let detail_style = TextStyle::new(12.0);
-    let title_size = frus_text::measure_styled(&title, 13.0, title_style.weight, false);
-    let detail_size = frus_text::measure_styled(&details, 12.0, detail_style.weight, false);
+    let title_size = frus_text::measure_styled(&title, 13.0, title_style.resolved().weight, false);
+    let detail_size =
+        frus_text::measure_styled(&details, 12.0, detail_style.resolved().weight, false);
 
     const PAD: f32 = 8.0;
     let card_w = title_size.width.max(detail_size.width) + PAD * 2.0;
@@ -156,11 +157,16 @@ pub fn paint_overlay(
         Color::TRANSPARENT,
     );
     let on = theme.scheme.on_inverse_surface;
-    scene.text_styled(Point::new(x + PAD, y + PAD), title, &title_style, on);
+    scene.text_styled(
+        Point::new(x + PAD, y + PAD),
+        title,
+        &title_style.resolved(),
+        on,
+    );
     scene.text_styled(
         Point::new(x + PAD, y + PAD + title_size.height),
         details,
-        &detail_style,
+        &detail_style.resolved(),
         on,
     );
 }

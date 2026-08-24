@@ -145,7 +145,7 @@ impl RichText {
                     .weight(last.weight)
                     .color(last.color);
                 let style = if last.italic { style.italic() } else { style };
-                last.text = crate::text::ellipsise(&last.text, &style, width);
+                last.text = crate::text::ellipsise(&last.text, &style.resolved(), width);
             }
         }
         (kept, true)
@@ -154,7 +154,7 @@ impl RichText {
     /// A line limit is a height cap and nothing else.
     fn capped(&self, height: f32) -> f32 {
         match self.max_lines {
-            Some(max) => height.min(frus_text::line_height(self.base.size) * max as f32),
+            Some(max) => height.min(frus_text::line_height(self.base.resolved().size) * max as f32),
             None => height,
         }
     }
@@ -166,7 +166,7 @@ impl RichText {
         } else {
             bounds.height
         };
-        let run = (extent * 0.2).min(frus_text::line_height(self.base.size) * 3.0);
+        let run = (extent * 0.2).min(frus_text::line_height(self.base.resolved().size) * 3.0);
         let (from, to) = if horizontal {
             (
                 Point::new(bounds.x + bounds.width - run, bounds.y),
@@ -261,7 +261,7 @@ impl<Msg> Widget<Msg> for RichText {
         let runs = self.runs(Color::WHITE, 1.0);
         let wrap = self.wrap;
         let max_lines = self.max_lines;
-        let base = self.base.size;
+        let base = self.base.resolved().size;
         Some(Box::new(move |max_width, _| {
             let mut size =
                 frus_text::measure_runs_wrapped(&runs, if wrap { max_width } else { None });
@@ -279,9 +279,10 @@ impl<Msg> Widget<Msg> for RichText {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.span.measure_hash(&mut hasher);
-        self.base.size.to_bits().hash(&mut hasher);
-        self.base.weight.to_u16().hash(&mut hasher);
-        self.base.italic.hash(&mut hasher);
+        let base = self.base.resolved();
+        base.size.to_bits().hash(&mut hasher);
+        base.weight.to_u16().hash(&mut hasher);
+        base.italic.hash(&mut hasher);
         self.max_lines.hash(&mut hasher);
         Some(hasher.finish())
     }

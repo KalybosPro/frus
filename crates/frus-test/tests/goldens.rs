@@ -31,7 +31,7 @@ fn scene_matches_golden() {
     scene.text_styled(
         Point::new(16.0, 20.0),
         "Golden",
-        &TextStyle::new(20.0).underline(),
+        &TextStyle::new(20.0).underline().resolved(),
         Color::WHITE,
     );
     let Some(snapshot) = render_scene(&scene, 120, 64, Color::BLACK) else {

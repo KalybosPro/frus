@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
-use frus_core::{FontWeight, Point, Rect, Size, TextRun};
+use frus_core::{FontWeight, Point, Rect, ResolvedTextStyle, Size, TextRun, TextStyle};
 
 /// The default line-height to font-size ratio.
 const LINE_HEIGHT_FACTOR: f32 = 1.2;
@@ -399,6 +399,23 @@ pub fn baseline_of_runs(runs: &[TextRun]) -> Option<f32> {
 /// weight. See [`measure_styled`] for weight and italics.
 pub fn measure(text: &str, size_px: f32) -> Size {
     measure_styled(text, size_px, FontWeight::Regular, false)
+}
+
+/// Measures `text` under a [`TextStyle`], **resolving whatever it left open** to the
+/// framework's own defaults.
+///
+/// Every widget that measures a label wants this and used to spell it out as three
+/// arguments. Three arguments is three chances to pass a size from one style and a weight
+/// from another, which draws text the layout never measured.
+pub fn measure_style(text: &str, style: TextStyle) -> Size {
+    measure_resolved(text, &style.resolved())
+}
+
+/// Measures `text` under a style that has **already** been resolved — the same thing one
+/// step further down, for the code that has done the resolving once and is measuring
+/// several times against it.
+pub fn measure_resolved(text: &str, style: &ResolvedTextStyle) -> Size {
+    measure_styled(text, style.size, style.weight, style.italic)
 }
 
 /// Measures a **styled** text's natural size; weight and italics count, since bold

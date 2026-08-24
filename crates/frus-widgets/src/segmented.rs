@@ -141,9 +141,7 @@ impl SegmentedStyle {
         let style = self.label_style(theme);
         let widest = labels
             .iter()
-            .map(|label| {
-                frus_text::measure_styled(label, style.size, style.weight, style.italic).width
-            })
+            .map(|label| frus_text::measure_style(label, style).width)
             .fold(0.0_f32, f32::max);
         let icon = if self.show_selected_icon(theme) {
             self.icon_size(theme) + SEGMENTED_ICON_GAP
@@ -262,13 +260,8 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
             } else {
                 0.0
             };
-        let label = crate::text::truncate(&self.label, &label_style, room);
-        let measured = frus_text::measure_styled(
-            &label,
-            label_style.size,
-            label_style.weight,
-            label_style.italic,
-        );
+        let label = crate::text::truncate(&self.label, &label_style.resolved(), room);
+        let measured = frus_text::measure_style(&label, label_style);
         let group = measured.width
             + if shows_icon {
                 icon + SEGMENTED_ICON_GAP
@@ -287,7 +280,7 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
         scene.text_styled(
             Point::new(x, bounds.y + (bounds.height - measured.height) / 2.0),
             label,
-            &label_style,
+            &label_style.resolved(),
             color.fade(o),
         );
     }
