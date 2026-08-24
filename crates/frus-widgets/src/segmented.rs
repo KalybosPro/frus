@@ -313,8 +313,8 @@ impl<Msg: Clone> Widget<Msg> for Segment<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
-        let semantics = frus_core::Semantics::new(frus_core::Role::Button)
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Button)
             .label(self.label.clone())
             .toggled(self.selected);
         // Still announced, and still saying which one is chosen: a disabled control is

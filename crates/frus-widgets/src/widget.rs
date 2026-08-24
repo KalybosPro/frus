@@ -1,6 +1,6 @@
 //! The [`Widget`] trait, generic over the message type emitted on interaction.
 
-use frus_core::{Rect, Scene, Semantics, Size};
+use frus_core::{Rect, Scene, SemanticsProperties, Size};
 use frus_layout::Style;
 
 use crate::interaction::{Cursor, Key, Status};
@@ -101,8 +101,22 @@ pub trait Widget<Msg> {
     /// The widget's **accessibility annotation** (role, label, value, state),
     /// exposed to assistive technologies through the AccessKit tree. `None` =
     /// no semantics of its own (a layout container — its children, though,
-    /// may have some). See [`frus_core::Semantics`].
-    fn semantics(&self) -> Option<Semantics> {
+    /// may have some). See [`frus_core::SemanticsProperties`].
+    fn semantics(&self) -> Option<SemanticsProperties> {
+        None
+    }
+
+    /// What this widget says about its **child's** subtree, when it knows something the
+    /// child cannot know about itself — the [`crate::Semantics`] wrapper, and nothing else
+    /// so far.
+    ///
+    /// [`Widget::semantics`] is a widget answering for itself and covers the ordinary
+    /// case. This covers the one it cannot: a caller handed an already-built widget, with
+    /// no way in. Read in one place in the walk, the way a
+    /// [`ModalBarrier`](crate::barrier::ModalBarrier) is — the subtree is walked exactly as
+    /// usual and what it produced is reconciled afterwards, so a widget deep inside
+    /// annotates itself without knowing anything is speaking for it.
+    fn describes(&self) -> Option<crate::semantics::Description> {
         None
     }
 
@@ -1031,8 +1045,11 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn debug_name(&self) -> &'static str {
         (**self).debug_name()
     }
-    fn semantics(&self) -> Option<Semantics> {
+    fn semantics(&self) -> Option<SemanticsProperties> {
         (**self).semantics()
+    }
+    fn describes(&self) -> Option<crate::semantics::Description> {
+        (**self).describes()
     }
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         (**self).children()

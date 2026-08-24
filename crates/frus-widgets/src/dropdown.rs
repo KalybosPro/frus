@@ -127,12 +127,12 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         self.enabled && self.on_click.is_some()
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A dropdown row said nothing to a reader before this. Announcing that a row is
         // unavailable without ever announcing the row would have been announcing an
         // absence, the same hole `RadioOption` had in milestone 322.
         let semantics =
-            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+            frus_core::SemanticsProperties::new(frus_core::Role::Button).label(self.label.clone());
         let semantics = if self.is_header {
             semantics
         } else {

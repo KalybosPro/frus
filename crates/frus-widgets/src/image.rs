@@ -364,11 +364,11 @@ impl<Msg> Widget<Msg> for Image {
         scene.draw_image(image, dst, uv, tint);
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         if self.exclude_from_semantics {
             return None;
         }
-        let mut semantics = frus_core::Semantics::new(frus_core::Role::Image);
+        let mut semantics = frus_core::SemanticsProperties::new(frus_core::Role::Image);
         if let Some(label) = self.semantic_label.as_deref() {
             semantics = semantics.label(label);
         }

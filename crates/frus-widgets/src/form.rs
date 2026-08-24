@@ -29,7 +29,7 @@
 //! assert_eq!(report.first_invalid(), Some("email"));
 //! ```
 
-use frus_core::{Color, Insets, Point, Rect, Role, Scene, Semantics};
+use frus_core::{Color, Insets, Point, Rect, Role, Scene, SemanticsProperties};
 use frus_layout::{Dimension, FlexDirection, Style};
 
 use crate::interaction::Status;
@@ -299,9 +299,9 @@ impl<Msg: Clone> Widget<Msg> for Bullet<Msg> {
         self.message.is_some()
     }
 
-    fn semantics(&self) -> Option<Semantics> {
+    fn semantics(&self) -> Option<SemanticsProperties> {
         self.message.as_ref().map(|_| {
-            Semantics::new(Role::Button)
+            SemanticsProperties::new(Role::Button)
                 .label(self.label.clone())
                 .clickable()
         })

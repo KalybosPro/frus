@@ -156,10 +156,11 @@ impl<Msg> Widget<Msg> for Switch<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // Still on or off, still announced — a switch that fell silent would read as a
         // setting that had gone away rather than one that cannot be changed.
-        let semantics = frus_core::Semantics::new(frus_core::Role::Switch).toggled(self.on);
+        let semantics =
+            frus_core::SemanticsProperties::new(frus_core::Role::Switch).toggled(self.on);
         Some(if self.enabled {
             semantics.clickable()
         } else {

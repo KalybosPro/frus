@@ -130,10 +130,10 @@ impl<Msg: Clone> Widget<Msg> for Stepper<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // The picker said nothing to a reader before this; its value is the whole of what
         // it carries.
-        let semantics = frus_core::Semantics::new(frus_core::Role::Slider)
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Slider)
             .value(self.value.to_string())
             .range(self.min as f32, self.value as f32, self.max as f32);
         Some(if self.enabled {

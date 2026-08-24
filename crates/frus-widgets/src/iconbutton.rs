@@ -352,8 +352,8 @@ impl<Msg: Clone> Widget<Msg> for IconButton<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
-        let semantics = frus_core::Semantics::new(frus_core::Role::Button);
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Button);
         let semantics = match &self.label {
             Some(label) => semantics.label(label.clone()),
             // Better than nothing, and visibly worse than a label: a glyph read out is at

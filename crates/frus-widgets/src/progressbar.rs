@@ -74,10 +74,10 @@ impl<Msg> Widget<Msg> for LinearProgressIndicator {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         let pct = (self.value * 100.0).round();
         Some(
-            frus_core::Semantics::new(frus_core::Role::ProgressBar)
+            frus_core::SemanticsProperties::new(frus_core::Role::ProgressBar)
                 .value(format!("{pct}%"))
                 .range(0.0, self.value, 1.0),
         )

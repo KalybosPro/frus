@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use frus_core::{Color, Insets, Point, Rect, Role, Scene, Semantics};
+use frus_core::{Color, Insets, Point, Rect, Role, Scene, SemanticsProperties};
 use frus_layout::{Align, Dimension, Justify, Style};
 
 use crate::interaction::Status;
@@ -198,9 +198,9 @@ impl<Msg: Clone> Widget<Msg> for ActionButton<Msg> {
         true
     }
 
-    fn semantics(&self) -> Option<Semantics> {
+    fn semantics(&self) -> Option<SemanticsProperties> {
         Some(
-            Semantics::new(Role::Button)
+            SemanticsProperties::new(Role::Button)
                 .label(self.label.clone())
                 .clickable(),
         )

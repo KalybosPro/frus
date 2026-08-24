@@ -81,8 +81,11 @@ macro_rules! forward_transparent {
                 self.inner.debug_name()
             }
 
-            fn semantics(&self) -> Option<frus_core::Semantics> {
+            fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
                 self.inner.semantics()
+            }
+            fn describes(&self) -> Option<$crate::semantics::Description> {
+                self.inner.describes()
             }
 
             fn children(&self) -> &[Box<dyn $crate::widget::Widget<Msg>>] {

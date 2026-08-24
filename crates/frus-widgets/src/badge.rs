@@ -229,11 +229,11 @@ impl<Msg> Widget<Msg> for Badge {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A dot has nothing to read out. A count does, and a screen reader that never
         // hears it is a reader who never learns there are three unread messages.
         let text = self.shown()?;
-        Some(frus_core::Semantics::new(frus_core::Role::Label).label(text))
+        Some(frus_core::SemanticsProperties::new(frus_core::Role::Label).label(text))
     }
 }
 

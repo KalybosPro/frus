@@ -44,7 +44,7 @@ pub use image::{
 pub use path::{Path, PathVerb, Stroke};
 pub use responsive::{Orientation, SizeClass};
 pub use scene::{ClipShape, LayerTransform, PathGradient, Primitive, Scene, TextBlock};
-pub use semantics::{Role, Semantics, Toggled};
+pub use semantics::{Role, SemanticsProperties, Toggled};
 pub use text_style::{
     FontWeight, TextAlign, TextDecoration, TextOverflow, TextRun, TextSpan, TextStyle,
 };

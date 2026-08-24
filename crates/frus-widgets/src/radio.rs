@@ -112,11 +112,11 @@ impl<Msg: Clone> Widget<Msg> for RadioOption<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A radio group had no semantics at all before this: a reader was told nothing
         // about which option was chosen. Adding the disabled announcement without the
         // announcement it qualifies would have been announcing an absence.
-        let semantics = frus_core::Semantics::new(frus_core::Role::RadioButton)
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::RadioButton)
             .label(self.label.clone())
             .toggled(self.selected);
         Some(if self.enabled {

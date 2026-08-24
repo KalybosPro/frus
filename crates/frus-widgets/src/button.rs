@@ -425,9 +425,9 @@ impl<Msg: Clone> Widget<Msg> for Button<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         let semantics =
-            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+            frus_core::SemanticsProperties::new(frus_core::Role::Button).label(self.label.clone());
         // A disabled button does not announce a clickable action.
         Some(if self.enabled {
             semantics.clickable()

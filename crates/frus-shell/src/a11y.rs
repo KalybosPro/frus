@@ -18,7 +18,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-use frus_widgets::{Rect, Role, Semantics, Toggled, WidgetId};
+use frus_widgets::{Rect, Role, SemanticsProperties, Toggled, WidgetId};
 
 /// The identity of the **root** node, the window, in the AccessKit tree.
 const ROOT_ID: NodeId = NodeId(0);
@@ -58,7 +58,7 @@ fn node_id(id: WidgetId) -> NodeId {
 }
 
 /// Builds an AccessKit node from a frus annotation and its bounds.
-fn to_ak_node(rect: Rect, sem: &Semantics) -> Node {
+fn to_ak_node(rect: Rect, sem: &SemanticsProperties) -> Node {
     let mut node = Node::new(to_ak_role(sem.role));
     node.set_bounds(AkRect {
         x0: rect.x as f64,
@@ -107,7 +107,7 @@ fn live_node(message: &str) -> Node {
 /// widget, when it is in the tree. A non-empty `announce` adds a **live region** that
 /// is spoken aloud.
 pub(crate) fn build_tree_update(
-    nodes: &[(WidgetId, Rect, Semantics)],
+    nodes: &[(WidgetId, Rect, SemanticsProperties)],
     focus: Option<WidgetId>,
     title: &str,
     announce: &str,
@@ -156,7 +156,7 @@ pub(crate) fn widget_for(node: NodeId) -> Option<WidgetId> {
 /// and the AccessKit adapter, which reads it on its own thread.
 #[derive(Default)]
 struct Snapshot {
-    nodes: Vec<(WidgetId, Rect, Semantics)>,
+    nodes: Vec<(WidgetId, Rect, SemanticsProperties)>,
     focus: Option<WidgetId>,
     title: String,
     /// The last announcement message, for the live region. It persists as is:
@@ -250,7 +250,7 @@ impl A11y {
     /// running.
     pub(crate) fn update(
         &mut self,
-        nodes: &[(WidgetId, Rect, Semantics)],
+        nodes: &[(WidgetId, Rect, SemanticsProperties)],
         focus: Option<WidgetId>,
         title: &str,
         announce: &str,
@@ -277,8 +277,8 @@ impl A11y {
 mod tests {
     use super::*;
 
-    fn sem(role: Role) -> Semantics {
-        Semantics::new(role)
+    fn sem(role: Role) -> SemanticsProperties {
+        SemanticsProperties::new(role)
     }
 
     fn wid(raw: u64) -> WidgetId {

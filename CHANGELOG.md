@@ -8,10 +8,53 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 400 so far, each documenting the objective, the alternatives
+> record — one per step, 401 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A `Semantics` widget** (J401) — states a role, a name or a state for a child that
+  cannot state it for itself, the reference's widget of that name. Every widget in the
+  crate answers for *itself*; this is for the case a caller is handed a built widget and
+  knows something about it that the widget does not.
+
+  It **adds** a node by default and leaves the child's alone; `merging` drops the subtree's
+  annotations and speaks for all of them, carrying over what they said. That default is
+  *not* the reference's, deliberately: the destructive behaviour cannot be undone by the
+  caller, so a merging default would collapse a whole screen into one node the first time
+  somebody wrapped one to name it. `Semantics::heading(child)` and `Semantics::merge(child)`
+  are the two common cases spelled out, the second being the reference's `MergeSemantics`.
+
+  Merging joins two labels one line each, as the reference does — picking one would drop
+  the other with nothing to say which. Note that this framework's accessibility tree is
+  **flat**, so merging really discards where the reference keeps the subtree's shape.
+
+- **`SemanticsProperties::over`** (J401), the field-by-field merge behind it.
+
+### Changed
+
+- **`frus_core::Semantics` is renamed `SemanticsProperties`** (J401) — BREAKING. The
+  reference's `Semantics` is the *widget* and `SemanticsProperties` the data bag; ours had
+  the data holding the name the widget needed.
+
+- **The `AppBar`'s title is a widget** (J401) — BREAKING. `AppBar::title_widget` is renamed
+  `AppBar::title`, and the internal `Title` enum is gone. The reference's `title` is a
+  `Widget?` with no string form (`app_bar.dart:1067`); `AppBar::new("Inbox")` is now a
+  convenience that builds a plain `Text` with **no style on it** and hands it to the same
+  path.
+
+  Three consequences. **Every title is a heading**, not only a string one — the milestone
+  397 asymmetry, where a bar's accessibility depended on which constructor was used, is
+  closed. **The type is handed down rather than applied**, so a `Text` inside a caller's
+  widget picks up the bar's `title_large` while one that chose a size keeps it. And the
+  **manual truncation is gone**: `soft_wrap: false` and an ellipsis come down with the
+  style, and the words are cut by the box they are actually given instead of by a width
+  computed before the layout ran.
+
+- **`Widget::describes`** (J401) is a new hook with a default, so implementations need no
+  change unless they want it.
 
 ### Added
 

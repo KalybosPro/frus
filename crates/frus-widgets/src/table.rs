@@ -220,13 +220,14 @@ impl<Msg: Clone> Widget<Msg> for Cell<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A header: announced to screen readers (label + position when it is reorderable, so
         // that a user perceives a column move when going through them again).
         if !self.header {
             return None;
         }
-        let mut sem = frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+        let mut sem =
+            frus_core::SemanticsProperties::new(frus_core::Role::Button).label(self.label.clone());
         if let Some((col, columns, _)) = &self.reorder {
             sem = sem.value(format!("column {} of {}", col + 1, columns));
         }

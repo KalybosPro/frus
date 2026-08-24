@@ -1478,8 +1478,9 @@ impl<Msg: Clone> Widget<Msg> for TextField<Msg> {
         Some(&self.value)
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
-        let mut s = frus_core::Semantics::new(frus_core::Role::TextInput).value(self.value.clone());
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let mut s = frus_core::SemanticsProperties::new(frus_core::Role::TextInput)
+            .value(self.value.clone());
         // The label names the field; an error is appended to it so it gets read out.
         let label = match (&self.label, &self.error) {
             (Some(l), Some(e)) => Some(format!("{l}, {e}")),

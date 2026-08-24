@@ -216,7 +216,7 @@ impl Text {
     /// It changes nothing that is drawn. A screen reader's user moves through a screen by
     /// its headings, and a title announced as a label gives them nothing to move between
     /// — which is what an app bar's title was until milestone 397. The reference says the
-    /// same thing with `Semantics(header: true)` around its title.
+    /// same thing with `SemanticsProperties(header: true)` around its title.
     pub fn heading(mut self) -> Self {
         self.heading = true;
         self
@@ -733,7 +733,7 @@ impl<Msg> Widget<Msg> for Text {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A text carries its content as its accessible label — or as a **heading**, which
         // is a landmark rather than a label and is what a screen reader's user navigates by.
         let role = if self.heading {
@@ -741,7 +741,7 @@ impl<Msg> Widget<Msg> for Text {
         } else {
             frus_core::Role::Label
         };
-        Some(frus_core::Semantics::new(role).label(self.content.clone()))
+        Some(frus_core::SemanticsProperties::new(role).label(self.content.clone()))
     }
 }
 

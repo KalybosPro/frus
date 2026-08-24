@@ -135,10 +135,10 @@ impl<Msg: Clone> Widget<Msg> for Pagination<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // Which page you are on is the whole of what the strip says, and it is still owed
         // to a reader who cannot change it.
-        let semantics = frus_core::Semantics::new(frus_core::Role::None)
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::None)
             .label(format!("Page {} of {}", self.current, self.total));
         Some(if self.enabled {
             semantics

@@ -146,10 +146,10 @@ impl<Msg: Clone> Widget<Msg> for Rating<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A rating said nothing to a reader before this: the score is the whole of what it
         // carries, and it is still owed to someone who cannot change it.
-        let semantics = frus_core::Semantics::new(frus_core::Role::Slider)
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Slider)
             .value(format!("{} / {}", self.value, self.max))
             .range(0.0, self.value as f32, self.max as f32);
         Some(if self.enabled {

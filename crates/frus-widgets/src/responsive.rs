@@ -95,7 +95,7 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
             .unwrap_or("Responsive")
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         self.inner.as_ref().and_then(|w| w.semantics())
     }
 

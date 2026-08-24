@@ -204,8 +204,9 @@ impl<Msg: Clone> Widget<Msg> for Remove<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
-        let semantics = frus_core::Semantics::new(frus_core::Role::Button).label("Remove");
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
+        let semantics =
+            frus_core::SemanticsProperties::new(frus_core::Role::Button).label("Remove");
         // Milestone 320 stopped this cross answering a tap and stopped there. Tab still
         // landed on it and a reader was still told it could be pressed — the same control
         // reported three different ways, and the two that were wrong are the two nobody
@@ -520,9 +521,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for Chip<Msg> {
         self.enabled && self.on_press.is_some()
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         let semantics =
-            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+            frus_core::SemanticsProperties::new(frus_core::Role::Button).label(self.label.clone());
         // A chip that can be selected says whether it is: a filter that is on and one that
         // is off are the same words otherwise.
         let semantics = if self.on_press.is_some() && self.enabled {

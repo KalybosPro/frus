@@ -484,10 +484,10 @@ impl<Msg: Clone> Widget<Msg> for Tab<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // Which tab is showing survives: a reader who cannot switch is still owed where
         // they are.
-        let semantics = frus_core::Semantics::new(frus_core::Role::Tab)
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Tab)
             .label(self.spec.label.clone())
             .toggled(self.selected);
         Some(if self.enabled {

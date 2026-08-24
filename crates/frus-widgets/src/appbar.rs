@@ -7,14 +7,14 @@
 //! phone → overflow. One piece of code, adapting automatically.
 //!
 //! **Everything is customisable** (themed defaults, never imposed): the title can
-//! be an arbitrary widget (`title_widget`) or styled text (`title_style`), an
+//! be an arbitrary widget (`title`) or styled text (`title_style`), an
 //! action can be an arbitrary widget (`action_widget`, always inline), and the
 //! spacing, the action size, the background and the height can all be overridden.
 //!
 //! ```ignore
 //! AppBar::new("My Tasks")
 //!     .width(available_width)                 // a size, not a platform
-//!     .title_style(TextStyle::new(22.0))      // or .title_widget(logo_row)
+//!     .title_style(TextStyle::new(22.0))      // or .title(logo_row)
 //!     .leading(button("☰", Msg::ToggleMenu))
 //!     .overflow(app.menu_open, Msg::ToggleMenu)
 //!     .action("Pause", Msg::ToggleTimer)
@@ -27,6 +27,7 @@ use frus_core::{BorderRadius, Color, FontWeight, TextStyle};
 use frus_layout::{Align, Dimension};
 
 use crate::button::Variant;
+use crate::constraints::ConstrainedBox;
 use crate::container::Container;
 use crate::dsl::button;
 use crate::flex::Flex;
@@ -97,11 +98,6 @@ const SHADOW: Color = Color {
 };
 
 /// The title: styled text, or any widget at all.
-enum Title<Msg> {
-    Text(String),
-    Widget(Box<dyn Widget<Msg>>),
-}
-
 /// An action: labelled (foldable into the overflow) or a free widget (always
 /// inline — an arbitrary widget cannot become a text menu row).
 enum Action<Msg> {
@@ -111,7 +107,7 @@ enum Action<Msg> {
 
 /// An adaptive application bar. A fluent builder finished by [`AppBar::build`].
 pub struct AppBar<Msg> {
-    title: Title<Msg>,
+    title: Box<dyn Widget<Msg>>,
     title_style: TextStyle,
     /// Was the title's style left at the framework's default? Only then may the theme
     /// have its say — a caller who set one outranks it.
@@ -158,7 +154,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     pub fn new(title: impl Into<String>) -> Self {
         let surface = MediaQuery::of();
         Self {
-            title: Title::Text(title.into()),
+            // **A widget, never a string.** The reference's `title` is a `Widget?` and
+            // nothing else (`app_bar.dart:1067`), and a string constructor that took a
+            // second path through the bar is what made a bar's accessibility depend on
+            // which constructor the caller had reached for (milestone 397).
+            //
+            // No style on it. It takes the resolved title type from the
+            // `DefaultTextStyle` the bar hands down, which is what the reference does at
+            // `app_bar.dart:1084` — and it is why this could not be written before
+            // milestone 400.
+            title: Box::new(Text::new(title)),
             title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
             title_style_default: true,
             width: if surface.is_described() {
@@ -212,10 +217,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
-    /// Replaces the title with an **arbitrary widget** — a logo, a composed row, and
-    /// so on.
-    pub fn title_widget(mut self, widget: impl Widget<Msg> + 'static) -> Self {
-        self.title = Title::Widget(Box::new(widget));
+    /// The title, as **any widget** — a logo, a composed row, a text of the caller's own.
+    ///
+    /// This is the title in the reference, where `title` is a `Widget?` and there is no
+    /// string form at all. [`AppBar::new`] is a convenience that wraps a string in a plain
+    /// text and hands it here; both end at the same place, wearing the same type and
+    /// announced as the same landmark.
+    ///
+    /// It was called `title_widget` while the bar had two kinds of title. It has one.
+    pub fn title(mut self, widget: impl Widget<Msg> + 'static) -> Self {
+        self.title = Box::new(widget);
         self
     }
 
@@ -475,8 +486,8 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
     }
 
     /// A widget's declared width (0 if it depends on layout).
-    fn widget_width(widget: &dyn Widget<Msg>) -> f32 {
-        match widget.style().width {
+    fn widget_width(widget: &dyn Widget<Msg>, theme: &Theme) -> f32 {
+        match widget.style_themed(theme).width {
             Dimension::Length(v) => v,
             _ => 0.0,
         }
@@ -559,6 +570,20 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .or(t.foreground)
             .unwrap_or(theme.scheme.on_surface);
         title_style.color = Some(foreground);
+        // The title's type as something a subtree can **hand down**, plus the two settings
+        // the reference pairs with it: one line, cut with an ellipsis. A `Text` that never
+        // chose a size, a wrap or an overflow takes all three; one that did keeps its own.
+        let title_words = DefaultTextStyle {
+            soft_wrap: Some(false),
+            overflow: Some(frus_core::TextOverflow::Ellipsis),
+            ..DefaultTextStyle::from_text_style(title_style)
+        };
+        // The same thing as a whole theme, for asking a title how wide it naturally is.
+        let dressed_title_theme = {
+            let mut dressed = *theme;
+            dressed.widgets.text = dressed.widgets.text.merge(title_words);
+            dressed
+        };
         let background = background.or(t.background);
         let elevation = if elevation > 0.0 {
             elevation
@@ -569,20 +594,12 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         let leading_w = match (&leading, leading_width) {
             (None, _) => 0.0,
             (Some(_), Some(w)) => w,
-            (Some(widget), None) => Self::widget_width(widget.as_ref()).max(LEADING_SLOT),
+            (Some(widget), None) => Self::widget_width(widget.as_ref(), theme).max(LEADING_SLOT),
         };
-        let natural_title = match &title {
-            Title::Text(content) => {
-                frus_text::measure_styled(
-                    content,
-                    title_style.size,
-                    title_style.weight,
-                    title_style.italic,
-                )
-                .width
-            }
-            Title::Widget(widget) => Self::widget_width(widget.as_ref()),
-        };
+        // The title's natural width, asked of the widget **under the type it will
+        // actually wear**. Asking it bare would measure a string title at the framework's
+        // 16 px and reserve room for a bar that draws it at 22.
+        let natural_title = Self::widget_width(title.as_ref(), &dressed_title_theme);
 
         // The room the actions may claim: everything except the margins, the leading,
         // the spacing, and what the title is **reserved**.
@@ -606,7 +623,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             .iter()
             .map(|action| match action {
                 Action::Labeled { label, .. } => Self::action_width(label, action_size) + gap,
-                Action::Custom(widget) => Self::widget_width(widget.as_ref()) + gap,
+                Action::Custom(widget) => Self::widget_width(widget.as_ref(), theme) + gap,
             })
             .collect();
         let total: f32 = widths.iter().sum();
@@ -690,27 +707,34 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         if center_title {
             row = row.child(Container::new().flex(1.0));
         }
-        match title {
-            Title::Text(content) => {
-                let content = crate::text::truncate(&content, &title_style, title_room);
-                let title = Text::styled(content, title_style);
-                // The bar's title is the **heading** of the screen it names — the landmark
-                // a screen reader's user jumps to. It was announced as one more label
-                // until milestone 397, which is what the reference says with
-                // `Semantics(header: true)`.
-                //
-                // Only a **text** title. A widget title keeps whatever semantics it
-                // brought: this framework has no `Semantics` wrapper to put a role on
-                // something already assembled, and the reference does — recorded on the
-                // roadmap rather than half-done here.
-                row = row.child(if exclude_header_semantics {
-                    title
-                } else {
-                    title.heading()
-                });
-            }
-            Title::Widget(widget) => row = row.child(widget),
-        }
+        // The bar's title is the **heading** of the screen it names — the landmark a
+        // screen reader's user jumps to — and now that is true of *every* title rather
+        // than only of one written as a string. The reference wraps the same way
+        // (`app_bar.dart:1071`), and milestone 401's `Semantics` wrapper is what lets a
+        // container state a role for a child it was handed already assembled.
+        let title: Box<dyn Widget<Msg>> = if exclude_header_semantics {
+            title
+        } else {
+            Box::new(crate::Semantics::heading(title))
+        };
+        // **The type, handed down rather than applied.** The words are cut by the box they
+        // are given instead of by arithmetic here: `soft_wrap: false` and an ellipsis, on a
+        // `Text` that never chose either, exactly as the reference sets them
+        // (`app_bar.dart:1084`). Cutting the string by hand needed a width computed before
+        // the layout ran, which is the class of mistake milestone 392 was.
+        // And a **ceiling**, the reference's `_AppBarTitleBox` (`app_bar.dart:1069`). The
+        // ellipsis alone would very nearly do it — a text handed an overflow mode grants
+        // the squeeze, so flexbox may shrink it — but "very nearly" is how an over-long
+        // task name evicted its own delete button in milestone 333. What is left after the
+        // actions have taken theirs is a number the bar knows; saying it outright is one
+        // line, and it is the line that makes the guarantee testable.
+        row = row.child(
+            ConstrainedBox::new(crate::Themed::tweak(
+                move |t| t.widgets.text = t.widgets.text.merge(title_words),
+                title,
+            ))
+            .max_width(title_room),
+        );
         row = row.child(Container::new().flex(1.0));
 
         let mut labeled_seen = 0;
@@ -1043,6 +1067,100 @@ mod tests {
         assert_eq!(role_of_title(false), frus_core::Role::Heading);
         // And a bar that says its title is not the screen's name gets a plain label back.
         assert_eq!(role_of_title(true), frus_core::Role::Label);
+    }
+
+    /// **A widget title is the screen's heading too**, which it was not until now.
+    ///
+    /// Milestone 397 could mark a *text* title as a landmark and not a widget one, because
+    /// by then a widget title is a `Box<dyn Widget>` and the bar had no way in. So the
+    /// accessibility of a bar depended on which constructor the caller had reached for —
+    /// not a distinction anybody using assistive technology should be able to feel, and not
+    /// one the reference has: its `title` is a `Widget?` and nothing else, wrapped once in
+    /// `Semantics(header: true)` (`app_bar.dart:1071`).
+    ///
+    /// The two constructors are now the same path, and this asserts they answer the same.
+    #[test]
+    fn a_widget_title_is_a_heading_exactly_as_a_string_one_is() {
+        const W: f32 = 400.0;
+        let role_of = |bar: Box<dyn Widget<Msg>>| {
+            let ui = build_ui(
+                bar.as_ref(),
+                Size::new(W, 200.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.semantics()
+                .iter()
+                .find(|(_, _, s)| s.label.as_deref() == Some("Inbox"))
+                .map(|(_, _, s)| s.role)
+                .expect("the title is described")
+        };
+        let from_string = role_of(AppBar::<Msg>::new("Inbox").width(W).build());
+        let from_widget = role_of(
+            // The string a `new` needs is thrown away by the `title` that follows it.
+            AppBar::<Msg>::new("")
+                .title(crate::Text::new("Inbox"))
+                .width(W)
+                .build(),
+        );
+        assert_eq!(from_string, frus_core::Role::Heading);
+        assert_eq!(
+            from_widget, from_string,
+            "the same bar, described differently by which constructor was used"
+        );
+    }
+
+    /// **A widget title wears the bar's type**, without the bar reaching into it.
+    ///
+    /// The reference hands the title style down rather than applying it
+    /// (`app_bar.dart:1084`), which is the only thing that works when the title is a
+    /// caller's widget with a `Text` somewhere inside it. A text that chose its own size
+    /// keeps it — that is milestone 400's rule, and it is what makes the handover safe to
+    /// apply to a widget the bar never looked into.
+    #[test]
+    fn the_bar_hands_its_type_to_a_title_it_did_not_build() {
+        const W: f32 = 500.0;
+        let size_of = |bar: Box<dyn Widget<Msg>>| {
+            let ui = build_ui(
+                bar.as_ref(),
+                Size::new(W, 200.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            let mut found = None;
+            fn walk(prims: &[crate::Primitive], out: &mut Option<f32>) {
+                for p in prims {
+                    match p {
+                        crate::Primitive::Text { text, size, .. } if text == "Inbox" => {
+                            *out = Some(*size)
+                        }
+                        crate::Primitive::Layer { primitives, .. } => walk(primitives, out),
+                        _ => {}
+                    }
+                }
+            }
+            walk(ui.scene().primitives(), &mut found);
+            found.expect("the title is drawn")
+        };
+        let inherited = size_of(
+            // The string a `new` needs is thrown away by the `title` that follows it.
+            AppBar::<Msg>::new("")
+                .title(crate::Text::new("Inbox"))
+                .width(W)
+                .build(),
+        );
+        assert_eq!(
+            inherited, TITLE_SIZE,
+            "a title that chose nothing wears the bar's type"
+        );
+        // And one that chose keeps its own, which is what makes the handover safe.
+        let chosen = size_of(
+            AppBar::<Msg>::new("")
+                .title(crate::Text::new("Inbox").size(11.0))
+                .width(W)
+                .build(),
+        );
+        assert_eq!(chosen, 11.0);
     }
 
     /// Every path the bar paints, layers included.
@@ -1447,7 +1565,7 @@ mod tests {
     #[test]
     fn title_can_be_an_arbitrary_widget() {
         let bar = AppBar::<Msg>::new("ignored")
-            .title_widget(Text::new("Logo").size(18.0))
+            .title(Text::new("Logo").size(18.0))
             .build();
         let ui = build_ui(
             bar.as_ref(),

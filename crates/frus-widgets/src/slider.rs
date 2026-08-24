@@ -329,7 +329,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // The value survives: a reader who cannot move the slider is still owed where it
         // sits, which is the whole of what a slider says.
         // In the caller's units, and said the caller's way when it gave a formatter:
@@ -343,7 +343,7 @@ impl<Msg> Widget<Msg> for Slider<Msg> {
             }
             None => format!("{held}"),
         };
-        let semantics = frus_core::Semantics::new(frus_core::Role::Slider)
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Slider)
             .value(spoken)
             .range(self.min, held, self.max);
         Some(if self.enabled {
@@ -836,14 +836,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for RangeSlider<Msg> {
         None
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // The interval survives, as the single slider's value does.
         let pct = |v: f32| (v * 100.0).round();
-        let semantics = frus_core::Semantics::new(frus_core::Role::Slider).value(format!(
-            "{}%–{}%",
-            pct(self.low),
-            pct(self.high)
-        ));
+        let semantics = frus_core::SemanticsProperties::new(frus_core::Role::Slider)
+            .value(format!("{}%–{}%", pct(self.low), pct(self.high)));
         Some(if self.enabled {
             semantics
         } else {

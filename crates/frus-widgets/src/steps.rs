@@ -10,7 +10,7 @@
 //! that change the current step). Since the name `Stepper` is already taken by the
 //! −/value/+ numeric picker, this indicator is called `Steps`.
 
-use frus_core::{Color, Point, Rect, Role, Scene, Semantics};
+use frus_core::{Color, Point, Rect, Role, Scene, SemanticsProperties};
 use frus_layout::{Align, Dimension, FlexDirection, Justify, Style};
 
 use crate::flex::Flex;
@@ -241,9 +241,9 @@ impl<Msg: Clone> Widget<Msg> for Hotspot<Msg> {
         true
     }
 
-    fn semantics(&self) -> Option<Semantics> {
+    fn semantics(&self) -> Option<SemanticsProperties> {
         Some(
-            Semantics::new(Role::Button)
+            SemanticsProperties::new(Role::Button)
                 .label(self.label.clone())
                 .clickable(),
         )

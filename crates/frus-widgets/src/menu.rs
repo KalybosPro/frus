@@ -82,10 +82,10 @@ impl<Msg: Clone> Widget<Msg> for Item<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // A menu row said nothing to a reader before this.
         let semantics =
-            frus_core::Semantics::new(frus_core::Role::Button).label(self.label.clone());
+            frus_core::SemanticsProperties::new(frus_core::Role::Button).label(self.label.clone());
         Some(if self.enabled {
             semantics.clickable()
         } else {

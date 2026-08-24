@@ -104,6 +104,8 @@ mod safearea;
 mod scaffold;
 mod scroll;
 mod segmented;
+/// Stating what a widget **is** from outside it: the [`semantics::Semantics`] wrapper.
+pub mod semantics;
 mod shortcuts;
 mod skeleton;
 mod slider;
@@ -257,6 +259,7 @@ pub use segmented::{
     SegmentedButton, SEGMENTED_BORDER_WIDTH, SEGMENTED_HEIGHT, SEGMENTED_ICON_GAP,
     SEGMENTED_ICON_SIZE, SEGMENTED_PADDING,
 };
+pub use semantics::{Description, Semantics};
 pub use shortcuts::{
     ActionListener, Actions, CallbackShortcuts, FocusableActionDetector, Intent, KeyStroke,
     KeyboardListener, ShortcutKey, Shortcuts,
@@ -314,9 +317,9 @@ pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Backdrop, BlendMode, Border,
     BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, FontWeight,
     FractionalMask, ImageData, ImageFilter, ImageHandle, Insets, InsetsDirectional, LinearGradient,
-    Orientation, Path, PathVerb, Point, Primitive, Rect, Role, Scene, Semantics, Size, SizeClass,
-    TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle, Toggled,
-    WindowInsets,
+    Orientation, Path, PathVerb, Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size,
+    SizeClass, TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle,
+    Toggled, WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through

@@ -61,7 +61,7 @@ pub enum Toggled {
 
 /// A widget's **resolved** semantic annotation, for accessibility.
 #[derive(Clone, Debug, PartialEq, Default)]
-pub struct Semantics {
+pub struct SemanticsProperties {
     /// The announced role.
     pub role: Role,
     /// Accessible name (what the screen reader reads out).
@@ -78,7 +78,7 @@ pub struct Semantics {
     pub range: Option<(f32, f32, f32)>,
 }
 
-impl Semantics {
+impl SemanticsProperties {
     /// An annotation carrying the given role and nothing else.
     pub fn new(role: Role) -> Self {
         Self {
@@ -139,6 +139,47 @@ impl Semantics {
     pub fn is_meaningful(&self) -> bool {
         self.role != Role::None || self.label.is_some()
     }
+
+    /// This annotation laid **over** `under`, whose answers show through wherever this
+    /// one said nothing.
+    ///
+    /// What a container states about its child usually is not everything there is to
+    /// say: something that marks a widget as a heading knows the *role* and has no idea
+    /// what the words are. Dropping the child's answer would replace a spoken title with
+    /// silence, which is a worse outcome than the unlabelled heading it was fixing.
+    ///
+    /// **Two labels are joined, not chosen between** — one line each, as the reference
+    /// joins the labels of a merged subtree. A row holding a checkbox and its caption
+    /// reads as one control with both, and picking one would drop the other on the floor
+    /// with nothing to say which.
+    ///
+    /// Every other field is *this one's answer, or the other's where it had none*, with
+    /// each field's "none" being its own: `Role::None`, `Toggled::None`, a `false`
+    /// flag, an absent `Option`. `clickable` and `disabled` are unions rather than
+    /// choices, because either one being true is a fact about the whole.
+    #[must_use]
+    pub fn over(self, under: &Self) -> Self {
+        Self {
+            role: if self.role != Role::None {
+                self.role
+            } else {
+                under.role
+            },
+            label: match (self.label, under.label.clone()) {
+                (Some(mine), Some(theirs)) => Some(format!("{mine}\n{theirs}")),
+                (mine, theirs) => mine.or(theirs),
+            },
+            value: self.value.or_else(|| under.value.clone()),
+            toggled: if self.toggled != Toggled::None {
+                self.toggled
+            } else {
+                under.toggled
+            },
+            clickable: self.clickable || under.clickable,
+            disabled: self.disabled || under.disabled,
+            range: self.range.or(under.range),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -147,7 +188,7 @@ mod tests {
 
     #[test]
     fn builders_compose() {
-        let s = Semantics::new(Role::CheckBox)
+        let s = SemanticsProperties::new(Role::CheckBox)
             .label("Notifications")
             .toggled(true);
         assert_eq!(s.role, Role::CheckBox);
@@ -158,8 +199,8 @@ mod tests {
 
     #[test]
     fn empty_is_not_meaningful() {
-        assert!(!Semantics::default().is_meaningful());
+        assert!(!SemanticsProperties::default().is_meaningful());
         // A bare label is enough to be exposed.
-        assert!(Semantics::default().label("x").is_meaningful());
+        assert!(SemanticsProperties::default().label("x").is_meaningful());
     }
 }

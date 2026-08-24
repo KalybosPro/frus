@@ -364,7 +364,7 @@ struct BoundaryData<Msg> {
     drag_sources: Vec<DragSource>,
     drop_zones: Vec<DropZone>,
     inks: Vec<(WidgetId, Rect)>,
-    semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
+    semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
 }
 
 /// Lengths of the builder's collections on entering a boundary: the lower bounds of the
@@ -558,7 +558,7 @@ pub struct Ui<Msg> {
     wants_animation: bool,
     /// The accessibility tree: semantic nodes (id, bounds, annotation), in paint order. The
     /// shell maps it onto AccessKit.
-    semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
+    semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
     /// Boxes whose children ran outside them, with the edge and the amount.
     overflows: Vec<Overflowing>,
     /// Shortcut and action scopes, in the order the walk closed them — innermost first
@@ -589,9 +589,9 @@ impl<Msg: Clone> Ui<Msg> {
     }
 
     /// The frame's **accessibility tree**: every meaningful node with its bounds on screen and
-    /// its annotation ([`frus_core::Semantics`]). Paint order (= reading order). The shell
+    /// its annotation ([`frus_core::SemanticsProperties`]). Paint order (= reading order). The shell
     /// pushes it to AccessKit.
-    pub fn semantics(&self) -> &[(WidgetId, Rect, frus_core::Semantics)] {
+    pub fn semantics(&self) -> &[(WidgetId, Rect, frus_core::SemanticsProperties)] {
         &self.semantics
     }
 
@@ -1851,7 +1851,7 @@ struct Builder<'a, Msg> {
     /// The frame's dismissible items, in paint order.
     dismissables: Vec<Dismissable>,
     /// Accessibility nodes collected during the walk (paint order).
-    semantics: Vec<(WidgetId, Rect, frus_core::Semantics)>,
+    semantics: Vec<(WidgetId, Rect, frus_core::SemanticsProperties)>,
     /// Boxes whose children did not fit, screen-positioned, from every sub-root walked
     /// this frame.
     overflows: std::cell::RefCell<Vec<Overflowing>>,
@@ -2165,6 +2165,34 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         }
     }
 
+    /// Reconciles what a [`crate::Semantics`] wrapper's subtree announced with what the
+    /// wrapper says about it.
+    ///
+    /// The wrapper's own answers win, and the subtree's show through wherever it said
+    /// nothing — a container that knows a child is a *heading* rarely knows what the words
+    /// are, and dropping them would replace a spoken title with silence.
+    ///
+    /// The merged node goes in **where the subtree's first one was**, not at the end. The
+    /// accessibility tree is flat and its order is reading order, so a wrapper appended
+    /// after its own contents would be read after them.
+    fn apply_description(
+        &mut self,
+        described: crate::semantics::Description,
+        base: usize,
+        id: WidgetId,
+        own: Rect,
+    ) {
+        let mut props = described.props;
+        if described.merging {
+            for (_, _, child) in self.semantics.drain(base..).collect::<Vec<_>>() {
+                props = props.over(&child);
+            }
+        }
+        if props.is_meaningful() && own.width > 0.0 && own.height > 0.0 {
+            self.semantics.insert(base, (id, own, props));
+        }
+    }
+
     fn apply_barrier(
         &mut self,
         barrier: ModalBarrier,
@@ -2396,6 +2424,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // truncating at the barrier catches every one of them, including those added by
         // widgets written after this code. It also keeps the walk's rect indexing untouched,
         // which a skipped subtree would break.
+        // A **description** (`Semantics`): something above states what the subtree *is*,
+        // which the subtree cannot state for itself. Same shape as the barrier below and for
+        // the same reason — walk first, reconcile after, so a widget deep inside annotates
+        // itself without knowing anything is speaking for it.
+        if let Some(described) = widget.describes() {
+            let base = self.semantics.len();
+            let own = rects[*index]
+                .translate(translation.0, translation.1)
+                .intersect(clip);
+            self.walk_node(widget, id, translation, clip, rects, index);
+            self.apply_description(described, base, id, own);
+            return;
+        }
+
         if let Some(barrier) = widget.barrier().filter(|b| !b.is_none()) {
             let base = self.barrier_base();
             // The barrier's own box, before `walk_node` advances the index past it.

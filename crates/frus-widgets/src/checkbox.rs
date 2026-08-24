@@ -323,10 +323,11 @@ impl<Msg> Widget<Msg> for Checkbox<Msg> {
         self.enabled
     }
 
-    fn semantics(&self) -> Option<frus_core::Semantics> {
+    fn semantics(&self) -> Option<frus_core::SemanticsProperties> {
         // Still ticked or not, still announced: a reader who cannot change the answer is
         // still owed it.
-        let mut s = frus_core::Semantics::new(frus_core::Role::CheckBox).maybe_toggled(self.value);
+        let mut s = frus_core::SemanticsProperties::new(frus_core::Role::CheckBox)
+            .maybe_toggled(self.value);
         s = if self.enabled {
             s.clickable()
         } else {
