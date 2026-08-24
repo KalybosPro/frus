@@ -280,6 +280,18 @@ impl MediaQuery {
         AMBIENT.with(|a| a.get())
     }
 
+    /// Is a surface actually **described**? False outside every
+    /// [`scope`](Self::scope), where [`of`](Self::of) answers
+    /// [`UNSET`](Self::UNSET) — a surface of no size.
+    ///
+    /// Any widget that sizes itself from the ambient description needs this, because
+    /// a width of zero is not a narrow screen: it is the absence of one, and the two
+    /// want opposite answers. A bar folds everything into its menu at zero and nothing
+    /// at all when there is no screen to fold against.
+    pub fn is_described(&self) -> bool {
+        self.size.width > 0.0 && self.size.height > 0.0
+    }
+
     /// Runs `f` with `self` as the ambient description, and restores whatever was in
     /// force before — including when `f` panics, so one bad frame cannot leave a
     /// stale surface installed for every frame after it.

@@ -5,12 +5,10 @@ use frus_widgets::{column, row};
 
 /// The "Journal" screen: a **virtualised list** of 5000 rows, and the place where
 /// the two scroll behaviours can be compared by hand (milestone 277).
-pub(crate) fn journal_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Container<Msg> {
+pub(crate) fn journal_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     let t = *theme; // Theme is Copy — captured by the item factory.
     let mut list = ListView::new(5000, 44.0, move |i| {
         Container::<Msg>::new()
@@ -66,11 +64,13 @@ pub(crate) fn journal_screen(
         NavigationBar::new("Log · 5000 rows").on_back(Msg::Pop),
         content
     ]
-    .width(width)
-    .height(height);
+    .flex(1.0);
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(screen)
+        // The background runs **under** the bars; the content does not. `SafeArea` reads
+        // the intrusions from the surface description, so a screen with no `Scaffold` to
+        // do it for it still keeps clear of the notch.
+        .child(SafeArea::new(screen))
 }

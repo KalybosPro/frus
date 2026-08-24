@@ -20,10 +20,29 @@ fn add(app: &mut TodoApp, text: &str) {
     reduce(app, Msg::AddTodo);
 }
 
+/// Builds the application's view **for a stated surface**.
+///
+/// Since milestone 393 nothing takes the screen's size as an argument: it is read from
+/// the description in force, which the shell installs around every call to `view`. A
+/// test stands in for the shell by installing one of its own — the reference's tests
+/// wrap a widget in `MediaQuery` for the same reason.
+fn view_for(app: &TodoApp, theme: &Theme, size: Size) -> Navigator<Msg> {
+    MediaQuery::new(size).scope(|| build_view(app, theme))
+}
+
+/// The **whole** application's tree — `Application::view`, which is what the shell
+/// calls — for a stated surface. Since milestone 393 that call takes no size: the
+/// framework installs a description of the surface around it, and a test stands in for
+/// the framework by installing one of its own.
+fn root_for(app: &TodoApp, theme: &Theme, size: Size) -> Box<dyn Widget<Msg>> {
+    MediaQuery::new(size).scope(|| Application::view(app, theme))
+}
+
 fn primitive_count(app: &TodoApp) -> usize {
     let theme = Theme::default();
-    let tree = build_view(app, &theme, 800.0, 600.0);
-    build_ui(&tree, Size::new(800.0, 600.0), &Runtime::default(), &theme)
+    let size = Size::new(800.0, 600.0);
+    let tree = view_for(app, &theme, size);
+    build_ui(&tree, size, &Runtime::default(), &theme)
         .scene()
         .primitives()
         .len()
@@ -90,7 +109,7 @@ fn a_long_task_title_wraps_without_overlapping_what_follows() {
         Application::tick(&mut app, 0.05);
     }
     let theme = Theme::dark();
-    let tree = Application::view(&app, &theme, 424.0, 918.0);
+    let tree = root_for(&app, &theme, Size::new(424.0, 918.0));
     let ui = build_ui(
         tree.as_ref(),
         Size::new(424.0, 918.0),
@@ -151,9 +170,14 @@ fn on_insets_updates_safe_area() {
         Insets::new(84.0, 0.0, 345.0, 0.0),
     ));
     assert_eq!(app.insets, Insets::new(84.0, 0.0, 345.0, 0.0));
-    // The view builds without panicking with non-zero insets (the wrapping path).
+    // The view builds without panicking with non-zero insets. They reach it through the
+    // surface description now, not as arguments: `view` is not told the size and does not
+    // subtract anything from it (milestone 393).
     let theme = Theme::dark();
-    let tree = Application::view(&app, &theme, 400.0, 800.0);
+    let size = Size::new(400.0, 800.0);
+    let tree = MediaQuery::new(size)
+        .with_insets(WindowInsets::bars(Insets::new(84.0, 0.0, 45.0, 0.0)))
+        .scope(|| Application::view(&app, &theme));
     let ui = build_ui(
         tree.as_ref(),
         Size::new(400.0, 800.0),
@@ -161,6 +185,62 @@ fn on_insets_updates_safe_area() {
         &theme,
     );
     assert!(!ui.scene().primitives().is_empty());
+}
+
+/// **The screen keeps clear of the bars, and nothing in the application says so.**
+///
+/// This is milestone 393's whole claim, checked the way a device would check it. `view`
+/// is not handed the size and does not subtract the notch from it; the surface
+/// description carries both, the `Scaffold` reads it, and a screen built without one
+/// wraps itself in a `SafeArea` that reads the same description.
+///
+/// Before, the application did this itself — measure the window, take the insets off,
+/// build at the remainder, wrap the lot in a padded background. Four steps that belong
+/// to the shell, and four chances to get a number wrong.
+#[test]
+fn a_screen_keeps_clear_of_the_bars_without_being_told() {
+    let theme = Theme::default();
+    let size = Size::new(400.0, 800.0);
+    // A tall status bar and a navigation bar, as a phone reports them.
+    const TOP: f32 = 84.0;
+    const BOTTOM: f32 = 45.0;
+    let bars = WindowInsets::bars(Insets::new(TOP, 0.0, BOTTOM, 0.0));
+    for route in [
+        Route::Home,
+        Route::Settings,
+        Route::Journal,
+        Route::Charts,
+        Route::Wizard,
+        Route::Board,
+    ] {
+        let mut app = TodoApp::default();
+        add(&mut app, "short");
+        reduce(&mut app, Msg::Push(route));
+        let tree = MediaQuery::new(size)
+            .with_insets(bars)
+            .scope(|| build_view(&app, &theme));
+        let ui = build_ui(&tree, size, &Runtime::default(), &theme);
+        for primitive in ui.scene().primitives() {
+            if let frus_widgets::Primitive::Text { text, position, .. } = primitive {
+                // Only what is **on** the window. A `Navigator` draws the screen it is
+                // leaving beside the viewport, at a negative x or past the right edge;
+                // that one is off the glass and is nobody's safe-area problem.
+                if position.x < 0.0 || position.x >= size.width {
+                    continue;
+                }
+                assert!(
+                    position.y >= TOP,
+                    "{route:?}: {text:?} sits at y = {}, under the status bar",
+                    position.y
+                );
+                assert!(
+                    position.y <= size.height - BOTTOM,
+                    "{route:?}: {text:?} sits at y = {}, under the navigation bar",
+                    position.y
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -252,7 +332,7 @@ fn a_long_task_label_still_leaves_its_delete_button_clickable() {
     let long_id = app.todos[1].id;
 
     let theme = Theme::default();
-    let tree = build_view(&app, &theme, W, H);
+    let tree = view_for(&app, &theme, Size::new(W, H));
     let ui = build_ui(&tree, Size::new(W, H), &Runtime::default(), &theme);
 
     // Sweep the window and ask what a tap there would send.
@@ -1019,7 +1099,7 @@ fn rotating_the_phone_leaves_the_navigation_at_the_bottom() {
     /// The lowest `y` at which any of the navigation's labels is painted.
     fn nav_bottom(app: &TodoApp, width: f32, height: f32) -> f32 {
         let theme = Application::theme(app);
-        let root = Application::view(app, &theme, width, height);
+        let root = root_for(app, &theme, Size::new(width, height));
         let ui = build_ui(
             root.as_ref(),
             Size::new(width, height),
@@ -1114,7 +1194,7 @@ fn no_screen_draws_outside_itself() {
         add(&mut app, "short");
         reduce(&mut app, Msg::Push(route));
         for (label, w, h) in [("phone", 411.0, 869.0), ("desktop", 1200.0, 800.0)] {
-            let tree = build_view(&app, &theme, w, h);
+            let tree = view_for(&app, &theme, Size::new(w, h));
             let ui = build_ui(&tree, Size::new(w, h), &Runtime::default(), &theme);
             let over = ui
                 .overflows()

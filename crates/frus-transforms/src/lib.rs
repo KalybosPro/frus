@@ -18,8 +18,9 @@ use std::time::Duration;
 use frus_shell::{Application, Command, Subscription};
 use frus_widgets::{
     Align, Alignment, AspectRatio, BoxFit, Button, ClipOval, ClipPath, ClipRRect, Color, Container,
-    Curve, FittedBox, Flex, FractionallySizedBox, InteractiveViewer, Justify, Path, Point,
-    RotatedBox, SingleChildScrollView, Slider, Text, Theme, Transform, Tween, Variant, Widget,
+    Curve, FittedBox, Flex, FractionallySizedBox, InteractiveViewer, Justify, MediaQuery, Path,
+    Point, RotatedBox, SingleChildScrollView, Size, Slider, Text, Theme, Transform, Tween, Variant,
+    Widget,
 };
 
 /// A five-pointed **star** path inscribed in a `size × size` box, in local
@@ -113,7 +114,9 @@ impl Application for Showcase {
 
     /// `view` is a **pure** function of the state: it recomputes the animated values,
     /// then rebuilds the scene.
-    fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+        // The window, from the description the framework installed around this call.
+        let Size { width, height } = MediaQuery::of().size;
         // A there-and-back phase `0 → 1 → 0` over one cycle, eased.
         let phase = (self.time % CYCLE) / CYCLE;
         let ping = 1.0 - (2.0 * phase - 1.0).abs();
@@ -509,7 +512,7 @@ mod tests {
             ..Default::default()
         };
         let theme = Theme::dark();
-        let view = app.view(&theme, 400.0, 640.0);
+        let view = MediaQuery::new(Size::new(400.0, 640.0)).scope(|| app.view(&theme));
         let rt = Runtime::default();
         let ui = build_ui(view.as_ref(), Size::new(400.0, 640.0), &rt, &theme);
         let transformed = ui.scene().primitives().iter().any(|p| {
@@ -536,7 +539,7 @@ mod tests {
         use frus_widgets::{build_ui, Runtime, Size};
         let app = Showcase::default();
         let theme = Theme::dark();
-        let view = app.view(&theme, 500.0, 900.0);
+        let view = MediaQuery::new(Size::new(500.0, 900.0)).scope(|| app.view(&theme));
         let rt = Runtime::default();
         let ui = build_ui(view.as_ref(), Size::new(500.0, 900.0), &rt, &theme);
         // Recursively collect the clip shapes, since layers can nest.
@@ -578,7 +581,7 @@ mod tests {
         use frus_widgets::{build_ui, Runtime, Size};
         let (w, h) = (1000.0_f32, 800.0_f32);
         let app = Showcase::default();
-        let view = app.view(&Theme::dark(), w, h);
+        let view = MediaQuery::new(Size::new(w, h)).scope(|| app.view(&Theme::dark()));
         let rt = Runtime::default();
         let ui = build_ui(view.as_ref(), Size::new(w, h), &rt, &Theme::dark());
         let wide_on_screen = ui.scene().primitives().iter().any(|p| match p {

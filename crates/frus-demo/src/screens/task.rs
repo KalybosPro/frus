@@ -14,13 +14,7 @@ use frus_widgets::column;
 /// The avatar carries the **same** `Hero` tag as the one on the row this screen was
 /// opened from, so the two are understood to be one thing and the transition flies it
 /// from the row into place instead of fading one out and the other in.
-pub(crate) fn task_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-    id: u64,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn task_screen(app: &TodoApp, theme: &Theme, id: u64) -> Box<dyn Widget<Msg>> {
     let todo = app.todos.iter().find(|t| t.id == id);
     let (label, done) = match todo {
         Some(todo) => (todo.text.clone(), todo.done),
@@ -42,7 +36,7 @@ pub(crate) fn task_screen(
     // A bottom app bar and a **docked** button (milestone 291): the screen's own
     // actions along the bottom, and the one that matters most astride the bar's top
     // edge, in a notch cut to receive it.
-    Scaffold::new(width, height)
+    Scaffold::new()
         .background(theme.background)
         .app_bar(NavigationBar::new("Task").on_back(Msg::Pop))
         // No scroller: this screen's content is centred in whatever room it is given, so
@@ -50,11 +44,10 @@ pub(crate) fn task_screen(
         // asks to fill, now that the Scaffold places it rather than expanding it
         // (milestone 321) — without it the centring would have nothing to centre within.
         .body(
-            Container::new()
-                .width(width)
-                .flex(1.0)
-                .padding(24.0)
-                .child(body),
+            // No width: the body **is** the slot the Scaffold hands it, and a lone child
+            // is bounded by the box it is given (milestone 392). `flex(1)` is the height
+            // — the slot's, so that the centring below has something to centre within.
+            Container::new().flex(1.0).padding(24.0).child(body),
         )
         .bottom_app_bar(
             // Unfilled actions, as a bottom app bar carries: icons and words, not

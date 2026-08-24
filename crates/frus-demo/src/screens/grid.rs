@@ -7,12 +7,10 @@ use frus_widgets::{column, row};
 /// Tab / Shift+Tab moves from cell to cell (the shell's focusables), Enter moves down one row
 /// (milestone 201). The headers sort (milestone 204, `on_sort`), invalid cells show an error,
 /// and Enter on the last row creates a new one.
-pub(crate) fn grid_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn grid_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     const COL_W: [f32; 3] = [190.0, 170.0, 240.0];
     let muted = theme.muted;
     let mut table = Table::new(4)
@@ -90,14 +88,15 @@ pub(crate) fn grid_screen(
         .gap(16.0)
         .padding(24.0)
         .flex(1.0);
-    let screen = column![NavigationBar::new("Editable grid").on_back(Msg::Pop), body]
-        .width(width)
-        .height(height);
+    let screen = column![NavigationBar::new("Editable grid").on_back(Msg::Pop), body].flex(1.0);
     Box::new(
         Container::new()
             .width(width)
             .height(height)
             .color(theme.background)
-            .child(screen),
+            // The background runs **under** the bars; the content does not. `SafeArea`
+            // reads the intrusions from the surface description, so a screen with no
+            // `Scaffold` to do it for it still keeps clear of the notch.
+            .child(SafeArea::new(screen)),
     )
 }

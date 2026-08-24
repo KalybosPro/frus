@@ -135,7 +135,7 @@ mod tests {
         fn update(&mut self, _: ()) -> crate::Command<()> {
             crate::Command::none()
         }
-        fn view(&self, _: &Theme, _: f32, _: f32) -> Box<dyn Widget<()>> {
+        fn view(&self, _: &Theme) -> Box<dyn Widget<()>> {
             unimplemented!("never rendered in this test")
         }
         fn restore_state(&mut self, bytes: &[u8]) {

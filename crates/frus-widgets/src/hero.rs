@@ -156,7 +156,9 @@ mod tests {
                 tags.1,
                 Container::new().width(200.0).height(200.0).color(RED),
             ));
-        let navigator = Navigator::new(entering, 400.0, 300.0).from(leaving, progress, true);
+        let navigator = Navigator::new(entering)
+            .size(400.0, 300.0)
+            .from(leaving, progress, true);
         let runtime = Runtime::default();
         let ui = build_ui(
             &navigator,

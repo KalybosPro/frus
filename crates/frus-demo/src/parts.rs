@@ -4,6 +4,16 @@
 use crate::prelude::*;
 use frus_widgets::column;
 
+/// The surface this screen is being built for — the window, as the shell described it.
+///
+/// A screen that **is** the window still has to say so somewhere; what it no longer does
+/// is take the number from its caller, who took it from *its* caller, back to a `view`
+/// that was handed it by the framework. It asks the description in force, which is what
+/// the reference's `MediaQuery.of(context).size` is for.
+pub(crate) fn surface() -> Size {
+    MediaQuery::of().size
+}
+
 /// A statistic tile (a big number + a label) for the grid.
 pub(crate) fn stat_tile(theme: &Theme, label: &str, value: usize) -> Container<Msg> {
     Container::new()

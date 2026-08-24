@@ -2729,7 +2729,8 @@ fn rtl_flips_the_drawer_side() {
     // sits where it says it does (milestone 307).
     const W: u32 = 400;
     let make = || {
-        Scaffold::<()>::new(W as f32, 120.0)
+        Scaffold::<()>::new()
+            .size(W as f32, 120.0)
             .body(
                 Container::new()
                     .width(W as f32)

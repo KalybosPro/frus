@@ -119,7 +119,7 @@ macro_rules! main {
 /// # impl frus_shell::Application for MyApp {
 /// #     type Message = ();
 /// #     fn update(&mut self, _m: ()) -> frus_shell::Command<()> { frus_shell::Command::none() }
-/// #     fn view(&self, _t: &frus_widgets::Theme, _w: f32, _h: f32)
+/// #     fn view(&self, _t: &frus_widgets::Theme)
 /// #         -> Box<dyn frus_widgets::Widget<()>> { unimplemented!() }
 /// # }
 /// frus_shell::run(MyApp).unwrap();

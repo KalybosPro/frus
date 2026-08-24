@@ -8,8 +8,8 @@
 //! (system insets). One piece of code, with no branching on mobile vs desktop.
 //!
 //! ```ignore
-//! Scaffold::new(width, height)
-//!     .window_insets(app.insets)             // system bars **and** the keyboard
+//! Scaffold::new()                            // the surface's size and intrusions,
+//!                                            // read from the ambient description
 //!     .background(theme.background)
 //!     .app_bar(appbar)                       // pinned at the top
 //!     .body(content)                         // fills what the bars leave
@@ -24,6 +24,13 @@
 //!     .bottom_sheet(sheet, app.sheet_open, Msg::ToggleSheet)
 //!     .build()
 //! ```
+//!
+//! **Nobody hands it the screen.** The size and the intrusions come from
+//! [`MediaQuery::of`]: an application does not measure the window, subtract the notch
+//! and the bars, and carry the remainder down to every widget that might want it. It
+//! says `Scaffold::new()`. That is the reference's arrangement — its `Scaffold` takes
+//! no size either — and it is not a convenience: a number that travels by hand gets
+//! dropped, and the failure is a screen laid out to the wrong width.
 //!
 //! **What the body is given, and what it is given under.** By default the body gets
 //! what the bars leave it: it starts below the app bar, stops above the bottom bar,
@@ -49,6 +56,7 @@ use crate::bottomappbar::BottomAppBar;
 use crate::button::Variant;
 use crate::container::Container;
 use crate::flex::Flex;
+use crate::media::MediaQuery;
 use crate::navrail::{BottomBar, NavigationRail, BAR_HEIGHT, RAIL_WIDTH};
 use crate::stack::Stack;
 use crate::widget::Widget;
@@ -159,18 +167,38 @@ pub struct Scaffold<Msg> {
     bottom_sheet: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
 }
 
+impl<Msg: Clone + 'static> Default for Scaffold<Msg> {
+    /// The same as [`Scaffold::new`] — a shell for the surface being built for, with
+    /// every slot empty.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Msg: Clone + 'static> Scaffold<Msg> {
-    /// Creates a shell for a `width × height` surface, in logical pixels.
+    /// Creates a shell for **the surface it is being built for**.
+    ///
+    /// The size and the intrusions both come from [`MediaQuery::of`]: the application
+    /// does not measure the screen, subtract the notch and the bars from it, and hand
+    /// the remainder down: it says `Scaffold::new()` and the shell keeps its own slots
+    /// clear of whatever the platform reported. That is the reference's arrangement,
+    /// where `Scaffold` reads `MediaQuery.of(context)` and takes no size at all.
+    ///
+    /// Outside any surface description — a unit test building a shell on its own —
+    /// the size is zero, and [`Scaffold::size`] is how a test says how big the screen
+    /// is. Wrapping the build in `MediaQuery::new(size).scope(..)` says it once for
+    /// everything inside, which is usually what a test wants.
     ///
     /// The navigation is a **bottom bar** whatever the width; ask for
     /// [`Scaffold::nav_placement`] to have it anywhere else.
-    pub fn new(width: f32, height: f32) -> Self {
+    pub fn new() -> Self {
+        let surface = MediaQuery::of();
         Self {
-            width,
-            height,
-            insets: Insets::ZERO,
-            view_insets: Insets::ZERO,
-            view_padding: Insets::ZERO,
+            width: surface.size.width,
+            height: surface.size.height,
+            insets: surface.padding,
+            view_insets: surface.view_insets,
+            view_padding: surface.view_padding,
             resize_to_avoid_bottom_inset: true,
             extend_body: false,
             extend_body_behind_app_bar: false,
@@ -191,6 +219,17 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             persistent_footer_alignment: Justify::End,
             bottom_sheet: None,
         }
+    }
+
+    /// The surface's size, in logical pixels — an **override**.
+    ///
+    /// [`Scaffold::new`] already takes it from [`MediaQuery::of`]. This is for the two
+    /// cases that are not the whole screen: a shell laid into a sub-region of one, and
+    /// a test that would rather state a size than install a description for it.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
     }
 
     /// The **permanent** safe area (system bars, notch): the Scaffold keeps the slots
@@ -786,8 +825,67 @@ mod tests {
         Add,
     }
 
+    /// **The shell takes its size and its intrusions from the surface, unasked.**
+    ///
+    /// Milestone 393: nothing passes a `Scaffold` the screen. It reads the description
+    /// the framework installed, which is where the size, the notch and the bars all
+    /// already are. The same shell built under two different surfaces comes out at two
+    /// different sizes, and neither call said a number.
+    #[test]
+    fn the_shell_takes_its_size_and_its_intrusions_from_the_surface() {
+        let bars = WindowInsets::bars(Insets::new(40.0, 0.0, 30.0, 0.0));
+        let build = |size: Size| {
+            let surface = MediaQuery::new(size).with_insets(bars);
+            let tree = surface.scope(|| {
+                Scaffold::<Msg>::new()
+                    .app_bar(Container::new().height(56.0).child(text("bar")))
+                    .body(Container::new().flex(1.0).child(text("body")))
+                    .build()
+            });
+            build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
+        };
+        // The **app bar**, which is the slot the intrusion is the shell's to handle.
+        // A `Scaffold` does not pad its body for the status bar and neither does the
+        // reference's — `contentTop` there is the app bar's height, zero without one,
+        // and a body that wants the notch avoided says `SafeArea` itself.
+        let top_of_body = |ui: &crate::Ui<Msg>| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    crate::Primitive::Text { position, .. } => Some(position.y),
+                    _ => None,
+                })
+                .expect("the body is drawn")
+        };
+        let phone = build(Size::new(400.0, 800.0));
+        let tablet = build(Size::new(1000.0, 700.0));
+        // Kept clear of the status bar on both, without being told there was one.
+        assert!(top_of_body(&phone) >= 40.0, "the phone runs under the bar");
+        assert!(
+            top_of_body(&tablet) >= 40.0,
+            "the tablet runs under the bar"
+        );
+        // And the shell really did read two different surfaces.
+        let widest = |ui: &crate::Ui<Msg>| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    crate::Primitive::Rect { rect, .. } => Some(rect.width),
+                    _ => None,
+                })
+                .fold(0.0_f32, f32::max)
+        };
+        assert!(
+            widest(&tablet) > widest(&phone) + 500.0,
+            "the same code, two surfaces, two widths"
+        );
+    }
+
     fn scaffold(width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-        Scaffold::new(width, height)
+        Scaffold::new()
+            .size(width, height)
             .insets(Insets::new(40.0, 0.0, 30.0, 0.0))
             .background(Color::rgb(0.1, 0.1, 0.1))
             .app_bar(text("Title").size(20.0))
@@ -881,7 +979,8 @@ mod tests {
     #[test]
     fn the_keyboard_shortens_the_body_unless_the_screen_declines() {
         let lifted = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .window_insets(keyboard_up())
                 .body(filling())
                 .build(),
@@ -894,7 +993,8 @@ mod tests {
         );
 
         let covered = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .window_insets(keyboard_up())
                 .resize_to_avoid_bottom_inset(false)
                 .body(filling())
@@ -932,16 +1032,17 @@ mod tests {
     #[test]
     fn a_body_that_does_not_ask_to_scroll_is_not_scrollable() {
         assert!(
-            !scrollable_under_the_middle(Scaffold::new(W, H).body(filling()).build()),
+            !scrollable_under_the_middle(Scaffold::new().size(W, H).body(filling()).build()),
             "a plain body must not register a scrollable area"
         );
         assert!(
-            !scrollable_under_the_middle(Scaffold::new(W, H).body(marked(2000.0)).build()),
+            !scrollable_under_the_middle(Scaffold::new().size(W, H).body(marked(2000.0)).build()),
             "not even one taller than the screen — overflowing is not the same as scrolling"
         );
         assert!(
             scrollable_under_the_middle(
-                Scaffold::new(W, H)
+                Scaffold::new()
+                    .size(W, H)
                     .body(
                         crate::SingleChildScrollView::new()
                             .flex(1.0)
@@ -958,7 +1059,8 @@ mod tests {
     #[test]
     fn a_body_alone_still_clears_the_navigation_bar() {
         let body = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 30.0, 0.0))
                 .body(filling())
                 .build(),
@@ -975,14 +1077,16 @@ mod tests {
     #[test]
     fn an_extended_body_runs_under_the_bottom_bar() {
         let stops = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .body(filling())
                 .nav(0, Msg::Go)
                 .destination("H", "Home")
                 .build(),
         );
         let runs_under = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .extend_body(true)
                 .body(filling())
                 .nav(0, Msg::Go)
@@ -1007,7 +1111,8 @@ mod tests {
     #[test]
     fn an_extended_body_starts_above_the_app_bar() {
         let below = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
                 .app_bar(Container::<Msg>::new().height(56.0))
                 .body(marked(200.0))
@@ -1016,7 +1121,8 @@ mod tests {
         assert!(below[0].y >= 96.0, "below the bar: {:?}", below[0]);
 
         let behind = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .insets(Insets::new(40.0, 0.0, 0.0, 0.0))
                 .extend_body_behind_app_bar(true)
                 .app_bar(Container::<Msg>::new().height(56.0))
@@ -1035,7 +1141,8 @@ mod tests {
     #[test]
     fn the_persistent_footer_sits_between_the_body_and_the_bar() {
         let rects = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .body(filling())
                 .persistent_footer(marked::<Msg>(40.0).width(100.0))
                 .nav(0, Msg::Go)
@@ -1061,7 +1168,8 @@ mod tests {
     fn the_persistent_footer_is_aligned_where_it_was_asked_to_be() {
         let at = |alignment| {
             marks(
-                Scaffold::new(W, H)
+                Scaffold::new()
+                    .size(W, H)
                     .body(Container::<Msg>::new())
                     .persistent_footer_alignment(alignment)
                     .persistent_footer(marked::<Msg>(40.0).width(100.0))
@@ -1080,7 +1188,8 @@ mod tests {
     #[test]
     fn the_fab_goes_where_it_was_placed() {
         let at = |location| {
-            let scaffold = Scaffold::new(W, H)
+            let scaffold = Scaffold::new()
+                .size(W, H)
                 .body(Container::<Msg>::new())
                 .nav(0, Msg::Go)
                 .destination("H", "Home")
@@ -1131,7 +1240,8 @@ mod tests {
     fn a_docked_button_is_received_by_the_bar_it_sits_on() {
         use crate::BottomAppBar;
         let bar_height = 64.0;
-        let scaffold = Scaffold::new(W, H)
+        let scaffold = Scaffold::new()
+            .size(W, H)
             .body(Container::<Msg>::new())
             .bottom_app_bar(BottomAppBar::new().height(bar_height).color(MARK))
             .fab_location(FabLocation::EndDocked)
@@ -1176,7 +1286,8 @@ mod tests {
     #[test]
     fn the_leading_drawer_opens_on_the_left() {
         let rects = marks(
-            Scaffold::new(W, H)
+            Scaffold::new()
+                .size(W, H)
                 .body(Container::<Msg>::new())
                 .drawer(marked::<Msg>(100.0), true, Msg::Drawer)
                 .end_drawer(marked::<Msg>(100.0), false, Msg::Drawer)
@@ -1190,7 +1301,8 @@ mod tests {
     /// swallow the clicks of what is under it where it draws nothing.
     #[test]
     fn an_overlay_layer_does_not_swallow_the_body_s_clicks() {
-        let scaffold = Scaffold::new(W, H)
+        let scaffold = Scaffold::new()
+            .size(W, H)
             .body(button("Tap me", Msg::Add).size(16.0))
             .extend_body(true)
             .nav(0, Msg::Go)
@@ -1252,7 +1364,8 @@ mod tests {
     /// the leading edge instead. The behaviour is not gone — it is opted into.
     #[test]
     fn a_rail_is_drawn_when_it_is_asked_for() {
-        let railed = Scaffold::new(900.0, 420.0)
+        let railed = Scaffold::new()
+            .size(900.0, 420.0)
             .app_bar(text("Title").size(20.0))
             .body(text("Body").size(16.0))
             .nav(0, Msg::Go)
@@ -1275,7 +1388,8 @@ mod tests {
     /// decision, not a hint the scaffold may overrule.
     #[test]
     fn a_rail_survives_a_narrow_window() {
-        let railed = Scaffold::new(360.0, 800.0)
+        let railed = Scaffold::new()
+            .size(360.0, 800.0)
             .body(text("Body").size(16.0))
             .nav(0, Msg::Go)
             .nav_placement(NavPlacement::Rail)

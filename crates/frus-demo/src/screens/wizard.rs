@@ -76,10 +76,8 @@ pub(crate) fn wizard_input(
     field: u8,
     obscure: bool,
     eye: Option<bool>,
-    field_width: f32,
 ) -> impl Widget<Msg> + 'static {
     let mut input = TextField::new(value)
-        .width(field_width)
         .size(16.0)
         .label(label)
         .obscure(obscure)
@@ -94,24 +92,19 @@ pub(crate) fn wizard_input(
             input = input.error(err);
         }
     }
-    keyed(("wizard", field), input)
+    // A **ceiling**, not a measured width: the field fills the column it is in and stops
+    // at 360, so a line of input never stretches across a desktop. It used to be
+    // `(width - 48.0).clamp(240.0, 360.0)` — the screen's width less the padding, counted
+    // by hand, which is exactly the arithmetic milestone 392 went looking for.
+    ConstrainedBox::new(keyed(("wizard", field), input)).max_width(360.0)
 }
 
 /// The **sign-up wizard** screen: proof that the recent building blocks fit together — a
 /// clickable [`Steps`] indicator (milestone 183), a validated [`Form`] (180) with a **clickable**
 /// error summary (181), and a success notification (185/188).
-pub(crate) fn wizard_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn wizard_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
     let form = wizard_form(app);
     let submitted = app.wizard_submitted;
-    // A **responsive** field width: it fits the width (minus the 24×2 padding), capped at 360 px
-    // so it does not stretch on a large screen.
-    let field_w = (width - 48.0).clamp(240.0, 360.0);
-
     // Steps are marked "done" by **validity** (milestone 195), not merely by position — which
     // matches "Next" being gated by that same validity.
     let steps = Steps::new(["Account", "Security", "Review"])
@@ -137,7 +130,6 @@ pub(crate) fn wizard_screen(
                     0,
                     false,
                     None,
-                    field_w,
                 ))
                 .child(wizard_input(
                     &form,
@@ -148,7 +140,6 @@ pub(crate) fn wizard_screen(
                     1,
                     false,
                     None,
-                    field_w,
                 )),
         ),
         1 => {
@@ -167,7 +158,6 @@ pub(crate) fn wizard_screen(
                         2,
                         obscure,
                         eye,
-                        field_w,
                     ))
                     .child(wizard_input(
                         &form,
@@ -178,7 +168,6 @@ pub(crate) fn wizard_screen(
                         3,
                         obscure,
                         eye,
-                        field_w,
                     )),
             )
         }
@@ -250,7 +239,7 @@ pub(crate) fn wizard_screen(
     // does not wrap it (milestone 321). That matters most here — the footer must stay
     // pinned while the steps move, which is exactly the split between the two slots.
     let inner = column![steps, content].gap(24.0).padding(24.0);
-    Scaffold::new(width, height)
+    Scaffold::new()
         .background(theme.background)
         .app_bar(NavigationBar::new("Sign-up wizard").on_back(Msg::Pop))
         .body(SingleChildScrollView::new().flex(1.0).child(inner))

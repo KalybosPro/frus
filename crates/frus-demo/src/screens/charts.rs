@@ -80,12 +80,10 @@ pub(crate) fn dashboard_chart(
 /// The **chart dashboard** screen: a `SegmentedButton` picks the kind (lines / stacked areas /
 /// grouped bars / stacked bars, milestone 219), and the **clickable** legend hides or shows a
 /// series (milestone 215/218). It demonstrates routing sub-region clicks into the state.
-pub(crate) fn charts_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn charts_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     let selector = SegmentedButton::new(app.chart_kind, Msg::SetChartKind)
         .segment("Lines")
         .segment("Stacked area")
@@ -141,14 +139,15 @@ pub(crate) fn charts_screen(
         .width(width)
         .flex(1.0)
         .child(content);
-    let screen = column![NavigationBar::new("Charts").on_back(Msg::Pop), body]
-        .width(width)
-        .height(height);
+    let screen = column![NavigationBar::new("Charts").on_back(Msg::Pop), body].flex(1.0);
     Box::new(
         Container::new()
             .width(width)
             .height(height)
             .color(theme.background)
-            .child(screen),
+            // The background runs **under** the bars; the content does not. `SafeArea`
+            // reads the intrusions from the surface description, so a screen with no
+            // `Scaffold` to do it for it still keeps clear of the notch.
+            .child(SafeArea::new(screen)),
     )
 }

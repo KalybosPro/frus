@@ -7,7 +7,7 @@
 //! for the one action that matters most to float over it.
 //!
 //! ```ignore
-//! Scaffold::new(width, height)
+//! Scaffold::new().size(width, height)
 //!     .bottom_app_bar(
 //!         BottomAppBar::new()
 //!             .child(row![menu_button, spacer(), search_button])

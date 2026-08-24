@@ -50,12 +50,10 @@ pub(crate) fn tour_panel(index: usize, theme: Theme) -> Container<Msg> {
     )
 }
 
-pub(crate) fn tour_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn tour_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     let last = TOUR_PAGES.len() - 1;
     let page = app.tour_page.min(last);
     let palette = *theme;
@@ -79,13 +77,15 @@ pub(crate) fn tour_screen(
         pages,
         footer
     ]
-    .width(width)
-    .height(height);
+    .flex(1.0);
     Box::new(
         Container::new()
             .width(width)
             .height(height)
             .color(theme.background)
-            .child(screen),
+            // The background runs **under** the bars; the content does not. `SafeArea`
+            // reads the intrusions from the surface description, so a screen with no
+            // `Scaffold` to do it for it still keeps clear of the notch.
+            .child(SafeArea::new(screen)),
     )
 }

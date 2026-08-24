@@ -11,7 +11,7 @@
 //! impl Application for App {
 //!     type Message = Msg;
 //!     fn update(&mut self, _m: Msg) -> Command<Msg> { Command::none() }
-//!     fn view(&self, _t: &Theme, _w: f32, _h: f32) -> Box<dyn Widget<Msg>> { todo!() }
+//!     fn view(&self, _t: &Theme) -> Box<dyn Widget<Msg>> { todo!() }
 //! }
 //!
 //! // One entry point, for every platform.

@@ -11,8 +11,8 @@ use std::time::Duration;
 // A **single** dependency: the `frus` facade supplies everything — framework layer,
 // widgets and DSL.
 use frus::{
-    button, column, row, text, Align, Application, Command, Container, Justify, Subscription,
-    Theme, Variant, Widget,
+    button, column, row, text, Align, Application, Command, Container, Justify, MediaQuery, Size,
+    Subscription, Theme, Variant, Widget,
 };
 
 /// The application's state: a plain counter.
@@ -66,8 +66,11 @@ impl Application for Counter {
     }
 
     /// `view` describes the interface for the current state — a pure function of
-    /// `(state, theme, size)`. The framework (re)builds it as needed.
-    fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    /// `(state, theme, surface)`. The framework (re)builds it as needed, with the
+    /// surface's description installed around the call: `MediaQuery::of()` is how this
+    /// asks how big the window is, and nothing is passed in.
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+        let Size { width, height } = MediaQuery::of().size;
         let content = column![
             text(format!("{}", self.count)).size(48.0),
             column![

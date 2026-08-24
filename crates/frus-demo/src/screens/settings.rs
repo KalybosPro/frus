@@ -8,12 +8,10 @@ use frus_widgets::{column, row};
 pub(crate) const MENU: [&str; 3] = ["Option A", "Option B", "Option C"];
 
 /// The "Settings" screen: the card of controls (it demonstrates navigation + gesture + widgets).
-pub(crate) fn settings_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Container<Msg> {
+pub(crate) fn settings_screen(app: &TodoApp, theme: &Theme) -> Container<Msg> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     let volume_pct = (app.volume * 100.0).round() as u32;
     let controls = Card::new().child(
         column![
@@ -240,12 +238,13 @@ pub(crate) fn settings_screen(
         .width(width)
         .flex(1.0)
         .child(content);
-    let screen = column![NavigationBar::new("Settings").on_back(Msg::Pop), body]
-        .width(width)
-        .height(height);
+    let screen = column![NavigationBar::new("Settings").on_back(Msg::Pop), body].flex(1.0);
     Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(screen)
+        // The background runs **under** the bars; the content does not. `SafeArea` reads
+        // the intrusions from the surface description, so a screen with no `Scaffold` to
+        // do it for it still keeps clear of the notch.
+        .child(SafeArea::new(screen))
 }

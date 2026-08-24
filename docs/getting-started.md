@@ -17,7 +17,7 @@ impl Application for Counter {
         match m { Msg::Increment => self.count += 1, Msg::Decrement => self.count -= 1 }
         Command::none()
     }
-    fn view(&self, theme: &Theme, w: f32, h: f32) -> Box<dyn Widget<Msg>> { /* … */ }
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> { /* … */ }
 }
 ```
 

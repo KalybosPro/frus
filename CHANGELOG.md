@@ -8,10 +8,53 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 392 so far, each documenting the objective, the alternatives
+> record — one per step, 393 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Changed
+
+- **Nobody hands the framework the screen** (J393). **Breaking.** `Application::view` takes
+  no size, and neither do `Scaffold`, `AppBar` and `Navigator`:
+
+  ```rust
+  fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>>;   // was (theme, width, height)
+  Scaffold::new()                                          // was ::new(width, height)
+  AppBar::new(title)                                       // was ::new(title).width(width)
+  Navigator::new(screen)                                   // was ::new(screen, width, height)
+  ```
+
+  Checked against the reference rather than remembered: its `Scaffold` (`scaffold.dart:1688`)
+  and its `Navigator` (`navigator.dart:1587`) take **no size parameter at all**, and its
+  `AppBar` declares a height and an *infinite* width (`_PreferredAppBarSize`, built with
+  `Size.fromHeight`, `app_bar.dart:75`) — infinite meaning *fill what you are given*. Size
+  travels as constraints, never as arguments.
+
+  The framework already installed a description of the surface around every call to `view`;
+  these three read it now. `Scaffold::new()` takes the size **and the three insets**, so an
+  application no longer measures the window, subtracts the notch and the bars, builds at the
+  remainder and wraps the result in a padded background — twelve lines of the demo's `view`
+  became one, and `width`/`height` came off ten screen functions and the router feeding them.
+  Each keeps an override — `Scaffold::size`, `AppBar::width`, `Navigator::size` — for what is
+  genuinely not the whole screen, and for a test that would rather state a size than install
+  a description.
+
+  Milestone 392 is why this matters and not merely why it is tidier: a number carried by
+  hand gets arithmetic done on it, and one of those subtractions is eventually wrong.
+
+- **`SafeArea` fills what it is given** (J393). `flex_grow: 1.0`. The reference's is a
+  `Padding` under the screen's own tight constraints — it *is* the box it was handed — while
+  a flex node that grows nothing hugs its content, so a screen wrapped in one came out the
+  width of its widest line: milestone 392's failure, one level up.
+
+### Added
+
+- **`MediaQuery::is_described`** (J393). Whether a surface is actually described, or
+  `MediaQuery::of()` is answering `UNSET` outside every scope. A widget that sizes itself
+  from the ambient description needs the distinction: a width of zero is not a narrow
+  screen, it is the absence of one, and a bar folds everything at zero and nothing at all
+  when there is no screen to fold against.
 
 ### Fixed
 

@@ -19,12 +19,10 @@ pub(crate) fn level_rank(s: &str) -> u8 {
 /// 232) and **paginates** with a page-size selector (milestones 233/236). The app only keeps
 /// the `(sort, page, size)` state — the display sort is **not** duplicated in the reducer (a
 /// deliberate contrast with the editable grid next door). — milestone 237.
-pub(crate) fn data_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn data_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     let people = app.data_rows();
     let rows: Vec<Vec<String>> = people
         .iter()
@@ -101,14 +99,15 @@ pub(crate) fn data_screen(
         .gap(16.0)
         .padding(24.0)
         .flex(1.0);
-    let screen = column![NavigationBar::new("Data table").on_back(Msg::Pop), body]
-        .width(width)
-        .height(height);
+    let screen = column![NavigationBar::new("Data table").on_back(Msg::Pop), body].flex(1.0);
     let content = Container::new()
         .width(width)
         .height(height)
         .color(theme.background)
-        .child(screen);
+        // The background runs **under** the bars; the content does not. `SafeArea` reads
+        // the intrusions from the surface description, so a screen with no `Scaffold` to
+        // do it for it still keeps clear of the notch.
+        .child(SafeArea::new(screen));
     // A confirmation before the bulk delete (milestone 245): a centred modal, dismissible by an
     // outside click or Escape (`dismiss`), laid over the screen.
     if app.data_confirm_delete {

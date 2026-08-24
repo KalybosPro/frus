@@ -282,11 +282,9 @@ fn a_navigator_mid_push() {
             .padding(16.0)
             .child(text(title.to_string()).size(18.0))
     };
-    let root: Navigator<()> = Navigator::new(screen("Second", SLATE), 260.0, 140.0).from(
-        screen("First", Color::rgb(0.101, 0.113, 0.145)),
-        0.45,
-        true,
-    );
+    let root: Navigator<()> = Navigator::new(screen("Second", SLATE))
+        .size(260.0, 140.0)
+        .from(screen("First", Color::rgb(0.101, 0.113, 0.145)), 0.45, true);
 
     let mut stage = Stage::new(260, 140);
     stage.settle(&root);

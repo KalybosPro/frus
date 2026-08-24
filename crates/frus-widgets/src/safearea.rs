@@ -178,6 +178,13 @@ impl<Msg: Clone> Widget<Msg> for SafeArea<Msg> {
     fn style(&self) -> Style {
         Style {
             padding: self.resolved,
+            // **It fills what it is given.** The reference's is a `Padding` under the
+            // screen's own constraints, which are tight: it is the size of the box it
+            // was handed, and its child is that box less the intrusions. A flex node
+            // that grows nothing would instead hug its content, and a screen wrapped in
+            // one would come out the width of its widest line — the failure milestone
+            // 392 chased. Growing is what makes it the box.
+            flex_grow: 1.0,
             ..Default::default()
         }
     }

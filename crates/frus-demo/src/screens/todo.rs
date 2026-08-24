@@ -128,18 +128,15 @@ pub(crate) fn confirm_content(done: usize) -> Card<Msg> {
 }
 
 /// The main screen: the task list (the sample app itself).
-pub(crate) fn todo_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn todo_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
     let active = active_count(app);
     let done = done_count(app);
 
     // Responsiveness: the card widens with the window in steps. In Compact it follows the
-    // available width, and the fields inside adapt to it.
-    let class = SizeClass::from_width(width);
+    // available width, and the fields inside adapt to it. The breakpoints are read from
+    // the surface description — the screen is not told how big it is.
+    let surface = MediaQuery::of();
+    let class = surface.size_class();
     // How wide the card is allowed to get — **a ceiling, not a width**. On a phone there
     // is none: the card fills what it is given, and everything inside it stretches to the
     // card. Wider windows cap it, because a line of prose across a desktop is unreadable.
@@ -167,7 +164,6 @@ pub(crate) fn todo_screen(
         _ => tr(app.lang, "app-title"),
     };
     let header = AppBar::new(section_title)
-        .width(width)
         .leading(
             IconButton::glyph("☰")
                 .label("Menu")
@@ -267,7 +263,7 @@ pub(crate) fn todo_screen(
     }
     // **Vertical** responsiveness: in a short window the hint is hidden to preserve the usable
     // height. The scrolling is handled by the Scaffold.
-    let short = SizeClass::from_height(height) == SizeClass::Compact;
+    let short = SizeClass::from_height(surface.size.height) == SizeClass::Compact;
 
     // The footer: the counters + clear completed (with a modal confirmation).
     let clear_button = button("Clear completed", Msg::AskClearDone)
@@ -407,10 +403,10 @@ pub(crate) fn todo_screen(
     };
 
     // The screen's skeleton: the Scaffold pins the top bar and the navigation, places the body,
-    // and coordinates the drawer / sheet / FAB — a single entry point. The insets are already
-    // handled by `view` (which passes safe dimensions), so the Scaffold simply pins itself inside
-    // that viewport.
-    let scaffold = Scaffold::new(width, height)
+    // and coordinates the drawer / sheet / FAB — a single entry point. It takes no size and
+    // is told no insets: both come from the surface description the shell installed, and the
+    // Scaffold keeps its own slots clear of the bars and the notch (milestone 393).
+    let scaffold = Scaffold::new()
         .background(theme.background)
         .app_bar(header)
         .body(section)
@@ -453,8 +449,8 @@ pub(crate) fn todo_screen(
             };
             Box::new(
                 Stack::new()
-                    .width(width)
-                    .height(height)
+                    .width(surface.size.width)
+                    .height(surface.size.height)
                     .layer(scaffold)
                     .layer(host),
             )

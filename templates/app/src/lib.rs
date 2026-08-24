@@ -5,7 +5,10 @@
 
 // A **single** dependency: the `frus` facade provides everything (framework layer +
 // widgets + DSL).
-use frus::{button, column, text, Align, Application, Command, Container, Justify, Theme, Variant, Widget};
+use frus::{
+    button, column, text, Align, Application, Command, Container, Justify, MediaQuery, Size, Theme,
+    Variant, Widget,
+};
 
 /// The application state: a simple counter.
 #[derive(Default)]
@@ -34,8 +37,13 @@ impl Application for App {
     }
 
     /// `view` describes the interface for the current state — a pure function of
-    /// `(state, theme, size)`.
-    fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    /// `(state, theme, surface)`.
+    ///
+    /// It is **not** given the size. The framework installs a description of the surface
+    /// around this call, and `MediaQuery::of()` is how anything here asks about it: a
+    /// `Scaffold`, an `AppBar` or a `SafeArea` reads it without being told.
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+        let Size { width, height } = MediaQuery::of().size;
         let content = column![
             text(format!("{}", self.count)).size(48.0),
             column![

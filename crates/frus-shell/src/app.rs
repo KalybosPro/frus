@@ -1627,7 +1627,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 if need_build {
                     let tree = self
                         .media_query(width, height)
-                        .scope(|| self.app.view(&theme, width, height));
+                        .scope(|| self.app.view(&theme));
                     let ids = collect_ids(tree.as_ref());
                     let present: std::collections::HashSet<_> = ids.iter().copied().collect();
 
@@ -3719,7 +3719,7 @@ impl<A: Application> App<A> {
                 let theme = self.app.theme();
                 self.tree = Some(
                     self.media_query(width, height)
-                        .scope(|| self.app.view(&theme, width, height)),
+                        .scope(|| self.app.view(&theme)),
                 );
             }
         }

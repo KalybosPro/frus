@@ -8,6 +8,7 @@ use frus_core::{Rect, Scene};
 use frus_layout::{Dimension, Style};
 
 use crate::interaction::Status;
+use crate::media::MediaQuery;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -24,15 +25,30 @@ pub struct Navigator<Msg> {
 }
 
 impl<Msg> Navigator<Msg> {
-    /// Shows a full-window screen (no transition).
-    pub fn new(screen: impl Widget<Msg> + 'static, width: f32, height: f32) -> Self {
+    /// Shows a full-window screen (no transition), on **the surface it is being built
+    /// for**.
+    ///
+    /// The size comes from [`MediaQuery::of`] — a window is a window, and the
+    /// application has no business measuring one to say how far a screen slides.
+    /// [`Navigator::size`] overrides it for a stack that is not the whole window, and
+    /// for a test that would rather state a size than install a description.
+    pub fn new(screen: impl Widget<Msg> + 'static) -> Self {
+        let surface = MediaQuery::of();
         Self {
-            width,
-            height,
+            width: surface.size.width,
+            height: surface.size.height,
             progress: 1.0,
             forward: true,
             children: vec![Box::new(screen)],
         }
+    }
+
+    /// The window's size, in logical pixels — an **override** of what
+    /// [`Navigator::new`] read from the ambient description.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
     }
 
     /// Adds the **outgoing** screen and the progress of a transition in flight.
@@ -90,7 +106,9 @@ mod tests {
     fn transition_renders_both_screens() {
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);
-        let nav = Navigator::new(screen(blue), 400.0, 300.0).from(screen(red), 0.5, true);
+        let nav = Navigator::new(screen(blue))
+            .size(400.0, 300.0)
+            .from(screen(red), 0.5, true);
         let ui = build_ui(
             &nav,
             Size::new(400.0, 300.0),
@@ -143,23 +161,35 @@ mod tests {
         // The screen being left holds the menu: it goes with the screen.
         let blue = Color::rgb(0.0, 0.0, 1.0);
         assert!(
-            !drawn(&Navigator::new(screen(blue), 400.0, 300.0).from(menu(), 0.5, true)),
+            !drawn(
+                &Navigator::new(screen(blue))
+                    .size(400.0, 300.0)
+                    .from(menu(), 0.5, true)
+            ),
             "a push: the menu belongs to the screen being left"
         );
         assert!(
-            !drawn(&Navigator::new(screen(blue), 400.0, 300.0).from(menu(), 0.5, false)),
+            !drawn(
+                &Navigator::new(screen(blue))
+                    .size(400.0, 300.0)
+                    .from(menu(), 0.5, false)
+            ),
             "a pop: the same, and the screen being left is the *front* one here"
         );
 
         // The destination's own overlay is untouched — this must not suppress overlays
         // wholesale, only the ones belonging to a screen on its way out.
         assert!(
-            drawn(&Navigator::new(menu(), 400.0, 300.0).from(screen(blue), 0.5, true)),
+            drawn(
+                &Navigator::new(menu())
+                    .size(400.0, 300.0)
+                    .from(screen(blue), 0.5, true)
+            ),
             "the destination's own menu is still drawn"
         );
         // And with no transition in flight, nothing changes at all.
         assert!(
-            drawn(&Navigator::new(menu(), 400.0, 300.0)),
+            drawn(&Navigator::new(menu()).size(400.0, 300.0)),
             "no transition: the menu is simply drawn"
         );
     }
@@ -169,7 +199,9 @@ mod tests {
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);
         // A pop half-way through: `red` = outgoing screen (front), `blue` = revealed back.
-        let nav = Navigator::new(screen(blue), 400.0, 300.0).from(screen(red), 0.5, false);
+        let nav = Navigator::new(screen(blue))
+            .size(400.0, 300.0)
+            .from(screen(red), 0.5, false);
         let ui = build_ui(
             &nav,
             Size::new(400.0, 300.0),

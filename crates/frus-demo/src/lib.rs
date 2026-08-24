@@ -186,6 +186,12 @@ impl Application for TodoApp {
     fn on_insets(&mut self, insets: WindowInsets) {
         // The total safe area: system bars **and** the soft keyboard — the content (input
         // fields included) stays above the keyboard.
+        //
+        // **The layout does not read this.** Since milestone 393 the intrusions reach the
+        // widgets through the surface description the framework installs around `view`,
+        // and the `Scaffold` and every `SafeArea` read them there. This hook is kept for
+        // what it is good for — knowing, in the *state*, that the keyboard opened — and
+        // to show that the notification exists.
         let safe = insets.safe();
         if self.insets != safe {
             self.insets = safe;
@@ -203,26 +209,15 @@ impl Application for TodoApp {
         self.background = matches!(state, Lifecycle::Paused | Lifecycle::Detached);
     }
 
-    fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
-        // The safe area: the interface is built at the **inner** dimensions (the window minus
-        // the system insets), then wrapped in a full-window background held off by `padding` —
-        // the background runs under the bars, the content does not.
-        let i = self.insets;
-        let w = (width - i.left - i.right).max(0.0);
-        let h = (height - i.top - i.bottom).max(0.0);
-        let nav = build_view(self, theme, w, h);
-        if i == Insets::ZERO {
-            Box::new(nav)
-        } else {
-            Box::new(
-                Container::new()
-                    .width(width)
-                    .height(height)
-                    .color(theme.background)
-                    .padding_each(i.top, i.right, i.bottom, i.left)
-                    .child(nav),
-            )
-        }
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+        // **No arithmetic.** This used to measure the window, subtract the system insets
+        // from it, build the interface at the remainder and wrap the whole thing in a
+        // full-window background held off by `padding`. Every one of those steps is the
+        // shell's work, and since milestone 393 the shell does it: the `Scaffold` reads
+        // the size and the intrusions from the surface description the framework
+        // installed around this call, paints its background across the window and keeps
+        // its own slots clear of the bars and the notch.
+        Box::new(build_view(self, theme))
     }
 
     fn theme(&self) -> Theme {

@@ -52,7 +52,7 @@ impl Application for Counter {
         Command::none()
     }
 
-    fn view(&self, _theme: &Theme, _w: f32, _h: f32) -> Box<dyn Widget<Msg>> {
+    fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
         Box::new(column![
             text(format!("{}", self.count)).size(48.0),
             row![

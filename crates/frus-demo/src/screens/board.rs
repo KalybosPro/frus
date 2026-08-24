@@ -22,12 +22,10 @@ pub(crate) fn rich_card(label: &str, col: usize, pos: usize) -> Box<dyn Widget<M
 /// The **Kanban** screen: columns of **rich cards** (a label + a × to delete), with per-column
 /// adding (milestone 249) and drag-and-drop between columns (milestone 247). The app holds the
 /// cards; the widget emits `KanbanMove`/`KanbanAdd`/`KanbanDelete` and the reducer applies them.
-pub(crate) fn board_screen(
-    app: &TodoApp,
-    theme: &Theme,
-    width: f32,
-    height: f32,
-) -> Box<dyn Widget<Msg>> {
+pub(crate) fn board_screen(app: &TodoApp, theme: &Theme) -> Box<dyn Widget<Msg>> {
+    // The window this screen fills, read from the surface description in force:
+    // nothing hands it down any more.
+    let Size { width, height } = surface();
     let cols = app.kanban_cols();
     // Per-column vertical scrolling **with no explicit height** (milestone 266): the columns fill
     // the board's height (laid out in an ancestor with a defined height — here the bounded screen
@@ -73,13 +71,15 @@ pub(crate) fn board_screen(
         board_area,
         hint_bar
     ]
-    .width(width)
-    .height(height);
+    .flex(1.0);
     Box::new(
         Container::new()
             .width(width)
             .height(height)
             .color(theme.background)
-            .child(screen),
+            // The background runs **under** the bars; the content does not. `SafeArea`
+            // reads the intrusions from the surface description, so a screen with no
+            // `Scaffold` to do it for it still keeps clear of the notch.
+            .child(SafeArea::new(screen)),
     )
 }

@@ -30,6 +30,7 @@ use crate::button::Variant;
 use crate::container::Container;
 use crate::dsl::button;
 use crate::flex::Flex;
+use crate::media::MediaQuery;
 use crate::menu::PopupMenuButton;
 use crate::text::Text;
 use crate::theme::Theme;
@@ -132,13 +133,26 @@ pub struct AppBar<Msg> {
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
-    /// Creates a bar with a text title. Without [`AppBar::width`], nothing folds.
+    /// Creates a bar with a text title, as wide as **the surface it is being built
+    /// for** — which is what decides how many actions fit on the line and how many
+    /// fold into the overflow menu.
+    ///
+    /// The width is read from [`MediaQuery::of`], so no caller passes it. Outside any
+    /// surface description — a unit test that builds a bar on its own — there is no
+    /// width to fold against and nothing folds, which is what this did before the
+    /// surface was ambient. A bar that is **not** the full width of the screen (one
+    /// beside a rail, say) still says so with [`AppBar::width`].
     pub fn new(title: impl Into<String>) -> Self {
+        let surface = MediaQuery::of();
         Self {
             title: Title::Text(title.into()),
             title_style: TextStyle::new(TITLE_SIZE).weight(FontWeight::Medium),
             title_style_default: true,
-            width: f32::MAX,
+            width: if surface.is_described() {
+                surface.size.width
+            } else {
+                f32::MAX
+            },
             leading: None,
             overflow: None,
             actions: Vec::new(),
@@ -157,6 +171,9 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
     /// The **available width** for the bar, in logical pixels: what drives the
     /// folding. It is a *size*, not a platform indicator.
+    ///
+    /// An override. [`AppBar::new`] already takes the surface's width from
+    /// [`MediaQuery::of`]; this is for a bar that does not get the whole of it.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
         self
@@ -565,6 +582,37 @@ mod tests {
         A,
         B,
         C,
+    }
+
+    /// **A bar folds against the surface it was built for, with no caller saying how
+    /// wide that is.**
+    ///
+    /// Milestone 393. The width used to be an argument, and an application that got it
+    /// wrong got a bar that folded too early or ran off the edge. `AppBar::new` reads
+    /// [`MediaQuery::of`] instead: the same three actions fit on a wide surface and
+    /// fold into the overflow menu on a narrow one, and neither build says a number.
+    #[test]
+    fn a_bar_folds_against_the_surface_it_was_built_for() {
+        let built = |width: f32| {
+            let size = Size::new(width, 80.0);
+            let bar = MediaQuery::new(size).scope(|| {
+                AppBar::new("Title")
+                    .overflow(false, Msg::PopupMenuButton)
+                    .action("Action One", Msg::A)
+                    .action("Action Two", Msg::B)
+                    .action("Action Three", Msg::C)
+                    .build()
+            });
+            let ui = build_ui(bar.as_ref(), size, &Runtime::default(), &Theme::default());
+            ui.semantics()
+                .iter()
+                .filter(|(_, _, s)| s.role == frus_core::Role::Button)
+                .count()
+        };
+        assert!(
+            built(1000.0) > built(360.0),
+            "a narrow surface folds what a wide one shows"
+        );
     }
 
     /// Counts the buttons (rectangles with a shadow), excluding floating menu items.

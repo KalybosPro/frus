@@ -50,8 +50,19 @@ pub trait Application {
         Subscription::none()
     }
 
-    /// Builds the widget tree for the current size and theme.
-    fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Self::Message>>;
+    /// Builds the widget tree for the current theme.
+    ///
+    /// **It is not told the size.** The framework installs a description of the surface
+    /// — its size, its pixel ratio, the intrusions the platform last reported — around
+    /// every call to this, and any widget built here reads it with `MediaQuery::of()`.
+    /// A `Scaffold` takes no size because of that, and neither does an `AppBar` or a
+    /// `Navigator`.
+    ///
+    /// That is the reference's arrangement, and it is not a convenience: a size passed
+    /// as an argument gets carried down by hand, arithmetic gets done on it, and one of
+    /// those subtractions is eventually wrong. Milestone 392 is what that looks like
+    /// when it happens — a whole screen laid out to the width of its widest line.
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Self::Message>>;
 
     /// The theme on display, possibly an animated blend; dark by default.
     fn theme(&self) -> Theme {

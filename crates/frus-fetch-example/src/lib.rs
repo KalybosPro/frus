@@ -20,8 +20,8 @@ use std::time::Duration;
 // A **single** dependency: the `frus` facade, with the `net` feature for `fetch` and
 // `Request`.
 use frus::{
-    button, column, text, Align, Application, Color, Command, Container, Justify, RemoteData,
-    Request, Theme, Variant, Widget,
+    button, column, text, Align, Application, Color, Command, Container, Justify, MediaQuery,
+    RemoteData, Request, Size, Theme, Variant, Widget,
 };
 
 /// The API queried: a joke returned as **plain text**, through an `Accept: text/plain`
@@ -78,7 +78,9 @@ impl Application for FetchDemo {
     }
 
     /// `view` does nothing but paint the state: a button, then the current status.
-    fn view(&self, theme: &Theme, width: f32, height: f32) -> Box<dyn Widget<Msg>> {
+    fn view(&self, theme: &Theme) -> Box<dyn Widget<Msg>> {
+        // The window, from the description the framework installed around this call.
+        let Size { width, height } = MediaQuery::of().size;
         // The button's label follows the state; it can be fired again afterwards.
         let label = match self.joke {
             RemoteData::NotAsked => "Get a joke",
