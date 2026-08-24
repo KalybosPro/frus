@@ -86,6 +86,23 @@ pub trait Application {
         None
     }
 
+    /// The **accessibility settings** to describe the surface with — the user's, as the
+    /// platform reports them.
+    ///
+    /// The default is [`Accessibility::NONE`](frus_widgets::Accessibility::NONE): a user
+    /// who has changed nothing. Platforms that report these are wired up one at a time,
+    /// and until one is, an application that knows better — a settings screen with a
+    /// *reduce motion* switch of its own — answers here and the framework obeys it.
+    ///
+    /// The framework honours [`disable_animations`] itself, by completing implicit
+    /// animations at once rather than over time. The rest reach the widgets through
+    /// [`MediaQuery::of`](frus_widgets::MediaQuery::of).
+    ///
+    /// [`disable_animations`]: frus_widgets::Accessibility::disable_animations
+    fn accessibility(&self) -> frus_widgets::Accessibility {
+        frus_widgets::Accessibility::NONE
+    }
+
     /// The interface's **density**: an **application-level** zoom factor, `1.0` by
     /// default, applied on top of the system DPI scale. `1.2` grows the whole UI by
     /// 20%, `0.9` tightens it. It can change at runtime through the state.

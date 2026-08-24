@@ -310,6 +310,18 @@ fn approach(value: &mut f32, target: f32, step: f32, animating: &mut bool) {
 /// Runtime context handed to `build_ui`: all the state retained between frames.
 #[derive(Default)]
 pub struct Runtime {
+    /// **Motion is off**: the user has asked for animations to be reduced or removed,
+    /// and the shell has passed that on from the platform.
+    ///
+    /// The **implicit** animations — the ones a widget starts by itself when a value it
+    /// was given changes — complete at once instead of over time. The change still
+    /// happens; it stops moving, which is what the setting asks for. Skipping the change
+    /// as well would leave the interface **wrong** rather than still.
+    ///
+    /// It does not touch scrolling. A fling is physics answering a finger, not a
+    /// decoration, and a list that jumped to a stop would be harder to use rather than
+    /// calmer — the reference draws the same line.
+    pub still: bool,
     /// Hover / press / focus.
     pub input: InputState,
     /// **Current** scroll offsets (the rendered ones), per region.
@@ -446,13 +458,18 @@ impl Runtime {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
+            still: bool,
             out: &mut Vec<(WidgetId, f32, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_target() {
                 out.push((
                     id,
                     target,
-                    widget.anim_duration().max(0.0),
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
                     widget.anim_curve(),
                 ));
             }
@@ -460,12 +477,13 @@ impl Runtime {
                 collect(
                     child.as_ref(),
                     crate::ui::child_id(id, index, child.as_ref()),
+                    still,
                     out,
                 );
             }
         }
         let mut targets: Vec<(WidgetId, f32, f32, Curve)> = Vec::new();
-        collect(root, WidgetId::ROOT, &mut targets);
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
 
         // Forget the values of widgets that have gone.
         let present: std::collections::HashSet<WidgetId> =
@@ -521,13 +539,18 @@ impl Runtime {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
+            still: bool,
             out: &mut Vec<(WidgetId, Color, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_color() {
                 out.push((
                     id,
                     target,
-                    widget.anim_duration().max(0.0),
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
                     widget.anim_curve(),
                 ));
             }
@@ -535,12 +558,13 @@ impl Runtime {
                 collect(
                     child.as_ref(),
                     crate::ui::child_id(id, index, child.as_ref()),
+                    still,
                     out,
                 );
             }
         }
         let mut targets: Vec<(WidgetId, Color, f32, Curve)> = Vec::new();
-        collect(root, WidgetId::ROOT, &mut targets);
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
 
         let present: std::collections::HashSet<WidgetId> =
             targets.iter().map(|(id, ..)| *id).collect();
@@ -593,13 +617,18 @@ impl Runtime {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
+            still: bool,
             out: &mut Vec<(WidgetId, Size, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_size() {
                 out.push((
                     id,
                     target,
-                    widget.anim_duration().max(0.0),
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
                     widget.anim_curve(),
                 ));
             }
@@ -607,12 +636,13 @@ impl Runtime {
                 collect(
                     child.as_ref(),
                     crate::ui::child_id(id, index, child.as_ref()),
+                    still,
                     out,
                 );
             }
         }
         let mut targets: Vec<(WidgetId, Size, f32, Curve)> = Vec::new();
-        collect(root, WidgetId::ROOT, &mut targets);
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
 
         let present: std::collections::HashSet<WidgetId> =
             targets.iter().map(|(id, ..)| *id).collect();
@@ -664,13 +694,18 @@ impl Runtime {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
+            still: bool,
             out: &mut Vec<(WidgetId, BorderRadius, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_radius() {
                 out.push((
                     id,
                     target,
-                    widget.anim_duration().max(0.0),
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
                     widget.anim_curve(),
                 ));
             }
@@ -678,12 +713,13 @@ impl Runtime {
                 collect(
                     child.as_ref(),
                     crate::ui::child_id(id, index, child.as_ref()),
+                    still,
                     out,
                 );
             }
         }
         let mut targets: Vec<(WidgetId, BorderRadius, f32, Curve)> = Vec::new();
-        collect(root, WidgetId::ROOT, &mut targets);
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
 
         let present: std::collections::HashSet<WidgetId> =
             targets.iter().map(|(id, ..)| *id).collect();
@@ -739,13 +775,18 @@ impl Runtime {
         fn collect<Msg>(
             widget: &dyn crate::widget::Widget<Msg>,
             id: WidgetId,
+            still: bool,
             out: &mut Vec<(WidgetId, Insets, f32, Curve)>,
         ) {
             if let Some(target) = widget.anim_padding() {
                 out.push((
                     id,
                     target,
-                    widget.anim_duration().max(0.0),
+                    if still {
+                        0.0
+                    } else {
+                        widget.anim_duration().max(0.0)
+                    },
                     widget.anim_curve(),
                 ));
             }
@@ -753,12 +794,13 @@ impl Runtime {
                 collect(
                     child.as_ref(),
                     crate::ui::child_id(id, index, child.as_ref()),
+                    still,
                     out,
                 );
             }
         }
         let mut targets: Vec<(WidgetId, Insets, f32, Curve)> = Vec::new();
-        collect(root, WidgetId::ROOT, &mut targets);
+        collect(root, WidgetId::ROOT, self.still, &mut targets);
 
         let present: std::collections::HashSet<WidgetId> =
             targets.iter().map(|(id, ..)| *id).collect();
@@ -1597,6 +1639,45 @@ mod tests {
         assert_eq!(rt.opacity(id), 1.0);
         // Default without an entry: opaque.
         assert_eq!(rt.opacity(WidgetId::ROOT), 1.0);
+    }
+
+    /// **Motion off means the change lands at once, not that it does not land.**
+    ///
+    /// The user asked for animations to be reduced or removed, so an implicit animation
+    /// completes in the frame it starts rather than over its duration. Skipping the
+    /// change instead would leave the interface *wrong* rather than *still*, which is
+    /// the failure this setting is most often given.
+    ///
+    /// The check is both halves: the value has arrived, **and** nothing is still asking
+    /// for another frame.
+    #[test]
+    fn motion_off_lands_the_change_at_once() {
+        // A switch mounts at its target, so the animation is what happens on the
+        // **change** — which is exactly what this setting is about.
+        let off: crate::Switch<()> = crate::Switch::new(false);
+        let on: crate::Switch<()> = crate::Switch::new(true);
+
+        let mut moving = Runtime::default();
+        assert!(!moving.advance_values(&off, 1.0));
+        assert!(
+            moving.advance_values(&on, 0.03),
+            "a live animation owes the next frame to itself"
+        );
+        let part_way = moving.value(WidgetId::ROOT);
+        assert!(part_way > 0.0 && part_way < 1.0, "part way: {part_way}");
+
+        let mut stopped = Runtime {
+            still: true,
+            ..Default::default()
+        };
+        assert!(!stopped.advance_values(&off, 1.0));
+        let more = stopped.advance_values(&on, 0.03);
+        assert!(!more, "motion off: nothing is left to animate");
+        assert_eq!(
+            stopped.value(WidgetId::ROOT),
+            1.0,
+            "and the value the widget asked for has actually arrived"
+        );
     }
 
     #[test]

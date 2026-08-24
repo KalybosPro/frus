@@ -8,10 +8,40 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 398 so far, each documenting the objective, the alternatives
+> record — one per step, 399 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **The settings a screen reports about its user** (J399). `MediaQuery` gains
+  `text_scaler`, `platform_brightness`, `system_gesture_insets` and an `Accessibility`
+  struct — `bold_text`, `high_contrast`, `disable_animations`, `invert_colors`,
+  `accessible_navigation`, `always_use_24_hour_format` — one struct rather than six fields
+  because they arrive from one platform query and are read together.
+
+  **`disable_animations` is honoured by the framework**, not merely reported. The implicit
+  animations — the ones a widget starts by itself when a value it was given changes —
+  complete at once instead of over time: the change still happens, it stops moving.
+  Skipping the change instead would leave the interface *wrong* rather than *still*, which
+  is the failure this setting is most often given, and the test checks both halves —
+  nothing left animating **and** the value actually arrived. It does not touch scrolling: a
+  fling is physics answering a finger, not a decoration, and the reference draws the same
+  line. `Runtime::still` is set from `Application::accessibility` every frame, so a
+  *reduce motion* switch changes it while the application runs.
+
+  Which fields have a consumer is stated rather than implied: `disable_animations` is
+  obeyed, the rest are reported for the application to act on. A field that looks obeyed
+  and is not is exactly what milestone 397 found behind a green tick.
+
+  **`text_scaler` carries the number and does not yet spend it**, deliberately.
+  `MediaQuery::scaled(size)` is a *function* for the reason the reference made `TextScaler`
+  one — a platform may scale non-linearly so a heading does not run off the screen when body
+  text is made readable. Making the framework honour it needs measurement and paint to agree
+  (69 direct `frus_text::measure*` call sites on one side, `Primitive::Text { size }` on the
+  other); if they ever disagree the result is text measured at one size and drawn at
+  another, which is why it is its own milestone rather than a paragraph in this one.
 
 ### Fixed
 

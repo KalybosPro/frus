@@ -217,7 +217,7 @@ pub use listtile::{
     LIST_TILE_MIN_VERTICAL_PADDING, LIST_TILE_PADDING_END, LIST_TILE_PADDING_START,
     LIST_TILE_TITLE_GAP,
 };
-pub use media::{Edges, MediaQuery};
+pub use media::{Accessibility, Brightness, Edges, MediaQuery};
 pub use menu::PopupMenuButton;
 pub use navbar::NavigationBar;
 pub use navigator::Navigator;

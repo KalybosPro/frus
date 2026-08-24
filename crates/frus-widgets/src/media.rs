@@ -127,6 +127,66 @@ impl Default for Edges {
     }
 }
 
+/// Whether a surface is showing a **light** or a **dark** interface.
+///
+/// The platform's own preference, which an application may follow or ignore. It is not
+/// the same question as which theme this application is using: a light application on a
+/// dark system is a choice, not a mistake.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Brightness {
+    /// A light interface: dark content on a light surface.
+    #[default]
+    Light,
+    /// A dark interface: light content on a dark surface.
+    Dark,
+}
+
+/// The **accessibility settings** the platform reports about its user.
+///
+/// The reference carries these on `MediaQueryData` as separate booleans; they are one
+/// struct here because they arrive from one query and are read together, and because a
+/// widget that honours one usually honours its neighbours.
+///
+/// **Honoured by the framework**: [`disable_animations`](Self::disable_animations). The
+/// rest are reported for the application to act on — saying so is more useful than a
+/// field that looks obeyed and is not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Accessibility {
+    /// The user has asked for **heavier** text everywhere.
+    pub bold_text: bool,
+    /// The user has asked for **higher contrast** than the design's own.
+    pub high_contrast: bool,
+    /// The user has asked for motion to be reduced or removed.
+    ///
+    /// The framework honours this for its **implicit** animations — the ones a widget
+    /// starts by itself when a value changes — by completing them at once instead of
+    /// over time. The change still happens; it stops moving. That is what the setting
+    /// asks for, and skipping the change instead would leave the interface wrong rather
+    /// than still.
+    pub disable_animations: bool,
+    /// The user has asked for inverted colours.
+    pub invert_colors: bool,
+    /// Something is reading the screen aloud, or otherwise driving it without a pointer.
+    ///
+    /// A hint rather than an instruction: it is how an interface knows that a control
+    /// which only appears on hover will never appear.
+    pub accessible_navigation: bool,
+    /// The user's clock format — `true` for 24-hour, `false` for 12.
+    pub always_use_24_hour_format: bool,
+}
+
+impl Accessibility {
+    /// Nothing asked for: the settings of a user who has changed none of them.
+    pub const NONE: Self = Self {
+        bold_text: false,
+        high_contrast: false,
+        disable_animations: false,
+        invert_colors: false,
+        accessible_navigation: false,
+        always_use_24_hour_format: false,
+    };
+}
+
 /// The surface an interface is being built for.
 ///
 /// Every length is in **logical** pixels, the same unit widget styles use, so a value
@@ -152,6 +212,35 @@ pub struct MediaQuery {
     /// Transiently occupied edges — in practice the soft keyboard, at the bottom.
     /// Measured from the window edge, so it already includes whatever bar it covers.
     pub view_insets: Insets,
+    /// How much larger the **user** has asked text to be — the system's font-size
+    /// setting, not the application's zoom (that is [`density`](Self::density)).
+    ///
+    /// `1.0` is the platform's normal. It is the accessibility setting people actually
+    /// change: a phone's *Font size* slider goes to 1.3 on Android and past 3 with
+    /// *Larger Accessibility Sizes* on iOS, and a layout that ignores it is one a great
+    /// many people cannot read.
+    ///
+    /// **The framework does not yet scale text by it.** This carries the number so an
+    /// application can, with [`scaled`](Self::scaled); making every measurement in the
+    /// framework honour it is its own milestone, recorded on the roadmap with the two
+    /// places that have to agree.
+    pub text_scaler: f32,
+    /// Whether the platform is currently showing a **dark** interface, independently of
+    /// what this application chose.
+    ///
+    /// The reference's `platformBrightness`. An application that follows the system
+    /// reads it; one that has its own switch ignores it.
+    pub platform_brightness: Brightness,
+    /// The accessibility settings the platform reports, which the framework and the
+    /// application both have a say in honouring.
+    pub accessibility: Accessibility,
+    /// The edges a **system gesture** starts from — a back swipe, a home swipe — which
+    /// a widget with a horizontal drag of its own has to keep clear of, or the two fight
+    /// over the same finger.
+    ///
+    /// The reference's `systemGestureInsets`. Usually wider than
+    /// [`padding`](Self::padding) at the sides and taller at the bottom.
+    pub system_gesture_insets: Insets,
     /// The intrusions **ignoring** anything transient: what the notch and the bars take
     /// whether or not the keyboard is over them.
     ///
@@ -175,6 +264,10 @@ impl MediaQuery {
         padding: Insets::ZERO,
         view_insets: Insets::ZERO,
         view_padding: Insets::ZERO,
+        text_scaler: 1.0,
+        platform_brightness: Brightness::Light,
+        accessibility: Accessibility::NONE,
+        system_gesture_insets: Insets::ZERO,
     };
 
     /// A description of a bare surface of `size`, with no insets — the desktop case,
@@ -196,6 +289,42 @@ impl MediaQuery {
     pub fn with_density(mut self, density: f32) -> Self {
         self.density = density;
         self
+    }
+
+    /// Sets the user's text-size setting. Clamped at zero, since a scale that shrank
+    /// text to nothing would be a setting nobody could undo.
+    pub fn with_text_scaler(mut self, scaler: f32) -> Self {
+        self.text_scaler = scaler.max(0.0);
+        self
+    }
+
+    /// Sets the platform's own light/dark preference.
+    pub fn with_platform_brightness(mut self, brightness: Brightness) -> Self {
+        self.platform_brightness = brightness;
+        self
+    }
+
+    /// Sets the accessibility settings the platform reports.
+    pub fn with_accessibility(mut self, accessibility: Accessibility) -> Self {
+        self.accessibility = accessibility;
+        self
+    }
+
+    /// Sets the edges a system gesture starts from.
+    pub fn with_system_gesture_insets(mut self, insets: Insets) -> Self {
+        self.system_gesture_insets = insets;
+        self
+    }
+
+    /// A font size with the user's text-size setting applied.
+    ///
+    /// The reference calls this `TextScaler.scale`, and it is a **function** there
+    /// rather than a multiplication because a platform may scale non-linearly — large
+    /// sizes growing less than small ones, so a heading does not run off the screen when
+    /// body text is made readable. Ours is linear; the shape of the call is the one that
+    /// can become non-linear without every caller changing.
+    pub fn scaled(&self, size: f32) -> f32 {
+        size * self.text_scaler
     }
 
     /// Sets both kinds of inset at once, from what the shell reports.

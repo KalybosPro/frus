@@ -1623,6 +1623,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // interaction alone — hover, scroll, focus, caret — **reuses the
                 // retained tree** and merely repaints: the `view` is a pure function of
                 // `(state, theme, size)` and never of the `Runtime`.
+                // The user's motion setting reaches the runtime before anything is
+                // advanced with it, and it is read every frame: a settings screen with a
+                // *reduce motion* switch changes it while the application is running.
+                self.runtime.still = self.app.accessibility().disable_animations;
                 let need_build = self.build_dirty || app_animating || self.tree.is_none();
                 if need_build {
                     let tree = self
@@ -1930,6 +1934,7 @@ impl<A: Application> App<A> {
         MediaQuery::new(Size::new(width, height))
             .with_device_pixel_ratio(self.scale)
             .with_density(self.app.density())
+            .with_accessibility(self.app.accessibility())
             .with_insets(self.last_insets)
     }
 
