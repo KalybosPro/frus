@@ -334,7 +334,7 @@ mod tests {
     }
 
     /// `Auto` is the absence of an opinion, so every type answers exactly what it always
-    /// did """ + D + u""" a name still capitalises words, an email address still capitalises nothing.
+    /// did — a name still capitalises words, an email address still capitalises nothing.
     #[test]
     fn auto_leaves_every_type_as_it_was() {
         for keyboard in [

@@ -1121,18 +1121,11 @@ fn no_screen_draws_outside_itself() {
                 .iter()
                 .map(|o| o.amount)
                 .fold(0.0_f32, f32::max);
-            // Settings at a phone's width is a **known** 4.5 px, measured in milestone 335
-            // and left on the roadmap: something in the Controls tab will not go below
-            // about 380 px, so the row centring the tab set lets it hang out either side.
-            // Milestone 345 disproved the cause recorded here — the tab set fills its box
-            // now and the overflow did not move — and measured it unrounded, which is why
-            // the pin came down from 5.5. Pinned so it cannot grow while it waits.
-            let allowed = if matches!(route, Route::Settings) && label == "phone" {
-                4.6
-            } else {
-                0.0
-            };
-            if over > allowed {
+            // No allowance any more. Settings carried a **known** 4.5 px from milestone
+            // 335 — the Controls tab would not go below about 380 px — and milestone 392
+            // found the cause: a slider asking for a fixed 220 next to a label of 108 in a
+            // card of 331. It asks loosely now, and the pin came down.
+            if over > 0.0 {
                 worst.push(format!("{route:?}/{label} overflows by {over:.1} px"));
             }
         }

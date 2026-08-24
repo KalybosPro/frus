@@ -107,41 +107,48 @@ pub(crate) fn stats_section(app: &TodoApp, theme: &Theme, class: SizeClass) -> T
 }
 
 /// The "About" section: static introductory content.
-pub(crate) fn about_section(theme: &Theme, width: f32) -> Container<Msg> {
-    // The content width = the viewport minus the paddings (the container's 24×2 + the card's
-    // 20×2), bounded to a comfortable measure — otherwise it overflows horizontally in Compact.
-    let content_width = (width - 88.0).clamp(240.0, 560.0);
+///
+/// **Nothing here counts pixels.** The column fills the card it sits in, and the only
+/// number is the one a designer would give: a measure no wider than 560, because a
+/// line of prose across a desktop is unreadable.
+///
+/// It used to subtract the paddings by hand — the container's 24×2 plus the card's
+/// 20×2 — and forgot that a card carries a margin of its own. Eight pixels out, on
+/// every phone, drawn past the card it was inside. Milestone 392 is why that showed.
+pub(crate) fn about_section(theme: &Theme) -> Container<Msg> {
     Container::new().padding(24.0).child(
         Card::new().padding(20.0).child(
-            column![
-                text("About frus").size(24.0),
-                // Rich text: mixed styles on one line, with cascading inheritance.
-                RichText::new(
-                    TextSpan::new("A ")
-                        .child(TextSpan::new("fast").bold())
-                        .child(TextSpan::new(", "))
-                        .child(TextSpan::new("portable").italic().underline())
-                        .child(TextSpan::new(" Rust UI framework — "))
-                        .child(TextSpan::new("no GC").bold().color(theme.primary))
-                        .child(TextSpan::new(".")),
-                )
-                .base_style(theme.text.body_medium.color(theme.muted))
-                .wrap(),
-                Divider::new(),
-                Timeline::new()
-                    .event("Responsive primitives", "Milestone 42")
-                    .event("Adaptive navigation", "Milestone 43"),
-                // A paragraph: it wraps at the card's width.
-                text(
-                    "Layout, painting, typography and animation are engine-level \
+            ConstrainedBox::new(
+                column![
+                    text("About frus").size(24.0),
+                    // Rich text: mixed styles on one line, with cascading inheritance.
+                    RichText::new(
+                        TextSpan::new("A ")
+                            .child(TextSpan::new("fast").bold())
+                            .child(TextSpan::new(", "))
+                            .child(TextSpan::new("portable").italic().underline())
+                            .child(TextSpan::new(" Rust UI framework — "))
+                            .child(TextSpan::new("no GC").bold().color(theme.primary))
+                            .child(TextSpan::new(".")),
+                    )
+                    .base_style(theme.text.body_medium.color(theme.muted))
+                    .wrap(),
+                    Divider::new(),
+                    Timeline::new()
+                        .event("Responsive primitives", "Milestone 42")
+                        .event("Adaptive navigation", "Milestone 43"),
+                    // A paragraph: it wraps at the card's width.
+                    text(
+                        "Layout, painting, typography and animation are engine-level \
                      foundations shared by every widget in this gallery.",
-                )
-                .size(13.0)
-                .color(theme.muted)
-                .wrap(),
-            ]
-            .gap(12.0)
-            .width(content_width),
+                    )
+                    .size(13.0)
+                    .color(theme.muted)
+                    .wrap(),
+                ]
+                .gap(12.0),
+            )
+            .max_width(560.0),
         ),
     )
 }

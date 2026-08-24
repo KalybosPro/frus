@@ -1089,7 +1089,7 @@ impl Runtime {
     ///
     /// Acted on **when the key changes**, never re-asserted. The box moves as the region
     /// scrolls, so a region that chased the box itself would pin the strip in place and
-    /// no finger could move it """ + D + u""" the same trap [`Runtime::sync_pages`] avoids, and the
+    /// no finger could move it — the same trap [`Runtime::sync_pages`] avoids, and the
     /// same answer.
     ///
     /// The **first** sighting arrives without an animation — a bar restored on its

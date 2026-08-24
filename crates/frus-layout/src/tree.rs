@@ -155,11 +155,39 @@ impl<'a, T> Layout<'a, T> {
     /// bigger than the thing holding it.
     pub fn allow_shrink(&mut self, node: NodeId) {
         let mut style = self.tree.style(node).expect("a node we made").clone();
-        if style.flex_shrink != 0.0 {
-            return;
+        // **The floor, not just the willingness.** A flex item's automatic minimum is its
+        // **min-content** size, so `flex_shrink` on its own buys nothing: the item agrees
+        // to shrink and then refuses to go below the widest thing inside it. A lone child
+        // holding one over-wide row came out at that row's width, the box it was given
+        // came out at the same, and every sibling stretched to match — a whole screen
+        // laid out to the width of its widest line and clipped by the window. Found in a
+        // real application whose product grid, search field and banner were all cut off
+        // at the same edge.
+        //
+        // Zero is what makes the box the child's bound rather than a suggestion, which is
+        // the reference's rule: a lone child is handed its parent's constraints, and it
+        // cannot come back bigger than them.
+        let mut changed = false;
+        if style.flex_shrink == 0.0 {
+            style.flex_shrink = 1.0;
+            changed = true;
         }
-        style.flex_shrink = 1.0;
-        self.tree.set_style(node, style).expect("setting a style");
+        // **The width, and only the width.** A box is bounded by the width it was given;
+        // a height is what scrolling is for, and squeezing one squashes text nobody
+        // asked to squash. Tried both ways round: bounding the height too shortened a
+        // pane in a golden until its background no longer covered its own content.
+        //
+        // **Only a minimum nobody asked for.** `Auto` is the automatic one — the item's
+        // own min-content — and that is the one to drop. A box that named a floor, or a
+        // tight one, keeps it: the point is to stop a child inventing a width, not to
+        // overrule one it was handed.
+        if matches!(style.min_size.width, taffy::Dimension::Auto) {
+            style.min_size.width = taffy::style_helpers::length(0.0);
+            changed = true;
+        }
+        if changed {
+            self.tree.set_style(node, style).expect("setting a style");
+        }
     }
 
     /// Gives a node the **shape of a tile**: a height derived from the width it ends up

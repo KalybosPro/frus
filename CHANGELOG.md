@@ -8,12 +8,44 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 391 so far, each documenting the objective, the alternatives
+> record — one per step, 392 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **One child was deciding how wide the screen was** (J392). An application came back with
+  a screenshot of a shop whose banner, search field, filter row and product grid were all
+  cut off at the same edge — a page laid out to the wrong width, not a widget overflowing.
+  `Layout::allow_shrink` promised, in its own doc comment, that a lone child is bounded by
+  the box it was given; what it did was set `flex_shrink = 1.0` and stop. That buys nothing
+  on its own, because **a flex item's automatic minimum is its min-content size**: the item
+  agrees to shrink and then refuses to go below the widest thing inside it. So one
+  over-wide row made its column that wide, the padded box around it followed, and
+  `Align::Stretch` stretched every sibling to match. It zeroes the automatic minimum now —
+  the `min-width: 0` idiom — and only that one: a box that names a floor, or a tight one,
+  keeps it. Width only; a height is what scrolling is for, and bounding it shortened a
+  two-pane golden until the list's background no longer covered its content. The over-wide
+  child still overflows, which is the reference's behaviour and the honest one, but it no
+  longer drags its parent and its siblings out with it.
+
+- **Every demo screen drew eight pixels past itself, and the guard was green** (J392). The
+  overflow guard has run on every screen since milestone 335; it was **asserting the bug**,
+  because each parent grew to fit and nothing ever measured as overflowing. Three places
+  computed a content width by hand — `(width - 88.0)`, the body's padding plus the card's —
+  and none counted the card's own **margin**, which the caller never set. They no longer
+  subtract anything: the content fills its card, and the only number left is a `max_width`
+  a designer would give. The field takes the room the button leaves (`Expanded`), the
+  progress bar and the horizontal showcase stretch, and the card fills the body on a phone
+  and is capped and centred on a wide window.
+
+- **The Settings overflow pin came down** (J392). A **known** 4.5 px, measured in milestone
+  335 and left on the roadmap with a cause milestone 345 disproved. Under the corrected
+  rule it measured 9, and the diagnosis was one look: a slider asking for a fixed 220
+  beside a label measuring 108, in a card of 331. It asks loosely now — `Expanded::loose`,
+  the reference's `Flexible` — so 220 is what it would like and the room left is what it
+  takes. Every screen, at a phone's width and at a desktop's, draws inside itself.
 
 - **A strip of nothing above the keyboard** (J391). The reference describes a screen's
   intrusions with **three** numbers; we had two, and derived them wrongly. `padding` is

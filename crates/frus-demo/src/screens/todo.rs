@@ -140,13 +140,18 @@ pub(crate) fn todo_screen(
     // Responsiveness: the card widens with the window in steps. In Compact it follows the
     // available width, and the fields inside adapt to it.
     let class = SizeClass::from_width(width);
-    // The card's **inner** width: the window minus the body's padding (24 × 2) and the card's own
-    // (20 × 2) — otherwise the card overflows the Compact viewport and the whole screen scrolls
-    // horizontally.
-    let card_width = match class {
-        SizeClass::Compact => (width - 88.0).max(240.0),
-        SizeClass::Medium => 560.0,
-        SizeClass::Expanded => 680.0,
+    // How wide the card is allowed to get — **a ceiling, not a width**. On a phone there
+    // is none: the card fills what it is given, and everything inside it stretches to the
+    // card. Wider windows cap it, because a line of prose across a desktop is unreadable.
+    //
+    // This used to be an arithmetic — the window minus the body's padding (24 × 2) minus
+    // the card's own (20 × 2) — and it was wrong by eight pixels, because a card carries a
+    // margin nobody had counted. It drew past its own card on every phone, and until
+    // milestone 392 nothing said so: each parent quietly grew to match.
+    let measure = match class {
+        SizeClass::Compact => None,
+        SizeClass::Medium => Some(560.0),
+        SizeClass::Expanded => Some(680.0),
     };
 
     // The header: an adaptive AppBar. A title and some actions are declared; it decides on its
@@ -188,7 +193,6 @@ pub(crate) fn todo_screen(
     // Input: a field (Enter submits) + an add button. A non-empty field carries a **clickable**
     // "✕" suffix icon that clears it (milestone 198: a positional click on the suffix).
     let mut draft_input = TextField::new(app.draft.as_str())
-        .width((card_width - 150.0).max(160.0))
         .size(18.0)
         .on_input(Msg::DraftChanged)
         .on_submit(Msg::AddTodo);
@@ -197,7 +201,9 @@ pub(crate) fn todo_screen(
             .suffix_icon(Icons::Close)
             .on_suffix(Msg::ClearDraft);
     }
-    let input_row = row![draft_input, button("Add", Msg::AddTodo)]
+    // The field takes the room the button leaves — no subtraction, and it stays right
+    // whatever the button's label ends up measuring.
+    let input_row = row![Expanded::new(draft_input), button("Add", Msg::AddTodo)]
         .align(Align::Center)
         .gap(10.0);
 
@@ -316,12 +322,11 @@ pub(crate) fn todo_screen(
     .wrap();
 
     // The completion progress bar (done / total).
-    let progress = LinearProgressIndicator::new(done as f32 / total as f32)
-        .width((card_width - 40.0).max(200.0));
+    let progress = LinearProgressIndicator::new(done as f32 / total as f32);
 
     // The app's card, of responsive width, centred at the top of the screen. The body is built
     // incrementally so the hint can be left out when the window is short.
-    let mut card_body = Flex::column().width(card_width).gap(16.0);
+    let mut card_body = Flex::column().gap(16.0);
     if !short {
         // A **static** banner: a repaint boundary (milestone 88). It is replayed from the cache
         // on frames of pure interaction (hover, focus, scrolling elsewhere) instead of being
@@ -357,7 +362,6 @@ pub(crate) fn todo_screen(
         card_body = card_body.child(
             SingleChildScrollView::new()
                 .axis(Axis::Horizontal)
-                .width(card_width)
                 .height(52.0)
                 .child(showcase),
         );
@@ -374,7 +378,16 @@ pub(crate) fn todo_screen(
         .child(progress)
         .child(footer);
     let card = Card::new().padding(20.0).child(card_body);
-    let tasks_body = column![row![card].justify(Justify::Center)].padding(24.0);
+    // On a phone the card **is** the body's width; on a wide window it is capped and
+    // centred. Either way the number below is a ceiling the design chose, never a
+    // measurement of the screen.
+    let placed: Box<dyn Widget<Msg>> = match measure {
+        Some(cap) => {
+            Box::new(row![ConstrainedBox::new(card).max_width(cap)].justify(Justify::Center))
+        }
+        None => Box::new(card),
+    };
+    let tasks_body = column![placed].padding(24.0);
 
     // The body follows the active section (the adaptive navigation lives in the Scaffold).
     //
@@ -388,7 +401,7 @@ pub(crate) fn todo_screen(
         2 => Box::new(
             SingleChildScrollView::new()
                 .flex(1.0)
-                .child(about_section(theme, width)),
+                .child(about_section(theme)),
         ),
         _ => Box::new(SingleChildScrollView::new().flex(1.0).child(tasks_body)),
     };

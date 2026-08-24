@@ -230,7 +230,7 @@ impl Scrollable {
     /// The offset that puts `target` in the **middle** of this viewport, and how far the
     /// content moves to get there.
     ///
-    /// The same pair as [`Scrollable::reveal`], and the same clamp """ + D + u""" which is what makes
+    /// The same pair as [`Scrollable::reveal`], and the same clamp — which is what makes
     /// the first item of a row rest at the start rather than half off it. A target
     /// bigger than the viewport centres too, which leaves it hanging over both edges,
     /// and that is the honest answer: there is no offset that shows all of it.
@@ -5089,7 +5089,7 @@ mod tests {
         assert_eq!(moves, vec![(area.id, (0.0, 210.0))]);
     }
 
-    /// Already in view, nothing moves """ + D + u""" the answer is the empty list rather than a
+    /// Already in view, nothing moves — the answer is the empty list rather than a
     /// zero, so no caller has to ask twice.
     #[test]
     fn revealing_something_already_in_view_moves_nothing() {
@@ -5224,6 +5224,56 @@ mod tests {
                 .0,
             (700.0, 0.0)
         );
+    }
+
+    /// **A lone child could widen the box it was given, and take the screen with it.**
+    ///
+    /// A flex item's automatic minimum is its **min-content** size, so agreeing to shrink
+    /// buys nothing on its own: the item shrinks willingly and then refuses to go below
+    /// the widest thing inside it. A column holding one over-wide row came out at that
+    /// row's width; the padded box around it came out at the same; and every sibling,
+    /// stretched across the column, came out at the same again — a whole screen laid out
+    /// to the width of its widest line and then clipped by the window.
+    ///
+    /// Reported from a real application: a shop whose banner, search field, filter row
+    /// and product grid were all cut off at the same edge, because one segmented control
+    /// four segments wide had decided how wide the screen was.
+    ///
+    /// The over-wide child still overflows — that is the reference's behaviour and the
+    /// honest one — but it no longer drags its parent and its siblings out with it.
+    #[test]
+    fn a_lone_child_cannot_widen_the_box_it_was_given() {
+        let ordinary = Color::rgb(0.1, 0.2, 0.3);
+        let overwide = Color::rgb(0.9, 0.8, 0.7);
+        let screen: SingleChildScrollView<Msg> = SingleChildScrollView::new().width(300.0).child(
+            Container::new().padding(24.0).child(
+                Flex::column()
+                    .align(frus_layout::Align::Stretch)
+                    .child(Container::new().height(20.0).color(ordinary))
+                    .child(Container::new().width(600.0).height(20.0).color(overwide)),
+            ),
+        );
+        let ui = build_ui(
+            &screen,
+            Size::new(300.0, 800.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let width_of = |wanted: Color| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, rect, .. } if *color == wanted => Some(rect.width),
+                    _ => None,
+                })
+                .expect("the box is drawn")
+        };
+        // 300 less the padding either side, and not 600.
+        assert_eq!(width_of(ordinary), 252.0);
+        // The one that asked to be too wide still is: it overflows rather than being
+        // squeezed, and rather than resizing everything around it.
+        assert_eq!(width_of(overwide), 600.0);
     }
 
     #[test]

@@ -3734,7 +3734,7 @@ impl<A: Application> App<A> {
     ///
     /// The glide is a **target**, not a jump: the same easing a scrollbar drag or a page
     /// request uses, so Tab through a form reads as one movement rather than a series of
-    /// cuts. Anything already moving the offset is let go of """ + D + u""" the keyboard has just
+    /// cuts. Anything already moving the offset is let go of — the keyboard has just
     /// overruled it.
     fn reveal_focus(&mut self) {
         let Some(id) = self.runtime.input.focused else {

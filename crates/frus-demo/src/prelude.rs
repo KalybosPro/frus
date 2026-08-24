@@ -21,8 +21,8 @@ pub(crate) use frus_widgets::form::{Form, Rule};
 pub(crate) use frus_widgets::{
     bar_spacer, button, disabled_content, fab_button, keyed, spacer, text, AlertDialog, Align,
     AnimationController, AppBar, Autocomplete, Axis, BarChart, BottomAppBar, BoxFit, Breadcrumb,
-    Card, CarouselView, CellFn, Checkbox, Chip, CircleAvatar, Color, ColorPicker, Container,
-    CustomPaint, DataTable, DatePicker, Dismissible, Divider, DragTarget, Draggable,
+    Card, CarouselView, CellFn, Checkbox, Chip, CircleAvatar, Color, ColorPicker, ConstrainedBox,
+    Container, CustomPaint, DataTable, DatePicker, Dismissible, Divider, DragTarget, Draggable,
     DropdownButton, ErrorSummary, Expanded, ExpansionTile, FabLocation, Flex, FontWeight, GridView,
     Hero, Icon, IconButton, Icons, Image, ImageData, ImageHandle, Insets, Justify, Kanban, Kbd,
     LayoutBuilder, LineChart, LinearProgressIndicator, ListView, MenuAnchor, NavigationBar,

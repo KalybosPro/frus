@@ -26,9 +26,16 @@ pub(crate) fn settings_screen(
             .gap(12.0),
             row![
                 text(format!("Volume: {volume_pct}%")).size(18.0),
-                Slider::new(app.volume)
-                    .width(220.0)
-                    .on_change(Msg::SetVolume),
+                // 220 is the width the slider **would like**. A loose flex child takes
+                // that or the room left, whichever is smaller — so a phone, where the
+                // label and the slider together want 340 in a card of 331, gets a
+                // slightly shorter slider instead of nine pixels of overhang.
+                Expanded::new(
+                    Slider::new(app.volume)
+                        .width(220.0)
+                        .on_change(Msg::SetVolume),
+                )
+                .loose(),
             ]
             .align(Align::Center)
             .gap(12.0),
@@ -80,20 +87,25 @@ pub(crate) fn settings_screen(
     );
     let total = app.todos.len();
     let done = app.todos.iter().filter(|t| t.done).count();
-    // The tab's usable width (the viewport minus the column/tab paddings), bounded: the showcases
-    // adapt to Compact instead of overflowing.
-    let inner_w = (width - 72.0).clamp(240.0, 480.0);
-    let stats = GridView::new(3)
-        .gap(10.0)
-        .width(inner_w)
-        .cell(stat_tile(theme, "Total", total))
-        .cell(stat_tile(theme, "Active", total - done))
-        .cell(stat_tile(theme, "Done", done));
-    let facts = Table::new(2)
-        .width(inner_w)
-        .header(&["Metric", "Value"])
-        .row(&["Widgets", "35"])
-        .row(&["Milestones", "39"]);
+    // How wide the showcases may get. A ceiling, not a measurement: they fill the tab and
+    // stop at 480. Subtracting the paddings by hand — which is what stood here — missed
+    // the card's own margin and came out eight pixels too wide.
+    const SHOWCASE_MAX: f32 = 480.0;
+    let stats = ConstrainedBox::new(
+        GridView::new(3)
+            .gap(10.0)
+            .cell(stat_tile(theme, "Total", total))
+            .cell(stat_tile(theme, "Active", total - done))
+            .cell(stat_tile(theme, "Done", done)),
+    )
+    .max_width(SHOWCASE_MAX);
+    let facts = ConstrainedBox::new(
+        Table::new(2)
+            .header(&["Metric", "Value"])
+            .row(&["Widgets", "35"])
+            .row(&["Milestones", "39"]),
+    )
+    .max_width(SHOWCASE_MAX);
 
     // The file tree (expanded according to the state).
     let open = |id: u64| app.expanded.contains(&id);
@@ -192,8 +204,8 @@ pub(crate) fn settings_screen(
         carousel,
         Pagination::new(app.page, 8, Msg::SetPage),
         column![
-            Skeleton::new().width(inner_w),
-            Skeleton::new().width(inner_w * 0.8).height(14.0),
+            ConstrainedBox::new(Skeleton::new()).max_width(SHOWCASE_MAX),
+            ConstrainedBox::new(Skeleton::new().height(14.0)).max_width(SHOWCASE_MAX * 0.8),
         ]
         .gap(8.0),
         Divider::new(),

@@ -452,6 +452,64 @@ mod tests {
         Container::<()>::new().height(20.0).color(c)
     }
 
+    /// **A cell could widen its own column, and take the grid off the screen with it.**
+    ///
+    /// A grid track written `1fr` is `minmax(auto, 1fr)`, and that `auto` floor is the
+    /// item's min-content width: one card holding a long unbreakable title widened its
+    /// own column, the others followed, and the grid came out wider than the box it was
+    /// given. Reported from a real application whose product grid ran off the side of a
+    /// phone — two columns of 315 in a window of 492.
+    ///
+    /// A share of a width is not a negotiation with the contents. The floor is zero.
+    #[test]
+    fn a_long_title_cannot_widen_its_column() {
+        // Two columns in 300 px, one of them holding a title far too long for its share.
+        let marker = Color::rgb(0.5, 0.25, 0.75);
+        let grid: GridView<()> =
+            GridView::new(2)
+                .width(300.0)
+                .gap(12.0)
+                .cell(Container::new().height(40.0).color(marker).child(
+                    crate::text("Espresso Creme de la Maison, Torrefaction Lente").size(15.0),
+                ))
+                .cell(Container::new().height(40.0));
+        let marker_width = |ui: &crate::Ui<()>| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    Primitive::Rect { color, rect, .. } if *color == marker => Some(rect.width),
+                    _ => None,
+                })
+                .expect("the cell is drawn")
+        };
+
+        let ui = build_ui(
+            &grid,
+            Size::new(300.0, 400.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        // Every box the frame drew, and none of them may leave the grid.
+        let widest = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, .. } => Some(rect.x + rect.width),
+                Primitive::Text { position, .. } => Some(position.x),
+                _ => None,
+            })
+            .fold(0.0_f32, f32::max);
+        assert!(widest <= 300.5, "nothing runs off the grid: {widest}");
+        // And the cell holding it keeps to its share: (300 - 12) / 2.
+        let w = marker_width(&ui);
+        assert!(
+            (w - 144.0).abs() < 1.0,
+            "a cell takes its share and no more: {w}"
+        );
+    }
+
     #[test]
     fn cells_flow_into_rows_and_columns() {
         let a = Color::rgb(1.0, 0.0, 0.0);

@@ -1157,7 +1157,7 @@ mod tests {
         );
     }
 
-    /// An icon **on its own** stays in an ordinary row, and its label is not drawn """ + D + u"""
+    /// An icon **on its own** stays in an ordinary row, and its label is not drawn —
     /// but it is still what a reader is told.
     #[test]
     fn an_icon_only_tab_is_short_and_still_named() {
