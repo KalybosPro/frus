@@ -33,7 +33,11 @@ fn to_ak_role(role: Role) -> AkRole {
     match role {
         Role::None => AkRole::GenericContainer,
         Role::Label => AkRole::Label,
-        Role::Heading => AkRole::Label, // no distinct Heading role is used here
+        // AccessKit **does** have one, and this threw it away with a comment saying it
+        // did not — true of an older version, false since, and nothing had gone back to
+        // look. A heading is how a screen reader's user jumps through a screen; announced
+        // as a label it is one more piece of text among the rest.
+        Role::Heading => AkRole::Heading,
         Role::Button => AkRole::Button,
         Role::Link => AkRole::Link,
         Role::CheckBox => AkRole::CheckBox,

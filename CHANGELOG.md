@@ -8,12 +8,35 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 396 so far, each documenting the objective, the alternatives
+> record — one per step, 397 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The app bar's title was not a heading, and the roadmap said it was** (J397). A screen
+  reader's user moves through a screen by its headings; the one every screen has is its
+  bar's title, and ours carried `Role::Label` — one more piece of text with nothing to jump
+  to. Two failures were stacked: **nothing in the framework emitted `Role::Heading` at all**,
+  and the one place that handled it threw it away —
+  `Role::Heading => AkRole::Label, // no distinct Heading role is used here`. That comment
+  was true of an older AccessKit and false of the one we depend on, and nothing had gone
+  back to look. Either failure alone is invisible; together they read as a working feature,
+  which is how the roadmap came to have it marked done. The mapping names `AkRole::Heading`
+  now, `Text::heading()` marks a text as a landmark rather than prose (it changes nothing
+  that is drawn), and the bar's title is one — as the reference says with
+  `Semantics(header: true)` (`app_bar.dart:1079`). The rest of the role mapping was checked
+  at the same time: no other arm was flattening anything.
+
 ### Added
+
+- **`AppBar::exclude_header_semantics`** (J397). The reference's switch, `false` by default.
+  For a bar whose title is decorative, or one of two on a page where only the outer one
+  names the screen — announcing both as headings gives the user two landmarks where there is
+  one screen. Only a **text** title becomes a heading: a widget title keeps whatever
+  semantics it brought, this framework having no `Semantics` wrapper to put a role on
+  something already assembled. That gap is on the roadmap rather than half-answered here.
 
 - **`Icon` takes its colour and its size from the theme** (J396). `WidgetThemes::icon` —
   the reference's `IconTheme`, which is an *inherited* widget there for the reason this is

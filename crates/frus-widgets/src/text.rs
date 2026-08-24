@@ -28,6 +28,9 @@ pub struct Text {
     max_lines: Option<usize>,
     /// Where the lines sit inside the box.
     align: TextAlign,
+    /// Whether this text is a **heading** — a landmark a screen reader's user can jump
+    /// to, rather than one more piece of prose. It changes nothing that is drawn.
+    heading: bool,
     /// Whether this text is willing to be given **less than it asked for**.
     ///
     /// It is not the same question as what happens when it overflows, and conflating the
@@ -138,6 +141,7 @@ impl Text {
             overflow: TextOverflow::Clip,
             max_lines: None,
             align: TextAlign::Start,
+            heading: false,
             shrinkable: false,
         }
     }
@@ -145,6 +149,18 @@ impl Text {
     /// Wraps at the width the parent offers. This is the default, and the call is kept
     /// because saying so at the call site is not redundant when it is the whole point of
     /// the widget being there.
+    /// Marks this text as a **heading**: a landmark assistive technology can jump
+    /// between, instead of one more run of prose.
+    ///
+    /// It changes nothing that is drawn. A screen reader's user moves through a screen by
+    /// its headings, and a title announced as a label gives them nothing to move between
+    /// — which is what an app bar's title was until milestone 397. The reference says the
+    /// same thing with `Semantics(header: true)` around its title.
+    pub fn heading(mut self) -> Self {
+        self.heading = true;
+        self
+    }
+
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
         self
@@ -551,8 +567,14 @@ impl<Msg> Widget<Msg> for Text {
     }
 
     fn semantics(&self) -> Option<frus_core::Semantics> {
-        // A text carries its content as its accessible label.
-        Some(frus_core::Semantics::new(frus_core::Role::Label).label(self.content.clone()))
+        // A text carries its content as its accessible label — or as a **heading**, which
+        // is a landmark rather than a label and is what a screen reader's user navigates by.
+        let role = if self.heading {
+            frus_core::Role::Heading
+        } else {
+            frus_core::Role::Label
+        };
+        Some(frus_core::Semantics::new(role).label(self.content.clone()))
     }
 }
 

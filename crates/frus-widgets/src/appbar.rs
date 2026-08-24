@@ -141,6 +141,7 @@ pub struct AppBar<Msg> {
     flexible_space: Option<Box<dyn Widget<Msg>>>,
     icon_theme: Option<IconTheme>,
     actions_icon_theme: Option<IconTheme>,
+    exclude_header_semantics: bool,
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
@@ -187,6 +188,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             flexible_space: None,
             icon_theme: None,
             actions_icon_theme: None,
+            exclude_header_semantics: false,
         }
     }
 
@@ -395,6 +397,18 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self.actions_padding = Some(padding);
         self
     }
+    /// Stops the title being announced as a **heading**. `false` by default, as the
+    /// reference's `excludeHeaderSemantics` is.
+    ///
+    /// A screen reader's user moves through a screen by its headings, and the bar's title
+    /// is the one every screen has. Excluding it is for a bar whose title is decorative,
+    /// or one of two bars on a page where only the outer one names it — announcing both
+    /// as headings gives the user two landmarks where there is one screen.
+    pub fn exclude_header_semantics(mut self, exclude: bool) -> Self {
+        self.exclude_header_semantics = exclude;
+        self
+    }
+
     /// A widget stacked **behind** the toolbar and the [`bottom`](Self::bottom), filling
     /// the bar's whole box.
     ///
@@ -503,6 +517,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             flexible_space,
             icon_theme,
             actions_icon_theme,
+            exclude_header_semantics,
         } = self;
 
         // `caller ?? theme ?? platform`. The platform is the last word rather than the
@@ -643,7 +658,21 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         match title {
             Title::Text(content) => {
                 let content = crate::text::truncate(&content, &title_style, title_room);
-                row = row.child(Text::styled(content, title_style));
+                let title = Text::styled(content, title_style);
+                // The bar's title is the **heading** of the screen it names — the landmark
+                // a screen reader's user jumps to. It was announced as one more label
+                // until milestone 397, which is what the reference says with
+                // `Semantics(header: true)`.
+                //
+                // Only a **text** title. A widget title keeps whatever semantics it
+                // brought: this framework has no `Semantics` wrapper to put a role on
+                // something already assembled, and the reference does — recorded on the
+                // roadmap rather than half-done here.
+                row = row.child(if exclude_header_semantics {
+                    title
+                } else {
+                    title.heading()
+                });
             }
             Title::Widget(widget) => row = row.child(widget),
         }
@@ -947,6 +976,38 @@ mod tests {
             .build();
         assert_eq!(surface(square.as_ref(), W).expect("square").1, 0.0);
         assert_eq!(surface(rounded.as_ref(), W).expect("rounded").1, 18.0);
+    }
+
+    /// **The bar's title is the screen's heading, and it was announced as a label.**
+    ///
+    /// A screen reader's user moves through a screen by its headings. The one every
+    /// screen has is the bar's title, and ours carried `Role::Label` — one more piece of
+    /// text among the rest, with nothing to jump to. The roadmap had this marked *done*
+    /// since before milestone 397 and nothing in the framework emitted `Role::Heading` at
+    /// all.
+    #[test]
+    fn the_bars_title_is_the_screens_heading() {
+        const W: f32 = 400.0;
+        let role_of_title = |exclude: bool| {
+            let bar = AppBar::<Msg>::new("Inbox")
+                .width(W)
+                .exclude_header_semantics(exclude)
+                .build();
+            let ui = build_ui(
+                bar.as_ref(),
+                Size::new(W, 200.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            ui.semantics()
+                .iter()
+                .find(|(_, _, s)| s.label.as_deref() == Some("Inbox"))
+                .map(|(_, _, s)| s.role)
+                .expect("the title is described")
+        };
+        assert_eq!(role_of_title(false), frus_core::Role::Heading);
+        // And a bar that says its title is not the screen's name gets a plain label back.
+        assert_eq!(role_of_title(true), frus_core::Role::Label);
     }
 
     /// Every path the bar paints, layers included.
