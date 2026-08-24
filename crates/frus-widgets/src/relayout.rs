@@ -312,14 +312,14 @@ fn hash_node<Msg, H: Hasher>(
     // A measured leaf: its **content** (text…) affects the geometry without going
     // through the style — without this fingerprint, two different contents would
     // be conflated and the cache would keep an old layout.
-    widget.measure_key().hash(hasher);
+    widget.measure_key(theme).hash(hasher);
     // Filling the parent is resolved during the walk rather than written into the style,
     // so the style hash alone would conflate a run that fills with one that shrink-wraps.
     widget
-        .main_axis_fill()
+        .main_axis_fill(theme)
         .map(|axis| axis.is_horizontal())
         .hash(hasher);
-    widget.main_axis_floor().map(f32::to_bits).hash(hasher);
+    widget.main_axis_floor(theme).map(f32::to_bits).hash(hasher);
     widget.tile_shape().map(f32::to_bits).hash(hasher);
     children.len().hash(hasher);
     for (i, child) in children.iter().enumerate() {

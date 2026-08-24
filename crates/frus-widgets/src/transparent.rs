@@ -466,12 +466,15 @@ macro_rules! forward_transparent {
                 self.inner.baseline_target()
             }
 
-            fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
-                self.inner.main_axis_fill()
+            fn main_axis_fill(
+                &self,
+                theme: &$crate::theme::Theme,
+            ) -> Option<frus_layout::FlexDirection> {
+                self.inner.main_axis_fill(theme)
             }
 
-            fn main_axis_floor(&self) -> Option<f32> {
-                self.inner.main_axis_floor()
+            fn main_axis_floor(&self, theme: &$crate::theme::Theme) -> Option<f32> {
+                self.inner.main_axis_floor(theme)
             }
 
             fn stack_loose(&self) -> bool {
@@ -540,12 +543,12 @@ macro_rules! forward_transparent {
                 self.inner.navigator()
             }
 
-            fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
-                self.inner.measure()
+            fn measure(&self, theme: &$crate::theme::Theme) -> Option<frus_layout::MeasureFn<'_>> {
+                self.inner.measure(theme)
             }
 
-            fn measure_key(&self) -> Option<u64> {
-                self.inner.measure_key()
+            fn measure_key(&self, theme: &$crate::theme::Theme) -> Option<u64> {
+                self.inner.measure_key(theme)
             }
 
             fn on_long_press(&self) -> Option<Msg> {

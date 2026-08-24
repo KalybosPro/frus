@@ -297,9 +297,16 @@ pub use ui::{
     FocusDirection, Focusable, KeepVisible, Scrollable, Scrollbar, Ui,
 };
 pub use widget::{CellFn, FilterContext, ReorderAxis, Widget};
+// **Every** one of them, and not only the ones a doc link happened to need. A theme
+// struct that is `pub` inside a private module is public and unreachable: callers can
+// still set `theme.widgets.button.background`, because the field's type is inferred, but
+// they cannot name the type — so `AppBar::icon_theme` took an `IconTheme` no caller
+// could build from milestone 396 until now. A property that ships unusable is a property
+// that did not ship.
 pub use widgettheme::{
-    AppBarTheme, BadgeTheme, CardTheme, DividerTheme, DrawerTheme, InkTheme, TabBarTheme,
-    TextFieldTheme, WidgetThemes,
+    AppBarTheme, BadgeTheme, ButtonTheme, CardTheme, CheckboxTheme, ChipTheme, DefaultTextStyle,
+    DividerTheme, DrawerTheme, IconButtonTheme, IconTheme, InkTheme, RadioTheme, SegmentedTheme,
+    SliderTheme, SwitchTheme, TabBarTheme, TextFieldTheme, WidgetThemes,
 };
 
 // Convenience re-exports for callers.

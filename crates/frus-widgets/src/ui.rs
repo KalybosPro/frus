@@ -1300,8 +1300,8 @@ pub(crate) struct Fills {
 
 impl Fills {
     /// What a widget asks for on its own account.
-    fn own<Msg>(widget: &dyn Widget<Msg>) -> Self {
-        match widget.main_axis_fill() {
+    fn own<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) -> Self {
+        match widget.main_axis_fill(theme) {
             Some(axis) if axis.is_horizontal() => Fills {
                 horizontal: true,
                 vertical: false,
@@ -1524,7 +1524,7 @@ fn build_layout_scoped<'a, Msg>(
         });
         return (
             layout.measured_leaf(style, own_baseline, measure),
-            Fills::own(widget),
+            Fills::own(widget, &theme),
         );
     }
     // Scrollables, interactive viewports, fitters (`FittedBox`), navigators, virtualised
@@ -1542,7 +1542,7 @@ fn build_layout_scoped<'a, Msg>(
         // constraints of its own, and cannot have an opinion about this box.
         return (
             layout.leaf(effective_style(widget, id, runtime, theme), own_baseline),
-            Fills::own(widget),
+            Fills::own(widget, theme),
         );
     }
     // A portal only lays out its anchor (child 0); the overlay is deferred.
@@ -1565,19 +1565,19 @@ fn build_layout_scoped<'a, Msg>(
     if children.is_empty() {
         // A leaf measured under constraints (a paragraph that wraps…): taffy calls the
         // closure during the computation.
-        if let Some(measure) = widget.measure() {
+        if let Some(measure) = widget.measure(theme) {
             return (
                 layout.measured_leaf(
                     effective_style(widget, id, runtime, theme),
                     own_baseline,
                     measure,
                 ),
-                Fills::own(widget),
+                Fills::own(widget, theme),
             );
         }
         (
             layout.leaf(effective_style(widget, id, runtime, theme), own_baseline),
-            Fills::own(widget),
+            Fills::own(widget, theme),
         )
     } else {
         let style = effective_style(widget, id, runtime, theme);
@@ -1652,7 +1652,7 @@ fn build_layout_scoped<'a, Msg>(
         // one down rather than dividing a line up, whichever way it nominally runs.
         if style.flex_direction.is_horizontal() && !alone {
             for (child, node) in children.iter().zip(&child_ids) {
-                if let Some(floor) = child.main_axis_floor() {
+                if let Some(floor) = child.main_axis_floor(theme) {
                     layout.set_min_width(*node, floor);
                 }
             }
@@ -1696,7 +1696,7 @@ fn build_layout_scoped<'a, Msg>(
         // container's size is its child's, so the request keeps going; along it the
         // container divides the room up and the request stops. A container with a single
         // child divides nothing, and passes the whole request on.
-        let mut fills = Fills::own(widget);
+        let mut fills = Fills::own(widget, theme);
         for (_, child) in &built {
             fills = fills.merge(if alone {
                 *child

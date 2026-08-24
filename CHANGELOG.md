@@ -8,10 +8,57 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 399 so far, each documenting the objective, the alternatives
+> record — one per step, 400 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **A text style a subtree hands down** (J400). `DefaultTextStyle` — the reference's
+  inherited widget, a `WidgetThemes` entry here — lets an app bar, a dialog or any
+  subtree dress every run of words inside it, including the ones it never sees because a
+  caller handed them over already assembled. It resolves **field by field**: setting a
+  colour leaves the sizes alone.
+
+  The rule is `what the caller said ?? what the subtree handed down ?? what the framework
+  ships`, and **a default the caller never picked does not count as having said
+  something**: `Text::new("x")` is 16 px because nobody chose a size, so a subtree asking
+  for 20 gets 20; `Text::new("x").size(16.0)` chose one and keeps it. The reference gets
+  that distinction free from nullable style fields; ours is a `Chosen` record carried
+  beside the style, because an `f32` cannot say whether anybody picked it.
+
+  It reaches the **layout**, not only the paint. An inherited size resolved at paint draws
+  24 px glyphs in a box measured for 16 — every row on the screen the wrong height at once,
+  with nothing in the picture to say which of the two numbers was the mistake.
+
+  `DefaultTextStyle::around(child)` wraps a subtree with it, the reference's widget of that
+  name.
+
+- **`AppBar::toolbar_text_style`** (J400), the reference's `toolbarTextStyle`: the type worn
+  by the words in the bar that are **not** the title. Recorded as blocked in milestone 396
+  and now unblocked by the above. It does not touch the title, which has its own
+  `title_style` — a bar that resized the title would be resizing the one line whose width
+  decides how many actions still fit inline.
+
+- **Nine widget theme structs are now reachable** (J400) — `ButtonTheme`, `CheckboxTheme`,
+  `ChipTheme`, `IconButtonTheme`, `IconTheme`, `RadioTheme`, `SegmentedTheme`,
+  `SliderTheme`, `SwitchTheme`, plus the new `DefaultTextStyle`. They were `pub` inside a
+  **private** module and re-exported nowhere: public and unnameable. `AppBar::icon_theme`
+  had therefore taken a type no caller could build since milestone 396 — a property that
+  shipped and could not be used.
+
+### Changed
+
+- **`Widget::measure`, `measure_key`, `main_axis_floor` and `main_axis_fill` take a
+  `&Theme`** (J400) — BREAKING for anyone implementing `Widget` by hand. The four hooks
+  decide a *size*, and a size that ignores the theme answers for a font nobody is drawing.
+  `main_axis_fill` is the one that would have hurt most: alignment is also a request for the
+  parent's width, so a handed-down `align` would have resolved correctly everywhere except
+  where it takes effect.
+  Every call site already had a theme in scope, so implementations only need the extra
+  parameter. `measure_key` now hashes the resolved style: a cache key that ignored half its
+  inputs is a stale layout waiting for a theme to change.
 
 ### Added
 

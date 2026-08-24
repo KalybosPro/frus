@@ -35,7 +35,7 @@ use crate::menu::PopupMenuButton;
 use crate::text::Text;
 use crate::theme::Theme;
 use crate::widget::Widget;
-use crate::widgettheme::IconTheme;
+use crate::widgettheme::{DefaultTextStyle, IconTheme};
 
 /// Does this platform centre an application bar's title by default?
 ///
@@ -141,6 +141,7 @@ pub struct AppBar<Msg> {
     flexible_space: Option<Box<dyn Widget<Msg>>>,
     icon_theme: Option<IconTheme>,
     actions_icon_theme: Option<IconTheme>,
+    toolbar_text_style: Option<TextStyle>,
     exclude_header_semantics: bool,
 }
 
@@ -188,6 +189,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             flexible_space: None,
             icon_theme: None,
             actions_icon_theme: None,
+            toolbar_text_style: None,
             exclude_header_semantics: false,
         }
     }
@@ -449,6 +451,24 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
+    /// The type worn by the **words in the bar that are not the title** — a label beside
+    /// the back arrow, a "Save" in the actions, anything a caller handed over already
+    /// assembled.
+    ///
+    /// Not the title: the title has [`title_style`](Self::title_style), and the reference
+    /// keeps the same two apart for the same reason. A bar's title is one line the bar
+    /// itself lays out and can measure; the rest is other people's widgets, and the only
+    /// way to reach a `Text` nested three levels inside one of them is to hand the style
+    /// *down* rather than pass it *in*.
+    ///
+    /// It is handed down **field by field**: setting a size leaves the colours alone, and
+    /// a `Text` that chose its own size keeps it. See
+    /// [`DefaultTextStyle`](crate::DefaultTextStyle) for the rule in full.
+    pub fn toolbar_text_style(mut self, style: TextStyle) -> Self {
+        self.toolbar_text_style = Some(style);
+        self
+    }
+
     /// The width an action button would take for this label.
     fn action_width(label: &str, size: f32) -> f32 {
         frus_text::measure(label, size).width + BTN_PAD_X * 2.0
@@ -517,6 +537,7 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             flexible_space,
             icon_theme,
             actions_icon_theme,
+            toolbar_text_style,
             exclude_header_semantics,
         } = self;
 
@@ -626,21 +647,35 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         // to each widget: that is the only way it reaches a glyph nested inside a button
         // the bar never sees. The reference's `IconTheme` is an inherited widget for the
         // same reason.
-        let dress = |widget: Box<dyn Widget<Msg>>, icons: Option<IconTheme>| match icons {
-            Some(icons) => Box::new(crate::Themed::tweak(
+        //
+        // A toolbar text style travels the same road, and for the same reason: the words
+        // it is meant for are inside widgets the bar was handed, not ones it built.
+        let dress = |widget: Box<dyn Widget<Msg>>, icons: Option<IconTheme>| {
+            if icons.is_none() && toolbar_text_style.is_none() {
+                return widget;
+            }
+            let words = toolbar_text_style.map(DefaultTextStyle::from_text_style);
+            Box::new(crate::Themed::tweak(
                 move |t| {
-                    if let Some(color) = icons.color {
-                        t.widgets.icon.color = Some(color);
-                        t.widgets.icon_button.icon_color = Some(color);
+                    if let Some(icons) = icons {
+                        if let Some(color) = icons.color {
+                            t.widgets.icon.color = Some(color);
+                            t.widgets.icon_button.icon_color = Some(color);
+                        }
+                        if let Some(size) = icons.size {
+                            t.widgets.icon.size = Some(size);
+                            t.widgets.icon_button.icon_size = Some(size);
+                        }
                     }
-                    if let Some(size) = icons.size {
-                        t.widgets.icon.size = Some(size);
-                        t.widgets.icon_button.icon_size = Some(size);
+                    // **Merged onto** whatever an enclosing subtree already handed down,
+                    // rather than replacing it: two nested subtrees each setting one field
+                    // must leave a text wearing both.
+                    if let Some(words) = words {
+                        t.widgets.text = t.widgets.text.merge(words);
                     }
                 },
                 widget,
-            )) as Box<dyn Widget<Msg>>,
-            None => widget,
+            )) as Box<dyn Widget<Msg>>
         };
 
         let mut row = Flex::row().align(Align::Center).gap(gap);
@@ -1063,6 +1098,72 @@ mod tests {
         assert!(
             glyph_colors(themed.as_ref(), W).contains(&wanted),
             "the icon theme never reached the glyph"
+        );
+    }
+
+    /// Every text in the built bar, as `(the words, their size)`. Composited layers are
+    /// walked into: a clipped subtree is drained into one, and a bar with a shape clips.
+    fn toolbar_texts(bar: &dyn Widget<Msg>, width: f32) -> Vec<(String, f32)> {
+        fn walk(prims: &[crate::Primitive], out: &mut Vec<(String, f32)>) {
+            for p in prims {
+                match p {
+                    crate::Primitive::Text { text, size, .. } => out.push((text.clone(), *size)),
+                    crate::Primitive::Layer { primitives, .. } => walk(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let ui = build_ui(
+            bar,
+            Size::new(width, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let mut out = Vec::new();
+        walk(ui.scene().primitives(), &mut out);
+        out
+    }
+
+    /// **The bar's toolbar style reaches a text it never sees, and not its title.**
+    ///
+    /// Same reasoning as the icon theme, and the same delivery: an app bar cannot restyle
+    /// a run of words nested inside a widget it was handed, so the style goes down as a
+    /// theme for the subtree rather than in as an argument.
+    ///
+    /// The second half is the one worth a test of its own. The reference keeps
+    /// `toolbarTextStyle` and `titleTextStyle` apart, and a bar that let the first reach
+    /// the title would quietly resize it — the one line in the bar that already had an
+    /// answer, and the one whose width decides how many actions still fit.
+    #[test]
+    fn the_toolbar_style_reaches_the_words_around_the_title() {
+        const W: f32 = 600.0;
+        let size_of = |texts: &[(String, f32)], words: &str| {
+            texts
+                .iter()
+                .find(|(t, _)| t == words)
+                .map(|(_, s)| *s)
+                .unwrap_or_else(|| panic!("no {words:?} in {texts:?}"))
+        };
+        let bar = |style: Option<TextStyle>| {
+            let mut bar = AppBar::<Msg>::new("Title")
+                .width(W)
+                .leading(crate::Text::new("Back"));
+            if let Some(style) = style {
+                bar = bar.toolbar_text_style(style);
+            }
+            toolbar_texts(bar.build().as_ref(), W)
+        };
+        let plain = bar(None);
+        let dressed = bar(Some(TextStyle::new(11.0)));
+        assert!(
+            size_of(&plain, "Back") > 11.0,
+            "the plain bar should not already be at 11 px"
+        );
+        assert_eq!(size_of(&dressed, "Back"), 11.0, "the style never arrived");
+        assert_eq!(
+            size_of(&dressed, "Title"),
+            size_of(&plain, "Title"),
+            "and it must not have touched the title"
         );
     }
 

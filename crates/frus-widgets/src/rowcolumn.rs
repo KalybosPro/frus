@@ -275,7 +275,7 @@ impl<Msg: Clone> Widget<Msg> for Row<Msg> {
         &self.common.children
     }
 
-    fn main_axis_fill(&self) -> Option<FlexDirection> {
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
         self.common.fill(FlexDirection::Row)
     }
 
@@ -313,7 +313,7 @@ impl<Msg: Clone> Widget<Msg> for Column<Msg> {
         &self.common.children
     }
 
-    fn main_axis_fill(&self) -> Option<FlexDirection> {
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<FlexDirection> {
         self.common.fill(FlexDirection::Column)
     }
 

@@ -9,6 +9,7 @@ use frus_layout::{Dimension, Style};
 use crate::interaction::Status;
 use crate::theme::Theme;
 use crate::widget::Widget;
+use crate::widgettheme::DefaultTextStyle;
 
 /// A single-line text widget.
 ///
@@ -38,6 +39,53 @@ pub struct Text {
     /// is its content, so a plain text refuses to shrink and its siblings are pushed out
     /// instead. Saying what to do on overflow is what says it may be squeezed.
     shrinkable: bool,
+    /// Which of the questions above the **caller answered**, as against the ones still
+    /// sitting at the value the framework ships. Without it an inherited style could never
+    /// win anything: every field already holds a number, and a number cannot say whether
+    /// anybody chose it.
+    chosen: Chosen,
+}
+
+/// Which style questions a [`Text`] was **told** the answer to.
+///
+/// The reference gets this for free — every field of its `TextStyle` is nullable, so
+/// "unset" is a value the type can hold. Ours are not: a size is an `f32` and a weight is
+/// an enum, and `Text::new` has to put *something* there. This is that missing bit,
+/// carried alongside.
+///
+/// Colour and decoration colour are absent on purpose: they are `Option`s already and say
+/// it themselves. `decoration` is here because `TextDecoration::NONE` is a real answer —
+/// it is how a caller takes an underline back off a run of words a subtree underlined.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Chosen {
+    size: bool,
+    weight: bool,
+    italic: bool,
+    decoration: bool,
+    align: bool,
+    wrap: bool,
+    overflow: bool,
+    max_lines: bool,
+}
+
+/// A [`Text`]'s questions, all answered: what the caller said where they said it, what the
+/// subtree's [`DefaultTextStyle`](crate::DefaultTextStyle) said where they did not, and
+/// the framework's own default where neither did.
+///
+/// Everything the widget does — the width it asks for, the words it keeps, the glyphs it
+/// draws — reads from one of these, and every hook builds it the same way. That is not
+/// tidiness: a size resolved one way for the measurement and another way for the paint is
+/// a layout that is wrong everywhere at once, with nothing in the picture to say which of
+/// the two numbers was the mistake.
+pub(crate) struct Resolved {
+    pub style: TextStyle,
+    pub align: TextAlign,
+    pub wrap: bool,
+    pub overflow: TextOverflow,
+    pub max_lines: Option<usize>,
+    /// Whether this text is willing to be given less than it asked for — which an
+    /// inherited overflow or line limit says just as much as a called one.
+    pub shrinkable: bool,
 }
 
 /// The ellipsis a cut line ends in.
@@ -123,10 +171,22 @@ impl Text {
 
     /// Creates a text from a full [`TextStyle`] — typically one step of the theme's
     /// scale (`Text::styled("Title", theme.text.title_large)`).
+    /// A whole `TextStyle` names a size, a weight and a slant outright, so all three
+    /// count as **answered** and an inherited style will not overrule them. Its colour and
+    /// its decoration carry their own "unset" — an `Option`, and `TextDecoration::NONE` —
+    /// and are left able to inherit, so a text put in a subtree that has set a colour
+    /// still picks the colour up.
     pub fn styled(content: impl Into<String>, style: TextStyle) -> Self {
         Self {
             content: content.into(),
             style,
+            chosen: Chosen {
+                size: true,
+                weight: true,
+                italic: true,
+                decoration: style.decoration != frus_core::TextDecoration::NONE,
+                ..Chosen::default()
+            },
             ..Self::defaults()
         }
     }
@@ -143,6 +203,7 @@ impl Text {
             align: TextAlign::Start,
             heading: false,
             shrinkable: false,
+            chosen: Chosen::default(),
         }
     }
 
@@ -163,6 +224,7 @@ impl Text {
 
     pub fn wrap(mut self) -> Self {
         self.wrap = true;
+        self.chosen.wrap = true;
         self
     }
 
@@ -171,6 +233,7 @@ impl Text {
     /// hangs over.
     pub fn no_wrap(mut self) -> Self {
         self.wrap = false;
+        self.chosen.wrap = true;
         self
     }
 
@@ -180,6 +243,7 @@ impl Text {
     /// or is cut, according to [`Text::overflow`].
     pub fn soft_wrap(mut self, soft_wrap: bool) -> Self {
         self.wrap = soft_wrap;
+        self.chosen.wrap = true;
         self
     }
 
@@ -191,6 +255,7 @@ impl Text {
     /// [`crate::Expanded`], a width.
     pub fn align(mut self, align: TextAlign) -> Self {
         self.align = align;
+        self.chosen.align = true;
         self
     }
 
@@ -201,6 +266,7 @@ impl Text {
     /// it asked for** — a limit is only meaningful for a text expected to be squeezed.
     pub fn max_lines(mut self, max_lines: usize) -> Self {
         self.max_lines = Some(max_lines.max(1));
+        self.chosen.max_lines = true;
         self.shrinkable = true;
         self
     }
@@ -211,6 +277,7 @@ impl Text {
     /// Saying so also tells the layout this text may be given **less than it asked for**.
     pub fn overflow(mut self, overflow: TextOverflow) -> Self {
         self.overflow = overflow;
+        self.chosen.overflow = true;
         self.shrinkable = true;
         self
     }
@@ -231,6 +298,8 @@ impl Text {
     pub fn ellipsis(mut self) -> Self {
         self.wrap = false;
         self.overflow = TextOverflow::Ellipsis;
+        self.chosen.wrap = true;
+        self.chosen.overflow = true;
         self.shrinkable = true;
         self
     }
@@ -238,18 +307,21 @@ impl Text {
     /// Sets the font size, in pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.style.size = size;
+        self.chosen.size = true;
         self
     }
 
     /// Sets the weight.
     pub fn weight(mut self, weight: FontWeight) -> Self {
         self.style.weight = weight;
+        self.chosen.weight = true;
         self
     }
 
     /// Switches to italic.
     pub fn italic(mut self) -> Self {
         self.style.italic = true;
+        self.chosen.italic = true;
         self
     }
 
@@ -262,18 +334,21 @@ impl Text {
     /// Underlines the text.
     pub fn underline(mut self) -> Self {
         self.style = self.style.underline();
+        self.chosen.decoration = true;
         self
     }
 
     /// Strikes the text through.
     pub fn strikethrough(mut self) -> Self {
         self.style = self.style.strikethrough();
+        self.chosen.decoration = true;
         self
     }
 
     /// Sets the decoration lines (freely combined).
     pub fn decoration(mut self, decoration: frus_core::TextDecoration) -> Self {
         self.style.decoration = decoration;
+        self.chosen.decoration = true;
         self
     }
 
@@ -285,13 +360,86 @@ impl Text {
 }
 
 impl Text {
+    /// Every question this text asks of itself, answered once: **what the caller said ??
+    /// what the subtree handed down ?? what the framework ships**.
+    ///
+    /// `theme` is an `Option` because [`Widget::style`] has no theme to give — a widget
+    /// asked for its style outside a walk. `None` means nothing was handed down, which is
+    /// exactly what a fresh theme carries, so the two agree and the unthemed case costs
+    /// nothing.
+    ///
+    /// The rule that makes the whole thing work is in the `chosen` half: **a default the
+    /// caller never picked does not outrank an inherited answer.** `Text::new("x")` is
+    /// 16 px because nobody chose a size, and a subtree asking for 20 gets 20;
+    /// `Text::new("x").size(16.0)` chose one, and keeps it against the same subtree. The
+    /// reference draws the line in the same place, with nullable style fields where we
+    /// need a flag.
+    pub(crate) fn resolved(&self, theme: Option<&Theme>) -> Resolved {
+        let handed = theme.map_or(DefaultTextStyle::NONE, |t| t.widgets.text);
+        let style = TextStyle {
+            size: if self.chosen.size {
+                self.style.size
+            } else {
+                handed.size.unwrap_or(self.style.size)
+            },
+            weight: if self.chosen.weight {
+                self.style.weight
+            } else {
+                handed.weight.unwrap_or(self.style.weight)
+            },
+            italic: if self.chosen.italic {
+                self.style.italic
+            } else {
+                handed.italic.unwrap_or(self.style.italic)
+            },
+            // Colour and decoration colour say "unset" themselves; `or` is the whole rule.
+            color: self.style.color.or(handed.color),
+            decoration: if self.chosen.decoration {
+                self.style.decoration
+            } else {
+                handed.decoration.unwrap_or(self.style.decoration)
+            },
+            decoration_color: self.style.decoration_color.or(handed.decoration_color),
+        };
+        Resolved {
+            style,
+            align: if self.chosen.align {
+                self.align
+            } else {
+                handed.align.unwrap_or(self.align)
+            },
+            wrap: if self.chosen.wrap {
+                self.wrap
+            } else {
+                handed.soft_wrap.unwrap_or(self.wrap)
+            },
+            overflow: if self.chosen.overflow {
+                self.overflow
+            } else {
+                handed.overflow.unwrap_or(self.overflow)
+            },
+            max_lines: if self.chosen.max_lines {
+                self.max_lines
+            } else {
+                handed.max_lines.or(self.max_lines)
+            },
+            // An **inherited** overflow or line limit says the same thing a called one
+            // does: this text may be given less than it asked for. Leaving it out would
+            // ship a subtree that ellipsises its texts and never gets the chance to,
+            // because each of them still refuses to be squeezed.
+            shrinkable: self.shrinkable
+                || (!self.chosen.overflow && handed.overflow.is_some())
+                || (!self.chosen.max_lines && handed.max_lines.is_some()),
+        }
+    }
+
     /// The text that actually fits `width`, and which way it ran over.
     ///
     /// Everything the box does to the words happens here: dropping the lines past the
     /// limit, cutting the last one, deciding whether a line ran past the edge. The paint
     /// draws what comes back, and the overflow mode decides how.
-    pub(crate) fn fitted(&self, width: f32) -> Fitted {
-        let (size, weight, italic) = (self.style.size, self.style.weight, self.style.italic);
+    pub(crate) fn fitted(&self, width: f32, r: &Resolved) -> Fitted {
+        let (size, weight, italic) = (r.style.size, r.style.weight, r.style.italic);
         // Only a line **limit** makes the words the widget's business. Left alone, the
         // text goes to the renderer whole and is broken there.
         //
@@ -301,15 +449,15 @@ impl Text {
         // only leave its last line ragged if it knows which line is the last.
         let mut text = self.content.clone();
         let mut too_tall = false;
-        if let Some(max) = self.max_lines {
+        if let Some(max) = r.max_lines {
             let spans =
-                frus_text::line_spans(&self.content, size, weight, italic, Some(width), self.wrap);
+                frus_text::line_spans(&self.content, size, weight, italic, Some(width), r.wrap);
             if spans.len() > max {
                 too_tall = true;
                 let cut = spans[max].start;
                 let last = spans[max - 1].start;
-                text = if self.overflow == TextOverflow::Ellipsis {
-                    let ended = ellipsise(&self.content[last..cut], &self.style, width);
+                text = if r.overflow == TextOverflow::Ellipsis {
+                    let ended = ellipsise(&self.content[last..cut], &r.style, width);
                     format!("{}{ended}", &self.content[..last])
                 } else {
                     self.content[..cut].to_string()
@@ -318,10 +466,10 @@ impl Text {
         }
         // A line can only be wider than the box when nothing may push it onto the next
         // one. Where the text wraps, every line fits by construction.
-        let too_wide = !self.wrap
-            && frus_text::measure_styled(&text, size, weight, italic).width > width + 0.5;
-        if too_wide && !too_tall && self.overflow == TextOverflow::Ellipsis {
-            text = ellipsise(&text, &self.style, width);
+        let too_wide =
+            !r.wrap && frus_text::measure_styled(&text, size, weight, italic).width > width + 0.5;
+        if too_wide && !too_tall && r.overflow == TextOverflow::Ellipsis {
+            text = ellipsise(&text, &r.style, width);
         }
         Fitted {
             text,
@@ -336,22 +484,22 @@ impl Text {
     /// nowhere to align it to, so a text asked to centre itself and then given its own
     /// width would be centred and look untouched — the setting would appear to do nothing
     /// and there would be nothing to see. Left alone, a text still shrink-wraps.
-    fn fills(&self) -> bool {
-        self.align != TextAlign::Start
+    fn fills(r: &Resolved) -> bool {
+        r.align != TextAlign::Start
     }
 
     /// A line limit is a **height** cap and nothing else: the words break where they
     /// broke, and the ones past the limit are not drawn.
-    fn capped(&self, height: f32) -> f32 {
-        match self.max_lines {
-            Some(max) => height.min(frus_text::line_height(self.style.size) * max as f32),
+    fn capped(height: f32, r: &Resolved) -> f32 {
+        match r.max_lines {
+            Some(max) => height.min(frus_text::line_height(r.style.size) * max as f32),
             None => height,
         }
     }
 
     /// The fade that ends a cut text: opaque until the last stretch of the box, then out
     /// to nothing at the edge it ran past.
-    fn fade(&self, bounds: Rect, horizontal: bool) -> ShaderMask {
+    fn fade(bounds: Rect, horizontal: bool, r: &Resolved) -> ShaderMask {
         // A fifth of the box, and never more than three line heights of it. Over a long
         // line a proportional fade would start halfway through words that are perfectly
         // legible; over a short one an absolute fade would swallow the lot.
@@ -360,7 +508,7 @@ impl Text {
         } else {
             bounds.height
         };
-        let run = (extent * 0.2).min(frus_text::line_height(self.style.size) * 3.0);
+        let run = (extent * 0.2).min(frus_text::line_height(r.style.size) * 3.0);
         let (from, to) = if horizontal {
             (
                 Point::new(bounds.x + bounds.width - run, bounds.y),
@@ -381,12 +529,17 @@ impl Text {
     }
 }
 
-impl<Msg> Widget<Msg> for Text {
-    fn style(&self) -> Style {
+impl Text {
+    /// The box this text asks for, once every question has been answered.
+    ///
+    /// Split out from the two style hooks rather than duplicated across them: they differ
+    /// only in whether a theme was there to be asked, and a second copy of this reasoning
+    /// is a second place for the themed and the unthemed answers to drift apart.
+    fn boxed(&self, r: &Resolved) -> Style {
         // A flex item's automatic minimum size is its content, so a plain text refuses to
         // shrink and pushes its siblings out instead. One that has said what to do when it
         // overflows may be given less; the paint fits the words to whatever it gets.
-        let min_width = if self.shrinkable {
+        let min_width = if r.shrinkable {
             Dimension::Length(0.0)
         } else {
             Dimension::Auto
@@ -394,7 +547,7 @@ impl<Msg> Widget<Msg> for Text {
         // A paragraph, or a text that has to know how wide its box is: free dimensions,
         // and the size comes from `measure` — the only way a box can be *given* a width
         // and answer with a height.
-        if self.wrap || self.fills() {
+        if r.wrap || Self::fills(r) {
             return Style {
                 min_width,
                 ..Default::default()
@@ -403,15 +556,11 @@ impl<Msg> Widget<Msg> for Text {
         // A single line is a box of a known size, and saying so is what keeps it from
         // being folded: a measured leaf reports its narrowest useful width as its
         // minimum content, and a row would take that as leave to squeeze it there.
-        let measured = frus_text::measure_styled(
-            &self.content,
-            self.style.size,
-            self.style.weight,
-            self.style.italic,
-        );
+        let measured =
+            frus_text::measure_styled(&self.content, r.style.size, r.style.weight, r.style.italic);
         Style {
             width: Dimension::Length(measured.width.ceil()),
-            height: Dimension::Length(self.capped(measured.height).ceil()),
+            height: Dimension::Length(Self::capped(measured.height, r).ceil()),
             min_width,
             // A text that has said what to do when it overflows is **clamped to its
             // parent**, which is what the reference does to every one of them: a
@@ -419,13 +568,27 @@ impl<Msg> Widget<Msg> for Text {
             // text declares the width it wants, a narrower box does not take it away, and
             // the overflow mode never fires — the words simply draw past the edge, which
             // is the behaviour it was set to prevent.
-            max_width: if self.shrinkable {
+            max_width: if r.shrinkable {
                 Dimension::Percent(1.0)
             } else {
                 Dimension::Auto
             },
             ..Default::default()
         }
+    }
+}
+
+impl<Msg> Widget<Msg> for Text {
+    fn style(&self) -> Style {
+        self.boxed(&self.resolved(None))
+    }
+
+    /// A subtree can hand down a size, a weight and a line limit, and every one of those
+    /// is a **box**, not a colour. Resolving them here rather than at paint is what lets
+    /// an app bar make the words inside it smaller and have them take less room, instead
+    /// of the same room with smaller writing in it.
+    fn style_themed(&self, theme: &Theme) -> Style {
+        self.boxed(&self.resolved(Some(theme)))
     }
 
     /// A text will not be **squeezed along a row**: it runs past the end of one rather
@@ -434,43 +597,41 @@ impl<Msg> Widget<Msg> for Text {
     ///
     /// A text that has said what to do when it overflows has already said the opposite,
     /// and is left alone.
-    fn main_axis_floor(&self) -> Option<f32> {
+    fn main_axis_floor(&self, theme: &Theme) -> Option<f32> {
+        let r = self.resolved(Some(theme));
         // A single line already carries its width in its style; only a text measured
         // under constraints needs to be told where to stop giving way.
-        if self.shrinkable || !(self.wrap || self.fills()) {
+        if r.shrinkable || !(r.wrap || Self::fills(&r)) {
             return None;
         }
         Some(
-            frus_text::measure_styled(
-                &self.content,
-                self.style.size,
-                self.style.weight,
-                self.style.italic,
-            )
-            .width
-            .ceil(),
+            frus_text::measure_styled(&self.content, r.style.size, r.style.weight, r.style.italic)
+                .width
+                .ceil(),
         )
     }
 
     /// The line this text sits on, measured from the top of its box. A `Text` is the
     /// widget that actually *has* a baseline; every alignment that talks about one is
     /// ultimately asking one of these.
-    fn text_baseline(&self, _theme: &Theme) -> Option<f32> {
+    fn text_baseline(&self, theme: &Theme) -> Option<f32> {
+        let r = self.resolved(Some(theme));
         Some(frus_text::baseline(
-            self.style.size,
-            self.style.weight,
-            self.style.italic,
+            r.style.size,
+            r.style.weight,
+            r.style.italic,
         ))
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
-        if !self.wrap && !self.fills() {
+    fn measure(&self, theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
+        let r = self.resolved(Some(theme));
+        if !r.wrap && !Self::fills(&r) {
             return None;
         }
         let content = self.content.clone();
-        let style = self.style;
-        let max_lines = self.max_lines;
-        let wrap = self.wrap;
+        let style = r.style;
+        let max_lines = r.max_lines;
+        let wrap = r.wrap;
         Some(Box::new(move |max_width, _| {
             let mut size = frus_text::measure_wrapped(
                 &content,
@@ -490,17 +651,22 @@ impl<Msg> Widget<Msg> for Text {
         }))
     }
 
-    fn measure_key(&self) -> Option<u64> {
-        if !self.wrap && !self.fills() {
+    fn measure_key(&self, theme: &Theme) -> Option<u64> {
+        let r = self.resolved(Some(theme));
+        if !r.wrap && !Self::fills(&r) {
             return None;
         }
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.content.hash(&mut hasher);
-        self.style.size.to_bits().hash(&mut hasher);
-        self.style.weight.to_u16().hash(&mut hasher);
-        self.style.italic.hash(&mut hasher);
-        self.max_lines.hash(&mut hasher);
+        // The **resolved** style, not the written one: an inherited size changes the
+        // measurement, and a key that ignored it would hand back the geometry the text had
+        // before the subtree said anything.
+        r.style.size.to_bits().hash(&mut hasher);
+        r.style.weight.to_u16().hash(&mut hasher);
+        r.style.italic.hash(&mut hasher);
+        r.max_lines.hash(&mut hasher);
+        r.wrap.hash(&mut hasher);
         Some(hasher.finish())
     }
 
@@ -511,30 +677,31 @@ impl<Msg> Widget<Msg> for Text {
     /// An aligned text takes the width its parent offers: a box exactly as wide as its
     /// text has nowhere to align it to. It is the same request a [`crate::Row`] makes,
     /// and it is answered by the same walk.
-    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
-        self.fills().then_some(frus_layout::FlexDirection::Row)
+    fn main_axis_fill(&self, theme: &Theme) -> Option<frus_layout::FlexDirection> {
+        Self::fills(&self.resolved(Some(theme))).then_some(frus_layout::FlexDirection::Row)
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
-        let color = self
+        let r = self.resolved(Some(theme));
+        let color = r
             .style
             .color
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
-        let fitted = self.fitted(bounds.width);
+        let fitted = self.fitted(bounds.width, &r);
         let block = TextBlock {
             // A width is handed over only when something is going to use it. Giving the
             // renderer one it did not have changes where right-to-left text lands, which
             // is a bug this codebase has already had once.
-            width: (self.wrap || self.align != TextAlign::Start).then_some(bounds.width),
-            soft_wrap: self.wrap,
-            align: self.align,
+            width: (r.wrap || r.align != TextAlign::Start).then_some(bounds.width),
+            soft_wrap: r.wrap,
+            align: r.align,
         };
         let draw = |scene: &mut Scene| {
             scene.text_block(
                 Point::new(bounds.x, bounds.y),
                 fitted.text.clone(),
-                &self.style,
+                &r.style,
                 color,
                 block,
             );
@@ -542,8 +709,8 @@ impl<Msg> Widget<Msg> for Text {
         // Nothing hanging over the edge, or already cut to size, or told to spill: the
         // three cases where the mode has nothing left to do.
         if !fitted.over()
-            || self.overflow == TextOverflow::Visible
-            || self.overflow == TextOverflow::Ellipsis
+            || r.overflow == TextOverflow::Visible
+            || r.overflow == TextOverflow::Ellipsis
         {
             draw(scene);
             return;
@@ -552,10 +719,10 @@ impl<Msg> Widget<Msg> for Text {
         // edge through the antialiasing of every one that does.
         let outer = scene.current_clip();
         scene.set_clip(outer.intersect(bounds));
-        match self.overflow {
+        match r.overflow {
             TextOverflow::Fade => {
                 let horizontal = fitted.too_wide && !fitted.too_tall;
-                scene.masked(self.fade(bounds, horizontal), draw);
+                scene.masked(Self::fade(bounds, horizontal, &r), draw);
             }
             _ => draw(scene),
         }
@@ -720,7 +887,7 @@ mod tests {
             .wrap()
             .max_lines(2)
             .overflow(TextOverflow::Ellipsis);
-        let fitted = text.fitted(90.0);
+        let fitted = text.fitted(90.0, &text.resolved(None));
         // What comes back is a **prefix**, not a list of lines: it wraps into two when the
         // renderer breaks it, which is where the breaking belongs.
         assert!(
@@ -749,7 +916,7 @@ mod tests {
     #[test]
     fn a_limit_it_does_not_reach_changes_nothing() {
         let text = Text::new("one two").size(14.0).wrap().max_lines(4);
-        let fitted = text.fitted(400.0);
+        let fitted = text.fitted(400.0, &text.resolved(None));
         assert_eq!(fitted.text, "one two");
         assert!(!fitted.too_tall && !fitted.too_wide);
     }
@@ -761,7 +928,9 @@ mod tests {
         let long = "one two three four five six seven eight nine ten eleven twelve";
         let free = Text::new(long).size(14.0).wrap();
         let capped = Text::new(long).size(14.0).wrap().max_lines(2);
-        let at = |t: &Text| Widget::<()>::measure(t).expect("measure")(Some(90.0), None).height;
+        let at = |t: &Text| {
+            Widget::<()>::measure(t, &Theme::default()).expect("measure")(Some(90.0), None).height
+        };
         assert!(at(&free) > at(&capped), "the limit is doing something");
         assert!(
             (at(&capped) - frus_text::line_height(14.0) * 2.0).abs() < 0.5,
@@ -800,6 +969,226 @@ mod tests {
             clipped_clip,
             Rect::new(0.0, 0.0, 60.0, 20.0),
             "this one stops"
+        );
+    }
+
+    /// A **subtree** can hand a text its size, and a text that never chose one takes it.
+    ///
+    /// The half that matters is where it is taken: the size has to reach the **box**, not
+    /// only the glyphs. A text drawn at 24 px inside a box measured for 16 leaves every
+    /// row on the screen the wrong height, and nothing in the picture says which of the
+    /// two numbers was the mistake.
+    #[test]
+    fn a_subtree_hands_a_text_its_size() {
+        let mut theme = Theme::default();
+        theme.widgets.text.size = Some(30.0);
+        // One line, so the box it asks for is a number this test can read.
+        let text = Text::new("Handed down").no_wrap();
+
+        let alone = Widget::<()>::style(&text);
+        let handed = Widget::<()>::style_themed(&text, &theme);
+        let (Dimension::Length(alone_w), Dimension::Length(handed_w)) = (alone.width, handed.width)
+        else {
+            panic!("a single line is a box of a known size");
+        };
+        assert!(
+            handed_w > alone_w * 1.5,
+            "the box grew with the type: {alone_w} → {handed_w}"
+        );
+
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &text,
+            Rect::new(0.0, 0.0, handed_w, 40.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        match &scene.primitives()[0] {
+            Primitive::Text { size, .. } => assert_eq!(
+                *size, 30.0,
+                "and the glyphs agree with the box they were measured into"
+            ),
+            other => panic!("a text, not {other:?}"),
+        }
+    }
+
+    /// A size the **caller** chose is not overruled — and a default nobody chose is.
+    ///
+    /// The two halves are the whole rule, and either alone would be wrong: without the
+    /// first, a subtree silently resizes the one text that had asked to be different;
+    /// without the second, the feature does nothing at all, because every `Text` already
+    /// holds a size and a number cannot say whether anybody picked it.
+    #[test]
+    fn a_chosen_size_outranks_a_handed_one() {
+        let mut theme = Theme::default();
+        theme.widgets.text.size = Some(30.0);
+        let width = |text: &Text| match Widget::<()>::style_themed(text, &theme).width {
+            Dimension::Length(w) => w,
+            other => panic!("a known width, not {other:?}"),
+        };
+        // The same 16 px, once as a default and once as an answer.
+        let untouched = width(&Text::new("Handed down").no_wrap());
+        let chosen = width(&Text::new("Handed down").no_wrap().size(16.0));
+        assert!(
+            untouched > chosen,
+            "the one that chose kept its size: {untouched} vs {chosen}"
+        );
+        assert_eq!(
+            chosen,
+            width(&Text::new("Handed down").no_wrap().size(16.0)),
+            "and it keeps it however often it is asked"
+        );
+    }
+
+    /// The merge is **field by field**: a subtree that sets a colour and nothing else
+    /// leaves every size alone.
+    ///
+    /// A whole-style handover would be the easy implementation and the wrong one — an app
+    /// bar recolouring its words would flatten the type scale of everything inside it.
+    #[test]
+    fn handing_down_a_colour_leaves_the_sizes_alone() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let mut theme = Theme::default();
+        theme.widgets.text.color = Some(red);
+        let text = Text::new("Words").no_wrap().size(22.0);
+        assert_eq!(
+            Widget::<()>::style_themed(&text, &theme).width,
+            Widget::<()>::style(&text).width,
+            "the box did not move"
+        );
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &text,
+            Rect::new(0.0, 0.0, 300.0, 40.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        match &scene.primitives()[0] {
+            Primitive::Text { size, color, .. } => {
+                assert_eq!(*color, red, "the colour came down");
+                assert_eq!(*size, 22.0, "the size stayed put");
+            }
+            other => panic!("a text, not {other:?}"),
+        }
+    }
+
+    /// A handed-down line limit also says the text **may be squeezed**.
+    ///
+    /// It is the easy half to leave out, and leaving it out ships a subtree that
+    /// ellipsises its texts and never gets the chance to: a flex item's automatic minimum
+    /// size is its content, so each of them still refuses to give way and the mode never
+    /// fires. Saying what to do on overflow is what says it may be squeezed — however the
+    /// text was told.
+    #[test]
+    fn a_handed_down_limit_lets_the_text_give_way() {
+        let mut theme = Theme::default();
+        theme.widgets.text.max_lines = Some(1);
+        theme.widgets.text.overflow = Some(TextOverflow::Ellipsis);
+        let text = Text::new("a label far too long for the box it will be given");
+        assert_eq!(
+            Widget::<()>::style(&text).min_width,
+            Dimension::Auto,
+            "left alone it refuses to shrink"
+        );
+        assert_eq!(
+            Widget::<()>::style_themed(&text, &theme).min_width,
+            Dimension::Length(0.0),
+            "handed a limit, it gives way"
+        );
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &text,
+            Rect::new(0.0, 0.0, 80.0, 20.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        match &scene.primitives()[0] {
+            Primitive::Text { text, .. } => {
+                assert!(text.ends_with(ELLIPSIS), "and it was cut: {text:?}")
+            }
+            other => panic!("a text, not {other:?}"),
+        }
+    }
+
+    /// A handed-down **alignment** also makes the text ask for its parent's width.
+    ///
+    /// Alignment is the one style setting that is also a *request*: a box exactly as wide
+    /// as its own text has nowhere to centre it in, so a text told to centre asks to fill
+    /// the line first. That request is made by `main_axis_fill`, which is why that hook
+    /// had to see the theme too — without it, the one setting that arrives by inheritance
+    /// would resolve correctly everywhere except where it takes effect, and centring a
+    /// subtree's texts would silently do nothing.
+    #[test]
+    fn a_handed_down_alignment_still_asks_for_the_width() {
+        let mut theme = Theme::default();
+        theme.widgets.text.align = Some(TextAlign::Center);
+        let text = Text::new("Centred").no_wrap();
+        assert_eq!(
+            Widget::<()>::main_axis_fill(&text, &Theme::default()),
+            None,
+            "left alone it hugs its words"
+        );
+        assert_eq!(
+            Widget::<()>::main_axis_fill(&text, &theme),
+            Some(frus_layout::FlexDirection::Row),
+            "handed a centring, it asks for the line"
+        );
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &text,
+            Rect::new(0.0, 0.0, 300.0, 20.0),
+            Status::default(),
+            &theme,
+            &mut scene,
+        );
+        match &scene.primitives()[0] {
+            Primitive::Text {
+                align, max_width, ..
+            } => {
+                assert_eq!(*align, TextAlign::Center);
+                assert_eq!(*max_width, Some(300.0), "and it was given a box to sit in");
+            }
+            other => panic!("a text, not {other:?}"),
+        }
+    }
+
+    /// **Two nested wrappers each setting one field leave a text wearing both.**
+    ///
+    /// This is what makes the merge worth its complexity. A whole-style handover would
+    /// look identical in a single-wrapper test and be wrong here: the inner wrapper would
+    /// replace the outer one's colour with nothing at all, and a section that set a size
+    /// inside a screen that set a colour would silently drop the colour.
+    #[test]
+    fn nested_wrappers_compose_field_by_field() {
+        use crate::{build_ui, Runtime, Size};
+        let muted = Color::rgb(0.4, 0.4, 0.45);
+        let outer = crate::DefaultTextStyle {
+            color: Some(muted),
+            ..crate::DefaultTextStyle::NONE
+        };
+        let inner = crate::DefaultTextStyle {
+            size: Some(9.0),
+            ..crate::DefaultTextStyle::NONE
+        };
+        let root: Box<dyn Widget<()>> =
+            Box::new(outer.around(inner.around(Text::new("Both").no_wrap())));
+        let ui = build_ui(
+            root.as_ref(),
+            Size::new(300.0, 100.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let found = ui.scene().primitives().iter().find_map(|p| match p {
+            Primitive::Text { size, color, .. } => Some((*size, *color)),
+            _ => None,
+        });
+        assert_eq!(
+            found,
+            Some((9.0, muted)),
+            "the size came from the inner wrapper and the colour from the outer"
         );
     }
 
@@ -945,7 +1334,7 @@ mod tests {
         let long = "a paragraph long enough to wrap onto several lines";
         let text = Text::new(long).wrap();
         // Measuring under constraints wraps: taller at 120 px than when free.
-        let measure = Widget::<()>::measure(&text).expect("measure closure");
+        let measure = Widget::<()>::measure(&text, &Theme::default()).expect("measure closure");
         let free = measure(None, None);
         let narrow = measure(Some(120.0), None);
         assert!(narrow.width <= 120.0);
@@ -953,15 +1342,15 @@ mod tests {
         // And the measure key changes with the content (the cache fix).
         let other = Text::new("short").wrap();
         assert_ne!(
-            Widget::<()>::measure_key(&text),
-            Widget::<()>::measure_key(&other)
+            Widget::<()>::measure_key(&text, &Theme::default()),
+            Widget::<()>::measure_key(&other, &Theme::default())
         );
         // A text that does not wrap is a box of a known size, and says so in its style
         // rather than through a measurement: a measured leaf reports its narrowest useful
         // width as its minimum content, and a row would take that as leave to fold it.
         let plain = Text::new(long).no_wrap();
-        assert!(Widget::<()>::measure(&plain).is_none());
-        assert!(Widget::<()>::measure_key(&plain).is_none());
+        assert!(Widget::<()>::measure(&plain, &Theme::default()).is_none());
+        assert!(Widget::<()>::measure_key(&plain, &Theme::default()).is_none());
     }
 
     #[test]
@@ -997,7 +1386,9 @@ mod tests {
 
     #[test]
     fn bold_text_lays_out_wider() {
-        let w = |text: &Text| Widget::<()>::measure(text).expect("measure")(None, None).width;
+        let w = |text: &Text| {
+            Widget::<()>::measure(text, &Theme::default()).expect("measure")(None, None).width
+        };
         assert!(
             w(&Text::new("Width").weight(FontWeight::Bold)) > w(&Text::new("Width")),
             "bold must be wider"

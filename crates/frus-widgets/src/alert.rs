@@ -90,7 +90,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
         Style::default()
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
+    fn measure(&self, _theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
         let text = self.text.clone();
         let title = self.title.clone();
         Some(Box::new(move |max_width, _| {
@@ -120,7 +120,7 @@ impl<Msg> Widget<Msg> for AlertDialog {
         }))
     }
 
-    fn measure_key(&self) -> Option<u64> {
+    fn measure_key(&self, _theme: &Theme) -> Option<u64> {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.text.hash(&mut hasher);
@@ -239,7 +239,8 @@ mod tests {
         let alert =
             AlertDialog::new("Press Enter to add a task; swipe from the left edge to go back.")
                 .title("Tip");
-        let measure = Widget::<()>::measure(&alert).expect("closure de mesure");
+        let theme = Theme::default();
+        let measure = Widget::<()>::measure(&alert, &theme).expect("closure de mesure");
         let free = measure(None, None);
         let narrow = measure(Some(280.0), None);
         assert!(
@@ -251,8 +252,8 @@ mod tests {
         // The measure key follows the content (the relayout cache).
         let other = AlertDialog::new("short");
         assert_ne!(
-            Widget::<()>::measure_key(&alert),
-            Widget::<()>::measure_key(&other)
+            Widget::<()>::measure_key(&alert, &theme),
+            Widget::<()>::measure_key(&other, &theme)
         );
     }
 }

@@ -770,7 +770,12 @@ pub trait Widget<Msg> {
     /// into the style: filling means growing when the parent runs the same way and
     /// stretching when it runs across, and a widget cannot know what it was put inside.
     /// The layout walk resolves it, where both are in view.
-    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
+    ///
+    /// The theme is here for the same reason it is on [`Widget::measure`]: a text asks to
+    /// fill because it was told to align inside its box, and a subtree can hand that
+    /// alignment down. A hook blind to the theme would leave the one setting that arrives
+    /// by inheritance silently doing nothing.
+    fn main_axis_fill(&self, _theme: &Theme) -> Option<frus_layout::FlexDirection> {
         None
     }
 
@@ -784,7 +789,12 @@ pub trait Widget<Msg> {
     /// this is the answer it will not go below. The reference draws the same line: a flex
     /// leaves its inflexible children an unbounded main axis and never squeezes them,
     /// while across it they take the width they are given.
-    fn main_axis_floor(&self) -> Option<f32> {
+    ///
+    /// It is handed the theme for the same reason [`Widget::style_themed`] is: the floor
+    /// is a *measurement*, and a text whose size comes from an inherited style measures
+    /// differently. A hook that decided a size without seeing the theme would answer for
+    /// a font nobody is drawing.
+    fn main_axis_floor(&self, _theme: &Theme) -> Option<f32> {
         None
     }
 
@@ -970,7 +980,12 @@ pub trait Widget<Msg> {
     /// offered (a paragraph that wraps…), returns the closure wired into taffy.
     /// `None` = size fixed by `style()`. Contract: must be `Some` **if and only if**
     /// [`Widget::measure_key`] is.
-    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
+    ///
+    /// The theme comes in because the measurement has to agree with the paint. A text
+    /// that takes its size from an inherited style must be *measured* at that size too;
+    /// measured at one size and drawn at another, every box on the screen is the wrong
+    /// height at once, and nothing in the picture says which of the two numbers is wrong.
+    fn measure(&self, _theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
         None
     }
 
@@ -978,7 +993,11 @@ pub trait Widget<Msg> {
     /// mixed into the relayout fingerprint: without it, two different contents with
     /// the same style would be conflated by the cache and would keep a stale
     /// geometry. Contract: `Some` if and only if `measure()` is.
-    fn measure_key(&self) -> Option<u64> {
+    ///
+    /// Whatever the theme contributes to the measurement belongs in here as well — a
+    /// cache key that ignores half of its inputs is a stale layout waiting for the
+    /// subtree's style to change.
+    fn measure_key(&self, _theme: &Theme) -> Option<u64> {
         None
     }
 }
@@ -1270,11 +1289,11 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn baseline_target(&self) -> Option<f32> {
         (**self).baseline_target()
     }
-    fn main_axis_fill(&self) -> Option<frus_layout::FlexDirection> {
-        (**self).main_axis_fill()
+    fn main_axis_fill(&self, theme: &Theme) -> Option<frus_layout::FlexDirection> {
+        (**self).main_axis_fill(theme)
     }
-    fn main_axis_floor(&self) -> Option<f32> {
-        (**self).main_axis_floor()
+    fn main_axis_floor(&self, theme: &Theme) -> Option<f32> {
+        (**self).main_axis_floor(theme)
     }
     fn tile_shape(&self) -> Option<f32> {
         (**self).tile_shape()
@@ -1334,11 +1353,11 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn navigator_clips(&self) -> bool {
         (**self).navigator_clips()
     }
-    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
-        (**self).measure()
+    fn measure(&self, theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
+        (**self).measure(theme)
     }
-    fn measure_key(&self) -> Option<u64> {
-        (**self).measure_key()
+    fn measure_key(&self, theme: &Theme) -> Option<u64> {
+        (**self).measure_key(theme)
     }
     fn on_long_press(&self) -> Option<Msg> {
         (**self).on_long_press()

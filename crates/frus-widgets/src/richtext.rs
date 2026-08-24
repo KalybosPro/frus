@@ -237,7 +237,7 @@ impl<Msg> Widget<Msg> for RichText {
 
     /// A paragraph will not be squeezed along a row — see [`crate::Text`], which explains
     /// which axis this is about and why the parent has to be the one to apply it.
-    fn main_axis_floor(&self) -> Option<f32> {
+    fn main_axis_floor(&self, _theme: &Theme) -> Option<f32> {
         if self.shrinkable || !(self.wrap || self.fills()) {
             return None;
         }
@@ -254,7 +254,7 @@ impl<Msg> Widget<Msg> for RichText {
         frus_text::baseline_of_runs(&self.runs(Color::WHITE, 1.0))
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
+    fn measure(&self, _theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
         if !self.wrap && !self.fills() {
             return None;
         }
@@ -272,7 +272,7 @@ impl<Msg> Widget<Msg> for RichText {
         }))
     }
 
-    fn measure_key(&self) -> Option<u64> {
+    fn measure_key(&self, _theme: &Theme) -> Option<u64> {
         if !self.wrap && !self.fills() {
             return None;
         }
@@ -378,15 +378,16 @@ mod tests {
         };
         let rich = para("a rich paragraph long enough to wrap onto several lines");
         // Measuring under constraints wraps: taller at 120 px than when free.
-        let measure = Widget::<()>::measure(&rich).expect("measure closure");
+        let theme = Theme::default();
+        let measure = Widget::<()>::measure(&rich, &theme).expect("measure closure");
         let free = measure(None, None);
         let narrow = measure(Some(120.0), None);
         assert!(narrow.width <= 120.0);
         assert!(narrow.height > free.height, "wrapped → taller");
         // The measure key follows the content (the relayout cache fix)…
         assert_ne!(
-            Widget::<()>::measure_key(&rich),
-            Widget::<()>::measure_key(&para("short"))
+            Widget::<()>::measure_key(&rich, &theme),
+            Widget::<()>::measure_key(&para("short"), &theme)
         );
         // … but not the color (no effect on geometry).
         let recolored = RichText::new(
@@ -396,15 +397,15 @@ mod tests {
         )
         .wrap();
         assert_eq!(
-            Widget::<()>::measure_key(&rich),
-            Widget::<()>::measure_key(&recolored),
+            Widget::<()>::measure_key(&rich, &Theme::default()),
+            Widget::<()>::measure_key(&recolored, &Theme::default()),
             "the color must not invalidate the layout"
         );
         // A paragraph told not to wrap is a box of a known size and says so in its
         // style, exactly as a `Text` does — see the reasoning there.
         let plain = RichText::new(TextSpan::new("x")).no_wrap();
-        assert!(Widget::<()>::measure(&plain).is_none());
-        assert!(Widget::<()>::measure_key(&plain).is_none());
+        assert!(Widget::<()>::measure(&plain, &Theme::default()).is_none());
+        assert!(Widget::<()>::measure_key(&plain, &Theme::default()).is_none());
     }
 
     /// A line limit cuts the runs where the **shaper** broke them, keeps the styles of
@@ -497,7 +498,9 @@ mod tests {
     #[test]
     fn layout_accounts_for_the_largest_run() {
         // A 28 px run in the middle: the measured height exceeds that of a 16 px one.
-        let h = |rich: RichText| Widget::<()>::measure(&rich).expect("measured")(None, None).height;
+        let h = |rich: RichText| {
+            Widget::<()>::measure(&rich, &Theme::default()).expect("measured")(None, None).height
+        };
         let small = h(RichText::new(TextSpan::new("plain")));
         let tall = h(RichText::new(
             TextSpan::new("plain").child(TextSpan::new("BIG").size(28.0)),

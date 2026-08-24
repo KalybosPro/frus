@@ -23,7 +23,9 @@
 //! beside `style`. A theme that could only reach paint would be able to recolour a
 //! divider but not make one thin, which is the setting an application actually wants.
 
-use frus_core::{BorderRadius, Color, TextStyle};
+use frus_core::{
+    BorderRadius, Color, FontWeight, TextAlign, TextDecoration, TextOverflow, TextStyle,
+};
 
 use crate::card::CardVariant;
 
@@ -49,6 +51,7 @@ pub struct WidgetThemes {
     pub slider: SliderTheme,
     pub switch: SwitchTheme,
     pub tab_bar: TabBarTheme,
+    pub text: DefaultTextStyle,
     pub text_field: TextFieldTheme,
 }
 
@@ -135,6 +138,128 @@ pub struct SwitchTheme {
     /// The thumb, off. Unset it follows the on colour, which is what the reference does
     /// and what a switch looks like: one thumb sliding, not two.
     pub inactive_thumb_color: Option<Color>,
+}
+
+/// The text style a **subtree** hands down — the reference's `DefaultTextStyle`, and an
+/// inherited widget there for the reason it is a theme entry here: an app bar, a list
+/// tile or a dialog wants every run of words inside it to read the same way without
+/// reaching into each one, including the ones it never sees because a caller passed them
+/// in already assembled.
+///
+/// Every field is an `Option`, and the merge is **field by field**: a subtree that sets
+/// a colour and nothing else leaves the sizes alone. That is the reference's rule too —
+/// its `TextStyle.merge` copies over only the fields the other style answered — and it
+/// is the whole reason this is a struct of options rather than a [`TextStyle`], whose
+/// size and weight cannot say "unset".
+///
+/// A [`Text`](crate::Text) resolves `what the caller said ?? what this says ?? what the
+/// framework ships`, and **a default the caller did not choose does not count as having
+/// said something**: `Text::new("x")` is 16 px because nobody picked a size, so an
+/// inherited 20 wins; `Text::new("x").size(16.0)` picked one, and keeps it.
+///
+/// `Themed::tweak` is how a subtree sets it, and that is exactly how
+/// [`AppBar::toolbar_text_style`](crate::AppBar::toolbar_text_style) delivers its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DefaultTextStyle {
+    /// Font size, in logical pixels.
+    pub size: Option<f32>,
+    /// Weight.
+    pub weight: Option<FontWeight>,
+    /// Italic.
+    pub italic: Option<bool>,
+    /// The glyphs' colour. Unset, the scheme's `on_surface`.
+    pub color: Option<Color>,
+    /// Underline, strikethrough, and so on.
+    pub decoration: Option<TextDecoration>,
+    /// The decoration's colour. Unset, the text's own.
+    pub decoration_color: Option<Color>,
+    /// Where the lines sit inside the box.
+    pub align: Option<TextAlign>,
+    /// Whether the text wraps at the width it is given.
+    pub soft_wrap: Option<bool>,
+    /// What becomes of text that does not fit.
+    pub overflow: Option<TextOverflow>,
+    /// At most this many lines.
+    pub max_lines: Option<usize>,
+}
+
+impl DefaultTextStyle {
+    /// Nothing said at all — what a theme carries until something sets a field.
+    pub const NONE: Self = Self {
+        size: None,
+        weight: None,
+        italic: None,
+        color: None,
+        decoration: None,
+        decoration_color: None,
+        align: None,
+        soft_wrap: None,
+        overflow: None,
+        max_lines: None,
+    };
+
+    /// The typography half of a whole [`TextStyle`], as **answers**: a `TextStyle` names a
+    /// size, a weight and a slant outright, so all three count as said.
+    ///
+    /// Its colour and decoration carry their own "unset" already — an `Option`, and
+    /// `TextDecoration::NONE` — and are passed through as they are, so a bare
+    /// `TextStyle::new(20.0)` hands down a size and does not silently strip an inherited
+    /// colour.
+    pub fn from_text_style(style: TextStyle) -> Self {
+        Self {
+            size: Some(style.size),
+            weight: Some(style.weight),
+            italic: Some(style.italic),
+            color: style.color,
+            decoration: (style.decoration != TextDecoration::NONE).then_some(style.decoration),
+            decoration_color: style.decoration_color,
+            ..Self::NONE
+        }
+    }
+
+    /// Wraps `child` so that every [`Text`](crate::Text) in its subtree wears this style
+    /// where it has not answered for itself — the reference's `DefaultTextStyle` widget,
+    /// and the whole point of the struct being options.
+    ///
+    /// **Merged onto** whatever an enclosing subtree already handed down rather than
+    /// replacing it, so two nested wrappers each setting one field leave a text wearing
+    /// both:
+    ///
+    /// ```ignore
+    /// DefaultTextStyle {
+    ///     color: Some(muted),
+    ///     ..DefaultTextStyle::NONE
+    /// }
+    /// .around(a_column_of_labels)
+    /// ```
+    pub fn around<Msg: 'static>(
+        self,
+        child: impl crate::Widget<Msg> + 'static,
+    ) -> crate::Themed<Msg> {
+        crate::Themed::tweak(move |t| t.widgets.text = t.widgets.text.merge(self), child)
+    }
+
+    /// This style with `over`'s answers laid on top, **field by field**: where `over` said
+    /// nothing, this one's answer survives.
+    ///
+    /// The reference's `TextStyle.merge`, and the operation an inherited style needs at
+    /// every level it passes through — two nested subtrees each setting one field must
+    /// leave a text wearing both.
+    #[must_use]
+    pub fn merge(self, over: Self) -> Self {
+        Self {
+            size: over.size.or(self.size),
+            weight: over.weight.or(self.weight),
+            italic: over.italic.or(self.italic),
+            color: over.color.or(self.color),
+            decoration: over.decoration.or(self.decoration),
+            decoration_color: over.decoration_color.or(self.decoration_color),
+            align: over.align.or(self.align),
+            soft_wrap: over.soft_wrap.or(self.soft_wrap),
+            overflow: over.overflow.or(self.overflow),
+            max_lines: over.max_lines.or(self.max_lines),
+        }
+    }
 }
 
 /// Defaults for [`Icon`](crate::Icon) — the reference's `IconTheme`, which is an

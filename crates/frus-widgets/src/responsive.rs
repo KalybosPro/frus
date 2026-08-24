@@ -435,12 +435,12 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.navigator())
     }
 
-    fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
-        self.inner.as_ref().and_then(|w| w.measure())
+    fn measure(&self, theme: &Theme) -> Option<frus_layout::MeasureFn<'_>> {
+        self.inner.as_ref().and_then(|w| w.measure(theme))
     }
 
-    fn measure_key(&self) -> Option<u64> {
-        self.inner.as_ref().and_then(|w| w.measure_key())
+    fn measure_key(&self, theme: &Theme) -> Option<u64> {
+        self.inner.as_ref().and_then(|w| w.measure_key(theme))
     }
 
     fn on_long_press(&self) -> Option<Msg> {
