@@ -533,6 +533,9 @@ macro_rules! forward_transparent {
                 self.inner.rotated_quarter_turns()
             }
 
+            fn navigator_clips(&self) -> bool {
+                self.inner.navigator_clips()
+            }
             fn navigator(&self) -> Option<(f32, bool)> {
                 self.inner.navigator()
             }

@@ -942,6 +942,16 @@ pub trait Widget<Msg> {
         None
     }
 
+    /// Whether a [`navigator`](Self::navigator) **clips its pages to its own box**.
+    /// `true`, which is the reference's default (`Clip.hardEdge`) and the only sane one:
+    /// a screen sliding in comes from outside the box and has to stop at its edge.
+    ///
+    /// Consulted only inside the navigator branch of the walk, so it costs nothing for
+    /// every other widget.
+    fn navigator_clips(&self) -> bool {
+        true
+    }
+
     /// Message emitted by a **long press** (a press held ~500 ms without movement).
     /// The long press *pre-empts* the click: the release that follows does not emit
     /// `on_click`.
@@ -1320,6 +1330,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn navigator(&self) -> Option<(f32, bool)> {
         (**self).navigator()
+    }
+    fn navigator_clips(&self) -> bool {
+        (**self).navigator_clips()
     }
     fn measure(&self) -> Option<frus_layout::MeasureFn<'_>> {
         (**self).measure()

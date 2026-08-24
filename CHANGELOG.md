@@ -8,12 +8,34 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 397 so far, each documenting the objective, the alternatives
+> record — one per step, 398 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Fixed
+
+- **A `Navigator`'s pages went past the edge of the thing holding them** (J398). A navigator
+  slides one screen out while another slides in, so both start or end **outside** its box —
+  that is what sliding is — and nothing stopped them there. The only bound was whatever clip
+  they had inherited, which for a full-window navigator is the window: so it looked fine,
+  and a navigator that was **not** the whole window painted its pages straight over whatever
+  sat beside it, while even a full-window one spent every transition frame drawing a screen
+  nobody could see. The reference clips by default (`Clip.hardEdge`,
+  `navigator.dart:1601`). `Widget::navigator_clips` is `true` by default and consulted only
+  inside the navigator branch of the walk, so it costs nothing for every other widget;
+  `Navigator::clip_behavior(false)` is the way out for a transition genuinely meant to
+  spill.
+
+  **How it was found**: not by a test, but by a comment milestone 393 had to write in the
+  demo's safe-area check to explain why it was ignoring text painted at x = 452 in a
+  400-wide window. Writing down *why* a test has to ignore something is how the something
+  gets noticed.
+
+  The framework's own guard caught the follow-up:
+  `transparent::the_macro_forwards_every_hook_the_trait_declares` failed with
+  `a transparent wrapper would answer these for itself: ["navigator_clips"]` — a `Keyed`
+  around a navigator would have answered for itself, `true` by luck. It earned its keep.
 
 - **The app bar's title was not a heading, and the roadmap said it was** (J397). A screen
   reader's user moves through a screen by its headings; the one every screen has is its

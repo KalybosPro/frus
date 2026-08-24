@@ -224,7 +224,9 @@ fn a_screen_keeps_clear_of_the_bars_without_being_told() {
             if let frus_widgets::Primitive::Text { text, position, .. } = primitive {
                 // Only what is **on** the window. A `Navigator` draws the screen it is
                 // leaving beside the viewport, at a negative x or past the right edge;
-                // that one is off the glass and is nobody's safe-area problem.
+                // that one is off the glass and is nobody's safe-area problem. Since
+                // milestone 398 it is clipped away as well, but it is still emitted, so
+                // a test reading primitives still has to say so.
                 if position.x < 0.0 || position.x >= size.width {
                     continue;
                 }

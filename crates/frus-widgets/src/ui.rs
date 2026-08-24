@@ -2832,6 +2832,17 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             let bounds = draw_rect;
             let children = widget.children();
             let w = bounds.width;
+            // **The pages stop at the navigator's edge.** A screen sliding in comes from
+            // outside the box, and one sliding out goes outside it; before milestone 398
+            // the only thing stopping them was the window, so a navigator that was not the
+            // whole window painted its pages over its siblings — and even a full-window
+            // one spent the frame drawing a screen nobody could see. The reference clips
+            // by default (`Clip.hardEdge`) for the same reason.
+            let clip = if widget.navigator_clips() {
+                clip.intersect(bounds)
+            } else {
+                clip
+            };
             if children.len() >= 2 {
                 // A transition: two offset screens. The screen "behind" (a negative offset)
                 // moves less (parallax) → the sense of depth.

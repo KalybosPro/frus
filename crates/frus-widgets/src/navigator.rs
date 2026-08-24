@@ -18,6 +18,8 @@ pub struct Navigator<Msg> {
     height: f32,
     /// Transition progress (`1.0` = no transition in flight).
     progress: f32,
+    /// Whether the pages are cut off at the navigator's own edge.
+    clips: bool,
     /// `true` = push (entering from the right), `false` = pop (entering from the left).
     forward: bool,
     /// `[screen]` or `[outgoing, incoming]`.
@@ -39,8 +41,22 @@ impl<Msg> Navigator<Msg> {
             height: surface.size.height,
             progress: 1.0,
             forward: true,
+            clips: true,
             children: vec![Box::new(screen)],
         }
+    }
+
+    /// Whether the pages are **cut off at the navigator's own edge**. `true` by default,
+    /// as the reference's `Clip.hardEdge` is.
+    ///
+    /// A screen sliding in comes from outside the box and one sliding out goes outside
+    /// it, so without this the only thing stopping them is the window: a navigator that
+    /// is not the whole window paints its pages over whatever is beside it. `false` is
+    /// for the rare transition meant to spill — a card that grows past its own frame —
+    /// and it is a decision, not a default.
+    pub fn clip_behavior(mut self, clips: bool) -> Self {
+        self.clips = clips;
+        self
     }
 
     /// The window's size, in logical pixels — an **override** of what
@@ -87,6 +103,10 @@ impl<Msg> Widget<Msg> for Navigator<Msg> {
     fn navigator(&self) -> Option<(f32, bool)> {
         Some((self.progress, self.forward))
     }
+
+    fn navigator_clips(&self) -> bool {
+        self.clips
+    }
 }
 
 #[cfg(test)]
@@ -100,6 +120,52 @@ mod tests {
             .width(400.0)
             .height(300.0)
             .color(color)
+    }
+
+    /// **A navigator's pages stop at its own edge.**
+    ///
+    /// A screen sliding in comes from outside the box and one sliding out goes outside
+    /// it. Until milestone 398 the only thing stopping them was the window, so a
+    /// navigator that was **not** the whole window painted its pages straight over
+    /// whatever sat beside it — and a full-window one spent every transition frame
+    /// drawing a screen nobody could see. The reference clips by default
+    /// (`Clip.hardEdge`).
+    ///
+    /// The check is a 200×200 navigator in a 400×400 viewport, mid-transition: every
+    /// primitive it paints has to be confined to its own box.
+    #[test]
+    fn a_navigators_pages_stop_at_its_own_edge() {
+        let nav = |clips: bool| {
+            let red = Color::rgb(1.0, 0.0, 0.0);
+            let blue = Color::rgb(0.0, 0.0, 1.0);
+            let mut navigator = Navigator::new(screen(blue)).size(200.0, 200.0);
+            navigator = navigator.clip_behavior(clips);
+            let navigator = navigator.from(screen(red), 0.5, true);
+            let ui = build_ui(
+                &navigator,
+                Size::new(400.0, 400.0),
+                &Runtime::default(),
+                &crate::Theme::default(),
+            );
+            // The furthest right anything is allowed to be painted.
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect { clip, .. } => Some(clip.x + clip.width),
+                    _ => None,
+                })
+                .fold(0.0_f32, f32::max)
+        };
+        assert!(
+            nav(true) <= 200.5,
+            "clipped, nothing may be painted past x = 200: got {}",
+            nav(true)
+        );
+        assert!(
+            nav(false) > 200.5,
+            "and a navigator told not to clip really does not"
+        );
     }
 
     #[test]
