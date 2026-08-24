@@ -164,7 +164,12 @@ pub struct Scaffold<Msg> {
     fab_size: f32,
     persistent_footer: Option<Box<dyn Widget<Msg>>>,
     persistent_footer_alignment: Justify,
+    persistent_footer_divider: bool,
+    persistent_footer_color: Option<Color>,
     bottom_sheet: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
+    primary: bool,
+    drawer_scrim_color: Option<Color>,
+    drawer_barrier_dismissible: bool,
 }
 
 impl<Msg: Clone + 'static> Default for Scaffold<Msg> {
@@ -217,7 +222,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             fab_size: FAB_SIZE,
             persistent_footer: None,
             persistent_footer_alignment: Justify::End,
+            // The reference's footer carries a one-pixel line along its top by default
+            // — `Divider.createBorderSide` — and ours had none.
+            persistent_footer_divider: true,
+            persistent_footer_color: None,
             bottom_sheet: None,
+            primary: true,
+            drawer_scrim_color: None,
+            drawer_barrier_dismissible: true,
         }
     }
 
@@ -448,6 +460,62 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
+    /// Whether the shell sits at the **top of the screen**, so that its app bar is the
+    /// thing that absorbs the status bar. `true` by default.
+    ///
+    /// `false` says something else is above it — a shell nested in a page, a second one
+    /// beside the first — and the app bar then takes only its own height, with the top
+    /// intrusion left to whatever is actually up there.
+    ///
+    /// **This is both halves of the reference's switch.** There, `Scaffold.primary` makes
+    /// the slot tall enough and `AppBar.primary` is what actually pads, the bar wrapping
+    /// itself in a `SafeArea` — a split that works because its slots are built lazily
+    /// under a description the shell controls. Ours are handed a widget that is already
+    /// built, so the shell insets the slot from outside and there is one switch, not two.
+    /// Milestone 394 records what a builder-based slot would change about that.
+    pub fn primary(mut self, primary: bool) -> Self {
+        self.primary = primary;
+        self
+    }
+
+    /// The line along the **top of the persistent footer**. Drawn by default, as the
+    /// reference draws it — its footer is a container decorated with a one-pixel top
+    /// border unless the caller replaces the decoration.
+    ///
+    /// The line is a [`Divider`](crate::Divider), so its colour and its thickness follow
+    /// the theme like every other one, and a caller who wants neither says `false`.
+    pub fn persistent_footer_divider(mut self, divider: bool) -> Self {
+        self.persistent_footer_divider = divider;
+        self
+    }
+
+    /// The background behind the persistent footer. Unset, it is the shell's own — the
+    /// footer is part of the screen, not a bar laid on it.
+    pub fn persistent_footer_color(mut self, color: Color) -> Self {
+        self.persistent_footer_color = Some(color);
+        self
+    }
+
+    /// The scrim behind an open drawer, **alpha included**: the transparency of a scrim
+    /// *is* its colour, so [`Color::TRANSPARENT`] darkens nothing and an opaque value
+    /// hides the screen behind it.
+    ///
+    /// Both drawers take it, as the reference's single `drawerScrimColor` does.
+    pub fn drawer_scrim_color(mut self, color: Color) -> Self {
+        self.drawer_scrim_color = Some(color);
+        self
+    }
+
+    /// Whether a click on the scrim closes the drawer. `true` by default, and the
+    /// reference's `drawerBarrierDismissible` is the same switch.
+    ///
+    /// `false` is for a drawer holding something that must be answered — the way out is
+    /// then a control inside the panel, and the screen behind stays unreachable.
+    pub fn drawer_barrier_dismissible(mut self, dismissible: bool) -> Self {
+        self.drawer_barrier_dismissible = dismissible;
+        self
+    }
+
     /// Assembles the shell into a widget ready to display.
     pub fn build(self) -> Box<dyn Widget<Msg>> {
         let Scaffold {
@@ -469,7 +537,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             fab_size,
             persistent_footer,
             persistent_footer_alignment,
+            persistent_footer_divider,
+            persistent_footer_color,
             bottom_sheet,
+            primary,
+            drawer_scrim_color,
+            drawer_barrier_dismissible,
             view_insets,
             view_padding,
             resize_to_avoid_bottom_inset,
@@ -551,13 +624,28 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 .width(row_width)
                 .justify(persistent_footer_alignment)
                 .child(widget);
-            inset_pad(
+            // **The decoration outside, the safe area inside.** The reference's footer
+            // is a decorated container — background, and a one-pixel top border unless
+            // the caller replaces it — wrapping a `SafeArea(top: false)`. So the line
+            // and the background run the full width of the screen and the *content* is
+            // what keeps clear of the side intrusions; a border inset by the notch
+            // would be a rule that stops short of the edge it is ruling off.
+            let mut stack = Flex::column();
+            if persistent_footer_divider {
+                stack = stack.child(crate::Divider::new());
+            }
+            stack = stack.child_boxed(inset_pad(
                 Box::new(Container::new().padding(FOOTER_PAD).child(row)),
                 0.0,
                 insets.right,
                 0.0,
                 insets.left,
-            )
+            ));
+            let mut decorated = Container::new().child(stack);
+            if let Some(color) = persistent_footer_color {
+                decorated = decorated.color(color);
+            }
+            Box::new(decorated) as Box<dyn Widget<Msg>>
         });
 
         // How far the bottom-most slot is held off the edge. The keyboard is the only
@@ -608,9 +696,13 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // the column, which is what it should do anyway when nothing is under it.
         let bar_over_body = extend_body_behind_app_bar && app_bar.is_some();
         let bottom_over_body = extend_body && !rail_nav && (footer.is_some() || nav.is_some());
-        let app_bar_pad = |bar: Box<dyn Widget<Msg>>, left: f32| {
-            inset_pad(bar, insets.top, insets.right, 0.0, left)
-        };
+        // **Only a primary shell absorbs the status bar.** One nested in a page, or
+        // sitting beside another, takes the bar's own height and leaves the top
+        // intrusion to whatever is actually above it. The reference computes the same
+        // thing in the same place: `primary ? MediaQuery.paddingOf(context).top : 0.0`.
+        let bar_top = if primary { insets.top } else { 0.0 };
+        let app_bar_pad =
+            |bar: Box<dyn Widget<Msg>>, left: f32| inset_pad(bar, bar_top, insets.right, 0.0, left);
         let nav_pad =
             |n: Box<dyn Widget<Msg>>| inset_pad(n, 0.0, insets.right, bottom_clear, insets.left);
 
@@ -739,19 +831,25 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // leading drawer goes on first so that the trailing one, wrapping it, is the
         // outer layer — with both open the end drawer is the one on top, which is the
         // one the user opened last.
+        let dress = |mut side: crate::Drawer<Msg>, toggle: Msg| {
+            if drawer_barrier_dismissible {
+                side = side.on_dismiss(toggle);
+            }
+            if let Some(color) = drawer_scrim_color {
+                side = side.scrim_color(color);
+            }
+            side
+        };
         if let Some((panel, open, toggle)) = drawer {
             content = Box::new(
-                crate::Drawer::new(open)
-                    .on_dismiss(toggle)
+                dress(crate::Drawer::new(open), toggle)
                     .panel(panel)
                     .body(content),
             );
         }
         if let Some((panel, open, toggle)) = end_drawer {
             content = Box::new(
-                crate::Drawer::new(open)
-                    .on_dismiss(toggle)
-                    .right()
+                dress(crate::Drawer::new(open).right(), toggle)
                     .panel(panel)
                     .body(content),
             );
@@ -1283,6 +1381,100 @@ mod tests {
     }
 
     /// Two drawers, two edges, and a screen may have both.
+    /// **Only a primary shell absorbs the status bar.**
+    ///
+    /// The reference's `primary` decides whether the app bar's height is the bar's own
+    /// or the bar's plus the top intrusion (`scaffold.dart:3049`). A shell nested in a
+    /// page has something else above it, and adding the notch there would inset for it
+    /// twice. Same shell, same surface, one switch, and the bar moves by exactly the
+    /// intrusion.
+    #[test]
+    fn only_a_primary_shell_absorbs_the_status_bar() {
+        const TOP: f32 = 40.0;
+        let top_of_bar = |primary: bool| {
+            let size = Size::new(400.0, 800.0);
+            let surface = MediaQuery::new(size)
+                .with_insets(WindowInsets::bars(Insets::new(TOP, 0.0, 0.0, 0.0)));
+            let tree = surface.scope(|| {
+                Scaffold::<Msg>::new()
+                    .primary(primary)
+                    .app_bar(Container::new().height(56.0).child(text("bar")))
+                    .body(Container::new().flex(1.0))
+                    .build()
+            });
+            let ui = build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default());
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    crate::Primitive::Text { position, .. } => Some(position.y),
+                    _ => None,
+                })
+                .expect("the bar is drawn")
+        };
+        let inset = top_of_bar(true) - top_of_bar(false);
+        assert!(
+            (inset - TOP).abs() < 0.5,
+            "primary should hold the bar off by exactly the intrusion, moved by {inset}"
+        );
+    }
+
+    /// **The footer carries a line along its top, and it can be taken off.**
+    ///
+    /// The reference's footer is a container decorated with a one-pixel top border
+    /// (`Divider.createBorderSide`, `scaffold.dart:3136`) unless the caller replaces the
+    /// decoration. Ours drew none until milestone 394.
+    #[test]
+    fn the_persistent_footer_is_ruled_off_from_the_body() {
+        let lines = |divider: bool| {
+            let size = Size::new(400.0, 800.0);
+            let tree = MediaQuery::new(size).scope(|| {
+                Scaffold::<Msg>::new()
+                    .persistent_footer_divider(divider)
+                    .persistent_footer(button("Save", Msg::Add))
+                    .body(Container::new().flex(1.0))
+                    .build()
+            });
+            let ui = build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default());
+            // A divider is the only thing here a pixel tall and the width of the shell.
+            ui.scene()
+                .primitives()
+                .iter()
+                .filter(|p| {
+                    matches!(p, crate::Primitive::Rect { rect, .. }
+                        if rect.height <= 1.5 && rect.width > 300.0)
+                })
+                .count()
+        };
+        assert_eq!(lines(true), 1, "ruled off by default, as the reference is");
+        assert_eq!(lines(false), 0, "and the caller may say no");
+    }
+
+    /// **A drawer whose scrim does not dismiss it.**
+    ///
+    /// The reference's `drawerBarrierDismissible`. `false` is for a panel holding
+    /// something that has to be answered: the way out is a control inside it, and the
+    /// screen behind stays unreachable.
+    #[test]
+    fn a_drawer_may_refuse_to_close_on_its_scrim() {
+        let dismisses = |dismissible: bool| {
+            let size = Size::new(400.0, 800.0);
+            let tree = MediaQuery::new(size).scope(|| {
+                Scaffold::<Msg>::new()
+                    .drawer_barrier_dismissible(dismissible)
+                    .drawer(text("Menu"), true, Msg::Drawer)
+                    .body(Container::new().flex(1.0))
+                    .build()
+            });
+            let ui = build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default());
+            // A click far from the panel, on the scrim.
+            ui.hit(crate::Point::new(380.0, 400.0))
+                .and_then(|id| ui.msg_for(id))
+        };
+        assert_eq!(dismisses(true), Some(Msg::Drawer), "the scrim closes it");
+        assert_eq!(dismisses(false), None, "and here it does not");
+    }
+
     #[test]
     fn the_leading_drawer_opens_on_the_left() {
         let rects = marks(

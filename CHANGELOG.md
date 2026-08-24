@@ -8,10 +8,31 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 393 so far, each documenting the objective, the alternatives
+> record — one per step, 394 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+### Added
+
+- **Four `Scaffold` properties the reference has and we did not** (J394).
+  **`Scaffold::primary`** (default `true`) decides whether the app bar's height is its own
+  or its own **plus the status bar** — the reference computes `primary ?
+  MediaQuery.paddingOf(context).top : 0.0` and adds it to the bar's preferred height
+  (`scaffold.dart:3049`). Ours added the intrusion unconditionally, which insets twice for
+  a shell nested in a page or sitting beside another. **`persistent_footer_divider`**
+  (default `true`) draws the line along the footer's top that the reference draws by
+  default (`Divider.createBorderSide`, `scaffold.dart:3136`) and ours never did, as a
+  `Divider` so its colour and thickness follow the theme; **`persistent_footer_color`** is
+  the other half of that decoration. **`drawer_scrim_color`** reaches a `Drawer` setting the
+  shell had no way to pass through, and **`drawer_barrier_dismissible`** (default `true`)
+  is for a panel holding something that has to be answered — the way out is a control
+  inside it, and the screen behind stays unreachable.
+
+  The footer was **restructured**, not merely decorated: the reference puts the decoration
+  on the outer container and the `SafeArea` inside it, so the rule and the background run
+  the full width and the *content* keeps clear of the side intrusions. Ours inset both, and
+  a border inset by the notch is a rule that stops short of the edge it rules off.
 
 ### Changed
 
