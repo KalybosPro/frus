@@ -25,7 +25,7 @@ pub use animation::{
     VelocityEstimate, VelocityStrategy, VelocityTracker, BOUNCING_DRAG, BOUNCING_FLING_WEIGHTS,
     CLAMPING_FRICTION, DESKTOP_FLING_WEIGHTS, MAX_SPRING_TRANSFER_VELOCITY,
 };
-pub use color::Color;
+pub use color::{surface_tint_opacity, Color};
 pub use decoration::{Border, BorderRadius, BoxDecoration, BoxShadow, LinearGradient};
 pub use filter::{
     Backdrop, BlendMode, ColorFilter, FractionalMask, ImageFilter, LayerFilter, MaskShader,

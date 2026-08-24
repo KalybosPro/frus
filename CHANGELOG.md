@@ -8,12 +8,35 @@ any release may break.
 > frus is **pre-alpha** and **not on crates.io**. Releases are tagged source releases:
 > depend on them by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 394 so far, each documenting the objective, the alternatives
+> record — one per step, 395 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
 ### Added
+
+- **Material 3's surface tint, in the core** (J395). `Color::surface_tint` and
+  `surface_tint_opacity`. Material 3 does not show height with a shadow but by moving the
+  surface towards a tint colour in proportion to its elevation — which matters most exactly
+  where a shadow fails, on a dark background. The strength is the specification's table
+  (0, 0.05, 0.08, 0.11, 0.12, 0.14 at elevations 0, 1, 3, 6, 8, 12), interpolated between
+  levels and clamped outside them, so a bar at 40 is tinted exactly as much as one at 12.
+  In `frus-core` rather than in the app bar because `Card`, `Drawer` and `BottomAppBar`
+  all want it. The blend is a plain channel mix and that is correct **here**: the result is
+  an opaque colour painted directly, so nothing is composited and there is no linear-space
+  step to get wrong — laying the tint on as a translucent layer would go through
+  compositing and come out darker.
+
+- **The `AppBar`'s surface** (J395). **`shape`** (which clips as well as rounds — a
+  surface stopping short of its own corner would square off the one the shadow curved),
+  **`shadow_color`** (ours was a constant near-black), **`surface_tint`**,
+  **`force_material_transparency`** (no background, no tint, no shadow, for a bar over an
+  image — it *overrides* rather than argues, a caller asking for transparency having
+  already decided), **`toolbar_opacity`** and **`bottom_opacity`** (independent group
+  opacities: the contents fade, the surface stays), and **`actions_padding`** (an icon
+  button's hit area already reaches the bar's edge, so a design wanting the *glyphs* inset
+  had nowhere to say so). `shadow_color`, `surface_tint` and `shape` are on `AppBarTheme`
+  too.
 
 - **Four `Scaffold` properties the reference has and we did not** (J394).
   **`Scaffold::primary`** (default `true`) decides whether the app bar's height is its own

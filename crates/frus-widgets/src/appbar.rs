@@ -23,7 +23,7 @@
 //!     .build()
 //! ```
 
-use frus_core::{Color, FontWeight, TextStyle};
+use frus_core::{BorderRadius, Color, FontWeight, TextStyle};
 use frus_layout::{Align, Dimension};
 
 use crate::button::Variant;
@@ -130,6 +130,13 @@ pub struct AppBar<Msg> {
     title_spacing: f32,
     foreground: Option<Color>,
     elevation: f32,
+    shape: Option<BorderRadius>,
+    shadow_color: Option<Color>,
+    surface_tint: Option<Color>,
+    force_material_transparency: bool,
+    toolbar_opacity: f32,
+    bottom_opacity: f32,
+    actions_padding: Option<f32>,
 }
 
 impl<Msg: Clone + 'static> AppBar<Msg> {
@@ -166,6 +173,13 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             title_spacing: GAP * 2.0,
             foreground: None,
             elevation: 0.0,
+            shape: None,
+            shadow_color: None,
+            surface_tint: None,
+            force_material_transparency: false,
+            toolbar_opacity: 1.0,
+            bottom_opacity: 1.0,
+            actions_padding: None,
         }
     }
 
@@ -297,6 +311,83 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         self
     }
 
+    /// The bar's **shape**: how far its corners are rounded. Square by default, as the
+    /// reference's is.
+    ///
+    /// The bar clips to it, so a coloured surface and anything drawn on it stop at the
+    /// curve rather than squaring off the corner the shadow already rounded. The
+    /// reference's `shape` is a whole `ShapeBorder`; this is the part of it a bar
+    /// actually uses — a rounded rectangle, per corner if wanted.
+    pub fn shape(mut self, shape: impl Into<BorderRadius>) -> Self {
+        self.shape = Some(shape.into());
+        self
+    }
+
+    /// The colour of the shadow the bar casts. Only visible with an
+    /// [`elevation`](Self::elevation).
+    ///
+    /// The reference's `shadowColor`. Left unset it is the framework's own near-black,
+    /// which is right on a light surface and too heavy on some dark ones.
+    pub fn shadow_color(mut self, color: Color) -> Self {
+        self.shadow_color = Some(color);
+        self
+    }
+
+    /// The colour laid over the bar's surface **in proportion to its elevation** — the
+    /// reference's `surfaceTintColor`, and Material 3's way of showing height.
+    ///
+    /// A shadow says a thing is above the page; the tint says how far, and it is what
+    /// still reads on a dark background where a shadow shows nothing. The strength comes
+    /// from the specification's table (see
+    /// [`surface_tint_opacity`](frus_core::surface_tint_opacity)), so an elevation of 3
+    /// tints at 8% whoever asks.
+    ///
+    /// Nothing is tinted at elevation zero, which is the default: a flat bar is the
+    /// surface it was given.
+    pub fn surface_tint(mut self, color: Color) -> Self {
+        self.surface_tint = Some(color);
+        self
+    }
+
+    /// Draws the bar with **no surface at all**: no background, no tint, no shadow —
+    /// only what it holds.
+    ///
+    /// The reference's `forceMaterialTransparency`, and it exists for the same case: a
+    /// bar over an image or a video, where the chrome should be the controls and nothing
+    /// else. It overrides the background, the tint and the elevation rather than
+    /// arguing with them, because a caller asking for transparency has already decided.
+    pub fn force_material_transparency(mut self, force: bool) -> Self {
+        self.force_material_transparency = force;
+        self
+    }
+
+    /// The opacity of the toolbar row — the leading, the title and the actions — without
+    /// touching the bar's surface. `1.0` by default.
+    ///
+    /// The reference's `toolbarOpacity`. It is what fades a collapsing header's contents
+    /// out while its background stays, and it is a **group** opacity: overlapping
+    /// children do not darken where they overlap.
+    pub fn toolbar_opacity(mut self, opacity: f32) -> Self {
+        self.toolbar_opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// The opacity of the [`bottom`](Self::bottom) slot, independently of the toolbar.
+    /// `1.0` by default. The reference's `bottomOpacity`.
+    pub fn bottom_opacity(mut self, opacity: f32) -> Self {
+        self.bottom_opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Padding around the **actions** as a group, on top of the gap between them.
+    ///
+    /// The reference's `actionsPadding`, added in its 3.27 line for the same reason: an
+    /// icon button's own hit area already reaches the bar's edge, so a design that wants
+    /// the *glyphs* inset has nowhere else to say so.
+    pub fn actions_padding(mut self, padding: f32) -> Self {
+        self.actions_padding = Some(padding);
+        self
+    }
     /// The width an action button would take for this label.
     fn action_width(label: &str, size: f32) -> f32 {
         frus_text::measure(label, size).width + BTN_PAD_X * 2.0
@@ -355,6 +446,13 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
             title_spacing,
             foreground,
             elevation,
+            shape,
+            shadow_color,
+            surface_tint,
+            force_material_transparency,
+            toolbar_opacity,
+            bottom_opacity,
+            actions_padding,
         } = self;
 
         // `caller ?? theme ?? platform`. The platform is the last word rather than the
@@ -482,12 +580,16 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
 
         let mut labeled_seen = 0;
         let mut folded: Vec<(String, Msg)> = Vec::new();
+        // The actions as a **group**, so that `actions_padding` insets the glyphs rather
+        // than each button's own hit area. Without a padding the group is the row itself
+        // and nothing is nested that was not nested before.
+        let mut group = Flex::row().align(Align::Center).gap(gap);
         for action in actions {
             match action {
-                Action::Custom(widget) => row = row.child(widget),
+                Action::Custom(widget) => group = group.child_boxed(widget),
                 Action::Labeled { label, message } => {
                     if labeled_seen < kept_labeled {
-                        row = row.child(
+                        group = group.child(
                             button(label, message)
                                 .variant(Variant::Outlined)
                                 .size(action_size),
@@ -515,12 +617,12 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                     for (label, message) in folded {
                         menu = menu.item(label, message);
                     }
-                    row = row.child(menu);
+                    group = group.child(menu);
                 }
                 // No overflow configured: show everything inline (it may overflow).
                 None => {
                     for (label, message) in folded {
-                        row = row.child(
+                        group = group.child(
                             button(label, message)
                                 .variant(Variant::Outlined)
                                 .size(action_size),
@@ -529,6 +631,10 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
                 }
             }
         }
+        row = match actions_padding {
+            Some(pad) => row.child(Container::new().padding(pad).child(group)),
+            None => row.child(group),
+        };
 
         // The toolbar proper: the row, with its horizontal margin and any imposed
         // height. The `bottom` sits under it inside the same background - it belongs to
@@ -548,9 +654,24 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         toolbar = toolbar.height(height.unwrap_or(APP_BAR_HEIGHT));
         let toolbar = toolbar.child(row);
 
+        // The two opacities are **group** opacities and independent of one another: a
+        // collapsing header fades its contents out while its surface stays, and the
+        // `bottom` — a tab strip, usually — fades on its own schedule.
+        let toolbar: Box<dyn Widget<Msg>> = if toolbar_opacity < 1.0 {
+            Box::new(Container::new().opacity(toolbar_opacity).child(toolbar))
+        } else {
+            Box::new(toolbar)
+        };
+        let bottom = bottom.map(|widget| -> Box<dyn Widget<Msg>> {
+            if bottom_opacity < 1.0 {
+                Box::new(Container::new().opacity(bottom_opacity).child(widget))
+            } else {
+                widget
+            }
+        });
         let content: Box<dyn Widget<Msg>> = match bottom {
-            Some(bottom) => Box::new(Flex::column().child(toolbar).child(bottom)),
-            None => Box::new(toolbar),
+            Some(bottom) => Box::new(Flex::column().child_boxed(toolbar).child_boxed(bottom)),
+            None => toolbar,
         };
 
         // The bar **occupies** the width it was told about rather than hugging its
@@ -561,11 +682,29 @@ impl<Msg: Clone + 'static> AppBar<Msg> {
         if width.is_finite() {
             chrome = chrome.width(width);
         }
-        if let Some(color) = background {
-            chrome = chrome.color(color);
+        // **Transparency wins outright.** A caller asking for a bar over an image has
+        // already decided; arguing with the background and the elevation it inherited
+        // from a theme would only make that decision conditional on the theme.
+        if !force_material_transparency {
+            // Material 3 shows height by **tinting** the surface, not only by casting a
+            // shadow: at elevation 3 the tint is 8%, and it is what still reads on a dark
+            // background where a shadow shows nothing at all.
+            let surface = match (background, surface_tint) {
+                (Some(base), Some(tint)) => Some(base.surface_tint(tint, elevation)),
+                (base, _) => base,
+            };
+            if let Some(color) = surface {
+                chrome = chrome.color(color);
+            }
+            if elevation > 0.0 {
+                let shadow = shadow_color.or(t.shadow_color).unwrap_or(SHADOW);
+                chrome = chrome.shadow(0.0, elevation * 0.25, elevation, shadow);
+            }
         }
-        if elevation > 0.0 {
-            chrome = chrome.shadow(0.0, elevation * 0.25, elevation, SHADOW);
+        // The shape clips as well as rounds: a surface that stopped short of its own
+        // corner would square off the one the shadow had already curved.
+        if let Some(shape) = shape.or(t.shape) {
+            chrome = chrome.radius(shape).clip();
         }
         Box::new(chrome.child(content))
     }
@@ -613,6 +752,118 @@ mod tests {
             built(1000.0) > built(360.0),
             "a narrow surface folds what a wide one shows"
         );
+    }
+
+    /// The bar's surface as it is actually painted: the first filled rectangle as wide
+    /// as the bar.
+    fn surface(bar: &dyn Widget<Msg>, width: f32) -> Option<(Color, f32)> {
+        let ui = build_ui(
+            bar,
+            Size::new(width, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        // **Into the layers, not only across the top.** A clipped subtree is drained
+        // into a composited `Layer`, so a bar with a shape paints nothing at the scene's
+        // top level at all — which is what the first version of this helper concluded.
+        fn find(primitives: &[crate::Primitive], width: f32) -> Option<(Color, f32)> {
+            for p in primitives {
+                match p {
+                    // `blur > 0` is a **shadow**: drawn as wide as the thing casting it,
+                    // and otherwise mistaken for the surface. This helper was, and
+                    // reported a black at 22% alpha.
+                    crate::Primitive::Rect {
+                        rect,
+                        color,
+                        radius,
+                        blur,
+                        ..
+                    } if rect.width >= width - 0.5 && *blur == 0.0 => {
+                        return Some((*color, radius.top_left))
+                    }
+                    crate::Primitive::Layer { primitives, .. } => {
+                        if let Some(found) = find(primitives, width) {
+                            return Some(found);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        find(ui.scene().primitives(), width)
+    }
+
+    /// **Material 3 shows height by tinting, not only by shadowing.**
+    ///
+    /// A shadow says a thing is above the page; the tint says how far, and on a dark
+    /// background a shadow says nothing at all. The strength is the specification's
+    /// table — 8% at elevation 3 — so the check is that the painted surface is the
+    /// background moved **exactly** that far towards the tint, not merely that it moved.
+    #[test]
+    fn an_elevated_bar_is_tinted_by_its_elevation() {
+        const W: f32 = 400.0;
+        let base = Color::rgb(0.10, 0.10, 0.12);
+        let tint = Color::rgb(0.60, 0.40, 1.00);
+        let flat = AppBar::<Msg>::new("Title")
+            .width(W)
+            .background(base)
+            .build();
+        let raised = AppBar::<Msg>::new("Title")
+            .width(W)
+            .background(base)
+            .elevation(3.0)
+            .surface_tint(tint)
+            .build();
+        let (flat_color, _) = surface(flat.as_ref(), W).expect("a flat surface");
+        let (raised_color, _) = surface(raised.as_ref(), W).expect("a raised surface");
+        assert_eq!(flat_color, base, "nothing is tinted without a tint");
+        let expected = base.lerp(tint, 0.08);
+        assert!(
+            (raised_color.r - expected.r).abs() < 1e-4
+                && (raised_color.g - expected.g).abs() < 1e-4
+                && (raised_color.b - expected.b).abs() < 1e-4,
+            "elevation 3 should tint at 8%: {raised_color:?} against {expected:?}"
+        );
+    }
+
+    /// **A bar told to be transparent has no surface at all** — no background, no tint,
+    /// no shadow — whatever a theme handed it.
+    ///
+    /// The reference's `forceMaterialTransparency`, for a bar over an image where the
+    /// chrome should be the controls and nothing else. It overrides rather than argues,
+    /// because a caller asking for transparency has already decided.
+    #[test]
+    fn a_transparent_bar_paints_no_surface() {
+        const W: f32 = 400.0;
+        let bar = AppBar::<Msg>::new("Title")
+            .width(W)
+            .background(Color::rgb(0.9, 0.1, 0.1))
+            .elevation(6.0)
+            .surface_tint(Color::rgb(0.0, 1.0, 0.0))
+            .force_material_transparency(true)
+            .build();
+        assert!(
+            surface(bar.as_ref(), W).is_none(),
+            "the bar painted a surface it was told not to"
+        );
+    }
+
+    /// **The shape rounds the bar's corners**, and the caller's outranks the theme's.
+    #[test]
+    fn the_bar_takes_the_shape_it_was_given() {
+        const W: f32 = 400.0;
+        let square = AppBar::<Msg>::new("Title")
+            .width(W)
+            .background(Color::rgb(0.2, 0.2, 0.2))
+            .build();
+        let rounded = AppBar::<Msg>::new("Title")
+            .width(W)
+            .background(Color::rgb(0.2, 0.2, 0.2))
+            .shape(frus_core::BorderRadius::uniform(18.0))
+            .build();
+        assert_eq!(surface(square.as_ref(), W).expect("square").1, 0.0);
+        assert_eq!(surface(rounded.as_ref(), W).expect("rounded").1, 18.0);
     }
 
     /// Counts the buttons (rectangles with a shadow), excluding floating menu items.

@@ -153,6 +153,13 @@ pub struct AppBarTheme {
     pub elevation: Option<f32>,
     /// The toolbar's height.
     pub height: Option<f32>,
+    /// The colour of the shadow an elevated bar casts. Unset, the framework's near-black.
+    pub shadow_color: Option<Color>,
+    /// The colour laid over the surface in proportion to the elevation — Material 3's
+    /// way of showing height, and the one that still reads on a dark background.
+    pub surface_tint: Option<Color>,
+    /// How far the bar's corners are rounded. Unset, square.
+    pub shape: Option<BorderRadius>,
 }
 
 /// Defaults for [`TextField`](crate::TextField).

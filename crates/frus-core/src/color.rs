@@ -160,12 +160,102 @@ impl Color {
             self.a + (other.a - self.a) * t,
         )
     }
+
+    /// The **surface tint** for a raised surface: `self` with `tint` laid over it at the
+    /// opacity Material 3 gives that elevation.
+    ///
+    /// A raised surface in Material 3 is not lit, it is **tinted**. A shadow says a thing
+    /// is above the page; the tint says how far, and it is what keeps a raised card
+    /// legible against a dark background where a shadow shows nothing at all.
+    ///
+    /// The opacities are the specification's own table, interpolated between its levels
+    /// and clamped outside them (see [`surface_tint_opacity`]).
+    ///
+    /// The blend is a plain channel mix, **not** the framework's usual warning about
+    /// translucency: the result here is an opaque colour computed once and handed to the
+    /// renderer to paint, so nothing is composited and there is no linear-space step to
+    /// get wrong. Laying the tint on as a translucent layer instead would go through
+    /// compositing and come out darker — the same trap as every other token with an alpha.
+    ///
+    /// A fully transparent `tint` leaves the surface alone, as the reference's does.
+    pub fn surface_tint(self, tint: Color, elevation: f32) -> Color {
+        if tint.a <= 0.0 {
+            return self;
+        }
+        self.lerp(tint, surface_tint_opacity(elevation))
+    }
+}
+
+/// How strongly a Material 3 surface is tinted at a given elevation.
+///
+/// The specification gives six levels rather than a curve:
+///
+/// | elevation | 0 | 1 | 3 | 6 | 8 | 12 |
+/// |---|---|---|---|---|---|---|
+/// | opacity | 0 | 0.05 | 0.08 | 0.11 | 0.12 | 0.14 |
+///
+/// Between two levels it interpolates; outside them it clamps, so a bar at 40 is tinted
+/// exactly as much as one at 12 and no more. That is the reference's rule too, and the
+/// table is the one its token generator emits.
+pub fn surface_tint_opacity(elevation: f32) -> f32 {
+    const LEVELS: [(f32, f32); 6] = [
+        (0.0, 0.0),
+        (1.0, 0.05),
+        (3.0, 0.08),
+        (6.0, 0.11),
+        (8.0, 0.12),
+        (12.0, 0.14),
+    ];
+    if elevation <= LEVELS[0].0 {
+        return LEVELS[0].1;
+    }
+    for pair in LEVELS.windows(2) {
+        let (low_e, low_o) = pair[0];
+        let (high_e, high_o) = pair[1];
+        if elevation <= high_e {
+            let t = (elevation - low_e) / (high_e - low_e);
+            return low_o + t * (high_o - low_o);
+        }
+    }
+    LEVELS[LEVELS.len() - 1].1
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// **The tint table is the specification's, levels and all.**
+    ///
+    /// Six levels, interpolated between and clamped outside — a bar at 40 is tinted
+    /// exactly as much as one at 12. Checked at the levels themselves, between two of
+    /// them, and past the end, because those are the three ways a lookup table goes
+    /// wrong.
+    #[test]
+    fn the_surface_tint_follows_the_material_levels() {
+        assert_eq!(surface_tint_opacity(0.0), 0.0);
+        assert_eq!(surface_tint_opacity(1.0), 0.05);
+        assert_eq!(surface_tint_opacity(3.0), 0.08);
+        assert_eq!(surface_tint_opacity(12.0), 0.14);
+        // Halfway between level 1 and level 2.
+        assert!((surface_tint_opacity(2.0) - 0.065).abs() < 1e-6);
+        // Below the first level and above the last: clamped, not extrapolated.
+        assert_eq!(surface_tint_opacity(-4.0), 0.0);
+        assert_eq!(surface_tint_opacity(40.0), 0.14);
+    }
+
+    /// **A transparent tint leaves the surface exactly as it was.**
+    ///
+    /// The reference returns the colour unmodified rather than blending towards
+    /// nothing, and the difference shows: blending towards a transparent colour would
+    /// drag the surface's own alpha down with it.
+    #[test]
+    fn a_transparent_tint_changes_nothing() {
+        let surface = Color::rgb(0.2, 0.2, 0.25);
+        assert_eq!(surface.surface_tint(Color::TRANSPARENT, 6.0), surface);
+        // And at elevation zero there is nothing to tint with either.
+        let tint = Color::rgb(0.4, 0.2, 0.9);
+        assert_eq!(surface.surface_tint(tint, 0.0), surface);
+    }
     #[test]
     fn lerp_midpoint() {
         let a = Color::rgb(0.0, 0.0, 0.0);
